@@ -1,0 +1,56 @@
+{
+  "name": "tasuken-research-desk",
+  "version": "0.1.0",
+  "description": "研究開発職向けの長期スケジュール・タスク・メモ管理デスクトップアプリ",
+  "author": "ootan",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
+    "smoke:desktop": "npm run build && electron --no-sandbox --disable-gpu --disable-gpu-compositing . --smoke-test",
+    "package": "npm run build && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "5.0.4",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.60.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "vite": "6.4.2"
+  },
+  "build": {
+    "appId": "jp.personal.researchdesk",
+    "productName": "Research Desk",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Research-Desk-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

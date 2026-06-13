@@ -1,0 +1,15 @@
+# electronアプリ
+/node_modules
+/dist
+/build
+# OS
+.DS_Store
+# IDE
+.vscode
+.idea
+# その他
+.env
+*.log
+qa
+release
+release-*

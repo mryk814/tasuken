@@ -1,0 +1,193 @@
+/*
+  私の標準 — Design Tokens (CSS Custom Properties)
+  方向性: 「親しみ柔らかめ」/ burgundy・コンパクト・角丸控えめ・丸ゴシック
+  使い方: アプリの最上位要素に :root として読み込む。ダークモードは
+          OSの prefers-color-scheme に自動追従。手動切替は <html data-theme="dark">。
+*/
+
+:root {
+  /* ---- Brand / Accent (burgundy) ---- */
+  --color-accent:            #8A2F3B; /* 主操作色: ボタン・リンク・選択状態 */
+  --color-accent-hover:      #73262F;
+  --color-accent-active:     #5E1F28;
+  --color-accent-strong:     #5E1F28; /* アクセント色面の上に置く濃い文字 */
+  --color-accent-subtle-bg:  #FBF3F4; /* 選択行・タグ等のごく淡い背景 */
+  --color-accent-subtle-bd:  #E6BCC1;
+  --color-on-accent:         #FFFFFF; /* アクセント色面の上の文字（白でコントラスト確保） */
+
+  /* ---- Surfaces (warm neutrals) ---- */
+  --color-bg:                #F4EEEC; /* アプリ全体の背景 */
+  --color-surface:           #FFFFFF; /* 主要なカード・パネル */
+  --color-surface-subtle:    #F9F4F4; /* 入れ子のカード・入力欄・指標カード */
+  --color-surface-muted:     #EFE7E5; /* ホバー行・無効状態 */
+
+  /* ---- Text ---- */
+  --color-text:              #26201E; /* 本文・見出し */
+  --color-text-secondary:    #7C746E; /* 補足・ラベル */
+  --color-text-tertiary:     #A89F99; /* ヒント・プレースホルダ */
+
+  /* ---- Borders ---- */
+  --color-border-subtle:     #ECE0DE; /* 区切り線・控えめな境界 */
+  --color-border:            #DCC1C4; /* 標準の枠線（カード・入力欄） */
+  --color-border-strong:     #C9A6AA; /* 強調・ホバー時の枠線 */
+
+  /* ---- Semantic（エラー赤はアクセントと明確に別物。明るく純度の高い赤） ---- */
+  --color-danger:            #CE3B3B;
+  --color-danger-strong:     #A12626;
+  --color-danger-bg:         #FBEAEA;
+  --color-danger-bd:         #F0C7C7;
+
+  --color-success:           #2E8B57;
+  --color-success-strong:    #1C5E3A;
+  --color-success-bg:        #E8F3EC;
+  --color-success-bd:        #C5E3D1;
+
+  --color-warning:           #C77D29;
+  --color-warning-strong:    #8A5212;
+  --color-warning-bg:        #FBF0DD;
+  --color-warning-bd:        #EFD9B0;
+
+  --color-info:              #2D7FB8;
+  --color-info-strong:       #1C557D;
+  --color-info-bg:           #E8F1F8;
+  --color-info-bd:           #C3DCEE;
+
+  /* ---- Data visualization（カテゴリ系列。この順で使う） ---- */
+  --color-chart-1:           #8A2F3B;
+  --color-chart-2:           #2D7FB8;
+  --color-chart-3:           #2E8B57;
+  --color-chart-4:           #C77D29;
+  --color-chart-5:           #6D5BC7;
+  --color-chart-6:           #7C746E;
+
+  /* ---- Focus ring（操作要素のフォーカス可視化。アクセント色の半透明） ---- */
+  --focus-ring:              0 0 0 3px rgba(138, 47, 59, 0.32);
+
+  /* ---- Radius（角丸: 控えめ。md=7px が既定） ---- */
+  --radius-sm:               4px;
+  --radius-md:               7px;  /* ボタン・入力欄・小カード */
+  --radius-lg:               10px; /* 大きなパネル・モーダル */
+  --radius-pill:             999px;
+
+  /* ---- Spacing（4px基準・コンパクト） ---- */
+  --space-1:                 4px;
+  --space-2:                 8px;
+  --space-3:                 12px;
+  --space-4:                 16px;
+  --space-5:                 20px;
+  --space-6:                 24px;
+  --space-8:                 32px;
+
+  /* コンポーネント既定（コンパクト密度） */
+  --pad-card:                14px;
+  --pad-input:               8px 10px;
+  --pad-button:              8px 14px;
+  --gap-base:                10px;
+
+  /* ---- Typography ---- */
+  --font-base: "Nunito", "Hiragino Maru Gothic ProN", "Quicksand", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Consolas, monospace; /* 数値・コード・表の桁揃え */
+
+  --text-xs:                 11px; /* キャプション・タグ */
+  --text-sm:                 13px; /* 補足・表セル */
+  --text-base:               14px; /* 本文 */
+  --text-lg:                 16px; /* セクション見出し */
+  --text-xl:                 20px; /* ページ見出し・指標数値 */
+  --text-2xl:                24px; /* 大きな数値 */
+
+  --lh-tight:                1.3;
+  --lh-base:                 1.55;
+
+  --weight-normal:           400;
+  --weight-medium:           600; /* ボタン・ラベル */
+  --weight-bold:             700; /* 見出し */
+
+  /* ---- Elevation（影は控えめ・やわらかく） ---- */
+  --shadow-sm:               0 1px 2px rgba(38, 32, 30, 0.06);
+  --shadow-md:               0 2px 8px rgba(38, 32, 30, 0.08);
+  --shadow-lg:               0 6px 20px rgba(38, 32, 30, 0.10);
+
+  /* ---- Motion ---- */
+  --duration-fast:           120ms;
+  --duration-base:           180ms;
+  --ease:                    cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ============ Dark mode ============ */
+:root[data-theme="dark"] {
+  --color-accent:            #BD4F5D; /* 暗背景で映えるよう明度を上げたローズ寄り */
+  --color-accent-hover:      #CB6371;
+  --color-accent-active:     #A53F4D;
+  --color-accent-strong:     #E0929C; /* 暗背景上のリンク文字 */
+  --color-accent-subtle-bg:  #2F1E21;
+  --color-accent-subtle-bd:  #5A3338;
+  --color-on-accent:         #FFFFFF;
+
+  --color-bg:                #191412;
+  --color-surface:           #221B19;
+  --color-surface-subtle:    #2B2220;
+  --color-surface-muted:     #342927;
+
+  --color-text:              #F1EAE7;
+  --color-text-secondary:    #B7ABA6;
+  --color-text-tertiary:     #8A7E79;
+
+  --color-border-subtle:     #332927;
+  --color-border:            #4A3236;
+  --color-border-strong:     #5E3F43;
+
+  --color-danger:            #E06A6A; --color-danger-strong: #E06A6A; --color-danger-bg: #2C1A1A; --color-danger-bd: #533030;
+  --color-success:           #5BB98B; --color-success-strong:#5BB98B; --color-success-bg:#16271F; --color-success-bd:#2E4A3A;
+  --color-warning:           #D89B4E; --color-warning-strong:#D89B4E; --color-warning-bg:#2A2114; --color-warning-bd:#4D3D22;
+  --color-info:              #5FA3D6; --color-info-strong:   #5FA3D6; --color-info-bg:   #16242F; --color-info-bd:   #294454;
+
+  --color-chart-1:           #D06A78;
+  --color-chart-2:           #67A9D8;
+  --color-chart-3:           #63BD91;
+  --color-chart-4:           #DCA45D;
+  --color-chart-5:           #9A8BE0;
+  --color-chart-6:           #B7ABA6;
+
+  --focus-ring:              0 0 0 3px rgba(189, 79, 93, 0.45);
+
+  --shadow-sm:               0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md:               0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-lg:               0 6px 20px rgba(0, 0, 0, 0.55);
+}
+
+/* OS設定にも自動追従（data-theme 未指定時） */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-accent: #BD4F5D; --color-accent-hover: #CB6371; --color-accent-active: #A53F4D;
+    --color-accent-strong: #E0929C; --color-accent-subtle-bg: #2F1E21; --color-accent-subtle-bd: #5A3338;
+    --color-bg: #191412; --color-surface: #221B19; --color-surface-subtle: #2B2220; --color-surface-muted: #342927;
+    --color-text: #F1EAE7; --color-text-secondary: #B7ABA6; --color-text-tertiary: #8A7E79;
+    --color-border-subtle: #332927; --color-border: #4A3236; --color-border-strong: #5E3F43;
+    --color-danger: #E06A6A; --color-danger-strong: #E06A6A; --color-danger-bg: #2C1A1A; --color-danger-bd: #533030;
+    --color-success: #5BB98B; --color-success-strong: #5BB98B; --color-success-bg: #16271F; --color-success-bd: #2E4A3A;
+    --color-warning: #D89B4E; --color-warning-strong: #D89B4E; --color-warning-bg: #2A2114; --color-warning-bd: #4D3D22;
+    --color-info: #5FA3D6; --color-info-strong: #5FA3D6; --color-info-bg: #16242F; --color-info-bd: #294454;
+    --color-chart-1: #D06A78; --color-chart-2: #67A9D8; --color-chart-3: #63BD91;
+    --color-chart-4: #DCA45D; --color-chart-5: #9A8BE0; --color-chart-6: #B7ABA6;
+    --focus-ring: 0 0 0 3px rgba(189, 79, 93, 0.45);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.35); --shadow-md: 0 2px 8px rgba(0,0,0,0.45); --shadow-lg: 0 6px 20px rgba(0,0,0,0.55);
+  }
+}
+
+/* ============ Base reset / element defaults ============ */
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-base);
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  font-weight: var(--weight-normal);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { font-weight: var(--weight-bold); line-height: var(--lh-tight); margin: 0; }
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+
+/* 数値の桁を揃える（実験結果・指標・表で読みやすく） */
+.num, td.num, .metric-value { font-variant-numeric: tabular-nums; }
