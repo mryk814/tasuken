@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "demo",
+      "name": "dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "."],
-      "port": 3000
+      "runtimeArgs": ["vite", "--host", "127.0.0.1"],
+      "port": 5173
     }
   ]
 }

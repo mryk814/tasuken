@@ -1,7 +1,7 @@
 # Research Desk
 
 研究開発職向けの、テーマ・タスク・長期スケジュール・メモ管理デスクトップアプリです。
-データは端末内のElectronユーザープロファイルに保存され、外部サーバーへ送信されません。
+データは端末内のElectronユーザープロファイルにあるSQLiteへ保存され、外部サーバーへ送信されません。
 
 ## 起動
 
@@ -46,4 +46,18 @@ npm run package
 - Timeline: テーマ横断の長期ガント
 - Inbox / Themes / Notes / Links / Waiting
 - AI Import / Export: JSON / YAMLの取り込みと、JSON / YAML / Markdownの書き出し
+- Workspace Snapshot: ZIPによるバックアップ、差分プレビュー、競合選択付きImport
+- Saved View / Milestone Map / Theme Status / Plan Revision / 情報源管理
 - Stats / Settings
+
+## 使い始める流れ
+
+1. `Themes` で担当テーマを作り、`今日` でテーマの現在地を記録します。
+2. 思いついた内容は左下の `Quick Capture` から Inbox に入れます。
+3. `ToDo` で Inbox の内容を具体化し、期限・Theme・状態を整えます。Excel等の表は `表から追加` でプレビューしてから取り込めます。
+4. `Timeline` で長期予定を調整します。バー移動・リサイズ、依存線、計画進捗と実進捗の差分を示すイナズマ線を利用できます。
+5. 会議・実験・AI壁打ちは `Notes`、成果物は `Links`、外部待ちは `Waiting` に残します。
+6. 週次レビューやAIへの相談時は `AI Import / Export` で範囲と形式を選んでコピーします。
+7. 定期的に `Settings` から Workspace Snapshot を書き出してバックアップします。
+
+詳細な実装状況は [`PLAN.md`](./PLAN.md) を参照してください。

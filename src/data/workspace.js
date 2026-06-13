@@ -1,0 +1,249 @@
+import {
+  initialMilestones,
+  initialNotes,
+  initialPeople,
+  initialPhases,
+  initialTasks,
+  initialThemes,
+  initialWaiting,
+} from "./initialData.js";
+
+const isoNow = () => new Date().toISOString();
+const id = (prefix, value) => `${prefix}-${value}`;
+
+function metadata(source = "seed") {
+  const timestamp = isoNow();
+  return {
+    created_at: timestamp,
+    updated_at: timestamp,
+    deleted_at: null,
+    device_id: "browser",
+    source,
+    version: 1,
+  };
+}
+
+const loadLegacy = (key, fallback) => {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+export function buildLegacyWorkspace() {
+  const themes = loadLegacy("rd-themes", initialThemes).map((theme) => ({
+    id: String(theme.id),
+    name: theme.name,
+    description: theme.description ?? theme.subtitle ?? "",
+    status: theme.status || "計画中",
+    color: theme.color || "",
+    ...metadata(theme.source || "legacy"),
+  }));
+
+  const taskItems = loadLegacy("rd-tasks", initialTasks).map((task, index) => ({
+    id: id("task", task.id),
+    title: task.title,
+    kind: task.kind === "inbox" ? "idea" : task.kind || "task",
+    theme_id: task.theme || null,
+    status: task.status || "todo",
+    priority: task.priority || "normal",
+    parent_item_id: null,
+    sort_order: index,
+    depth: 0,
+    baseline_start: task.baseline_start || null,
+    baseline_end: task.baseline_end || task.due || null,
+    planned_start: task.planned_start || null,
+    planned_end: task.planned_end || task.due || null,
+    actual_start: task.actual_start || null,
+    actual_end: task.actual_end || null,
+    due_date: task.due || null,
+    progress: task.status === "done" ? 100 : 0,
+    schedule_status: task.due ? "scheduled" : "unscheduled",
+    schedule_confidence: task.due ? "tentative" : "rough",
+    date_granularity: "day",
+    date_text: "",
+    is_personal_task: !task.theme,
+    description: task.description || "",
+    ...metadata(task.source || "legacy"),
+  }));
+
+  const waitingItems = loadLegacy("rd-waiting", initialWaiting).map((item, index) => ({
+    id: id("waiting", item.id),
+    title: item.title,
+    kind: "waiting",
+    theme_id: item.theme || null,
+    status: item.status || "waiting",
+    priority: "normal",
+    parent_item_id: null,
+    sort_order: taskItems.length + index,
+    depth: 0,
+    planned_start: null,
+    planned_end: item.due || null,
+    due_date: item.due || null,
+    progress: item.status === "done" ? 100 : 0,
+    schedule_status: item.due ? "scheduled" : "unscheduled",
+    schedule_confidence: "tentative",
+    date_granularity: "day",
+    date_text: "",
+    waiting_for: item.waitingFor || "",
+    waiting_for_person: item.owner || "",
+    next_action: item.next || "",
+    description: item.note || "",
+    is_personal_task: false,
+    ...metadata(item.source || "legacy"),
+  }));
+
+  const periodItems = loadLegacy("rd-phases", initialPhases).map((phase, index) => ({
+    id: id("period", phase.id),
+    title: phase.label,
+    kind: "period",
+    theme_id: phase.theme || null,
+    status: "todo",
+    priority: "normal",
+    parent_item_id: null,
+    sort_order: taskItems.length + waitingItems.length + index,
+    depth: 0,
+    baseline_start: phase.start,
+    baseline_end: phase.end,
+    planned_start: phase.start,
+    planned_end: phase.end,
+    due_date: phase.end,
+    progress: 0,
+    schedule_status: "scheduled",
+    schedule_confidence: "tentative",
+    date_granularity: "day",
+    date_text: "",
+    tone: phase.tone || "accent",
+    description: "",
+    is_personal_task: false,
+    ...metadata(phase.source || "legacy"),
+  }));
+
+  const milestoneItems = loadLegacy("rd-milestones", initialMilestones).map((milestone, index) => ({
+    id: id("milestone", milestone.id),
+    title: milestone.label,
+    kind: "milestone",
+    theme_id: milestone.theme || null,
+    status: "todo",
+    priority: "high",
+    parent_item_id: null,
+    sort_order: taskItems.length + waitingItems.length + periodItems.length + index,
+    depth: 0,
+    baseline_start: milestone.date,
+    baseline_end: milestone.date,
+    planned_start: milestone.date,
+    planned_end: milestone.date,
+    due_date: milestone.date,
+    progress: 0,
+    schedule_status: "fixed",
+    schedule_confidence: "fixed",
+    date_granularity: "day",
+    date_text: "",
+    description: "",
+    is_personal_task: false,
+    ...metadata(milestone.source || "legacy"),
+  }));
+
+  const legacyNotes = loadLegacy("rd-notes", initialNotes);
+  const notes = legacyNotes.map((note) => ({
+    id: id("note", note.id),
+    title: note.title,
+    body_markdown: note.body || "",
+    note_type: note.type || "memo",
+    theme_id: note.theme || null,
+    item_id: note.item_id || null,
+    source_url: note.url || "",
+    properties_json: {},
+    comments: note.comments || [],
+    ...metadata(note.source || "legacy"),
+  }));
+
+  const links = legacyNotes.filter((note) => note.url).map((note) => ({
+    id: id("link", note.id),
+    title: note.title,
+    url: note.url,
+    link_type: "other",
+    theme_id: note.theme || null,
+    item_id: null,
+    note_id: id("note", note.id),
+    description: note.body || "",
+    ...metadata("legacy"),
+  }));
+
+  const people = loadLegacy("rd-people", initialPeople).map((person) => ({
+    id: id("person", person.id),
+    name: person.name,
+    role: person.role || "",
+    organization: person.organization || "",
+    note: person.note || "",
+    ...metadata(person.source || "legacy"),
+  }));
+
+  const views = [
+    {
+      id: "view-next-90",
+      name: "次の90日",
+      view_type: "gantt",
+      filters_json: { horizon: 90, completed: false },
+      sort_json: { field: "due_date", direction: "asc" },
+      visible_columns_json: ["title", "status", "planned_start", "planned_end", "progress"],
+      scale: "quarter",
+      is_default: true,
+      ...metadata("seed"),
+    },
+    {
+      id: "view-unscheduled",
+      name: "日程未確定",
+      view_type: "table",
+      filters_json: { schedule_status: ["unscheduled"] },
+      sort_json: { field: "updated_at", direction: "desc" },
+      visible_columns_json: ["title", "theme_id", "status", "schedule_status"],
+      scale: "month",
+      is_default: false,
+      ...metadata("seed"),
+    },
+  ];
+
+  return {
+    themes,
+    items: [...taskItems, ...waitingItems, ...periodItems, ...milestoneItems],
+    notes,
+    links,
+    people,
+    dependencys: [],
+    views,
+    status_updates: [],
+    source_records: [],
+    entity_sources: [],
+    relations: [],
+    field_definitions: [],
+    field_values: [],
+    log_entries: [],
+    import_batchs: [],
+  };
+}
+
+export function emptyWorkspace() {
+  return {
+    themes: [],
+    items: [],
+    notes: [],
+    links: [],
+    people: [],
+    dependencys: [],
+    views: [],
+    status_updates: [],
+    source_records: [],
+    entity_sources: [],
+    relations: [],
+    field_definitions: [],
+    field_values: [],
+    log_entries: [],
+    import_batchs: [],
+    plan_revisions: [],
+    meta: {},
+  };
+}
+

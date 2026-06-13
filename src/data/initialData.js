@@ -43,10 +43,13 @@ export const initialWaiting = [
 ];
 
 export const initialNotes = [
-  { id: 201, theme: "material-a", title: "条件Bバリエーションの測定結果について", type: "研究メモ", updated: "今日 09:12", body: "条件Bのバリエーション（温度±5℃）の測定結果を受領。強度はやや向上、ばらつきは条件Aより小さい。解析方針はまだ確定せず、再現性の確認が必要。" },
-  { id: 202, theme: "material-a", title: "解析方針の候補メモ", type: "検討メモ", updated: "昨日 18:40", body: "多変量解析または曜日ごとの分解を比較検討。再現性が十分でないため、まず曜日まで傾向把握。追加データで多変量に切り替える。" },
-  { id: 203, theme: "material-a", title: "中間報告の構成案", type: "構成メモ", updated: "06/11 21:15", body: "背景 / 目的 / 方法 / 結果（条件A・B）/ 考察 / 今後の予定" },
-  { id: 204, theme: "process", title: "加工条件レビュー", type: "会議メモ", updated: "06/10 16:30", body: "温度・速度・保持時間の3因子を優先。次回までに欠測条件を整理する。" },
+  { id: 201, theme: "material-a", title: "条件Bバリエーションの測定結果について", type: "研究メモ", body: "条件Bのバリエーション（温度±5℃）の測定結果を受領。強度はやや向上、ばらつきは条件Aより小さい。解析方針はまだ確定せず、再現性の確認が必要。", url: "", updated: "今日 09:12" },
+  { id: 202, theme: "material-a", title: "解析方針の候補メモ", type: "検討メモ", body: "多変量解析または曜日ごとの分解を比較検討。再現性が十分でないため、まず曜日まで傾向把握。追加データで多変量に切り替える。", url: "", updated: "昨日 18:40" },
+  { id: 203, theme: "material-a", title: "中間報告の構成案", type: "構成メモ", body: "背景 / 目的 / 方法 / 結果（条件A・B）/ 考察 / 今後の予定", url: "", updated: "06/11 21:15" },
+  { id: 204, theme: "process", title: "加工条件レビュー", type: "会議メモ", body: "温度・速度・保持時間の3因子を優先。次回までに欠測条件を整理する。", url: "", updated: "06/10 16:30" },
+  { id: 301, theme: "material-a", title: "測定計画書_v1.2.pdf", type: "資料", body: "材料Aの測定条件と評価手順", url: "https://example.com/measurement-plan", updated: "" },
+  { id: 302, theme: "material-a", title: "データ一覧_20260610.xlsx", type: "資料", body: "条件A・Bの測定結果一覧", url: "https://example.com/measurement-data", updated: "" },
+  { id: 303, theme: "material-a", title: "中間報告_骨子.pptx", type: "資料", body: "7月1日の中間報告用資料", url: "https://example.com/interim-report", updated: "" },
 ];
 
 export const initialPhases = [
@@ -69,11 +72,6 @@ export const initialMilestones = [
   { id: 6, theme: "ai", label: "検証レビュー", date: "2026-09-25" },
 ];
 
-export const initialLinks = [
-  { id: 301, theme: "material-a", title: "測定計画書_v1.2.pdf", url: "https://example.com/measurement-plan", type: "paper", description: "材料Aの測定条件と評価手順" },
-  { id: 302, theme: "material-a", title: "データ一覧_20260610.xlsx", url: "https://example.com/measurement-data", type: "sharepoint", description: "条件A・Bの測定結果一覧" },
-  { id: 303, theme: "material-a", title: "中間報告_骨子.pptx", url: "https://example.com/interim-report", type: "onedrive", description: "7月1日の中間報告用資料" },
-];
 
 export const initialPeople = [
   { id: 401, name: "佐藤さん", role: "評価担当", organization: "評価チーム", note: "材料測定の窓口" },
