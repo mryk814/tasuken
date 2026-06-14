@@ -54,5 +54,5 @@ export function registerIpc(repository: WorkspaceRepository, service: WorkspaceS
   ipcMain.handle(IPC.snapshotExport, () => service.exportSnapshot());
   ipcMain.handle(IPC.snapshotInspect, () => service.inspectSnapshot());
   ipcMain.handle(IPC.snapshotApply, (_event, token, decisions) =>
-    service.applySnapshot(requireId(token), Array.isArray(decisions) ? decisions : []));
+    service.applySnapshot(requireId(token), decisions && typeof decisions === "object" && !Array.isArray(decisions) ? (decisions as Record<string, string>) : {}));
 }

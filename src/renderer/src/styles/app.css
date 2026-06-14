@@ -316,6 +316,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-item-row { position: relative; height: 44px; border-bottom: 1px solid var(--color-border-subtle); background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(8.333% - 1px), var(--color-border-subtle) calc(8.333% - 1px), var(--color-border-subtle) 8.333%); }
 .gantt-item-bar { position: absolute; z-index: 2; top: 8px; height: 28px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-1); overflow: hidden; padding: 0 var(--space-2); border: 1px solid color-mix(in srgb, var(--color-chart-1) 48%, var(--color-surface)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-chart-1) 16%, var(--color-surface)); color: var(--color-text); font-size: var(--text-xs); white-space: nowrap; cursor: grab; }
 .gantt-item-bar:active { cursor: grabbing; }
+/* ドラッグ中の操作対象を浮かせる（位置/幅はライブプレビュー）。影でなくアクセント枠で示す。 */
+.gantt-item-bar.is-dragging { z-index: 6; cursor: grabbing; outline: 2px solid var(--color-accent); outline-offset: 1px; }
 .gantt-item-bar.schedule-tentative, .gantt-item-bar.confidence-rough { border-style: dashed; background: color-mix(in srgb, var(--color-chart-1) 8%, var(--color-surface)); }
 .gantt-item-bar.schedule-fixed { border-width: 2px; font-weight: var(--weight-medium); }
 .gantt-item-bar.milestone { width: 26px !important; justify-content: center; overflow: visible; padding: 0; border: 0; background: transparent; color: var(--color-accent-strong); font-size: var(--text-lg); }

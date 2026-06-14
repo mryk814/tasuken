@@ -3,7 +3,6 @@ import type {
   EntityType,
   SaveOperation,
   SaveOptions,
-  SnapshotDecision,
   Workspace,
 } from "../../../shared/types/workspace";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
@@ -17,6 +16,12 @@ function desktopApi() {
 
 export const workspaceApi = {
   load(): Promise<Workspace> {
+    // 初回起動でもダミーデータは入れない。空のWorkspaceで開始する。
+    return desktopApi().workspace.load();
+  },
+  // 明示的にサンプルデータを投入する（Settingsの操作からのみ呼ぶ）。
+  // Repository側のbootstrapはDBが空のときだけ登録し、データがあれば現状をそのまま返す。
+  loadSample(): Promise<Workspace> {
     return desktopApi().workspace.bootstrap(buildBootstrapWorkspace() as Workspace);
   },
   save(type: EntityType, entity: Entity, options: SaveOptions = {}) {
@@ -46,7 +51,7 @@ export const workspaceApi = {
   inspectSnapshot() {
     return desktopApi().snapshots.inspectFile();
   },
-  applySnapshot(token: string, decisions: SnapshotDecision[]) {
+  applySnapshot(token: string, decisions: Record<string, string>) {
     return desktopApi().snapshots.applyImport(token, decisions);
   },
 };

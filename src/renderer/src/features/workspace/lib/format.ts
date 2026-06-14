@@ -1,0 +1,43 @@
+import { DAY } from "./domain";
+
+export const uuid = (): string => crypto.randomUUID();
+
+export const str = (value: unknown): string => (value == null ? "" : String(value));
+export const num = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+export const dateOnly = (value: unknown): string => (value ? String(value).slice(0, 10) : "");
+
+export const daysBetween = (from: string, to: string): number =>
+  Math.round((new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) / DAY);
+
+export const addDays = (value: unknown, count: number): string => {
+  if (!value) return "";
+  const date = new Date(`${dateOnly(value)}T00:00:00`);
+  date.setDate(date.getDate() + count);
+  return date.toISOString().slice(0, 10);
+};
+
+export const formatDate = (value: unknown): string => {
+  if (!value) return "—";
+  const date = new Date(`${dateOnly(value)}T00:00:00`);
+  return new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+};
+
+// FormDataから値を取り出してtrimする。
+export const formText = (data: FormData, key: string, fallback = ""): string =>
+  String(data.get(key) ?? fallback).trim();
+
+export const activeRecords = <T extends { deleted_at?: string | null }>(records: T[] = []): T[] =>
+  records.filter((record) => !record.deleted_at);
+
+export function compareDate(
+  a: { due_date?: string | null; planned_end?: string | null },
+  b: { due_date?: string | null; planned_end?: string | null },
+): number {
+  return String(a.due_date || a.planned_end || "9999-12-31").localeCompare(
+    String(b.due_date || b.planned_end || "9999-12-31"),
+  );
+}

@@ -1,12 +1,14 @@
 import { clipboard, dialog, type WebContents } from "electron";
 
-import type { SnapshotDecision, Workspace } from "../../shared/types/workspace";
+import type { Workspace } from "../../shared/types/workspace";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
+
+type SnapshotDecisions = Record<string, string>;
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
   previewSnapshot(workspace: unknown): unknown[];
-  applySnapshot(workspace: unknown, decisions: SnapshotDecision[], revisions: unknown[]): unknown;
+  applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
 }
 
 export class WorkspaceService {
@@ -57,7 +59,7 @@ export class WorkspaceService {
     };
   }
 
-  applySnapshot(token: string, decisions: SnapshotDecision[]): Workspace {
+  applySnapshot(token: string, decisions: SnapshotDecisions): Workspace {
     const snapshot = this.pendingSnapshots.get(token);
     if (!snapshot) {
       throw new Error("Importプレビューの有効期限が切れました。もう一度Snapshotを選択してください。");

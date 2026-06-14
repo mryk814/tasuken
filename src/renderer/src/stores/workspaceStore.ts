@@ -10,6 +10,7 @@ interface WorkspaceState {
   loadState: LoadState;
   loadError: string;
   load(): Promise<Workspace>;
+  loadSample(): Promise<Workspace>;
   save(type: EntityType, entity: Entity, options?: SaveOptions): Promise<Entity>;
   saveMany(operations: SaveOperation[]): Promise<Entity[]>;
   remove(type: EntityType, id: string): Promise<Entity>;
@@ -62,6 +63,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   async refresh() {
     const workspace = await workspaceApi.load();
+    set({ workspace, loadState: "success", loadError: "" });
+    return workspace;
+  },
+  async loadSample() {
+    const workspace = await workspaceApi.loadSample();
     set({ workspace, loadState: "success", loadError: "" });
     return workspace;
   },

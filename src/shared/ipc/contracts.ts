@@ -3,7 +3,6 @@ import type {
   EntityType,
   SaveOperation,
   SaveOptions,
-  SnapshotDecision,
   SnapshotInspectResult,
   Workspace,
   WorkspaceMeta,
@@ -55,6 +54,7 @@ export interface ResearchDeskApi {
   snapshots: {
     exportFile(): Promise<{ canceled: boolean; filePath?: string }>;
     inspectFile(): Promise<SnapshotInspectResult>;
-    applyImport(token: string, decisions: SnapshotDecision[]): Promise<Workspace>;
+    // decisionsは「change.key -> action」の対応表。配列ではなくオブジェクトで渡す。
+    applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
   };
 }
