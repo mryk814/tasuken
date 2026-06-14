@@ -4,8 +4,8 @@ import path from "node:path";
 
 import { app } from "electron";
 
-import { WorkspaceDatabase } from "../electron/database.mjs";
-import { createSnapshot, readSnapshot } from "../electron/snapshots.mjs";
+import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+import { createSnapshot, readSnapshot } from "../src/main/services/snapshotService.mjs";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "research-desk-model-test-"));
 

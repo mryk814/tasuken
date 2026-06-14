@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { IconPlus } from "@tabler/icons-react";
 
-import { workspaceApi } from "./services/workspaceApi.js";
-import { parseSimpleYaml, todayIso, toYaml } from "./utils/dataFormat.js";
+import { IconLabel } from "../../components/IconLabel";
+import { crossNavigation, toolNavigation } from "../../pages/routes";
+import { workspaceApi } from "../../services/workspaceApi";
+import { useUiStore } from "../../stores/uiStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { parseSimpleYaml, todayIso, toYaml } from "../../utils/dataFormat.js";
 
 const DAY = 86400000;
 const STATUS_LABELS = {
@@ -54,17 +59,8 @@ const ENTITY_KEYS = {
   import_batch: "import_batchs",
 };
 // 横断ビュー（テーマに依存しない）。テーマ別ビューはサイドバーのテーマ一覧から切り替える。
-const CROSS_NAV_ITEMS = [
-  ["todo", "ToDo"],
-  ["timeline", "Timeline"],
-  ["milestones", "Milestone Map"],
-  ["notes", "Notes"],
-  ["waiting", "Waiting"],
-];
-const TOOL_NAV_ITEMS = [
-  ["ai-io", "AI Import / Export"],
-  ["settings", "Settings"],
-];
+const CROSS_NAV_ITEMS = crossNavigation;
+const TOOL_NAV_ITEMS = toolNavigation;
 
 const dateOnly = (value) => value ? String(value).slice(0, 10) : "";
 const daysBetween = (from, to) => Math.round((new Date(`${to}T00:00:00`) - new Date(`${from}T00:00:00`)) / DAY);
@@ -116,15 +112,24 @@ function relatedEntityTitle(data, type, id) {
   return entity?.title || entity?.source_title || entity?.name || id || "未設定";
 }
 
-export function App() {
-  const [workspace, setWorkspace] = useState(null);
-  const [loadState, setLoadState] = useState("loading");
-  const [loadError, setLoadError] = useState("");
-  const [route, setRoute] = useState(() => location.hash.slice(1) || "home");
-  const [activeThemeId, setActiveThemeId] = useState("");
+export function WorkspaceApp() {
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const loadState = useWorkspaceStore((state) => state.loadState);
+  const loadError = useWorkspaceStore((state) => state.loadError);
+  const loadWorkspaceAction = useWorkspaceStore((state) => state.load);
+  const saveWorkspaceEntity = useWorkspaceStore((state) => state.save);
+  const saveWorkspaceEntities = useWorkspaceStore((state) => state.saveMany);
+  const removeWorkspaceEntity = useWorkspaceStore((state) => state.remove);
+  const restoreWorkspaceEntity = useWorkspaceStore((state) => state.restore);
+  const route = useUiStore((state) => state.route);
+  const setRoute = useUiStore((state) => state.setRoute);
+  const activeThemeId = useUiStore((state) => state.activeThemeId);
+  const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState(null);
-  const [toast, setToast] = useState("");
-  const [themeMode, setThemeMode] = useState("light");
+  const toast = useUiStore((state) => state.toast);
+  const setToast = useUiStore((state) => state.setToast);
+  const themeMode = useUiStore((state) => state.themeMode);
+  const setThemeMode = useUiStore((state) => state.setThemeMode);
   const [quickText, setQuickText] = useState("");
   const [snapshotPreview, setSnapshotPreview] = useState(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -132,18 +137,13 @@ export function App() {
   const drawerTrigger = useRef(null);
 
   async function loadWorkspace() {
-    setLoadState("loading");
-    setLoadError("");
     try {
-      const loaded = await workspaceApi.load();
-      setWorkspace(loaded);
+      const loaded = await loadWorkspaceAction();
       setThemeMode(loaded.meta?.themeMode || "light");
-      setActiveThemeId((current) => current || activeRecords(loaded.themes)[0]?.id || "");
-      setLoadState("success");
-    } catch (error) {
-      setLoadError(error.message || String(error));
-      setLoadState("error");
-    }
+      if (!useUiStore.getState().activeThemeId) {
+        setActiveThemeId(activeRecords(loaded.themes)[0]?.id || "");
+      }
+    } catch {}
   }
 
   useEffect(() => {
@@ -227,24 +227,9 @@ export function App() {
     if (!next) requestAnimationFrame(() => drawerTrigger.current?.focus?.());
   }
 
-  function replaceEntity(type, saved) {
-    const key = ENTITY_KEYS[type];
-    setWorkspace((current) => {
-      const records = current[key] || [];
-      const exists = records.some((entry) => entry.id === saved.id);
-      return {
-        ...current,
-        [key]: exists
-          ? records.map((entry) => entry.id === saved.id ? saved : entry)
-          : [saved, ...records],
-      };
-    });
-  }
-
   async function saveEntity(type, entity, options = {}) {
     try {
-      const saved = await workspaceApi.save(type, entity, options);
-      replaceEntity(type, saved);
+      const saved = await saveWorkspaceEntity(type, entity, options);
       setToast(entity.id ? "変更を保存しました。" : "追加しました。");
       return saved;
     } catch (error) {
@@ -255,8 +240,7 @@ export function App() {
 
   async function saveEntities(operations, successMessage = "変更を保存しました。") {
     try {
-      const saved = await workspaceApi.saveMany(operations);
-      saved.forEach((entity, index) => replaceEntity(operations[index].type, entity));
+      const saved = await saveWorkspaceEntities(operations);
       setToast(successMessage);
       return saved;
     } catch (error) {
@@ -267,9 +251,7 @@ export function App() {
 
   async function removeEntity(type, entity) {
     try {
-      const removed = await workspaceApi.remove(type, entity.id);
-      const refreshed = await workspaceApi.load();
-      setWorkspace(refreshed);
+      await removeWorkspaceEntity(type, entity.id);
       lastDeleted.current = { type, id: entity.id };
       closeDrawer();
       setToast(`${entityTitle(type, entity)}を削除しました。元に戻せます。`);
@@ -280,9 +262,7 @@ export function App() {
 
   async function undoDelete() {
     if (!lastDeleted.current) return;
-    const restored = await workspaceApi.restore(lastDeleted.current.type, lastDeleted.current.id);
-    const refreshed = await workspaceApi.load();
-    setWorkspace(refreshed);
+    await restoreWorkspaceEntity(lastDeleted.current.type, lastDeleted.current.id);
     lastDeleted.current = null;
     setToast("削除を元に戻しました。");
   }
@@ -584,7 +564,7 @@ export function App() {
           saveEntity={saveEntity}
         />
       )}
-      <button className="mobile-capture" onClick={() => openDrawer({ type: "item", mode: "edit", entity: {} })}>項目を追加</button>
+      <button className="mobile-capture" onClick={() => openDrawer({ type: "item", mode: "edit", entity: {} })}><IconLabel icon={IconPlus}>項目を追加</IconLabel></button>
       {toast && (
         <div className="toast" role="status" aria-live="polite">
           <span>{toast}</span>

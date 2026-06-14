@@ -1,5 +1,30 @@
 # Research Desk アーキテクチャ移行計画
 
+## 移行結果
+
+構造移行は2026-06-14に完了した。
+
+- Main / Preload / Rendererはelectron-viteの`out/`へ統合出力する。
+- `src/shared/ipc/contracts.ts`をIPC channelと`window.api`型の正本とした。
+- MainはIPC、Workspace Repository、Snapshot/OS Serviceへ分割した。
+- Rendererの正式Workspaceデータと共有UI状態はZustand Storeを経由する。
+- `App.tsx`はルート構成だけを持ち、既存画面群はworkspace featureへ移した。
+- Tailwindはtokens.cssを参照する補助層として導入し、既存の複雑なGantt CSSを維持した。
+- NSIS installerとportableを標準成果物にした。
+- 既存SQLite schema version 1とSnapshot v2は変更していない。
+
+互換性を優先し、画面feature内部の大きなJSXは一括変換していない。新しいMain、Preload、
+shared契約、Store、entryはTypeScript strictであり、画面内部は機能変更時に小さく分割して
+TypeScript化する。これは実行構造の移行完了後の保守改善で、旧実行経路は残していない。
+
+基準確認:
+
+- `npm run typecheck`
+- `npm run build`
+- `npm run smoke:model`
+- `npm run smoke:desktop`
+- `npm run package`
+
 ## 目的
 
 Research Deskを、[`desktop-app-standard.md`](./desktop-app-standard.md)で定めた

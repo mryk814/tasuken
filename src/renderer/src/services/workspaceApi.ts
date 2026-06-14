@@ -1,44 +1,52 @@
+import type {
+  Entity,
+  EntityType,
+  SaveOperation,
+  SaveOptions,
+  SnapshotDecision,
+  Workspace,
+} from "../../../shared/types/workspace";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
-  if (!window.researchDesk) {
+  if (!window.api) {
     throw new Error("Research DeskはElectronデスクトップ版から起動してください。");
   }
-  return window.researchDesk;
+  return window.api;
 }
 
 export const workspaceApi = {
-  async load() {
-    return desktopApi().workspace.bootstrap(buildBootstrapWorkspace());
+  load(): Promise<Workspace> {
+    return desktopApi().workspace.bootstrap(buildBootstrapWorkspace() as Workspace);
   },
-  async save(type, entity, options = {}) {
+  save(type: EntityType, entity: Entity, options: SaveOptions = {}) {
     return desktopApi().entities.save(type, entity, options);
   },
-  async saveMany(operations) {
+  saveMany(operations: SaveOperation[]) {
     return desktopApi().entities.saveMany(operations);
   },
-  async remove(type, id) {
+  remove(type: EntityType, id: string) {
     return desktopApi().entities.remove(type, id);
   },
-  async restore(type, id) {
+  restore(type: EntityType, id: string) {
     return desktopApi().entities.restore(type, id);
   },
-  async setPreference(key, value) {
+  setPreference(key: string, value: unknown) {
     return desktopApi().preferences.set(key, value);
   },
-  async copyText(text) {
+  copyText(text: string) {
     return desktopApi().clipboard.writeText(text);
   },
-  async reload() {
+  reload() {
     return desktopApi().app.reload();
   },
-  async exportSnapshot() {
+  exportSnapshot() {
     return desktopApi().snapshots.exportFile();
   },
-  async inspectSnapshot() {
+  inspectSnapshot() {
     return desktopApi().snapshots.inspectFile();
   },
-  async applySnapshot(token, decisions) {
+  applySnapshot(token: string, decisions: SnapshotDecision[]) {
     return desktopApi().snapshots.applyImport(token, decisions);
   },
 };

@@ -1,4 +1,13 @@
-@import "../design-standard/tokens.css";
+@import "tailwindcss";
+@import "../../../../design-standard/tokens.css";
+
+@theme inline {
+  --color-app-accent: var(--color-accent);
+  --color-app-surface: var(--color-surface);
+  --color-app-background: var(--color-background);
+  --radius-app: var(--radius-md);
+  --font-app: var(--font-family);
+}
 
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }

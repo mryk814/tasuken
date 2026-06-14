@@ -1,7 +1,7 @@
 import AdmZip from "adm-zip";
 import crypto from "node:crypto";
 
-import { workspaceEntityTypes, workspaceSchemaVersion } from "./database.mjs";
+import { workspaceEntityTypes, workspaceSchemaVersion } from "../repositories/workspaceRepository.mjs";
 
 const checksum = (text) => crypto.createHash("sha256").update(text).digest("hex");
 

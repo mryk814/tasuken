@@ -26,16 +26,25 @@
 - Itemのlevel（計画＝大きな線 / タスク＝細かい仕事）による粒度分離。kindから導出する後方互換（DB無改修・JSONブロブ保存）
 - Timelineのテーマ別レーン化。既定は計画レベル（期間・マイルストーン）のみ表示し、「タスクを表示」トグルでタスクを親の下に従属表示
 - サイドバーの横断（テーマ非依存）/ テーマ別（コンテキスト切替）/ ツールの3区分IA
+- electron-viteによるMain / Preload / Renderer統合ビルド
+- `src/main` / `src/preload` / `src/renderer` / `src/shared`へのアプリ構造移行
+- TypeScript strictのshared契約、Main、Preload、Store、Renderer entry
+- `window.api`を正本とするtyped IPCと入力検証
+- Workspace Repository、Snapshot/OS Service、IPC登録の責任分割
+- ZustandによるWorkspace正式データとUI状態の分離
+- Tailwind CSS v4とdesign tokenの接続、Tabler Icons導入
+- electron-builderによるNSIS installer + portable同時生成
 
 ## 継続改善
 
 1. [`desktop-app-standard.md`](./desktop-app-standard.md)を個人用Electronアプリの既定作法とする。
-2. [`architecture-migration-plan.md`](./architecture-migration-plan.md)に従い、TypeScript、electron-vite、typed IPC、Repository、Zustand、Tailwindへ段階移行する。
+2. 互換維持のためfeature単位に残したJSXは、機能変更時にpage/component単位でTypeScript化する。
 3. Critical Path、Workload / Capacity、グラフビューは実データで必要性を確認して設計する。
 4. Spreadsheet Modeの列マッピング保存や行単位エラー修正は、日常運用で必要性を確認して追加する。
 
 ## 検証
 
+- `npm run typecheck`
 - `npm run build`
 - `npm run smoke:desktop`
 - `npm run smoke:model`

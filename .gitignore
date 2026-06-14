@@ -1,7 +1,9 @@
 # electronアプリ
 /node_modules
 /dist
+/out
 /build
+*.tsbuildinfo
 # OS
 .DS_Store
 # IDE

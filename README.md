@@ -10,12 +10,13 @@ npm install
 npm run dev
 ```
 
-`npm run dev`はrendererをビルドしてElectronデスクトップアプリを起動します。
+`npm run dev`はelectron-viteでMain / Preload / Rendererを起動し、Renderer HMRを有効にします。
 ブラウザ単体での起動と`localStorage`保存には対応していません。
 
 ## ビルド
 
 ```powershell
+npm run typecheck
 npm run build
 ```
 
@@ -31,13 +32,20 @@ npm run smoke:desktop
 npm run smoke:model
 ```
 
-Windowsインストーラーを作成:
+Windowsインストーラーとportable版を作成:
 
 ```powershell
 npm run package
 ```
 
-生成先: `release/Research-Desk-Setup-0.1.0.exe`
+生成先:
+
+- `release/Research-Desk-Setup-0.1.0-x64.exe`
+- `release/Research-Desk-Portable-0.1.0-x64.exe`
+
+インストール版とportable版はいずれもElectronの`userData`配下に
+`research-desk.sqlite`を保存します。端末間移行やバックアップにはSettingsの
+Workspace Snapshotを使用してください。
 
 ## 主な画面
 

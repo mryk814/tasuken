@@ -5,23 +5,31 @@
   "author": "ootan",
   "private": true,
   "type": "module",
-  "main": "electron/main.mjs",
+  "main": "out/main/index.js",
   "scripts": {
     "postinstall": "electron-builder install-app-deps",
-    "dev": "npm run desktop",
-    "build": "vite build",
+    "dev": "electron-vite dev",
+    "typecheck": "tsc -b",
+    "build": "electron-vite build",
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
     "smoke:desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing . --smoke-test",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
-    "package": "npm run build && electron-builder --win nsis --config.electronDist=node_modules/electron/dist"
+    "package": "npm run typecheck && npm run build && electron-builder --win nsis portable --config.electronDist=node_modules/electron/dist"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/node": "^25.9.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "5.0.4",
     "electron": "^37.2.6",
     "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
     "playwright": "^1.60.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3",
     "vite": "6.4.2"
   },
   "build": {
@@ -31,8 +39,7 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*",
-      "electron/**/*",
+      "out/**/*",
       "package.json"
     ],
     "asar": true,
@@ -44,18 +51,23 @@
             "x64"
           ]
         }
-      ],
-      "artifactName": "Research-Desk-Setup-${version}.${ext}"
+      ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "artifactName": "Research-Desk-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Research-Desk-Portable-${version}-${arch}.${ext}"
     }
   },
   "dependencies": {
+    "@tabler/icons-react": "^3.44.0",
     "adm-zip": "^0.5.17",
-    "better-sqlite3": "^12.10.1"
+    "better-sqlite3": "^12.10.1",
+    "zustand": "^5.0.14"
   }
 }
