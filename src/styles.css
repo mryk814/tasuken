@@ -320,6 +320,26 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .lightning-overlay path { fill: none; stroke: var(--color-chart-4); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .lightning-overlay circle { fill: var(--color-chart-4); stroke: var(--color-surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .legend-lightning { width: 18px; height: 2px; display: inline-block; background: var(--color-chart-4); }
+.legend-diamond { width: 9px; height: 9px; transform: rotate(45deg); border-radius: 1px; background: var(--color-accent-strong); }
+.legend-task { width: 20px; height: 5px; border: 1px solid color-mix(in srgb, var(--color-chart-1) 40%, var(--color-surface)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-chart-1) 12%, var(--color-surface)); opacity: .82; }
+
+/* テーマ別レーンのヘッダ行（左表）。面の明度差でグループを区切る（影に頼らない）。 */
+.gantt-theme-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-2); background: var(--color-surface-muted); border-bottom: 1px solid var(--color-border); }
+.gantt-theme-toggle { display: flex; align-items: center; gap: var(--space-2); min-width: 0; border: 0; background: transparent; text-align: left; }
+.gantt-theme-toggle strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+.gantt-theme-toggle:hover strong { color: var(--color-accent-strong); }
+.gantt-theme-caret { flex: 0 0 auto; width: 14px; color: var(--color-accent-strong); }
+.gantt-theme-count { flex: 0 0 auto; color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); white-space: nowrap; }
+.gantt-milestone-mark { flex: 0 0 auto; color: var(--color-accent-strong); }
+/* task-levelは大きな線に対して後退させる（淡色・細バー）。 */
+.gantt-table-row.level-task .gantt-name { color: var(--color-text-secondary); }
+.gantt-canvas-theme-row { position: relative; height: 44px; background: var(--color-surface-muted); border-bottom: 1px solid var(--color-border); }
+.gantt-item-bar.level-task { top: 12px; height: 20px; opacity: .82; }
+
+/* サイドバー: 「すべてのテーマ」エントリ（テーマ一覧の管理画面への入口） */
+.theme-nav-all { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; text-align: left; }
+.theme-nav-all:hover { background: var(--color-surface-muted); }
+.theme-nav-all.is-active { color: var(--color-accent-strong); background: var(--color-accent-subtle-bg-strong); border-color: var(--color-accent-subtle-bd); box-shadow: inset 3px 0 0 var(--color-accent); font-weight: var(--weight-medium); }
 
 .paste-panel { display: grid; gap: var(--space-3); padding: var(--pad-card); }
 .paste-panel textarea { min-height: 120px; font-family: var(--font-mono); }
@@ -369,7 +389,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .drawer { position: fixed; inset: 0 0 0 auto; width: min(390px, 100vw); box-shadow: var(--shadow-lg); }
   .sidebar { position: static; width: 100%; height: auto; flex-direction: row; align-items: center; padding: var(--space-2); overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); }
   .brand { min-width: 160px; padding: 0 var(--space-2); border: 0; }
-  .brand small, .theme-nav, .utility-nav, .secondary-nav, .quick-capture, .profile { display: none; }
+  .brand small, .theme-nav, .utility-nav, .secondary-nav, .quick-capture, .profile, .sidebar .nav-heading { display: none; }
   .primary-nav { display: flex; }
   .primary-nav.utility-nav, .primary-nav.secondary-nav { display: none; }
   .primary-nav button { min-width: 72px; justify-content: center; }

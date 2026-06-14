@@ -30,6 +30,12 @@ const KIND_LABELS = {
   reminder: "備忘",
   idea: "アイデア",
 };
+// レベル（粒度）。Timelineに出す「大きな線」と、ToDo中心の「細かい仕事」を区別する。
+// kindとは直交。period/milestoneは既定でplan、それ以外はtask。明示値があればそれを優先。
+const PLAN_KINDS = ["period", "milestone"];
+const LEVEL_LABELS = { plan: "計画（大きな線）", task: "タスク" };
+const defaultLevel = (kind) => (PLAN_KINDS.includes(kind) ? "plan" : "task");
+const itemLevel = (item) => item.level || defaultLevel(item.kind);
 const ENTITY_KEYS = {
   theme: "themes",
   item: "items",
@@ -47,11 +53,11 @@ const ENTITY_KEYS = {
   log_entry: "log_entries",
   import_batch: "import_batchs",
 };
-const PRIMARY_NAV_ITEMS = [
-  ["home", "今日"],
+// 横断ビュー（テーマに依存しない）。テーマ別ビューはサイドバーのテーマ一覧から切り替える。
+const CROSS_NAV_ITEMS = [
   ["todo", "ToDo"],
   ["timeline", "Timeline"],
-  ["themes", "Themes"],
+  ["milestones", "Milestone Map"],
   ["notes", "Notes"],
   ["waiting", "Waiting"],
 ];
@@ -281,6 +287,7 @@ export function App() {
     await saveEntity("item", {
       title,
       kind: "idea",
+      level: "task",
       theme_id: activeThemeId || null,
       status: "inbox",
       priority: "normal",
@@ -318,10 +325,12 @@ export function App() {
         setToast("終了日は開始日以降にしてください。入力内容は保持されています。");
         return;
       }
+      const kind = formText(values, "kind", "task");
       entity = {
         ...base,
         title,
-        kind: formText(values, "kind", "task"),
+        kind,
+        level: formText(values, "level") || defaultLevel(kind),
         theme_id: formText(values, "theme_id") || null,
         status: formText(values, "status", "todo"),
         priority: formText(values, "priority", "normal"),
@@ -527,6 +536,7 @@ export function App() {
         setQuickText={setQuickText}
         addQuickCapture={addQuickCapture}
         items={items}
+        openDrawer={openDrawer}
       />
       <main className="main-area">{pages[route] || pages.home}</main>
       {drawer && (
@@ -571,14 +581,15 @@ function AppState({ state, message, onRetry }) {
   );
 }
 
-function Sidebar({ route, navigate, themes, activeThemeId, setActiveThemeId, quickText, setQuickText, addQuickCapture, items }) {
+function Sidebar({ route, navigate, themes, activeThemeId, setActiveThemeId, quickText, setQuickText, addQuickCapture, items, openDrawer }) {
   const inbox = items.filter((item) => item.status === "inbox").length;
   const waiting = items.filter((item) => item.status === "waiting" || item.kind === "waiting").length;
   return (
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">RD</span><div><strong>Research Desk</strong></div></div>
-      <nav className="primary-nav" aria-label="メインナビゲーション">
-        {PRIMARY_NAV_ITEMS.map(([id, label]) => (
+      <nav className="primary-nav" aria-label="横断ビュー">
+        <div className="nav-heading"><span>横断</span></div>
+        {CROSS_NAV_ITEMS.map(([id, label]) => (
           <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
             <span>{label}</span>
             {id === "todo" && inbox > 0 && <span className="count">{inbox}</span>}
@@ -587,14 +598,21 @@ function Sidebar({ route, navigate, themes, activeThemeId, setActiveThemeId, qui
         ))}
       </nav>
       <div className="theme-nav">
-        <div className="nav-heading"><span>テーマ</span></div>
-        {themes.map((theme) => (
-          <button key={theme.id} className={theme.id === activeThemeId ? "is-active" : ""} onClick={() => { setActiveThemeId(theme.id); navigate("home"); }}>
-            <span className="theme-dot" /><span>{theme.name}</span>
-          </button>
-        ))}
+        <div className="nav-heading"><span>テーマ別</span><button onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>＋ 追加</button></div>
+        <button className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`} aria-current={route === "themes" ? "page" : undefined} onClick={() => navigate("themes")}>
+          <span>すべてのテーマ</span><span className="count">{themes.length}</span>
+        </button>
+        {themes.map((theme) => {
+          const current = route === "home" && theme.id === activeThemeId;
+          return (
+            <button key={theme.id} className={current ? "is-active" : ""} aria-current={current ? "page" : undefined} onClick={() => { setActiveThemeId(theme.id); navigate("home"); }}>
+              <span className="theme-dot" /><span>{theme.name}</span>
+            </button>
+          );
+        })}
       </div>
-      <nav className="primary-nav utility-nav" aria-label="補助ナビゲーション">
+      <nav className="primary-nav utility-nav" aria-label="ツール">
+        <div className="nav-heading"><span>ツール</span></div>
         {TOOL_NAV_ITEMS.map(([id, label]) => (
           <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
             <span>{label}</span>
@@ -720,6 +738,7 @@ function TodoPage({ themes, items, openDrawer, saveEntity, toggleItem, setToast 
       await saveEntity("item", {
         title: row.title,
         kind: row.kind || "task",
+        level: defaultLevel(row.kind || "task"),
         theme_id: row.theme_id,
         status: row.status || "todo",
         priority: row.priority || "normal",
@@ -801,7 +820,9 @@ function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast, n
   const [showCompleted, setShowCompleted] = useState(false);
   const [showDependencies, setShowDependencies] = useState(true);
   const [showLightning, setShowLightning] = useState(false);
-  const [collapsed, setCollapsed] = useState([]);
+  const [showTasks, setShowTasks] = useState(false);
+  const [collapsedThemes, setCollapsedThemes] = useState([]);
+  const [collapsedItems, setCollapsedItems] = useState([]);
   const scrollRef = useRef(null);
   const today = todayIso();
   const range = ganttRange(scale, today);
@@ -810,7 +831,8 @@ function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast, n
     if (themeFilter !== "all" && item.theme_id !== themeFilter) return false;
     return true;
   });
-  const ordered = hierarchyOrder(timelineItems, collapsed);
+  const rows = buildTimelineRows({ items: timelineItems, themes, showTasks, collapsedThemes, collapsedItems });
+  const groupKeys = rows.filter((row) => row.rowType === "theme").map((row) => row.groupKey);
   const days = Math.max(1, daysBetween(range.start, range.end));
   const todayLeft = (daysBetween(range.start, today) / days) * 100;
 
@@ -839,7 +861,7 @@ function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast, n
 
   return (
     <div className="page timeline-wide">
-      <PageHeader title="Timeline" subtitle="左表で現在地を読み、右の時間軸で予定を調整します。">
+      <PageHeader title="Timeline" subtitle="テーマ別レーンで計画（期間・マイルストーン）を俯瞰します。細かいタスクは「タスクを表示」で展開します。">
         <button className="secondary-button" onClick={scrollToday}>今日へ移動</button>
         <button className="secondary-button" onClick={() => navigate("milestones")}>マイルストーン</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "period", schedule_status: "scheduled" } })}>期間予定を追加</button>
@@ -847,20 +869,34 @@ function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast, n
       <section className="timeline-toolbar panel">
         <label>Theme<select value={themeFilter} onChange={(event) => setThemeFilter(event.target.value)}><option value="all">すべて</option>{themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}</select></label>
         <div className="segmented">{[["year", "年間"], ["half", "半年"], ["quarter", "四半期"], ["month", "月間"], ["week", "週間"]].map(([id, label]) => <button key={id} className={scale === id ? "is-active" : ""} onClick={() => setScale(id)}>{label}</button>)}</div>
+        <label className="toggle"><input type="checkbox" checked={showTasks} onChange={(event) => setShowTasks(event.target.checked)} />タスクを表示</label>
         <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />完了Item</label>
         <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => setShowDependencies(event.target.checked)} />依存線</label>
         <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => setShowLightning(event.target.checked)} />イナズマ線</label>
-        <button className="secondary-button compact" onClick={() => setCollapsed([])}>全展開</button>
-        <button className="secondary-button compact" onClick={() => setCollapsed(items.map((item) => item.id))}>全折りたたみ</button>
+        <button className="secondary-button compact" onClick={() => { setCollapsedThemes([]); setCollapsedItems([]); }}>全展開</button>
+        <button className="secondary-button compact" onClick={() => setCollapsedThemes(groupKeys)}>全折りたたみ</button>
       </section>
       <section className="split-gantt panel">
         <div className="gantt-table">
           <div className="gantt-table-head"><span>Item</span><span>状態</span><span>開始</span><span>終了</span><span>進捗</span></div>
-          {ordered.map((item) => {
-            const hasChildren = timelineItems.some((child) => child.parent_item_id === item.id);
-            return <div className="gantt-table-row" key={item.id}>
-              <button className="gantt-name" style={{ paddingLeft: `calc(var(--space-2) + ${(item.depth || 0) * 14}px)` }} onClick={() => openDrawer({ type: "item", entity: item })}>
-                {hasChildren && <span onClick={(event) => { event.stopPropagation(); setCollapsed((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id]); }}>{collapsed.includes(item.id) ? "＋" : "−"}</span>}
+          {rows.map((row) => {
+            if (row.rowType === "theme") {
+              const collapsed = collapsedThemes.includes(row.groupKey);
+              return <div className="gantt-theme-row" key={`theme-${row.groupKey}`}>
+                <button className="gantt-theme-toggle" onClick={() => setCollapsedThemes((current) => current.includes(row.groupKey) ? current.filter((key) => key !== row.groupKey) : [...current, row.groupKey])} aria-expanded={!collapsed}>
+                  <span className="gantt-theme-caret">{collapsed ? "＋" : "−"}</span>
+                  <strong>{row.theme?.name || "個人業務 / Themeなし"}</strong>
+                  {row.theme && <StatusBadge value={row.theme.status} label={row.theme.status} />}
+                </button>
+                <span className="gantt-theme-count">計画 {row.planCount} / タスク {row.taskCount}</span>
+              </div>;
+            }
+            const { item, depth, hasChildren } = row;
+            return <div className={`gantt-table-row level-${itemLevel(item)}`} key={item.id}>
+              <button className="gantt-name" style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }} onClick={() => openDrawer({ type: "item", entity: item })}>
+                {hasChildren
+                  ? <span onClick={(event) => { event.stopPropagation(); setCollapsedItems((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id]); }}>{collapsedItems.includes(item.id) ? "＋" : "−"}</span>
+                  : item.kind === "milestone" && <span className="gantt-milestone-mark">◆</span>}
                 {item.title}
               </button>
               <StatusBadge value={item.status} label={STATUS_LABELS[item.status]} />
@@ -874,19 +910,22 @@ function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast, n
           <div className="gantt-canvas" style={{ minWidth: ganttWidth(scale) }}>
             <TimeAxis start={range.start} end={range.end} scale={scale} />
             <div className="gantt-today" style={{ left: `${todayLeft}%` }}><span>今日</span></div>
-            {ordered.map((item) => <GanttItemRow key={item.id} item={item} range={range} onOpen={() => openDrawer({ type: "item", entity: item })} onMove={moveItem} />)}
-            {showDependencies && <DependencyOverlay dependencies={data.dependencys || []} items={ordered} range={range} />}
-            {showLightning && <LightningOverlay items={ordered} range={range} today={today} />}
+            {rows.map((row) => row.rowType === "theme"
+              ? <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />
+              : <GanttItemRow key={row.item.id} item={row.item} range={range} onOpen={() => openDrawer({ type: "item", entity: row.item })} onMove={moveItem} />)}
+            {showDependencies && <DependencyOverlay dependencies={data.dependencys || []} rows={rows} range={range} />}
+            {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}
           </div>
         </div>
       </section>
-      <div className="timeline-legend"><span><i className="legend-solid" />予定あり</span><span><i className="legend-hatch" />仮予定</span><span><i className="legend-lightning" />実進捗の到達日（今日線より右は前倒し）</span><span>日程未確定は左表のみ</span></div>
+      <div className="timeline-legend"><span><i className="legend-solid" />計画（期間）</span><span><i className="legend-diamond" />マイルストーン</span><span><i className="legend-task" />タスク</span><span><i className="legend-lightning" />実進捗の到達日</span><span>日程未確定は左表のみ</span></div>
     </div>
   );
 }
 
 function GanttItemRow({ item, range, onOpen, onMove }) {
   const rowRef = useRef(null);
+  const level = itemLevel(item);
   const start = item.planned_start || item.due_date;
   const end = item.planned_end || item.due_date || start;
   const total = Math.max(1, daysBetween(range.start, range.end));
@@ -907,10 +946,10 @@ function GanttItemRow({ item, range, onOpen, onMove }) {
   }
 
   return (
-    <div className="gantt-item-row" ref={rowRef}>
+    <div className={`gantt-item-row level-${level}`} ref={rowRef}>
       {item.schedule_status !== "unscheduled" && start && (
         <button
-          className={`gantt-item-bar ${item.kind === "milestone" ? "milestone" : ""} schedule-${item.schedule_status || "scheduled"} confidence-${item.schedule_confidence || "rough"}`}
+          className={`gantt-item-bar level-${level} ${item.kind === "milestone" ? "milestone" : ""} schedule-${item.schedule_status || "scheduled"} confidence-${item.schedule_confidence || "rough"}`}
           style={{ left: `${left}%`, width: `${width}%` }}
           onClick={onOpen}
           onPointerDown={(event) => beginDrag(event, "move")}
@@ -937,14 +976,15 @@ function TimeAxis({ start, end, scale }) {
   return <div className="gantt-axis" style={{ gridTemplateColumns: `repeat(${blocks.length}, 1fr)` }}>{blocks.map((value) => <span key={value}>{scale === "week" ? value.slice(5) : value.slice(0, 7)}</span>)}</div>;
 }
 
-function DependencyOverlay({ dependencies, items, range }) {
+function DependencyOverlay({ dependencies, rows, range }) {
   const total = Math.max(1, daysBetween(range.start, range.end));
+  const rowIndexOf = (id) => rows.findIndex((row) => row.rowType === "item" && row.item.id === id);
   const lines = dependencies.flatMap((dependency) => {
-    const sourceIndex = items.findIndex((item) => item.id === dependency.source_item_id);
-    const targetIndex = items.findIndex((item) => item.id === dependency.target_item_id);
+    const sourceIndex = rowIndexOf(dependency.source_item_id);
+    const targetIndex = rowIndexOf(dependency.target_item_id);
     if (sourceIndex < 0 || targetIndex < 0) return [];
-    const source = items[sourceIndex];
-    const target = items[targetIndex];
+    const source = rows[sourceIndex].item;
+    const target = rows[targetIndex].item;
     const sourceDate = source.planned_end || source.due_date;
     const targetDate = target.planned_start || target.due_date;
     if (!sourceDate || !targetDate) return [];
@@ -956,7 +996,7 @@ function DependencyOverlay({ dependencies, items, range }) {
     return [{ ...dependency, sourceX, sourceY, targetX, targetY, bendX }];
   });
   if (!lines.length) return null;
-  const height = Math.max(44, items.length * 44);
+  const height = Math.max(44, rows.length * 44);
   return (
     <svg className="dependency-overlay" viewBox={`0 0 1000 ${height}`} preserveAspectRatio="none" aria-hidden="true">
       <defs><marker id="dependency-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" /></marker></defs>
@@ -971,10 +1011,12 @@ function DependencyOverlay({ dependencies, items, range }) {
   );
 }
 
-function LightningOverlay({ items, range, today }) {
+function LightningOverlay({ rows, range, today }) {
   const totalDays = Math.max(1, daysBetween(range.start, range.end));
   const todayX = (daysBetween(range.start, today) / totalDays) * 1000;
-  const points = items.flatMap((item, index) => {
+  const points = rows.flatMap((row, index) => {
+    if (row.rowType !== "item") return [];
+    const item = row.item;
     const start = item.planned_start || item.due_date;
     const end = item.planned_end || item.due_date || start;
     if (!start || !end || item.schedule_status === "unscheduled") return [];
@@ -984,12 +1026,12 @@ function LightningOverlay({ items, range, today }) {
     const actualProgress = Math.max(0, Math.min(1, Number(item.progress || 0) / 100));
     const varianceDays = (actualProgress - plannedProgress) * duration;
     const x = Math.max(0, Math.min(1000, todayX + (varianceDays / totalDays) * 1000));
-    return [{ x, y: 65 + index * 44, varianceDays }];
+    return [{ x, y: 44 + index * 44 + 22, varianceDays }];
   });
   if (!points.length) return null;
   const path = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
   return (
-    <svg className="lightning-overlay" viewBox={`0 0 1000 ${Math.max(88, items.length * 44 + 44)}`} preserveAspectRatio="none" aria-label="計画進捗と実進捗の差分">
+    <svg className="lightning-overlay" viewBox={`0 0 1000 ${Math.max(88, rows.length * 44 + 44)}`} preserveAspectRatio="none" aria-label="計画進捗と実進捗の差分">
       <path d={path} />
       {points.map((point, index) => <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="4" />)}
     </svg>
@@ -1107,6 +1149,7 @@ function ImportExportPage({ data, themes, items, activeTheme, saveEntity, setToa
           ...base,
           title: entry.title || "無題",
           kind: entry.kind || base.kind || "task",
+          level: entry.level || base.level || defaultLevel(entry.kind || base.kind || "task"),
           theme_id: candidate.theme?.id || base.theme_id || null,
           status: entry.status || base.status || "todo",
           priority: entry.priority || base.priority || "normal",
@@ -1227,7 +1270,7 @@ function EditDrawer({ drawer, entity, data, close, saveForm }) {
 
 function ItemFields({ entity, data }) {
   const customDefinitions = (data.field_definitions || []).filter((field) => field.applies_to === "item" && (!field.theme_id || field.theme_id === entity.theme_id));
-  return <><Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title || ""} /></Field><ThemeSelect themes={data.themes} value={entity.theme_id} allowPersonal /><Field label="種類"><select name="kind" defaultValue={entity.kind || "task"}>{Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="状態"><select name="status" defaultValue={entity.status || "todo"}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><ItemSelect label="親Item" items={(data.items || []).filter((item) => item.id !== entity.id)} value={entity.parent_item_id} /><Field label="日程状態"><select name="schedule_status" defaultValue={entity.schedule_status || "unscheduled"}>{Object.entries(SCHEDULE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><div className="form-grid"><Field label="予定開始"><input name="planned_start" type="date" defaultValue={dateOnly(entity.planned_start)} /></Field><Field label="予定終了"><input name="planned_end" type="date" defaultValue={dateOnly(entity.planned_end)} /></Field></div><Field label="期限"><input name="due_date" type="date" defaultValue={dateOnly(entity.due_date)} /></Field><div className="form-grid"><Field label="実績開始"><input name="actual_start" type="date" defaultValue={dateOnly(entity.actual_start)} /></Field><Field label="実績終了"><input name="actual_end" type="date" defaultValue={dateOnly(entity.actual_end)} /></Field></div><Field label="粗い日程表現"><input name="date_text" placeholder="7月上旬、下期中など" defaultValue={entity.date_text || ""} /></Field><div className="form-grid"><Field label="粒度"><select name="date_granularity" defaultValue={entity.date_granularity || "day"}>{["day", "week", "month", "quarter", "half_year", "fiscal_year", "unknown"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="確度"><select name="schedule_confidence" defaultValue={entity.schedule_confidence || "rough"}>{["rough", "tentative", "fixed"].map((value) => <option key={value}>{value}</option>)}</select></Field></div><Field label="優先度"><select name="priority" defaultValue={entity.priority || "normal"}>{["low", "normal", "high", "decision"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="進捗"><input name="progress" type="number" min="0" max="100" defaultValue={entity.progress || 0} /></Field><Field label="担当"><select name="owner_person_id" defaultValue={entity.owner_person_id || ""}><option value="">未設定</option>{(data.people || []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><Field label="待ち相手・対象"><input name="waiting_for" defaultValue={entity.waiting_for || ""} /></Field><Field label="解除後の次アクション"><textarea name="next_action" defaultValue={entity.next_action || ""} /></Field><label className="toggle"><input name="is_personal_task" type="checkbox" defaultChecked={entity.is_personal_task} />個人業務タスク</label><Field label="説明"><textarea name="description" defaultValue={entity.description || ""} /></Field>{customDefinitions.map((definition) => { const value = (data.field_values || []).find((entry) => entry.field_definition_id === definition.id && entry.entity_id === entity.id); return <Field key={definition.id} label={definition.name}><input name={`custom:${definition.id}`} type={definition.field_type === "date" ? "date" : definition.field_type === "number" ? "number" : definition.field_type === "url" ? "url" : "text"} required={definition.is_required} defaultValue={value?.value_text || ""} /></Field>; })}{entity.id && <Field label="予定変更理由（任意）"><textarea name="revision_reason" placeholder="測定結果の受領が遅れたため" /></Field>}<Field label="情報源"><select name="source_record_id" defaultValue={entity.source_record_id || ""}><option value="">手動入力</option>{(data.source_records || []).map((source) => <option key={source.id} value={source.id}>{source.source_title}</option>)}</select></Field></>;
+  return <><Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title || ""} /></Field><ThemeSelect themes={data.themes} value={entity.theme_id} allowPersonal /><div className="form-grid"><Field label="種類"><select name="kind" defaultValue={entity.kind || "task"}>{Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="レベル"><select name="level" defaultValue={itemLevel(entity)}>{Object.entries(LEVEL_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field></div><Field label="状態"><select name="status" defaultValue={entity.status || "todo"}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><ItemSelect label="親Item" items={(data.items || []).filter((item) => item.id !== entity.id)} value={entity.parent_item_id} /><Field label="日程状態"><select name="schedule_status" defaultValue={entity.schedule_status || "unscheduled"}>{Object.entries(SCHEDULE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><div className="form-grid"><Field label="予定開始"><input name="planned_start" type="date" defaultValue={dateOnly(entity.planned_start)} /></Field><Field label="予定終了"><input name="planned_end" type="date" defaultValue={dateOnly(entity.planned_end)} /></Field></div><Field label="期限"><input name="due_date" type="date" defaultValue={dateOnly(entity.due_date)} /></Field><div className="form-grid"><Field label="実績開始"><input name="actual_start" type="date" defaultValue={dateOnly(entity.actual_start)} /></Field><Field label="実績終了"><input name="actual_end" type="date" defaultValue={dateOnly(entity.actual_end)} /></Field></div><Field label="粗い日程表現"><input name="date_text" placeholder="7月上旬、下期中など" defaultValue={entity.date_text || ""} /></Field><div className="form-grid"><Field label="粒度"><select name="date_granularity" defaultValue={entity.date_granularity || "day"}>{["day", "week", "month", "quarter", "half_year", "fiscal_year", "unknown"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="確度"><select name="schedule_confidence" defaultValue={entity.schedule_confidence || "rough"}>{["rough", "tentative", "fixed"].map((value) => <option key={value}>{value}</option>)}</select></Field></div><Field label="優先度"><select name="priority" defaultValue={entity.priority || "normal"}>{["low", "normal", "high", "decision"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="進捗"><input name="progress" type="number" min="0" max="100" defaultValue={entity.progress || 0} /></Field><Field label="担当"><select name="owner_person_id" defaultValue={entity.owner_person_id || ""}><option value="">未設定</option>{(data.people || []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><Field label="待ち相手・対象"><input name="waiting_for" defaultValue={entity.waiting_for || ""} /></Field><Field label="解除後の次アクション"><textarea name="next_action" defaultValue={entity.next_action || ""} /></Field><label className="toggle"><input name="is_personal_task" type="checkbox" defaultChecked={entity.is_personal_task} />個人業務タスク</label><Field label="説明"><textarea name="description" defaultValue={entity.description || ""} /></Field>{customDefinitions.map((definition) => { const value = (data.field_values || []).find((entry) => entry.field_definition_id === definition.id && entry.entity_id === entity.id); return <Field key={definition.id} label={definition.name}><input name={`custom:${definition.id}`} type={definition.field_type === "date" ? "date" : definition.field_type === "number" ? "number" : definition.field_type === "url" ? "url" : "text"} required={definition.is_required} defaultValue={value?.value_text || ""} /></Field>; })}{entity.id && <Field label="予定変更理由（任意）"><textarea name="revision_reason" placeholder="測定結果の受領が遅れたため" /></Field>}<Field label="情報源"><select name="source_record_id" defaultValue={entity.source_record_id || ""}><option value="">手動入力</option>{(data.source_records || []).map((source) => <option key={source.id} value={source.id}>{source.source_title}</option>)}</select></Field></>;
 }
 
 function RelationFields({ entity, data }) {
@@ -1325,23 +1368,48 @@ function ganttRange(scale, today) {
   return { start: addDays(today, -Math.round(span * 0.25)), end: addDays(today, Math.round(span * 0.75)) };
 }
 function ganttWidth(scale) { return { year: 1100, half: 1300, quarter: 1500, month: 1900, week: 2200 }[scale] || 1500; }
-function hierarchyOrder(items, collapsed) {
-  const children = new Map();
-  items.forEach((item) => {
-    const key = item.parent_item_id || "__root";
-    children.set(key, [...(children.get(key) || []), item]);
-  });
-  children.forEach((records) => records.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
-  const result = [];
-  const visit = (parent, depth) => {
-    for (const item of children.get(parent) || []) {
-      result.push({ ...item, depth });
-      if (!collapsed.includes(item.id)) visit(item.id, depth + 1);
+// テーマ別レーンで行を組み立てる。各テーマの先頭にヘッダ行を置き、
+// 既定では計画レベル（plan）のItemだけ、showTasks時は実行レベル（task）も親の下にネストする。
+function buildTimelineRows({ items, themes, showTasks, collapsedThemes, collapsedItems }) {
+  const themeIds = new Set(themes.map((theme) => theme.id));
+  const byTheme = new Map();
+  for (const item of items) {
+    const key = item.theme_id && themeIds.has(item.theme_id) ? item.theme_id : null;
+    byTheme.set(key, [...(byTheme.get(key) || []), item]);
+  }
+  const rows = [];
+  const order = [...themes.map((theme) => theme.id), null];
+  for (const themeId of order) {
+    const pool = byTheme.get(themeId) || [];
+    if (!pool.length) continue;
+    const groupKey = themeId || "__none";
+    const planCount = pool.filter((item) => itemLevel(item) === "plan").length;
+    rows.push({
+      rowType: "theme",
+      groupKey,
+      theme: themes.find((theme) => theme.id === themeId) || null,
+      planCount,
+      taskCount: pool.length - planCount,
+    });
+    if (collapsedThemes.includes(groupKey)) continue;
+    const visiblePool = showTasks ? pool : pool.filter((item) => itemLevel(item) === "plan");
+    const visibleIds = new Set(visiblePool.map((item) => item.id));
+    const children = new Map();
+    for (const item of visiblePool) {
+      const parent = item.parent_item_id && visibleIds.has(item.parent_item_id) ? item.parent_item_id : "__root";
+      children.set(parent, [...(children.get(parent) || []), item]);
     }
-  };
-  visit("__root", 0);
-  for (const item of items) if (!result.some((entry) => entry.id === item.id)) result.push({ ...item, depth: 0 });
-  return result;
+    children.forEach((records) => records.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+    const visit = (parent, depth) => {
+      for (const item of children.get(parent) || []) {
+        const hasChildren = (children.get(item.id) || []).length > 0;
+        rows.push({ rowType: "item", item, depth, hasChildren });
+        if (hasChildren && !collapsedItems.includes(item.id)) visit(item.id, depth + 1);
+      }
+    };
+    visit("__root", 0);
+  }
+  return rows;
 }
 function buildExportData({ data, themes, items, activeTheme, scope }) {
   const today = todayIso();
