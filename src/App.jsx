@@ -124,7 +124,7 @@ export function App() {
   const [activeThemeId, setActiveThemeId] = useState("");
   const [drawer, setDrawer] = useState(null);
   const [toast, setToast] = useState("");
-  const [themeMode, setThemeMode] = useState(() => localStorage.getItem("research-desk:theme") || "light");
+  const [themeMode, setThemeMode] = useState("light");
   const [quickText, setQuickText] = useState("");
   const [snapshotPreview, setSnapshotPreview] = useState(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -137,6 +137,7 @@ export function App() {
     try {
       const loaded = await workspaceApi.load();
       setWorkspace(loaded);
+      setThemeMode(loaded.meta?.themeMode || "light");
       setActiveThemeId((current) => current || activeRecords(loaded.themes)[0]?.id || "");
       setLoadState("success");
     } catch (error) {
@@ -157,8 +158,12 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
-    localStorage.setItem("research-desk:theme", themeMode);
-  }, [themeMode]);
+    if (loadState === "success") {
+      workspaceApi.setPreference("themeMode", themeMode).catch((error) => {
+        setToast(`表示設定を保存できませんでした。${error.message}`);
+      });
+    }
+  }, [themeMode, loadState]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -248,10 +253,23 @@ export function App() {
     }
   }
 
+  async function saveEntities(operations, successMessage = "変更を保存しました。") {
+    try {
+      const saved = await workspaceApi.saveMany(operations);
+      saved.forEach((entity, index) => replaceEntity(operations[index].type, entity));
+      setToast(successMessage);
+      return saved;
+    } catch (error) {
+      setToast(`保存できませんでした。${error.message}`);
+      throw error;
+    }
+  }
+
   async function removeEntity(type, entity) {
     try {
       const removed = await workspaceApi.remove(type, entity.id);
-      replaceEntity(type, removed);
+      const refreshed = await workspaceApi.load();
+      setWorkspace(refreshed);
       lastDeleted.current = { type, id: entity.id };
       closeDrawer();
       setToast(`${entityTitle(type, entity)}を削除しました。元に戻せます。`);
@@ -263,7 +281,8 @@ export function App() {
   async function undoDelete() {
     if (!lastDeleted.current) return;
     const restored = await workspaceApi.restore(lastDeleted.current.type, lastDeleted.current.id);
-    replaceEntity(lastDeleted.current.type, restored);
+    const refreshed = await workspaceApi.load();
+    setWorkspace(refreshed);
     lastDeleted.current = null;
     setToast("削除を元に戻しました。");
   }
@@ -463,27 +482,42 @@ export function App() {
       }
     }
 
-    const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
+    let saved;
     if (type === "item") {
+      const itemEntity = { ...entity, id: entity.id || uuid() };
       const definitions = (data.field_definitions || []).filter((field) =>
-        field.applies_to === "item" && (!field.theme_id || field.theme_id === saved.theme_id));
+        field.applies_to === "item" && (!field.theme_id || field.theme_id === itemEntity.theme_id));
+      const operations = [{
+        action: "save",
+        type: "item",
+        entity: itemEntity,
+        options: { reason: formText(values, "revision_reason") },
+      }];
       for (const definition of definitions) {
         const rawValue = formText(values, `custom:${definition.id}`);
         const existing = (data.field_values || []).find((value) =>
-          value.field_definition_id === definition.id && value.entity_type === "item" && value.entity_id === saved.id);
+          value.field_definition_id === definition.id && value.entity_type === "item" && value.entity_id === itemEntity.id);
         if (rawValue || existing) {
-          await saveEntity("field_value", {
-            ...existing,
-            field_definition_id: definition.id,
-            entity_type: "item",
-            entity_id: saved.id,
-            value_text: rawValue,
-            value_number: definition.field_type === "number" && rawValue ? Number(rawValue) : null,
-            value_date: definition.field_type === "date" ? rawValue || null : null,
-            value_json: definition.field_type === "multi_select" ? rawValue.split(",").map((value) => value.trim()).filter(Boolean) : null,
+          operations.push({
+            action: "save",
+            type: "field_value",
+            entity: {
+              ...existing,
+              id: existing?.id || uuid(),
+              field_definition_id: definition.id,
+              entity_type: "item",
+              entity_id: itemEntity.id,
+              value_text: rawValue,
+              value_number: definition.field_type === "number" && rawValue ? Number(rawValue) : null,
+              value_date: definition.field_type === "date" ? rawValue || null : null,
+              value_json: definition.field_type === "multi_select" ? rawValue.split(",").map((value) => value.trim()).filter(Boolean) : null,
+            },
           });
         }
       }
+      [saved] = await saveEntities(operations, entity.id ? "変更を保存しました。" : "追加しました。");
+    } else {
+      saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
     }
     if (type === "theme" && !activeThemeId) setActiveThemeId(saved.id);
     closeDrawer();
@@ -763,7 +797,7 @@ function TodoPage({ themes, items, openDrawer, saveEntity, toggleItem, setToast 
   function copyRows() {
     const header = "タスク\t状態\tテーマ\t期限";
     const rows = visible.map((item) => `${item.title}\t${STATUS_LABELS[item.status]}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "個人業務"}\t${item.due_date || "日程未確定"}`);
-    navigator.clipboard.writeText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
+    workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
   return (
@@ -1047,7 +1081,7 @@ function MilestonePage({ themes, items, openDrawer, setToast }) {
     return (item.kind === "milestone" || (item.priority === "high" && date)) && date >= today && date <= limit;
   }).sort(compareDate);
   function copy() {
-    navigator.clipboard.writeText(records.map((item) => `${item.due_date || item.planned_end}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}\t${item.title}`).join("\n")).then(() => setToast("マイルストーンをコピーしました。"));
+    workspaceApi.copyText(records.map((item) => `${item.due_date || item.planned_end}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}\t${item.title}`).join("\n")).then(() => setToast("マイルストーンをコピーしました。"));
   }
   return (
     <div className="page">
@@ -1084,7 +1118,7 @@ function NotesPage({ themes, notes, links, openDrawer, setToast }) {
       .toLowerCase()
       .includes(query.toLowerCase()));
   function copy() {
-    navigator.clipboard.writeText(visible.map((record) => `${record.title}\t${record.recordType === "link" ? "link" : record.note_type}\t${themes.find((theme) => theme.id === record.theme_id)?.name || "—"}\t${record.url || record.source_url || ""}`).join("\n")).then(() => setToast("Notes一覧をコピーしました。"));
+    workspaceApi.copyText(visible.map((record) => `${record.title}\t${record.recordType === "link" ? "link" : record.note_type}\t${themes.find((theme) => theme.id === record.theme_id)?.name || "—"}\t${record.url || record.source_url || ""}`).join("\n")).then(() => setToast("Notes一覧をコピーしました。"));
   }
   return <div className="page"><PageHeader title="Notes"><button className="secondary-button" onClick={copy}>一覧をコピー</button><button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button></PageHeader><div className="filter-bar panel"><input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" /><span>{visible.length}件</span></div><section className="panel list-page">{visible.map((record) => <div className="note-row" key={`${record.recordType}-${record.id}`}><button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, entity: record })}><span className="note-row-head"><StatusBadge value="neutral" label={record.recordType === "link" ? "link" : record.note_type} /><strong className="note-row-title">{record.title}</strong>{record.recordType === "note" && record.comments?.length > 0 && <span className="comment-count" aria-label={`${record.comments.length}件のコメント`}>{record.comments.length}</span>}</span><span className="note-row-body">{record.body_markdown || record.description || record.url || "本文なし"}</span></button>{(record.source_url || record.url) && <a className="secondary-button compact note-row-open" href={record.source_url || record.url} target="_blank" rel="noreferrer">開く</a>}</div>)}{!visible.length && <EmptyState title="一致するメモはありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}</section></div>;
 }
@@ -1092,7 +1126,7 @@ function NotesPage({ themes, notes, links, openDrawer, setToast }) {
 function WaitingPage({ themes, items, openDrawer, setToast }) {
   const waiting = items.filter((item) => item.kind === "waiting" || item.status === "waiting").sort(compareDate);
   function copy() {
-    navigator.clipboard.writeText(waiting.map((item) => `${item.title}\t${item.waiting_for || "—"}\t${item.due_date || "—"}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}`).join("\n")).then(() => setToast("Waiting一覧をコピーしました。"));
+    workspaceApi.copyText(waiting.map((item) => `${item.title}\t${item.waiting_for || "—"}\t${item.due_date || "—"}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}`).join("\n")).then(() => setToast("Waiting一覧をコピーしました。"));
   }
   return <div className="page"><PageHeader title="Waiting" subtitle="誰を、何を、いつまで待っているかを確認します。"><button className="secondary-button" onClick={copy}>一覧をコピー</button><button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "waiting", status: "waiting" } })}>待ちを追加</button></PageHeader><section className="panel list-page">{waiting.map((item) => <button className="waiting-row" key={item.id} onClick={() => openDrawer({ type: "item", entity: item })}><div><StatusBadge value="waiting" label="待ち" /><strong>{item.title}</strong><span>{themes.find((theme) => theme.id === item.theme_id)?.name || "—"}</span></div><div><time>{formatDate(item.due_date)}</time><small>{item.waiting_for || "待ち相手未設定"}</small></div></button>)}{!waiting.length && <EmptyState title="待ちはありません" action="追加する" onAction={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "waiting", status: "waiting" } })} />}</section></div>;
 }
@@ -1132,69 +1166,106 @@ function ImportExportPage({ data, themes, items, activeTheme, saveEntity, setToa
   }
 
   async function executeImport() {
-    const source = await saveEntity("source_record", {
+    const source = {
+      id: uuid(),
       source_type: text.trim().startsWith("{") ? "imported_json" : "imported_yaml",
       source_title: `AI Import ${new Date().toLocaleString("ja-JP")}`,
       captured_at: new Date().toISOString(),
       raw_text: text,
       summary: `${preview.candidates.length}件の候補`,
-    }, { source: "imported" });
+    };
+    const operations = [{
+      action: "save",
+      type: "source_record",
+      entity: source,
+      options: { source: "imported" },
+    }];
     let count = 0;
     for (const candidate of preview.candidates) {
       if (candidate.action === "ignore") continue;
       const base = candidate.action === "merge" ? candidate.duplicate : {};
       const entry = candidate.entry;
       if (candidate.type === "item") {
-        await saveEntity("item", {
-          ...base,
-          title: entry.title || "無題",
-          kind: entry.kind || base.kind || "task",
-          level: entry.level || base.level || defaultLevel(entry.kind || base.kind || "task"),
-          theme_id: candidate.theme?.id || base.theme_id || null,
-          status: entry.status || base.status || "todo",
-          priority: entry.priority || base.priority || "normal",
-          planned_start: entry.planned_start || base.planned_start || null,
-          planned_end: entry.planned_end || base.planned_end || entry.due_date || null,
-          due_date: entry.due_date || entry.due || base.due_date || null,
-          schedule_status: entry.schedule_status || (entry.due_date || entry.planned_end ? "scheduled" : "unscheduled"),
-          schedule_confidence: entry.schedule_confidence || "tentative",
-          date_granularity: entry.date_granularity || "day",
-          progress: Number(entry.progress || base.progress || 0),
-          description: entry.description || base.description || "",
-          source_record_id: source.id,
-        }, { source: "imported" });
+        operations.push({
+          action: "save",
+          type: "item",
+          entity: {
+            ...base,
+            id: base.id || uuid(),
+            title: entry.title || "無題",
+            kind: entry.kind || base.kind || "task",
+            level: entry.level || base.level || defaultLevel(entry.kind || base.kind || "task"),
+            theme_id: candidate.theme?.id || base.theme_id || null,
+            status: entry.status || base.status || "todo",
+            priority: entry.priority || base.priority || "normal",
+            planned_start: entry.planned_start || base.planned_start || null,
+            planned_end: entry.planned_end || base.planned_end || entry.due_date || null,
+            due_date: entry.due_date || entry.due || base.due_date || null,
+            schedule_status: entry.schedule_status || (entry.due_date || entry.planned_end ? "scheduled" : "unscheduled"),
+            schedule_confidence: entry.schedule_confidence || "tentative",
+            date_granularity: entry.date_granularity || "day",
+            progress: Number(entry.progress || base.progress || 0),
+            description: entry.description || base.description || "",
+            source_record_id: source.id,
+          },
+          options: { source: "imported" },
+        });
       } else if (candidate.type === "note") {
-        await saveEntity("note", {
-          ...base,
-          title: entry.title || "無題",
-          body_markdown: entry.body_markdown || entry.body || "",
-          note_type: entry.note_type || base.note_type || "memo",
-          theme_id: candidate.theme?.id || base.theme_id || null,
-          item_id: entry.item_id || base.item_id || null,
-          source_url: entry.source_url || base.source_url || "",
-          source_record_id: source.id,
-        }, { source: "imported" });
+        operations.push({
+          action: "save",
+          type: "note",
+          entity: {
+            ...base,
+            id: base.id || uuid(),
+            title: entry.title || "無題",
+            body_markdown: entry.body_markdown || entry.body || "",
+            note_type: entry.note_type || base.note_type || "memo",
+            theme_id: candidate.theme?.id || base.theme_id || null,
+            item_id: entry.item_id || base.item_id || null,
+            source_url: entry.source_url || base.source_url || "",
+            source_record_id: source.id,
+          },
+          options: { source: "imported" },
+        });
       } else {
-        await saveEntity("link", {
-          ...base,
-          title: entry.title || "無題",
-          url: entry.url || base.url || "",
-          link_type: entry.link_type || base.link_type || "other",
-          theme_id: candidate.theme?.id || base.theme_id || null,
-          item_id: entry.item_id || base.item_id || null,
-          description: entry.description || base.description || "",
-          source_record_id: source.id,
-        }, { source: "imported" });
+        operations.push({
+          action: "save",
+          type: "link",
+          entity: {
+            ...base,
+            id: base.id || uuid(),
+            title: entry.title || "無題",
+            url: entry.url || base.url || "",
+            link_type: entry.link_type || base.link_type || "other",
+            theme_id: candidate.theme?.id || base.theme_id || null,
+            item_id: entry.item_id || base.item_id || null,
+            description: entry.description || base.description || "",
+            source_record_id: source.id,
+          },
+          options: { source: "imported" },
+        });
       }
       count += 1;
     }
-    await saveEntity("import_batch", { source: source.source_type, status: "completed", count, raw_text: text, source_record_id: source.id }, { source: "imported" });
+    operations.push({
+      action: "save",
+      type: "import_batch",
+      entity: {
+        id: uuid(),
+        source: source.source_type,
+        status: "completed",
+        count,
+        raw_text: text,
+        source_record_id: source.id,
+      },
+      options: { source: "imported" },
+    });
+    await saveEntities(operations, `${count}件を取り込みました。`);
     setPreview(null);
     setText("");
-    setToast(`${count}件を取り込みました。`);
   }
 
-  return <div className="page"><PageHeader title="AI Import / Export" subtitle="構造化データをプレビューしてから安全に取り込みます。" /><div className="io-grid"><section className="panel io-panel"><div className="section-heading"><h2>書き出す</h2><div className="inline-actions"><select aria-label="書き出す範囲" value={scope} onChange={(event) => setScope(event.target.value)}><option value="all">全体</option><option value="theme">選択中Theme</option><option value="week">今後7日</option><option value="month">今後30日</option><option value="quarter">今後90日</option><option value="open">未完了Item</option><option value="waiting">Waitingのみ</option><option value="recent_notes">直近メモ</option><option value="milestones">マイルストーン</option></select><select aria-label="書き出し形式" value={format} onChange={(event) => setFormat(event.target.value)}><option value="markdown">Markdown</option><option value="yaml">YAML</option><option value="json">JSON</option></select></div></div><textarea readOnly value={exported} /><button className="primary-button" onClick={() => navigator.clipboard.writeText(exported).then(() => setToast("エクスポート内容をコピーしました。"))}>コピーする</button></section><section className="panel io-panel"><div className="section-heading"><h2>読み込む</h2><span>Item / Note / Link</span></div><textarea value={text} onChange={(event) => { setText(event.target.value); setPreview(null); }} placeholder={'items:\n  - title: "測定結果を確認"\n    theme: "材料A評価"\nnotes:\n  - title: "解析方針"\n    body: "条件Bを再確認する"'} /><button className="secondary-button" onClick={parseImport}>候補を確認</button></section></div>{preview && <section className="panel import-preview"><div className="section-heading"><h2>取り込み候補</h2><span>{preview.candidates.length}件</span></div>{preview.candidates.map((candidate, index) => <div className="import-candidate" key={`${candidate.type}-${candidate.entry.title}-${index}`}><div><strong>{candidate.entry.title || "無題"}</strong><small>{candidate.type} / {candidate.theme?.name || "Theme未解決"}{candidate.duplicate ? ` / 既存候補: ${candidate.duplicate.title}` : ""}</small></div><select value={candidate.action} onChange={(event) => setPreview((current) => ({ ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) }))}><option value="create">新規作成</option>{candidate.duplicate && <option value="merge">既存を更新</option>}<option value="ignore">無視</option></select></div>)}<div className="form-actions"><button className="secondary-button" onClick={() => setPreview(null)}>戻る</button><button className="primary-button" onClick={executeImport}>取り込む</button></div></section>}</div>;
+  return <div className="page"><PageHeader title="AI Import / Export" subtitle="構造化データをプレビューしてから安全に取り込みます。" /><div className="io-grid"><section className="panel io-panel"><div className="section-heading"><h2>書き出す</h2><div className="inline-actions"><select aria-label="書き出す範囲" value={scope} onChange={(event) => setScope(event.target.value)}><option value="all">全体</option><option value="theme">選択中Theme</option><option value="week">今後7日</option><option value="month">今後30日</option><option value="quarter">今後90日</option><option value="open">未完了Item</option><option value="waiting">Waitingのみ</option><option value="recent_notes">直近メモ</option><option value="milestones">マイルストーン</option></select><select aria-label="書き出し形式" value={format} onChange={(event) => setFormat(event.target.value)}><option value="markdown">Markdown</option><option value="yaml">YAML</option><option value="json">JSON</option></select></div></div><textarea readOnly value={exported} /><button className="primary-button" onClick={() => workspaceApi.copyText(exported).then(() => setToast("エクスポート内容をコピーしました。"))}>コピーする</button></section><section className="panel io-panel"><div className="section-heading"><h2>読み込む</h2><span>Item / Note / Link</span></div><textarea value={text} onChange={(event) => { setText(event.target.value); setPreview(null); }} placeholder={'items:\n  - title: "測定結果を確認"\n    theme: "材料A評価"\nnotes:\n  - title: "解析方針"\n    body: "条件Bを再確認する"'} /><button className="secondary-button" onClick={parseImport}>候補を確認</button></section></div>{preview && <section className="panel import-preview"><div className="section-heading"><h2>取り込み候補</h2><span>{preview.candidates.length}件</span></div>{preview.candidates.map((candidate, index) => <div className="import-candidate" key={`${candidate.type}-${candidate.entry.title}-${index}`}><div><strong>{candidate.entry.title || "無題"}</strong><small>{candidate.type} / {candidate.theme?.name || "Theme未解決"}{candidate.duplicate ? ` / 既存候補: ${candidate.duplicate.title}` : ""}</small></div><select value={candidate.action} onChange={(event) => setPreview((current) => ({ ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) }))}><option value="create">新規作成</option>{candidate.duplicate && <option value="merge">既存を更新</option>}<option value="ignore">無視</option></select></div>)}<div className="form-actions"><button className="secondary-button" onClick={() => setPreview(null)}>戻る</button><button className="primary-button" onClick={executeImport}>取り込む</button></div></section>}</div>;
 }
 
 function SettingsPage({ data, themeMode, setThemeMode, openDrawer, setSnapshotPreview, snapshotPreview, setToast }) {
@@ -1225,7 +1296,7 @@ function SettingsPage({ data, themeMode, setThemeMode, openDrawer, setSnapshotPr
     setBusy(true);
     try {
       await workspaceApi.applySnapshot(snapshotPreview.token, snapshotPreview.decisions);
-      location.reload();
+      await workspaceApi.reload();
     } catch (error) {
       setToast(`Snapshotを反映できませんでした。${error.message}`);
       setBusy(false);

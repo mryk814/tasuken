@@ -1,15 +1,6 @@
 export const todayIso = () => new Date().toISOString().slice(0, 10);
 export const newId = () => Date.now() + Math.floor(Math.random() * 1000);
 
-export function loadState(key, fallback) {
-  try {
-    const value = localStorage.getItem(key);
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 export function formValue(data, key, fallback = "") {
   return String(data.get(key) ?? fallback).trim();
 }

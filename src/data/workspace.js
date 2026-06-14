@@ -17,23 +17,14 @@ function metadata(source = "seed") {
     created_at: timestamp,
     updated_at: timestamp,
     deleted_at: null,
-    device_id: "browser",
+    device_id: "bootstrap",
     source,
     version: 1,
   };
 }
 
-const loadLegacy = (key, fallback) => {
-  try {
-    const value = localStorage.getItem(key);
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-export function buildLegacyWorkspace() {
-  const themes = loadLegacy("rd-themes", initialThemes).map((theme) => ({
+export function buildBootstrapWorkspace() {
+  const themes = initialThemes.map((theme) => ({
     id: String(theme.id),
     name: theme.name,
     description: theme.description ?? theme.subtitle ?? "",
@@ -42,7 +33,7 @@ export function buildLegacyWorkspace() {
     ...metadata(theme.source || "legacy"),
   }));
 
-  const taskItems = loadLegacy("rd-tasks", initialTasks).map((task, index) => ({
+  const taskItems = initialTasks.map((task, index) => ({
     id: id("task", task.id),
     title: task.title,
     kind: task.kind === "inbox" ? "idea" : task.kind || "task",
@@ -69,7 +60,7 @@ export function buildLegacyWorkspace() {
     ...metadata(task.source || "legacy"),
   }));
 
-  const waitingItems = loadLegacy("rd-waiting", initialWaiting).map((item, index) => ({
+  const waitingItems = initialWaiting.map((item, index) => ({
     id: id("waiting", item.id),
     title: item.title,
     kind: "waiting",
@@ -95,7 +86,7 @@ export function buildLegacyWorkspace() {
     ...metadata(item.source || "legacy"),
   }));
 
-  const periodItems = loadLegacy("rd-phases", initialPhases).map((phase, index) => ({
+  const periodItems = initialPhases.map((phase, index) => ({
     id: id("period", phase.id),
     title: phase.label,
     kind: "period",
@@ -121,7 +112,7 @@ export function buildLegacyWorkspace() {
     ...metadata(phase.source || "legacy"),
   }));
 
-  const milestoneItems = loadLegacy("rd-milestones", initialMilestones).map((milestone, index) => ({
+  const milestoneItems = initialMilestones.map((milestone, index) => ({
     id: id("milestone", milestone.id),
     title: milestone.label,
     kind: "milestone",
@@ -146,8 +137,7 @@ export function buildLegacyWorkspace() {
     ...metadata(milestone.source || "legacy"),
   }));
 
-  const legacyNotes = loadLegacy("rd-notes", initialNotes);
-  const notes = legacyNotes.map((note) => ({
+  const notes = initialNotes.map((note) => ({
     id: id("note", note.id),
     title: note.title,
     body_markdown: note.body || "",
@@ -160,7 +150,7 @@ export function buildLegacyWorkspace() {
     ...metadata(note.source || "legacy"),
   }));
 
-  const links = legacyNotes.filter((note) => note.url).map((note) => ({
+  const links = initialNotes.filter((note) => note.url).map((note) => ({
     id: id("link", note.id),
     title: note.title,
     url: note.url,
@@ -172,7 +162,7 @@ export function buildLegacyWorkspace() {
     ...metadata("legacy"),
   }));
 
-  const people = loadLegacy("rd-people", initialPeople).map((person) => ({
+  const people = initialPeople.map((person) => ({
     id: id("person", person.id),
     name: person.name,
     role: person.role || "",

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -69,24 +69,48 @@ async function runSmokeTest(window) {
       body.value = "Electron内で入力と保存を確認しました。";
       form.requestSubmit();
       await delay(120);
+      await window.researchDesk.preferences.set("themeMode", "dark");
+      const themeMode = await window.researchDesk.preferences.get("themeMode");
+      const clipboardWritten = await window.researchDesk.clipboard.writeText("Research Desk smoke test");
 
       return {
         title: document.title,
         rootReady: Boolean(document.querySelector("#root > *")),
         saved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)})),
+        themeMode,
+        clipboardWritten,
       };
     })()
   `);
 
   window.webContents.once("did-finish-load", async () => {
     try {
-      const persisted = await window.webContents.executeJavaScript(`
-        window.researchDesk.entities.list("note")
-          .then((notes) => notes.some((note) => note.title === ${JSON.stringify(testTitle)}))
+      const afterReload = await window.webContents.executeJavaScript(`
+        Promise.all([
+          window.researchDesk.entities.list("note"),
+          window.researchDesk.preferences.get("themeMode"),
+        ]).then(([notes, themeMode]) => ({
+          persisted: notes.some((note) => note.title === ${JSON.stringify(testTitle)}),
+          themeMode,
+        }))
       `);
-      console.log(JSON.stringify({ ...created, persistedAfterReload: persisted }));
-      recordSmoke("passed", { ...created, persistedAfterReload: persisted });
-      app.exit(persisted && created.saved && created.rootReady ? 0 : 1);
+      const result = {
+        ...created,
+        persistedAfterReload: afterReload.persisted,
+        themeModeAfterReload: afterReload.themeMode,
+      };
+      console.log(JSON.stringify(result));
+      recordSmoke("passed", result);
+      app.exit(
+        result.persistedAfterReload
+        && result.saved
+        && result.rootReady
+        && result.clipboardWritten
+        && result.themeMode === "dark"
+        && result.themeModeAfterReload === "dark"
+          ? 0
+          : 1,
+      );
     } catch (error) {
       console.error(error);
       recordSmoke("reload-check-failed", { error: String(error) });
@@ -109,8 +133,8 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: !isSmokeTest,
-      preload: path.join(currentDir, "preload.mjs"),
+      sandbox: false,
+      preload: path.join(currentDir, "preload.cjs"),
     },
   });
 
@@ -164,9 +188,20 @@ function registerIpc() {
   ipcMain.handle("workspace:load", () => workspaceDb.loadWorkspace());
   ipcMain.handle("workspace:bootstrap", (_event, legacy) => workspaceDb.bootstrap(legacy));
   ipcMain.handle("workspace:meta", () => workspaceDb.getMeta());
+  ipcMain.handle("preference:get", (_event, key) => workspaceDb.getPreference(key));
+  ipcMain.handle("preference:set", (_event, key, value) => workspaceDb.setPreference(key, value));
+  ipcMain.handle("clipboard:write-text", (_event, text) => {
+    clipboard.writeText(String(text));
+    return true;
+  });
+  ipcMain.handle("app:reload", (event) => {
+    event.sender.reload();
+    return true;
+  });
   ipcMain.handle("entity:list", (_event, type, includeDeleted) => workspaceDb.list(type, includeDeleted));
   ipcMain.handle("entity:get", (_event, type, id) => workspaceDb.get(type, id));
   ipcMain.handle("entity:save", (_event, type, entity, options) => workspaceDb.save(type, entity, options));
+  ipcMain.handle("entity:save-many", (_event, operations) => workspaceDb.saveMany(operations));
   ipcMain.handle("entity:remove", (_event, type, id) => workspaceDb.remove(type, id));
   ipcMain.handle("entity:restore", (_event, type, id) => workspaceDb.restore(type, id));
 
@@ -178,7 +213,7 @@ function registerIpc() {
       filters: [{ name: "Research Desk Snapshot", extensions: ["zip"] }],
     });
     if (result.canceled || !result.filePath) return { canceled: true };
-    createSnapshot(workspaceDb.loadWorkspace()).writeZip(result.filePath);
+    createSnapshot(workspaceDb.loadWorkspace(true)).writeZip(result.filePath);
     return { canceled: false, filePath: result.filePath };
   });
 
@@ -203,7 +238,7 @@ function registerIpc() {
   ipcMain.handle("snapshot:apply", (_event, token, decisions) => {
     const snapshot = pendingSnapshots.get(token);
     if (!snapshot) throw new Error("Importプレビューの有効期限が切れました。もう一度Snapshotを選択してください。");
-    const result = workspaceDb.applySnapshot(snapshot, decisions);
+    const result = workspaceDb.applySnapshot(snapshot, decisions, snapshot.plan_revisions || []);
     pendingSnapshots.delete(token);
     return result;
   });

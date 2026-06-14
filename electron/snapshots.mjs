@@ -59,7 +59,7 @@ export function createSnapshot(workspace) {
 
   const manifest = {
     format: "research-desk-workspace",
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     schemaVersion: workspaceSchemaVersion,
     workspaceId: workspace.meta?.workspaceId,
     deviceId: workspace.meta?.deviceId,
@@ -93,6 +93,16 @@ export function readSnapshot(filePath) {
       throw new Error(`${name}のチェックサムが一致しません。Snapshotが破損している可能性があります。`);
     }
     workspace[`${type}s`] = JSON.parse(text);
+  }
+  const revisionsEntry = zip.getEntry("plan_revisions.json");
+  if (revisionsEntry) {
+    const text = revisionsEntry.getData().toString("utf8");
+    if (manifest.files?.["plan_revisions.json"] && checksum(text) !== manifest.files["plan_revisions.json"]) {
+      throw new Error("plan_revisions.jsonのチェックサムが一致しません。Snapshotが破損している可能性があります。");
+    }
+    workspace.plan_revisions = JSON.parse(text);
+  } else {
+    workspace.plan_revisions = [];
   }
   return { manifest, workspace };
 }

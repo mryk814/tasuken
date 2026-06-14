@@ -8,11 +8,11 @@
   "main": "electron/main.mjs",
   "scripts": {
     "postinstall": "electron-builder install-app-deps",
-    "dev": "vite --host 127.0.0.1",
+    "dev": "npm run desktop",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1",
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
-    "smoke:desktop": "npm run build && electron --no-sandbox --disable-gpu --disable-gpu-compositing . --smoke-test",
+    "smoke:desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing . --smoke-test",
+    "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
     "package": "npm run build && electron-builder --win nsis --config.electronDist=node_modules/electron/dist"
   },
   "devDependencies": {

@@ -10,7 +10,8 @@ npm install
 npm run dev
 ```
 
-表示先: `http://127.0.0.1:5173`
+`npm run dev`はrendererをビルドしてElectronデスクトップアプリを起動します。
+ブラウザ単体での起動と`localStorage`保存には対応していません。
 
 ## ビルド
 
@@ -18,18 +19,16 @@ npm run dev
 npm run build
 ```
 
-## デスクトップ版
-
-開発用に起動:
-
-```powershell
-npm run desktop
-```
-
 Electron内の入力・保存・再読み込みを自動確認:
 
 ```powershell
 npm run smoke:desktop
+```
+
+データ検証、transaction、Snapshot往復を自動確認:
+
+```powershell
+npm run smoke:model
 ```
 
 Windowsインストーラーを作成:
