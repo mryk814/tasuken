@@ -181,31 +181,6 @@ export function buildLegacyWorkspace() {
     ...metadata(person.source || "legacy"),
   }));
 
-  const views = [
-    {
-      id: "view-next-90",
-      name: "次の90日",
-      view_type: "gantt",
-      filters_json: { horizon: 90, completed: false },
-      sort_json: { field: "due_date", direction: "asc" },
-      visible_columns_json: ["title", "status", "planned_start", "planned_end", "progress"],
-      scale: "quarter",
-      is_default: true,
-      ...metadata("seed"),
-    },
-    {
-      id: "view-unscheduled",
-      name: "日程未確定",
-      view_type: "table",
-      filters_json: { schedule_status: ["unscheduled"] },
-      sort_json: { field: "updated_at", direction: "desc" },
-      visible_columns_json: ["title", "theme_id", "status", "schedule_status"],
-      scale: "month",
-      is_default: false,
-      ...metadata("seed"),
-    },
-  ];
-
   return {
     themes,
     items: [...taskItems, ...waitingItems, ...periodItems, ...milestoneItems],
@@ -213,7 +188,7 @@ export function buildLegacyWorkspace() {
     links,
     people,
     dependencys: [],
-    views,
+    views: [],
     status_updates: [],
     source_records: [],
     entity_sources: [],
@@ -246,4 +221,3 @@ export function emptyWorkspace() {
     meta: {},
   };
 }
-

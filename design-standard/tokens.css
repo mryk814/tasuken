@@ -12,14 +12,16 @@
   --color-accent-active:     #5E1F28;
   --color-accent-strong:     #5E1F28; /* アクセント色面の上に置く濃い文字 */
   --color-accent-subtle-bg:  #FBF3F4; /* 選択行・タグ等のごく淡い背景 */
+  --color-accent-subtle-bg-strong: #F3DCE0; /* 現在地・選択中の強めの淡背景（淡背景だけに頼らせない補強） */
   --color-accent-subtle-bd:  #E6BCC1;
   --color-on-accent:         #FFFFFF; /* アクセント色面の上の文字（白でコントラスト確保） */
 
-  /* ---- Surfaces (warm neutrals) ---- */
-  --color-bg:                #F4EEEC; /* アプリ全体の背景 */
+  /* ---- Surfaces (warm neutrals) ----
+     背景〜面の明度差を確保して奥行きを作る（影に頼らず階層を出すための土台）。 */
+  --color-bg:                #ECE2DF; /* アプリ全体の背景（白いパネルと明度差を確保） */
   --color-surface:           #FFFFFF; /* 主要なカード・パネル */
-  --color-surface-subtle:    #F9F4F4; /* 入れ子のカード・入力欄・指標カード */
-  --color-surface-muted:     #EFE7E5; /* ホバー行・無効状態 */
+  --color-surface-subtle:    #F7F1F1; /* 入れ子のカード・入力欄・指標カード */
+  --color-surface-muted:     #E7DCD9; /* ホバー行・無効状態 */
 
   /* ---- Text ---- */
   --color-text:              #26201E; /* 本文・見出し */
@@ -51,6 +53,29 @@
   --color-info-strong:       #1C557D;
   --color-info-bg:           #E8F1F8;
   --color-info-bd:           #C3DCEE;
+
+  /* ---- Workflow status palette（固定の状態enum専用＝第4の役割。
+         danger/success 等の「意味固定色」とも chart-* の「区別だけ」とも別ロール。
+         能動的な状態を前に出し、終端・不明はニュートラルへ後退させる。色は補助、テキストは必須。
+         意味固定色を別名参照しているのでライト/ダークに自動追従する（review のみ独自値）。 ---- */
+  --color-status-idle-fg:    var(--color-text-secondary); /* 未着手・inbox・計画中（未起動） */
+  --color-status-idle-bg:    var(--color-surface-muted);
+  --color-status-idle-bd:    var(--color-border);
+  --color-status-active-fg:  var(--color-info-strong);    /* 進行中（最も前に出す能動状態） */
+  --color-status-active-bg:  var(--color-info-bg);
+  --color-status-active-bd:  var(--color-info-bd);
+  --color-status-review-fg:  #564AA8;                     /* 確認待ち・レビュー中 */
+  --color-status-review-bg:  #EEEBFA;
+  --color-status-review-bd:  #D6CEF0;
+  --color-status-blocked-fg: var(--color-warning-strong); /* 待ち・保留（自分以外で止まっている） */
+  --color-status-blocked-bg: var(--color-warning-bg);
+  --color-status-blocked-bd: var(--color-warning-bd);
+  --color-status-done-fg:    var(--color-success-strong); /* 完了（達成。彩度低めで後退） */
+  --color-status-done-bg:    var(--color-success-bg);
+  --color-status-done-bd:    var(--color-success-bd);
+  --color-status-dropped-fg: var(--color-text-tertiary);  /* 中止・archived（最も後退） */
+  --color-status-dropped-bg: var(--color-surface-subtle);
+  --color-status-dropped-bd: var(--color-border-subtle);
 
   /* ---- Data visualization（カテゴリ系列。この順で使う） ---- */
   --color-chart-1:           #8A2F3B;
@@ -94,6 +119,7 @@
   --text-lg:                 16px; /* セクション見出し */
   --text-xl:                 20px; /* ページ見出し・指標数値 */
   --text-2xl:                24px; /* 大きな数値 */
+  --text-3xl:                30px; /* ヒーロー数値（画面内で主役の指標を1つだけ際立たせる） */
 
   --lh-tight:                1.3;
   --lh-base:                 1.55;
@@ -120,6 +146,7 @@
   --color-accent-active:     #A53F4D;
   --color-accent-strong:     #E0929C; /* 暗背景上のリンク文字 */
   --color-accent-subtle-bg:  #2F1E21;
+  --color-accent-subtle-bg-strong: #45272D;
   --color-accent-subtle-bd:  #5A3338;
   --color-on-accent:         #FFFFFF;
 
@@ -141,6 +168,9 @@
   --color-warning:           #D89B4E; --color-warning-strong:#D89B4E; --color-warning-bg:#2A2114; --color-warning-bd:#4D3D22;
   --color-info:              #5FA3D6; --color-info-strong:   #5FA3D6; --color-info-bg:   #16242F; --color-info-bd:   #294454;
 
+  /* Workflow status: review のみ独自値（他は意味固定色の別名参照で自動追従） */
+  --color-status-review-fg:  #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
+
   --color-chart-1:           #D06A78;
   --color-chart-2:           #67A9D8;
   --color-chart-3:           #63BD91;
@@ -159,7 +189,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --color-accent: #BD4F5D; --color-accent-hover: #CB6371; --color-accent-active: #A53F4D;
-    --color-accent-strong: #E0929C; --color-accent-subtle-bg: #2F1E21; --color-accent-subtle-bd: #5A3338;
+    --color-accent-strong: #E0929C; --color-accent-subtle-bg: #2F1E21; --color-accent-subtle-bg-strong: #45272D; --color-accent-subtle-bd: #5A3338;
     --color-bg: #191412; --color-surface: #221B19; --color-surface-subtle: #2B2220; --color-surface-muted: #342927;
     --color-text: #F1EAE7; --color-text-secondary: #B7ABA6; --color-text-tertiary: #8A7E79;
     --color-border-subtle: #332927; --color-border: #4A3236; --color-border-strong: #5E3F43;
@@ -167,6 +197,7 @@
     --color-success: #5BB98B; --color-success-strong: #5BB98B; --color-success-bg: #16271F; --color-success-bd: #2E4A3A;
     --color-warning: #D89B4E; --color-warning-strong: #D89B4E; --color-warning-bg: #2A2114; --color-warning-bd: #4D3D22;
     --color-info: #5FA3D6; --color-info-strong: #5FA3D6; --color-info-bg: #16242F; --color-info-bd: #294454;
+    --color-status-review-fg: #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
     --color-chart-1: #D06A78; --color-chart-2: #67A9D8; --color-chart-3: #63BD91;
     --color-chart-4: #DCA45D; --color-chart-5: #9A8BE0; --color-chart-6: #B7ABA6;
     --focus-ring: 0 0 0 3px rgba(189, 79, 93, 0.45);

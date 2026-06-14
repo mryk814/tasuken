@@ -47,20 +47,16 @@ const ENTITY_KEYS = {
   log_entry: "log_entries",
   import_batch: "import_batchs",
 };
-const NAV_ITEMS = [
+const PRIMARY_NAV_ITEMS = [
   ["home", "今日"],
   ["todo", "ToDo"],
-  ["inbox", "Inbox"],
   ["timeline", "Timeline"],
-  ["milestones", "Milestone Map"],
   ["themes", "Themes"],
   ["notes", "Notes"],
-  ["links", "Links"],
   ["waiting", "Waiting"],
-  ["views", "Saved Views"],
-  ["logs", "Logs"],
+];
+const TOOL_NAV_ITEMS = [
   ["ai-io", "AI Import / Export"],
-  ["stats", "Stats"],
   ["settings", "Settings"],
 ];
 
@@ -81,11 +77,25 @@ const formText = (data, key, fallback = "") => String(data.get(key) ?? fallback)
 const activeRecords = (records = []) => records.filter((record) => !record.deleted_at);
 const uuid = () => crypto.randomUUID();
 
+// ワークフロー状態 → 状態色トーン（tokens.css の status パレット／styles.css の .status-badge.*）。
+// 能動的な状態（進行中）を前に、終端（完了・中止）を後退させる。未着手・分類タグは idle（中立）。
 function statusTone(status) {
-  if (status === "done" || status === "completed" || status === "on_track") return "success";
-  if (status === "waiting" || status === "at_risk" || status === "paused") return "warning";
-  if (status === "cancelled" || status === "delayed" || status === "open") return "danger";
-  return "neutral";
+  switch (status) {
+    case "done": case "completed": case "on_track": case "完了":
+      return "done";
+    case "doing": case "進行中":
+      return "active";
+    case "review": case "確認待ち":
+      return "review";
+    case "waiting": case "at_risk": case "paused": case "待ち": case "保留":
+      return "blocked";
+    case "delayed": case "open":
+      return "danger"; // 遅延・未解決など明確な問題系のみ警告の赤
+    case "cancelled": case "中止":
+      return "dropped";
+    default:
+      return "idle"; // inbox / todo / 計画中 / note_type・link_type 等の分類
+  }
 }
 
 function entityTitle(type, entity) {
@@ -398,22 +408,6 @@ export function App() {
         next_actions: formText(values, "next_actions"),
       };
       if (!entity.summary) return setToast("現在地の概要を入力してください。");
-    } else if (type === "view") {
-      entity = {
-        ...base,
-        name: formText(values, "name"),
-        view_type: formText(values, "view_type", "table"),
-        filters_json: {
-          status: formText(values, "filter_status") || null,
-          schedule_status: formText(values, "filter_schedule") || null,
-          theme_id: formText(values, "theme_id") || null,
-        },
-        sort_json: { field: formText(values, "sort_field", "due_date"), direction: "asc" },
-        visible_columns_json: ["title", "status", "theme_id", "due_date"],
-        scale: formText(values, "scale", "quarter"),
-        is_default: values.get("is_default") === "on",
-      };
-      if (!entity.name) return setToast("ビュー名を入力してください。");
     } else if (type === "source_record") {
       entity = {
         ...base,
@@ -425,20 +419,6 @@ export function App() {
         summary: formText(values, "summary"),
       };
       if (!entity.source_title) return setToast("情報源のタイトルを入力してください。");
-    } else if (type === "log_entry") {
-      entity = {
-        ...base,
-        log_type: formText(values, "log_type", "risk"),
-        theme_id: formText(values, "theme_id") || null,
-        item_id: formText(values, "item_id") || null,
-        title: formText(values, "title"),
-        body: formText(values, "body"),
-        severity: formText(values, "severity", "medium"),
-        probability: formText(values, "probability", "medium"),
-        impact: formText(values, "impact"),
-        status: formText(values, "status", "open"),
-      };
-      if (!entity.title) return setToast("タイトルを入力してください。");
     } else if (type === "field_definition") {
       entity = {
         ...base,
@@ -526,17 +506,12 @@ export function App() {
   const pages = {
     home: <HomePage {...common} />,
     todo: <TodoPage {...common} />,
-    inbox: <InboxPage {...common} />,
     timeline: <TimelinePage {...common} />,
     milestones: <MilestonePage {...common} />,
     themes: <ThemesPage {...common} />,
     notes: <NotesPage {...common} />,
-    links: <LinksPage {...common} />,
     waiting: <WaitingPage {...common} />,
-    views: <SavedViewsPage {...common} />,
-    logs: <LogsPage {...common} />,
     "ai-io": <ImportExportPage {...common} />,
-    stats: <StatsPage {...common} />,
     settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} />,
   };
 
@@ -601,12 +576,12 @@ function Sidebar({ route, navigate, themes, activeThemeId, setActiveThemeId, qui
   const waiting = items.filter((item) => item.status === "waiting" || item.kind === "waiting").length;
   return (
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">RD</span><div><strong>Research Desk</strong><small>研究開発の現在地</small></div></div>
+      <div className="brand"><span className="brand-mark">RD</span><div><strong>Research Desk</strong></div></div>
       <nav className="primary-nav" aria-label="メインナビゲーション">
-        {NAV_ITEMS.map(([id, label]) => (
+        {PRIMARY_NAV_ITEMS.map(([id, label]) => (
           <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
             <span>{label}</span>
-            {id === "inbox" && inbox > 0 && <span className="count">{inbox}</span>}
+            {id === "todo" && inbox > 0 && <span className="count">{inbox}</span>}
             {id === "waiting" && waiting > 0 && <span className="count">{waiting}</span>}
           </button>
         ))}
@@ -619,8 +594,15 @@ function Sidebar({ route, navigate, themes, activeThemeId, setActiveThemeId, qui
           </button>
         ))}
       </div>
+      <nav className="primary-nav utility-nav" aria-label="補助ナビゲーション">
+        {TOOL_NAV_ITEMS.map(([id, label]) => (
+          <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
       <div className="quick-capture">
-        <strong>Quick Capture</strong>
+        <strong>クイック記録</strong>
         <textarea value={quickText} onChange={(event) => setQuickText(event.target.value)} placeholder="タスク・メモ・アイデア" />
         <button className="primary-button" onClick={addQuickCapture}>Inboxに記録</button>
       </div>
@@ -628,8 +610,8 @@ function Sidebar({ route, navigate, themes, activeThemeId, setActiveThemeId, qui
   );
 }
 
-function PageHeader({ title, subtitle, children }) {
-  return <header className="page-header"><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div><div className="header-actions">{children}</div></header>;
+function PageHeader({ title, children }) {
+  return <header className="page-header"><h1>{title}</h1><div className="header-actions">{children}</div></header>;
 }
 
 function HomePage({ data, activeTheme, items, notes, links, openDrawer, navigate }) {
@@ -640,7 +622,6 @@ function HomePage({ data, activeTheme, items, notes, links, openDrawer, navigate
   const milestones = open.filter((item) => item.kind === "milestone").sort(compareDate);
   const updates = (data.status_updates || []).filter((entry) => entry.theme_id === activeTheme.id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const latest = updates[0];
-  const logs = (data.log_entries || []).filter((entry) => entry.theme_id === activeTheme.id && !["resolved", "closed", "cancelled"].includes(entry.status));
   return (
     <div className="page">
       <PageHeader title={activeTheme.name} subtitle={activeTheme.description}>
@@ -648,16 +629,15 @@ function HomePage({ data, activeTheme, items, notes, links, openDrawer, navigate
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })}>現在地を記録</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { theme_id: activeTheme.id } })}>項目を追加</button>
       </PageHeader>
-      <div className="metric-grid">
-        <Metric label="未完了" value={open.length} />
+      <div className="metric-grid home-metrics">
+        <Metric label="未完了" value={open.length} tone="primary" />
         <Metric label="待ち" value={waiting.length} />
         <Metric label="マイルストーン" value={milestones.length} />
-        <Metric label="未解決ログ" value={logs.length} />
       </div>
       <div className="dashboard-grid">
         <section className="panel">
           <div className="section-heading"><h2>現在地</h2><span>{latest ? formatDate(latest.date) : "未記録"}</span></div>
-          {latest ? <div className="status-summary"><StatusBadge value={latest.status} label={latest.status} /><strong>{latest.summary}</strong><p>{latest.risks || "リスク記載なし"}</p><p><b>次:</b> {latest.next_actions || "—"}</p></div> : <EmptyState title="現在地がまだありません" action="記録する" onAction={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })} />}
+          {latest ? <div className="status-summary"><StatusBadge value={latest.status} label={latest.status} /><strong>{latest.summary}</strong>{latest.risks && <p>{latest.risks}</p>}{latest.next_actions && <p><b>次:</b> {latest.next_actions}</p>}</div> : <EmptyState title="現在地がまだありません" action="記録する" onAction={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })} />}
         </section>
         <section className="panel">
           <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("milestones")}>一覧を開く</button></div>
@@ -670,7 +650,7 @@ function HomePage({ data, activeTheme, items, notes, links, openDrawer, navigate
           <SimpleRows records={open.filter((item) => item.kind === "task" || item.kind === "deliverable").sort(compareDate).slice(0, 7)} onOpen={(item) => openDrawer({ type: "item", entity: item })} meta={(item) => formatDate(item.due_date)} />
         </section>
         <section className="panel">
-          <div className="section-heading"><h2>最近のメモ・リンク</h2><span>{notes.filter((note) => note.theme_id === activeTheme.id).length + links.filter((link) => link.theme_id === activeTheme.id).length}件</span></div>
+          <div className="section-heading"><h2>最近のメモ</h2><span>{notes.filter((note) => note.theme_id === activeTheme.id).length}件</span></div>
           <SimpleRows records={notes.filter((note) => note.theme_id === activeTheme.id).slice(0, 5)} onOpen={(note) => openDrawer({ type: "note", entity: note })} meta={(note) => note.note_type} />
         </section>
       </div>
@@ -680,48 +660,26 @@ function HomePage({ data, activeTheme, items, notes, links, openDrawer, navigate
 
 function TodoPage({ themes, items, openDrawer, saveEntity, toggleItem, setToast }) {
   const [filter, setFilter] = useState("open");
-  const [quick, setQuick] = useState("");
   const [selected, setSelected] = useState([]);
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pastePreview, setPastePreview] = useState([]);
   const [shiftDays, setShiftDays] = useState(7);
   const today = todayIso();
-  const monthStart = today.slice(0, 7);
-  const tasks = items.filter((item) => ["task", "deliverable", "reminder"].includes(item.kind) || item.is_personal_task);
+  const tasks = items.filter((item) => item.status === "inbox" || ["task", "deliverable", "reminder"].includes(item.kind) || item.is_personal_task);
   const counters = {
     today: tasks.filter((item) => item.status !== "done" && item.due_date === today).length,
-    week: tasks.filter((item) => item.status !== "done" && item.due_date && daysBetween(today, item.due_date) >= 0 && daysBetween(today, item.due_date) <= 7).length,
     overdue: tasks.filter((item) => item.status !== "done" && item.due_date && item.due_date < today).length,
-    completed: tasks.filter((item) => item.status === "done" && String(item.completed_at || item.updated_at).startsWith(monthStart)).length,
-    waiting: items.filter((item) => item.status === "waiting" || item.kind === "waiting").length,
+    inbox: tasks.filter((item) => item.status === "inbox").length,
     unscheduled: tasks.filter((item) => item.status !== "done" && item.schedule_status === "unscheduled").length,
   };
   const visible = tasks.filter((item) => {
     if (filter === "done") return item.status === "done";
+    if (filter === "inbox") return item.status === "inbox";
     if (filter === "unscheduled") return item.status !== "done" && item.schedule_status === "unscheduled";
     if (filter === "overdue") return item.status !== "done" && item.due_date && item.due_date < today;
-    return item.status !== "done";
+    return item.status !== "done" && item.status !== "inbox";
   }).sort(compareDate);
-
-  async function add(event) {
-    event.preventDefault();
-    if (!quick.trim()) return;
-    await saveEntity("item", {
-      title: quick.trim(),
-      kind: "task",
-      theme_id: null,
-      status: "todo",
-      priority: "normal",
-      schedule_status: "unscheduled",
-      schedule_confidence: "rough",
-      date_granularity: "unknown",
-      is_personal_task: true,
-      sort_order: items.length,
-      progress: 0,
-    });
-    setQuick("");
-  }
 
   async function bulkUpdate(field, value) {
     await Promise.all(selected.map((id) => {
@@ -797,17 +755,11 @@ function TodoPage({ themes, items, openDrawer, saveEntity, toggleItem, setToast 
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "task" } })}>タスクを追加</button>
       </PageHeader>
       <div className="metric-grid todo-metrics">
-        <Metric label="今日やる" value={counters.today} />
-        <Metric label="1週間以内" value={counters.week} />
+        <Metric label="今日やる" value={counters.today} tone="primary" />
         <Metric label="期限超過" value={counters.overdue} tone="danger" />
-        <Metric label="今月完了" value={counters.completed} />
-        <Metric label="Waiting" value={counters.waiting} tone="warning" />
+        <Metric label="Inbox" value={counters.inbox} />
         <Metric label="日程未確定" value={counters.unscheduled} />
       </div>
-      <form className="quick-add-row panel" onSubmit={add}>
-        <input value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Enterで個人業務タスクを追加" aria-label="タスク名" />
-        <button className="primary-button">追加する</button>
-      </form>
       {showPaste && (
         <section className="panel paste-panel">
           <div className="section-heading"><h2>表から追加</h2><span>タイトル / Theme / 期限 / 状態 / 説明</span></div>
@@ -819,7 +771,7 @@ function TodoPage({ themes, items, openDrawer, saveEntity, toggleItem, setToast 
       <section className="panel list-page">
         <div className="list-toolbar">
           <div className="segmented">
-            {[["open", "未完了"], ["overdue", "期限超過"], ["unscheduled", "日程未確定"], ["done", "完了"]].map(([id, label]) => <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{label}</button>)}
+            {[["open", "未完了"], ["inbox", "Inbox"], ["overdue", "期限超過"], ["unscheduled", "日程未確定"], ["done", "完了"]].map(([id, label]) => <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{label}</button>)}
           </div>
           {selected.length > 0 && <div className="inline-actions bulk-actions"><span>{selected.length}件選択</span><button className="secondary-button compact" onClick={() => bulkUpdate("status", "done")}>完了にする</button><select aria-label="Themeを一括変更" onChange={(event) => event.target.value && bulkUpdate("theme_id", event.target.value)} defaultValue=""><option value="">Theme変更</option>{themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}</select><input className="shift-days" aria-label="日程を移動する日数" type="number" value={shiftDays} onChange={(event) => setShiftDays(Number(event.target.value) || 0)} /><button className="secondary-button compact" onClick={shiftSelected}>日程を移動</button></div>}
         </div>
@@ -829,7 +781,9 @@ function TodoPage({ themes, items, openDrawer, saveEntity, toggleItem, setToast 
             <div className="table-row" key={item.id}>
               <input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} aria-label={`${item.title}を選択`} />
               <button className="row-title" onClick={() => openDrawer({ type: "item", entity: item })}>{item.title}</button>
-              <button className="check-action" onClick={() => toggleItem(item)}>{item.status === "done" ? "戻す" : "完了"}</button>
+              {item.status === "inbox"
+                ? <button className="check-action" onClick={() => saveEntity("item", { ...item, status: "todo", kind: item.kind === "idea" ? "task" : item.kind })}>整理</button>
+                : <button className="check-action" onClick={() => toggleItem(item)}>{item.status === "done" ? "戻す" : "完了"}</button>}
               <span>{themes.find((theme) => theme.id === item.theme_id)?.name || "個人業務"}</span>
               <span className="num">{item.date_text || formatDate(item.due_date)}</span>
             </div>
@@ -841,20 +795,7 @@ function TodoPage({ themes, items, openDrawer, saveEntity, toggleItem, setToast 
   );
 }
 
-function InboxPage({ items, openDrawer, saveEntity }) {
-  const inbox = items.filter((item) => item.status === "inbox");
-  return (
-    <div className="page">
-      <PageHeader title="Inbox" subtitle="未整理の記録をThemeや種別へ振り分けます。"><button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { status: "inbox", kind: "idea" } })}>記録する</button></PageHeader>
-      <section className="panel list-page">
-        {inbox.map((item) => <div className="wide-row" key={item.id}><button className="row-title" onClick={() => openDrawer({ type: "item", entity: item })}>{item.title}</button><button className="secondary-button compact" onClick={() => saveEntity("item", { ...item, status: "todo", kind: item.kind === "idea" ? "task" : item.kind })}>ToDoへ移す</button></div>)}
-        {!inbox.length && <EmptyState title="Inboxは空です" action="記録する" onAction={() => openDrawer({ type: "item", mode: "edit", entity: { status: "inbox" } })} />}
-      </section>
-    </div>
-  );
-}
-
-function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast }) {
+function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast, navigate }) {
   const [scale, setScale] = useState("quarter");
   const [themeFilter, setThemeFilter] = useState("all");
   const [showCompleted, setShowCompleted] = useState(false);
@@ -900,6 +841,7 @@ function TimelinePage({ data, themes, items, openDrawer, saveEntity, setToast })
     <div className="page timeline-wide">
       <PageHeader title="Timeline" subtitle="左表で現在地を読み、右の時間軸で予定を調整します。">
         <button className="secondary-button" onClick={scrollToday}>今日へ移動</button>
+        <button className="secondary-button" onClick={() => navigate("milestones")}>マイルストーン</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "period", schedule_status: "scheduled" } })}>期間予定を追加</button>
       </PageHeader>
       <section className="timeline-toolbar panel">
@@ -1087,20 +1029,22 @@ function ThemesPage({ themes, items, data, activeThemeId, setActiveThemeId, navi
   );
 }
 
-function NotesPage({ themes, notes, openDrawer, setToast }) {
+function NotesPage({ themes, notes, links, openDrawer, setToast }) {
   const [query, setQuery] = useState("");
-  const visible = notes.filter((note) => `${note.title} ${note.body_markdown}`.toLowerCase().includes(query.toLowerCase()));
+  const records = [
+    ...notes.map((note) => ({ ...note, recordType: "note" })),
+    ...links
+      .filter((link) => !notes.some((note) => note.source_url && note.source_url === link.url))
+      .map((link) => ({ ...link, recordType: "link" })),
+  ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  const visible = records.filter((record) =>
+    `${record.title} ${record.body_markdown || record.description || ""} ${record.url || record.source_url || ""}`
+      .toLowerCase()
+      .includes(query.toLowerCase()));
   function copy() {
-    navigator.clipboard.writeText(visible.map((note) => `${note.title}\t${note.note_type}\t${themes.find((theme) => theme.id === note.theme_id)?.name || "—"}`).join("\n")).then(() => setToast("メモ一覧をコピーしました。"));
+    navigator.clipboard.writeText(visible.map((record) => `${record.title}\t${record.recordType === "link" ? "link" : record.note_type}\t${themes.find((theme) => theme.id === record.theme_id)?.name || "—"}\t${record.url || record.source_url || ""}`).join("\n")).then(() => setToast("Notes一覧をコピーしました。"));
   }
-  return <div className="page"><PageHeader title="Notes" subtitle="Markdownメモ、判断、会議、AI壁打ちを蓄積します。"><button className="secondary-button" onClick={copy}>一覧をコピー</button><button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button></PageHeader><div className="filter-bar panel"><input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトルと本文を検索" /><span>{visible.length}件</span></div><section className="panel list-page"><SimpleRows records={visible} onOpen={(note) => openDrawer({ type: "note", entity: note })} meta={(note) => `${note.note_type} / ${themes.find((theme) => theme.id === note.theme_id)?.name || "Themeなし"}`} />{!visible.length && <EmptyState title="一致するメモはありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}</section></div>;
-}
-
-function LinksPage({ themes, links, openDrawer, setToast }) {
-  function copy() {
-    navigator.clipboard.writeText(links.map((link) => `${link.title}\t${link.url}\t${themes.find((theme) => theme.id === link.theme_id)?.name || "—"}`).join("\n")).then(() => setToast("リンク一覧をコピーしました。"));
-  }
-  return <div className="page"><PageHeader title="Links" subtitle="成果物、資料、会議、AIチャットへの導線です。"><button className="secondary-button" onClick={copy}>一覧をコピー</button><button className="primary-button" onClick={() => openDrawer({ type: "link", mode: "edit", entity: {} })}>リンクを追加</button></PageHeader><section className="panel list-page">{links.map((link) => <div className="wide-row" key={link.id}><button className="row-title" onClick={() => openDrawer({ type: "link", entity: link })}>{link.title}</button><div className="inline-actions"><span>{link.link_type}</span><a className="secondary-button compact" href={link.url} target="_blank" rel="noreferrer">開く</a></div></div>)}{!links.length && <EmptyState title="リンクはありません" action="追加する" onAction={() => openDrawer({ type: "link", mode: "edit", entity: {} })} />}</section></div>;
+  return <div className="page"><PageHeader title="Notes"><button className="secondary-button" onClick={copy}>一覧をコピー</button><button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button></PageHeader><div className="filter-bar panel"><input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" /><span>{visible.length}件</span></div><section className="panel list-page">{visible.map((record) => <div className="note-row" key={`${record.recordType}-${record.id}`}><button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, entity: record })}><span className="note-row-head"><StatusBadge value="neutral" label={record.recordType === "link" ? "link" : record.note_type} /><strong className="note-row-title">{record.title}</strong>{record.recordType === "note" && record.comments?.length > 0 && <span className="comment-count" aria-label={`${record.comments.length}件のコメント`}>{record.comments.length}</span>}</span><span className="note-row-body">{record.body_markdown || record.description || record.url || "本文なし"}</span></button>{(record.source_url || record.url) && <a className="secondary-button compact note-row-open" href={record.source_url || record.url} target="_blank" rel="noreferrer">開く</a>}</div>)}{!visible.length && <EmptyState title="一致するメモはありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}</section></div>;
 }
 
 function WaitingPage({ themes, items, openDrawer, setToast }) {
@@ -1109,21 +1053,6 @@ function WaitingPage({ themes, items, openDrawer, setToast }) {
     navigator.clipboard.writeText(waiting.map((item) => `${item.title}\t${item.waiting_for || "—"}\t${item.due_date || "—"}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}`).join("\n")).then(() => setToast("Waiting一覧をコピーしました。"));
   }
   return <div className="page"><PageHeader title="Waiting" subtitle="誰を、何を、いつまで待っているかを確認します。"><button className="secondary-button" onClick={copy}>一覧をコピー</button><button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "waiting", status: "waiting" } })}>待ちを追加</button></PageHeader><section className="panel list-page">{waiting.map((item) => <button className="waiting-row" key={item.id} onClick={() => openDrawer({ type: "item", entity: item })}><div><StatusBadge value="waiting" label="待ち" /><strong>{item.title}</strong><span>{themes.find((theme) => theme.id === item.theme_id)?.name || "—"}</span></div><div><time>{formatDate(item.due_date)}</time><small>{item.waiting_for || "待ち相手未設定"}</small></div></button>)}{!waiting.length && <EmptyState title="待ちはありません" action="追加する" onAction={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "waiting", status: "waiting" } })} />}</section></div>;
-}
-
-function SavedViewsPage({ data, themes, items, openDrawer, removeEntity }) {
-  const [active, setActive] = useState(data.views?.[0]?.id || "");
-  const view = (data.views || []).find((entry) => entry.id === active);
-  const visible = applyView(items, view);
-  return <div className="page"><PageHeader title="Saved Views" subtitle="よく使う見方を保存し、同じ条件をすぐ再現します。"><button className="primary-button" onClick={() => openDrawer({ type: "view", mode: "edit", entity: {} })}>ビューを保存</button></PageHeader><div className="saved-view-layout"><aside className="panel saved-view-list">{(data.views || []).map((entry) => <button key={entry.id} className={active === entry.id ? "is-active" : ""} onClick={() => setActive(entry.id)}>{entry.name}<small>{entry.view_type}</small></button>)}</aside><section className="panel list-page">{view && <div className="section-heading"><h2>{view.name}</h2><div className="inline-actions"><button className="secondary-button compact" onClick={() => openDrawer({ type: "view", mode: "edit", entity: view })}>更新</button><button className="danger-button compact" onClick={() => removeEntity("view", view)}>削除</button></div></div>}<SimpleRows records={visible} onOpen={(item) => openDrawer({ type: "item", entity: item })} meta={(item) => `${themes.find((theme) => theme.id === item.theme_id)?.name || "—"} / ${formatDate(item.due_date)}`} /></section></div></div>;
-}
-
-function LogsPage({ data, themes, openDrawer, setToast }) {
-  const logs = data.log_entries || [];
-  function copy() {
-    navigator.clipboard.writeText(logs.map((entry) => `${entry.log_type}\t${entry.title}\t${entry.status}\t${entry.impact || ""}`).join("\n")).then(() => setToast("ログ一覧をコピーしました。"));
-  }
-  return <div className="page"><PageHeader title="Risk / Issue / Decision" subtitle="判断、リスク、課題、仮説を型付きで残します。"><button className="secondary-button" onClick={copy}>一覧をコピー</button><button className="primary-button" onClick={() => openDrawer({ type: "log_entry", mode: "edit", entity: {} })}>ログを追加</button></PageHeader><section className="panel list-page">{logs.map((entry) => <button className="wide-row" key={entry.id} onClick={() => openDrawer({ type: "log_entry", mode: "edit", entity: entry })}><div className="badge-row"><StatusBadge value={entry.status} label={entry.log_type} /><strong>{entry.title}</strong></div><span>{themes.find((theme) => theme.id === entry.theme_id)?.name || "Themeなし"} / {entry.status}</span></button>)}{!logs.length && <EmptyState title="ログはありません" action="追加する" onAction={() => openDrawer({ type: "log_entry", mode: "edit", entity: {} })} />}</section></div>;
 }
 
 function ImportExportPage({ data, themes, items, activeTheme, saveEntity, setToast }) {
@@ -1225,20 +1154,6 @@ function ImportExportPage({ data, themes, items, activeTheme, saveEntity, setToa
   return <div className="page"><PageHeader title="AI Import / Export" subtitle="構造化データをプレビューしてから安全に取り込みます。" /><div className="io-grid"><section className="panel io-panel"><div className="section-heading"><h2>書き出す</h2><div className="inline-actions"><select aria-label="書き出す範囲" value={scope} onChange={(event) => setScope(event.target.value)}><option value="all">全体</option><option value="theme">選択中Theme</option><option value="week">今後7日</option><option value="month">今後30日</option><option value="quarter">今後90日</option><option value="open">未完了Item</option><option value="waiting">Waitingのみ</option><option value="recent_notes">直近メモ</option><option value="milestones">マイルストーン</option></select><select aria-label="書き出し形式" value={format} onChange={(event) => setFormat(event.target.value)}><option value="markdown">Markdown</option><option value="yaml">YAML</option><option value="json">JSON</option></select></div></div><textarea readOnly value={exported} /><button className="primary-button" onClick={() => navigator.clipboard.writeText(exported).then(() => setToast("エクスポート内容をコピーしました。"))}>コピーする</button></section><section className="panel io-panel"><div className="section-heading"><h2>読み込む</h2><span>Item / Note / Link</span></div><textarea value={text} onChange={(event) => { setText(event.target.value); setPreview(null); }} placeholder={'items:\n  - title: "測定結果を確認"\n    theme: "材料A評価"\nnotes:\n  - title: "解析方針"\n    body: "条件Bを再確認する"'} /><button className="secondary-button" onClick={parseImport}>候補を確認</button></section></div>{preview && <section className="panel import-preview"><div className="section-heading"><h2>取り込み候補</h2><span>{preview.candidates.length}件</span></div>{preview.candidates.map((candidate, index) => <div className="import-candidate" key={`${candidate.type}-${candidate.entry.title}-${index}`}><div><strong>{candidate.entry.title || "無題"}</strong><small>{candidate.type} / {candidate.theme?.name || "Theme未解決"}{candidate.duplicate ? ` / 既存候補: ${candidate.duplicate.title}` : ""}</small></div><select value={candidate.action} onChange={(event) => setPreview((current) => ({ ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) }))}><option value="create">新規作成</option>{candidate.duplicate && <option value="merge">既存を更新</option>}<option value="ignore">無視</option></select></div>)}<div className="form-actions"><button className="secondary-button" onClick={() => setPreview(null)}>戻る</button><button className="primary-button" onClick={executeImport}>取り込む</button></div></section>}</div>;
 }
 
-function StatsPage({ themes, items, notes, data, setToast }) {
-  const rows = themes.map((theme) => ({
-    theme,
-    open: items.filter((item) => item.theme_id === theme.id && item.status !== "done").length,
-    done: items.filter((item) => item.theme_id === theme.id && item.status === "done").length,
-    waiting: items.filter((item) => item.theme_id === theme.id && (item.status === "waiting" || item.kind === "waiting")).length,
-    notes: notes.filter((note) => note.theme_id === theme.id).length,
-  }));
-  function copy() {
-    navigator.clipboard.writeText(["テーマ\t未完了\t完了\t待ち\tメモ", ...rows.map((row) => `${row.theme.name}\t${row.open}\t${row.done}\t${row.waiting}\t${row.notes}`)].join("\n")).then(() => setToast("統計をコピーしました。"));
-  }
-  return <div className="page"><PageHeader title="Stats" subtitle="運用状況を軽く確認します。"><button className="secondary-button" onClick={copy}>一覧をコピー</button></PageHeader><div className="metric-grid"><Metric label="未完了" value={items.filter((item) => item.status !== "done").length} /><Metric label="Waiting" value={items.filter((item) => item.status === "waiting").length} /><Metric label="期限超過" value={items.filter((item) => item.status !== "done" && item.due_date && item.due_date < todayIso()).length} tone="danger" /><Metric label="予定変更" value={(data.plan_revisions || []).length} /></div><section className="panel stats-table"><div className="section-heading"><h2>Theme別</h2><span>{rows.length}件</span></div>{rows.map((row) => <div className="stats-row extended" key={row.theme.id}><strong>{row.theme.name}</strong><span className="num">{row.open} 未完了</span><span className="num">{row.done} 完了</span><span className="num">{row.waiting} 待ち</span><span className="num">{row.notes} メモ</span></div>)}</section></div>;
-}
-
 function SettingsPage({ data, themeMode, setThemeMode, openDrawer, setSnapshotPreview, snapshotPreview, setToast }) {
   const [busy, setBusy] = useState(false);
   async function exportSnapshot() {
@@ -1273,7 +1188,7 @@ function SettingsPage({ data, themeMode, setThemeMode, openDrawer, setSnapshotPr
       setBusy(false);
     }
   }
-  return <div className="page"><PageHeader title="Settings" subtitle="表示、関係者、Custom Field、バックアップを管理します。" /><div className="settings-grid"><section className="panel settings-form"><h2>表示</h2><label>カラーモード<select value={themeMode} onChange={(event) => setThemeMode(event.target.value)}><option value="light">ライト</option><option value="dark">ダーク</option></select></label><h2>関係者</h2>{(data.people || []).map((person) => <button className="wide-row" key={person.id} onClick={() => openDrawer({ type: "person", mode: "edit", entity: person })}><strong>{person.name}</strong><span>{person.organization} / {person.role}</span></button>)}<button className="secondary-button" onClick={() => openDrawer({ type: "person", mode: "edit", entity: {} })}>関係者を追加</button><h2>Custom Field</h2>{(data.field_definitions || []).map((field) => <button className="wide-row" key={field.id} onClick={() => openDrawer({ type: "field_definition", mode: "edit", entity: field })}><strong>{field.name}</strong><span>{field.applies_to} / {field.field_type}</span></button>)}<button className="secondary-button" onClick={() => openDrawer({ type: "field_definition", mode: "edit", entity: {} })}>項目を定義</button><h2>情報源</h2>{(data.source_records || []).map((source) => <button className="wide-row" key={source.id} onClick={() => openDrawer({ type: "source_record", mode: "edit", entity: source })}><strong>{source.source_title}</strong><span>{source.source_type}</span></button>)}<button className="secondary-button" onClick={() => openDrawer({ type: "source_record", mode: "edit", entity: {} })}>情報源を追加</button></section><section className="panel settings-form"><h2>Workspace Snapshot</h2><p className="field-help">DBファイルを直接同期せず、ZIP Snapshotでバックアップ・移行します。</p><button className="secondary-button" disabled={busy} onClick={exportSnapshot}>Snapshotを書き出す</button><button className="primary-button" disabled={busy} onClick={inspectSnapshot}>Snapshotを読み込む</button><dl className="workspace-meta"><dt>Workspace ID</dt><dd>{data.meta?.workspaceId || "browser"}</dd><dt>Device ID</dt><dd>{data.meta?.deviceId || "browser"}</dd><dt>Schema</dt><dd>{data.meta?.schemaVersion || 1}</dd></dl></section></div>{snapshotPreview && <section className="panel snapshot-preview"><div className="section-heading"><h2>Snapshot差分</h2><span>{snapshotPreview.changes.length}件</span></div>{snapshotPreview.changes.map((change) => <div className="import-candidate" key={change.key}><div><strong>{entityTitle(change.type, change.incoming)}</strong><small>{change.type} / {change.category}</small></div><select value={snapshotPreview.decisions[change.key]} onChange={(event) => setSnapshotPreview((current) => ({ ...current, decisions: { ...current.decisions, [change.key]: event.target.value } }))}><option value="ignore">無視</option><option value="create">新規作成</option><option value="update">既存を更新</option><option value="duplicate">両方残す</option></select></div>)}<div className="form-actions"><button className="secondary-button" onClick={() => setSnapshotPreview(null)}>取り消す</button><button className="primary-button" disabled={busy} onClick={applySnapshot}>選択内容を反映</button></div></section>}</div>;
+  return <div className="page"><PageHeader title="Settings" /><div className="settings-grid"><section className="panel settings-form"><h2>表示</h2><label>カラーモード<select value={themeMode} onChange={(event) => setThemeMode(event.target.value)}><option value="light">ライト</option><option value="dark">ダーク</option></select></label><h2>関係者</h2><div className="settings-list">{(data.people || []).map((person) => <button className="wide-row" key={person.id} onClick={() => openDrawer({ type: "person", mode: "edit", entity: person })}><strong>{person.name}</strong><span>{person.organization || person.role ? `${person.organization || "所属未設定"} / ${person.role || "役割未設定"}` : "詳細未設定"}</span></button>)}</div><button className="secondary-button" onClick={() => openDrawer({ type: "person", mode: "edit", entity: {} })}>関係者を追加</button></section><section className="panel settings-form"><h2>バックアップ</h2><p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p><button className="secondary-button" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</button><button className="secondary-button" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</button></section></div>{snapshotPreview && <section className="panel snapshot-preview"><div className="section-heading"><h2>Snapshot差分</h2><span>{snapshotPreview.changes.length}件</span></div>{snapshotPreview.changes.map((change) => <div className="import-candidate" key={change.key}><div><strong>{entityTitle(change.type, change.incoming)}</strong><small>{change.type} / {change.category}</small></div><select value={snapshotPreview.decisions[change.key]} onChange={(event) => setSnapshotPreview((current) => ({ ...current, decisions: { ...current.decisions, [change.key]: event.target.value } }))}><option value="ignore">無視</option><option value="create">新規作成</option><option value="update">既存を更新</option><option value="duplicate">両方残す</option></select></div>)}<div className="form-actions"><button className="secondary-button" onClick={() => setSnapshotPreview(null)}>取り消す</button><button className="primary-button" disabled={busy} onClick={applySnapshot}>選択内容を反映</button></div></section>}</div>;
 }
 
 function EntityDrawer({ drawer, data, close, saveForm, removeEntity, toggleItem, saveEntity }) {
@@ -1287,7 +1202,7 @@ function EntityDrawer({ drawer, data, close, saveForm, removeEntity, toggleItem,
     const dependencies = (data.dependencys || []).filter((dependency) => dependency.source_item_id === entity.id || dependency.target_item_id === entity.id);
     return <aside className="drawer"><DrawerHeader title="Item詳細" close={close} /><div className="drawer-content"><div className="badge-row"><StatusBadge value={entity.status} label={STATUS_LABELS[entity.status]} /><StatusBadge value={entity.schedule_status} label={SCHEDULE_LABELS[entity.schedule_status]} /></div><h2>{entity.title}</h2><p>{entity.description || "説明なし"}</p><dl><dt>種類</dt><dd>{KIND_LABELS[entity.kind]}</dd><dt>予定</dt><dd>{entity.date_text || `${formatDate(entity.planned_start)} - ${formatDate(entity.planned_end)}`}</dd><dt>期限</dt><dd>{formatDate(entity.due_date)}</dd><dt>進捗</dt><dd>{entity.progress || 0}%</dd><dt>情報源</dt><dd>{source?.source_title || "手動入力"}</dd></dl>{(relations.length > 0 || dependencies.length > 0) && <div className="revision-list"><h3>関係</h3>{dependencies.map((dependency) => <div key={dependency.id}><span>依存: {(data.items || []).find((item) => item.id === dependency.source_item_id)?.title} → {(data.items || []).find((item) => item.id === dependency.target_item_id)?.title}</span></div>)}{relations.map((relation) => <div key={relation.id}><span>{relation.relation_type}: {relatedEntityTitle(data, relation.target_entity_type, relation.target_entity_id)}</span></div>)}</div>}{revisions.length > 0 && <div className="revision-list"><h3>予定変更履歴</h3>{revisions.slice(0, 8).map((revision) => <div key={revision.id}><time>{new Date(revision.changed_at).toLocaleString("ja-JP")}</time><span>{revision.reason || "理由未記入"}</span></div>)}</div>}<div className="drawer-actions"><button className="secondary-button" onClick={() => close({ type: "item", mode: "edit", entity })}>編集する</button><button className="secondary-button" onClick={() => close({ type: "dependency", mode: "edit", entity: { source_item_id: entity.id } })}>依存を追加</button><button className="secondary-button" onClick={() => close({ type: "relation", mode: "edit", entity: { source_entity_type: "item", source_entity_id: entity.id } })}>関係を追加</button><button className="primary-button" onClick={() => { toggleItem(entity); close(); }}>{entity.status === "done" ? "未完了に戻す" : "完了にする"}</button><button className="danger-button" onClick={() => removeEntity("item", entity)}>削除する</button></div></div></aside>;
   }
-  if (type === "note") return <DetailDrawer title="メモ詳細" entity={entity} close={close} onEdit={() => close({ type: "note", mode: "edit", entity })} onDelete={() => removeEntity("note", entity)}><StatusBadge value="neutral" label={entity.note_type} /><h2>{entity.title}</h2><p className="note-body">{entity.body_markdown}</p></DetailDrawer>;
+  if (type === "note") return <NoteDetailDrawer note={entity} close={close} removeEntity={removeEntity} saveEntity={saveEntity} />;
   if (type === "link") return <DetailDrawer title="リンク詳細" entity={entity} close={close} onEdit={() => close({ type: "link", mode: "edit", entity })} onDelete={() => removeEntity("link", entity)}><StatusBadge value="neutral" label={entity.link_type} /><h2>{entity.title}</h2><a href={entity.url} target="_blank" rel="noreferrer">{entity.url}</a><p>{entity.description}</p></DetailDrawer>;
   return <EditDrawer {...{ drawer: { ...drawer, mode: "edit" }, entity, data, close, saveForm, saveEntity }} />;
 }
@@ -1302,9 +1217,7 @@ function EditDrawer({ drawer, entity, data, close, saveForm }) {
     {type === "link" && <><Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title || ""} /></Field><Field label="URL"><input name="url" type="url" defaultValue={entity.url || ""} /></Field><Field label="種別"><select name="link_type" defaultValue={entity.link_type || "other"}>{["sharepoint", "onedrive", "teams", "outlook", "chatgpt", "copilot", "github", "local_file", "notebook", "paper", "folder", "other"].map((value) => <option key={value}>{value}</option>)}</select></Field><ThemeSelect themes={data.themes} value={entity.theme_id} /><ItemSelect items={data.items} value={entity.item_id} /><Field label="説明"><textarea name="description" defaultValue={entity.description || ""} /></Field></>}
     {type === "person" && <><Field label="名前"><input name="name" autoFocus defaultValue={entity.name || ""} /></Field><Field label="役割"><input name="role" defaultValue={entity.role || ""} /></Field><Field label="所属"><input name="organization" defaultValue={entity.organization || ""} /></Field><Field label="メモ"><textarea name="note" defaultValue={entity.note || ""} /></Field></>}
     {type === "status_update" && <><ThemeSelect themes={data.themes} value={entity.theme_id} /><Field label="日付"><input name="date" type="date" defaultValue={entity.date || todayIso()} /></Field><Field label="状態"><select name="status" defaultValue={entity.status || "on_track"}>{["on_track", "at_risk", "delayed", "paused", "completed"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="概要"><textarea name="summary" autoFocus defaultValue={entity.summary || ""} /></Field><Field label="進捗"><input name="progress" type="number" min="0" max="100" defaultValue={entity.progress || 0} /></Field><Field label="リスク"><textarea name="risks" defaultValue={entity.risks || ""} /></Field><Field label="次アクション"><textarea name="next_actions" defaultValue={entity.next_actions || ""} /></Field></>}
-    {type === "view" && <><Field label="ビュー名"><input name="name" autoFocus defaultValue={entity.name || ""} /></Field><Field label="形式"><select name="view_type" defaultValue={entity.view_type || "table"}>{["table", "list", "gantt", "timeline", "dashboard", "notes", "milestone_map"].map((value) => <option key={value}>{value}</option>)}</select></Field><ThemeSelect themes={data.themes} value={entity.filters_json?.theme_id} /><Field label="状態"><select name="filter_status" defaultValue={entity.filters_json?.status || ""}><option value="">すべて</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="日程状態"><select name="filter_schedule" defaultValue={entity.filters_json?.schedule_status || ""}><option value="">すべて</option>{Object.entries(SCHEDULE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="縮尺"><select name="scale" defaultValue={entity.scale || "quarter"}>{["year", "half", "quarter", "month", "week"].map((value) => <option key={value}>{value}</option>)}</select></Field></>}
     {type === "source_record" && <><Field label="種類"><select name="source_type" defaultValue={entity.source_type || "manual"}>{["manual", "chatgpt", "copilot", "outlook", "teams", "email", "calendar", "meeting", "document", "sharepoint", "onedrive", "imported_yaml", "imported_json", "snapshot", "other"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="タイトル"><input name="source_title" autoFocus defaultValue={entity.source_title || ""} /></Field><Field label="URL"><input name="source_url" type="url" defaultValue={entity.source_url || ""} /></Field><Field label="要約"><textarea name="summary" defaultValue={entity.summary || ""} /></Field><Field label="原文"><textarea className="large-textarea" name="raw_text" defaultValue={entity.raw_text || ""} /></Field></>}
-    {type === "log_entry" && <><Field label="種類"><select name="log_type" defaultValue={entity.log_type || "risk"}>{["risk", "issue", "decision", "action", "assumption"].map((value) => <option key={value}>{value}</option>)}</select></Field><ThemeSelect themes={data.themes} value={entity.theme_id} /><ItemSelect items={data.items} value={entity.item_id} /><Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title || ""} /></Field><Field label="本文"><textarea name="body" defaultValue={entity.body || ""} /></Field><Field label="重大度"><select name="severity" defaultValue={entity.severity || "medium"}>{["low", "medium", "high", "critical"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="影響"><textarea name="impact" defaultValue={entity.impact || ""} /></Field><Field label="状態"><select name="status" defaultValue={entity.status || "open"}>{["open", "monitoring", "resolved", "closed", "cancelled"].map((value) => <option key={value}>{value}</option>)}</select></Field></>}
     {type === "field_definition" && <><Field label="項目名"><input name="name" autoFocus defaultValue={entity.name || ""} /></Field><Field label="型"><select name="field_type" defaultValue={entity.field_type || "text"}>{["text", "long_text", "number", "date", "select", "multi_select", "checkbox", "url", "person", "relation"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="対象"><select name="applies_to" defaultValue={entity.applies_to || "item"}>{["theme", "item", "note", "link"].map((value) => <option key={value}>{value}</option>)}</select></Field><ThemeSelect themes={data.themes} value={entity.theme_id} allowAll /><Field label="選択肢（カンマ区切り）"><input name="options" defaultValue={(entity.options_json || []).join(", ")} /></Field><label className="toggle"><input name="is_required" type="checkbox" defaultChecked={entity.is_required} />必須</label></>}
     {type === "dependency" && <><Field label="先行Item"><select name="source_item_id" defaultValue={entity.source_item_id || ""}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field><Field label="後続Item"><select name="target_item_id" defaultValue={entity.target_item_id || ""}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field><p className="field-help">初期実装ではfinish-to-startのみ扱います。</p></>}
     {type === "relation" && <RelationFields entity={entity} data={data} />}
@@ -1331,6 +1244,33 @@ function RelationFields({ entity, data }) {
 
 function DetailDrawer({ title, entity, close, onEdit, onDelete, children }) {
   return <aside className="drawer"><DrawerHeader title={title} close={close} /><div className="drawer-content">{children}<div className="drawer-actions"><button className="primary-button" onClick={onEdit}>編集する</button><button className="danger-button" onClick={onDelete}>削除する</button></div></div></aside>;
+}
+
+function NoteDetailDrawer({ note, close, removeEntity, saveEntity }) {
+  const [comment, setComment] = useState("");
+  const comments = note.comments || [];
+
+  async function addComment(event) {
+    event.preventDefault();
+    const body = comment.trim();
+    if (!body) return;
+    const saved = await saveEntity("note", {
+      ...note,
+      comments: [...comments, { id: uuid(), body, created_at: new Date().toISOString() }],
+    });
+    setComment("");
+    close({ type: "note", entity: saved });
+  }
+
+  async function removeComment(commentId) {
+    const saved = await saveEntity("note", {
+      ...note,
+      comments: comments.filter((entry) => entry.id !== commentId),
+    });
+    close({ type: "note", entity: saved });
+  }
+
+  return <aside className="drawer"><DrawerHeader title="メモ詳細" close={close} /><div className="drawer-content"><StatusBadge value="neutral" label={note.note_type} /><h2>{note.title}</h2>{note.source_url && <div className="link-value"><a href={note.source_url} target="_blank" rel="noreferrer">{note.source_url}</a></div>}<p className="note-body">{note.body_markdown}</p><section className="comment-thread"><h3>コメント {comments.length > 0 && `(${comments.length})`}</h3>{comments.length > 0 && <div className="comment-list">{comments.map((entry) => <div className="comment-item" key={entry.id}><div className="comment-body">{entry.body}</div><div className="comment-meta"><time>{new Date(entry.created_at).toLocaleString("ja-JP")}</time><button className="text-button compact" onClick={() => removeComment(entry.id)}>削除する</button></div></div>)}</div>}<form className="comment-input" onSubmit={addComment}><textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="補足や確認事項を残す" aria-label="コメント" /><button className="secondary-button compact" type="submit">コメントする</button></form></section><div className="drawer-actions"><button className="primary-button" onClick={() => close({ type: "note", mode: "edit", entity: note })}>編集する</button><button className="danger-button" onClick={() => removeEntity("note", note)}>削除する</button></div></div></aside>;
 }
 function DrawerHeader({ title, close }) { return <div className="drawer-header"><strong>{title}</strong><button onClick={() => close()}>閉じる</button></div>; }
 function Field({ label, children }) { return <label>{label}{children}</label>; }
@@ -1403,20 +1343,6 @@ function hierarchyOrder(items, collapsed) {
   for (const item of items) if (!result.some((entry) => entry.id === item.id)) result.push({ ...item, depth: 0 });
   return result;
 }
-function applyView(items, view) {
-  if (!view) return items;
-  const filters = view.filters_json || {};
-  return items.filter((item) => {
-    if (filters.status && item.status !== filters.status) return false;
-    if (filters.schedule_status && item.schedule_status !== filters.schedule_status && !Array.isArray(filters.schedule_status)) return false;
-    if (Array.isArray(filters.schedule_status) && !filters.schedule_status.includes(item.schedule_status)) return false;
-    if (filters.theme_id && item.theme_id !== filters.theme_id) return false;
-    if (filters.completed === false && item.status === "done") return false;
-    if (filters.horizon && item.due_date && item.due_date > addDays(todayIso(), filters.horizon)) return false;
-    return true;
-  }).sort(compareDate);
-}
-
 function buildExportData({ data, themes, items, activeTheme, scope }) {
   const today = todayIso();
   const horizon = scope === "week" ? 7 : scope === "month" ? 30 : scope === "quarter" ? 90 : null;
