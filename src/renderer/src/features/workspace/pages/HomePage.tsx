@@ -43,7 +43,7 @@ export function HomePage({ data, activeTheme, items, notes, openDrawer, navigate
         </section>
         <section className="panel">
           <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("milestones")}>一覧を開く</button></div>
-          <SimpleRows records={milestones.slice(0, 5)} onOpen={(item) => openDrawer({ type: "item", entity: item })} meta={(item) => String((item as Item).date_text || formatDate((item as Item).due_date || (item as Item).planned_end))} />
+          <SimpleRows records={milestones.slice(0, 5)} onOpen={(item) => openDrawer({ type: "item", entity: item })} meta={(item) => String(formatDate((item as Item).planned_end))} />
         </section>
       </div>
       <div className="dashboard-grid">
@@ -52,7 +52,7 @@ export function HomePage({ data, activeTheme, items, notes, openDrawer, navigate
           <SimpleRows
             records={open.filter((item) => item.kind === "task" || item.kind === "deliverable").sort(compareDate).slice(0, 7)}
             onOpen={(item) => openDrawer({ type: "item", entity: item })}
-            meta={(item) => formatDate((item as Item).due_date)}
+            meta={(item) => formatDate((item as Item).planned_end)}
           />
         </section>
         <section className="panel">

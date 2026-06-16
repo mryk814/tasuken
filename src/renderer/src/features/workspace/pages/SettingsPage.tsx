@@ -1,17 +1,20 @@
 import { useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { PageProps, SnapshotChange, SnapshotPreview } from "../types";
+import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
   setThemeMode: (mode: "light" | "dark") => void;
+  activeGroup: string;
+  setActiveGroup: (group: string) => void;
+  allThemes: Theme[];
   loadSample: () => Promise<unknown>;
 }
 
-export function SettingsPage({ data, themeMode, setThemeMode, openDrawer, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
+export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setActiveGroup, allThemes, openDrawer, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
   const isEmpty = (data.themes.length + data.items.length + data.notes.length + data.links.length + data.people.length) === 0;
 
@@ -87,6 +90,16 @@ export function SettingsPage({ data, themeMode, setThemeMode, openDrawer, setSna
               <option value="dark">ダーク</option>
             </select>
           </label>
+          <h2>テーマグループ</h2>
+          <label>活動中のグループ
+            <select value={activeGroup} onChange={(event) => setActiveGroup(event.target.value)}>
+              <option value="">すべて表示</option>
+              {[...new Set(allThemes.map((t) => t.group).filter(Boolean))].map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </label>
+          <p className="field-help">グループを選ぶと、サイドバーに表示されるテーマが絞り込まれます。テーマ編集でグループを設定してください。</p>
           <h2>関係者</h2>
           <div className="settings-list">
             {(data.people || []).map((person) => (

@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import type { BaseRecord, DrawerConfig, Item, Theme } from "../types";
-import { statusTone } from "../lib/domain";
+import { statusTone, themeColor } from "../lib/domain";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
 
@@ -73,12 +73,32 @@ export function ThemeSelect({
   allowPersonal?: boolean;
   allowAll?: boolean;
 }) {
+  const [selected, setSelected] = useState(value || "");
+  const noneLabel = allowAll ? "全体共通" : allowPersonal ? "個人業務" : "未設定";
   return (
     <Field label="Theme">
-      <select name="theme_id" defaultValue={value || ""}>
-        <option value="">{allowAll ? "全体共通" : allowPersonal ? "個人業務 / Themeなし" : "未設定"}</option>
-        {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-      </select>
+      <input type="hidden" name="theme_id" value={selected} />
+      <div className="theme-chips">
+        <button
+          type="button"
+          className={`theme-chip ${!selected ? "is-selected" : ""}`}
+          onClick={() => setSelected("")}
+        >
+          {noneLabel}
+        </button>
+        {themes.map((theme, index) => (
+          <button
+            key={theme.id}
+            type="button"
+            className={`theme-chip ${selected === theme.id ? "is-selected" : ""}`}
+            style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
+            onClick={() => setSelected(theme.id)}
+          >
+            <span className="chip-dot" />
+            {theme.name}
+          </button>
+        ))}
+      </div>
     </Field>
   );
 }

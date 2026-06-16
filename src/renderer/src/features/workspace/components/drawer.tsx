@@ -9,9 +9,60 @@ import type {
   SaveEntity,
   WorkspaceData,
 } from "../types";
-import { KIND_LABELS, LEVEL_LABELS, SCHEDULE_LABELS, STATUS_LABELS, itemLevel, relatedEntityTitle } from "../lib/domain";
+import { CHART_COLORS, KIND_LABELS, LEVEL_LABELS, NOTE_TYPE_LABELS, STATUS_LABELS, THEME_STATUS_LABELS, itemLevel, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
+
+function ThemeColorPicker({ value }: { value?: string }) {
+  const [selected, setSelected] = useState(value || CHART_COLORS[0]);
+  return (
+    <Field label="カラー">
+      <input type="hidden" name="color" value={selected} />
+      <div className="color-swatch-picker">
+        {CHART_COLORS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={`color-swatch ${selected === key ? "is-selected" : ""}`}
+            style={{ background: `var(--color-${key})` }}
+            onClick={() => setSelected(key)}
+          />
+        ))}
+      </div>
+    </Field>
+  );
+}
+
+function ThemeGroupPicker({ value, themes }: { value?: string; themes: WorkspaceData["themes"] }) {
+  const [selected, setSelected] = useState(value || "");
+  const groups = [...new Set(themes.map((theme) => str(theme.group).trim()).filter(Boolean))];
+  return (
+    <Field label="グループ">
+      <input name="group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="新しいグループ名" />
+      {groups.length > 0 && (
+        <div className="group-chip-list">
+          <button
+            type="button"
+            className={`theme-chip ${!selected ? "is-selected" : ""}`}
+            onClick={() => setSelected("")}
+          >
+            なし
+          </button>
+          {groups.map((group) => (
+            <button
+              key={group}
+              type="button"
+              className={`theme-chip ${selected === group ? "is-selected" : ""}`}
+              onClick={() => setSelected(group)}
+            >
+              {group}
+            </button>
+          ))}
+        </div>
+      )}
+    </Field>
+  );
+}
 
 type SaveForm = (event: React.FormEvent<HTMLFormElement>) => void;
 
@@ -32,7 +83,6 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
   if (type === "item") {
     const item = entity as Item;
     const revisions = (data.plan_revisions || []).filter((revision) => revision.item_id === item.id);
-    const source = (data.source_records || []).find((record) => record.id === item.source_record_id);
     const relations = (data.relations || []).filter((relation) => relation.source_entity_id === item.id || relation.target_entity_id === item.id);
     const dependencies = (data.dependencys || []).filter((dependency) => dependency.source_item_id === item.id || dependency.target_item_id === item.id);
     return (
@@ -41,16 +91,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
         <div className="drawer-content">
           <div className="badge-row">
             <StatusBadge value={item.status} label={STATUS_LABELS[item.status ?? ""]} />
-            <StatusBadge value={item.schedule_status} label={SCHEDULE_LABELS[item.schedule_status ?? ""]} />
           </div>
           <h2>{item.title}</h2>
           <p>{item.description || "説明なし"}</p>
           <dl>
             <dt>種類</dt><dd>{KIND_LABELS[item.kind ?? ""]}</dd>
-            <dt>予定</dt><dd>{item.date_text || `${formatDate(item.planned_start)} - ${formatDate(item.planned_end)}`}</dd>
-            <dt>期限</dt><dd>{formatDate(item.due_date)}</dd>
-            <dt>進捗</dt><dd>{item.progress || 0}%</dd>
-            <dt>情報源</dt><dd>{source?.source_title || "手動入力"}</dd>
+            <dt>予定</dt><dd>{`${formatDate(item.planned_start)} - ${formatDate(item.planned_end)}`}</dd>
           </dl>
           {(relations.length > 0 || dependencies.length > 0) && (
             <div className="revision-list">
@@ -111,7 +157,8 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
 function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm }) {
   const type = drawer.type;
   const entity = drawer.entity;
-  const title = `${entity.id ? "編集" : "追加"}: ${type}`;
+  const kindLabel = type === "item" && !entity.id ? KIND_LABELS[(entity as Partial<Item>).kind ?? ""] || "item" : type;
+  const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   return (
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
@@ -122,6 +169,8 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
             <Field label="テーマ名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
             <Field label="概要"><textarea name="description" defaultValue={str(entity.description)} /></Field>
             <Field label="状態"><select name="status" defaultValue={str(entity.status) || "計画中"}><option>計画中</option><option>進行中</option><option>継続</option><option>保留</option><option>完了</option></select></Field>
+            <ThemeColorPicker value={str(entity.color)} />
+            <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
           </>
         )}
         {type === "note" && (
@@ -129,8 +178,8 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
             <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
             <ItemSelect items={data.items} value={str(entity.item_id)} />
-            <Field label="種別"><select name="note_type" defaultValue={str(entity.note_type) || "memo"}>{["memo", "decision", "meeting", "experiment", "analysis", "ai_chat", "learning", "reflection"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-            <Field label="情報源URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>
+            <Field label="種別"><select name="note_type" defaultValue={str(entity.note_type) || "memo"}>{Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+            <Field label="参照URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>
             <Field label="本文（Markdown）"><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
           </>
         )}
@@ -156,7 +205,7 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
           <>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
             <Field label="日付"><input name="date" type="date" defaultValue={str(entity.date) || todayIso()} /></Field>
-            <Field label="状態"><select name="status" defaultValue={str(entity.status) || "on_track"}>{["on_track", "at_risk", "delayed", "paused", "completed"].map((value) => <option key={value}>{value}</option>)}</select></Field>
+            <Field label="状態"><select name="status" defaultValue={str(entity.status) || "on_track"}>{Object.entries(THEME_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
             <Field label="概要"><textarea name="summary" autoFocus defaultValue={str(entity.summary)} /></Field>
             <Field label="進捗"><input name="progress" type="number" min="0" max="100" defaultValue={num(entity.progress)} /></Field>
             <Field label="リスク"><textarea name="risks" defaultValue={str(entity.risks)} /></Field>
@@ -197,7 +246,24 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
 }
 
 function ItemFields({ entity, data }: { entity: Partial<Item>; data: WorkspaceData }) {
+  const isNew = !entity.id;
   const customDefinitions = (data.field_definitions || []).filter((field) => field.applies_to === "item" && (!field.theme_id || field.theme_id === entity.theme_id));
+
+  if (isNew) {
+    return (
+      <>
+        <Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title ?? ""} /></Field>
+        <ThemeSelect themes={data.themes} value={entity.theme_id} allowPersonal />
+        <Field label="状態"><select name="status" defaultValue={entity.status || "todo"}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+        {(entity.kind === "period" || entity.kind === "milestone") && (
+          <Field label="予定開始"><input name="planned_start" type="date" defaultValue={dateOnly(entity.planned_start)} /></Field>
+        )}
+        <Field label="予定終了"><input name="planned_end" type="date" defaultValue={dateOnly(entity.planned_end)} /></Field>
+        <Field label="説明"><textarea name="description" defaultValue={entity.description ?? ""} /></Field>
+      </>
+    );
+  }
+
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title ?? ""} /></Field>
@@ -208,27 +274,11 @@ function ItemFields({ entity, data }: { entity: Partial<Item>; data: WorkspaceDa
       </div>
       <Field label="状態"><select name="status" defaultValue={entity.status || "todo"}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       <ItemSelect label="親Item" items={(data.items || []).filter((item) => item.id !== entity.id)} value={entity.parent_item_id} />
-      <Field label="日程状態"><select name="schedule_status" defaultValue={entity.schedule_status || "unscheduled"}>{Object.entries(SCHEDULE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       <div className="form-grid">
         <Field label="予定開始"><input name="planned_start" type="date" defaultValue={dateOnly(entity.planned_start)} /></Field>
         <Field label="予定終了"><input name="planned_end" type="date" defaultValue={dateOnly(entity.planned_end)} /></Field>
       </div>
-      <Field label="期限"><input name="due_date" type="date" defaultValue={dateOnly(entity.due_date)} /></Field>
-      <div className="form-grid">
-        <Field label="実績開始"><input name="actual_start" type="date" defaultValue={dateOnly(entity.actual_start)} /></Field>
-        <Field label="実績終了"><input name="actual_end" type="date" defaultValue={dateOnly(entity.actual_end)} /></Field>
-      </div>
-      <Field label="粗い日程表現"><input name="date_text" placeholder="7月上旬、下期中など" defaultValue={entity.date_text ?? ""} /></Field>
-      <div className="form-grid">
-        <Field label="粒度"><select name="date_granularity" defaultValue={entity.date_granularity || "day"}>{["day", "week", "month", "quarter", "half_year", "fiscal_year", "unknown"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-        <Field label="確度"><select name="schedule_confidence" defaultValue={entity.schedule_confidence || "rough"}>{["rough", "tentative", "fixed"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      </div>
-      <Field label="優先度"><select name="priority" defaultValue={entity.priority || "normal"}>{["low", "normal", "high", "decision"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="進捗"><input name="progress" type="number" min="0" max="100" defaultValue={entity.progress || 0} /></Field>
-      <Field label="担当"><select name="owner_person_id" defaultValue={entity.owner_person_id ?? ""}><option value="">未設定</option>{(data.people || []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
-      <Field label="待ち相手・対象"><input name="waiting_for" defaultValue={entity.waiting_for ?? ""} /></Field>
-      <Field label="解除後の次アクション"><textarea name="next_action" defaultValue={entity.next_action ?? ""} /></Field>
-      <label className="toggle"><input name="is_personal_task" type="checkbox" defaultChecked={Boolean(entity.is_personal_task)} />個人業務タスク</label>
+      <label className="toggle priority-toggle"><input name="priority_flag" type="checkbox" defaultChecked={entity.priority === "high"} />旗を付ける</label>
       <Field label="説明"><textarea name="description" defaultValue={entity.description ?? ""} /></Field>
       {customDefinitions.map((definition) => {
         const value = (data.field_values || []).find((entry) => entry.field_definition_id === definition.id && entry.entity_id === entity.id);
@@ -244,7 +294,6 @@ function ItemFields({ entity, data }: { entity: Partial<Item>; data: WorkspaceDa
         );
       })}
       {entity.id && <Field label="予定変更理由（任意）"><textarea name="revision_reason" placeholder="測定結果の受領が遅れたため" /></Field>}
-      <Field label="情報源"><select name="source_record_id" defaultValue={entity.source_record_id ?? ""}><option value="">手動入力</option>{(data.source_records || []).map((source) => <option key={source.id} value={source.id}>{source.source_title}</option>)}</select></Field>
     </>
   );
 }
@@ -336,7 +385,7 @@ function NoteDetailDrawer({
     <aside className="drawer">
       <DrawerHeader title="メモ詳細" close={close} />
       <div className="drawer-content">
-        <StatusBadge value="neutral" label={note.note_type} />
+        <StatusBadge value="neutral" label={NOTE_TYPE_LABELS[note.note_type ?? ""] || note.note_type} />
         <h2>{note.title}</h2>
         {note.source_url && <div className="link-value"><a href={note.source_url} target="_blank" rel="noreferrer">{note.source_url}</a></div>}
         <p className="note-body">{note.body_markdown}</p>

@@ -42,6 +42,7 @@ export interface ResearchDeskApi {
   };
   app: {
     reload(): Promise<boolean>;
+    onWorkspaceChanged(callback: () => void): () => void;
   };
   entities: {
     list(type: EntityType, includeDeleted?: boolean): Promise<Entity[]>;

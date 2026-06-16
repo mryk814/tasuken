@@ -1,5 +1,6 @@
 import { crossNavigation, toolNavigation } from "../../../pages/routes";
 import type { Item, OpenDrawer, Theme } from "../types";
+import { themeColor } from "../lib/domain";
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
   return (
@@ -25,9 +26,6 @@ interface SidebarProps {
   themes: Theme[];
   activeThemeId: string;
   setActiveThemeId: (id: string) => void;
-  quickText: string;
-  setQuickText: (value: string) => void;
-  addQuickCapture: () => void;
   items: Item[];
   openDrawer: OpenDrawer;
 }
@@ -38,9 +36,6 @@ export function Sidebar({
   themes,
   activeThemeId,
   setActiveThemeId,
-  quickText,
-  setQuickText,
-  addQuickCapture,
   items,
   openDrawer,
 }: SidebarProps) {
@@ -64,11 +59,11 @@ export function Sidebar({
         <button className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`} aria-current={route === "themes" ? "page" : undefined} onClick={() => navigate("themes")}>
           <span>すべてのテーマ</span><span className="count">{themes.length}</span>
         </button>
-        {themes.map((theme) => {
+        {themes.map((theme, index) => {
           const current = route === "home" && theme.id === activeThemeId;
           return (
             <button key={theme.id} className={current ? "is-active" : ""} aria-current={current ? "page" : undefined} onClick={() => { setActiveThemeId(theme.id); navigate("home"); }}>
-              <span className="theme-dot" /><span>{theme.name}</span>
+              <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} /><span>{theme.name}</span>
             </button>
           );
         })}
@@ -81,11 +76,6 @@ export function Sidebar({
           </button>
         ))}
       </nav>
-      <div className="quick-capture">
-        <strong>クイック記録</strong>
-        <textarea value={quickText} onChange={(event) => setQuickText(event.target.value)} placeholder="タスク・メモ・アイデア" />
-        <button className="primary-button" onClick={addQuickCapture}>Inboxに記録</button>
-      </div>
     </aside>
   );
 }

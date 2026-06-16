@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import { IPC, type ResearchDeskApi } from "../shared/ipc/contracts";
 
+type Unsubscribe = () => void;
+
 const api: ResearchDeskApi = {
   workspace: {
     load: () => ipcRenderer.invoke(IPC.workspaceLoad),
@@ -17,6 +19,11 @@ const api: ResearchDeskApi = {
   },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),
+    onWorkspaceChanged: (callback: () => void): Unsubscribe => {
+      const handler = (): void => { callback(); };
+      ipcRenderer.on("workspace:changed", handler);
+      return () => { ipcRenderer.removeListener("workspace:changed", handler); };
+    },
   },
   entities: {
     list: (type, includeDeleted = false) => ipcRenderer.invoke(IPC.entityList, type, includeDeleted),

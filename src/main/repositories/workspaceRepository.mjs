@@ -128,23 +128,31 @@ export class WorkspaceDatabase {
       workspaceId: this.workspaceId,
       deviceId: this.deviceId,
       themeMode: this.getPreference("themeMode"),
+      activeGroup: this.getPreference("activeGroup"),
       entityCount: this.db.prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL").get().count,
     };
   }
 
   getPreference(key) {
-    if (key !== "themeMode") throw new Error(`未対応の設定です: ${key}`);
-    const metaKey = "theme_mode";
-    return this.ensureMeta(metaKey, "light");
+    if (key === "themeMode") return this.ensureMeta("theme_mode", "light");
+    if (key === "activeGroup") return this.ensureMeta("active_group", "");
+    throw new Error(`未対応の設定です: ${key}`);
   }
 
   setPreference(key, value) {
-    if (key !== "themeMode") throw new Error(`未対応の設定です: ${key}`);
-    if (!["light", "dark"].includes(value)) throw new Error("カラーモードの値が不正です。");
+    if (key === "themeMode") {
+      if (!["light", "dark"].includes(value)) throw new Error("カラーモードの値が不正です。");
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('theme_mode', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(value);
+      return value;
+    }
+    if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);
     this.db.prepare(`
-      INSERT INTO workspace_meta(key, value) VALUES('theme_mode', ?)
+      INSERT INTO workspace_meta(key, value) VALUES('active_group', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(value);
+    `).run(String(value || ""));
     return value;
   }
 
@@ -280,9 +288,6 @@ export class WorkspaceDatabase {
       "planned_start",
       "planned_end",
       "due_date",
-      "schedule_status",
-      "schedule_confidence",
-      "progress",
     ];
     const oldValues = Object.fromEntries(fields.map((field) => [field, oldItem[field] ?? null]));
     const newValues = Object.fromEntries(fields.map((field) => [field, newItem[field] ?? null]));

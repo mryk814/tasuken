@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,8 +8,127 @@ import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
+const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
+const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
 const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json");
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
+let tray: Tray | null = null;
+let captureWindow: BrowserWindow | null = null;
+
+function getCapturePreloadPath(): string {
+  return path.join(__dirname, "../preload/capture.mjs");
+}
+
+function createCaptureWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 420,
+    height: 180,
+    show: false,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    transparent: false,
+    backgroundColor: "#F4EEEC",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      preload: getCapturePreloadPath(),
+    },
+  });
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/capture.html`);
+  } else {
+    void win.loadFile(path.join(__dirname, "../renderer/capture.html"));
+  }
+
+  win.on("blur", () => {
+    if (win.isVisible()) win.hide();
+  });
+
+  return win;
+}
+
+function showCaptureWindow(): void {
+  if (!captureWindow || captureWindow.isDestroyed()) {
+    captureWindow = createCaptureWindow();
+  }
+
+  const themeMode = workspaceRepository?.getPreference("themeMode") ?? "light";
+  captureWindow.webContents.send("quick-capture:theme", themeMode);
+
+  captureWindow.center();
+  captureWindow.show();
+  captureWindow.focus();
+  captureWindow.webContents.send("quick-capture:shown");
+}
+
+function createTrayIcon(): Electron.NativeImage {
+  // 16x16 RGBA: burgundy "RD" マーク
+  const size = 16;
+  const buf = Buffer.alloc(size * size * 4, 0);
+  const accent = [138, 47, 59, 255]; // #8A2F3B
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const inOuter = x >= 1 && x < 15 && y >= 1 && y < 15;
+      const inInner = x >= 3 && x < 13 && y >= 3 && y < 13;
+      if (inOuter && !inInner) {
+        buf[i] = accent[0]; buf[i + 1] = accent[1]; buf[i + 2] = accent[2]; buf[i + 3] = accent[3];
+      }
+    }
+  }
+  return nativeImage.createFromBuffer(buf, { width: size, height: size });
+}
+
+function setupTray(): void {
+  tray = new Tray(createTrayIcon());
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: "クイック記録", accelerator: "CmdOrCtrl+Shift+N", click: showCaptureWindow },
+    { type: "separator" },
+    { label: "Research Desk を開く", click: () => {
+      const windows = BrowserWindow.getAllWindows().filter((w) => w !== captureWindow);
+      if (windows.length) { windows[0].show(); windows[0].focus(); } else { createWindow(); }
+    }},
+    { type: "separator" },
+    { label: "終了", click: () => app.quit() },
+  ]);
+
+  tray.setToolTip("Research Desk");
+  tray.setContextMenu(contextMenu);
+  tray.on("click", showCaptureWindow);
+}
+
+function notifyMainWindowRefresh(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win !== captureWindow && !win.isDestroyed()) {
+      win.webContents.send("workspace:changed");
+    }
+  }
+}
+
+function registerCaptureIpc(): void {
+  ipcMain.handle("quick-capture:save", (_event, text: string) => {
+    const trimmed = (text || "").trim();
+    if (!trimmed) throw new Error("入力が空です。");
+    const saved = workspaceRepository.save("item", {
+      title: trimmed,
+      kind: "idea",
+      level: "task",
+      status: "inbox",
+      priority: "normal",
+    }, { source: "quick-capture" });
+    notifyMainWindowRefresh();
+    return saved;
+  });
+
+  ipcMain.on("quick-capture:hide", () => {
+    if (captureWindow && !captureWindow.isDestroyed()) captureWindow.hide();
+  });
+}
 
 interface SmokeCreatedResult {
   title: string;
@@ -35,7 +154,9 @@ app.commandLine.appendSwitch("disable-gpu-compositing");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.commandLine.appendSwitch("in-process-gpu");
 
-if (isSmokeTest) {
+if (requestedUserDataPath) {
+  app.setPath("userData", path.resolve(requestedUserDataPath));
+} else if (isSmokeTest) {
   app.setPath("userData", path.join(app.getPath("temp"), "research-desk-smoke-test"));
   recordSmoke("main-started");
   setTimeout(() => {
@@ -181,13 +302,27 @@ function createWindow(): void {
 void app.whenReady().then(() => {
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
   registerIpc(workspaceRepository, new WorkspaceService(workspaceRepository));
+  registerCaptureIpc();
   recordSmoke("app-ready");
   createWindow();
+
+  if (!isSmokeTest) {
+    setupTray();
+    globalShortcut.register("CmdOrCtrl+Shift+N", showCaptureWindow);
+  }
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
+  if (process.platform === "darwin") return;
+  if (tray && !tray.isDestroyed()) return;
+  app.quit();
+});
+
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
 });

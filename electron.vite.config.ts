@@ -17,7 +17,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: resolve(__dirname, "src/preload/index.ts"),
+        input: {
+          index: resolve(__dirname, "src/preload/index.ts"),
+          capture: resolve(__dirname, "src/preload/capture.ts"),
+        },
       },
     },
   },
@@ -26,7 +29,10 @@ export default defineConfig({
     plugins: [react(), tailwindcss()],
     build: {
       rollupOptions: {
-        input: resolve(__dirname, "src/renderer/index.html"),
+        input: {
+          index: resolve(__dirname, "src/renderer/index.html"),
+          capture: resolve(__dirname, "src/renderer/capture.html"),
+        },
       },
     },
   },

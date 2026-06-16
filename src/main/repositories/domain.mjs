@@ -106,6 +106,7 @@ export function normalizeEntity(type, input) {
     if (typeof normalized[field] === "string") normalized[field] = normalized[field].trim();
   }
   if (type === "item") {
+    normalized.schedule_status = normalized.planned_start || normalized.planned_end ? "scheduled" : "unscheduled";
     normalized.progress = Math.max(0, Math.min(100, Number(normalized.progress ?? 0)));
     if (normalized.status === "done") {
       normalized.progress = 100;

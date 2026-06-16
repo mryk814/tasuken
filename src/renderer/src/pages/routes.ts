@@ -1,7 +1,6 @@
 export const crossNavigation = [
   ["todo", "ToDo"],
   ["timeline", "Timeline"],
-  ["milestones", "Milestone Map"],
   ["notes", "Notes"],
   ["waiting", "Waiting"],
 ] as const;

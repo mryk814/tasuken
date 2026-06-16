@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
+import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 
@@ -44,7 +45,7 @@ export function NotesPage({ themes, notes, links, openDrawer, setToast }: PagePr
             <div className="note-row" key={`${record.recordType}-${record.id}`}>
               <button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, entity: record })}>
                 <span className="note-row-head">
-                  <StatusBadge value="neutral" label={record.recordType === "link" ? "link" : str(record.note_type)} />
+                  <StatusBadge value="neutral" label={record.recordType === "link" ? "リンク" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
                   <strong className="note-row-title">{str(record.title)}</strong>
                   {record.recordType === "note" && comments && comments.length > 0 && <span className="comment-count" aria-label={`${comments.length}件のコメント`}>{comments.length}</span>}
                 </span>

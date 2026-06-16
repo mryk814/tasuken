@@ -34,10 +34,10 @@ export const activeRecords = <T extends { deleted_at?: string | null }>(records:
   records.filter((record) => !record.deleted_at);
 
 export function compareDate(
-  a: { due_date?: string | null; planned_end?: string | null },
-  b: { due_date?: string | null; planned_end?: string | null },
+  a: { planned_end?: string | null; planned_start?: string | null },
+  b: { planned_end?: string | null; planned_start?: string | null },
 ): number {
-  return String(a.due_date || a.planned_end || "9999-12-31").localeCompare(
-    String(b.due_date || b.planned_end || "9999-12-31"),
+  return String(a.planned_end || a.planned_start || "9999-12-31").localeCompare(
+    String(b.planned_end || b.planned_start || "9999-12-31"),
   );
 }

@@ -26,6 +26,7 @@ export interface Theme extends BaseRecord {
   description?: string;
   status?: string;
   color?: string;
+  group?: string;
 }
 
 export interface Item extends BaseRecord {
@@ -44,7 +45,6 @@ export interface Item extends BaseRecord {
   actual_end?: string | null;
   baseline_start?: string | null;
   baseline_end?: string | null;
-  schedule_status?: string;
   schedule_confidence?: string;
   date_granularity?: string;
   date_text?: string;

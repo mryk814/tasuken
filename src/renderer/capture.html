@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; overflow: hidden; }
+      body {
+        font-family: 'Nunito', sans-serif;
+        font-size: 14px;
+        color: #3D2E2A;
+        background: #F4EEEC;
+        border: 1px solid #D5C9C3;
+        border-radius: 7px;
+      }
+      [data-theme="dark"] body {
+        color: #E8DDD8;
+        background: #2A2220;
+        border-color: #4A3E3A;
+      }
+      .capture-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        height: 100%;
+      }
+      .capture-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        user-select: none;
+        -webkit-app-region: drag;
+      }
+      .capture-header strong {
+        font-size: 12px;
+        color: #8A2F3B;
+      }
+      [data-theme="dark"] .capture-header strong {
+        color: #D4858F;
+      }
+      .capture-hint {
+        font-size: 11px;
+        color: #7A6E69;
+        -webkit-app-region: no-drag;
+      }
+      [data-theme="dark"] .capture-hint {
+        color: #9B8E89;
+      }
+      textarea {
+        flex: 1;
+        min-height: 60px;
+        padding: 8px;
+        border: 1px solid #D5C9C3;
+        border-radius: 7px;
+        background: #FDFBFA;
+        font: inherit;
+        font-size: 13px;
+        color: inherit;
+        resize: none;
+        outline: none;
+      }
+      textarea:focus {
+        border-color: #8A2F3B;
+        box-shadow: 0 0 0 2px rgba(138, 47, 59, 0.15);
+      }
+      [data-theme="dark"] textarea {
+        background: #1E1816;
+        border-color: #4A3E3A;
+      }
+      [data-theme="dark"] textarea:focus {
+        border-color: #D4858F;
+        box-shadow: 0 0 0 2px rgba(212, 133, 143, 0.2);
+      }
+      .capture-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+      button {
+        min-height: 30px;
+        padding: 4px 14px;
+        border: 1px solid #8A2F3B;
+        border-radius: 7px;
+        background: #8A2F3B;
+        color: #FFF;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover { background: #7A2835; }
+      button:active { transform: scale(0.98); }
+      button:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(138, 47, 59, 0.3); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .feedback {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgba(138, 47, 59, 0.92);
+        color: #FFF;
+        font-weight: 600;
+        font-size: 13px;
+        animation: fade-out 0.8s ease 0.3s forwards;
+        pointer-events: none;
+      }
+      @keyframes fade-out {
+        to { opacity: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="capture-form">
+      <div class="capture-header">
+        <strong>Inbox に記録</strong>
+        <span class="capture-hint">Ctrl+Enter で送信 / Esc で閉じる</span>
+      </div>
+      <textarea id="input" placeholder="タスク・メモ・アイデア" autofocus></textarea>
+      <div class="capture-actions">
+        <button id="submit" type="button">記録する</button>
+      </div>
+    </div>
+    <div id="feedback" class="feedback" style="display:none">記録しました</div>
+    <script>
+      const input = document.getElementById("input");
+      const submitButton = document.getElementById("submit");
+      const feedback = document.getElementById("feedback");
+
+      async function submit() {
+        const text = input.value.trim();
+        if (!text) return;
+        submitButton.disabled = true;
+        try {
+          await window.captureApi.save(text);
+          input.value = "";
+          feedback.style.display = "";
+          feedback.style.animation = "none";
+          feedback.offsetHeight;
+          feedback.style.animation = "";
+          setTimeout(() => {
+            feedback.style.display = "none";
+            window.captureApi.hide();
+          }, 600);
+        } catch {
+          // 失敗しても入力を消さない
+        } finally {
+          submitButton.disabled = false;
+        }
+      }
+
+      submitButton.addEventListener("click", submit);
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          window.captureApi.hide();
+          return;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+          event.preventDefault();
+          submit();
+        }
+      });
+
+      window.captureApi.onShow(() => {
+        input.value = "";
+        input.focus();
+        feedback.style.display = "none";
+        const theme = document.documentElement.dataset.theme;
+        if (!theme) document.documentElement.dataset.theme = "light";
+      });
+
+      window.captureApi.onThemeChange((mode) => {
+        document.documentElement.dataset.theme = mode;
+      });
+    </script>
+  </body>
+</html>

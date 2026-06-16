@@ -8,7 +8,7 @@ export function WaitingPage({ themes, items, openDrawer, setToast }: PageProps) 
 
   function copy() {
     workspaceApi
-      .copyText(waiting.map((item) => `${item.title}\t${item.waiting_for || "—"}\t${item.due_date || "—"}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}`).join("\n"))
+      .copyText(waiting.map((item) => `${item.title}\t${item.planned_end || "—"}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}`).join("\n"))
       .then(() => setToast("Waiting一覧をコピーしました。"));
   }
 
@@ -27,8 +27,7 @@ export function WaitingPage({ themes, items, openDrawer, setToast }: PageProps) 
               <span>{themes.find((theme) => theme.id === item.theme_id)?.name || "—"}</span>
             </div>
             <div>
-              <time>{formatDate(item.due_date)}</time>
-              <small>{item.waiting_for || "待ち相手未設定"}</small>
+              <time>{formatDate(item.planned_end)}</time>
             </div>
           </button>
         ))}

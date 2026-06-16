@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconPlus } from "@tabler/icons-react";
 
-import { IconLabel } from "../../components/IconLabel";
 import { workspaceApi } from "../../services/workspaceApi";
 import { useUiStore } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -80,7 +78,8 @@ export function WorkspaceApp() {
   const setToast = useUiStore((state) => state.setToast);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
-  const [quickText, setQuickText] = useState("");
+  const activeGroup = useUiStore((state) => state.activeGroup);
+  const setActiveGroup = useUiStore((state) => state.setActiveGroup);
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
@@ -90,6 +89,7 @@ export function WorkspaceApp() {
     try {
       const loaded = await loadWorkspaceAction();
       setThemeMode((loaded.meta?.themeMode as "light" | "dark") || "light");
+      setActiveGroup((loaded.meta?.activeGroup as string) || "");
       if (!useUiStore.getState().activeThemeId) {
         setActiveThemeId(activeRecords((loaded.themes as Theme[]) || [])[0]?.id || "");
       }
@@ -98,10 +98,17 @@ export function WorkspaceApp() {
     }
   }
 
+  const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
+
   useEffect(() => {
     void loadWorkspace();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!window.api?.app?.onWorkspaceChanged) return;
+    return window.api.app.onWorkspaceChanged(() => { void refreshWorkspace(); });
+  }, [refreshWorkspace]);
 
   useEffect(() => {
     const onHash = () => setRoute(location.hash.slice(1) || "home");
@@ -117,6 +124,12 @@ export function WorkspaceApp() {
       });
     }
   }, [themeMode, loadState, setToast]);
+
+  useEffect(() => {
+    if (loadState === "success") {
+      workspaceApi.setPreference("activeGroup", activeGroup).catch(() => {});
+    }
+  }, [activeGroup, loadState]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -154,7 +167,8 @@ export function WorkspaceApp() {
   }, [drawer, showShortcuts]);
 
   const data = useMemo(() => projectWorkspace(workspace as Record<string, unknown> | null), [workspace]);
-  const themes = data.themes;
+  const allThemes = data.themes;
+  const themes = activeGroup ? allThemes.filter((t) => t.group === activeGroup) : allThemes;
   const items = data.items;
   const notes = data.notes;
   const links = data.links;
@@ -220,34 +234,8 @@ export function WorkspaceApp() {
     await saveEntity("item", {
       ...item,
       status: item.status === "done" ? "todo" : "done",
-      progress: item.status === "done" ? Math.min(item.progress || 0, 99) : 100,
-      actual_end: item.status === "done" ? null : todayIso(),
       completed_at: item.status === "done" ? null : new Date().toISOString(),
     });
-  }
-
-  async function addQuickCapture() {
-    const title = quickText.trim();
-    if (!title) {
-      setToast("入力が空です。記録する内容を入力してください。");
-      return;
-    }
-    await saveEntity("item", {
-      title,
-      kind: "idea",
-      level: "task",
-      theme_id: activeThemeId || null,
-      status: "inbox",
-      priority: "normal",
-      schedule_status: "unscheduled",
-      schedule_confidence: "rough",
-      date_granularity: "unknown",
-      sort_order: items.length,
-      progress: 0,
-      description: "",
-    });
-    setQuickText("");
-    setToast("Inboxに記録しました。");
   }
 
   async function saveForm(event: React.FormEvent<HTMLFormElement>) {
@@ -267,48 +255,47 @@ export function WorkspaceApp() {
         setToast("タイトルを入力してください。入力内容は保持されています。");
         return;
       }
-      const scheduleStatus = formText(values, "schedule_status", "unscheduled");
-      const start = formText(values, "planned_start") || null;
+      const start = formText(values, "planned_start") || (base.planned_start as string) || null;
       const end = formText(values, "planned_end") || null;
       if (start && end && end < start) {
         (named("planned_end") as HTMLInputElement | null)?.focus();
         setToast("終了日は開始日以降にしてください。入力内容は保持されています。");
         return;
       }
-      const kind = formText(values, "kind", "task");
+      const rawKind = formText(values, "kind") || (base.kind as string) || "task";
+      const status = formText(values, "status", "todo");
+      const kind = rawKind === "idea" && status !== "inbox" ? "task" : rawKind;
       entity = {
         ...base,
         title,
         kind,
-        level: formText(values, "level") || defaultLevel(kind),
+        level: formText(values, "level") || (base.level as string) || defaultLevel(kind),
         theme_id: formText(values, "theme_id") || null,
-        status: formText(values, "status", "todo"),
-        priority: formText(values, "priority", "normal"),
-        parent_item_id: formText(values, "parent_item_id") || null,
+        status,
+        priority: values.has("priority_flag") ? "high" : "normal",
+        parent_item_id: formText(values, "parent_item_id") || (base.parent_item_id as string) || null,
         sort_order: Number(values.get("sort_order") || (base.sort_order as number) || items.length),
-        planned_start: scheduleStatus === "unscheduled" ? null : start,
-        planned_end: scheduleStatus === "unscheduled" ? null : end,
-        due_date: formText(values, "due_date") || null,
-        actual_start: formText(values, "actual_start") || null,
-        actual_end: formText(values, "actual_end") || null,
+        planned_start: start,
+        planned_end: end,
+        due_date: null,
+        actual_start: null,
+        actual_end: null,
         baseline_start: (base.baseline_start as string) || start,
         baseline_end: (base.baseline_end as string) || end,
-        schedule_status: scheduleStatus,
-        schedule_confidence: formText(values, "schedule_confidence", "rough"),
-        date_granularity: formText(values, "date_granularity", "day"),
-        date_text: formText(values, "date_text"),
-        progress: Math.max(0, Math.min(100, Number(values.get("progress") || 0))),
-        owner_person_id: formText(values, "owner_person_id") || null,
-        waiting_for: formText(values, "waiting_for"),
-        next_action: formText(values, "next_action"),
-        is_personal_task: values.get("is_personal_task") === "on",
+        schedule_confidence: "fixed",
+        date_granularity: "day",
+        date_text: "",
+        owner_person_id: null,
+        waiting_for: "",
+        next_action: "",
+        is_personal_task: !formText(values, "theme_id"),
         description: formText(values, "description"),
-        source_record_id: formText(values, "source_record_id") || null,
+        source_record_id: null,
       };
     } else if (type === "theme") {
       const name = formText(values, "name");
       if (!name) { setToast("テーマ名を入力してください。"); return; }
-      entity = { ...base, name, description: formText(values, "description"), status: formText(values, "status", "計画中") };
+      entity = { ...base, name, description: formText(values, "description"), status: formText(values, "status", "計画中"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
     } else if (type === "note") {
       const title = formText(values, "title");
       const body = formText(values, "body_markdown");
@@ -481,7 +468,7 @@ export function WorkspaceApp() {
     notes: <NotesPage {...common} />,
     waiting: <WaitingPage {...common} />,
     "ai-io": <ImportExportPage {...common} />,
-    settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} loadSample={loadSampleAction} />,
+    settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroup={activeGroup} setActiveGroup={setActiveGroup} allThemes={allThemes} loadSample={loadSampleAction} />,
   };
 
   return (
@@ -492,9 +479,6 @@ export function WorkspaceApp() {
         themes={themes}
         activeThemeId={activeThemeId}
         setActiveThemeId={setActiveThemeId}
-        quickText={quickText}
-        setQuickText={setQuickText}
-        addQuickCapture={addQuickCapture}
         items={items}
         openDrawer={openDrawer}
       />
@@ -510,9 +494,6 @@ export function WorkspaceApp() {
           saveEntity={saveEntity}
         />
       )}
-      <button className="mobile-capture" onClick={() => openDrawer({ type: "item", mode: "edit", entity: {} })}>
-        <IconLabel icon={IconPlus}>項目を追加</IconLabel>
-      </button>
       {toast && (
         <div className="toast" role="status" aria-live="polite">
           <span>{toast}</span>

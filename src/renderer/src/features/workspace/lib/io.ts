@@ -15,13 +15,12 @@ import { addDays } from "./format";
 export interface ParsedTaskRow {
   title: string;
   theme_id: string | null;
-  due_date: string | null;
+  planned_end: string | null;
   status: string;
   description: string;
   kind?: string;
   priority?: string;
   planned_start?: string | null;
-  planned_end?: string | null;
 }
 
 export function parseTaskTable(text: string, themes: Theme[]): ParsedTaskRow[] {
@@ -30,13 +29,13 @@ export function parseTaskTable(text: string, themes: Theme[]): ParsedTaskRow[] {
   const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
   const rows = lines.map((line) => line.split(delimiter).map((value) => value.trim()));
   const normalized = (value: string) => String(value || "").toLowerCase().replace(/\s/g, "");
-  const knownHeaders = ["title", "タイトル", "タスク", "theme", "テーマ", "期限", "due", "状態", "status", "説明", "description"];
+  const knownHeaders = ["title", "タイトル", "タスク", "theme", "テーマ", "予定終了", "期限", "due", "状態", "status", "説明", "description"];
   const hasHeader = rows[0].some((value) => knownHeaders.includes(normalized(value)));
-  const headers = hasHeader ? rows.shift()!.map(normalized) : ["タイトル", "theme", "期限", "状態", "説明"];
+  const headers = hasHeader ? rows.shift()!.map(normalized) : ["タイトル", "theme", "予定終了", "状態", "説明"];
   const fieldIndex = (aliases: string[]) => headers.findIndex((header) => aliases.includes(header));
   const titleIndex = fieldIndex(["title", "タイトル", "タスク"]);
   const themeIndex = fieldIndex(["theme", "テーマ"]);
-  const dueIndex = fieldIndex(["due", "due_date", "期限"]);
+  const dueIndex = fieldIndex(["due", "due_date", "期限", "予定終了", "planned_end"]);
   const statusIndex = fieldIndex(["status", "状態"]);
   const descriptionIndex = fieldIndex(["description", "説明"]);
   const statusMap: Record<string, string> = Object.fromEntries(
@@ -51,7 +50,7 @@ export function parseTaskTable(text: string, themes: Theme[]): ParsedTaskRow[] {
     return [{
       title,
       theme_id: theme?.id || null,
-      due_date: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
+      planned_end: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
       status: statusMap[row[statusIndex]] || "todo",
       description: row[descriptionIndex] || "",
     }];
@@ -80,7 +79,7 @@ export function buildExportData({ data, themes, items, activeTheme, scope }: Bui
   const today = todayIso();
   const horizon = scope === "week" ? 7 : scope === "month" ? 30 : scope === "quarter" ? 90 : null;
   const inHorizon = (item: Item) => {
-    const date = item.due_date || item.planned_end || item.planned_start;
+    const date = item.planned_end || item.planned_start;
     return Boolean(date && horizon != null && date >= today && date <= addDays(today, horizon));
   };
   let scopedItems = items;
@@ -126,6 +125,42 @@ export function buildExportData({ data, themes, items, activeTheme, scope }: Bui
   };
 }
 
+function sortItemsForExport(items: Item[]): Item[] {
+  return [...items].sort((a, b) => {
+    const aDone = a.status === "done" ? 1 : 0;
+    const bDone = b.status === "done" ? 1 : 0;
+    if (aDone !== bDone) return aDone - bDone;
+    const aDate = a.planned_end || a.planned_start || "9999-12-31";
+    const bDate = b.planned_end || b.planned_start || "9999-12-31";
+    return aDate.localeCompare(bDate);
+  });
+}
+
+function formatNoteBody(body: string): string {
+  const lines = body.split(/\r?\n/);
+  if (lines.length <= 1) return body;
+  return "\n" + lines.map((line) => `  > ${line}`).join("\n");
+}
+
+function renderItemSection(items: Item[]): string[] {
+  const sorted = sortItemsForExport(items);
+  const milestones = sorted.filter((item) => item.kind === "milestone");
+  const waiting = sorted.filter((item) => item.kind === "waiting" || item.status === "waiting");
+  const tasks = sorted.filter((item) => item.kind !== "milestone" && item.kind !== "waiting" && item.status !== "waiting");
+  const lines: string[] = [];
+  if (tasks.length) {
+    lines.push("### Items", ...tasks.map((item) => `- [${item.status === "done" ? "x" : " "}] ${item.planned_end || "予定なし"} ${item.priority === "high" ? "!" : ""} ${item.title}`), "");
+  }
+  if (milestones.length) {
+    lines.push("### Milestones", ...milestones.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`), "");
+  }
+  if (waiting.length) {
+    lines.push("### Waiting", ...waiting.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`), "");
+  }
+  if (!lines.length) lines.push("### Items", "- なし", "");
+  return lines;
+}
+
 export function exportMarkdown(data: ExportData): string {
   const sections = data.themes.flatMap((theme) => {
     const items = data.items.filter((item) => item.theme_id === theme.id);
@@ -140,13 +175,9 @@ export function exportMarkdown(data: ExportData): string {
       "### Current Status",
       updates[0]?.summary || "- 未記録",
       "",
-      "### Items",
-      ...(items.length
-        ? items.map((item) => `- [${item.status === "done" ? "x" : " "}] ${item.due_date || item.date_text || "日程未確定"} ${item.title}`)
-        : ["- なし"]),
-      "",
+      ...renderItemSection(items),
       "### Notes",
-      ...(notes.length ? notes.map((note) => `- ${note.title}: ${note.body_markdown}`) : ["- なし"]),
+      ...(notes.length ? notes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`) : ["- なし"]),
       "",
     ];
   });
@@ -156,13 +187,9 @@ export function exportMarkdown(data: ExportData): string {
     sections.push(
       "## Themeなし",
       "",
-      "### Items",
-      ...(unscopedItems.length
-        ? unscopedItems.map((item) => `- [${item.status === "done" ? "x" : " "}] ${item.due_date || item.date_text || "日程未確定"} ${item.title}`)
-        : ["- なし"]),
-      "",
+      ...renderItemSection(unscopedItems),
       "### Notes",
-      ...(unscopedNotes.length ? unscopedNotes.map((note) => `- ${note.title}: ${note.body_markdown}`) : ["- なし"]),
+      ...(unscopedNotes.length ? unscopedNotes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`) : ["- なし"]),
       "",
     );
   }

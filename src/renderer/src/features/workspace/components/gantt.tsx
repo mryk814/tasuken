@@ -1,29 +1,48 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Dependency, Item } from "../types";
-import { DAY, itemLevel, SCHEDULE_LABELS } from "../lib/domain";
+import { DAY, hasPlannedSchedule, itemLevel, statusProgress } from "../lib/domain";
 import { daysBetween } from "../lib/format";
 import type { GanttRange, TimelineRow } from "../lib/timeline";
 
+export interface SelectedDependency {
+  dependency: Dependency;
+  sourceTitle: string;
+  targetTitle: string;
+}
+
 type DragMode = "move" | "start" | "end";
+
+export interface ConnectingState {
+  sourceId: string;
+  sourceTitle: string;
+}
 
 export function GanttItemRow({
   item,
   range,
+  hint,
   onOpen,
   onMove,
+  connecting,
+  onConnect,
+  themeColorKey,
 }: {
   item: Item;
   range: GanttRange;
+  hint: string;
   onOpen: () => void;
   onMove: (item: Item, delta: number, mode: DragMode) => void;
+  connecting?: ConnectingState | null;
+  onConnect?: (item: Item) => void;
+  themeColorKey?: string;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const [drag, setDrag] = useState<{ mode: DragMode; dxPercent: number } | null>(null);
   const level = itemLevel(item);
-  const start = item.planned_start || item.due_date;
-  const end = item.planned_end || item.due_date || start;
+  const start = item.planned_start || item.planned_end;
+  const end = item.planned_end || start;
   const total = Math.max(1, daysBetween(range.start, range.end));
   const left = start ? Math.max(0, Math.min(100, (daysBetween(range.start, start) / total) * 100)) : 0;
   const width = start
@@ -72,28 +91,42 @@ export function GanttItemRow({
     addEventListener("pointercancel", onPointerCancel);
   }
 
+  const isSource = !!connecting?.sourceId && connecting.sourceId === item.id;
+  const isConnecting = !!connecting;
+
   function handleClick() {
-    // ドラッグ直後のクリックではDrawerを開かない。
     if (movedRef.current) {
       movedRef.current = false;
+      return;
+    }
+    if (isConnecting && onConnect) {
+      onConnect(item);
       return;
     }
     onOpen();
   }
 
+  const barClass = [
+    `gantt-item-bar level-${level}`,
+    item.kind === "milestone" ? "milestone" : "",
+    drag ? "is-dragging" : "",
+    isSource ? "is-connect-source" : "",
+    isConnecting && !isSource ? "is-connect-target" : "",
+  ].filter(Boolean).join(" ");
+
   return (
     <div className={`gantt-item-row level-${level}`} ref={rowRef}>
-      {item.schedule_status !== "unscheduled" && start && (
+      {hasPlannedSchedule(item) && start && (
         <button
-          className={`gantt-item-bar level-${level} ${item.kind === "milestone" ? "milestone" : ""} schedule-${item.schedule_status || "scheduled"} confidence-${item.schedule_confidence || "rough"} ${drag ? "is-dragging" : ""}`}
-          style={{ left: `${displayLeft}%`, width: `${displayWidth}%` }}
+          className={barClass}
+          style={{ left: `${displayLeft}%`, width: `${displayWidth}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
           onClick={handleClick}
-          onPointerDown={(event) => beginDrag(event, "move")}
-          title={`${item.title} / ${SCHEDULE_LABELS[item.schedule_status || ""] || ""}`}
+          onPointerDown={isConnecting ? undefined : (event) => beginDrag(event, "move")}
+          title={isConnecting ? (isSource ? `${item.title}（選択中）` : connecting?.sourceId ? `${item.title} を後続にする` : `${item.title} を先行にする`) : hint}
         >
-          {item.kind !== "milestone" && <span className="resize-handle start" onPointerDown={(event) => beginDrag(event, "start")} />}
+          {item.kind !== "milestone" && !isConnecting && <span className="resize-handle start" onPointerDown={(event) => beginDrag(event, "start")} />}
           <span>{item.kind === "milestone" ? "◆" : item.title}</span>
-          {item.kind !== "milestone" && <span className="resize-handle end" onPointerDown={(event) => beginDrag(event, "end")} />}
+          {item.kind !== "milestone" && !isConnecting && <span className="resize-handle end" onPointerDown={(event) => beginDrag(event, "end")} />}
         </button>
       )}
     </div>
@@ -122,12 +155,17 @@ export function DependencyOverlay({
   dependencies,
   rows,
   range,
+  selected,
+  onSelect,
 }: {
   dependencies: Dependency[];
   rows: TimelineRow[];
   range: GanttRange;
+  selected?: SelectedDependency | null;
+  onSelect?: (sel: SelectedDependency | null) => void;
 }) {
   const total = Math.max(1, daysBetween(range.start, range.end));
+  const ROW_H = 44;
   const rowIndexOf = (id?: string) => rows.findIndex((row) => row.rowType === "item" && row.item.id === id);
   const lines = dependencies.flatMap((dependency) => {
     const sourceIndex = rowIndexOf(dependency.source_item_id);
@@ -135,28 +173,52 @@ export function DependencyOverlay({
     if (sourceIndex < 0 || targetIndex < 0) return [];
     const source = (rows[sourceIndex] as ItemRow).item;
     const target = (rows[targetIndex] as ItemRow).item;
-    const sourceDate = source.planned_end || source.due_date;
-    const targetDate = target.planned_start || target.due_date;
+    const sourceDate = source.planned_end;
+    const targetDate = target.planned_start || target.planned_end;
     if (!sourceDate || !targetDate) return [];
-    const sourceX = Math.max(0, Math.min(1000, (daysBetween(range.start, sourceDate) / total) * 1000));
-    const targetX = Math.max(0, Math.min(1000, (daysBetween(range.start, targetDate) / total) * 1000));
-    const sourceY = sourceIndex * 44 + 22;
-    const targetY = targetIndex * 44 + 22;
-    const bendX = Math.max(sourceX + 12, (sourceX + targetX) / 2);
-    return [{ id: dependency.id, sourceX, sourceY, targetX, targetY, bendX }];
+    const sourceX = Math.max(0, Math.min(100, ((daysBetween(range.start, sourceDate) + 1) / total) * 100));
+    const targetX = Math.max(0, Math.min(100, (daysBetween(range.start, targetDate) / total) * 100));
+    const sourceY = sourceIndex * ROW_H + ROW_H / 2;
+    const targetY = targetIndex * ROW_H + ROW_H / 2;
+    const bendX = Math.max(sourceX + 1.5, (sourceX + targetX) / 2);
+    return [{ id: dependency.id, sourceX, sourceY, targetX, targetY, bendX, sourceTitle: source.title, targetTitle: target.title, dependency }];
   });
   if (!lines.length) return null;
-  const height = Math.max(44, rows.length * 44);
+  const height = rows.length * ROW_H;
   return (
-    <svg className="dependency-overlay" viewBox={`0 0 1000 ${height}`} preserveAspectRatio="none" aria-hidden="true">
+    <svg className="dependency-overlay" viewBox={`0 0 100 ${height}`} style={{ height }} preserveAspectRatio="none">
       <defs>
         <marker id="dependency-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
           <path d="M0,0 L7,3.5 L0,7 Z" />
         </marker>
+        <marker id="dependency-arrow-selected" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 Z" className="dep-selected-marker" />
+        </marker>
       </defs>
-      {lines.map((line) => (
-        <path key={line.id} d={`M ${line.sourceX} ${line.sourceY} H ${line.bendX} V ${line.targetY} H ${line.targetX}`} markerEnd="url(#dependency-arrow)" />
-      ))}
+      {lines.map((line) => {
+        const isSelected = selected?.dependency.id === line.id;
+        const d = `M ${line.sourceX} ${line.sourceY} H ${line.bendX} V ${line.targetY} H ${line.targetX}`;
+        return (
+          <g key={line.id}>
+            {/* 太めの透明ヒットエリア */}
+            <path
+              d={d}
+              className="dep-hit-area"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect?.(isSelected ? null : { dependency: line.dependency, sourceTitle: line.sourceTitle, targetTitle: line.targetTitle });
+              }}
+            >
+              <title>{`${line.sourceTitle} → ${line.targetTitle}`}</title>
+            </path>
+            <path
+              d={d}
+              className={isSelected ? "dep-line dep-line-selected" : "dep-line"}
+              markerEnd={isSelected ? "url(#dependency-arrow-selected)" : "url(#dependency-arrow)"}
+            />
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -167,13 +229,13 @@ export function LightningOverlay({ rows, range, today }: { rows: TimelineRow[]; 
   const points = rows.flatMap((row, index) => {
     if (row.rowType !== "item") return [];
     const item = row.item;
-    const start = item.planned_start || item.due_date;
-    const end = item.planned_end || item.due_date || start;
-    if (!start || !end || item.schedule_status === "unscheduled") return [];
+    const start = item.planned_start || item.planned_end;
+    const end = item.planned_end || start;
+    if (!start || !end || !hasPlannedSchedule(item)) return [];
     const duration = Math.max(1, daysBetween(start, end) + 1);
     const elapsed = Math.max(0, Math.min(duration, daysBetween(start, today) + 1));
     const plannedProgress = elapsed / duration;
-    const actualProgress = Math.max(0, Math.min(1, Number(item.progress || 0) / 100));
+    const actualProgress = statusProgress(item.status);
     const varianceDays = (actualProgress - plannedProgress) * duration;
     const x = Math.max(0, Math.min(1000, todayX + (varianceDays / totalDays) * 1000));
     return [{ x, y: 44 + index * 44 + 22, varianceDays }];
