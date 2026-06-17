@@ -56,6 +56,7 @@ export interface Item extends BaseRecord {
   description?: string;
   source_record_id?: string | null;
   completed_at?: string | null;
+  today_flag?: boolean;
 }
 
 export interface NoteComment {

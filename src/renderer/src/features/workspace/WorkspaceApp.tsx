@@ -27,7 +27,6 @@ import { EntityDrawer } from "./components/drawer";
 import { HomePage } from "./pages/HomePage";
 import { TodoPage } from "./pages/TodoPage";
 import { TimelinePage } from "./pages/TimelinePage";
-import { MilestonePage } from "./pages/MilestonePage";
 import { ThemesPage } from "./pages/ThemesPage";
 import { NotesPage } from "./pages/NotesPage";
 import { WaitingPage } from "./pages/WaitingPage";
@@ -259,7 +258,7 @@ export function WorkspaceApp() {
         setToast("タイトルを入力してください。入力内容は保持されています。");
         return;
       }
-      const start = formText(values, "planned_start") || (base.planned_start as string) || null;
+      const start = formText(values, "planned_start") || null;
       const end = formText(values, "planned_end") || null;
       if (start && end && end < start) {
         (named("planned_end") as HTMLInputElement | null)?.focus();
@@ -277,15 +276,15 @@ export function WorkspaceApp() {
         theme_id: formText(values, "theme_id") || null,
         status,
         priority: values.has("priority_flag") ? "high" : "normal",
-        parent_item_id: formText(values, "parent_item_id") || (base.parent_item_id as string) || null,
+        parent_item_id: formText(values, "parent_item_id") || null,
         sort_order: Number(values.get("sort_order") || (base.sort_order as number) || items.length),
         planned_start: start,
         planned_end: end,
         due_date: null,
         actual_start: null,
         actual_end: null,
-        baseline_start: (base.baseline_start as string) || start,
-        baseline_end: (base.baseline_end as string) || end,
+        baseline_start: start || null,
+        baseline_end: end || null,
         schedule_confidence: "fixed",
         date_granularity: "day",
         date_text: "",
@@ -468,7 +467,6 @@ export function WorkspaceApp() {
     home: <HomePage {...common} />,
     todo: <TodoPage {...common} />,
     timeline: <TimelinePage {...common} />,
-    milestones: <MilestonePage {...common} />,
     themes: <ThemesPage {...common} />,
     notes: <NotesPage {...common} />,
     waiting: <WaitingPage {...common} />,

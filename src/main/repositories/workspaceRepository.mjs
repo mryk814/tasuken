@@ -3,7 +3,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { assertEntityType, normalizeEntity, validateEntity, workspaceEntityTypes } from "./domain.mjs";
+import {
+  assertDependencyAcyclic,
+  assertEntityType,
+  assertItemParentAcyclic,
+  normalizeEntity,
+  validateEntity,
+  workspaceEntityTypes,
+} from "./domain.mjs";
 
 const SCHEMA_VERSION = 1;
 
@@ -36,6 +43,14 @@ function contentOf(entity) {
     ...data
   } = entity;
   return data;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function collectionKey(type) {
+  return `${type}s`;
 }
 
 export class WorkspaceDatabase {
@@ -223,6 +238,7 @@ export class WorkspaceDatabase {
       version: (existing?.version || Number(input.version) || 0) + 1,
     });
     this.validateReferences(type, entity);
+    this.validateGraph(type, entity);
 
     if (type === "item" && existing) this.recordPlanRevision(existing, entity, options.reason);
     this.db.prepare(`
@@ -280,6 +296,86 @@ export class WorkspaceDatabase {
     }
     if (type === "entity_source") {
       requireReference("source_record", entity.source_record_id, "source_record_id");
+    }
+  }
+
+  validateGraph(type, entity) {
+    if (type === "item") this.validateItemParentGraph(entity);
+    if (type === "dependency") this.validateDependencyGraph(entity);
+  }
+
+  validateItemParentGraph(entity) {
+    assertItemParentAcyclic(this.list("item"), entity);
+  }
+
+  validateDependencyGraph(entity) {
+    assertDependencyAcyclic(this.list("dependency"), entity);
+  }
+
+  validateSnapshotWorkspace(snapshot) {
+    if (!isPlainObject(snapshot)) throw new Error("Snapshotのworkspace構造が不正です。");
+    const activeIds = new Map();
+    for (const type of workspaceEntityTypes) {
+      const records = snapshot[collectionKey(type)] || [];
+      if (!Array.isArray(records)) throw new Error(`${collectionKey(type)}は配列で指定してください。`);
+      const ids = new Set();
+      for (const record of records) {
+        if (!isPlainObject(record)) throw new Error(`${type}のレコード構造が不正です。`);
+        if (typeof record.id !== "string" || !record.id.trim()) throw new Error(`${type}.idがありません。`);
+        validateEntity(type, record);
+        if (!record.deleted_at) ids.add(String(record.id));
+      }
+      activeIds.set(type, ids);
+    }
+
+    const requireSnapshotReference = (type, record, targetType, id, field) => {
+      if (!id || record.deleted_at) return;
+      if (!activeIds.get(targetType)?.has(String(id))) {
+        throw new Error(`${type}.${field}がSnapshot内に存在しない${targetType}を参照しています。`);
+      }
+    };
+
+    for (const type of workspaceEntityTypes) {
+      for (const record of snapshot[collectionKey(type)] || []) {
+        requireSnapshotReference(type, record, "theme", record.theme_id, "theme_id");
+        requireSnapshotReference(type, record, "item", record.item_id, "item_id");
+        requireSnapshotReference(type, record, "note", record.note_id, "note_id");
+        requireSnapshotReference(type, record, "person", record.owner_person_id, "owner_person_id");
+        requireSnapshotReference(type, record, "person", record.waiting_for_person_id, "waiting_for_person_id");
+        requireSnapshotReference(type, record, "source_record", record.source_record_id, "source_record_id");
+        requireSnapshotReference(type, record, "item", record.parent_item_id, "parent_item_id");
+        requireSnapshotReference(type, record, "field_definition", record.field_definition_id, "field_definition_id");
+        if (type === "dependency") {
+          requireSnapshotReference(type, record, "item", record.source_item_id, "source_item_id");
+          requireSnapshotReference(type, record, "item", record.target_item_id, "target_item_id");
+        }
+        if (type === "relation") {
+          if (!workspaceEntityTypes.includes(record.source_entity_type) || !workspaceEntityTypes.includes(record.target_entity_type)) {
+            throw new Error("relationの参照先種別が不正です。");
+          }
+          requireSnapshotReference(type, record, record.source_entity_type, record.source_entity_id, "source_entity_id");
+          requireSnapshotReference(type, record, record.target_entity_type, record.target_entity_id, "target_entity_id");
+        }
+        if (type === "field_value" || type === "entity_source") {
+          if (!workspaceEntityTypes.includes(record.entity_type)) throw new Error(`${type}.entity_typeが不正です。`);
+          requireSnapshotReference(type, record, record.entity_type, record.entity_id, "entity_id");
+        }
+      }
+    }
+
+    this.validateSnapshotItemParentGraph(snapshot.items || []);
+    this.validateSnapshotDependencyGraph(snapshot.dependencys || []);
+  }
+
+  validateSnapshotItemParentGraph(items) {
+    for (const item of items.filter((entry) => !entry.deleted_at)) {
+      assertItemParentAcyclic(items, item, "Snapshot内のItem親子関係が循環しています。Import前に親Itemを修正してください。");
+    }
+  }
+
+  validateSnapshotDependencyGraph(dependencies) {
+    for (const dependency of dependencies.filter((entry) => !entry.deleted_at)) {
+      assertDependencyAcyclic(dependencies, dependency, "Snapshot内のDependencyが循環しています。Import前に依存関係を修正してください。");
     }
   }
 
@@ -528,6 +624,7 @@ export class WorkspaceDatabase {
   }
 
   previewSnapshot(snapshot) {
+    this.validateSnapshotWorkspace(snapshot);
     const changes = [];
     for (const type of workspaceEntityTypes) {
       for (const incoming of snapshot?.[`${type}s`] || []) {
@@ -555,11 +652,15 @@ export class WorkspaceDatabase {
   }
 
   applySnapshot(snapshot, decisions = {}, revisions = []) {
+    this.validateSnapshotWorkspace(snapshot);
     const preview = this.previewSnapshot(snapshot);
     const applied = [];
     const transaction = this.db.transaction(() => {
       for (const change of preview) {
         const action = decisions[change.key] || change.action;
+        if (!["create", "update", "ignore", "duplicate"].includes(action)) {
+          throw new Error("Snapshotの取り込み操作が不正です。プレビューからやり直してください。");
+        }
         if (action === "ignore") continue;
         if (action === "duplicate") {
           this.insertImported(change.type, {

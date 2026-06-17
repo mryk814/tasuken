@@ -1,15 +1,17 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import type { BaseRecord, DrawerConfig, Item, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
 
-export function PageHeader({ title, children }: { title: string; subtitle?: string; children?: ReactNode }) {
-  // subtitleは受け取るが、既存挙動どおりタイトルと操作のみ描画する。
+export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: string; children?: ReactNode }) {
   return (
     <header className="page-header">
-      <h1>{title}</h1>
+      <div>
+        <h1>{title}</h1>
+        {subtitle && <p className="page-subtitle">{subtitle}</p>}
+      </div>
       <div className="header-actions">{children}</div>
     </header>
   );
@@ -74,6 +76,9 @@ export function ThemeSelect({
   allowAll?: boolean;
 }) {
   const [selected, setSelected] = useState(value || "");
+  useEffect(() => {
+    setSelected(value || "");
+  }, [value]);
   const noneLabel = allowAll ? "全体共通" : allowPersonal ? "個人業務" : "未設定";
   return (
     <Field label="Theme">

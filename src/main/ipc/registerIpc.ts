@@ -32,21 +32,35 @@ function requireId(value: unknown): string {
   return value;
 }
 
+function requireText(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label}の形式が不正です。画面を再読み込みして、もう一度試してください。`);
+  }
+  return value;
+}
+
 export function registerIpc(repository: WorkspaceRepository, service: WorkspaceService): void {
   ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => repository.setPreference(requireId(key), value));
-  ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(text));
+  ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.entityList, (_event, type, includeDeleted) =>
     repository.list(requireEntityType(type), Boolean(includeDeleted)));
   ipcMain.handle(IPC.entityGet, (_event, type, id) =>
     repository.get(requireEntityType(type), requireId(id)));
-  ipcMain.handle(IPC.entitySave, (_event, type, entity, options) =>
-    repository.save(requireEntityType(type), entity, options));
-  ipcMain.handle(IPC.entitySaveMany, (_event, operations) => repository.saveMany(operations));
+  ipcMain.handle(IPC.entitySave, (_event, type, entity, options) => {
+    if (!entity || typeof entity !== "object" || Array.isArray(entity)) {
+      throw new Error("保存内容が不正です。入力内容を確認してください。");
+    }
+    return repository.save(requireEntityType(type), entity, options);
+  });
+  ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {
+    if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
+    return repository.saveMany(operations);
+  });
   ipcMain.handle(IPC.entityRemove, (_event, type, id) =>
     repository.remove(requireEntityType(type), requireId(id)));
   ipcMain.handle(IPC.entityRestore, (_event, type, id) =>

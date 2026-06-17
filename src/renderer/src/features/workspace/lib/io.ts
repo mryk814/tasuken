@@ -1,6 +1,7 @@
 import { todayIso, toYaml } from "../../../utils/dataFormat.js";
 import type {
   BaseRecord,
+  Dependency,
   Item,
   Link,
   Note,
@@ -65,6 +66,7 @@ export interface ExportData {
   status_updates: StatusUpdate[];
   log_entries: BaseRecord[];
   source_records: SourceRecord[];
+  dependencys: Dependency[];
 }
 
 interface BuildExportArgs {
@@ -122,6 +124,11 @@ export function buildExportData({ data, themes, items, activeTheme, scope }: Bui
       return !themeIds.size || (themeId != null && themeIds.has(themeId));
     }),
     source_records: data.source_records || [],
+    dependencys: (data.dependencys || []).filter((dependency) => {
+      const source = scopedItems.find((item) => item.id === dependency.source_item_id);
+      const target = scopedItems.find((item) => item.id === dependency.target_item_id);
+      return Boolean(source || target);
+    }),
   };
 }
 
@@ -168,6 +175,11 @@ export function exportMarkdown(data: ExportData): string {
     const updates = data.status_updates
       .filter((entry) => entry.theme_id === theme.id)
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const itemIds = new Set(items.map((item) => item.id));
+    const dependencies = data.dependencys.filter((dependency) =>
+      (dependency.source_item_id != null && itemIds.has(dependency.source_item_id))
+      || (dependency.target_item_id != null && itemIds.has(dependency.target_item_id)));
+    const itemTitle = (id?: string) => data.items.find((item) => item.id === id)?.title || id || "不明";
     return [
       `## Theme: ${theme.name}`,
       theme.description || "",
@@ -176,6 +188,11 @@ export function exportMarkdown(data: ExportData): string {
       updates[0]?.summary || "- 未記録",
       "",
       ...renderItemSection(items),
+      "### Dependencies",
+      ...(dependencies.length
+        ? dependencies.map((dependency) => `- ${itemTitle(dependency.source_item_id)} -> ${itemTitle(dependency.target_item_id)}`)
+        : ["- なし"]),
+      "",
       "### Notes",
       ...(notes.length ? notes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`) : ["- なし"]),
       "",
@@ -193,7 +210,17 @@ export function exportMarkdown(data: ExportData): string {
       "",
     );
   }
-  return ["# Current Work Context", "", ...sections].join("\n");
+  return [
+    "# Current Work Context",
+    "",
+    "## AIに渡す時の注意事項",
+    "- Taskenの正本はSQLiteです。提案は保存前に差分確認してください。",
+    "- Item親子関係とDependencyは循環禁止です。",
+    "- 期限や今日判定は利用者のローカル日付を基準にしてください。",
+    "- 不明な参照先は推測で作らず、候補として分けてください。",
+    "",
+    ...sections,
+  ].join("\n");
 }
 
 export { toYaml };

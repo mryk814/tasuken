@@ -10,6 +10,13 @@ export const num = (value: unknown): number => {
 
 export const dateOnly = (value: unknown): string => (value ? String(value).slice(0, 10) : "");
 
+export const localDateIso = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export const daysBetween = (from: string, to: string): number =>
   Math.round((new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) / DAY);
 
@@ -17,7 +24,7 @@ export const addDays = (value: unknown, count: number): string => {
   if (!value) return "";
   const date = new Date(`${dateOnly(value)}T00:00:00`);
   date.setDate(date.getDate() + count);
-  return date.toISOString().slice(0, 10);
+  return localDateIso(date);
 };
 
 export const formatDate = (value: unknown): string => {

@@ -14,7 +14,6 @@ export type RouteId =
   | "home"
   | "todo"
   | "timeline"
-  | "milestones"
   | "themes"
   | "notes"
   | "waiting"

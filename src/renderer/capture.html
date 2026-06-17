@@ -108,6 +108,12 @@
         animation: fade-out 0.8s ease 0.3s forwards;
         pointer-events: none;
       }
+      .feedback.error {
+        padding: 12px;
+        background: rgba(206, 59, 59, 0.96);
+        text-align: center;
+        animation: none;
+      }
       @keyframes fade-out {
         to { opacity: 0; }
       }
@@ -146,7 +152,9 @@
             window.captureApi.hide();
           }, 600);
         } catch {
-          // 失敗しても入力を消さない
+          feedback.textContent = "保存できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
+          feedback.classList.add("error");
+          feedback.style.display = "";
         } finally {
           submitButton.disabled = false;
         }
@@ -169,6 +177,8 @@
         input.value = "";
         input.focus();
         feedback.style.display = "none";
+        feedback.classList.remove("error");
+        feedback.textContent = "記録しました";
         const theme = document.documentElement.dataset.theme;
         if (!theme) document.documentElement.dataset.theme = "light";
       });

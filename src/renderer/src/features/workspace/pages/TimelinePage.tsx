@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import type { Item, PageProps } from "../types";
 import { STATUS_LABELS, hasPlannedSchedule, itemLevel, themeColor } from "../lib/domain";
 import { addDays, daysBetween, formatDate, uuid } from "../lib/format";
-import { buildTimelineRows, ganttRange } from "../lib/timeline";
+import { buildTimelineRows, dataRange, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
 
@@ -16,26 +16,25 @@ interface TimelineUndo {
   run(): Promise<void>;
 }
 
-// 表示トグル・スケールはUI設定としてlocalStorageに記憶し、次回も同じ表示で開く。
-// 完了Item・依存線・イナズマ線は既定ON。
 interface TimelinePrefs {
-  scale: string;
+  dayWidth: number;
   themeFilter: string;
   showCompleted: boolean;
   showDependencies: boolean;
   showLightning: boolean;
 }
 const DEFAULT_PREFS: TimelinePrefs = {
-  scale: "quarter",
+  dayWidth: 8,
   themeFilter: "all",
   showCompleted: true,
   showDependencies: true,
   showLightning: true,
 };
 
-export function TimelinePage({ data, themes, items, openDrawer, saveEntity, removeEntityQuiet, setToast, navigate }: PageProps) {
-  const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v4", DEFAULT_PREFS);
-  const { scale, themeFilter, showCompleted, showDependencies, showLightning } = prefs;
+export function TimelinePage({ data, themes, items, openDrawer, saveEntity, removeEntityQuiet, setToast }: PageProps) {
+  const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v5", DEFAULT_PREFS);
+  const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning } = prefs;
+  const scale = scaleFromDayWidth(dayWidth);
   const updatePrefs = (patch: Partial<TimelinePrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const [collapsedThemes, setCollapsedThemes] = useState<string[]>([]);
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
@@ -144,7 +143,16 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
       handleConnect(item);
     }
   }
-  const range = ganttRange(scale, today);
+
+  function handleCtrlClick(item: Item) {
+    if (!connecting) {
+      setConnecting({ sourceId: item.id, sourceTitle: item.title });
+      setSelectedDep(null);
+    } else {
+      handleConnect(item);
+    }
+  }
+  const range = dataRange(items, today);
   const timelineItems = items.filter((item) => {
     if (!showCompleted && item.status === "done") return false;
     if (themeFilter !== "all" && item.theme_id !== themeFilter) return false;
@@ -153,7 +161,48 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
   const rows = buildTimelineRows({ items: timelineItems, themes, collapsedThemes, scale });
   const groupKeys = rows.filter((row) => row.rowType === "theme").map((row) => (row as Extract<typeof row, { rowType: "theme" }>).groupKey);
   const days = Math.max(1, daysBetween(range.start, range.end));
+  const canvasWidth = Math.round(days * dayWidth);
   const todayLeft = (daysBetween(range.start, today) / days) * 100;
+
+  const didInitialScroll = useRef(false);
+  useEffect(() => {
+    if (!didInitialScroll.current && scrollRef.current) {
+      scrollToday();
+      didInitialScroll.current = true;
+    }
+  }, []);
+
+  const dayWidthRef = useRef(dayWidth);
+  dayWidthRef.current = dayWidth;
+  const pendingScroll = useRef<{ ratio: number; mouseX: number } | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const mouseX = e.clientX - el.getBoundingClientRect().left;
+      const oldWidth = el.scrollWidth;
+      const ratio = (el.scrollLeft + mouseX) / oldWidth;
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      const next = Math.min(MAX_DAY_WIDTH, Math.max(MIN_DAY_WIDTH, dayWidthRef.current * factor));
+      if (Math.abs(next - dayWidthRef.current) > 0.01) {
+        pendingScroll.current = { ratio, mouseX };
+        updatePrefs({ dayWidth: next });
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (pendingScroll.current && scrollRef.current) {
+      const { ratio, mouseX } = pendingScroll.current;
+      scrollRef.current.scrollLeft = ratio * scrollRef.current.scrollWidth - mouseX;
+      pendingScroll.current = null;
+    }
+  }, [dayWidth]);
 
   function dateHint(item: Item): string {
     if (!hasPlannedSchedule(item)) return `${item.title}（予定なし）`;
@@ -222,20 +271,8 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
   return (
     <div className="page timeline-wide">
       <PageHeader title="Timeline" subtitle="実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。">
-        <button className="secondary-button" onClick={scrollToday}>今日へ移動</button>
-        <button className="secondary-button" onClick={() => navigate("milestones")}>マイルストーン</button>
-        {connecting
-          ? <button className="danger-button" onClick={() => setConnecting(null)}>接続をキャンセル</button>
-          : <button className="secondary-button" onClick={() => { setConnecting({ sourceId: "", sourceTitle: "" }); setSelectedDep(null); }}>依存を接続</button>}
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "period", level: "plan" } })}>実施事項を追加</button>
       </PageHeader>
-      {connecting && (
-        <div className="connect-status-bar">
-          {connecting.sourceId
-            ? <span>先行: <strong>{connecting.sourceTitle}</strong> → 後続Itemをクリックしてください（Escでキャンセル）</span>
-            : <span>先行Itemをクリックしてください（Escでキャンセル）</span>}
-        </div>
-      )}
       <section className="timeline-toolbar panel">
         <label>Theme
           <select value={themeFilter} onChange={(event) => updatePrefs({ themeFilter: event.target.value })}>
@@ -243,14 +280,20 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
             {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
           </select>
         </label>
-        <div className="segmented">{[["year", "年間"], ["half", "半年"], ["quarter", "四半期"], ["month", "月間"], ["week", "週間"]].map(([id, label]) => <button key={id} className={scale === id ? "is-active" : ""} onClick={() => updatePrefs({ scale: id })}>{label}</button>)}</div>
+        <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { ratio: (scroll.scrollLeft + cx) / scroll.scrollWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
         <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了Item</label>
         <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
         <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => updatePrefs({ showLightning: event.target.checked })} />イナズマ線</label>
         <button className="secondary-button compact" onClick={() => setCollapsedThemes([])}>全展開</button>
         <button className="secondary-button compact" onClick={() => setCollapsedThemes(groupKeys)}>全折りたたみ</button>
       </section>
-      <section className="split-gantt panel">
+      <section className={`split-gantt panel ${connecting ? "is-connecting" : ""}`}>
+        {connecting && (
+          <div className="connect-status-popover" role="status" aria-live="polite">
+            <span>先行: <strong>{connecting.sourceTitle}</strong> → 後続Itemをクリック</span>
+            <button className="danger-button compact" onClick={() => setConnecting(null)}>キャンセル</button>
+          </div>
+        )}
         <div className="gantt-table">
           <div className="gantt-table-head"><span>実施事項 / 計画</span><span>操作</span></div>
           {rows.map((row) => {
@@ -294,7 +337,10 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
                       }}
                     />
                   ) : (
-                    <button className="gantt-title-button" onClick={() => isPlan ? setEditingTitle({ id: item.id, value: item.title }) : connecting ? startConnecting(item) : openDrawer({ type: "item", entity: item })}>
+                    <button className="gantt-title-button" onClick={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
+                      isPlan ? setEditingTitle({ id: item.id, value: item.title }) : connecting ? startConnecting(item) : openDrawer({ type: "item", entity: item });
+                    }}>
                       {item.title}
                     </button>
                   )}
@@ -307,18 +353,18 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
           })}
         </div>
         <div className="gantt-scroll" ref={scrollRef}>
-          <div className="gantt-canvas" ref={canvasRef} onClick={() => selectedDep && setSelectedDep(null)}>
-            <TimeAxis start={range.start} end={range.end} scale={scale} />
+          <div className="gantt-canvas" ref={canvasRef} style={{ width: canvasWidth }} onClick={() => selectedDep && setSelectedDep(null)}>
+            <TimeAxis start={range.start} end={range.end} dayWidth={dayWidth} />
             <div className="gantt-today" style={{ left: `${todayLeft}%` }}><span>今日</span></div>
             {rows.map((row) => {
               if (row.rowType === "theme") return <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />;
               if (row.rowType === "milestones") {
                 const colorKey = themeColor(row.theme, themes.indexOf(row.theme ?? themes[0]));
-                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} scale={scale} hint={dateHint} onOpen={(item) => openDrawer({ type: "item", entity: item })} themeColorKey={colorKey} />;
+                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={(item) => openDrawer({ type: "item", entity: item })} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
               }
               const itemTheme = themes.find((t) => t.id === row.item.theme_id);
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
-              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "item", entity: item })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} />;
+              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "item", entity: item })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
             })}
             {showDependencies && <DependencyOverlay dependencies={data.dependencys || []} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
             {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}

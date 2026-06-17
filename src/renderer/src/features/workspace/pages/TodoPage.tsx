@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconFlag, IconFlagFilled } from "@tabler/icons-react";
+import { IconCalendarPlus, IconCalendarCheck, IconFlag, IconFlagFilled } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -7,7 +7,7 @@ import type { PageProps, SaveOperation } from "../types";
 import { STATUS_LABELS, defaultLevel, hasPlannedSchedule, themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
-import { EmptyState, Metric, PageHeader } from "../components/common";
+import { EmptyState, PageHeader } from "../components/common";
 
 export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEntities, toggleItem, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
@@ -18,19 +18,28 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
   const [shiftDays, setShiftDays] = useState(7);
   const today = todayIso();
   const tasks = items.filter((item) => item.status === "inbox" || ["task", "deliverable", "reminder"].includes(item.kind ?? "") || !item.theme_id);
+  const isTodayTask = (item: typeof tasks[number]) => item.today_flag === true || item.planned_end === today;
   const counters = {
-    today: tasks.filter((item) => item.status !== "done" && item.planned_end === today).length,
+    today: tasks.filter((item) => item.status !== "done" && isTodayTask(item)).length,
+    open: tasks.filter((item) => item.status !== "done" && item.status !== "inbox").length,
     overdue: tasks.filter((item) => item.status !== "done" && item.planned_end && item.planned_end < today).length,
     inbox: tasks.filter((item) => item.status === "inbox").length,
     noSchedule: tasks.filter((item) => item.status !== "done" && !hasPlannedSchedule(item)).length,
+    done: tasks.filter((item) => item.status === "done").length,
   };
   const visible = tasks.filter((item) => {
+    if (filter === "today") return item.status !== "done" && isTodayTask(item);
     if (filter === "done") return item.status === "done";
     if (filter === "inbox") return item.status === "inbox";
     if (filter === "no-schedule") return item.status !== "done" && !hasPlannedSchedule(item);
     if (filter === "overdue") return item.status !== "done" && item.planned_end && item.planned_end < today;
     return item.status !== "done" && item.status !== "inbox";
-  }).sort((a, b) => String(a.planned_end || a.planned_start || "9999-12-31").localeCompare(String(b.planned_end || b.planned_start || "9999-12-31")));
+  }).sort((a, b) => {
+    const aToday = isTodayTask(a) ? 0 : 1;
+    const bToday = isTodayTask(b) ? 0 : 1;
+    if (aToday !== bToday) return aToday - bToday;
+    return String(a.planned_end || a.planned_start || "9999-12-31").localeCompare(String(b.planned_end || b.planned_start || "9999-12-31"));
+  });
 
   // 一括操作は1transactionで完結させ、途中失敗時に一部だけ更新された状態を残さない。
   async function bulkUpdate(field: string, value: string) {
@@ -108,8 +117,8 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
   }
 
   function copyRows() {
-    const header = "タスク\t状態\tテーマ\t予定終了\t旗";
-    const rows = visible.map((item) => `${item.title}\t${STATUS_LABELS[item.status ?? ""]}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "個人業務"}\t${item.planned_end || "予定なし"}\t${item.priority === "high" ? "あり" : "なし"}`);
+    const header = "タスク\t状態\tテーマ\t今日\t予定終了\t旗";
+    const rows = visible.map((item) => `${item.title}\t${STATUS_LABELS[item.status ?? ""]}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "個人業務"}\t${isTodayTask(item) ? "今日" : ""}\t${item.planned_end || "予定なし"}\t${item.priority === "high" ? "あり" : "なし"}`);
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
@@ -120,11 +129,10 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
         <button className="secondary-button" onClick={() => setShowPaste((current) => !current)}>表から追加</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "task" } })}>タスクを追加</button>
       </PageHeader>
-      <div className="metric-grid todo-metrics">
-        <Metric label="今日やる" value={counters.today} tone="primary" />
-        <Metric label="予定超過" value={counters.overdue} tone="danger" />
-        <Metric label="Inbox" value={counters.inbox} />
-        <Metric label="予定なし" value={counters.noSchedule} />
+      <div className="todo-filter-tabs">
+        {([["today", "今日", counters.today], ["open", "未完了", counters.open], ["inbox", "Inbox", counters.inbox], ["overdue", "予定超過", counters.overdue], ["no-schedule", "予定なし", counters.noSchedule], ["done", "完了", counters.done]] as const).map(([id, label, count]) => (
+          <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{label}<span className="tab-count">{count}</span></button>
+        ))}
       </div>
       {showPaste && (
         <section className="panel paste-panel">
@@ -148,11 +156,8 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
         </section>
       )}
       <section className="panel list-page">
-        <div className="list-toolbar">
-          <div className="segmented">
-            {[["open", "未完了"], ["inbox", "Inbox"], ["overdue", "予定超過"], ["no-schedule", "予定なし"], ["done", "完了"]].map(([id, label]) => <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{label}</button>)}
-          </div>
-          {selected.length > 0 && (
+        {selected.length > 0 && (
+          <div className="list-toolbar">
             <div className="inline-actions bulk-actions">
               <span>{selected.length}件選択</span>
               <button className="secondary-button compact" onClick={() => bulkUpdate("status", "done")}>完了にする</button>
@@ -163,8 +168,8 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
               <input className="shift-days" aria-label="日程を移動する日数" type="number" value={shiftDays} onChange={(event) => setShiftDays(Number(event.target.value) || 0)} />
               <button className="secondary-button compact" onClick={shiftSelected}>日程を移動</button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
         <div className="data-table todo-table">
           <div className="table-head"><span /><span /><span>タスク</span><span>状態</span><span>Theme</span><span>予定終了</span></div>
           {visible.map((item) => {
@@ -183,6 +188,14 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
                   title={item.priority === "high" ? "旗を外す" : "旗を付ける"}
                 >
                   {item.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
+                </button>
+                <button
+                  className={`today-plan-button ${item.today_flag ? "is-active" : ""}`}
+                  onClick={() => saveEntity("item", { ...item, today_flag: !item.today_flag })}
+                  aria-label={item.today_flag ? "今日の予定から外す" : "今日の予定に追加"}
+                  title={item.today_flag ? "今日の予定から外す" : "今日の予定に追加"}
+                >
+                  {item.today_flag ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
                 </button>
                 <button className="row-title" onClick={() => openDrawer({ type: "item", entity: item })}>{item.title}</button>
               </div>

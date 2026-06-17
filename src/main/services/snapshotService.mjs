@@ -1,9 +1,19 @@
 import AdmZip from "adm-zip";
 import crypto from "node:crypto";
+import fs from "node:fs";
 
 import { workspaceEntityTypes, workspaceSchemaVersion } from "../repositories/workspaceRepository.mjs";
 
 const checksum = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
+const MAX_ENTRY_BYTES = 10 * 1024 * 1024;
+
+function readEntryText(entry, name) {
+  if (entry.header.size > MAX_ENTRY_BYTES) {
+    throw new Error(`${name}が大きすぎます。Snapshotを分割するか、不要なデータを削除してください。`);
+  }
+  return entry.getData().toString("utf8");
+}
 
 function summaryMarkdown(workspace) {
   const themes = workspace.themes || [];
@@ -71,10 +81,14 @@ export function createSnapshot(workspace) {
 }
 
 export function readSnapshot(filePath) {
+  const stat = fs.statSync(filePath);
+  if (stat.size > MAX_SNAPSHOT_BYTES) {
+    throw new Error("Snapshotファイルが大きすぎます。50MB以下のファイルを選択してください。");
+  }
   const zip = new AdmZip(filePath);
   const manifestEntry = zip.getEntry("manifest.json");
   if (!manifestEntry) throw new Error("manifest.jsonがないため、TaskenのSnapshotとして読み込めません。");
-  const manifest = JSON.parse(manifestEntry.getData().toString("utf8"));
+  const manifest = JSON.parse(readEntryText(manifestEntry, "manifest.json"));
   if (manifest.format !== "research-desk-workspace") throw new Error("対応していないSnapshot形式です。");
   if (manifest.schemaVersion > workspaceSchemaVersion) {
     throw new Error("このSnapshotは新しいバージョンで作成されています。アプリを更新してください。");
@@ -88,7 +102,7 @@ export function readSnapshot(filePath) {
       workspace[`${type}s`] = [];
       continue;
     }
-    const text = entry.getData().toString("utf8");
+    const text = readEntryText(entry, name);
     if (manifest.files?.[name] && checksum(text) !== manifest.files[name]) {
       throw new Error(`${name}のチェックサムが一致しません。Snapshotが破損している可能性があります。`);
     }
@@ -96,7 +110,7 @@ export function readSnapshot(filePath) {
   }
   const revisionsEntry = zip.getEntry("plan_revisions.json");
   if (revisionsEntry) {
-    const text = revisionsEntry.getData().toString("utf8");
+    const text = readEntryText(revisionsEntry, "plan_revisions.json");
     if (manifest.files?.["plan_revisions.json"] && checksum(text) !== manifest.files["plan_revisions.json"]) {
       throw new Error("plan_revisions.jsonのチェックサムが一致しません。Snapshotが破損している可能性があります。");
     }

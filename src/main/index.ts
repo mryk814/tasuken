@@ -16,6 +16,17 @@ let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
 
+function openAllowedExternalUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (!["https:", "http:", "mailto:"].includes(parsed.protocol)) return false;
+    void shell.openExternal(parsed.toString());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getAppIconPath(): string {
   return path.join(__dirname, "../../resources/icon.ico");
 }
@@ -313,13 +324,17 @@ function createWindow(): void {
   }
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^(https?|file):/.test(url)) void shell.openExternal(url);
+    if (!openAllowedExternalUrl(url)) {
+      console.warn(`Blocked external URL: ${url}`);
+    }
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== window.webContents.getURL()) {
       event.preventDefault();
-      void shell.openExternal(url);
+      if (!openAllowedExternalUrl(url)) {
+        console.warn(`Blocked navigation URL: ${url}`);
+      }
     }
   });
 }

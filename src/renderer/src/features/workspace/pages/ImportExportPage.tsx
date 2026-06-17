@@ -16,6 +16,8 @@ interface ImportCandidate {
   theme?: Theme;
   duplicate?: BaseRecord;
   action: string;
+  issues: string[];
+  sourceRecordTitle: string;
 }
 
 interface ImportPreview {
@@ -36,6 +38,7 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
 
   function parseImport() {
     try {
+      if (new Blob([text]).size > 1024 * 1024) throw new Error("Import本文が大きすぎます。1MB以下にしてください。");
       const raw = text.trim().startsWith("{") || text.trim().startsWith("[") ? JSON.parse(text) : parseSimpleYaml(text);
       const parsed: Record<string, unknown> = Array.isArray(raw) ? { items: raw } : raw;
       const asEntries = (key: string): ImportEntry[] => (parsed[key] as ImportEntry[] | undefined) || [];
@@ -48,7 +51,21 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
         const theme = themes.find((candidate) => candidate.id === entry.theme_id || candidate.name === entry.theme);
         const collection: BaseRecord[] = type === "item" ? items : type === "note" ? data.notes || [] : data.links || [];
         const duplicate = collection.find((candidate) => str(candidate.title).trim().toLowerCase() === str(entry.title).trim().toLowerCase());
-        return { type, entry, theme, duplicate, action: duplicate ? "merge" : "create" };
+        const issues = [];
+        if (!str(entry.title)) issues.push("titleがありません");
+        if (entry.theme && !theme) issues.push("Themeを解決できません");
+        if (entry.item_id && !items.some((item) => item.id === entry.item_id)) issues.push("参照Itemが見つかりません");
+        if (type === "link" && str(entry.url) && !/^https?:\/\//.test(str(entry.url))) issues.push("URLはhttp/httpsのみ取り込みます");
+        if (duplicate && ["done", "archived"].includes(str(entry.status))) issues.push("完了/終了状態への更新候補です");
+        return {
+          type,
+          entry,
+          theme,
+          duplicate,
+          action: issues.length ? "ignore" : duplicate ? "merge" : "create",
+          issues,
+          sourceRecordTitle: str((parsed.source_record as ImportEntry | undefined)?.source_title) || str((entry.source_record as ImportEntry | undefined)?.source_title) || "貼り付けAI出力",
+        };
       });
       if (!candidates.length) throw new Error("items、notes、linksのいずれかを含めてください。");
       setPreview({ candidates });
@@ -86,8 +103,8 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
             theme_id: candidate.theme?.id || str(base.theme_id) || null,
             status: str(entry.status) || str(base.status) || "todo",
             priority: str(entry.priority) === "high" || entry.priority === true ? "high" : "normal",
-            planned_start: str(entry.planned_start) || str(base.planned_start) || null,
-            planned_end: str(entry.planned_end) || str(base.planned_end) || str(entry.due_date) || null,
+            planned_start: str(entry.planned_start) || null,
+            planned_end: str(entry.planned_end) || str(entry.due_date) || null,
             due_date: null,
             schedule_confidence: "fixed",
             date_granularity: "day",
@@ -172,7 +189,7 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
                 <option value="milestones">マイルストーン</option>
               </select>
               <select aria-label="書き出し形式" value={format} onChange={(event) => setFormat(event.target.value)}>
-                <option value="markdown">Markdown</option>
+                <option value="markdown">AI Context Markdown</option>
                 <option value="yaml">YAML</option>
                 <option value="json">JSON</option>
               </select>
@@ -194,7 +211,8 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
             <div className="import-candidate" key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
               <div>
                 <strong>{str(candidate.entry.title) || "無題"}</strong>
-                <small>{candidate.type} / {candidate.theme?.name || "Theme未解決"}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title)}` : ""}</small>
+                <small>{candidate.type} / {candidate.theme?.name || "Theme未解決"}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title)}` : ""} / source: {candidate.sourceRecordTitle}</small>
+                {candidate.issues.length > 0 && <p className="field-help">確認: {candidate.issues.join(" / ")}</p>}
               </div>
               <select value={candidate.action} onChange={(event) => setPreview((current) => current ? { ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) } : current)}>
                 <option value="create">新規作成</option>

@@ -2,13 +2,17 @@ import { useEffect, useRef, useState } from "react";
 
 import type { Dependency, Item } from "../types";
 import { DAY, hasPlannedSchedule, itemLevel, statusProgress } from "../lib/domain";
-import { daysBetween } from "../lib/format";
+import { daysBetween, localDateIso } from "../lib/format";
 import type { GanttRange, TimelineRow } from "../lib/timeline";
 
 export interface SelectedDependency {
   dependency: Dependency;
   sourceTitle: string;
   targetTitle: string;
+}
+
+function isInProgressStatus(status?: string): boolean {
+  return status === "doing" || status === "進行中";
 }
 
 type DragMode = "move" | "start" | "end";
@@ -29,6 +33,7 @@ export function GanttItemRow({
   onConnect,
   themeColorKey,
   resolveDropTarget,
+  onCtrlClick,
 }: {
   item: Item;
   laneItems?: Item[];
@@ -40,6 +45,7 @@ export function GanttItemRow({
   onConnect?: (item: Item) => void;
   themeColorKey?: string;
   resolveDropTarget?: (clientY: number) => Item | null | undefined;
+  onCtrlClick?: (item: Item) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ itemId: string; mode: DragMode; dxPercent: number } | null>(null);
@@ -83,9 +89,13 @@ export function GanttItemRow({
 
   const isConnecting = !!connecting;
 
-  function handleClick(target: Item) {
+  function handleClick(target: Item, event?: React.MouseEvent) {
     if (movedRef.current) {
       movedRef.current = false;
+      return;
+    }
+    if ((event?.ctrlKey || event?.metaKey) && onCtrlClick) {
+      onCtrlClick(target);
       return;
     }
     if (isConnecting && onConnect) {
@@ -127,9 +137,9 @@ export function GanttItemRow({
             className={barClass}
             key={barItem.id}
             style={{ left: `${displayLeft}%`, width: `${displayWidth}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
-            onClick={() => handleClick(barItem)}
+            onClick={(e) => handleClick(barItem, e)}
             onPointerDown={isConnecting ? undefined : (event) => beginDrag(event, barItem, "move")}
-            title={isConnecting ? (isSource ? `${barItem.title}（選択中）` : connecting?.sourceId ? `${barItem.title} を後続にする` : `${barItem.title} を先行にする`) : hint(barItem)}
+            title={isConnecting ? (isSource ? `${barItem.title}（選択中）` : `${barItem.title} を後続にする`) : `${hint(barItem)}\nCtrl+クリックで依存を接続`}
           >
             {barItem.kind !== "milestone" && !isConnecting && <span className="resize-handle start" onPointerDown={(event) => beginDrag(event, barItem, "start")} />}
             <span>{barItem.kind === "milestone" ? "◆" : barItem.title}</span>
@@ -141,18 +151,37 @@ export function GanttItemRow({
   );
 }
 
-export function TimeAxis({ start, end, scale }: { start: string; end: string; scale: string }) {
-  const blocks: string[] = [];
+export function TimeAxis({ start, end, dayWidth }: { start: string; end: string; dayWidth: number }) {
+  if (dayWidth >= 16) {
+    const blocks: string[] = [];
+    const cursor = new Date(`${start}T00:00:00`);
+    const last = new Date(`${end}T00:00:00`);
+    const step = dayWidth >= 36 ? 7 : 14;
+    const dow = cursor.getDay();
+    cursor.setTime(cursor.getTime() + ((dow === 0 ? 1 : 8 - dow) % 7) * DAY);
+    while (cursor <= last && blocks.length < 400) {
+      blocks.push(localDateIso(cursor));
+      cursor.setTime(cursor.getTime() + step * DAY);
+    }
+    return (
+      <div className="gantt-axis" style={{ gridTemplateColumns: `repeat(${blocks.length}, 1fr)` }}>
+        {blocks.map((value) => <span key={value}>{value.slice(5)}</span>)}
+      </div>
+    );
+  }
+  const blocks: { label: string; days: number }[] = [];
   let cursor = new Date(`${start}T00:00:00`);
-  const last = new Date(`${end}T00:00:00`);
-  const step = scale === "week" ? 1 : scale === "month" ? 7 : 30;
-  while (cursor <= last && blocks.length < 60) {
-    blocks.push(cursor.toISOString().slice(0, 10));
-    cursor = new Date(cursor.getTime() + step * DAY);
+  const endDate = new Date(`${end}T00:00:00`);
+  while (cursor < endDate && blocks.length < 200) {
+    const nextMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    const segmentEnd = nextMonth <= endDate ? nextMonth : endDate;
+    const days = Math.round((segmentEnd.getTime() - cursor.getTime()) / DAY);
+    if (days > 0) blocks.push({ label: localDateIso(cursor).slice(0, 7), days });
+    cursor = nextMonth;
   }
   return (
-    <div className="gantt-axis" style={{ gridTemplateColumns: `repeat(${blocks.length}, 1fr)` }}>
-      {blocks.map((value) => <span key={value}>{scale === "week" ? value.slice(5) : value.slice(0, 7)}</span>)}
+    <div className="gantt-axis" style={{ gridTemplateColumns: blocks.map((b) => `${b.days}fr`).join(" ") }}>
+      {blocks.map((b) => <span key={b.label}>{b.label}</span>)}
     </div>
   );
 }
@@ -161,27 +190,65 @@ function milestoneDate(item: Item): string {
   return String(item.planned_end || item.due_date || item.planned_start || "");
 }
 
-function milestoneLabel(item: Item, scale: string): string {
-  if (scale === "year" || scale === "half") return item.title.length > 10 ? `${item.title.slice(0, 10)}...` : item.title;
+function milestoneLabel(item: Item, dayWidth: number): string {
+  if (dayWidth < 6) return item.title.length > 10 ? `${item.title.slice(0, 10)}...` : item.title;
   return item.title;
 }
 
 export function MilestoneLane({
   milestones,
   range,
-  scale,
+  dayWidth,
   hint,
   onOpen,
+  onMove,
   themeColorKey,
 }: {
   milestones: Item[];
   range: GanttRange;
-  scale: string;
+  dayWidth: number;
   hint: (item: Item) => string;
   onOpen: (item: Item) => void;
+  onMove?: (item: Item, delta: number) => void;
   themeColorKey?: string;
 }) {
+  const laneRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{ itemId: string; dxPercent: number } | null>(null);
+  const movedRef = useRef(false);
   const total = Math.max(1, daysBetween(range.start, range.end));
+
+  function beginDrag(event: React.PointerEvent, target: Item) {
+    if (!onMove) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const initialX = event.clientX;
+    const trackWidth = laneRef.current?.clientWidth || 1;
+    movedRef.current = false;
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const dxPercent = ((moveEvent.clientX - initialX) / trackWidth) * 100;
+      if (Math.abs(dxPercent) > 0.5) movedRef.current = true;
+      setDrag({ itemId: target.id, dxPercent });
+    };
+    const cleanup = () => {
+      removeEventListener("pointermove", onPointerMove);
+      removeEventListener("pointerup", onPointerUp);
+      removeEventListener("pointercancel", onPointerCancel);
+      setDrag(null);
+    };
+    const onPointerUp = (upEvent: PointerEvent) => {
+      cleanup();
+      const delta = Math.round(((upEvent.clientX - initialX) / trackWidth) * total);
+      if (delta) onMove(target, delta);
+    };
+    const onPointerCancel = () => {
+      cleanup();
+      movedRef.current = false;
+    };
+    addEventListener("pointermove", onPointerMove);
+    addEventListener("pointerup", onPointerUp);
+    addEventListener("pointercancel", onPointerCancel);
+  }
+
   const byMonth = new Map<string, Item[]>();
   for (const milestone of milestones) {
     const date = milestoneDate(milestone);
@@ -195,24 +262,27 @@ export function MilestoneLane({
   });
 
   return (
-    <div className="gantt-milestone-lane">
+    <div className="gantt-milestone-lane" ref={laneRef}>
       {marks.map((mark) => {
-        const left = Math.max(0, Math.min(100, (daysBetween(range.start, mark.date) / total) * 100));
+        const baseLeft = Math.max(0, Math.min(100, (daysBetween(range.start, mark.date) / total) * 100));
         const first = mark.items[0];
         const clustered = mark.items.length > 1;
+        const isDragging = !clustered && drag?.itemId === first.id;
+        const displayLeft = isDragging ? baseLeft + drag!.dxPercent : baseLeft;
         const title = clustered
           ? mark.items.map((item) => `${milestoneDate(item)} ${item.title}`).join("\n")
           : hint(first);
         return (
           <button
-            className={`milestone-lane-mark ${clustered ? "is-cluster" : ""}`}
+            className={`milestone-lane-mark ${clustered ? "is-cluster" : ""} ${isDragging ? "is-dragging" : ""}`}
             key={mark.id}
-            style={{ left: `${left}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
-            onClick={() => onOpen(first)}
+            style={{ left: `${displayLeft}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
+            onClick={() => { if (!movedRef.current) onOpen(first); movedRef.current = false; }}
+            onPointerDown={clustered ? undefined : (event) => beginDrag(event, first)}
             title={title}
           >
             <span>{clustered ? `◆${mark.items.length}` : "◆"}</span>
-            <small>{clustered ? mark.id : milestoneLabel(first, scale)}</small>
+            <small>{clustered ? mark.id : milestoneLabel(first, dayWidth)}</small>
           </button>
         );
       })}
@@ -296,9 +366,17 @@ export function DependencyOverlay({
   );
 }
 
-export function LightningOverlay({ rows, range, today }: { rows: TimelineRow[]; range: GanttRange; today: string }) {
+export function LightningOverlay({
+  rows,
+  range,
+  today,
+}: {
+  rows: TimelineRow[];
+  range: GanttRange;
+  today: string;
+}) {
   const totalDays = Math.max(1, daysBetween(range.start, range.end));
-  const todayX = (daysBetween(range.start, today) / totalDays) * 1000;
+  const todayX = (daysBetween(range.start, today) / totalDays) * 100;
   const points = rows.flatMap((row, index) => {
     if (row.rowType !== "item") return [];
     const item = row.laneItems[0] || row.item;
@@ -308,17 +386,17 @@ export function LightningOverlay({ rows, range, today }: { rows: TimelineRow[]; 
     const duration = Math.max(1, daysBetween(start, end) + 1);
     const elapsed = Math.max(0, Math.min(duration, daysBetween(start, today) + 1));
     const plannedProgress = elapsed / duration;
-    const actualProgress = statusProgress(item.status);
+    const actualProgress = isInProgressStatus(item.status) ? plannedProgress : statusProgress(item.status);
     const varianceDays = (actualProgress - plannedProgress) * duration;
-    const x = Math.max(0, Math.min(1000, todayX + (varianceDays / totalDays) * 1000));
+    const x = Math.max(0, Math.min(100, todayX + (varianceDays / totalDays) * 100));
     return [{ x, y: 44 + index * 44 + 22, varianceDays }];
   });
   if (!points.length) return null;
+  const height = Math.max(88, rows.length * 44 + 44);
   const path = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
   return (
-    <svg className="lightning-overlay" viewBox={`0 0 1000 ${Math.max(88, rows.length * 44 + 44)}`} preserveAspectRatio="none" aria-label="計画進捗と実進捗の差分">
+    <svg className="lightning-overlay" viewBox={`0 0 100 ${height}`} style={{ height }} preserveAspectRatio="none" aria-label="計画進捗と実進捗の差分">
       <path d={path} />
-      {points.map((point, index) => <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="4" />)}
     </svg>
   );
 }

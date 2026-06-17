@@ -162,7 +162,7 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
   return (
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
-      <form className="drawer-form" data-entity-type={type} onSubmit={saveForm}>
+      <form className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${str(entity.id) || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
         {type === "item" && <ItemFields entity={entity as Partial<Item>} data={data} />}
         {type === "theme" && (
           <>

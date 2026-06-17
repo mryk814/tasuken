@@ -4,9 +4,9 @@
 @theme inline {
   --color-app-accent: var(--color-accent);
   --color-app-surface: var(--color-surface);
-  --color-app-background: var(--color-background);
+  --color-app-background: var(--color-bg);
   --radius-app: var(--radius-md);
-  --font-app: var(--font-family);
+  --font-app: var(--font-base);
 }
 
 * { box-sizing: border-box; }
@@ -52,6 +52,7 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .page { width: min(1280px, 100%); margin: 0 auto; padding: var(--space-5); }
 .page-header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); min-height: 58px; }
 .page-header h1 { font-size: var(--text-2xl); }
+.page-subtitle { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
 .header-actions { display: flex; align-items: center; gap: var(--space-2); }
 .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 .section-heading { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
@@ -286,7 +287,11 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .standalone-state .state-box { width: min(520px, 100%); }
 .sidebar .primary-nav { overflow-y: auto; }
 .timeline-wide { width: min(1600px, 100%); }
-.todo-metrics { grid-template-columns: repeat(4, 1fr); }
+.todo-filter-tabs { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); padding: 0 var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
+.todo-filter-tabs button { min-height: 36px; padding: var(--space-1) var(--space-2); border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--color-text-secondary); font-size: var(--text-sm); white-space: nowrap; }
+.todo-filter-tabs button:hover:not(.is-active) { color: var(--color-text); }
+.todo-filter-tabs button.is-active { border-bottom-color: var(--color-accent); color: var(--color-accent-strong); font-weight: var(--weight-medium); }
+.tab-count { margin-left: var(--space-1); font-family: var(--font-mono); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .metric-card.danger { border-color: var(--color-danger-bd); background: var(--color-danger-bg); }
 .metric-card.warning { border-color: var(--color-warning-bd); background: var(--color-warning-bg); }
 .list-toolbar { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
@@ -297,14 +302,14 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .table-row:hover { background: var(--color-surface-muted); }
 .todo-table .table-row { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
 .todo-table .table-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%, var(--color-surface-muted) 46%); }
-.todo-table .table-head, .todo-table .table-row { grid-template-columns: 8px 24px minmax(220px, 1fr) 72px 150px 110px; }
+.todo-table .table-head, .todo-table .table-row { grid-template-columns: 8px 24px minmax(250px, 1fr) 72px 150px 110px; }
 .todo-theme-bar { width: 7px; height: 30px; border-radius: var(--radius-pill); background: var(--chip-color, var(--color-border-strong)); }
 .row-title-wrap { min-width: 0; display: flex; align-items: center; gap: var(--space-1); }
 .row-title { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .row-title:hover { color: var(--color-accent-strong); }
-.priority-flag-button { width: 26px; height: 26px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-text-tertiary); }
-.priority-flag-button:hover { border-color: var(--color-border); background: var(--color-surface-muted); color: var(--color-accent-strong); }
-.priority-flag-button.is-active { color: var(--color-accent-strong); background: var(--color-accent-subtle-bg); border-color: var(--color-accent-subtle-bd); }
+.priority-flag-button, .today-plan-button { width: 26px; height: 26px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-text-tertiary); }
+.priority-flag-button:hover, .today-plan-button:hover { border-color: var(--color-border); background: var(--color-surface-muted); color: var(--color-accent-strong); }
+.priority-flag-button.is-active, .today-plan-button.is-active { color: var(--color-accent-strong); background: var(--color-accent-subtle-bg); border-color: var(--color-accent-subtle-bd); }
 .theme-inline { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; }
 .check-action { min-height: 30px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: var(--text-xs); }
 .check-action:hover { background: var(--color-surface-muted); }
@@ -312,7 +317,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .status-summary p { margin: 0; color: var(--color-text-secondary); }
 .selected { border-color: var(--color-accent-subtle-bd); }
 
-.split-gantt { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 580px; overflow: hidden; }
+.split-gantt { position: relative; display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 580px; overflow: hidden; }
 .gantt-table { z-index: 4; border-right: 1px solid var(--color-border); background: var(--color-surface); }
 .gantt-table-head, .gantt-table-row { display: grid; grid-template-columns: minmax(150px, 1fr) 92px; align-items: center; gap: var(--space-1); min-height: 44px; padding: 0 var(--space-2); border-bottom: 1px solid var(--color-border-subtle); font-size: var(--text-xs); }
 .gantt-table-head { position: sticky; top: 0; z-index: 5; color: var(--color-text-secondary); background: var(--color-surface-subtle); font-weight: var(--weight-medium); }
@@ -323,10 +328,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-title-button { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-title-button:hover { color: var(--color-accent-strong); }
 .gantt-title-input { width: 100%; min-height: 28px; padding: 0 var(--space-1); font-size: var(--text-xs); }
-.gantt-scroll { min-width: 0; overflow-x: hidden; }
-/* キャンバスは右ペインの幅にフィットさせ、常に範囲の始点・終点が画面内に収まるようにする。
-   バーは範囲に対する%配置なので、幅が変わっても始まり〜終わりが見えたまま伸縮する。 */
-.gantt-canvas { position: relative; width: 100%; }
+.gantt-scroll { min-width: 0; overflow-x: auto; overflow-y: clip; }
+.gantt-canvas { position: relative; min-width: 100%; }
 .gantt-axis { position: sticky; z-index: 3; top: 0; height: 44px; display: grid; background: var(--color-surface-subtle); border-bottom: 1px solid var(--color-border); }
 .gantt-axis span { display: grid; place-items: center; border-right: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 .gantt-item-row { position: relative; height: 44px; border-bottom: 1px solid var(--color-border-subtle); background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(8.333% - 1px), var(--color-border-subtle) calc(8.333% - 1px), var(--color-border-subtle) 8.333%); }
@@ -346,9 +349,9 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .dependency-overlay .dep-line { fill: none; stroke: var(--color-info); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .dependency-overlay .dep-line-selected { stroke: var(--color-danger); stroke-width: 2.5; }
 .dependency-overlay marker path { fill: var(--color-info); stroke: none; }
-.dependency-overlay .dep-selected-marker { fill: var(--color-danger); stroke: none; }.lightning-overlay { position: absolute; z-index: 3; top: 0; right: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.dependency-overlay .dep-selected-marker { fill: var(--color-danger); stroke: none; }
+.lightning-overlay { position: absolute; z-index: 3; top: 0; left: 0; width: 100%; pointer-events: none; overflow: visible; }
 .lightning-overlay path { fill: none; stroke: var(--color-chart-4); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.lightning-overlay circle { fill: var(--color-chart-4); stroke: var(--color-surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .legend-lightning { width: 18px; height: 2px; display: inline-block; background: var(--color-chart-4); }
 .legend-diamond { width: 9px; height: 9px; transform: rotate(45deg); border-radius: 1px; background: var(--color-accent-strong); }
 .legend-task { width: 20px; height: 5px; border: 1px solid color-mix(in srgb, var(--color-chart-1) 40%, var(--color-surface)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-chart-1) 12%, var(--color-surface)); opacity: .82; }
@@ -372,13 +375,14 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .milestone-lane-mark span { font-family: var(--font-mono); line-height: var(--lh-tight); }
 .milestone-lane-mark small { max-width: 76px; overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .milestone-lane-mark:hover { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
+.milestone-lane-mark.is-dragging { z-index: 6; cursor: grabbing; outline: 2px solid var(--color-accent); outline-offset: 1px; }
 .milestone-lane-mark.is-cluster { border-color: color-mix(in srgb, var(--bar-color) 34%, var(--color-border)); background: color-mix(in srgb, var(--bar-color) 12%, var(--color-surface)); }
 .gantt-item-bar.level-task { top: 12px; height: 20px; opacity: .82; }
 .gantt-item-bar.in-lane { top: 11px; height: 22px; }
 
 /* 接続モード: 先行Item確定時のハイライトと、ターゲット候補のホバー強調 */
-.connect-status-bar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-info-bg); border: 1px solid var(--color-info-bd); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text); }
-.connect-status-bar strong { color: var(--color-accent-strong); }
+.connect-status-popover { position: absolute; z-index: 8; top: var(--space-2); right: var(--space-2); max-width: min(520px, calc(100% - var(--space-4))); display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-info-bg); border: 1px solid var(--color-info-bd); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); font-size: var(--text-sm); color: var(--color-text); }
+.connect-status-popover strong { color: var(--color-accent-strong); }
 .gantt-item-bar.is-connect-source { outline: 2px solid var(--color-accent); outline-offset: 1px; z-index: 6; }
 .gantt-item-bar.is-connect-target { cursor: crosshair; }
 .gantt-item-bar.is-connect-target:hover { outline: 2px dashed var(--color-info); outline-offset: 1px; z-index: 5; }
@@ -427,7 +431,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .artifact-grid { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .home-metrics { grid-template-columns: repeat(3, 1fr); }
-  .todo-metrics { grid-template-columns: repeat(2, 1fr); }
   .split-gantt { grid-template-columns: 260px minmax(0, 1fr); }
   .gantt-table-head, .gantt-table-row { grid-template-columns: minmax(140px, 1fr) 74px; }
 }
@@ -446,7 +449,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .header-actions { width: 100%; flex-wrap: wrap; }
   .summary-grid, .theme-card-grid, .notes-grid, .io-grid, .metric-grid { grid-template-columns: 1fr; }
   .home-metrics { grid-template-columns: 1fr; }
-  .todo-metrics, .settings-grid { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
   .split-gantt { grid-template-columns: 220px minmax(680px, 1fr); overflow-x: auto; }
   .gantt-table-head, .gantt-table-row { grid-template-columns: minmax(130px, 1fr) 70px; }
   .milestone-row { grid-template-columns: 110px 1fr; }

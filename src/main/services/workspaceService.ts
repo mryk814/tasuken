@@ -11,6 +11,13 @@ interface WorkspaceRepository {
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
 }
 
+function localDateIso(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export class WorkspaceService {
   private readonly pendingSnapshots = new Map<string, Workspace>();
 
@@ -27,7 +34,7 @@ export class WorkspaceService {
   }
 
   async exportSnapshot(): Promise<{ canceled: boolean; filePath?: string }> {
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDateIso();
     const result = await dialog.showSaveDialog({
       title: "Workspace Snapshotを書き出す",
       defaultPath: `workspace_export_${date}.zip`,

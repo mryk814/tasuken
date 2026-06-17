@@ -42,7 +42,7 @@ export function HomePage({ data, activeTheme, items, notes, openDrawer, navigate
           )}
         </section>
         <section className="panel">
-          <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("milestones")}>一覧を開く</button></div>
+          <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
           <SimpleRows records={milestones.slice(0, 5)} onOpen={(item) => openDrawer({ type: "item", entity: item })} meta={(item) => String(formatDate((item as Item).planned_end))} />
         </section>
       </div>

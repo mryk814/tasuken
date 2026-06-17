@@ -1,6 +1,6 @@
 import type { Item, Theme } from "../types";
 import { itemLevel } from "./domain";
-import { addDays } from "./format";
+import { addDays, daysBetween, localDateIso } from "./format";
 
 export type TimelineRow =
   | { rowType: "theme"; groupKey: string; theme: Theme | null; initiativeCount: number; planCount: number }
@@ -20,10 +20,9 @@ export function fiscalYearStart(today: string): number {
 
 // 指定の暦年・開始月から months ヶ月ぶんの範囲（月初〜月末）。月の繰り上がりは年をまたぐ。
 function monthRange(year: number, startMonth: number, months: number): GanttRange {
-  const iso = (date: Date) => date.toISOString().slice(0, 10);
   return {
-    start: iso(new Date(Date.UTC(year, startMonth - 1, 1))),
-    end: iso(new Date(Date.UTC(year, startMonth - 1 + months, 0))),
+    start: localDateIso(new Date(year, startMonth - 1, 1)),
+    end: localDateIso(new Date(year, startMonth - 1 + months, 0)),
   };
 }
 
@@ -50,6 +49,39 @@ interface BuildRowsArgs {
   collapsedThemes: string[];
   scale?: string;
 }
+
+export function dataRange(items: Item[], today: string, paddingDays = 90): GanttRange {
+  let min = today;
+  let max = today;
+  for (const item of items) {
+    for (const d of [item.planned_start, item.planned_end, item.due_date]) {
+      if (d && d < min) min = d;
+      if (d && d > max) max = d;
+    }
+  }
+  const span = daysBetween(min, max);
+  const extra = Math.max(paddingDays, Math.floor((180 - span) / 2));
+  return { start: addDays(min, -extra), end: addDays(max, extra) };
+}
+
+export function scaleFromDayWidth(dayWidth: number): string {
+  if (dayWidth >= 36) return "week";
+  if (dayWidth >= 16) return "month";
+  if (dayWidth >= 6) return "quarter";
+  if (dayWidth >= 3) return "half";
+  return "year";
+}
+
+export const ZOOM_PRESETS = [
+  { id: "year", label: "年間", dayWidth: 2 },
+  { id: "half", label: "半年", dayWidth: 4 },
+  { id: "quarter", label: "四半期", dayWidth: 8 },
+  { id: "month", label: "月間", dayWidth: 24 },
+  { id: "week", label: "週間", dayWidth: 48 },
+] as const;
+
+export const MIN_DAY_WIDTH = 1;
+export const MAX_DAY_WIDTH = 80;
 
 const SCALE_ORDER = ["year", "half", "quarter", "month", "week"];
 

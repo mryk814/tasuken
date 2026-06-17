@@ -42,6 +42,16 @@ const isoDateFields = [
   "value_date",
 ];
 
+const urlFields = ["url", "source_url"];
+const allowedUrlProtocols = new Set(["https:", "http:", "mailto:"]);
+
+function localDateIso(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -50,6 +60,61 @@ function isIsoDate(value) {
   return typeof value === "string"
     && /^\d{4}-\d{2}-\d{2}$/.test(value)
     && !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
+}
+
+function isAllowedExternalUrl(value) {
+  try {
+    return allowedUrlProtocols.has(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function hasPath(edges, fromId, toId) {
+  const graph = new Map();
+  for (const [sourceId, targetId] of edges) {
+    if (!sourceId || !targetId) continue;
+    const targets = graph.get(sourceId) || [];
+    targets.push(targetId);
+    graph.set(sourceId, targets);
+  }
+  const stack = [fromId];
+  const seen = new Set();
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || seen.has(current)) continue;
+    if (current === toId) return true;
+    seen.add(current);
+    stack.push(...(graph.get(current) || []));
+  }
+  return false;
+}
+
+export function assertItemParentAcyclic(items, entity, message = "親Itemに自分自身または子孫を指定すると循環します。別の親Itemを選んでください。") {
+  if (!entity.parent_item_id) return;
+  const entityId = String(entity.id);
+  const byId = new Map(items.filter((item) => !item.deleted_at).map((item) => [String(item.id), item]));
+  byId.set(entityId, entity);
+
+  const seen = new Set([entityId]);
+  let currentId = String(entity.parent_item_id);
+  while (currentId) {
+    if (seen.has(currentId)) throw new Error(message);
+    seen.add(currentId);
+    currentId = String(byId.get(currentId)?.parent_item_id || "");
+  }
+}
+
+export function assertDependencyAcyclic(dependencies, entity, message = "Dependencyが循環します。先行Itemと後続Itemの向きを見直してください。") {
+  if (!entity.source_item_id || !entity.target_item_id) return;
+  const sourceId = String(entity.source_item_id);
+  const targetId = String(entity.target_item_id);
+  const edges = dependencies
+    .filter((dependency) => !dependency.deleted_at && String(dependency.id) !== String(entity.id))
+    .map((dependency) => [String(dependency.source_item_id), String(dependency.target_item_id)]);
+  edges.push([sourceId, targetId]);
+
+  if (hasPath(edges, targetId, sourceId)) throw new Error(message);
 }
 
 export function assertEntityType(type) {
@@ -71,6 +136,12 @@ export function validateEntity(type, input) {
   for (const field of isoDateFields) {
     if (input[field] != null && input[field] !== "" && !isIsoDate(input[field])) {
       throw new Error(`${type}.${field}はYYYY-MM-DD形式で指定してください。`);
+    }
+  }
+
+  for (const field of urlFields) {
+    if (input[field] != null && input[field] !== "" && !isAllowedExternalUrl(input[field])) {
+      throw new Error(`${type}.${field}はhttps、http、mailtoのURLを指定してください。fileや未知の形式は開けません。`);
     }
   }
 
@@ -111,7 +182,7 @@ export function normalizeEntity(type, input) {
     if (normalized.status === "done") {
       normalized.progress = 100;
       normalized.completed_at ||= new Date().toISOString();
-      normalized.actual_end ||= new Date().toISOString().slice(0, 10);
+      normalized.actual_end ||= localDateIso();
     } else if (normalized.completed_at) {
       normalized.completed_at = null;
     }
