@@ -71,9 +71,3 @@ export const initialMilestones = [
   { id: 5, theme: "process", label: "候補条件決定", date: "2026-08-07" },
   { id: 6, theme: "ai", label: "検証レビュー", date: "2026-09-25" },
 ];
-
-
-export const initialPeople = [
-  { id: 401, name: "佐藤さん", role: "評価担当", organization: "評価チーム", note: "材料測定の窓口" },
-  { id: 402, name: "田中さん", role: "試作担当", organization: "試作チーム", note: "条件Cの試作担当" },
-];

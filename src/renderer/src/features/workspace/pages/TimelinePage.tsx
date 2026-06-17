@@ -38,6 +38,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
   const updatePrefs = (patch: Partial<TimelinePrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const [collapsedThemes, setCollapsedThemes] = useState<string[]>([]);
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
+  const [connectMode, setConnectMode] = useState(false);
   const [selectedDep, setSelectedDep] = useState<SelectedDependency | null>(null);
   const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -56,6 +57,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
       }
       if (event.key === "Escape") {
         setConnecting(null);
+        setConnectMode(false);
         setSelectedDep(null);
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedDep) {
@@ -133,11 +135,12 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
       // saveEntity already shows error toast
     }
     setConnecting(null);
+    setConnectMode(false);
   }, [connecting, data.dependencys, saveEntity, setToast]);
 
   function startConnecting(item: Item) {
-    if (!connecting) return;
-    if (!connecting.sourceId) {
+    if (!connecting && !connectMode) return;
+    if (!connecting || !connecting.sourceId) {
       setConnecting({ sourceId: item.id, sourceTitle: item.title });
     } else {
       handleConnect(item);
@@ -266,6 +269,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
         await saveEntity("item", item);
       },
     });
+    setToast("日程を移動しました。Ctrl+Zで戻せます。");
   }
 
   return (
@@ -281,17 +285,28 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
           </select>
         </label>
         <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { ratio: (scroll.scrollLeft + cx) / scroll.scrollWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
-        <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了Item</label>
+        <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
         <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
         <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => updatePrefs({ showLightning: event.target.checked })} />イナズマ線</label>
+        <button
+          className={`secondary-button compact ${connectMode || connecting ? "is-active" : ""}`}
+          onClick={() => {
+            const next = !(connectMode || connecting);
+            setConnectMode(next);
+            setConnecting(next ? { sourceId: "", sourceTitle: "" } : null);
+            setSelectedDep(null);
+          }}
+        >
+          依存をつなぐ
+        </button>
         <button className="secondary-button compact" onClick={() => setCollapsedThemes([])}>全展開</button>
         <button className="secondary-button compact" onClick={() => setCollapsedThemes(groupKeys)}>全折りたたみ</button>
       </section>
       <section className={`split-gantt panel ${connecting ? "is-connecting" : ""}`}>
         {connecting && (
           <div className="connect-status-popover" role="status" aria-live="polite">
-            <span>先行: <strong>{connecting.sourceTitle}</strong> → 後続Itemをクリック</span>
-            <button className="danger-button compact" onClick={() => setConnecting(null)}>キャンセル</button>
+            <span>{connecting.sourceTitle ? <>先行: <strong>{connecting.sourceTitle}</strong> → 後続タスクをクリック</> : "先行タスクをクリック"}</span>
+            <button className="danger-button compact" onClick={() => { setConnecting(null); setConnectMode(false); }}>キャンセル</button>
           </div>
         )}
         <div className="gantt-table">
@@ -339,7 +354,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
                   ) : (
                     <button className="gantt-title-button" onClick={(e) => {
                       if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                      isPlan ? setEditingTitle({ id: item.id, value: item.title }) : connecting ? startConnecting(item) : openDrawer({ type: "item", entity: item });
+                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openDrawer({ type: "item", entity: item });
                     }}>
                       {item.title}
                     </button>

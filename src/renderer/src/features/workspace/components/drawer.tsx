@@ -13,6 +13,9 @@ import { CHART_COLORS, KIND_LABELS, LEVEL_LABELS, NOTE_TYPE_LABELS, STATUS_LABEL
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 
+const LINK_TYPES = ["chatgpt", "copilot", "github", "paper", "notebook", "document", "other"];
+const normalizeLinkType = (value: unknown) => LINK_TYPES.includes(str(value)) ? str(value) : "other";
+
 function ThemeColorPicker({ value }: { value?: string }) {
   const [selected, setSelected] = useState(value || CHART_COLORS[0]);
   return (
@@ -87,7 +90,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
     const dependencies = (data.dependencys || []).filter((dependency) => dependency.source_item_id === item.id || dependency.target_item_id === item.id);
     return (
       <aside className="drawer">
-        <DrawerHeader title="Item詳細" close={close} />
+        <DrawerHeader title="タスク詳細" close={close} />
         <div className="drawer-content">
           <div className="badge-row">
             <StatusBadge value={item.status} label={STATUS_LABELS[item.status ?? ""]} />
@@ -144,7 +147,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
         onEdit={() => close({ type: "link", mode: "edit", entity })}
         onDelete={() => removeEntity("link", entity)}
       >
-        <StatusBadge value="neutral" label={str(entity.link_type)} />
+        <StatusBadge value="neutral" label={normalizeLinkType(entity.link_type)} />
         <h2>{str(entity.title)}</h2>
         <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>
         <p>{str(entity.description)}</p>
@@ -157,7 +160,18 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
 function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm }) {
   const type = drawer.type;
   const entity = drawer.entity;
-  const kindLabel = type === "item" && !entity.id ? KIND_LABELS[(entity as Partial<Item>).kind ?? ""] || "item" : type;
+  const typeLabels: Record<string, string> = {
+    item: "タスク",
+    theme: "Theme",
+    note: "メモ",
+    link: "リンク",
+    status_update: "現在地",
+    source_record: "情報源",
+    field_definition: "追加項目",
+    relation: "関連づけ",
+    dependency: "依存",
+  };
+  const kindLabel = type === "item" && !entity.id ? KIND_LABELS[(entity as Partial<Item>).kind ?? ""] || "タスク" : typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   return (
     <aside className="drawer">
@@ -187,18 +201,10 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
           <>
             <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
             <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
-            <Field label="種別"><select name="link_type" defaultValue={str(entity.link_type) || "other"}>{["sharepoint", "onedrive", "teams", "outlook", "chatgpt", "copilot", "github", "local_file", "notebook", "paper", "folder", "other"].map((value) => <option key={value}>{value}</option>)}</select></Field>
+            <Field label="種別"><select name="link_type" defaultValue={normalizeLinkType(entity.link_type)}>{LINK_TYPES.map((value) => <option key={value}>{value}</option>)}</select></Field>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
             <ItemSelect items={data.items} value={str(entity.item_id)} />
             <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
-          </>
-        )}
-        {type === "person" && (
-          <>
-            <Field label="名前"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
-            <Field label="役割"><input name="role" defaultValue={str(entity.role)} /></Field>
-            <Field label="所属"><input name="organization" defaultValue={str(entity.organization)} /></Field>
-            <Field label="メモ"><textarea name="note" defaultValue={str(entity.note)} /></Field>
           </>
         )}
         {type === "status_update" && (
@@ -224,8 +230,8 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
         {type === "field_definition" && (
           <>
             <Field label="項目名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
-            <Field label="型"><select name="field_type" defaultValue={str(entity.field_type) || "text"}>{["text", "long_text", "number", "date", "select", "multi_select", "checkbox", "url", "person", "relation"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-            <Field label="対象"><select name="applies_to" defaultValue={str(entity.applies_to) || "item"}>{["theme", "item", "note", "link"].map((value) => <option key={value}>{value}</option>)}</select></Field>
+            <Field label="型"><select name="field_type" defaultValue={str(entity.field_type) || "text"}>{["text", "long_text", "number", "date", "select", "multi_select", "checkbox", "url", "relation"].map((value) => <option key={value}>{value}</option>)}</select></Field>
+            <Field label="対象"><select name="applies_to" defaultValue={str(entity.applies_to) || "item"}><option value="theme">Theme</option><option value="item">タスク</option><option value="note">メモ</option><option value="link">リンク</option></select></Field>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} allowAll />
             <Field label="選択肢（カンマ区切り）"><input name="options" defaultValue={((entity.options_json as string[] | undefined) || []).join(", ")} /></Field>
             <label className="toggle"><input name="is_required" type="checkbox" defaultChecked={Boolean(entity.is_required)} />必須</label>
@@ -233,8 +239,8 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
         )}
         {type === "dependency" && (
           <>
-            <Field label="先行Item"><select name="source_item_id" defaultValue={str(entity.source_item_id)}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field>
-            <Field label="後続Item"><select name="target_item_id" defaultValue={str(entity.target_item_id)}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field>
+            <Field label="先行タスク"><select name="source_item_id" defaultValue={str(entity.source_item_id)}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field>
+            <Field label="後続タスク"><select name="target_item_id" defaultValue={str(entity.target_item_id)}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field>
             <p className="field-help">初期実装ではfinish-to-startのみ扱います。</p>
           </>
         )}
@@ -273,7 +279,7 @@ function ItemFields({ entity, data }: { entity: Partial<Item>; data: WorkspaceDa
         <Field label="レベル"><select name="level" defaultValue={itemLevel(entity as Item)}>{Object.entries(LEVEL_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       </div>
       <Field label="状態"><select name="status" defaultValue={entity.status || "todo"}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-      <ItemSelect label="親Item" items={(data.items || []).filter((item) => item.id !== entity.id)} value={entity.parent_item_id} />
+      <ItemSelect label="親タスク" items={(data.items || []).filter((item) => item.id !== entity.id)} value={entity.parent_item_id} />
       <div className="form-grid">
         <Field label="予定開始"><input name="planned_start" type="date" defaultValue={dateOnly(entity.planned_start)} /></Field>
         <Field label="予定終了"><input name="planned_end" type="date" defaultValue={dateOnly(entity.planned_end)} /></Field>
@@ -312,7 +318,7 @@ function RelationFields({ entity, data }: { entity: DrawerConfig["entity"]; data
       <input type="hidden" name="source_entity_type" value={str(entity.source_entity_type) || "item"} />
       <input type="hidden" name="source_entity_id" value={str(entity.source_entity_id)} />
       <Field label="関係種別"><select name="relation_type" defaultValue={str(entity.relation_type) || "relates_to"}>{["blocks", "blocked_by", "relates_to", "duplicated_by", "follows", "references", "created_from", "evidence_for", "caused_by", "supports"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="関係先の種類"><select name="target_entity_type" value={targetType} onChange={(event) => setTargetType(event.target.value)}><option value="item">Item</option><option value="note">Note</option><option value="link">Link</option><option value="source_record">情報源</option></select></Field>
+      <Field label="関係先の種類"><select name="target_entity_type" value={targetType} onChange={(event) => setTargetType(event.target.value)}><option value="item">タスク</option><option value="note">メモ</option><option value="link">リンク</option><option value="source_record">情報源</option></select></Field>
       <Field label="関係先"><select name="target_entity_id" defaultValue={str(entity.target_entity_id)} key={targetType}><option value="">選択</option>{targets.map((target) => <option key={target.id} value={target.id}>{target.title || target.source_title || target.name}</option>)}</select></Field>
       {!targets.length && <p className="field-help">選択できる{targetType}がありません。先に対象を追加してください。</p>}
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>

@@ -4,6 +4,14 @@ export const todayIso = (date = new Date()) => {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+export const addDays = (value, count) => {
+  if (!value) return "";
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  date.setDate(date.getDate() + count);
+  return todayIso(date);
+};
+
 export const newId = () => Date.now() + Math.floor(Math.random() * 1000);
 
 export function formValue(data, key, fallback = "") {

@@ -10,7 +10,7 @@ import type {
   Theme,
   WorkspaceData,
 } from "../types";
-import { STATUS_LABELS } from "./domain";
+import { KIND_LABELS, STATUS_LABELS } from "./domain";
 import { addDays } from "./format";
 
 export interface ParsedTaskRow {
@@ -215,11 +215,96 @@ export function exportMarkdown(data: ExportData): string {
     "",
     "## AIに渡す時の注意事項",
     "- Taskenの正本はSQLiteです。提案は保存前に差分確認してください。",
-    "- Item親子関係とDependencyは循環禁止です。",
+    "- タスク親子関係とDependencyは循環禁止です。",
     "- 期限や今日判定は利用者のローカル日付を基準にしてください。",
     "- 不明な参照先は推測で作らず、候補として分けてください。",
     "",
     ...sections,
+  ].join("\n");
+}
+
+function itemDate(item: Item): string {
+  return String(item.planned_end || item.planned_start || item.due_date || "");
+}
+
+function isOpen(item: Item): boolean {
+  return item.status !== "done" && item.status !== "cancelled" && item.status !== "archived";
+}
+
+function latestUpdateFor(theme: Theme, updates: StatusUpdate[]): StatusUpdate | undefined {
+  return updates
+    .filter((entry) => entry.theme_id === theme.id)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))[0];
+}
+
+function itemLine(item: Item): string {
+  const status = STATUS_LABELS[item.status ?? ""] || item.status || "未設定";
+  const kind = KIND_LABELS[item.kind ?? ""] || "タスク";
+  const date = itemDate(item) || "予定なし";
+  return `- ${date} / ${status} / ${kind}: ${item.title}${item.priority === "high" ? " [優先]" : ""}`;
+}
+
+export function exportProgressReport(data: ExportData): string {
+  const today = todayIso();
+  const weekStart = addDays(today, -6);
+  const soon = addDays(today, 14);
+  const completed = data.items
+    .filter((item) => item.status === "done" && String(item.completed_at || item.actual_end || item.updated_at || "").slice(0, 10) >= weekStart)
+    .sort((a, b) => String(b.completed_at || b.actual_end || b.updated_at || "").localeCompare(String(a.completed_at || a.actual_end || a.updated_at || "")));
+  const delayed = data.items
+    .filter((item) => isOpen(item) && itemDate(item) && itemDate(item) < today)
+    .sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
+  const waiting = data.items
+    .filter((item) => isOpen(item) && (item.kind === "waiting" || item.status === "waiting"))
+    .sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
+  const milestones = data.items
+    .filter((item) => isOpen(item) && item.kind === "milestone" && itemDate(item) && itemDate(item) <= soon)
+    .sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
+  const risks = data.status_updates
+    .filter((entry) => entry.risks)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .slice(0, 8);
+  const nextActions = data.status_updates
+    .filter((entry) => entry.next_actions)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .slice(0, 8);
+  const sections = data.themes.map((theme) => {
+    const update = latestUpdateFor(theme, data.status_updates);
+    const themeItems = data.items.filter((item) => item.theme_id === theme.id && isOpen(item));
+    return [
+      `### ${theme.name}`,
+      `- 現在地: ${update?.summary || "未記録"}`,
+      update?.risks ? `- リスク: ${update.risks}` : "- リスク: なし",
+      update?.next_actions ? `- 次アクション: ${update.next_actions}` : "- 次アクション: 未設定",
+      `- 未完了: ${themeItems.length}件`,
+    ].join("\n");
+  });
+  return [
+    `# 週報 / 現在地レポート (${weekStart} - ${today})`,
+    "",
+    "## Themeごとの現在地",
+    ...(sections.length ? sections : ["- Themeなし"]),
+    "",
+    "## 完了したこと",
+    ...(completed.length ? completed.map(itemLine) : ["- なし"]),
+    "",
+    "## 未完了・遅延",
+    ...(delayed.length ? delayed.map(itemLine) : ["- なし"]),
+    "",
+    "## Waiting",
+    ...(waiting.length ? waiting.map((item) => `${itemLine(item)}${item.waiting_for ? ` / 相手: ${item.waiting_for}` : ""}${item.next_action ? ` / 次: ${item.next_action}` : ""}`) : ["- なし"]),
+    "",
+    "## 近いマイルストーン",
+    ...(milestones.length ? milestones.map(itemLine) : ["- なし"]),
+    "",
+    "## リスク",
+    ...(risks.length ? risks.map((entry) => `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.risks}`) : ["- なし"]),
+    "",
+    "## 次アクション",
+    ...(nextActions.length ? nextActions.map((entry) => `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.next_actions}`) : ["- なし"]),
+    "",
+    "## AIに依頼したい時の補足",
+    "- 上の内容をもとに、過不足の確認、優先順位案、報告文への整形を依頼できます。",
   ].join("\n");
 }
 

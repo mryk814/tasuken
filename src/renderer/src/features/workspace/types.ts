@@ -49,7 +49,6 @@ export interface Item extends BaseRecord {
   date_granularity?: string;
   date_text?: string;
   progress?: number;
-  owner_person_id?: string | null;
   waiting_for?: string;
   next_action?: string;
   is_personal_task?: boolean;
@@ -86,13 +85,6 @@ export interface Link extends BaseRecord {
   note_id?: string | null;
   description?: string;
   source_record_id?: string | null;
-}
-
-export interface Person extends BaseRecord {
-  name: string;
-  role?: string;
-  organization?: string;
-  note?: string;
 }
 
 export interface StatusUpdate extends BaseRecord {
@@ -169,7 +161,6 @@ export interface WorkspaceData {
   items: Item[];
   notes: Note[];
   links: Link[];
-  people: Person[];
   dependencys: Dependency[];
   views: BaseRecord[];
   status_updates: StatusUpdate[];
@@ -195,7 +186,6 @@ export type DrawerEntityType =
   | "theme"
   | "note"
   | "link"
-  | "person"
   | "status_update"
   | "source_record"
   | "field_definition"
@@ -213,6 +203,7 @@ export interface SnapshotChange {
   type: EntityType;
   category: string;
   action: string;
+  actions?: string[];
   incoming: BaseRecord;
   local?: BaseRecord | null;
 }

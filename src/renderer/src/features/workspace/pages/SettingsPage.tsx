@@ -14,9 +14,9 @@ interface SettingsPageProps extends PageProps {
   loadSample: () => Promise<unknown>;
 }
 
-export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setActiveGroup, allThemes, openDrawer, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
+export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setActiveGroup, allThemes, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
-  const isEmpty = (data.themes.length + data.items.length + data.notes.length + data.links.length + data.people.length) === 0;
+  const isEmpty = (data.themes.length + data.items.length + data.notes.length + data.links.length) === 0;
 
   async function addSample() {
     if (!isEmpty) {
@@ -37,7 +37,7 @@ export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setAc
     setBusy(true);
     try {
       const result = await workspaceApi.exportSnapshot();
-      if (!result.canceled) setToast("Workspace Snapshotを書き出しました。");
+      if (!result.canceled) setToast("作業台Snapshotを書き出しました。");
     } catch (error) {
       setToast(`Snapshotを書き出せませんでした。${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -100,16 +100,6 @@ export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setAc
             </select>
           </label>
           <p className="field-help">グループを選ぶと、サイドバーに表示されるテーマが絞り込まれます。テーマ編集でグループを設定してください。</p>
-          <h2>関係者</h2>
-          <div className="settings-list">
-            {(data.people || []).map((person) => (
-              <button className="wide-row" key={person.id} onClick={() => openDrawer({ type: "person", mode: "edit", entity: person })}>
-                <strong>{person.name}</strong>
-                <span>{person.organization || person.role ? `${person.organization || "所属未設定"} / ${person.role || "役割未設定"}` : "詳細未設定"}</span>
-              </button>
-            ))}
-          </div>
-          <button className="secondary-button" onClick={() => openDrawer({ type: "person", mode: "edit", entity: {} })}>関係者を追加</button>
         </section>
         <section className="panel settings-form">
           <h2>バックアップ</h2>
@@ -131,10 +121,9 @@ export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setAc
                 <small>{change.type} / {change.category}</small>
               </div>
               <select value={snapshotPreview.decisions[change.key]} onChange={(event) => setSnapshotPreview({ ...snapshotPreview, decisions: { ...snapshotPreview.decisions, [change.key]: event.target.value } })}>
-                <option value="ignore">無視</option>
-                <option value="create">新規作成</option>
-                <option value="update">既存を更新</option>
-                <option value="duplicate">両方残す</option>
+                {(change.actions || ["ignore"]).map((action) => (
+                  <option key={action} value={action}>{action === "ignore" ? "無視" : action === "create" ? "新規作成" : action === "update" ? "既存を更新" : "両方残す"}</option>
+                ))}
               </select>
             </div>
           ))}

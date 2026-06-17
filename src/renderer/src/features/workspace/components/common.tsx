@@ -111,7 +111,7 @@ export function ThemeSelect({
 export function ItemSelect({
   items = [],
   value,
-  label = "関連Item",
+  label = "関連タスク",
 }: {
   items?: Item[];
   value?: string | null;
@@ -119,7 +119,7 @@ export function ItemSelect({
 }) {
   return (
     <Field label={label}>
-      <select name={label === "親Item" ? "parent_item_id" : "item_id"} defaultValue={value || ""}>
+      <select name={label === "親タスク" ? "parent_item_id" : "item_id"} defaultValue={value || ""}>
         <option value="">未設定</option>
         {items.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
       </select>

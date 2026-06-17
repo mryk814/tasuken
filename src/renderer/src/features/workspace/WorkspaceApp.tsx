@@ -32,9 +32,11 @@ import { NotesPage } from "./pages/NotesPage";
 import { WaitingPage } from "./pages/WaitingPage";
 import { ImportExportPage } from "./pages/ImportExportPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TodayPage } from "./pages/TodayPage";
+import { InboxPage } from "./pages/InboxPage";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
-  "themes", "items", "notes", "links", "people", "dependencys", "views",
+  "themes", "items", "notes", "links", "dependencys", "views",
   "status_updates", "source_records", "entity_sources", "relations",
   "field_definitions", "field_values", "log_entries", "import_batchs", "plan_revisions",
 ];
@@ -110,7 +112,7 @@ export function WorkspaceApp() {
   }, [refreshWorkspace]);
 
   useEffect(() => {
-    const onHash = () => setRoute(location.hash.slice(1) || "home");
+    const onHash = () => setRoute(location.hash.slice(1) || "today");
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [setRoute]);
@@ -288,7 +290,6 @@ export function WorkspaceApp() {
         schedule_confidence: "fixed",
         date_granularity: "day",
         date_text: "",
-        owner_person_id: null,
         waiting_for: "",
         next_action: "",
         is_personal_task: !formText(values, "theme_id"),
@@ -330,10 +331,6 @@ export function WorkspaceApp() {
         description: formText(values, "description"),
         source_record_id: formText(values, "source_record_id") || null,
       };
-    } else if (type === "person") {
-      const name = formText(values, "name");
-      if (!name) { setToast("名前を入力してください。"); return; }
-      entity = { ...base, name, role: formText(values, "role"), organization: formText(values, "organization"), note: formText(values, "note") };
     } else if (type === "status_update") {
       entity = {
         ...base,
@@ -388,7 +385,7 @@ export function WorkspaceApp() {
         dependency_type: "finish_to_start",
       };
       if (!entity.source_item_id || !entity.target_item_id || entity.source_item_id === entity.target_item_id) {
-        setToast("異なる2つのItemを選択してください。");
+        setToast("異なる2つのタスクを選択してください。");
         return;
       }
     }
@@ -464,6 +461,8 @@ export function WorkspaceApp() {
   };
 
   const pages: Record<string, React.ReactNode> = {
+    today: <TodayPage {...common} />,
+    inbox: <InboxPage {...common} />,
     home: <HomePage {...common} />,
     todo: <TodoPage {...common} />,
     timeline: <TimelinePage {...common} />,
@@ -485,7 +484,7 @@ export function WorkspaceApp() {
         items={items}
         openDrawer={openDrawer}
       />
-      <main className="main-area">{pages[route] || pages.home}</main>
+      <main className="main-area">{pages[route] || pages.today}</main>
       {drawer && (
         <EntityDrawer
           drawer={drawer}

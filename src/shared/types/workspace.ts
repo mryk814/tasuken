@@ -3,7 +3,6 @@ export const entityTypes = [
   "item",
   "note",
   "link",
-  "person",
   "dependency",
   "view",
   "status_update",
@@ -42,7 +41,6 @@ export interface Workspace {
   items?: Entity[];
   notes?: Entity[];
   links?: Entity[];
-  people?: Entity[];
   dependencys?: Entity[];
   views?: Entity[];
   status_updates?: Entity[];
@@ -72,7 +70,7 @@ export interface SaveOperation {
 export interface SnapshotDecision {
   type: EntityType;
   id: string;
-  action: "keep-local" | "use-snapshot" | "skip";
+  action: "create" | "update" | "duplicate" | "ignore";
 }
 
 export interface SnapshotInspectResult {

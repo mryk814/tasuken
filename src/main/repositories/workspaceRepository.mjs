@@ -277,8 +277,6 @@ export class WorkspaceDatabase {
     requireReference("theme", entity.theme_id, "theme_id");
     requireReference("item", entity.item_id, "item_id");
     requireReference("note", entity.note_id, "note_id");
-    requireReference("person", entity.owner_person_id, "owner_person_id");
-    requireReference("person", entity.waiting_for_person_id, "waiting_for_person_id");
     requireReference("source_record", entity.source_record_id, "source_record_id");
     requireReference("item", entity.parent_item_id, "parent_item_id");
     requireReference("field_definition", entity.field_definition_id, "field_definition_id");
@@ -340,8 +338,6 @@ export class WorkspaceDatabase {
         requireSnapshotReference(type, record, "theme", record.theme_id, "theme_id");
         requireSnapshotReference(type, record, "item", record.item_id, "item_id");
         requireSnapshotReference(type, record, "note", record.note_id, "note_id");
-        requireSnapshotReference(type, record, "person", record.owner_person_id, "owner_person_id");
-        requireSnapshotReference(type, record, "person", record.waiting_for_person_id, "waiting_for_person_id");
         requireSnapshotReference(type, record, "source_record", record.source_record_id, "source_record_id");
         requireSnapshotReference(type, record, "item", record.parent_item_id, "parent_item_id");
         requireSnapshotReference(type, record, "field_definition", record.field_definition_id, "field_definition_id");
@@ -460,14 +456,6 @@ export class WorkspaceDatabase {
 
     if (type === "note") {
       this.nullifyReferences(type, [["link", "note_id"], ["log_entry", "related_note_id"]], id);
-    }
-
-    if (type === "person") {
-      this.nullifyReferences(type, [
-        ["item", "owner_person_id"],
-        ["item", "waiting_for_person_id"],
-        ["log_entry", "owner_person_id"],
-      ], id);
     }
 
     if (type === "source_record") {
@@ -645,6 +633,7 @@ export class WorkspaceDatabase {
           local,
           category,
           action: category === "new" ? "create" : category === "update" ? "update" : "ignore",
+          actions: category === "new" ? ["create", "ignore"] : ["update", "duplicate", "ignore"],
         });
       }
     }
@@ -662,6 +651,12 @@ export class WorkspaceDatabase {
           throw new Error("Snapshotの取り込み操作が不正です。プレビューからやり直してください。");
         }
         if (action === "ignore") continue;
+        if (action === "create" && change.local) {
+          throw new Error("既存データがあるため、Snapshotのcreateでは上書きできません。updateまたはduplicateを選んでください。");
+        }
+        if (action === "update" && !change.local) {
+          throw new Error("既存データがないため、Snapshotのupdateは実行できません。createを選んでください。");
+        }
         if (action === "duplicate") {
           this.insertImported(change.type, {
             ...change.incoming,

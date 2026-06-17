@@ -1,7 +1,6 @@
 import {
   initialMilestones,
   initialNotes,
-  initialPeople,
   initialPhases,
   initialTasks,
   initialThemes,
@@ -71,7 +70,6 @@ export function buildBootstrapWorkspace() {
     due_date: item.due || null,
     progress: item.status === "done" ? 100 : 0,
     waiting_for: item.waitingFor || "",
-    waiting_for_person: item.owner || "",
     next_action: item.next || "",
     description: item.note || "",
     is_personal_task: false,
@@ -146,21 +144,11 @@ export function buildBootstrapWorkspace() {
     ...metadata("legacy"),
   }));
 
-  const people = initialPeople.map((person) => ({
-    id: id("person", person.id),
-    name: person.name,
-    role: person.role || "",
-    organization: person.organization || "",
-    note: person.note || "",
-    ...metadata(person.source || "legacy"),
-  }));
-
   return {
     themes,
     items: [...taskItems, ...waitingItems, ...periodItems, ...milestoneItems],
     notes,
     links,
-    people,
     dependencys: [],
     views: [],
     status_updates: [],
@@ -180,7 +168,6 @@ export function emptyWorkspace() {
     items: [],
     notes: [],
     links: [],
-    people: [],
     dependencys: [],
     views: [],
     status_updates: [],

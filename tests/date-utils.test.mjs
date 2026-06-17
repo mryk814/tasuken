@@ -20,3 +20,21 @@ test("todayIso uses the local calendar date instead of UTC", () => {
   assert.equal(result.utc, "2026-01-01");
   assert.equal(result.local, "2026-01-02");
 });
+
+test("addDays keeps local calendar arithmetic across UTC boundaries", () => {
+  const script = `
+    import { addDays } from "./src/renderer/src/utils/dataFormat.js";
+    console.log(JSON.stringify({
+      next: addDays("2026-01-01", 1),
+      previous: addDays("2026-01-01", -1),
+    }));
+  `;
+  const output = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, TZ: "Asia/Tokyo" },
+    encoding: "utf8",
+  });
+  const result = JSON.parse(output);
+  assert.equal(result.next, "2026-01-02");
+  assert.equal(result.previous, "2025-12-31");
+});

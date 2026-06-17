@@ -20,7 +20,7 @@ export function HomePage({ data, activeTheme, items, notes, openDrawer, navigate
       <PageHeader title={activeTheme.name} subtitle={activeTheme.description}>
         <StatusBadge value={activeTheme.status} label={activeTheme.status} />
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })}>現在地を記録</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { theme_id: activeTheme.id } })}>項目を追加</button>
+        <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { theme_id: activeTheme.id } })}>タスクを追加</button>
       </PageHeader>
       <div className="metric-grid home-metrics">
         <Metric label="未完了" value={open.length} tone="primary" />

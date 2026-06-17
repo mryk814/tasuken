@@ -65,6 +65,8 @@ function createCaptureWindow(): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // TODO: sandbox:true breaks the ESM preload bridge in the current smoke path.
+      // Revisit when preload output/runtime is adjusted and window.captureApi can be verified.
       sandbox: false,
       preload: getCapturePreloadPath(),
     },
@@ -294,6 +296,8 @@ function createWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // TODO: sandbox:true currently prevents window.api/window.researchDesk from being exposed.
+      // Keep the verified contextIsolation/nodeIntegration boundary until the preload bridge is migrated.
       sandbox: false,
       preload: path.join(__dirname, "../preload/index.mjs"),
     },

@@ -1,4 +1,5 @@
 import { crossNavigation, toolNavigation } from "../../../pages/routes";
+import { todayIso } from "../../../utils/dataFormat.js";
 import type { Item, OpenDrawer, Theme } from "../types";
 import { themeColor } from "../lib/domain";
 
@@ -7,10 +8,10 @@ export function AppState({ state, message, onRetry }: { state: "loading" | "erro
     <main className="standalone-state">
       <div className={`state-box ${state}`}>
         {state === "loading" ? (
-          <><span className="spinner" /><strong>Workspaceを読み込んでいます</strong></>
+          <><span className="spinner" /><strong>作業台を読み込んでいます</strong></>
         ) : (
           <>
-            <strong>Workspaceを読み込めませんでした</strong>
+            <strong>作業台を読み込めませんでした</strong>
             <span>{message} アプリを再起動するか、もう一度試してください。</span>
             <button className="primary-button" onClick={onRetry}>再試行する</button>
           </>
@@ -40,6 +41,8 @@ export function Sidebar({
   openDrawer,
 }: SidebarProps) {
   const inbox = items.filter((item) => item.status === "inbox").length;
+  const today = todayIso();
+  const todayCount = items.filter((item) => item.status !== "done" && (item.today_flag || item.planned_end === today)).length;
   const waiting = items.filter((item) => item.status === "waiting" || item.kind === "waiting").length;
   return (
     <aside className="sidebar">
@@ -49,7 +52,8 @@ export function Sidebar({
         {crossNavigation.map(([id, label]) => (
           <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
             <span>{label}</span>
-            {id === "todo" && inbox > 0 && <span className="count">{inbox}</span>}
+            {id === "today" && todayCount > 0 && <span className="count">{todayCount}</span>}
+            {id === "inbox" && inbox > 0 && <span className="count">{inbox}</span>}
             {id === "waiting" && waiting > 0 && <span className="count">{waiting}</span>}
           </button>
         ))}
@@ -87,7 +91,7 @@ export function ShortcutDialog({ close }: { close: () => void }) {
         <div className="drawer-header"><strong>キーボードショートカット</strong><button onClick={close}>閉じる</button></div>
         <dl className="shortcut-list">
           <dt><kbd>?</kbd></dt><dd>この一覧を表示</dd>
-          <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>Itemを追加</dd>
+          <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>タスクを追加</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>検索へ移動</dd>
           <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる</dd>
         </dl>
