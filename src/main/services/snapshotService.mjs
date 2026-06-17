@@ -10,7 +10,7 @@ function summaryMarkdown(workspace) {
   const items = (workspace.items || []).filter((item) => !item.deleted_at);
   const notes = (workspace.notes || []).filter((note) => !note.deleted_at);
   return [
-    "# Research Desk Workspace",
+    "# Tasken Workspace",
     "",
     `Exported: ${new Date().toISOString()}`,
     "",
@@ -73,7 +73,7 @@ export function createSnapshot(workspace) {
 export function readSnapshot(filePath) {
   const zip = new AdmZip(filePath);
   const manifestEntry = zip.getEntry("manifest.json");
-  if (!manifestEntry) throw new Error("manifest.jsonがないため、Research DeskのSnapshotとして読み込めません。");
+  if (!manifestEntry) throw new Error("manifest.jsonがないため、TaskenのSnapshotとして読み込めません。");
   const manifest = JSON.parse(manifestEntry.getData().toString("utf8"));
   if (manifest.format !== "research-desk-workspace") throw new Error("対応していないSnapshot形式です。");
   if (manifest.schemaVersion > workspaceSchemaVersion) {

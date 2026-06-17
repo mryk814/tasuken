@@ -43,7 +43,7 @@ export function Sidebar({
   const waiting = items.filter((item) => item.status === "waiting" || item.kind === "waiting").length;
   return (
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">RD</span><div><strong>Research Desk</strong></div></div>
+      <div className="brand"><span className="brand-mark">T</span><div><strong>Tasken</strong></div></div>
       <nav className="primary-nav" aria-label="横断ビュー">
         <div className="nav-heading"><span>横断</span></div>
         {crossNavigation.map(([id, label]) => (

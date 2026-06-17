@@ -238,6 +238,10 @@ export function WorkspaceApp() {
     });
   }
 
+  async function removeEntityQuiet(type: EntityType, id: string) {
+    await removeWorkspaceEntity(type, id);
+  }
+
   async function saveForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -453,6 +457,7 @@ export function WorkspaceApp() {
     saveEntity,
     saveEntities,
     removeEntity,
+    removeEntityQuiet,
     toggleItem,
     setToast,
     snapshotPreview,

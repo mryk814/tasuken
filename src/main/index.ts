@@ -11,9 +11,30 @@ const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
 const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json");
+const APP_NAME = "Tasken";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
+
+function getAppIconPath(): string {
+  return path.join(__dirname, "../../resources/icon.ico");
+}
+
+function migrateLegacyUserDataIfNeeded(): void {
+  const currentDbPath = path.join(app.getPath("userData"), "research-desk.sqlite");
+  if (fs.existsSync(currentDbPath)) return;
+
+  const legacyDbPath = path.join(app.getPath("appData"), "Research Desk", "research-desk.sqlite");
+  if (!fs.existsSync(legacyDbPath)) return;
+
+  fs.mkdirSync(path.dirname(currentDbPath), { recursive: true });
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const legacyPath = `${legacyDbPath}${suffix}`;
+    if (fs.existsSync(legacyPath)) {
+      fs.copyFileSync(legacyPath, `${currentDbPath}${suffix}`);
+    }
+  }
+}
 
 function getCapturePreloadPath(): string {
   return path.join(__dirname, "../preload/capture.mjs");
@@ -66,6 +87,9 @@ function showCaptureWindow(): void {
 }
 
 function createTrayIcon(): Electron.NativeImage {
+  const icon = nativeImage.createFromPath(getAppIconPath());
+  if (!icon.isEmpty()) return icon.resize({ width: 16, height: 16 });
+
   // 16x16 RGBA: burgundy "RD" マーク
   const size = 16;
   const buf = Buffer.alloc(size * size * 4, 0);
@@ -89,7 +113,7 @@ function setupTray(): void {
   const contextMenu = Menu.buildFromTemplate([
     { label: "クイック記録", accelerator: "CmdOrCtrl+Shift+N", click: showCaptureWindow },
     { type: "separator" },
-    { label: "Research Desk を開く", click: () => {
+    { label: `${APP_NAME} を開く`, click: () => {
       const windows = BrowserWindow.getAllWindows().filter((w) => w !== captureWindow);
       if (windows.length) { windows[0].show(); windows[0].focus(); } else { createWindow(); }
     }},
@@ -97,7 +121,7 @@ function setupTray(): void {
     { label: "終了", click: () => app.quit() },
   ]);
 
-  tray.setToolTip("Research Desk");
+  tray.setToolTip(APP_NAME);
   tray.setContextMenu(contextMenu);
   tray.on("click", showCaptureWindow);
 }
@@ -196,7 +220,7 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
       await delay(120);
       await window.api.preferences.set("themeMode", "dark");
       const themeMode = await window.api.preferences.get("themeMode");
-      const clipboardWritten = await window.api.clipboard.writeText("Research Desk smoke test");
+      const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
 
       return {
         title: document.title,
@@ -253,7 +277,8 @@ function createWindow(): void {
     minHeight: 680,
     show: !isSmokeTest,
     backgroundColor: "#F4EEEC",
-    title: "Research Desk",
+    title: APP_NAME,
+    icon: getAppIconPath(),
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -300,6 +325,7 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  migrateLegacyUserDataIfNeeded();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
   registerIpc(workspaceRepository, new WorkspaceService(workspaceRepository));
   registerCaptureIpc();

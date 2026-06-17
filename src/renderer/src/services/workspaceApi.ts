@@ -9,7 +9,7 @@ import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
   if (!window.api) {
-    throw new Error("Research DeskはElectronデスクトップ版から起動してください。");
+    throw new Error("TaskenはElectronデスクトップ版から起動してください。");
   }
   return window.api;
 }

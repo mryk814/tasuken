@@ -20,6 +20,7 @@ export interface ConnectingState {
 
 export function GanttItemRow({
   item,
+  laneItems,
   range,
   hint,
   onOpen,
@@ -27,48 +28,36 @@ export function GanttItemRow({
   connecting,
   onConnect,
   themeColorKey,
+  resolveDropTarget,
 }: {
   item: Item;
+  laneItems?: Item[];
   range: GanttRange;
-  hint: string;
-  onOpen: () => void;
-  onMove: (item: Item, delta: number, mode: DragMode) => void;
+  hint: (item: Item) => string;
+  onOpen: (item: Item) => void;
+  onMove: (item: Item, delta: number, mode: DragMode, targetParent?: Item | null) => void;
   connecting?: ConnectingState | null;
   onConnect?: (item: Item) => void;
   themeColorKey?: string;
+  resolveDropTarget?: (clientY: number) => Item | null | undefined;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{ itemId: string; mode: DragMode; dxPercent: number } | null>(null);
   const movedRef = useRef(false);
-  const [drag, setDrag] = useState<{ mode: DragMode; dxPercent: number } | null>(null);
-  const level = itemLevel(item);
-  const start = item.planned_start || item.planned_end;
-  const end = item.planned_end || start;
   const total = Math.max(1, daysBetween(range.start, range.end));
-  const left = start ? Math.max(0, Math.min(100, (daysBetween(range.start, start) / total) * 100)) : 0;
-  const width = start
-    ? Math.max(item.kind === "milestone" ? 0.8 : 1.4, Math.min(100 - left, ((daysBetween(start, end || start) + 1) / total) * 100))
-    : 0;
+  const bars = laneItems?.length ? laneItems : [item];
 
-  // ドラッグ確定は離した瞬間に日単位でスナップする一方、移動中はライブで位置/幅をプレビューする。
-  let displayLeft = left;
-  let displayWidth = width;
-  if (drag) {
-    if (drag.mode === "move") displayLeft = left + drag.dxPercent;
-    else if (drag.mode === "start") { displayLeft = left + drag.dxPercent; displayWidth = width - drag.dxPercent; }
-    else displayWidth = width + drag.dxPercent;
-    displayWidth = Math.max(0.6, displayWidth);
-  }
-
-  function beginDrag(event: React.PointerEvent, mode: DragMode) {
+  function beginDrag(event: React.PointerEvent, target: Item, mode: DragMode) {
     event.preventDefault();
     event.stopPropagation();
     const initialX = event.clientX;
+    const initialY = event.clientY;
     const trackWidth = rowRef.current?.clientWidth || 1;
     movedRef.current = false;
     const onPointerMove = (moveEvent: PointerEvent) => {
       const dxPercent = ((moveEvent.clientX - initialX) / trackWidth) * 100;
-      if (Math.abs(dxPercent) > 0.5) movedRef.current = true;
-      setDrag({ mode, dxPercent });
+      if (Math.abs(dxPercent) > 0.5 || Math.abs(moveEvent.clientY - initialY) > 6) movedRef.current = true;
+      setDrag({ itemId: target.id, mode, dxPercent });
     };
     const cleanup = () => {
       removeEventListener("pointermove", onPointerMove);
@@ -79,7 +68,8 @@ export function GanttItemRow({
     const onPointerUp = (upEvent: PointerEvent) => {
       cleanup();
       const delta = Math.round(((upEvent.clientX - initialX) / trackWidth) * total);
-      if (delta) onMove(item, delta, mode);
+      const targetParent = resolveDropTarget?.(upEvent.clientY);
+      if (delta || targetParent !== undefined) onMove(target, delta, mode, targetParent);
     };
     const onPointerCancel = () => {
       // キャンセル時は確定せず、プレビューだけ戻す（既存データを壊さない）。
@@ -91,44 +81,62 @@ export function GanttItemRow({
     addEventListener("pointercancel", onPointerCancel);
   }
 
-  const isSource = !!connecting?.sourceId && connecting.sourceId === item.id;
   const isConnecting = !!connecting;
 
-  function handleClick() {
+  function handleClick(target: Item) {
     if (movedRef.current) {
       movedRef.current = false;
       return;
     }
     if (isConnecting && onConnect) {
-      onConnect(item);
+      onConnect(target);
       return;
     }
-    onOpen();
+    onOpen(target);
   }
 
-  const barClass = [
-    `gantt-item-bar level-${level}`,
-    item.kind === "milestone" ? "milestone" : "",
-    drag ? "is-dragging" : "",
-    isSource ? "is-connect-source" : "",
-    isConnecting && !isSource ? "is-connect-target" : "",
-  ].filter(Boolean).join(" ");
-
   return (
-    <div className={`gantt-item-row level-${level}`} ref={rowRef}>
-      {hasPlannedSchedule(item) && start && (
-        <button
-          className={barClass}
-          style={{ left: `${displayLeft}%`, width: `${displayWidth}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
-          onClick={handleClick}
-          onPointerDown={isConnecting ? undefined : (event) => beginDrag(event, "move")}
-          title={isConnecting ? (isSource ? `${item.title}（選択中）` : connecting?.sourceId ? `${item.title} を後続にする` : `${item.title} を先行にする`) : hint}
-        >
-          {item.kind !== "milestone" && !isConnecting && <span className="resize-handle start" onPointerDown={(event) => beginDrag(event, "start")} />}
-          <span>{item.kind === "milestone" ? "◆" : item.title}</span>
-          {item.kind !== "milestone" && !isConnecting && <span className="resize-handle end" onPointerDown={(event) => beginDrag(event, "end")} />}
-        </button>
-      )}
+    <div className={`gantt-item-row level-${itemLevel(item)}`} ref={rowRef}>
+      {bars.map((barItem) => {
+        const level = itemLevel(barItem);
+        const start = barItem.planned_start || barItem.planned_end;
+        const end = barItem.planned_end || start;
+        const left = start ? Math.max(0, Math.min(100, (daysBetween(range.start, start) / total) * 100)) : 0;
+        const width = start
+          ? Math.max(barItem.kind === "milestone" ? 0.8 : 1.4, Math.min(100 - left, ((daysBetween(start, end || start) + 1) / total) * 100))
+          : 0;
+        let displayLeft = left;
+        let displayWidth = width;
+        if (drag?.itemId === barItem.id) {
+          if (drag.mode === "move") displayLeft = left + drag.dxPercent;
+          else if (drag.mode === "start") { displayLeft = left + drag.dxPercent; displayWidth = width - drag.dxPercent; }
+          else displayWidth = width + drag.dxPercent;
+          displayWidth = Math.max(0.6, displayWidth);
+        }
+        const isSource = !!connecting?.sourceId && connecting.sourceId === barItem.id;
+        const barClass = [
+          `gantt-item-bar level-${level}`,
+          bars.length > 1 ? "in-lane" : "",
+          barItem.kind === "milestone" ? "milestone" : "",
+          drag?.itemId === barItem.id ? "is-dragging" : "",
+          isSource ? "is-connect-source" : "",
+          isConnecting && !isSource ? "is-connect-target" : "",
+        ].filter(Boolean).join(" ");
+        return hasPlannedSchedule(barItem) && start ? (
+          <button
+            className={barClass}
+            key={barItem.id}
+            style={{ left: `${displayLeft}%`, width: `${displayWidth}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
+            onClick={() => handleClick(barItem)}
+            onPointerDown={isConnecting ? undefined : (event) => beginDrag(event, barItem, "move")}
+            title={isConnecting ? (isSource ? `${barItem.title}（選択中）` : connecting?.sourceId ? `${barItem.title} を後続にする` : `${barItem.title} を先行にする`) : hint(barItem)}
+          >
+            {barItem.kind !== "milestone" && !isConnecting && <span className="resize-handle start" onPointerDown={(event) => beginDrag(event, barItem, "start")} />}
+            <span>{barItem.kind === "milestone" ? "◆" : barItem.title}</span>
+            {barItem.kind !== "milestone" && !isConnecting && <span className="resize-handle end" onPointerDown={(event) => beginDrag(event, barItem, "end")} />}
+          </button>
+        ) : null;
+      })}
     </div>
   );
 }
@@ -145,6 +153,69 @@ export function TimeAxis({ start, end, scale }: { start: string; end: string; sc
   return (
     <div className="gantt-axis" style={{ gridTemplateColumns: `repeat(${blocks.length}, 1fr)` }}>
       {blocks.map((value) => <span key={value}>{scale === "week" ? value.slice(5) : value.slice(0, 7)}</span>)}
+    </div>
+  );
+}
+
+function milestoneDate(item: Item): string {
+  return String(item.planned_end || item.due_date || item.planned_start || "");
+}
+
+function milestoneLabel(item: Item, scale: string): string {
+  if (scale === "year" || scale === "half") return item.title.length > 10 ? `${item.title.slice(0, 10)}...` : item.title;
+  return item.title;
+}
+
+export function MilestoneLane({
+  milestones,
+  range,
+  scale,
+  hint,
+  onOpen,
+  themeColorKey,
+}: {
+  milestones: Item[];
+  range: GanttRange;
+  scale: string;
+  hint: (item: Item) => string;
+  onOpen: (item: Item) => void;
+  themeColorKey?: string;
+}) {
+  const total = Math.max(1, daysBetween(range.start, range.end));
+  const byMonth = new Map<string, Item[]>();
+  for (const milestone of milestones) {
+    const date = milestoneDate(milestone);
+    if (!date) continue;
+    const key = date.slice(0, 7);
+    byMonth.set(key, [...(byMonth.get(key) || []), milestone]);
+  }
+  const marks = [...byMonth.entries()].flatMap(([month, entries]) => {
+    if (entries.length >= 3) return [{ id: month, items: entries, date: `${month}-15` }];
+    return entries.map((item) => ({ id: item.id, items: [item], date: milestoneDate(item) }));
+  });
+
+  return (
+    <div className="gantt-milestone-lane">
+      {marks.map((mark) => {
+        const left = Math.max(0, Math.min(100, (daysBetween(range.start, mark.date) / total) * 100));
+        const first = mark.items[0];
+        const clustered = mark.items.length > 1;
+        const title = clustered
+          ? mark.items.map((item) => `${milestoneDate(item)} ${item.title}`).join("\n")
+          : hint(first);
+        return (
+          <button
+            className={`milestone-lane-mark ${clustered ? "is-cluster" : ""}`}
+            key={mark.id}
+            style={{ left: `${left}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
+            onClick={() => onOpen(first)}
+            title={title}
+          >
+            <span>{clustered ? `◆${mark.items.length}` : "◆"}</span>
+            <small>{clustered ? mark.id : milestoneLabel(first, scale)}</small>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -166,13 +237,15 @@ export function DependencyOverlay({
 }) {
   const total = Math.max(1, daysBetween(range.start, range.end));
   const ROW_H = 44;
-  const rowIndexOf = (id?: string) => rows.findIndex((row) => row.rowType === "item" && row.item.id === id);
+  const rowIndexOf = (id?: string) => rows.findIndex((row) => row.rowType === "item" && (row.item.id === id || row.laneItems.some((item) => item.id === id)));
   const lines = dependencies.flatMap((dependency) => {
     const sourceIndex = rowIndexOf(dependency.source_item_id);
     const targetIndex = rowIndexOf(dependency.target_item_id);
     if (sourceIndex < 0 || targetIndex < 0) return [];
-    const source = (rows[sourceIndex] as ItemRow).item;
-    const target = (rows[targetIndex] as ItemRow).item;
+    const sourceRow = rows[sourceIndex] as ItemRow;
+    const targetRow = rows[targetIndex] as ItemRow;
+    const source = sourceRow.item.id === dependency.source_item_id ? sourceRow.item : sourceRow.laneItems.find((item) => item.id === dependency.source_item_id) || sourceRow.item;
+    const target = targetRow.item.id === dependency.target_item_id ? targetRow.item : targetRow.laneItems.find((item) => item.id === dependency.target_item_id) || targetRow.item;
     const sourceDate = source.planned_end;
     const targetDate = target.planned_start || target.planned_end;
     if (!sourceDate || !targetDate) return [];
@@ -228,7 +301,7 @@ export function LightningOverlay({ rows, range, today }: { rows: TimelineRow[]; 
   const todayX = (daysBetween(range.start, today) / totalDays) * 1000;
   const points = rows.flatMap((row, index) => {
     if (row.rowType !== "item") return [];
-    const item = row.item;
+    const item = row.laneItems[0] || row.item;
     const start = item.planned_start || item.planned_end;
     const end = item.planned_end || start;
     if (!start || !end || !hasPlannedSchedule(item)) return [];

@@ -31,7 +31,7 @@ export class WorkspaceService {
     const result = await dialog.showSaveDialog({
       title: "Workspace Snapshotを書き出す",
       defaultPath: `workspace_export_${date}.zip`,
-      filters: [{ name: "Research Desk Snapshot", extensions: ["zip"] }],
+      filters: [{ name: "Tasken Snapshot", extensions: ["zip"] }],
     });
     if (result.canceled || !result.filePath) return { canceled: true };
     createSnapshot(this.repository.loadWorkspace(true)).writeZip(result.filePath);
@@ -42,7 +42,7 @@ export class WorkspaceService {
     const result = await dialog.showOpenDialog({
       title: "Workspace Snapshotを読み込む",
       properties: ["openFile"],
-      filters: [{ name: "Research Desk Snapshot", extensions: ["zip"] }],
+      filters: [{ name: "Tasken Snapshot", extensions: ["zip"] }],
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
     const parsed = readSnapshot(result.filePaths[0]) as {

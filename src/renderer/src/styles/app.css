@@ -314,10 +314,15 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 
 .split-gantt { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 580px; overflow: hidden; }
 .gantt-table { z-index: 4; border-right: 1px solid var(--color-border); background: var(--color-surface); }
-.gantt-table-head, .gantt-table-row { display: grid; grid-template-columns: minmax(150px, 1fr) 82px; align-items: center; gap: var(--space-1); min-height: 44px; padding: 0 var(--space-2); border-bottom: 1px solid var(--color-border-subtle); font-size: var(--text-xs); }
+.gantt-table-head, .gantt-table-row { display: grid; grid-template-columns: minmax(150px, 1fr) 92px; align-items: center; gap: var(--space-1); min-height: 44px; padding: 0 var(--space-2); border-bottom: 1px solid var(--color-border-subtle); font-size: var(--text-xs); }
 .gantt-table-head { position: sticky; top: 0; z-index: 5; color: var(--color-text-secondary); background: var(--color-surface-subtle); font-weight: var(--weight-medium); }
 .gantt-name { display: flex; align-items: center; gap: var(--space-1); min-width: 0; overflow: hidden; border: 0; background: transparent; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-name > span { flex: 0 0 auto; color: var(--color-accent-strong); }
+.gantt-add-plan-button { width: 30px; height: 30px; justify-self: end; display: grid; place-items: center; padding: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-accent-strong); font-weight: var(--weight-bold); }
+.gantt-add-plan-button:hover { background: var(--color-accent-subtle-bg); border-color: var(--color-accent-subtle-bd); }
+.gantt-title-button { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.gantt-title-button:hover { color: var(--color-accent-strong); }
+.gantt-title-input { width: 100%; min-height: 28px; padding: 0 var(--space-1); font-size: var(--text-xs); }
 .gantt-scroll { min-width: 0; overflow-x: hidden; }
 /* キャンバスは右ペインの幅にフィットさせ、常に範囲の始点・終点が画面内に収まるようにする。
    バーは範囲に対する%配置なので、幅が変わっても始まり〜終わりが見えたまま伸縮する。 */
@@ -355,11 +360,21 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-theme-toggle:hover strong { color: var(--color-accent-strong); }
 .gantt-theme-caret { flex: 0 0 auto; width: 14px; color: var(--color-accent-strong); }
 .gantt-theme-count { flex: 0 0 auto; color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); white-space: nowrap; }
+.gantt-milestone-table-row { min-height: 44px; display: grid; grid-template-columns: minmax(150px, 1fr) 92px; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); border-bottom: 1px solid var(--color-border-subtle); background: color-mix(in srgb, var(--color-accent-subtle-bg) 45%, var(--color-surface)); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.gantt-milestone-table-row span { padding-left: 28px; font-weight: var(--weight-medium); }
+.gantt-milestone-table-row strong { justify-self: end; padding: 2px var(--space-2); border-radius: var(--radius-pill); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); font: var(--text-xs) var(--font-mono); }
 .gantt-milestone-mark { flex: 0 0 auto; color: var(--color-accent-strong); }
 /* task-levelは大きな線に対して後退させる（淡色・細バー）。 */
 .gantt-table-row.level-task .gantt-name { color: var(--color-text-secondary); }
 .gantt-canvas-theme-row { position: relative; height: 44px; background: var(--color-surface-muted); border-bottom: 1px solid var(--color-border); }
+.gantt-milestone-lane { --bar-color: var(--color-chart-1); position: relative; height: 44px; border-bottom: 1px solid var(--color-border-subtle); background: color-mix(in srgb, var(--color-accent-subtle-bg) 38%, var(--color-surface)); background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(8.333% - 1px), var(--color-border-subtle) calc(8.333% - 1px), var(--color-border-subtle) 8.333%); }
+.milestone-lane-mark { position: absolute; z-index: 4; top: 5px; width: 84px; min-height: 34px; display: grid; justify-items: center; align-content: center; gap: 1px; transform: translateX(-50%); padding: 0 var(--space-1); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--color-accent-strong); font-size: var(--text-xs); }
+.milestone-lane-mark span { font-family: var(--font-mono); line-height: var(--lh-tight); }
+.milestone-lane-mark small { max-width: 76px; overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.milestone-lane-mark:hover { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
+.milestone-lane-mark.is-cluster { border-color: color-mix(in srgb, var(--bar-color) 34%, var(--color-border)); background: color-mix(in srgb, var(--bar-color) 12%, var(--color-surface)); }
 .gantt-item-bar.level-task { top: 12px; height: 20px; opacity: .82; }
+.gantt-item-bar.in-lane { top: 11px; height: 22px; }
 
 /* 接続モード: 先行Item確定時のハイライトと、ターゲット候補のホバー強調 */
 .connect-status-bar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-info-bg); border: 1px solid var(--color-info-bd); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text); }

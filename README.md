@@ -1,4 +1,4 @@
-# Research Desk
+# Tasken
 
 研究開発職向けの、テーマ・タスク・長期スケジュール・メモ管理デスクトップアプリです。
 データは端末内のElectronユーザープロファイルにあるSQLiteへ保存され、外部サーバーへ送信されません。
@@ -40,8 +40,8 @@ npm run package
 
 生成先:
 
-- `release/Research-Desk-Setup-0.1.0-x64.exe`
-- `release/Research-Desk-Portable-0.1.0-x64.exe`
+- `release/Tasken-Setup-0.1.0-x64.exe`
+- `release/Tasken-Portable-0.1.0-x64.exe`
 
 インストール版とportable版はいずれもElectronの`userData`配下に
 `research-desk.sqlite`を保存します。端末間移行やバックアップにはSettingsの

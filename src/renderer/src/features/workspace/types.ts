@@ -252,6 +252,7 @@ export interface PageProps {
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
   removeEntity: RemoveEntity;
+  removeEntityQuiet(type: EntityType, id: string): Promise<void>;
   toggleItem(item: Item): Promise<void>;
   setToast(message: string): void;
   snapshotPreview: SnapshotPreview | null;

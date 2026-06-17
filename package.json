@@ -1,5 +1,5 @@
 {
-  "name": "tasuken-research-desk",
+  "name": "tasken",
   "version": "0.1.0",
   "description": "研究開発職向けの長期スケジュール・タスク・メモ管理デスクトップアプリ",
   "author": "ootan",
@@ -33,17 +33,19 @@
     "vite": "6.4.2"
   },
   "build": {
-    "appId": "jp.personal.researchdesk",
-    "productName": "Research Desk",
+    "appId": "jp.personal.tasken",
+    "productName": "Tasken",
     "directories": {
       "output": "release"
     },
     "files": [
       "out/**/*",
+      "resources/**/*",
       "package.json"
     ],
     "asar": true,
     "win": {
+      "icon": "resources/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -58,10 +60,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "artifactName": "Research-Desk-Setup-${version}-${arch}.${ext}"
+      "artifactName": "Tasken-Setup-${version}-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "Research-Desk-Portable-${version}-${arch}.${ext}"
+      "artifactName": "Tasken-Portable-${version}-${arch}.${ext}"
     }
   },
   "dependencies": {

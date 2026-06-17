@@ -3,8 +3,9 @@ import { itemLevel } from "./domain";
 import { addDays } from "./format";
 
 export type TimelineRow =
-  | { rowType: "theme"; groupKey: string; theme: Theme | null; planCount: number; taskCount: number }
-  | { rowType: "item"; item: Item; depth: number; hasChildren: boolean };
+  | { rowType: "theme"; groupKey: string; theme: Theme | null; initiativeCount: number; planCount: number }
+  | { rowType: "milestones"; groupKey: string; theme: Theme | null; milestones: Item[] }
+  | { rowType: "item"; item: Item; depth: number; laneItems: Item[] };
 
 export interface GanttRange {
   start: string;
@@ -46,14 +47,38 @@ export function ganttRange(scale: string, today: string): GanttRange {
 interface BuildRowsArgs {
   items: Item[];
   themes: Theme[];
-  showTasks: boolean;
   collapsedThemes: string[];
-  collapsedItems: string[];
+  scale?: string;
 }
 
-// テーマ別レーンで行を組み立てる。各テーマの先頭にヘッダ行を置き、
-// 既定では計画レベル（plan）のItemだけ、showTasks時は実行レベル（task）も親の下にネストする。
-export function buildTimelineRows({ items, themes, showTasks, collapsedThemes, collapsedItems }: BuildRowsArgs): TimelineRow[] {
+const SCALE_ORDER = ["year", "half", "quarter", "month", "week"];
+
+function dateOf(item: Item): string {
+  return String(item.planned_end || item.due_date || item.planned_start || "");
+}
+
+function visibilityRank(value?: unknown): number {
+  const index = SCALE_ORDER.indexOf(String(value || "year"));
+  return index >= 0 ? index : 0;
+}
+
+function scaleRank(scale?: string): number {
+  const index = SCALE_ORDER.indexOf(String(scale || "quarter"));
+  return index >= 0 ? index : 2;
+}
+
+function isVisibleAtScale(item: Item, scale?: string): boolean {
+  const level = String(item.visibility_level || "");
+  if (level) return visibilityRank(level) <= scaleRank(scale);
+  const importance = String(item.importance || "");
+  if (scale === "year") return importance ? importance === "major" : true;
+  if (scale === "half" || scale === "quarter") return importance !== "minor";
+  return true;
+}
+
+// テーマ別レーンで行を組み立てる。親を持たない計画Itemは左表の「実施事項」、
+// その子Itemは同じタイムライン行に並ぶ「計画」として扱う。
+export function buildTimelineRows({ items, themes, collapsedThemes, scale }: BuildRowsArgs): TimelineRow[] {
   const themeIds = new Set(themes.map((theme) => theme.id));
   const byTheme = new Map<string | null, Item[]>();
   for (const item of items) {
@@ -66,31 +91,48 @@ export function buildTimelineRows({ items, themes, showTasks, collapsedThemes, c
     const pool = byTheme.get(themeId) || [];
     if (!pool.length) continue;
     const groupKey = themeId || "__none";
-    const planCount = pool.filter((item) => itemLevel(item) === "plan").length;
+    const milestones = pool
+      .filter((item) => item.kind === "milestone" && String(item.display_lane || "theme_lane") !== "item_endpoint" && isVisibleAtScale(item, scale))
+      .sort((a, b) => dateOf(a).localeCompare(dateOf(b)) || (a.sort_order || 0) - (b.sort_order || 0));
+    const allPlans = pool
+      .filter((item) => item.kind !== "milestone" && itemLevel(item) === "plan")
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const planIds = new Set(allPlans.map((item) => item.id));
+    const initiatives = allPlans.filter((item) => !item.parent_item_id || !planIds.has(item.parent_item_id));
+    const planCount = allPlans.length - initiatives.length;
     rows.push({
       rowType: "theme",
       groupKey,
       theme: themes.find((theme) => theme.id === themeId) || null,
+      initiativeCount: initiatives.length,
       planCount,
-      taskCount: pool.length - planCount,
     });
     if (collapsedThemes.includes(groupKey)) continue;
-    const visiblePool = showTasks ? pool : pool.filter((item) => itemLevel(item) === "plan");
-    const visibleIds = new Set(visiblePool.map((item) => item.id));
+    if (milestones.length) {
+      rows.push({
+        rowType: "milestones",
+        groupKey,
+        theme: themes.find((theme) => theme.id === themeId) || null,
+        milestones,
+      });
+    }
+    const childPlans = allPlans
+      .filter((item) => item.parent_item_id && planIds.has(item.parent_item_id))
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const children = new Map<string, Item[]>();
-    for (const item of visiblePool) {
-      const parent = item.parent_item_id && visibleIds.has(item.parent_item_id) ? item.parent_item_id : "__root";
+    for (const item of childPlans) {
+      const parent = String(item.parent_item_id);
       children.set(parent, [...(children.get(parent) || []), item]);
     }
-    children.forEach((records) => records.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
-    const visit = (parent: string, depth: number): void => {
-      for (const item of children.get(parent) || []) {
-        const hasChildren = (children.get(item.id) || []).length > 0;
-        rows.push({ rowType: "item", item, depth, hasChildren });
-        if (hasChildren && !collapsedItems.includes(item.id)) visit(item.id, depth + 1);
-      }
-    };
-    visit("__root", 0);
+    for (const plan of initiatives) {
+      const laneItems = children.get(plan.id) || [];
+      rows.push({
+        rowType: "item",
+        item: plan,
+        depth: 0,
+        laneItems: laneItems.length > 0 ? laneItems : [plan],
+      });
+    }
   }
   return rows;
 }
