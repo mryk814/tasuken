@@ -88,6 +88,37 @@ function ThemeGroupPicker({ value, themes }: { value?: string; themes: Workspace
   );
 }
 
+function ChatGroupPicker({ value, links }: { value?: string; links: WorkspaceData["links"] }) {
+  const [selected, setSelected] = useState(value || "");
+  const groups = [...new Set(links.map((link) => str(link.chat_group).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja-JP"));
+  return (
+    <Field label="グループ">
+      <input name="chat_group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="例: 〇〇モデル改善検討" />
+      {groups.length > 0 && (
+        <div className="group-chip-list">
+          <button
+            type="button"
+            className={`theme-chip ${!selected ? "is-selected" : ""}`}
+            onClick={() => setSelected("")}
+          >
+            なし
+          </button>
+          {groups.map((group) => (
+            <button
+              key={group}
+              type="button"
+              className={`theme-chip ${selected === group ? "is-selected" : ""}`}
+              onClick={() => setSelected(group)}
+            >
+              {group}
+            </button>
+          ))}
+        </div>
+      )}
+    </Field>
+  );
+}
+
 type SaveForm = (event: React.FormEvent<HTMLFormElement>) => void;
 
 interface EntityDrawerProps {
@@ -229,9 +260,8 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
           <>
             <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
             <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
-            <Field label="種別"><select name="link_type" defaultValue={normalizeLinkType(entity.link_type)}>{LINK_TYPES.map((value) => <option key={value} value={value}>{LINK_TYPE_LABELS[value]}</option>)}</select></Field>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
-            <ItemSelect items={data.items} value={str(entity.item_id)} />
+            <ChatGroupPicker value={str(entity.chat_group)} links={data.links} />
             <div className="form-grid">
               <Field label="参照状態">
                 <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>

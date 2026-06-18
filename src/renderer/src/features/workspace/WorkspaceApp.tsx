@@ -24,6 +24,7 @@ import { activeRecords, formText, uuid } from "./lib/format";
 import type { SaveOperation } from "./types";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { EntityDrawer } from "./components/drawer";
+import { ContextPane } from "./components/contextPane";
 import { HomePage } from "./pages/HomePage";
 import { TodoPage } from "./pages/TodoPage";
 import { TimelinePage } from "./pages/TimelinePage";
@@ -336,6 +337,7 @@ export function WorkspaceApp() {
         reference_status: formText(values, "reference_status", "keep"),
         importance: values.has("importance_high") ? "high" : "normal",
         captured_at: formText(values, "captured_at") || (base.captured_at as string) || new Date().toISOString().slice(0, 10),
+        chat_group: formText(values, "chat_group") || null,
       };
     } else if (type === "status_update") {
       entity = {
@@ -520,7 +522,7 @@ export function WorkspaceApp() {
         openDrawer={openDrawer}
       />
       <main className="main-area">{pages[route] || pages.today}</main>
-      {drawer && (
+      {drawer ? (
         <EntityDrawer
           drawer={drawer}
           data={data}
@@ -529,6 +531,13 @@ export function WorkspaceApp() {
           removeEntity={removeEntity}
           toggleItem={toggleItem}
           saveEntity={saveEntity}
+        />
+      ) : (
+        <ContextPane
+          data={data}
+          activeTheme={activeTheme}
+          openDrawer={openDrawer}
+          navigate={navigate}
         />
       )}
       {toast && (

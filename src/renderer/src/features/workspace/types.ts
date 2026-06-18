@@ -88,6 +88,7 @@ export interface Link extends BaseRecord {
   reference_status?: string;
   importance?: string;
   captured_at?: string | null;
+  chat_group?: string | null;
 }
 
 export interface StatusUpdate extends BaseRecord {
