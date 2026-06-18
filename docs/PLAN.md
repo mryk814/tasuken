@@ -39,6 +39,7 @@
 - AI Context ExportのKnowledge-aware Markdown section
 - AI ImportプレビューのKnowledgeNode / KnowledgeRelation対応
 - Knowledge Health Checkの簡易一覧
+- Read-only MCP Server（search/list/context/health/export tools）
 
 ## 継続改善
 
@@ -55,9 +56,8 @@ Taskenを「思考・知識・作業文脈をAIと共有できる個人用Thinki
 優先順は以下とする。
 
 1. AI Knowledge Extractionのpreview drawerを追加し、Note本文からKnowledge候補を作る。
-2. Read-only MCP Serverを追加し、検索・context export・health checkのみを提供する。
-3. MCP writeは直接Entityを作らず、`ai_proposal`としてpreview inboxに入れる。
-4. VS Code / Copilot / Cursor連携はMCP経由の薄い統合に限定する。
+2. MCP writeは直接Entityを作らず、`ai_proposal`としてpreview inboxに入れる。
+3. VS Code / Copilot / Cursor連携はMCP経由の薄い統合に限定する。
 
 ## 検証
 

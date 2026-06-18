@@ -15,6 +15,7 @@
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
     "smoke:desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing . --smoke-test",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
+    "mcp": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/mcp-server.mjs",
     "package": "npm run typecheck && npm run build && electron-builder --win nsis portable --config.electronDist=node_modules/electron/dist"
   },
   "devDependencies": {

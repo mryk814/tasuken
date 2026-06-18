@@ -40,7 +40,7 @@ function draftFromItem(item: Item): InboxDraft {
 }
 
 function isInboxLike(item: Item): boolean {
-  return item.status === "inbox" || item.kind === "idea";
+  return item.status === "inbox";
 }
 
 export function InboxPage({ themes, items, openDrawer, saveEntity, removeEntityQuiet, setToast }: PageProps) {
@@ -118,7 +118,7 @@ export function InboxPage({ themes, items, openDrawer, saveEntity, removeEntityQ
           kind,
           level: defaultLevel(kind),
           theme_id: themeId,
-          status: draft.output === "waiting" ? "waiting" : draft.output === "idea" ? "inbox" : "todo",
+          status: draft.output === "waiting" ? "waiting" : "todo",
           priority: draft.priority,
           planned_end: draft.planned_end || null,
           planned_start: item.planned_start || null,

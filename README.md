@@ -32,6 +32,24 @@ npm run smoke:desktop
 npm run smoke:model
 ```
 
+Read-only MCP Serverを起動:
+
+```powershell
+npm --silent run mcp
+```
+
+`npm --silent run mcp`はElectron runtimeをNode互換モードでstdio MCP Serverとして起動します。
+MCPクライアント設定では、stdoutにnpmのログを混ぜないため`--silent`を付けてください。
+通常はElectronの`userData`配下にある`research-desk.sqlite`を読みます。
+別DBを使う場合は`TASKEN_DB_PATH`を指定してください。
+
+```powershell
+$env:TASKEN_DB_PATH="C:\path\to\research-desk.sqlite"
+npm run mcp
+```
+
+MCP toolは読み取り専用です。Note本文の全文は`include_raw_body: true`を明示した場合だけ返します。
+
 Windowsインストーラーとportable版を作成:
 
 ```powershell
@@ -56,7 +74,7 @@ Workspace Snapshotを使用してください。
 - AI Import / Export: JSON / YAMLの取り込みと、JSON / YAML / Markdownの書き出し
 - Workspace Snapshot: ZIPによるバックアップ、差分プレビュー、競合選択付きImport
 - Theme Status / Plan Revision / 情報源管理 / Settings
-- Knowledge / MCP 方針: 思考・根拠・問い・決定をAIが安全に参照するための次期設計
+- Knowledge / MCP: 思考・根拠・問い・決定をAIが安全に参照するためのKnowledge一覧とread-only MCP
 
 ## 使い始める流れ
 
