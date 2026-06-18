@@ -68,17 +68,17 @@ export function statusProgress(status?: string): number {
 // 能動的な状態（進行中）を前に、終端（完了・中止）を後退させる。未着手・分類タグは idle（中立）。
 export function statusTone(status?: string): string {
   switch (status) {
-    case "done": case "completed": case "on_track": case "完了":
+    case "done": case "completed": case "on_track": case "adopted": case "完了":
       return "done";
     case "doing": case "進行中":
       return "active";
-    case "review": case "確認待ち":
+    case "review": case "pending": case "確認待ち":
       return "review";
     case "waiting": case "at_risk": case "paused": case "待ち": case "保留":
       return "blocked";
     case "delayed": case "open":
       return "danger"; // 遅延・未解決など明確な問題系のみ警告の赤
-    case "cancelled": case "中止":
+    case "cancelled": case "stale": case "中止":
       return "dropped";
     default:
       return "idle"; // inbox / todo / 計画中 / note_type・link_type 等の分類

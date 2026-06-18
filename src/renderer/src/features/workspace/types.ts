@@ -85,6 +85,9 @@ export interface Link extends BaseRecord {
   note_id?: string | null;
   description?: string;
   source_record_id?: string | null;
+  reference_status?: string;
+  importance?: string;
+  captured_at?: string | null;
 }
 
 export interface StatusUpdate extends BaseRecord {

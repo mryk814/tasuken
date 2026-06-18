@@ -13,8 +13,28 @@ import { CHART_COLORS, KIND_LABELS, LEVEL_LABELS, NOTE_TYPE_LABELS, STATUS_LABEL
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 
-const LINK_TYPES = ["chatgpt", "copilot", "github", "paper", "notebook", "document", "other"];
+const LINK_TYPES = ["chatgpt", "claude", "gemini", "copilot", "github", "paper", "notebook", "document", "other"];
+const LINK_TYPE_LABELS: Record<string, string> = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  gemini: "Gemini",
+  copilot: "Copilot",
+  github: "GitHub",
+  paper: "論文",
+  notebook: "Notebook",
+  document: "文書",
+  other: "その他",
+};
+const CHAT_REFERENCE_STATUSES = ["inbox", "keep", "adopted", "pending", "stale"];
+const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
+  inbox: "未整理",
+  keep: "参照",
+  adopted: "採用",
+  pending: "再確認",
+  stale: "古い",
+};
 const normalizeLinkType = (value: unknown) => LINK_TYPES.includes(str(value)) ? str(value) : "other";
+const normalizeReferenceStatus = (value: unknown) => CHAT_REFERENCE_STATUSES.includes(str(value)) ? str(value) : "keep";
 
 function ThemeColorPicker({ value }: { value?: string }) {
   const [selected, setSelected] = useState(value || CHART_COLORS[0]);
@@ -147,7 +167,11 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
         onEdit={() => close({ type: "link", mode: "edit", entity })}
         onDelete={() => removeEntity("link", entity)}
       >
-        <StatusBadge value="neutral" label={normalizeLinkType(entity.link_type)} />
+        <div className="badge-row">
+          <StatusBadge value="neutral" label={LINK_TYPE_LABELS[normalizeLinkType(entity.link_type)]} />
+          <StatusBadge value={normalizeReferenceStatus(entity.reference_status)} label={CHAT_REFERENCE_STATUS_LABELS[normalizeReferenceStatus(entity.reference_status)]} />
+          {str(entity.importance) === "high" && <StatusBadge value="review" label="重要" />}
+        </div>
         <h2>{str(entity.title)}</h2>
         <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>
         <p>{str(entity.description)}</p>
@@ -201,9 +225,18 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
           <>
             <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
             <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
-            <Field label="種別"><select name="link_type" defaultValue={normalizeLinkType(entity.link_type)}>{LINK_TYPES.map((value) => <option key={value}>{value}</option>)}</select></Field>
+            <Field label="種別"><select name="link_type" defaultValue={normalizeLinkType(entity.link_type)}>{LINK_TYPES.map((value) => <option key={value} value={value}>{LINK_TYPE_LABELS[value]}</option>)}</select></Field>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
             <ItemSelect items={data.items} value={str(entity.item_id)} />
+            <div className="form-grid">
+              <Field label="参照状態">
+                <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
+                  {CHAT_REFERENCE_STATUSES.map((value) => <option key={value} value={value}>{CHAT_REFERENCE_STATUS_LABELS[value]}</option>)}
+                </select>
+              </Field>
+              <Field label="保存日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at || entity.created_at)} /></Field>
+            </div>
+            <label className="toggle priority-toggle"><input name="importance_high" type="checkbox" defaultChecked={str(entity.importance) === "high"} />重要として残す</label>
             <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
           </>
         )}

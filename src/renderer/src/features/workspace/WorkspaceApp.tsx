@@ -34,6 +34,7 @@ import { ImportExportPage } from "./pages/ImportExportPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TodayPage } from "./pages/TodayPage";
 import { InboxPage } from "./pages/InboxPage";
+import { ChatRefsPage } from "./pages/ChatRefsPage";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "dependencys", "views",
@@ -330,6 +331,9 @@ export function WorkspaceApp() {
         note_id: formText(values, "note_id") || null,
         description: formText(values, "description"),
         source_record_id: formText(values, "source_record_id") || null,
+        reference_status: formText(values, "reference_status", "keep"),
+        importance: values.has("importance_high") ? "high" : "normal",
+        captured_at: formText(values, "captured_at") || (base.captured_at as string) || new Date().toISOString().slice(0, 10),
       };
     } else if (type === "status_update") {
       entity = {
@@ -463,6 +467,7 @@ export function WorkspaceApp() {
   const pages: Record<string, React.ReactNode> = {
     today: <TodayPage {...common} />,
     inbox: <InboxPage {...common} />,
+    "chat-refs": <ChatRefsPage {...common} />,
     home: <HomePage {...common} />,
     todo: <TodoPage {...common} />,
     timeline: <TimelinePage {...common} />,

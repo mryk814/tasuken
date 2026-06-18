@@ -13,11 +13,14 @@ interface InboxDraft {
   output: InboxKind;
   title: string;
   theme_id: string;
+  item_id: string;
   planned_end: string;
   today_flag: boolean;
   priority: string;
   description: string;
   link_url: string;
+  link_type: string;
+  reference_status: string;
 }
 
 function draftFromItem(item: Item): InboxDraft {
@@ -25,11 +28,14 @@ function draftFromItem(item: Item): InboxDraft {
     output: item.kind === "waiting" || item.status === "waiting" ? "waiting" : item.kind === "idea" ? "idea" : "task",
     title: item.title,
     theme_id: item.theme_id || "",
+    item_id: "",
     planned_end: item.planned_end || "",
     today_flag: item.today_flag === true,
     priority: item.priority === "high" ? "high" : "normal",
     description: item.description || "",
     link_url: "",
+    link_type: "chatgpt",
+    reference_status: "inbox",
   };
 }
 
@@ -96,9 +102,12 @@ export function InboxPage({ themes, items, openDrawer, saveEntity, removeEntityQ
           id: uuid(),
           ...common,
           url: draft.link_url.trim(),
-          link_type: "other",
-          item_id: null,
+          link_type: draft.link_type,
+          item_id: draft.item_id || null,
           note_id: null,
+          reference_status: draft.reference_status,
+          importance: draft.priority === "high" ? "high" : "normal",
+          captured_at: new Date().toISOString().slice(0, 10),
         });
         await removeEntityQuiet("item", item.id);
       } else {
@@ -136,6 +145,7 @@ export function InboxPage({ themes, items, openDrawer, saveEntity, removeEntityQ
     <div className="page inbox-page">
       <PageHeader title="Inbox整理" subtitle="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
         <button className="secondary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { status: "inbox", kind: "idea" } })}>記録を追加</button>
+        <button className="secondary-button" onClick={() => openDrawer({ type: "link", mode: "edit", entity: { link_type: "chatgpt", reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
         <button className="primary-button" disabled={!selected.length} onClick={organizeSelectedAsTasks}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
       </PageHeader>
       <section className="panel inbox-panel">
@@ -196,9 +206,37 @@ export function InboxPage({ themes, items, openDrawer, saveEntity, removeEntityQ
                   </div>
                   <div className="inbox-card-details">
                     {draft.output === "link" && (
-                      <label>URL
-                        <input value={draft.link_url} onChange={(event) => patchDraft(item.id, { link_url: event.target.value })} placeholder="https://example.com" />
-                      </label>
+                      <div className="inbox-link-fields">
+                        <label>URL
+                          <input value={draft.link_url} onChange={(event) => patchDraft(item.id, { link_url: event.target.value })} placeholder="https://chatgpt.com/..." />
+                        </label>
+                        <label>サービス
+                          <select value={draft.link_type} onChange={(event) => patchDraft(item.id, { link_type: event.target.value })}>
+                            <option value="chatgpt">ChatGPT</option>
+                            <option value="claude">Claude</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="copilot">Copilot</option>
+                            <option value="other">その他</option>
+                          </select>
+                        </label>
+                        <label>実施事項
+                          <select value={draft.item_id} onChange={(event) => patchDraft(item.id, { item_id: event.target.value })}>
+                            <option value="">未設定</option>
+                            {items
+                              .filter((entry) => !draft.theme_id || entry.theme_id === draft.theme_id)
+                              .map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}
+                          </select>
+                        </label>
+                        <label>参照状態
+                          <select value={draft.reference_status} onChange={(event) => patchDraft(item.id, { reference_status: event.target.value })}>
+                            <option value="inbox">未整理</option>
+                            <option value="keep">参照</option>
+                            <option value="adopted">採用</option>
+                            <option value="pending">再確認</option>
+                            <option value="stale">古い</option>
+                          </select>
+                        </label>
+                      </div>
                     )}
                     <label>説明・補足
                       <textarea value={draft.description} onChange={(event) => patchDraft(item.id, { description: event.target.value })} />

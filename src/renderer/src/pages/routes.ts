@@ -1,6 +1,7 @@
 export const crossNavigation = [
   ["today", "Today"],
   ["inbox", "Inbox整理"],
+  ["chat-refs", "チャット参照"],
   ["todo", "ToDo"],
   ["timeline", "Timeline"],
   ["notes", "Notes"],
@@ -15,6 +16,7 @@ export const toolNavigation = [
 export type RouteId =
   | "today"
   | "inbox"
+  | "chat-refs"
   | "home"
   | "todo"
   | "timeline"
