@@ -158,6 +158,48 @@ export interface PlanRevision extends BaseRecord {
   reason?: string | null;
 }
 
+export type KnowledgeNodeType =
+  | "source"
+  | "evidence"
+  | "claim"
+  | "question"
+  | "decision"
+  | "insight";
+
+export type KnowledgeRelationType =
+  | "supports"
+  | "contradicts"
+  | "explains"
+  | "causes"
+  | "example_of"
+  | "generalizes"
+  | "depends_on"
+  | "derived_from"
+  | "answers"
+  | "raises"
+  | "similar_to"
+  | "leads_to";
+
+export interface KnowledgeNode extends BaseRecord {
+  node_type: KnowledgeNodeType;
+  title: string;
+  body?: string;
+  theme_id?: string | null;
+  source_note_id?: string | null;
+  source_link_id?: string | null;
+  source_item_id?: string | null;
+  confidence?: "low" | "medium" | "high";
+  status?: "active" | "resolved" | "deprecated" | "rejected";
+}
+
+export interface KnowledgeRelation extends BaseRecord {
+  source_node_id?: string;
+  target_node_id?: string;
+  relation_type?: KnowledgeRelationType;
+  description?: string;
+  confidence?: "low" | "medium" | "high";
+}
+
 // activeRecordsで論理削除を除外した「表示用の正本投影」。
 export interface WorkspaceData {
   themes: Theme[];
@@ -174,6 +216,9 @@ export interface WorkspaceData {
   field_values: FieldValue[];
   log_entries: BaseRecord[];
   import_batchs: ImportBatch[];
+  knowledge_nodes: KnowledgeNode[];
+  knowledge_relations: KnowledgeRelation[];
+  ai_proposals: BaseRecord[];
   plan_revisions: PlanRevision[];
   meta?: WorkspaceMeta;
 }
@@ -193,7 +238,9 @@ export type DrawerEntityType =
   | "source_record"
   | "field_definition"
   | "relation"
-  | "dependency";
+  | "dependency"
+  | "knowledge_node"
+  | "knowledge_relation";
 
 export interface DrawerConfig {
   type: DrawerEntityType;

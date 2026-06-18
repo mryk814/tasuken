@@ -29,6 +29,7 @@ import { TodoPage } from "./pages/TodoPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { ThemesPage } from "./pages/ThemesPage";
 import { NotesPage } from "./pages/NotesPage";
+import { KnowledgePage } from "./pages/KnowledgePage";
 import { WaitingPage } from "./pages/WaitingPage";
 import { ImportExportPage } from "./pages/ImportExportPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -39,7 +40,8 @@ import { ChatRefsPage } from "./pages/ChatRefsPage";
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "dependencys", "views",
   "status_updates", "source_records", "entity_sources", "relations",
-  "field_definitions", "field_values", "log_entries", "import_batchs", "plan_revisions",
+  "field_definitions", "field_values", "log_entries", "import_batchs",
+  "knowledge_nodes", "knowledge_relations", "ai_proposals", "plan_revisions",
 ];
 
 function emptyData(): WorkspaceData {
@@ -381,6 +383,33 @@ export function WorkspaceApp() {
         description: formText(values, "description"),
       };
       if (!entity.source_entity_id || !entity.target_entity_id) { setToast("関係元と関係先を選択してください。"); return; }
+    } else if (type === "knowledge_node") {
+      entity = {
+        ...base,
+        node_type: formText(values, "node_type", "insight"),
+        title: formText(values, "title"),
+        body: formText(values, "body"),
+        theme_id: formText(values, "theme_id") || null,
+        source_note_id: formText(values, "source_note_id") || null,
+        source_link_id: formText(values, "source_link_id") || null,
+        source_item_id: formText(values, "source_item_id") || null,
+        confidence: formText(values, "confidence", "medium"),
+        status: formText(values, "status", "active"),
+      };
+      if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return; }
+    } else if (type === "knowledge_relation") {
+      entity = {
+        ...base,
+        source_node_id: formText(values, "source_node_id"),
+        target_node_id: formText(values, "target_node_id"),
+        relation_type: formText(values, "relation_type", "supports"),
+        description: formText(values, "description"),
+        confidence: formText(values, "confidence", "medium"),
+      };
+      if (!entity.source_node_id || !entity.target_node_id || entity.source_node_id === entity.target_node_id) {
+        setToast("異なる2つのKnowledgeを選択してください。");
+        return;
+      }
     } else if (type === "dependency") {
       entity = {
         ...base,
@@ -473,6 +502,7 @@ export function WorkspaceApp() {
     timeline: <TimelinePage {...common} />,
     themes: <ThemesPage {...common} />,
     notes: <NotesPage {...common} />,
+    knowledge: <KnowledgePage {...common} />,
     waiting: <WaitingPage {...common} />,
     "ai-io": <ImportExportPage {...common} />,
     settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroup={activeGroup} setActiveGroup={setActiveGroup} allThemes={allThemes} loadSample={loadSampleAction} />,

@@ -11,7 +11,7 @@ import { PageHeader } from "../components/common";
 type ImportEntry = Record<string, unknown>;
 
 interface ImportCandidate {
-  type: "item" | "note" | "link";
+  type: "item" | "note" | "link" | "knowledge_node" | "knowledge_relation";
   entry: ImportEntry;
   theme?: Theme;
   duplicate?: BaseRecord;
@@ -48,6 +48,8 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
         items,
         notes: data.notes || [],
         links: data.links || [],
+        knowledge_nodes: data.knowledge_nodes || [],
+        knowledge_relations: data.knowledge_relations || [],
       });
       setPreview(parsed);
     } catch (error) {
@@ -73,7 +75,35 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
     };
     const operations: SaveOperation[] = [{ action: "save", type: "source_record", entity: source, options: { source: "imported" } }];
     let count = 0;
-    for (const candidate of preview.candidates) {
+    const acceptedKnowledgeNodeIds = new Map<string, string>();
+    for (const candidate of preview.candidates.filter((entry) => entry.type === "knowledge_node")) {
+      if (candidate.action === "ignore") continue;
+      const base: BaseRecord | Record<string, never> = candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
+      const entry = candidate.entry;
+      const id = str(base.id) || uuid();
+      if (str(entry.temp_id)) acceptedKnowledgeNodeIds.set(str(entry.temp_id), id);
+      operations.push({
+        action: "save",
+        type: "knowledge_node",
+        entity: {
+          ...base,
+          id,
+          node_type: str(entry.node_type) || "insight",
+          title: str(entry.title) || "無題",
+          body: str(entry.body),
+          theme_id: candidate.theme?.id || str(base.theme_id) || null,
+          source_note_id: str(entry.source_note_id) || str(base.source_note_id) || null,
+          source_link_id: str(entry.source_link_id) || str(base.source_link_id) || null,
+          source_item_id: str(entry.source_item_id) || str(base.source_item_id) || null,
+          confidence: str(entry.confidence) || str(base.confidence) || "medium",
+          status: str(entry.status) || str(base.status) || "active",
+          source_record_id: source.id,
+        },
+        options: { source: "imported" },
+      });
+      count += 1;
+    }
+    for (const candidate of preview.candidates.filter((entry) => entry.type !== "knowledge_node")) {
       if (candidate.action === "ignore") continue;
       const base: BaseRecord | Record<string, never> = candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
       const entry = candidate.entry;
@@ -118,7 +148,7 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
           },
           options: { source: "imported" },
         });
-      } else {
+      } else if (candidate.type === "link") {
         operations.push({
           action: "save",
           type: "link",
@@ -132,6 +162,24 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
             item_id: str(entry.item_id) || str(base.item_id) || null,
             description: str(entry.description) || str(base.description),
             source_record_id: source.id,
+          },
+          options: { source: "imported" },
+        });
+      } else if (candidate.type === "knowledge_relation") {
+        const sourceNodeId = str(entry.source_node_id) || acceptedKnowledgeNodeIds.get(str(entry.source_temp_id)) || "";
+        const targetNodeId = str(entry.target_node_id) || acceptedKnowledgeNodeIds.get(str(entry.target_temp_id)) || "";
+        if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) continue;
+        operations.push({
+          action: "save",
+          type: "knowledge_relation",
+          entity: {
+            ...base,
+            id: str(base.id) || uuid(),
+            source_node_id: sourceNodeId,
+            target_node_id: targetNodeId,
+            relation_type: str(entry.relation_type) || str(base.relation_type) || "supports",
+            description: str(entry.description) || str(base.description),
+            confidence: str(entry.confidence) || str(base.confidence) || "medium",
           },
           options: { source: "imported" },
         });
@@ -193,7 +241,7 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
           <div className="section-heading">
             <h2>読み込む</h2>
             <div className="inline-actions">
-              <span>タスク / メモ / リンク</span>
+              <span>タスク / メモ / リンク / Knowledge</span>
               <button className="text-button compact" onClick={() => setShowSchema((current) => !current)}>入力JSONの形式を見る</button>
             </div>
           </div>
@@ -201,10 +249,12 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
             <pre className="schema-help">{`{
   "items": [{ "title": "測定結果を確認", "theme": "材料A評価", "kind": "task", "status": "todo", "priority": "normal", "planned_start": null, "planned_end": "2026-06-20", "description": "" }],
   "notes": [{ "title": "解析方針", "theme": "材料A評価", "note_type": "memo", "body": "条件Bを再確認する", "source_url": "" }],
-  "links": [{ "title": "参考", "url": "https://example.com", "link_type": "paper", "theme": "材料A評価", "description": "" }]
+  "links": [{ "title": "参考", "url": "https://example.com", "link_type": "paper", "theme": "材料A評価", "description": "" }],
+  "knowledge_nodes": [{ "temp_id": "n1", "node_type": "claim", "title": "仮説", "theme": "材料A評価", "confidence": "medium" }],
+  "knowledge_relations": []
 }`}</pre>
           )}
-          <textarea value={text} onChange={(event) => { setText(event.target.value); setPreview(null); }} placeholder={'{\n  "items": [\n    { "title": "測定結果を確認", "theme": "材料A評価", "planned_end": "2026-06-20" }\n  ]\n}'} />
+          <textarea value={text} onChange={(event) => { setText(event.target.value); setPreview(null); }} placeholder={'{\n  "items": [\n    { "title": "測定結果を確認", "theme": "材料A評価", "planned_end": "2026-06-20" }\n  ],\n  "knowledge_nodes": [\n    { "temp_id": "n1", "node_type": "claim", "title": "測定条件Bが遅延要因", "theme": "材料A評価" }\n  ]\n}'} />
           <button className="secondary-button" onClick={parseImport}>候補を確認</button>
         </section>
       </div>

@@ -41,6 +41,32 @@ test("AI Import accepts items, notes, and mailto links with create and merge act
   assert.doesNotThrow(() => preview.candidates.forEach(assertImportCandidateSavable));
 });
 
+test("AI Import accepts knowledge nodes and relation candidates through preview", () => {
+  const preview = parseAiImportPayload(JSON.stringify({
+    knowledge_nodes: [
+      { temp_id: "claim-1", node_type: "claim", title: "条件Bが遅延要因", theme: "材料A評価", confidence: "medium" },
+      { temp_id: "evidence-1", node_type: "evidence", title: "測定ログ", theme: "材料A評価", confidence: "high" },
+    ],
+    knowledge_relations: [
+      { source_temp_id: "claim-1", target_temp_id: "evidence-1", relation_type: "supports" },
+      { source_temp_id: "missing", target_temp_id: "evidence-1", relation_type: "supports" },
+    ],
+  }), themes, {
+    items: [],
+    notes: [],
+    links: [],
+    knowledge_nodes: [],
+    knowledge_relations: [],
+  });
+
+  assert.equal(preview.candidates[0].type, "knowledge_node");
+  assert.equal(preview.candidates[0].action, "create");
+  assert.equal(preview.candidates[2].type, "knowledge_relation");
+  assert.equal(preview.candidates[2].action, "create");
+  assert.equal(preview.candidates[3].action, "ignore");
+  assert.match(preview.candidates[3].issues.join(" / "), /解決できません/);
+});
+
 test("AI Import prompt includes theme names and the current export context", () => {
   const prompt = buildAiImportPrompt("材料A評価", "# Current Work Context\n- task");
   assert.match(prompt, /既存Theme:\n材料A評価/);

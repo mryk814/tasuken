@@ -13,6 +13,9 @@ export const entityTypes = [
   "field_value",
   "log_entry",
   "import_batch",
+  "knowledge_node",
+  "knowledge_relation",
+  "ai_proposal",
 ] as const;
 
 export type EntityType = (typeof entityTypes)[number];
@@ -51,6 +54,9 @@ export interface Workspace {
   field_values?: Entity[];
   log_entries?: Entity[];
   import_batchs?: Entity[];
+  knowledge_nodes?: Entity[];
+  knowledge_relations?: Entity[];
+  ai_proposals?: Entity[];
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }

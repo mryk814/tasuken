@@ -13,6 +13,9 @@ export const workspaceEntityTypes = [
   "field_value",
   "log_entry",
   "import_batch",
+  "knowledge_node",
+  "knowledge_relation",
+  "ai_proposal",
 ];
 
 const requiredTextFields = {
@@ -26,6 +29,9 @@ const requiredTextFields = {
   dependency: ["source_item_id", "target_item_id"],
   relation: ["source_entity_type", "source_entity_id", "target_entity_type", "target_entity_id", "relation_type"],
   field_value: ["field_definition_id", "entity_type", "entity_id"],
+  knowledge_node: ["node_type", "title"],
+  knowledge_relation: ["source_node_id", "target_node_id", "relation_type"],
+  ai_proposal: ["source", "payload_type", "status"],
 };
 
 const isoDateFields = [
@@ -42,6 +48,27 @@ const isoDateFields = [
 
 const urlFields = ["url", "source_url"];
 const allowedUrlProtocols = new Set(["https:", "http:", "mailto:"]);
+const knowledgeNodeTypes = new Set(["source", "evidence", "claim", "question", "decision", "insight"]);
+const knowledgeRelationTypes = new Set([
+  "supports",
+  "contradicts",
+  "explains",
+  "causes",
+  "example_of",
+  "generalizes",
+  "depends_on",
+  "derived_from",
+  "answers",
+  "raises",
+  "similar_to",
+  "leads_to",
+]);
+const knowledgeDirectionalRelationTypes = new Set(["depends_on", "causes", "leads_to"]);
+const confidenceValues = new Set(["low", "medium", "high"]);
+const knowledgeStatusValues = new Set(["active", "resolved", "deprecated", "rejected"]);
+const proposalSources = new Set(["mcp", "ai_import", "manual"]);
+const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "status_update"]);
+const proposalStatuses = new Set(["pending", "accepted", "rejected", "partially_accepted"]);
 
 function localDateIso(date = new Date()) {
   const year = date.getFullYear();
@@ -115,6 +142,22 @@ export function assertDependencyAcyclic(dependencies, entity, message = "Depende
   if (hasPath(edges, targetId, sourceId)) throw new Error(message);
 }
 
+export function assertKnowledgeRelationAcyclic(relations, entity, message = "Knowledge Relationが循環します。関係の向きを見直してください。") {
+  if (!knowledgeDirectionalRelationTypes.has(entity.relation_type)) return;
+  if (!entity.source_node_id || !entity.target_node_id) return;
+  const sourceId = String(entity.source_node_id);
+  const targetId = String(entity.target_node_id);
+  const edges = relations
+    .filter((relation) =>
+      !relation.deleted_at
+      && String(relation.id) !== String(entity.id)
+      && knowledgeDirectionalRelationTypes.has(relation.relation_type))
+    .map((relation) => [String(relation.source_node_id), String(relation.target_node_id)]);
+  edges.push([sourceId, targetId]);
+
+  if (hasPath(edges, targetId, sourceId)) throw new Error(message);
+}
+
 export function assertEntityType(type) {
   if (!workspaceEntityTypes.includes(type)) {
     throw new Error(`未対応のデータ種別です: ${type}`);
@@ -166,6 +209,33 @@ export function validateEntity(type, input) {
     throw new Error("Entity自身へのRelationは作成できません。");
   }
 
+  if (type === "knowledge_node") {
+    if (!knowledgeNodeTypes.has(input.node_type)) throw new Error("knowledge_node.node_typeが不正です。");
+    if (input.confidence != null && input.confidence !== "" && !confidenceValues.has(input.confidence)) {
+      throw new Error("knowledge_node.confidenceが不正です。");
+    }
+    if (input.status != null && input.status !== "" && !knowledgeStatusValues.has(input.status)) {
+      throw new Error("knowledge_node.statusが不正です。");
+    }
+    if (String(input.title || "").length > 200) throw new Error("knowledge_node.titleは200文字以内で入力してください。");
+    if (String(input.body || "").length > 20000) throw new Error("knowledge_node.bodyは20000文字以内で入力してください。");
+  }
+
+  if (type === "knowledge_relation") {
+    if (!knowledgeRelationTypes.has(input.relation_type)) throw new Error("knowledge_relation.relation_typeが不正です。");
+    if (input.source_node_id === input.target_node_id) throw new Error("Knowledge Relationで自分自身は参照できません。");
+    if (input.confidence != null && input.confidence !== "" && !confidenceValues.has(input.confidence)) {
+      throw new Error("knowledge_relation.confidenceが不正です。");
+    }
+  }
+
+  if (type === "ai_proposal") {
+    if (!proposalSources.has(input.source)) throw new Error("ai_proposal.sourceが不正です。");
+    if (!proposalPayloadTypes.has(input.payload_type)) throw new Error("ai_proposal.payload_typeが不正です。");
+    if (!proposalStatuses.has(input.status)) throw new Error("ai_proposal.statusが不正です。");
+    if (input.payload == null) throw new Error("ai_proposal.payloadを入力してください。");
+  }
+
   return input;
 }
 
@@ -185,6 +255,12 @@ export function normalizeEntity(type, input) {
       normalized.completed_at = null;
     }
   }
+  if (type === "knowledge_node") {
+    normalized.status ||= "active";
+    normalized.confidence ||= "medium";
+  }
+  if (type === "knowledge_relation") normalized.confidence ||= "medium";
+  if (type === "ai_proposal") normalized.status ||= "pending";
   validateEntity(type, normalized);
   return normalized;
 }

@@ -7,6 +7,7 @@ import {
   assertDependencyAcyclic,
   assertEntityType,
   assertItemParentAcyclic,
+  assertKnowledgeRelationAcyclic,
   normalizeEntity,
   validateEntity,
   workspaceEntityTypes,
@@ -280,10 +281,17 @@ export class WorkspaceDatabase {
     requireReference("source_record", entity.source_record_id, "source_record_id");
     requireReference("item", entity.parent_item_id, "parent_item_id");
     requireReference("field_definition", entity.field_definition_id, "field_definition_id");
+    requireReference("note", entity.source_note_id, "source_note_id");
+    requireReference("link", entity.source_link_id, "source_link_id");
+    requireReference("item", entity.source_item_id, "source_item_id");
 
     if (type === "dependency") {
       requireReference("item", entity.source_item_id, "source_item_id");
       requireReference("item", entity.target_item_id, "target_item_id");
+    }
+    if (type === "knowledge_relation") {
+      requireReference("knowledge_node", entity.source_node_id, "source_node_id");
+      requireReference("knowledge_node", entity.target_node_id, "target_node_id");
     }
     if (type === "relation") {
       requireReference(entity.source_entity_type, entity.source_entity_id, "source_entity_id");
@@ -300,6 +308,7 @@ export class WorkspaceDatabase {
   validateGraph(type, entity) {
     if (type === "item") this.validateItemParentGraph(entity);
     if (type === "dependency") this.validateDependencyGraph(entity);
+    if (type === "knowledge_relation") this.validateKnowledgeRelationGraph(entity);
   }
 
   validateItemParentGraph(entity) {
@@ -308,6 +317,10 @@ export class WorkspaceDatabase {
 
   validateDependencyGraph(entity) {
     assertDependencyAcyclic(this.list("dependency"), entity);
+  }
+
+  validateKnowledgeRelationGraph(entity) {
+    assertKnowledgeRelationAcyclic(this.list("knowledge_relation"), entity);
   }
 
   validateSnapshotWorkspace(snapshot) {
@@ -341,9 +354,16 @@ export class WorkspaceDatabase {
         requireSnapshotReference(type, record, "source_record", record.source_record_id, "source_record_id");
         requireSnapshotReference(type, record, "item", record.parent_item_id, "parent_item_id");
         requireSnapshotReference(type, record, "field_definition", record.field_definition_id, "field_definition_id");
+        requireSnapshotReference(type, record, "note", record.source_note_id, "source_note_id");
+        requireSnapshotReference(type, record, "link", record.source_link_id, "source_link_id");
+        requireSnapshotReference(type, record, "item", record.source_item_id, "source_item_id");
         if (type === "dependency") {
           requireSnapshotReference(type, record, "item", record.source_item_id, "source_item_id");
           requireSnapshotReference(type, record, "item", record.target_item_id, "target_item_id");
+        }
+        if (type === "knowledge_relation") {
+          requireSnapshotReference(type, record, "knowledge_node", record.source_node_id, "source_node_id");
+          requireSnapshotReference(type, record, "knowledge_node", record.target_node_id, "target_node_id");
         }
         if (type === "relation") {
           if (!workspaceEntityTypes.includes(record.source_entity_type) || !workspaceEntityTypes.includes(record.target_entity_type)) {
@@ -361,6 +381,7 @@ export class WorkspaceDatabase {
 
     this.validateSnapshotItemParentGraph(snapshot.items || []);
     this.validateSnapshotDependencyGraph(snapshot.dependencys || []);
+    this.validateSnapshotKnowledgeRelationGraph(snapshot.knowledge_relations || []);
   }
 
   validateSnapshotItemParentGraph(items) {
@@ -372,6 +393,12 @@ export class WorkspaceDatabase {
   validateSnapshotDependencyGraph(dependencies) {
     for (const dependency of dependencies.filter((entry) => !entry.deleted_at)) {
       assertDependencyAcyclic(dependencies, dependency, "Snapshot内のDependencyが循環しています。Import前に依存関係を修正してください。");
+    }
+  }
+
+  validateSnapshotKnowledgeRelationGraph(relations) {
+    for (const relation of relations.filter((entry) => !entry.deleted_at)) {
+      assertKnowledgeRelationAcyclic(relations, relation, "Snapshot内のKnowledge Relationが循環しています。Import前に関係の向きを修正してください。");
     }
   }
 
@@ -438,6 +465,7 @@ export class WorkspaceDatabase {
         ["note", "theme_id"],
         ["link", "theme_id"],
         ["field_definition", "theme_id"],
+        ["knowledge_node", "theme_id"],
         ["log_entry", "theme_id"],
         ["view", "theme_id"],
       ], id);
@@ -449,13 +477,18 @@ export class WorkspaceDatabase {
         ["item", "parent_item_id"],
         ["note", "item_id"],
         ["link", "item_id"],
+        ["knowledge_node", "source_item_id"],
         ["log_entry", "item_id"],
       ], id);
       this.cascadeWhere("dependency", (entry) => entry.source_item_id === id || entry.target_item_id === id, type, id);
     }
 
     if (type === "note") {
-      this.nullifyReferences(type, [["link", "note_id"], ["log_entry", "related_note_id"]], id);
+      this.nullifyReferences(type, [["link", "note_id"], ["knowledge_node", "source_note_id"], ["log_entry", "related_note_id"]], id);
+    }
+
+    if (type === "link") {
+      this.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
     }
 
     if (type === "source_record") {
@@ -471,7 +504,16 @@ export class WorkspaceDatabase {
       this.cascadeWhere("field_value", (entry) => entry.field_definition_id === id, type, id);
     }
 
-    if (["theme", "item", "note", "link", "source_record"].includes(type)) {
+    if (type === "knowledge_node") {
+      this.cascadeWhere(
+        "knowledge_relation",
+        (entry) => entry.source_node_id === id || entry.target_node_id === id,
+        type,
+        id,
+      );
+    }
+
+    if (["theme", "item", "note", "link", "source_record", "knowledge_node"].includes(type)) {
       this.cascadeWhere(
         "relation",
         (entry) => (entry.source_entity_type === type && entry.source_entity_id === id)

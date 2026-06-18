@@ -34,6 +34,11 @@
 - ZustandによるWorkspace正式データとUI状態の分離
 - Tailwind CSS v4とdesign tokenの接続、Tabler Icons導入
 - electron-builderによるNSIS installer + portable同時生成
+- KnowledgeNode / KnowledgeRelation / AiProposalのWorkspace Entity追加
+- Knowledge一覧、Noteからの手動構造化、Knowledge Relation作成
+- AI Context ExportのKnowledge-aware Markdown section
+- AI ImportプレビューのKnowledgeNode / KnowledgeRelation対応
+- Knowledge Health Checkの簡易一覧
 
 ## 継続改善
 
@@ -41,6 +46,18 @@
 2. 互換維持のためfeature単位に残したJSXは、機能変更時にpage/component単位でTypeScript化する。
 3. Critical Path、Workload / Capacity、グラフビューは実データで必要性を確認して設計する。
 4. Spreadsheet Modeの列マッピング保存や行単位エラー修正は、日常運用で必要性を確認して追加する。
+
+## 次期方針: Knowledge Model + AI/MCP連携
+
+Taskenを「思考・知識・作業文脈をAIと共有できる個人用Thinking Graph」に拡張する。
+詳細方針は[`knowledge-mcp-policy.md`](./knowledge-mcp-policy.md)を正本とする。
+
+優先順は以下とする。
+
+1. AI Knowledge Extractionのpreview drawerを追加し、Note本文からKnowledge候補を作る。
+2. Read-only MCP Serverを追加し、検索・context export・health checkのみを提供する。
+3. MCP writeは直接Entityを作らず、`ai_proposal`としてpreview inboxに入れる。
+4. VS Code / Copilot / Cursor連携はMCP経由の薄い統合に限定する。
 
 ## 検証
 

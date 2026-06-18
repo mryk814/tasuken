@@ -159,6 +159,9 @@ export function buildBootstrapWorkspace() {
     field_values: [],
     log_entries: [],
     import_batchs: [],
+    knowledge_nodes: [],
+    knowledge_relations: [],
+    ai_proposals: [],
   };
 }
 
@@ -178,6 +181,9 @@ export function emptyWorkspace() {
     field_values: [],
     log_entries: [],
     import_batchs: [],
+    knowledge_nodes: [],
+    knowledge_relations: [],
+    ai_proposals: [],
     plan_revisions: [],
     meta: {},
   };

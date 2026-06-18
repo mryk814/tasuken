@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assertDependencyAcyclic,
   assertItemParentAcyclic,
+  assertKnowledgeRelationAcyclic,
 } from "../src/main/repositories/domain.mjs";
 
 function item(id, title, parent_item_id = null) {
@@ -54,5 +55,26 @@ test("dependency update ignores the edge being replaced", () => {
   ];
   assert.doesNotThrow(
     () => assertDependencyAcyclic(dependencies, { id: "bc", source_item_id: "b", target_item_id: "d" }),
+  );
+});
+
+test("directional knowledge relation cannot create a cycle", () => {
+  const relations = [
+    { id: "ab", source_node_id: "a", target_node_id: "b", relation_type: "depends_on" },
+    { id: "bc", source_node_id: "b", target_node_id: "c", relation_type: "leads_to" },
+  ];
+  assert.throws(
+    () => assertKnowledgeRelationAcyclic(relations, { id: "ca", source_node_id: "c", target_node_id: "a", relation_type: "causes" }),
+    /Knowledge Relationが循環/,
+  );
+});
+
+test("similar knowledge relation does not require acyclic graph", () => {
+  const relations = [
+    { id: "ab", source_node_id: "a", target_node_id: "b", relation_type: "depends_on" },
+    { id: "bc", source_node_id: "b", target_node_id: "c", relation_type: "leads_to" },
+  ];
+  assert.doesNotThrow(
+    () => assertKnowledgeRelationAcyclic(relations, { id: "ca", source_node_id: "c", target_node_id: "a", relation_type: "similar_to" }),
   );
 });

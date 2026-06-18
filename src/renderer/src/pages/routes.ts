@@ -5,6 +5,7 @@ export const crossNavigation = [
   ["todo", "ToDo"],
   ["timeline", "Timeline"],
   ["notes", "Notes"],
+  ["knowledge", "Knowledge"],
   ["waiting", "Waiting"],
 ] as const;
 
@@ -22,6 +23,7 @@ export type RouteId =
   | "timeline"
   | "themes"
   | "notes"
+  | "knowledge"
   | "waiting"
   | "ai-io"
   | "settings";

@@ -49,6 +49,13 @@ test("link URL validation allows web and mailto but rejects file", () => {
   assert.throws(() => validateEntity("link", { id: "file", title: "File", url: "file:///C:/tmp/a.txt", link_type: "other" }), /https、http、mailto/);
 });
 
+test("knowledge entity validation rejects invalid enums", () => {
+  assert.doesNotThrow(() => validateEntity("knowledge_node", { id: "kn-1", node_type: "claim", title: "Claim" }));
+  assert.throws(() => validateEntity("knowledge_node", { id: "kn-2", node_type: "unknown", title: "Bad" }), /node_type/);
+  assert.doesNotThrow(() => validateEntity("knowledge_relation", { id: "kr-1", source_node_id: "a", target_node_id: "b", relation_type: "supports" }));
+  assert.throws(() => validateEntity("knowledge_relation", { id: "kr-2", source_node_id: "a", target_node_id: "a", relation_type: "supports" }), /自分自身/);
+});
+
 test("snapshot create never overwrites an existing local record", () => {
   const change = {
     key: "item:item-1",

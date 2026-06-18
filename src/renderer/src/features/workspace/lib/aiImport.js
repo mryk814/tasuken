@@ -1,11 +1,15 @@
 const MAX_IMPORT_BYTES = 1024 * 1024;
-const PAYLOAD_KEYS = new Set(["items", "notes", "links"]);
+const PAYLOAD_KEYS = new Set(["items", "notes", "links", "knowledge_nodes", "knowledge_relations"]);
 const ITEM_KINDS = new Set(["task", "milestone", "period", "waiting", "reminder", "idea"]);
 const ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "done", "inbox"]);
 const PRIORITIES = new Set(["normal", "high"]);
 const NOTE_TYPES = new Set(["memo", "decision", "meeting", "experiment", "analysis", "ai_chat", "learning", "reflection"]);
 const LINK_TYPES = new Set(["chatgpt", "copilot", "github", "paper", "notebook", "document", "other"]);
 const ALLOWED_PROTOCOLS = new Set(["https:", "http:", "mailto:"]);
+const KNOWLEDGE_NODE_TYPES = new Set(["source", "evidence", "claim", "question", "decision", "insight"]);
+const KNOWLEDGE_RELATION_TYPES = new Set(["supports", "contradicts", "explains", "causes", "example_of", "generalizes", "depends_on", "derived_from", "answers", "raises", "similar_to", "leads_to"]);
+const CONFIDENCE = new Set(["low", "medium", "high"]);
+const KNOWLEDGE_STATUSES = new Set(["active", "resolved", "deprecated", "rejected"]);
 
 export function isAllowedImportUrl(value) {
   try {
@@ -72,8 +76,11 @@ export function parseAiImportPayload(raw, themes, collections) {
     ...normalizeArray(payload, "items").map((entry) => normalizeItem(entry, themes, collections.items || [])),
     ...normalizeArray(payload, "notes").map((entry) => normalizeNote(entry, themes, collections.notes || [])),
     ...normalizeArray(payload, "links").map((entry) => normalizeLink(entry, themes, collections.links || [])),
+    ...normalizeArray(payload, "knowledge_nodes").map((entry, index) => normalizeKnowledgeNode(entry, index, themes, collections.knowledge_nodes || [])),
   ];
-  if (!candidates.length) throw new Error("items、notes、linksのいずれかを含めてください。");
+  candidates.push(...normalizeArray(payload, "knowledge_relations").map((entry) =>
+    normalizeKnowledgeRelation(entry, candidates, collections.knowledge_nodes || [], collections.knowledge_relations || [])));
+  if (!candidates.length) throw new Error("items、notes、links、knowledge_nodes、knowledge_relationsのいずれかを含めてください。");
   return { candidates, payloadIssues };
 }
 
@@ -141,6 +148,60 @@ function normalizeLink(entry, themes, collection) {
   return finishCandidate(base, normalized);
 }
 
+function normalizeKnowledgeNode(entry, index, themes, collection) {
+  const base = candidateBase("knowledge_node", entry, themes, collection);
+  const normalized = {
+    temp_id: text(entry.temp_id) || `knowledge_node_${index + 1}`,
+    node_type: enumValue(entry.node_type, KNOWLEDGE_NODE_TYPES, "insight", base.issues, "node_type"),
+    title: text(entry.title),
+    body: text(entry.body),
+    theme: text(entry.theme),
+    source_note_id: text(entry.source_note_id),
+    source_link_id: text(entry.source_link_id),
+    source_item_id: text(entry.source_item_id),
+    confidence: enumValue(entry.confidence, CONFIDENCE, "medium", base.issues, "confidence"),
+    status: enumValue(entry.status, KNOWLEDGE_STATUSES, "active", base.issues, "status"),
+  };
+  if (normalized.title.length > 200) base.issues.push("titleは200文字以内にしてください");
+  if (normalized.body.length > 20000) base.issues.push("bodyは20000文字以内にしてください");
+  return finishCandidate(base, normalized);
+}
+
+function normalizeKnowledgeRelation(entry, nodeCandidates, nodes, collection) {
+  const issues = [];
+  const relationType = enumValue(entry.relation_type, KNOWLEDGE_RELATION_TYPES, "supports", issues, "relation_type");
+  const sourceTempId = text(entry.source_temp_id);
+  const targetTempId = text(entry.target_temp_id);
+  const sourceNodeId = text(entry.source_node_id);
+  const targetNodeId = text(entry.target_node_id);
+  const sourceKnown = Boolean(sourceNodeId && nodes.some((node) => node.id === sourceNodeId));
+  const targetKnown = Boolean(targetNodeId && nodes.some((node) => node.id === targetNodeId));
+  const sourceCandidate = sourceTempId && nodeCandidates.some((candidate) => candidate.type === "knowledge_node" && candidate.entry.temp_id === sourceTempId);
+  const targetCandidate = targetTempId && nodeCandidates.some((candidate) => candidate.type === "knowledge_node" && candidate.entry.temp_id === targetTempId);
+  if (!sourceKnown && !sourceCandidate) issues.push("source_temp_idまたはsource_node_idを解決できません");
+  if (!targetKnown && !targetCandidate) issues.push("target_temp_idまたはtarget_node_idを解決できません");
+  if ((sourceNodeId && sourceNodeId === targetNodeId) || (sourceTempId && sourceTempId === targetTempId)) {
+    issues.push("relationの自己参照はできません");
+  }
+  const normalized = {
+    source_temp_id: sourceTempId,
+    target_temp_id: targetTempId,
+    source_node_id: sourceNodeId,
+    target_node_id: targetNodeId,
+    relation_type: relationType,
+    description: text(entry.description),
+    confidence: enumValue(entry.confidence, CONFIDENCE, "medium", issues, "confidence"),
+  };
+  return finishCandidate({ type: "knowledge_relation", duplicate: findDuplicateRelation(collection, normalized), issues }, normalized);
+}
+
+function findDuplicateRelation(collection, entry) {
+  return collection.find((relation) =>
+    relation.source_node_id === entry.source_node_id
+    && relation.target_node_id === entry.target_node_id
+    && relation.relation_type === entry.relation_type);
+}
+
 function finishCandidate(base, entry) {
   return {
     ...base,
@@ -199,6 +260,26 @@ export function buildAiImportPrompt(themeNames, aiContextMarkdown) {
       "theme": "既存Theme名。分からなければ空文字",
       "description": "string"
     }
+  ],
+  "knowledge_nodes": [
+    {
+      "temp_id": "node-1",
+      "node_type": "source | evidence | claim | question | decision | insight",
+      "title": "string 必須",
+      "body": "string",
+      "theme": "既存Theme名。分からなければ空文字",
+      "confidence": "low | medium | high",
+      "status": "active | resolved | deprecated | rejected"
+    }
+  ],
+  "knowledge_relations": [
+    {
+      "source_temp_id": "node-1",
+      "target_temp_id": "node-2",
+      "relation_type": "supports | contradicts | explains | causes | example_of | generalizes | depends_on | derived_from | answers | raises | similar_to | leads_to",
+      "description": "string",
+      "confidence": "low | medium | high"
+    }
   ]
 }
 
@@ -208,6 +289,7 @@ export function buildAiImportPrompt(themeNames, aiContextMarkdown) {
 - Themeが不明なら空文字にする
 - 日付が曖昧なら null
 - 依存関係や親子関係は作らない
+- Knowledge Relationは同じ出力内のknowledge_nodesをtemp_idで参照する
 - 完了済みへの更新は避ける
 - 推測しすぎず、候補として安全に出す
 - ユーザーがTasken上で確認してから保存する前提

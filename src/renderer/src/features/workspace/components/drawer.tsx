@@ -4,12 +4,13 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type {
   DrawerConfig,
   Item,
+  KnowledgeNode,
   Note,
   RemoveEntity,
   SaveEntity,
   WorkspaceData,
 } from "../types";
-import { CHART_COLORS, KIND_LABELS, LEVEL_LABELS, NOTE_TYPE_LABELS, STATUS_LABELS, THEME_STATUS_LABELS, itemLevel, relatedEntityTitle } from "../lib/domain";
+import { CHART_COLORS, KIND_LABELS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, LEVEL_LABELS, NOTE_TYPE_LABELS, STATUS_LABELS, THEME_STATUS_LABELS, itemLevel, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 
@@ -159,6 +160,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
     );
   }
   if (type === "note") return <NoteDetailDrawer note={entity as Note} close={close} removeEntity={removeEntity} saveEntity={saveEntity} />;
+  if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
   if (type === "link") {
     return (
       <DetailDrawer
@@ -194,6 +196,8 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
     field_definition: "追加項目",
     relation: "関連づけ",
     dependency: "依存",
+    knowledge_node: "Knowledge",
+    knowledge_relation: "Knowledge Relation",
   };
   const kindLabel = type === "item" && !entity.id ? KIND_LABELS[(entity as Partial<Item>).kind ?? ""] || "タスク" : typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
@@ -278,6 +282,8 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
           </>
         )}
         {type === "relation" && <RelationFields entity={entity} data={data} />}
+        {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
+        {type === "knowledge_relation" && <KnowledgeRelationFields entity={entity} data={data} />}
         <button className="primary-button" type="submit">保存する</button>
       </form>
     </aside>
@@ -354,6 +360,89 @@ function RelationFields({ entity, data }: { entity: DrawerConfig["entity"]; data
       <Field label="関係先の種類"><select name="target_entity_type" value={targetType} onChange={(event) => setTargetType(event.target.value)}><option value="item">タスク</option><option value="note">メモ</option><option value="link">リンク</option><option value="source_record">情報源</option></select></Field>
       <Field label="関係先"><select name="target_entity_id" defaultValue={str(entity.target_entity_id)} key={targetType}><option value="">選択</option>{targets.map((target) => <option key={target.id} value={target.id}>{target.title || target.source_title || target.name}</option>)}</select></Field>
       {!targets.length && <p className="field-help">選択できる{targetType}がありません。先に対象を追加してください。</p>}
+      <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+    </>
+  );
+}
+
+function KnowledgeNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  return (
+    <>
+      <Field label="種類">
+        <select name="node_type" defaultValue={str(entity.node_type) || "insight"}>
+          {Object.entries(KNOWLEDGE_NODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </Field>
+      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
+      <div className="form-grid">
+        <Field label="確度">
+          <select name="confidence" defaultValue={str(entity.confidence) || "medium"}>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </Field>
+        <Field label="状態">
+          <select name="status" defaultValue={str(entity.status) || "active"}>
+            <option value="active">active</option>
+            <option value="resolved">resolved</option>
+            <option value="deprecated">deprecated</option>
+            <option value="rejected">rejected</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="本文"><textarea className="large-textarea" name="body" defaultValue={str(entity.body)} /></Field>
+      <Field label="元メモ">
+        <select name="source_note_id" defaultValue={str(entity.source_note_id)}>
+          <option value="">未設定</option>
+          {(data.notes || []).map((note) => <option key={note.id} value={note.id}>{note.title}</option>)}
+        </select>
+      </Field>
+      <Field label="元リンク">
+        <select name="source_link_id" defaultValue={str(entity.source_link_id)}>
+          <option value="">未設定</option>
+          {(data.links || []).map((link) => <option key={link.id} value={link.id}>{link.title}</option>)}
+        </select>
+      </Field>
+      <Field label="元タスク">
+        <select name="source_item_id" defaultValue={str(entity.source_item_id)}>
+          <option value="">未設定</option>
+          {(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+        </select>
+      </Field>
+    </>
+  );
+}
+
+function KnowledgeRelationFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const nodes = data.knowledge_nodes || [];
+  return (
+    <>
+      <Field label="関係元">
+        <select name="source_node_id" defaultValue={str(entity.source_node_id)}>
+          <option value="">選択</option>
+          {nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
+        </select>
+      </Field>
+      <Field label="関係種別">
+        <select name="relation_type" defaultValue={str(entity.relation_type) || "supports"}>
+          {Object.entries(KNOWLEDGE_RELATION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </Field>
+      <Field label="関係先">
+        <select name="target_node_id" defaultValue={str(entity.target_node_id)}>
+          <option value="">選択</option>
+          {nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
+        </select>
+      </Field>
+      <Field label="確度">
+        <select name="confidence" defaultValue={str(entity.confidence) || "medium"}>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+        </select>
+      </Field>
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
     </>
   );
@@ -449,8 +538,77 @@ function NoteDetailDrawer({
           </form>
         </section>
         <div className="drawer-actions">
+          <button
+            className="secondary-button"
+            onClick={() => close({
+              type: "knowledge_node",
+              mode: "edit",
+              entity: {
+                node_type: "insight",
+                title: note.title,
+                body: note.body_markdown,
+                theme_id: note.theme_id || null,
+                source_note_id: note.id,
+                confidence: "medium",
+                status: "active",
+              },
+            })}
+          >
+            構造化する
+          </button>
           <button className="primary-button" onClick={() => close({ type: "note", mode: "edit", entity: note })}>編集する</button>
           <button className="danger-button" onClick={() => removeEntity("note", note)}>削除する</button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function KnowledgeNodeDetailDrawer({
+  node,
+  data,
+  close,
+  removeEntity,
+}: {
+  node: KnowledgeNode;
+  data: WorkspaceData;
+  close: CloseDrawer;
+  removeEntity: RemoveEntity;
+}) {
+  const relations = (data.knowledge_relations || []).filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id);
+  const sourceNote = data.notes.find((note) => note.id === node.source_note_id);
+  return (
+    <aside className="drawer">
+      <DrawerHeader title="Knowledge詳細" close={close} />
+      <div className="drawer-content">
+        <div className="badge-row">
+          <StatusBadge value={node.status} label={KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type} />
+          <StatusBadge value="neutral" label={node.confidence || "medium"} />
+        </div>
+        <h2>{node.title}</h2>
+        <p className="note-body">{node.body || "本文なし"}</p>
+        <dl>
+          <dt>Theme</dt><dd>{data.themes.find((theme) => theme.id === node.theme_id)?.name || "未設定"}</dd>
+          <dt>元メモ</dt><dd>{sourceNote?.title || "未設定"}</dd>
+        </dl>
+        {relations.length > 0 && (
+          <div className="revision-list">
+            <h3>関係</h3>
+            {relations.map((relation) => {
+              const isSource = relation.source_node_id === node.id;
+              const other = data.knowledge_nodes.find((entry) => entry.id === (isSource ? relation.target_node_id : relation.source_node_id));
+              return (
+                <div key={relation.id}>
+                  <span>{isSource ? "→" : "←"} {relation.relation_type}: {other?.title || "不明"}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="drawer-actions">
+          <button className="secondary-button" onClick={() => close({ type: "knowledge_relation", mode: "edit", entity: { source_node_id: node.id } })}>関係を追加</button>
+          <button className="primary-button" onClick={() => close({ type: "knowledge_node", mode: "edit", entity: node })}>編集する</button>
+          <button className="danger-button" onClick={() => removeEntity("knowledge_node", node)}>削除する</button>
         </div>
       </div>
     </aside>

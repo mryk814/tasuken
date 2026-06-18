@@ -33,6 +33,9 @@ const entityKeys: Record<EntityType, keyof Workspace> = {
   field_value: "field_values",
   log_entry: "log_entries",
   import_batch: "import_batchs",
+  knowledge_node: "knowledge_nodes",
+  knowledge_relation: "knowledge_relations",
+  ai_proposal: "ai_proposals",
 };
 
 function replaceEntity(workspace: Workspace, type: EntityType, saved: Entity): Workspace {

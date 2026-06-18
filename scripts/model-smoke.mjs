@@ -41,6 +41,36 @@ try {
     source_item_id: item.id,
     target_item_id: child.id,
   });
+  const note = db.save("note", {
+    id: "note-1",
+    title: "Observation",
+    body_markdown: "A rough note",
+    theme_id: theme.id,
+  });
+  const claim = db.save("knowledge_node", {
+    id: "knowledge-claim",
+    node_type: "claim",
+    title: "Claim",
+    body: "Structured from a note",
+    theme_id: theme.id,
+    source_note_id: note.id,
+    confidence: "medium",
+    status: "active",
+  });
+  const evidence = db.save("knowledge_node", {
+    id: "knowledge-evidence",
+    node_type: "evidence",
+    title: "Evidence",
+    theme_id: theme.id,
+    confidence: "high",
+    status: "active",
+  });
+  const knowledgeRelation = db.save("knowledge_relation", {
+    id: "knowledge-relation-1",
+    source_node_id: claim.id,
+    target_node_id: evidence.id,
+    relation_type: "supports",
+  });
   db.save("item", { ...item, planned_end: "2026-06-12", progress: 20 }, { reason: "test revision" });
   db.remove("theme", theme.id);
   const detachedTheme = db.get("item", item.id)?.theme_id === null;
@@ -55,6 +85,10 @@ try {
   db.restore("item", item.id);
   const restoredParent = db.get("item", child.id)?.parent_item_id === item.id;
   const restoredDependency = !db.get("dependency", dependency.id, true)?.deleted_at;
+  db.remove("knowledge_node", evidence.id);
+  const cascadedKnowledgeRelation = Boolean(db.get("knowledge_relation", knowledgeRelation.id, true)?.deleted_at);
+  db.restore("knowledge_node", evidence.id);
+  const restoredKnowledgeRelation = !db.get("knowledge_relation", knowledgeRelation.id, true)?.deleted_at;
   const deletedTheme = db.save("theme", { id: "theme-deleted", name: "Deleted" });
   db.remove("theme", deletedTheme.id);
 
@@ -117,6 +151,8 @@ try {
     cascadedDependency,
     restoredParent,
     restoredDependency,
+    cascadedKnowledgeRelation,
+    restoredKnowledgeRelation,
     tombstone: Boolean(tombstone),
     exportedRevisions: parsed.workspace.plan_revisions.length,
     importedRevisions: imported.loadWorkspace(true).plan_revisions.length,

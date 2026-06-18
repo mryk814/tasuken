@@ -3,6 +3,8 @@ import type {
   BaseRecord,
   Dependency,
   Item,
+  KnowledgeNode,
+  KnowledgeRelation,
   Link,
   Note,
   SourceRecord,
@@ -10,7 +12,7 @@ import type {
   Theme,
   WorkspaceData,
 } from "../types";
-import { KIND_LABELS, STATUS_LABELS } from "./domain";
+import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS } from "./domain";
 import { addDays } from "./format";
 
 export interface ParsedTaskRow {
@@ -67,6 +69,8 @@ export interface ExportData {
   log_entries: BaseRecord[];
   source_records: SourceRecord[];
   dependencys: Dependency[];
+  knowledge_nodes: KnowledgeNode[];
+  knowledge_relations: KnowledgeRelation[];
 }
 
 interface BuildExportArgs {
@@ -87,12 +91,14 @@ export function buildExportData({ data, themes, items, activeTheme, scope }: Bui
   let scopedItems = items;
   let scopedNotes = data.notes || [];
   let scopedLinks = data.links || [];
+  let scopedKnowledgeNodes = data.knowledge_nodes || [];
   let scopedThemes = themes;
   if (scope === "theme" && activeTheme) {
     scopedThemes = [activeTheme];
     scopedItems = items.filter((item) => item.theme_id === activeTheme.id);
     scopedNotes = scopedNotes.filter((note) => note.theme_id === activeTheme.id);
     scopedLinks = scopedLinks.filter((link) => link.theme_id === activeTheme.id);
+    scopedKnowledgeNodes = scopedKnowledgeNodes.filter((node) => node.theme_id === activeTheme.id);
   } else if (horizon) {
     scopedItems = items.filter(inHorizon);
   } else if (scope === "open") {
@@ -110,8 +116,10 @@ export function buildExportData({ data, themes, items, activeTheme, scope }: Bui
       ...scopedItems.map((item) => item.theme_id),
       ...scopedNotes.map((note) => note.theme_id),
       ...scopedLinks.map((link) => link.theme_id),
+      ...scopedKnowledgeNodes.map((node) => node.theme_id),
     ].filter(Boolean) as string[],
   );
+  const knowledgeIds = new Set(scopedKnowledgeNodes.map((node) => node.id));
   if (scope !== "all" && scope !== "theme") scopedThemes = themes.filter((theme) => themeIds.has(theme.id));
   return {
     themes: scopedThemes,
@@ -129,6 +137,9 @@ export function buildExportData({ data, themes, items, activeTheme, scope }: Bui
       const target = scopedItems.find((item) => item.id === dependency.target_item_id);
       return Boolean(source || target);
     }),
+    knowledge_nodes: scopedKnowledgeNodes,
+    knowledge_relations: (data.knowledge_relations || []).filter((relation) =>
+      knowledgeIds.has(String(relation.source_node_id)) || knowledgeIds.has(String(relation.target_node_id))),
   };
 }
 
@@ -168,6 +179,37 @@ function renderItemSection(items: Item[]): string[] {
   return lines;
 }
 
+function renderKnowledgeSection(nodes: KnowledgeNode[], relations: KnowledgeRelation[] = []): string[] {
+  const activeByType = (type: string) => nodes.filter((node) => node.node_type === type && (node.status || "active") === "active");
+  const evidenceIds = new Set(nodes.filter((node) => node.node_type === "evidence").map((node) => node.id));
+  const claimsWithoutEvidence = activeByType("claim").filter((claim) => {
+    const supportTargets = relations
+      .filter((relation) => relation.source_node_id === claim.id && relation.relation_type === "supports")
+      .map((relation) => relation.target_node_id);
+    return supportTargets.every((id) => !evidenceIds.has(String(id)));
+  });
+  const contradictions = relations.filter((relation) => relation.relation_type === "contradicts");
+  const nodeTitle = (id?: string) => nodes.find((node) => node.id === id)?.title || "不明";
+  return [
+    "### Questions",
+    ...(activeByType("question").length ? activeByType("question").map((node) => `- ${node.title}`) : ["- なし"]),
+    "",
+    "### Claims",
+    ...(activeByType("claim").length ? activeByType("claim").map((node) => `- ${node.title}`) : ["- なし"]),
+    "",
+    "### Evidence",
+    ...(activeByType("evidence").length ? activeByType("evidence").map((node) => `- ${node.title}`) : ["- なし"]),
+    "",
+    "### Decisions",
+    ...(activeByType("decision").length ? activeByType("decision").map((node) => `- ${node.title}`) : ["- なし"]),
+    "",
+    "### Risks / Contradictions",
+    ...(contradictions.length ? contradictions.map((relation) => `- ${nodeTitle(relation.source_node_id)} contradicts ${nodeTitle(relation.target_node_id)}`) : ["- なし"]),
+    ...(claimsWithoutEvidence.length ? ["", "### Claims Without Evidence", ...claimsWithoutEvidence.map((node) => `- ${node.title}`)] : []),
+    "",
+  ];
+}
+
 export function exportMarkdown(data: ExportData): string {
   const sections = data.themes.flatMap((theme) => {
     const items = data.items.filter((item) => item.theme_id === theme.id);
@@ -179,6 +221,10 @@ export function exportMarkdown(data: ExportData): string {
     const dependencies = data.dependencys.filter((dependency) =>
       (dependency.source_item_id != null && itemIds.has(dependency.source_item_id))
       || (dependency.target_item_id != null && itemIds.has(dependency.target_item_id)));
+    const knowledgeNodes = data.knowledge_nodes.filter((node) => node.theme_id === theme.id);
+    const knowledgeIds = new Set(knowledgeNodes.map((node) => node.id));
+    const knowledgeRelations = data.knowledge_relations.filter((relation) =>
+      knowledgeIds.has(String(relation.source_node_id)) || knowledgeIds.has(String(relation.target_node_id)));
     const itemTitle = (id?: string) => data.items.find((item) => item.id === id)?.title || id || "不明";
     return [
       `## Theme: ${theme.name}`,
@@ -196,11 +242,18 @@ export function exportMarkdown(data: ExportData): string {
       "### Notes",
       ...(notes.length ? notes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`) : ["- なし"]),
       "",
+      "### Knowledge",
+      ...(knowledgeNodes.length
+        ? knowledgeNodes.map((node) => `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}${node.body ? `: ${formatNoteBody(node.body)}` : ""}`)
+        : ["- なし"]),
+      "",
+      ...renderKnowledgeSection(knowledgeNodes, knowledgeRelations),
     ];
   });
   const unscopedItems = data.items.filter((item) => !item.theme_id);
   const unscopedNotes = data.notes.filter((note) => !note.theme_id);
-  if (unscopedItems.length || unscopedNotes.length || !sections.length) {
+  const unscopedKnowledgeNodes = data.knowledge_nodes.filter((node) => !node.theme_id);
+  if (unscopedItems.length || unscopedNotes.length || unscopedKnowledgeNodes.length || !sections.length) {
     sections.push(
       "## Themeなし",
       "",
@@ -208,6 +261,12 @@ export function exportMarkdown(data: ExportData): string {
       "### Notes",
       ...(unscopedNotes.length ? unscopedNotes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`) : ["- なし"]),
       "",
+      "### Knowledge",
+      ...(unscopedKnowledgeNodes.length
+        ? unscopedKnowledgeNodes.map((node) => `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}`)
+        : ["- なし"]),
+      "",
+      ...renderKnowledgeSection(unscopedKnowledgeNodes, data.knowledge_relations),
     );
   }
   return [

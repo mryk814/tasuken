@@ -56,6 +56,7 @@ Workspace Snapshotを使用してください。
 - AI Import / Export: JSON / YAMLの取り込みと、JSON / YAML / Markdownの書き出し
 - Workspace Snapshot: ZIPによるバックアップ、差分プレビュー、競合選択付きImport
 - Theme Status / Plan Revision / 情報源管理 / Settings
+- Knowledge / MCP 方針: 思考・根拠・問い・決定をAIが安全に参照するための次期設計
 
 ## 使い始める流れ
 
@@ -67,4 +68,5 @@ Workspace Snapshotを使用してください。
 6. 週次レビューやAIへの相談時は `AI Import / Export` で範囲と形式を選んでコピーします。
 7. 定期的に `Settings` から Workspace Snapshot を書き出してバックアップします。
 
-詳細な実装状況は [`PLAN.md`](./PLAN.md) を参照してください。
+詳細な実装状況は [`PLAN.md`](./docs/PLAN.md) を参照してください。
+Knowledge ModelとAI/MCP連携の次期方針は [`knowledge-mcp-policy.md`](./docs/knowledge-mcp-policy.md) を参照してください。

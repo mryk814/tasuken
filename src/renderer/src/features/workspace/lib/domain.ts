@@ -43,6 +43,30 @@ export const NOTE_TYPE_LABELS: Record<string, string> = {
   reflection: "振り返り",
 };
 
+export const KNOWLEDGE_NODE_LABELS: Record<string, string> = {
+  source: "Source",
+  evidence: "Evidence",
+  claim: "Claim",
+  question: "Question",
+  decision: "Decision",
+  insight: "Insight",
+};
+
+export const KNOWLEDGE_RELATION_LABELS: Record<string, string> = {
+  supports: "supports",
+  contradicts: "contradicts",
+  explains: "explains",
+  causes: "causes",
+  example_of: "example_of",
+  generalizes: "generalizes",
+  depends_on: "depends_on",
+  derived_from: "derived_from",
+  answers: "answers",
+  raises: "raises",
+  similar_to: "similar_to",
+  leads_to: "leads_to",
+};
+
 // レベル（粒度）。Timelineに出す「大きな線」と、ToDo中心の「細かい仕事」を区別する。
 // kindとは直交。period/milestoneは既定でplan、それ以外はtask。明示値があればそれを優先。
 export const PLAN_KINDS = ["period", "milestone"];
@@ -117,6 +141,7 @@ export function relatedEntityTitle(data: WorkspaceData, type: string, id?: strin
     note: "notes",
     link: "links",
     source_record: "source_records",
+    knowledge_node: "knowledge_nodes",
   };
   const collection = (data[keys[type]] as BaseRecord[] | undefined) || [];
   const entity = collection.find((entry) => entry.id === id);
