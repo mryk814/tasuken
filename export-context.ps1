@@ -63,6 +63,19 @@ function Get-Lang($ext) {
   }
 }
 
+function Get-CodeFence($content) {
+  $matches = [regex]::Matches($content, '`+')
+
+  $maxLen = 3
+  foreach ($match in $matches) {
+    if ($match.Value.Length -gt $maxLen) {
+      $maxLen = $match.Value.Length
+    }
+  }
+
+  return ('`' * ($maxLen + 1))
+}
+
 $resolvedDirs = $TargetDirs | ForEach-Object {
   (Resolve-Path $_).Path
 }
@@ -86,7 +99,7 @@ $lines.Add("")
 
 foreach ($dir in $resolvedDirs) {
   $relativeDir = [System.IO.Path]::GetRelativePath($base, $dir)
-  $lines.Add("- `$relativeDir")
+  $lines.Add(('- `{0}`' -f $relativeDir))
 }
 
 $lines.Add("")
@@ -95,7 +108,7 @@ $lines.Add("")
 
 foreach ($file in $files) {
   $relative = [System.IO.Path]::GetRelativePath($base, $file.FullName)
-  $lines.Add("- `$relative")
+  $lines.Add(('- `{0}`' -f $relative))
 }
 
 $lines.Add("")
@@ -106,21 +119,26 @@ foreach ($file in $files) {
   $relative = [System.IO.Path]::GetRelativePath($base, $file.FullName)
   $lang = Get-Lang $file.Extension
 
-  $lines.Add("### `$relative")
-  $lines.Add("")
-  $lines.Add("````$lang")
-
   try {
     $content = Get-Content -Path $file.FullName -Raw -ErrorAction Stop
-    $lines.Add($content)
   } catch {
-    $lines.Add("[Could not read file]")
+    $content = "[Could not read file]"
   }
 
-  $lines.Add("````")
+  $fence = Get-CodeFence $content
+
+  $lines.Add(('### `{0}`' -f $relative))
+  $lines.Add("")
+  $lines.Add(('{0}{1}' -f $fence, $lang))
+  $lines.Add($content)
+  $lines.Add($fence)
   $lines.Add("")
 }
 
-[System.IO.File]::WriteAllLines($outPath, $lines, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllLines(
+  $outPath,
+  $lines,
+  [System.Text.UTF8Encoding]::new($false)
+)
 
 Write-Host "Exported $($files.Count) files to $outPath"
