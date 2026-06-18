@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { IconCopy, IconExternalLink, IconLinkPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { Item, Link, PageProps, Theme } from "../types";
+import type { Link, PageProps, Theme } from "../types";
 import { themeColor } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
@@ -29,7 +29,9 @@ function isChatReference(link: Link): boolean {
 
 function referenceStatus(link: Link): string {
   const value = str(link.reference_status);
-  return value && REFERENCE_STATUS_LABELS[value] ? value : "keep";
+  if (value && REFERENCE_STATUS_LABELS[value]) return value;
+  if (!link.theme_id) return "inbox";
+  return "keep";
 }
 
 function serviceLabel(link: Link): string {
@@ -40,17 +42,12 @@ function linkDate(link: Link): string {
   return str(link.captured_at || link.created_at || link.updated_at);
 }
 
-function itemTitle(items: Item[], id?: string | null): string {
-  return items.find((item) => item.id === id)?.title || "未設定";
-}
-
 function themeTitle(themes: Theme[], id?: string | null): string {
   return themes.find((theme) => theme.id === id)?.name || "未設定";
 }
 
 export function ChatRefsPage({
   themes,
-  items,
   links,
   activeThemeId,
   setActiveThemeId,
@@ -59,7 +56,6 @@ export function ChatRefsPage({
 }: PageProps) {
   const chatLinks = useMemo(() => links.filter(isChatReference), [links]);
   const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || themes[0]?.id || "");
-  const [selectedItemId, setSelectedItemId] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -71,26 +67,16 @@ export function ChatRefsPage({
     if (activeThemeId && activeThemeId !== selectedThemeId) setSelectedThemeId(activeThemeId);
   }, [activeThemeId, selectedThemeId]);
 
-  const inboxLinks = chatLinks.filter((link) => referenceStatus(link) === "inbox" || !link.theme_id || !link.item_id);
-  const selectedTheme = themes.find((theme) => theme.id === selectedThemeId) || null;
-  const themeItems = items
-    .filter((item) => item.theme_id === selectedThemeId)
-    .sort((a, b) => String(a.sort_order ?? 0).localeCompare(String(b.sort_order ?? 0)) || str(a.title).localeCompare(str(b.title), "ja-JP"));
-
-  useEffect(() => {
-    if (selectedItemId && themeItems.some((item) => item.id === selectedItemId)) return;
-    setSelectedItemId(themeItems[0]?.id || "");
-  }, [selectedItemId, themeItems]);
+  const inboxLinks = chatLinks.filter((link) => referenceStatus(link) === "inbox" || !link.theme_id);
 
   const scopedLinks = chatLinks.filter((link) => {
-    if (selectedItemId) return link.item_id === selectedItemId;
-    if (selectedThemeId) return link.theme_id === selectedThemeId && !link.item_id;
+    if (selectedThemeId) return link.theme_id === selectedThemeId;
     return !link.theme_id;
   });
 
   const visibleLinks = scopedLinks.filter((link) => {
     if (statusFilter !== "all" && referenceStatus(link) !== statusFilter) return false;
-    const haystack = `${link.title} ${link.description} ${link.url} ${serviceLabel(link)} ${themeTitle(themes, link.theme_id)} ${itemTitle(items, link.item_id)}`.toLowerCase();
+    const haystack = `${link.title} ${link.description} ${link.url} ${serviceLabel(link)} ${themeTitle(themes, link.theme_id)}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
 
@@ -100,12 +86,11 @@ export function ChatRefsPage({
   }
 
   function copyList() {
-    const header = "タイトル\tサービス\tTheme\t実施事項\t状態\tURL\t要約";
+    const header = "タイトル\tサービス\tTheme\t状態\tURL\t要約";
     const rows = visibleLinks.map((link) => [
       str(link.title),
       serviceLabel(link),
       themeTitle(themes, link.theme_id),
-      itemTitle(items, link.item_id),
       REFERENCE_STATUS_LABELS[referenceStatus(link)],
       str(link.url),
       str(link.description).replace(/\s+/g, " "),
@@ -123,31 +108,18 @@ export function ChatRefsPage({
       mode: "edit",
       entity: {
         link_type: "chatgpt",
-        reference_status: selectedThemeId && selectedItemId ? "keep" : "inbox",
+        reference_status: selectedThemeId ? "keep" : "inbox",
         theme_id: selectedThemeId || null,
-        item_id: selectedItemId || null,
+        item_id: null,
         importance: "normal",
         captured_at: new Date().toISOString().slice(0, 10),
       },
     });
   }
 
-  function addGroup() {
-    openDrawer({
-      type: "item",
-      mode: "edit",
-      entity: {
-        kind: "task",
-        level: "plan",
-        status: "todo",
-        theme_id: selectedThemeId || null,
-      },
-    });
-  }
-
   return (
     <div className="page chat-refs-page">
-      <PageHeader title="チャット参照棚" subtitle="外部AIチャットをThemeと実施事項へ接続します。">
+      <PageHeader title="チャット参照棚" subtitle="外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。">
         <button className="secondary-button" onClick={copyUrls} disabled={!visibleLinks.length}><IconCopy size={16} />URLをコピー</button>
         <button className="secondary-button" onClick={copyList} disabled={!visibleLinks.length}><IconCopy size={16} />一覧をコピー</button>
         <button className="primary-button" onClick={addChatLink}><IconLinkPlus size={16} />チャットリンクを追加</button>
@@ -195,30 +167,9 @@ export function ChatRefsPage({
           </div>
         </div>
 
-        <div className="panel chat-ref-column group-column">
-          <div className="section-heading">
-            <h2>実施事項</h2>
-            <button className="text-button compact" onClick={addGroup}>追加</button>
-          </div>
-          <div className="chat-group-list">
-            {themeItems.map((item) => {
-              const related = chatLinks.filter((link) => link.item_id === item.id);
-              const high = related.filter((link) => link.importance === "high").length;
-              return (
-                <button key={item.id} className={selectedItemId === item.id ? "is-active" : ""} onClick={() => setSelectedItemId(item.id)}>
-                  <strong>{item.title}</strong>
-                  <span>{str(item.description) || "説明なし"}</span>
-                  <small><b className="metric-value">{related.length}</b>件 / 重要 {high}件</small>
-                </button>
-              );
-            })}
-            {selectedTheme && !themeItems.length && <EmptyState title="実施事項がありません" action="追加する" onAction={addGroup} />}
-          </div>
-        </div>
-
         <div className="panel chat-ref-column link-column">
           <div className="section-heading">
-            <h2>{selectedItemId ? itemTitle(items, selectedItemId) : "未分類"}</h2>
+            <h2>チャットリンク</h2>
             <span>{visibleLinks.length}件</span>
           </div>
           <div className="chat-link-list">
@@ -255,7 +206,7 @@ export function ChatRefsPage({
             {inboxLinks.slice(0, 6).map((link) => (
               <button key={link.id} onClick={() => openDrawer({ type: "link", mode: "edit", entity: link })}>
                 <strong>{link.title}</strong>
-                <span>{serviceLabel(link)} / {themeTitle(themes, link.theme_id)} / {itemTitle(items, link.item_id)}</span>
+                <span>{serviceLabel(link)} / {themeTitle(themes, link.theme_id)}</span>
               </button>
             ))}
           </div>

@@ -468,16 +468,15 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .chat-ref-toolbar span { color: var(--color-text-secondary); font-size: var(--text-xs); }
 .chat-ref-toolbar strong { font-size: var(--text-xl); }
 .chat-ref-toolbar input, .chat-ref-toolbar select { width: 100%; }
-.chat-ref-board { display: grid; grid-template-columns: 220px minmax(260px, .9fr) minmax(380px, 1.35fr); gap: var(--space-3); align-items: start; }
+.chat-ref-board { display: grid; grid-template-columns: 220px minmax(380px, 1fr); gap: var(--space-3); align-items: start; }
 .chat-ref-column { min-height: 560px; overflow: hidden; }
-.chat-theme-list, .chat-group-list, .chat-link-list { display: grid; max-height: calc(100vh - 236px); overflow: auto; }
-.chat-theme-list button, .chat-group-list button { display: grid; gap: var(--space-1); padding: var(--space-3); border: 0; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface); text-align: left; }
-.chat-theme-list button:hover, .chat-group-list button:hover { background: var(--color-surface-muted); }
-.chat-theme-list button.is-active, .chat-group-list button.is-active { background: color-mix(in srgb, var(--chip-color, var(--color-accent)) 10%, var(--color-surface)); box-shadow: inset 3px 0 0 var(--chip-color, var(--color-accent)); }
+.chat-theme-list, .chat-link-list { display: grid; max-height: calc(100vh - 236px); overflow: auto; }
+.chat-theme-list button { display: grid; gap: var(--space-1); padding: var(--space-3); border: 0; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface); text-align: left; }
+.chat-theme-list button:hover { background: var(--color-surface-muted); }
+.chat-theme-list button.is-active { background: color-mix(in srgb, var(--chip-color, var(--color-accent)) 10%, var(--color-surface)); box-shadow: inset 3px 0 0 var(--chip-color, var(--color-accent)); }
 .chat-theme-list button { grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; }
-.chat-theme-list strong, .chat-group-list strong, .chat-link-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-group-list button span, .chat-link-title span, .chat-inbox-strip button span { display: -webkit-box; overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-sm); -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.chat-group-list button small { color: var(--color-text-secondary); font-size: var(--text-xs); }
+.chat-theme-list strong, .chat-link-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-link-title span, .chat-inbox-strip button span { display: -webkit-box; overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-sm); -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .chat-link-list { gap: var(--space-2); padding: var(--pad-card); }
 .chat-link-card { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
 .chat-link-card:hover { border-color: var(--color-border-strong); background: var(--color-surface-subtle); }
@@ -502,7 +501,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .today-grid { grid-template-columns: 1fr; }
   .inbox-card-main { grid-template-columns: 24px 112px minmax(180px, 1fr) 150px 132px 34px 34px; }
   .inbox-link-fields { grid-template-columns: 1fr 1fr; }
-  .chat-ref-board { grid-template-columns: 190px minmax(220px, .9fr) minmax(320px, 1.2fr); }
+  .chat-ref-board { grid-template-columns: 190px minmax(320px, 1fr); }
   .chat-ref-toolbar { grid-template-columns: 1fr 1fr; }
   .split-gantt { grid-template-columns: 260px minmax(0, 1fr); }
   .gantt-table-head, .gantt-table-row { grid-template-columns: minmax(140px, 1fr) 74px; }
@@ -531,7 +530,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .inbox-card-details .form-actions { justify-content: flex-end; }
   .chat-ref-board, .chat-ref-toolbar, .chat-inbox-strip > div:last-child { grid-template-columns: 1fr; }
   .chat-ref-column { min-height: auto; }
-  .chat-theme-list, .chat-group-list, .chat-link-list { max-height: none; }
+  .chat-theme-list, .chat-link-list { max-height: none; }
   .settings-grid { grid-template-columns: 1fr; }
   .split-gantt { grid-template-columns: 220px minmax(680px, 1fr); overflow-x: auto; }
   .gantt-table-head, .gantt-table-row { grid-template-columns: minmax(130px, 1fr) 70px; }
