@@ -16,6 +16,17 @@ export const entityTypes = [
   "knowledge_node",
   "knowledge_relation",
   "ai_proposal",
+  "project",
+  "capture_entry",
+  "task",
+  "waiting",
+  "plan_node",
+  "schedule",
+  "reference",
+  "task_dependency",
+  "plan_dependency",
+  "knowledge_edge",
+  "change_event",
 ] as const;
 
 export type EntityType = (typeof entityTypes)[number];
@@ -57,6 +68,17 @@ export interface Workspace {
   knowledge_nodes?: Entity[];
   knowledge_relations?: Entity[];
   ai_proposals?: Entity[];
+  projects?: Entity[];
+  capture_entrys?: Entity[];
+  tasks?: Entity[];
+  waitings?: Entity[];
+  plan_nodes?: Entity[];
+  schedules?: Entity[];
+  references?: Entity[];
+  task_dependencys?: Entity[];
+  plan_dependencys?: Entity[];
+  knowledge_edges?: Entity[];
+  change_events?: Entity[];
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }

@@ -16,6 +16,17 @@ export const workspaceEntityTypes = [
   "knowledge_node",
   "knowledge_relation",
   "ai_proposal",
+  "project",
+  "capture_entry",
+  "task",
+  "waiting",
+  "plan_node",
+  "schedule",
+  "reference",
+  "task_dependency",
+  "plan_dependency",
+  "knowledge_edge",
+  "change_event",
 ];
 
 const requiredTextFields = {
@@ -32,6 +43,17 @@ const requiredTextFields = {
   knowledge_node: ["node_type", "title"],
   knowledge_relation: ["source_node_id", "target_node_id", "relation_type"],
   ai_proposal: ["source", "payload_type", "status"],
+  project: ["name", "state"],
+  capture_entry: ["text", "captured_at", "state"],
+  task: ["title", "state"],
+  waiting: ["title", "waiting_for", "state"],
+  plan_node: ["title", "type", "state"],
+  schedule: ["owner_type", "owner_id", "date_kind", "confidence", "granularity"],
+  reference: ["source_type", "source_id", "target_type", "target_id", "relation_type"],
+  task_dependency: ["task_id", "depends_on_task_id"],
+  plan_dependency: ["plan_node_id", "depends_on_plan_node_id"],
+  knowledge_edge: ["source_node_id", "target_node_id", "relation_type"],
+  change_event: ["entity_type", "entity_id", "changed_at", "change_type", "source"],
 };
 
 const isoDateFields = [
@@ -44,6 +66,8 @@ const isoDateFields = [
   "due_date",
   "date",
   "value_date",
+  "start_date",
+  "end_date",
 ];
 
 const urlFields = ["url", "source_url"];
@@ -69,6 +93,20 @@ const knowledgeStatusValues = new Set(["active", "resolved", "deprecated", "reje
 const proposalSources = new Set(["mcp", "ai_import", "manual"]);
 const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "status_update"]);
 const proposalStatuses = new Set(["pending", "accepted", "rejected", "partially_accepted"]);
+const projectStates = new Set(["idea", "active", "paused", "closed"]);
+const captureEntryStates = new Set(["untriaged", "triaged", "archived"]);
+const taskStates = new Set(["todo", "doing", "waiting", "review", "done", "cancelled"]);
+const waitingStates = new Set(["waiting", "received", "cancelled"]);
+const planNodeTypes = new Set(["phase", "milestone", "deliverable"]);
+const planNodeStates = new Set(["planned", "active", "done", "cancelled"]);
+const scheduleOwnerTypes = new Set(["task", "waiting", "plan_node"]);
+const scheduleDateKinds = new Set(["point", "deadline", "range", "unknown"]);
+const scheduleConfidenceValues = new Set(["rough", "tentative", "fixed"]);
+const scheduleGranularityValues = new Set(["day", "week", "month"]);
+const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node"]);
+const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
+const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
+const changeSources = new Set(["manual", "import", "ai", "migration"]);
 
 function localDateIso(date = new Date()) {
   const year = date.getFullYear();
@@ -234,6 +272,53 @@ export function validateEntity(type, input) {
     if (!proposalPayloadTypes.has(input.payload_type)) throw new Error("ai_proposal.payload_typeが不正です。");
     if (!proposalStatuses.has(input.status)) throw new Error("ai_proposal.statusが不正です。");
     if (input.payload == null) throw new Error("ai_proposal.payloadを入力してください。");
+  }
+
+  if (type === "project" && !projectStates.has(input.state)) throw new Error("project.stateが不正です。");
+  if (type === "capture_entry") {
+    if (!captureEntryStates.has(input.state)) throw new Error("capture_entry.stateが不正です。");
+    if (input.triaged_to_type != null && input.triaged_to_type !== "" && !entityRefTypes.has(input.triaged_to_type)) {
+      throw new Error("capture_entry.triaged_to_typeが不正です。");
+    }
+  }
+  if (type === "task") {
+    if (!taskStates.has(input.state)) throw new Error("task.stateが不正です。");
+    if (input.priority != null && input.priority !== "" && !["normal", "high"].includes(input.priority)) {
+      throw new Error("task.priorityが不正です。");
+    }
+  }
+  if (type === "waiting" && !waitingStates.has(input.state)) throw new Error("waiting.stateが不正です。");
+  if (type === "plan_node") {
+    if (!planNodeTypes.has(input.type)) throw new Error("plan_node.typeが不正です。");
+    if (!planNodeStates.has(input.state)) throw new Error("plan_node.stateが不正です。");
+  }
+  if (type === "schedule") {
+    if (!scheduleOwnerTypes.has(input.owner_type)) throw new Error("schedule.owner_typeが不正です。");
+    if (!scheduleDateKinds.has(input.date_kind)) throw new Error("schedule.date_kindが不正です。");
+    if (!scheduleConfidenceValues.has(input.confidence)) throw new Error("schedule.confidenceが不正です。");
+    if (!scheduleGranularityValues.has(input.granularity)) throw new Error("schedule.granularityが不正です。");
+    if (input.start_date && input.end_date && input.end_date < input.start_date) {
+      throw new Error("schedule.end_dateはstart_date以降にしてください。");
+    }
+  }
+  if (type === "reference") {
+    if (!entityRefTypes.has(input.source_type) || !entityRefTypes.has(input.target_type)) throw new Error("referenceの参照先種別が不正です。");
+    if (!referenceRelationTypes.has(input.relation_type)) throw new Error("reference.relation_typeが不正です。");
+    if (input.source_type === input.target_type && input.source_id === input.target_id) throw new Error("Referenceで自分自身は参照できません。");
+  }
+  if (type === "task_dependency" && input.task_id === input.depends_on_task_id) {
+    throw new Error("TaskDependencyで自分自身は参照できません。");
+  }
+  if (type === "plan_dependency" && input.plan_node_id === input.depends_on_plan_node_id) {
+    throw new Error("PlanDependencyで自分自身は参照できません。");
+  }
+  if (type === "knowledge_edge" && input.source_node_id === input.target_node_id) {
+    throw new Error("KnowledgeEdgeで自分自身は参照できません。");
+  }
+  if (type === "change_event") {
+    if (!entityRefTypes.has(input.entity_type)) throw new Error("change_event.entity_typeが不正です。");
+    if (!changeTypes.has(input.change_type)) throw new Error("change_event.change_typeが不正です。");
+    if (!changeSources.has(input.source)) throw new Error("change_event.sourceが不正です。");
   }
 
   return input;

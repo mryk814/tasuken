@@ -56,6 +56,36 @@ test("knowledge entity validation rejects invalid enums", () => {
   assert.throws(() => validateEntity("knowledge_relation", { id: "kr-2", source_node_id: "a", target_node_id: "a", relation_type: "supports" }), /自分自身/);
 });
 
+test("workspace entity types and snapshots include v2 domain records", () => {
+  for (const type of ["project", "capture_entry", "task", "waiting", "plan_node", "schedule", "reference", "task_dependency", "plan_dependency", "knowledge_edge", "change_event"]) {
+    assert.equal(workspaceEntityTypes.includes(type), true);
+  }
+
+  const zip = createSnapshot({
+    projects: [{ id: "project-1", name: "Project", state: "active" }],
+    tasks: [{ id: "task-1", title: "Task", state: "todo", priority: "normal" }],
+    schedules: [{ id: "schedule-1", owner_type: "task", owner_id: "task-1", date_kind: "deadline", confidence: "fixed", granularity: "day", end_date: "2026-06-19" }],
+    knowledge_edges: [{ id: "edge-1", source_node_id: "node-1", target_node_id: "node-2", relation_type: "supports" }],
+    change_events: [{ id: "change-1", entity_type: "task", entity_id: "task-1", changed_at: "2026-06-19T00:00:00.000Z", change_type: "created", source: "manual" }],
+    meta: {},
+  });
+
+  assert.ok(zip.getEntry("projects.json"));
+  assert.ok(zip.getEntry("tasks.json"));
+  assert.ok(zip.getEntry("schedules.json"));
+  assert.ok(zip.getEntry("knowledge_edges.json"));
+  assert.ok(zip.getEntry("change_events.json"));
+});
+
+test("v2 entity validation rejects invalid enum values", () => {
+  assert.doesNotThrow(() => validateEntity("project", { id: "project-1", name: "Project", state: "active" }));
+  assert.throws(() => validateEntity("task", { id: "task-1", title: "Task", state: "blocked" }), /task.state/);
+  assert.throws(() => validateEntity("schedule", { id: "schedule-1", owner_type: "task", owner_id: "task-1", date_kind: "range", confidence: "fixed", granularity: "day", start_date: "2026-06-20", end_date: "2026-06-19" }), /schedule.end_date/);
+  assert.throws(() => validateEntity("reference", { id: "ref-1", source_type: "task", source_id: "task-1", target_type: "task", target_id: "task-1", relation_type: "related_to" }), /自分自身/);
+  assert.throws(() => validateEntity("knowledge_edge", { id: "edge-1", source_node_id: "node-1", target_node_id: "node-1", relation_type: "supports" }), /自分自身/);
+});
+
+
 test("snapshot create never overwrites an existing local record", () => {
   const change = {
     key: "item:item-1",
