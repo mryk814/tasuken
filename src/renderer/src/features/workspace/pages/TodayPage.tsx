@@ -5,7 +5,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { Item, PageProps } from "../types";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, StatusBadge } from "../components/common";
-import { legacyWorkspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -167,7 +167,7 @@ function TodayRows({
 export function TodayPage({ data, themes, items, openDrawer, navigate, saveEntity, toggleItem, setToast }: PageProps) {
   const today = todayIso();
   const soon = addDays(today, 14);
-  const v2 = legacyWorkspaceToV2(data);
+  const v2 = workspaceToV2(data);
   const schedules = schedulesByOwner(v2);
   const legacyItemsById = new Map(items.map((item) => [item.id, item]));
   const legacyFor = (legacyItemId?: string | null): Item | undefined => legacyItemId ? legacyItemsById.get(legacyItemId) : undefined;

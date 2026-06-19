@@ -6,7 +6,7 @@ import type { Item, PageProps } from "../types";
 import { defaultLevel } from "../lib/domain";
 import { uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
-import { legacyWorkspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
 import { buildInboxView } from "../../workspace-v2/domain/selectors";
 import type { CaptureEntry } from "../../workspace-v2/domain/types";
 
@@ -50,7 +50,7 @@ function draftFromEntry(entry: CaptureEntry, legacyItem?: Item): InboxDraft {
 export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeEntityQuiet, setToast }: PageProps) {
   const inboxRows = useMemo(() => {
     const legacyItemsById = new Map(items.map((item) => [item.id, item]));
-    return buildInboxView(legacyWorkspaceToV2(data)).entries.map((entry) => ({
+    return buildInboxView(workspaceToV2(data)).entries.map((entry) => ({
       entry,
       legacyItem: entry.legacy_item_id ? legacyItemsById.get(entry.legacy_item_id) : undefined,
     }));

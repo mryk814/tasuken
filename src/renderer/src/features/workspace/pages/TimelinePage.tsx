@@ -8,7 +8,7 @@ import { daysBetween, formatDate, uuid } from "../lib/format";
 import { buildTimelineRows, dataRange, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
-import { legacyWorkspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
 import {
   isTimelineCompleted,
   legacyTimelineWorkspace,
@@ -60,7 +60,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
   const canvasRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<TimelineUndo[]>([]);
   const today = todayIso();
-  const timelineWorkspace = legacyTimelineWorkspace(data, legacyWorkspaceToV2(data));
+  const timelineWorkspace = legacyTimelineWorkspace(data, workspaceToV2(data));
   const timelineItems = timelineWorkspace.items || [];
   const timelineDependencies = timelineWorkspace.dependencys || [];
 

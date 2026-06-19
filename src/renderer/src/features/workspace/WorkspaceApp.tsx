@@ -43,6 +43,9 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "status_updates", "source_records", "entity_sources", "relations",
   "field_definitions", "field_values", "log_entries", "import_batchs",
   "knowledge_nodes", "knowledge_relations", "ai_proposals", "plan_revisions",
+  "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
+  "schedules", "references", "task_dependencys", "plan_dependencys",
+  "knowledge_edges", "change_events",
 ];
 
 function emptyData(): WorkspaceData {

@@ -1,10 +1,11 @@
-import type { Dependency, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../workspace/types";
+import type { BaseRecord, Dependency, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../workspace/types";
 import type {
   CaptureEntry,
   ChangeEvent,
   EntityRefType,
   KnowledgeEdge,
   KnowledgeNode,
+  Note,
   PlanDependency,
   PlanNode,
   PlanNodeState,
@@ -585,6 +586,74 @@ export function legacyWorkspaceToV2(data: WorkspaceData): WorkspaceV2 {
 
 export function buildMigrationReport(data: WorkspaceData): MigrationReport {
   return legacyWorkspaceToV2Migration(data).report;
+}
+
+function mergeV2<T extends { id: string }>(
+  persisted: T[],
+  legacyDerived: T[],
+  legacyIdField: keyof T & string,
+): T[] {
+  if (!persisted.length) return legacyDerived;
+
+  const excludeIds = new Set(persisted.map((e) => e.id));
+  const excludeLegacyIds = new Set<string>();
+  for (const entity of persisted) {
+    const val = entity[legacyIdField];
+    if (typeof val === "string") excludeLegacyIds.add(val);
+  }
+
+  const supplemental = legacyDerived.filter((entity) => {
+    if (excludeIds.has(entity.id)) return false;
+    const val = entity[legacyIdField];
+    return !(typeof val === "string" && excludeLegacyIds.has(val));
+  });
+
+  return [...persisted, ...supplemental];
+}
+
+function castRecords<T>(records: BaseRecord[] | undefined): T[] {
+  return (records || []) as unknown as T[];
+}
+
+export function workspaceToV2(data: WorkspaceData): WorkspaceV2 {
+  const legacy = legacyWorkspaceToV2(data);
+
+  const pProjects = castRecords<Project>(data.projects);
+  const pCaptures = castRecords<CaptureEntry>(data.capture_entrys);
+  const pTasks = castRecords<Task>(data.tasks);
+  const pWaitings = castRecords<Waiting>(data.waitings);
+  const pPlanNodes = castRecords<PlanNode>(data.plan_nodes);
+  const pSchedules = castRecords<Schedule>(data.schedules);
+  const pReferences = castRecords<Reference>(data.references);
+  const pTaskDeps = castRecords<TaskDependency>(data.task_dependencys);
+  const pPlanDeps = castRecords<PlanDependency>(data.plan_dependencys);
+  const pKnowledgeEdges = castRecords<KnowledgeEdge>(data.knowledge_edges);
+  const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
+
+  const hasPersistedV2 =
+    pProjects.length || pCaptures.length || pTasks.length ||
+    pWaitings.length || pPlanNodes.length || pSchedules.length ||
+    pReferences.length || pTaskDeps.length || pPlanDeps.length ||
+    pKnowledgeEdges.length || pChangeEvents.length;
+
+  if (!hasPersistedV2) return legacy;
+
+  return {
+    projects: mergeV2(pProjects, legacy.projects, "legacy_theme_id"),
+    capture_entries: mergeV2(pCaptures, legacy.capture_entries, "legacy_item_id"),
+    tasks: mergeV2(pTasks, legacy.tasks, "legacy_item_id"),
+    waitings: mergeV2(pWaitings, legacy.waitings, "legacy_item_id"),
+    plan_nodes: mergeV2(pPlanNodes, legacy.plan_nodes, "legacy_item_id"),
+    schedules: mergeV2(pSchedules, legacy.schedules, "legacy_item_id"),
+    notes: legacy.notes as Note[],
+    resources: legacy.resources,
+    knowledge_nodes: legacy.knowledge_nodes,
+    references: mergeV2(pReferences, legacy.references, "legacy_dependency_id"),
+    task_dependencies: mergeV2(pTaskDeps, legacy.task_dependencies, "legacy_dependency_id"),
+    plan_dependencies: mergeV2(pPlanDeps, legacy.plan_dependencies, "legacy_dependency_id"),
+    knowledge_edges: mergeV2(pKnowledgeEdges, legacy.knowledge_edges, "legacy_relation_id"),
+    change_events: mergeV2(pChangeEvents, legacy.change_events, "legacy_item_id"),
+  };
 }
 
 export function formatMigrationReport(report: MigrationReport): string {

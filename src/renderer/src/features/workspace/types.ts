@@ -221,6 +221,17 @@ export interface WorkspaceData {
   knowledge_relations: KnowledgeRelation[];
   ai_proposals: BaseRecord[];
   plan_revisions: PlanRevision[];
+  projects: BaseRecord[];
+  capture_entrys: BaseRecord[];
+  tasks: BaseRecord[];
+  waitings: BaseRecord[];
+  plan_nodes: BaseRecord[];
+  schedules: BaseRecord[];
+  references: BaseRecord[];
+  task_dependencys: BaseRecord[];
+  plan_dependencys: BaseRecord[];
+  knowledge_edges: BaseRecord[];
+  change_events: BaseRecord[];
   meta?: WorkspaceMeta;
 }
 
