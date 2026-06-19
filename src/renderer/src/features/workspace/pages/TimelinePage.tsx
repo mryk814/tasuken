@@ -3,11 +3,26 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import type { Item, PageProps } from "../types";
-import { STATUS_LABELS, hasPlannedSchedule, itemLevel, themeColor } from "../lib/domain";
-import { addDays, daysBetween, formatDate, uuid } from "../lib/format";
+import { themeColor } from "../lib/domain";
+import { daysBetween, formatDate, uuid } from "../lib/format";
 import { buildTimelineRows, dataRange, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
+import { legacyWorkspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import {
+  isTimelineCompleted,
+  legacyTimelineWorkspace,
+  timelineAddPlanDraft,
+  timelineItemDateSpan,
+  timelineItemHasSchedule,
+  timelineItemIsMilestone,
+  timelineItemLevel,
+  timelineItemStatusLabel,
+  timelineItemStatusValue,
+  timelineReparentItemDraft,
+  timelineShiftItemDraft,
+  timelineThemeId,
+} from "../../workspace-v2/domain/timelineBridge";
 
 type DragMode = "move" | "start" | "end";
 
@@ -45,6 +60,9 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
   const canvasRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<TimelineUndo[]>([]);
   const today = todayIso();
+  const timelineWorkspace = legacyTimelineWorkspace(data, legacyWorkspaceToV2(data));
+  const timelineItems = timelineWorkspace.items || [];
+  const timelineDependencies = timelineWorkspace.dependencys || [];
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -109,7 +127,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
       setConnecting(null);
       return;
     }
-    const exists = (data.dependencys || []).some(
+    const exists = timelineDependencies.some(
       (d) => d.source_item_id === connecting.sourceId && d.target_item_id === target.id,
     );
     if (exists) {
@@ -136,7 +154,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
     }
     setConnecting(null);
     setConnectMode(false);
-  }, [connecting, data.dependencys, saveEntity, setToast]);
+  }, [connecting, timelineDependencies, saveEntity, setToast]);
 
   function startConnecting(item: Item) {
     if (!connecting && !connectMode) return;
@@ -155,13 +173,13 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
       handleConnect(item);
     }
   }
-  const range = dataRange(items, today);
-  const timelineItems = items.filter((item) => {
-    if (!showCompleted && item.status === "done") return false;
-    if (themeFilter !== "all" && item.theme_id !== themeFilter) return false;
+  const range = dataRange(timelineItems, today);
+  const visibleTimelineItems = timelineItems.filter((item) => {
+    if (!showCompleted && isTimelineCompleted(item)) return false;
+    if (themeFilter !== "all" && timelineThemeId(item) !== themeFilter) return false;
     return true;
   });
-  const rows = buildTimelineRows({ items: timelineItems, themes, collapsedThemes, scale });
+  const rows = buildTimelineRows({ items: visibleTimelineItems, themes, collapsedThemes, scale });
   const groupKeys = rows.filter((row) => row.rowType === "theme").map((row) => (row as Extract<typeof row, { rowType: "theme" }>).groupKey);
   const days = Math.max(1, daysBetween(range.start, range.end));
   const canvasWidth = Math.round(days * dayWidth);
@@ -208,8 +226,9 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
   }, [dayWidth]);
 
   function dateHint(item: Item): string {
-    if (!hasPlannedSchedule(item)) return `${item.title}（予定なし）`;
-    const span = `${formatDate(item.planned_start)} 〜 ${formatDate(item.planned_end)}`;
+    if (!timelineItemHasSchedule(item)) return `${item.title}（予定なし）`;
+    const spanDates = timelineItemDateSpan(item);
+    const span = `${formatDate(spanDates.start)} 〜 ${formatDate(spanDates.end)}`;
     return `${item.title}\n${span}`;
   }
 
@@ -224,7 +243,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
     if (!canvas) return undefined;
     const y = clientY - canvas.getBoundingClientRect().top - 44;
     const row = rows[Math.floor(y / 44)];
-    if (!row || row.rowType !== "item" || itemLevel(row.item) !== "plan") return undefined;
+    if (!row || row.rowType !== "item" || timelineItemLevel(row.item) !== "plan") return undefined;
     return row.item;
   }
 
@@ -243,22 +262,15 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
 
   async function moveItem(item: Item, delta: number, mode: DragMode = "move", targetParent?: Item | null) {
     if (!delta && targetParent === undefined) return;
-    const next: Item = { ...item };
+    let next: Item = { ...item };
     if (delta) {
-      if (!hasPlannedSchedule(item)) return;
-      if (mode === "start") next.planned_start = addDays(item.planned_start, delta);
-      else if (mode === "end") next.planned_end = addDays(item.planned_end, delta);
-      else {
-        next.planned_start = addDays(item.planned_start, delta);
-        next.planned_end = addDays(item.planned_end, delta);
-        next.due_date = null;
-      }
+      const shifted = timelineShiftItemDraft(item, delta, mode);
+      if (!shifted) return;
+      next = shifted;
     }
-    if (targetParent && targetParent.id !== item.id && targetParent.id !== item.parent_item_id) {
-      next.parent_item_id = targetParent.id;
-      next.theme_id = targetParent.theme_id || null;
-    }
-    if (next.planned_start && next.planned_end && next.planned_end < next.planned_start) {
+    next = timelineReparentItemDraft(next, targetParent);
+    const nextSpan = timelineItemDateSpan(next);
+    if (nextSpan.start && nextSpan.end && nextSpan.end < nextSpan.start) {
       setToast("開始日と終了日の順序が逆になるため変更しませんでした。");
       return;
     }
@@ -334,11 +346,11 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
               );
             }
             const { item, depth } = row;
-            const isPlan = itemLevel(item) === "plan";
+            const isPlan = timelineItemLevel(item) === "plan";
             return (
-              <div className={`gantt-table-row level-${itemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""}`} key={item.id}>
+              <div className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""}`} key={item.id}>
                 <div className="gantt-name" style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}>
-                  {item.kind === "milestone" && <span className="gantt-milestone-mark">◆</span>}
+                  {timelineItemIsMilestone(item) && <span className="gantt-milestone-mark">◆</span>}
                   {editingTitle?.id === item.id ? (
                     <input
                       className="gantt-title-input"
@@ -361,8 +373,8 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
                   )}
                 </div>
                 {isPlan
-                  ? <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "period", level: "plan", parent_item_id: item.id, theme_id: item.theme_id, planned_start: item.planned_start, planned_end: item.planned_end } })}>＋</button>
-                  : <StatusBadge value={item.status} label={STATUS_LABELS[item.status ?? ""]} />}
+                  ? <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "item", mode: "edit", entity: timelineAddPlanDraft(item) })}>＋</button>
+                  : <StatusBadge value={timelineItemStatusValue(item)} label={timelineItemStatusLabel(item)} />}
               </div>
             );
           })}
@@ -381,7 +393,7 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
               return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "item", entity: item })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
             })}
-            {showDependencies && <DependencyOverlay dependencies={data.dependencys || []} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
+            {showDependencies && <DependencyOverlay dependencies={timelineDependencies} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
             {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}
           </div>
         </div>

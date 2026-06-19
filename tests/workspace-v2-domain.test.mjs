@@ -19,6 +19,7 @@ async function importBundled(relativePath) {
 
 const adapter = await importBundled("src/renderer/src/features/workspace-v2/domain/legacyAdapter.ts");
 const selectors = await importBundled("src/renderer/src/features/workspace-v2/domain/selectors.ts");
+const timelineBridge = await importBundled("src/renderer/src/features/workspace-v2/domain/timelineBridge.ts");
 
 function workspace(overrides = {}) {
   return {
@@ -138,4 +139,52 @@ test("v2 view models keep task, waiting, capture, and timeline concerns separate
   assert.equal(timeline.rows.length, 1);
   assert.equal(timeline.rows[0].planNode.id, "plan-1");
   assert.equal(timeline.rows[0].children[0].planNode.id, "milestone-1");
+});
+
+test("timeline bridge projects only plan nodes into legacy-compatible gantt items", () => {
+  const v2 = {
+    projects: [],
+    capture_entries: [],
+    tasks: [
+      { id: "task-1", title: "task", state: "todo", priority: "normal" },
+    ],
+    waitings: [
+      { id: "waiting-1", title: "waiting", waiting_for: "Lab", state: "waiting" },
+    ],
+    plan_nodes: [
+      { id: "plan-1", legacy_item_id: "legacy-plan-1", title: "phase", type: "phase", state: "planned", sort_order: 1, project_id: "theme-1" },
+      { id: "milestone-1", legacy_item_id: "legacy-ms-1", title: "milestone", type: "milestone", state: "planned", sort_order: 2, parent_plan_node_id: "plan-1" },
+    ],
+    schedules: [
+      { id: "schedule-plan", owner_type: "plan_node", owner_id: "plan-1", start_date: "2026-06-01", end_date: "2026-06-30", date_kind: "range", confidence: "fixed", granularity: "day" },
+      { id: "schedule-ms", owner_type: "plan_node", owner_id: "milestone-1", end_date: "2026-06-19", date_kind: "point", confidence: "fixed", granularity: "day" },
+      { id: "schedule-task", owner_type: "task", owner_id: "task-1", end_date: "2026-06-19", date_kind: "deadline", confidence: "fixed", granularity: "day" },
+    ],
+    notes: [],
+    resources: [],
+    knowledge_nodes: [],
+    references: [],
+    task_dependencies: [],
+    plan_dependencies: [
+      { id: "dep-plan", plan_node_id: "milestone-1", depends_on_plan_node_id: "plan-1" },
+    ],
+    knowledge_edges: [],
+    change_events: [],
+  };
+
+  const items = timelineBridge.v2TimelineItems(v2);
+  assert.deepEqual(items.map((item) => item.id), ["legacy-plan-1", "legacy-ms-1"]);
+  assert.equal(items[0].kind, "period");
+  assert.equal(items[1].kind, "milestone");
+  assert.equal(items[1].parent_item_id, "legacy-plan-1");
+  assert.equal(items[0].planned_start, "2026-06-01");
+  assert.equal(items[1].planned_end, "2026-06-19");
+
+  const dependencies = timelineBridge.v2TimelineDependencies(v2);
+  assert.deepEqual(dependencies, [{
+    id: "dep-plan",
+    source_item_id: "legacy-plan-1",
+    target_item_id: "legacy-ms-1",
+    dependency_type: undefined,
+  }]);
 });
