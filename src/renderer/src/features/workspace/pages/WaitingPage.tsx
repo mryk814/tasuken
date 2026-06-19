@@ -1,14 +1,17 @@
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps } from "../types";
-import { compareDate, formatDate } from "../lib/format";
+import { formatDate } from "../lib/format";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { legacyWorkspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { buildWaitingView } from "../../workspace-v2/domain/selectors";
 
-export function WaitingPage({ themes, items, openDrawer, setToast }: PageProps) {
-  const waiting = items.filter((item) => item.kind === "waiting" || item.status === "waiting").sort(compareDate);
+export function WaitingPage({ data, themes, items, openDrawer, setToast }: PageProps) {
+  const legacyItemsById = new Map(items.map((item) => [item.id, item]));
+  const waiting = buildWaitingView(legacyWorkspaceToV2(data)).waitings;
 
   function copy() {
     workspaceApi
-      .copyText(waiting.map((item) => `${item.title}\t${item.planned_end || "—"}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "—"}`).join("\n"))
+      .copyText(waiting.map(({ waiting: entry, schedule }) => `${entry.title}\t${schedule?.end_date || "—"}\t${themes.find((theme) => theme.id === entry.project_id)?.name || "—"}`).join("\n"))
       .then(() => setToast("Waiting一覧をコピーしました。"));
   }
 
@@ -19,18 +22,21 @@ export function WaitingPage({ themes, items, openDrawer, setToast }: PageProps) 
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "waiting", status: "waiting" } })}>待ちを追加</button>
       </PageHeader>
       <section className="panel list-page">
-        {waiting.map((item) => (
-          <button className="waiting-row" key={item.id} onClick={() => openDrawer({ type: "item", entity: item })}>
-            <div>
-              <StatusBadge value="waiting" label="待ち" />
-              <strong>{item.title}</strong>
-              <span>{themes.find((theme) => theme.id === item.theme_id)?.name || "—"}</span>
-            </div>
-            <div>
-              <time>{formatDate(item.planned_end)}</time>
-            </div>
-          </button>
-        ))}
+        {waiting.map(({ waiting: entry, schedule }) => {
+          const legacyItem = entry.legacy_item_id ? legacyItemsById.get(entry.legacy_item_id) : null;
+          return (
+            <button className="waiting-row" key={entry.id} onClick={() => legacyItem && openDrawer({ type: "item", entity: legacyItem })}>
+              <div>
+                <StatusBadge value="waiting" label="待ち" />
+                <strong>{entry.title}</strong>
+                <span>{themes.find((theme) => theme.id === entry.project_id)?.name || "—"}</span>
+              </div>
+              <div>
+                <time>{formatDate(schedule?.end_date)}</time>
+              </div>
+            </button>
+          );
+        })}
         {!waiting.length && <EmptyState title="待ちはありません" action="追加する" onAction={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "waiting", status: "waiting" } })} />}
       </section>
     </div>
