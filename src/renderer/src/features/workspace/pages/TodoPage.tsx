@@ -3,11 +3,42 @@ import { IconCalendarPlus, IconCalendarCheck, IconFlag, IconFlagFilled } from "@
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
-import type { PageProps, SaveOperation } from "../types";
-import { STATUS_LABELS, defaultLevel, hasPlannedSchedule, themeColor } from "../lib/domain";
+import type { Item, PageProps, SaveOperation } from "../types";
+import { defaultLevel, themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { EmptyState, PageHeader } from "../components/common";
+import { legacyWorkspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { TASK_STATE_LABELS } from "../../workspace-v2/domain/labels";
+import { buildTodoView } from "../../workspace-v2/domain/selectors";
+import type { Schedule, Task } from "../../workspace-v2/domain/types";
+
+type TodoRow = {
+  task: Task;
+  schedule?: Schedule;
+  legacyItem?: Item;
+};
+
+function scheduledDate(schedule?: Schedule): string {
+  return String(schedule?.end_date || schedule?.start_date || "");
+}
+
+function isTodayRow(row: TodoRow, today: string): boolean {
+  return row.schedule?.start_date === today || row.schedule?.end_date === today;
+}
+
+function isDoneRow(row: TodoRow): boolean {
+  return row.task.state === "done" || row.task.state === "cancelled";
+}
+
+function compareTodoRows(today: string) {
+  return (a: TodoRow, b: TodoRow): number => {
+    const aToday = isTodayRow(a, today) ? 0 : 1;
+    const bToday = isTodayRow(b, today) ? 0 : 1;
+    if (aToday !== bToday) return aToday - bToday;
+    return String(scheduledDate(a.schedule) || "9999-12-31").localeCompare(String(scheduledDate(b.schedule) || "9999-12-31"));
+  };
+}
 
 export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEntities, toggleItem, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
@@ -17,35 +48,31 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
   const [pastePreview, setPastePreview] = useState<ParsedTaskRow[]>([]);
   const [shiftDays, setShiftDays] = useState(7);
   const today = todayIso();
-  const tasks = items.filter((item) => item.status === "inbox" || ["task", "deliverable", "reminder"].includes(item.kind ?? "") || !item.theme_id);
-  const isTodayTask = (item: typeof tasks[number]) => item.today_flag === true || item.planned_end === today;
+  const legacyItemsById = new Map(items.map((item) => [item.id, item]));
+  const taskRows: TodoRow[] = buildTodoView(legacyWorkspaceToV2(data)).tasks.map((row) => ({
+    ...row,
+    legacyItem: row.task.legacy_item_id ? legacyItemsById.get(row.task.legacy_item_id) : undefined,
+  }));
   const counters = {
-    today: tasks.filter((item) => item.status !== "done" && isTodayTask(item)).length,
-    open: tasks.filter((item) => item.status !== "done" && item.status !== "inbox").length,
-    overdue: tasks.filter((item) => item.status !== "done" && item.planned_end && item.planned_end < today).length,
-    inbox: tasks.filter((item) => item.status === "inbox").length,
-    noSchedule: tasks.filter((item) => item.status !== "done" && !hasPlannedSchedule(item)).length,
-    done: tasks.filter((item) => item.status === "done").length,
+    today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
+    open: taskRows.filter((row) => !isDoneRow(row)).length,
+    overdue: taskRows.filter((row) => !isDoneRow(row) && scheduledDate(row.schedule) && scheduledDate(row.schedule) < today).length,
+    noSchedule: taskRows.filter((row) => !isDoneRow(row) && !scheduledDate(row.schedule)).length,
+    done: taskRows.filter(isDoneRow).length,
   };
-  const visible = tasks.filter((item) => {
-    if (filter === "today") return item.status !== "done" && isTodayTask(item);
-    if (filter === "done") return item.status === "done";
-    if (filter === "inbox") return item.status === "inbox";
-    if (filter === "no-schedule") return item.status !== "done" && !hasPlannedSchedule(item);
-    if (filter === "overdue") return item.status !== "done" && item.planned_end && item.planned_end < today;
-    return item.status !== "done" && item.status !== "inbox";
-  }).sort((a, b) => {
-    const aToday = isTodayTask(a) ? 0 : 1;
-    const bToday = isTodayTask(b) ? 0 : 1;
-    if (aToday !== bToday) return aToday - bToday;
-    return String(a.planned_end || a.planned_start || "9999-12-31").localeCompare(String(b.planned_end || b.planned_start || "9999-12-31"));
-  });
+  const visible = taskRows.filter((row) => {
+    if (filter === "today") return !isDoneRow(row) && isTodayRow(row, today);
+    if (filter === "done") return isDoneRow(row);
+    if (filter === "no-schedule") return !isDoneRow(row) && !scheduledDate(row.schedule);
+    if (filter === "overdue") return !isDoneRow(row) && scheduledDate(row.schedule) && scheduledDate(row.schedule) < today;
+    return !isDoneRow(row);
+  }).sort(compareTodoRows(today));
 
   // 一括操作は1transactionで完結させ、途中失敗時に一部だけ更新された状態を残さない。
   async function bulkUpdate(field: string, value: string) {
     const operations: SaveOperation[] = selected.flatMap((id) => {
-      const item = items.find((entry) => entry.id === id);
-      return item ? [{ action: "save", type: "item", entity: { ...item, [field]: value } }] : [];
+      const row = taskRows.find((entry) => entry.task.id === id);
+      return row?.legacyItem ? [{ action: "save", type: "item", entity: { ...row.legacyItem, [field]: value } }] : [];
     });
     if (!operations.length) return;
     const count = operations.length;
@@ -55,15 +82,15 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
 
   async function shiftSelected() {
     const operations: SaveOperation[] = selected.flatMap((id) => {
-      const item = items.find((entry) => entry.id === id);
-      return item
+      const row = taskRows.find((entry) => entry.task.id === id);
+      return row?.legacyItem
         ? [{
           action: "save",
           type: "item",
           entity: {
-            ...item,
-            planned_start: addDays(item.planned_start, shiftDays),
-            planned_end: addDays(item.planned_end, shiftDays),
+            ...row.legacyItem,
+            planned_start: addDays(row.legacyItem.planned_start, shiftDays),
+            planned_end: addDays(row.legacyItem.planned_end, shiftDays),
             due_date: null,
           },
           options: { reason: `一括操作で${shiftDays}日シフト` },
@@ -118,7 +145,7 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
 
   function copyRows() {
     const header = "タスク\t状態\tテーマ\t今日\t予定終了\t旗";
-    const rows = visible.map((item) => `${item.title}\t${STATUS_LABELS[item.status ?? ""]}\t${themes.find((theme) => theme.id === item.theme_id)?.name || "個人業務"}\t${isTodayTask(item) ? "今日" : ""}\t${item.planned_end || "予定なし"}\t${item.priority === "high" ? "あり" : "なし"}`);
+    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.priority === "high" ? "あり" : "なし"}`);
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
@@ -130,7 +157,7 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
         <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "task" } })}>タスクを追加</button>
       </PageHeader>
       <div className="todo-filter-tabs">
-        {([["today", "今日", counters.today], ["open", "未完了", counters.open], ["inbox", "Inbox", counters.inbox], ["overdue", "予定超過", counters.overdue], ["no-schedule", "予定なし", counters.noSchedule], ["done", "完了", counters.done]] as const).map(([id, label, count]) => (
+        {([["today", "今日", counters.today], ["open", "未完了", counters.open], ["overdue", "予定超過", counters.overdue], ["no-schedule", "予定なし", counters.noSchedule], ["done", "完了", counters.done]] as const).map(([id, label, count]) => (
           <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{label}<span className="tab-count">{count}</span></button>
         ))}
       </div>
@@ -172,41 +199,41 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntity, saveEnti
         )}
         <div className="data-table todo-table">
           <div className="table-head"><span /><span /><span>タスク</span><span>状態</span><span>Theme</span><span>予定終了</span></div>
-          {visible.map((item) => {
-            const theme = (data.themes || []).find((entry) => entry.id === item.theme_id);
-            const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === item.theme_id));
+          {visible.map(({ task, schedule, legacyItem }) => {
+            const theme = (data.themes || []).find((entry) => entry.id === task.project_id);
+            const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
             return (
-            <div className="table-row" key={item.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
+            <div className="table-row" key={task.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
               <span className="todo-theme-bar" />
-              <input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} aria-label={`${item.title}を選択`} />
+              <input type="checkbox" checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} aria-label={`${task.title}を選択`} disabled={!legacyItem} />
               <div className="row-title-wrap">
                 <button
-                  className={`priority-flag-button ${item.priority === "high" ? "is-active" : ""}`}
-                  onClick={() => saveEntity("item", { ...item, priority: item.priority === "high" ? "normal" : "high" })}
-                  aria-label={item.priority === "high" ? "旗を外す" : "旗を付ける"}
-                  title={item.priority === "high" ? "旗を外す" : "旗を付ける"}
+                  className={`priority-flag-button ${task.priority === "high" ? "is-active" : ""}`}
+                  onClick={() => legacyItem && saveEntity("item", { ...legacyItem, priority: task.priority === "high" ? "normal" : "high" })}
+                  aria-label={task.priority === "high" ? "旗を外す" : "旗を付ける"}
+                  title={task.priority === "high" ? "旗を外す" : "旗を付ける"}
+                  disabled={!legacyItem}
                 >
-                  {item.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
+                  {task.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
                 </button>
                 <button
-                  className={`today-plan-button ${item.today_flag ? "is-active" : ""}`}
-                  onClick={() => saveEntity("item", { ...item, today_flag: !item.today_flag })}
-                  aria-label={item.today_flag ? "今日の予定から外す" : "今日の予定に追加"}
-                  title={item.today_flag ? "今日の予定から外す" : "今日の予定に追加"}
+                  className={`today-plan-button ${isTodayRow({ task, schedule }, today) ? "is-active" : ""}`}
+                  onClick={() => legacyItem && saveEntity("item", { ...legacyItem, today_flag: !legacyItem.today_flag })}
+                  aria-label={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
+                  title={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
+                  disabled={!legacyItem}
                 >
-                  {item.today_flag ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
+                  {isTodayRow({ task, schedule }, today) ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
                 </button>
-                <button className="row-title" onClick={() => openDrawer({ type: "item", entity: item })}>{item.title}</button>
+                <button className="row-title" onClick={() => legacyItem && openDrawer({ type: "item", entity: legacyItem })}>{task.title}</button>
               </div>
-              {item.status === "inbox"
-                ? <button className="check-action" onClick={() => saveEntity("item", { ...item, status: "todo", kind: item.kind === "idea" ? "task" : item.kind })}>整理</button>
-                : <button className="check-action" onClick={() => toggleItem(item)}>{item.status === "done" ? "戻す" : "完了"}</button>}
+              <button className="check-action" onClick={() => legacyItem && toggleItem(legacyItem)} disabled={!legacyItem}>{task.state === "done" ? "戻す" : "完了"}</button>
               <span className="theme-inline">
                 <span className="chip-dot" />
                 {theme?.name || "個人業務"}
               </span>
-              <span className="num">{formatDate(item.planned_end)}</span>
+              <span className="num">{formatDate(scheduledDate(schedule))}</span>
             </div>
             );
           })}
