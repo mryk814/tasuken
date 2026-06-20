@@ -19,13 +19,13 @@ import {
   PLAN_NODE_TYPE_LABELS,
   PLAN_NODE_STATE_LABELS,
   CAPTURE_ENTRY_STATE_LABELS,
-} from "../../workspace-v2/domain/labels";
+} from "../domain-model/labels";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
-} from "../../workspace-v2/domain/persistence";
-import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "../../workspace-v2/domain/types";
+} from "../domain-model/persistence";
+import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "../domain-model/types";
 
 const LINK_TYPES = ["chatgpt", "claude", "gemini", "copilot", "github", "paper", "notebook", "document", "other"];
 const LINK_TYPE_LABELS: Record<string, string> = {

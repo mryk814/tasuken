@@ -28,9 +28,9 @@ import {
   buildSavePlanNodeOperations,
   buildSaveScheduleOperations,
   buildSaveCaptureEntryOperations,
-} from "../workspace-v2/domain/persistence";
-import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "../workspace-v2/domain/types";
-import { workspaceToV2 } from "../workspace-v2/domain/legacyAdapter";
+} from "./domain-model/persistence";
+import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "./domain-model/types";
+import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
@@ -339,7 +339,7 @@ export function WorkspaceApp() {
       const nodeId = (base.id as string) || uuid();
       let parentPlanNodeId = (base.parent_plan_node_id as string | null) ?? null;
       if (!parentPlanNodeId && base._parent_plan_node_item_id) {
-        const v2data = workspaceToV2(data);
+        const v2data = buildWorkspaceDomain(data);
         const parentItemId = base._parent_plan_node_item_id as string;
         const parentNode = v2data.plan_nodes.find((n) => n.legacy_item_id === parentItemId || n.id === parentItemId);
         parentPlanNodeId = parentNode?.id || parentItemId;

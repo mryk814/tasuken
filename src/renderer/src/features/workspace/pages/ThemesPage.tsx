@@ -3,10 +3,10 @@ import { useMemo } from "react";
 import type { PageProps } from "../types";
 import { THEME_STATUS_LABELS, themeColor } from "../lib/domain";
 import { PageHeader, StatusBadge } from "../components/common";
-import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 
 export function ThemesPage({ themes, data, activeThemeId, setActiveThemeId, navigate, openDrawer }: PageProps) {
-  const v2 = useMemo(() => workspaceToV2(data), [data]);
+  const v2 = useMemo(() => buildWorkspaceDomain(data), [data]);
 
   return (
     <div className="page">

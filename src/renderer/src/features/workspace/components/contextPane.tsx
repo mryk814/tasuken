@@ -4,8 +4,8 @@ import type { Link, Note, OpenDrawer, Theme, WorkspaceData } from "../types";
 import { THEME_STATUS_LABELS } from "../lib/domain";
 import { dateOnly, formatDate, str } from "../lib/format";
 import { EmptyState, StatusBadge } from "./common";
-import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
-import { WAITING_STATE_LABELS } from "../../workspace-v2/domain/labels";
+import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
+import { WAITING_STATE_LABELS } from "../domain-model/labels";
 
 interface ContextPaneProps {
   data: WorkspaceData;
@@ -44,7 +44,7 @@ function pickRediscovery<T extends { id: string; updated_at?: string; created_at
 
 export function ContextPane({ data, activeTheme, openDrawer, navigate }: ContextPaneProps) {
   const today = dateOnly(new Date().toISOString());
-  const v2 = workspaceToV2(data);
+  const v2 = buildWorkspaceDomain(data);
   const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const themeTasks = activeTheme ? v2.tasks.filter((t) => t.project_id === activeTheme.id) : v2.tasks;
   const openTasks = themeTasks.filter((t) => t.state !== "done" && t.state !== "cancelled");

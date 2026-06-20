@@ -8,11 +8,11 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { EmptyState, PageHeader } from "../components/common";
-import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
-import { TASK_STATE_LABELS } from "../../workspace-v2/domain/labels";
-import { buildTodoView } from "../../workspace-v2/domain/selectors";
-import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../../workspace-v2/domain/persistence";
-import type { Schedule, Task } from "../../workspace-v2/domain/types";
+import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
+import { TASK_STATE_LABELS } from "../domain-model/labels";
+import { buildTodoView } from "../domain-model/selectors";
+import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
+import type { Schedule, Task } from "../domain-model/types";
 
 type TodoRow = {
   task: Task;
@@ -52,7 +52,7 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntities, setToa
   const [addTheme, setAddTheme] = useState("");
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
-  const taskRows: TodoRow[] = buildTodoView(workspaceToV2(data)).tasks;
+  const taskRows: TodoRow[] = buildTodoView(buildWorkspaceDomain(data)).tasks;
   const counters = {
     today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
     open: taskRows.filter((row) => !isDoneRow(row)).length,

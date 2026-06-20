@@ -5,16 +5,16 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
-import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
-import { buildInboxView } from "../../workspace-v2/domain/selectors";
+import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
+import { buildInboxView } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSaveScheduleOperations,
   buildSaveCaptureEntryOperations,
   buildTriageCaptureEntryOperations,
-} from "../../workspace-v2/domain/persistence";
-import type { CaptureEntry, Schedule, Task, Waiting } from "../../workspace-v2/domain/types";
+} from "../domain-model/persistence";
+import type { CaptureEntry, Schedule, Task, Waiting } from "../domain-model/types";
 import type { SaveOperation } from "../types";
 
 type InboxKind = "task" | "memo" | "link" | "waiting" | "idea";
@@ -56,7 +56,7 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
 }
 
 export function InboxPage({ data, themes, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
-  const v2 = useMemo(() => workspaceToV2(data), [data]);
+  const v2 = useMemo(() => buildWorkspaceDomain(data), [data]);
   const v2Tasks = v2.tasks;
   const inboxRows = useMemo(() => {
     return buildInboxView(v2).entries.map((entry) => ({ entry }));

@@ -6,25 +6,25 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, StatusBadge } from "../components/common";
-import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
-} from "../../workspace-v2/domain/labels";
-import { buildTodayView } from "../../workspace-v2/domain/selectors";
+} from "../domain-model/labels";
+import { buildTodayView } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
   buildSaveScheduleOperations,
-} from "../../workspace-v2/domain/persistence";
-import type { CaptureEntry, PlanNode, Schedule, Task, Waiting, WorkspaceV2 } from "../../workspace-v2/domain/types";
-import type { TodayEntry } from "../../workspace-v2/domain/viewModels";
+} from "../domain-model/persistence";
+import type { CaptureEntry, PlanNode, Schedule, Task, Waiting, WorkspaceDomain } from "../domain-model/types";
+import type { TodayEntry } from "../domain-model/viewModels";
 
-type V2Entity =
+type DomainRow =
   | { type: "task"; task: Task; schedule?: Schedule }
   | { type: "waiting"; waiting: Waiting; schedule?: Schedule }
   | { type: "milestone"; planNode: PlanNode; schedule?: Schedule }
@@ -40,7 +40,7 @@ type TodayRow = {
   statusLabel: string;
   priority?: "normal" | "high";
   waitingFor?: string | null;
-  v2?: V2Entity;
+  v2?: DomainRow;
 };
 
 function scheduleDate(schedule?: Schedule): string {
@@ -60,8 +60,8 @@ function isActivePlanNode(planNode: PlanNode): boolean {
   return planNode.state !== "done" && planNode.state !== "cancelled";
 }
 
-function schedulesByOwner(v2: WorkspaceV2): Map<string, Schedule> {
-  return new Map(v2.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]));
+function schedulesByOwner(domain: WorkspaceDomain): Map<string, Schedule> {
+  return new Map(domain.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]));
 }
 
 function rowDate(row: TodayRow): string {
@@ -202,7 +202,7 @@ export function TodayPage({ data, themes, openDrawer, navigate, saveEntities, se
   const [addTheme, setAddTheme] = useState("");
   const today = todayIso();
   const soon = addDays(today, 14);
-  const v2 = workspaceToV2(data);
+  const v2 = buildWorkspaceDomain(data);
   const schedules = schedulesByOwner(v2);
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));

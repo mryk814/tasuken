@@ -6,13 +6,13 @@ import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
-import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 
 export function MilestonePage({ data, themes, openDrawer, setToast }: PageProps) {
   const [range, setRange] = useState("90");
   const today = todayIso();
   const limit = addDays(today, Number(range));
-  const v2 = workspaceToV2(data);
+  const v2 = buildWorkspaceDomain(data);
   const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const records = v2.plan_nodes
     .filter((node) => {
