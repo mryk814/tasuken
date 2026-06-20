@@ -2,7 +2,7 @@ import type { PageProps } from "../types";
 import { THEME_STATUS_LABELS, themeColor } from "../lib/domain";
 import { PageHeader, StatusBadge } from "../components/common";
 
-export function ThemesPage({ themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer }: PageProps) {
+export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer }: PageProps) {
 
   return (
     <div className="page">

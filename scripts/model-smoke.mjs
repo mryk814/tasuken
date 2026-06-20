@@ -36,11 +36,6 @@ try {
     status: "todo",
     progress: 0,
   });
-  const dependency = db.save("dependency", {
-    id: "dependency-1",
-    source_item_id: item.id,
-    target_item_id: child.id,
-  });
   const note = db.save("note", {
     id: "note-1",
     title: "Observation",
@@ -65,8 +60,8 @@ try {
     confidence: "high",
     status: "active",
   });
-  const knowledgeRelation = db.save("knowledge_relation", {
-    id: "knowledge-relation-1",
+  const knowledgeEdge = db.save("knowledge_edge", {
+    id: "knowledge-edge-1",
     source_node_id: claim.id,
     target_node_id: evidence.id,
     relation_type: "supports",
@@ -81,14 +76,12 @@ try {
 
   db.remove("item", item.id);
   const detachedParent = db.get("item", child.id)?.parent_item_id === null;
-  const cascadedDependency = Boolean(db.get("dependency", dependency.id, true)?.deleted_at);
   db.restore("item", item.id);
   const restoredParent = db.get("item", child.id)?.parent_item_id === item.id;
-  const restoredDependency = !db.get("dependency", dependency.id, true)?.deleted_at;
   db.remove("knowledge_node", evidence.id);
-  const cascadedKnowledgeRelation = Boolean(db.get("knowledge_relation", knowledgeRelation.id, true)?.deleted_at);
+  const cascadedKnowledgeEdge = Boolean(db.get("knowledge_edge", knowledgeEdge.id, true)?.deleted_at);
   db.restore("knowledge_node", evidence.id);
-  const restoredKnowledgeRelation = !db.get("knowledge_relation", knowledgeRelation.id, true)?.deleted_at;
+  const restoredKnowledgeEdge = !db.get("knowledge_edge", knowledgeEdge.id, true)?.deleted_at;
   const deletedTheme = db.save("theme", { id: "theme-deleted", name: "Deleted" });
   db.remove("theme", deletedTheme.id);
 
@@ -148,11 +141,9 @@ try {
     restoredThemeReference,
     restoredStatus,
     detachedParent,
-    cascadedDependency,
     restoredParent,
-    restoredDependency,
-    cascadedKnowledgeRelation,
-    restoredKnowledgeRelation,
+    cascadedKnowledgeEdge,
+    restoredKnowledgeEdge,
     tombstone: Boolean(tombstone),
     exportedRevisions: parsed.workspace.plan_revisions.length,
     importedRevisions: imported.loadWorkspace(true).plan_revisions.length,

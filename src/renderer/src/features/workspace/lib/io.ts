@@ -1,10 +1,8 @@
 import { todayIso, toYaml } from "../../../utils/dataFormat.js";
 import type {
   BaseRecord,
-  Dependency,
   Item,
   KnowledgeNode,
-  KnowledgeRelation,
   Link,
   Note,
   SourceRecord,
@@ -15,7 +13,7 @@ import type {
 import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS } from "./domain";
 import { addDays } from "./format";
 import { domainToItems } from "../domain-model/compat/itemProjection";
-import type { Resource, WorkspaceDomain } from "../domain-model/types";
+import type { KnowledgeEdge, Resource, TaskDependency, WorkspaceDomain } from "../domain-model/types";
 
 export interface ParsedTaskRow {
   title: string;
@@ -70,9 +68,9 @@ export interface ExportData {
   status_updates: StatusUpdate[];
   log_entries: BaseRecord[];
   source_records: SourceRecord[];
-  dependencys: Dependency[];
+  task_dependencies: TaskDependency[];
   knowledge_nodes: KnowledgeNode[];
-  knowledge_relations: KnowledgeRelation[];
+  knowledge_edges: KnowledgeEdge[];
 }
 
 interface BuildExportArgs {
@@ -152,14 +150,13 @@ export function buildExportData({ data, domain, themes, items, activeTheme, scop
       return !themeIds.size || (themeId != null && themeIds.has(themeId));
     }),
     source_records: data.source_records || [],
-    dependencys: (data.dependencys || []).filter((dependency) => {
-      const source = scopedItems.find((item) => item.id === dependency.source_item_id);
-      const target = scopedItems.find((item) => item.id === dependency.target_item_id);
-      return Boolean(source || target);
+    task_dependencies: (domain.task_dependencies || []).filter((dep) => {
+      const itemIds = new Set(scopedItems.map((i) => i.id));
+      return itemIds.has(dep.task_id) || itemIds.has(dep.depends_on_task_id);
     }),
     knowledge_nodes: scopedKnowledgeNodes,
-    knowledge_relations: (data.knowledge_relations || []).filter((relation) =>
-      knowledgeIds.has(String(relation.source_node_id)) || knowledgeIds.has(String(relation.target_node_id))),
+    knowledge_edges: (domain.knowledge_edges || []).filter((edge) =>
+      knowledgeIds.has(edge.source_node_id) || knowledgeIds.has(edge.target_node_id)),
   };
 }
 
@@ -199,7 +196,7 @@ function renderItemSection(items: Item[]): string[] {
   return lines;
 }
 
-function renderKnowledgeSection(nodes: KnowledgeNode[], relations: KnowledgeRelation[] = []): string[] {
+function renderKnowledgeSection(nodes: KnowledgeNode[], relations: KnowledgeEdge[] = []): string[] {
   const activeByType = (type: string) => nodes.filter((node) => node.node_type === type && (node.status || "active") === "active");
   const evidenceIds = new Set(nodes.filter((node) => node.node_type === "evidence").map((node) => node.id));
   const claimsWithoutEvidence = activeByType("claim").filter((claim) => {
@@ -238,13 +235,12 @@ export function exportMarkdown(data: ExportData): string {
       .filter((entry) => entry.theme_id === theme.id)
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const itemIds = new Set(items.map((item) => item.id));
-    const dependencies = data.dependencys.filter((dependency) =>
-      (dependency.source_item_id != null && itemIds.has(dependency.source_item_id))
-      || (dependency.target_item_id != null && itemIds.has(dependency.target_item_id)));
+    const taskDeps = data.task_dependencies.filter((dep) =>
+      itemIds.has(dep.task_id) || itemIds.has(dep.depends_on_task_id));
     const knowledgeNodes = data.knowledge_nodes.filter((node) => node.theme_id === theme.id);
     const knowledgeIds = new Set(knowledgeNodes.map((node) => node.id));
-    const knowledgeRelations = data.knowledge_relations.filter((relation) =>
-      knowledgeIds.has(String(relation.source_node_id)) || knowledgeIds.has(String(relation.target_node_id)));
+    const knowledgeEdges = data.knowledge_edges.filter((edge) =>
+      knowledgeIds.has(edge.source_node_id) || knowledgeIds.has(edge.target_node_id));
     const itemTitle = (id?: string) => data.items.find((item) => item.id === id)?.title || id || "不明";
     return [
       `## Theme: ${theme.name}`,
@@ -255,8 +251,8 @@ export function exportMarkdown(data: ExportData): string {
       "",
       ...renderItemSection(items),
       "### Dependencies",
-      ...(dependencies.length
-        ? dependencies.map((dependency) => `- ${itemTitle(dependency.source_item_id)} -> ${itemTitle(dependency.target_item_id)}`)
+      ...(taskDeps.length
+        ? taskDeps.map((dep) => `- ${itemTitle(dep.task_id)} -> ${itemTitle(dep.depends_on_task_id)}`)
         : ["- なし"]),
       "",
       "### Notes",
@@ -267,7 +263,7 @@ export function exportMarkdown(data: ExportData): string {
         ? knowledgeNodes.map((node) => `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}${node.body ? `: ${formatNoteBody(node.body)}` : ""}`)
         : ["- なし"]),
       "",
-      ...renderKnowledgeSection(knowledgeNodes, knowledgeRelations),
+      ...renderKnowledgeSection(knowledgeNodes, knowledgeEdges),
     ];
   });
   const unscopedItems = data.items.filter((item) => !item.theme_id);
@@ -286,7 +282,7 @@ export function exportMarkdown(data: ExportData): string {
         ? unscopedKnowledgeNodes.map((node) => `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}`)
         : ["- なし"]),
       "",
-      ...renderKnowledgeSection(unscopedKnowledgeNodes, data.knowledge_relations),
+      ...renderKnowledgeSection(unscopedKnowledgeNodes, data.knowledge_edges),
     );
   }
   return [

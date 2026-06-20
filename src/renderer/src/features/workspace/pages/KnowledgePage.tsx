@@ -6,15 +6,16 @@ import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS } from "../lib/domain"
 import { str } from "../lib/format";
 import { buildKnowledgeHealth } from "../lib/knowledgeHealth";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import type { KnowledgeEdge } from "../domain-model/types";
 
 const ALL = "all";
 
-function resolveSourceName(node: KnowledgeNode, data: { notes: { id: string; title: string }[]; links: { id: string; title: string }[]; resources?: { id: string; title: string }[]; items: { id: string; title: string }[] }): string {
+function resolveSourceName(node: KnowledgeNode, data: PageProps["data"]): string {
   if (node.source_type && node.source_id) {
     if (node.source_type === "note") return data.notes.find((n) => n.id === node.source_id)?.title || node.source_id;
     if (node.source_type === "resource") {
       const r = (data.resources || []).find((r) => r.id === node.source_id) || data.links.find((l) => l.id === node.source_id);
-      return r?.title || node.source_id;
+      return str(r?.title) || node.source_id;
     }
     const item = data.items.find((i) => i.id === node.source_id);
     return item?.title || node.source_id;
@@ -31,7 +32,7 @@ export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps)
   const [nodeType, setNodeType] = useState(ALL);
   const [status, setStatus] = useState(ALL);
   const nodes = data.knowledge_nodes || [];
-  const relations = data.knowledge_relations || [];
+  const relations = (data.knowledge_edges || []) as unknown as KnowledgeEdge[];
 
   const visible = useMemo(() => nodes.filter((node) => {
     const text = `${node.title} ${node.body ?? ""}`.toLowerCase();
@@ -114,7 +115,7 @@ export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps)
                   {themeName(node.theme_id)} / {node.confidence || "medium"} / {sourceName ? `source: ${sourceName}` : "sourceなし"} / {str(node.body) || "本文なし"}
                 </span>
               </button>
-              <button className="secondary-button compact note-row-open" onClick={() => openDrawer({ type: "knowledge_relation", mode: "edit", entity: { source_node_id: node.id } })}>
+              <button className="secondary-button compact note-row-open" onClick={() => openDrawer({ type: "knowledge_edge", mode: "edit", entity: { source_node_id: node.id } })}>
                 関係を追加
               </button>
             </div>
@@ -129,9 +130,9 @@ export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps)
             const source = nodes.find((node) => node.id === relation.source_node_id);
             const target = nodes.find((node) => node.id === relation.target_node_id);
             return (
-              <button className="wide-row" key={relation.id} onClick={() => openDrawer({ type: "knowledge_relation", mode: "edit", entity: relation })}>
+              <button className="wide-row" key={relation.id} onClick={() => openDrawer({ type: "knowledge_edge", mode: "edit", entity: relation as unknown as Record<string, unknown> })}>
                 <strong>{source?.title || "不明"} → {target?.title || "不明"}</strong>
-                <span>{KNOWLEDGE_RELATION_LABELS[relation.relation_type || "supports"] || relation.relation_type} / {relation.confidence || "medium"}</span>
+                <span>{KNOWLEDGE_RELATION_LABELS[relation.relation_type || "supports"] || relation.relation_type}</span>
               </button>
             );
           })}

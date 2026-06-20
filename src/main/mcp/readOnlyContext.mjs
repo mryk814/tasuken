@@ -16,7 +16,6 @@ const ENTITY_TYPES = [
   "resource",
   "status_update",
   "knowledge_node",
-  "knowledge_relation",
   "project",
   "task",
   "waiting",
@@ -263,7 +262,7 @@ export class ReadOnlyTaskenContext {
       .map((node) => ({ ...node, body: truncate(node.body, textLimit) }));
     const nodeIds = new Set(nodes.map((node) => node.id));
     const relations = Boolean(args.include_relations ?? true)
-      ? this.list("knowledge_relation", Boolean(args.include_archived))
+      ? this.list("knowledge_edge", Boolean(args.include_archived))
         .filter((relation) => nodeIds.has(relation.source_node_id) || nodeIds.has(relation.target_node_id))
       : [];
     const sources = Boolean(args.include_sources)
@@ -279,7 +278,7 @@ export class ReadOnlyTaskenContext {
         return { notes: matchedNotes, resources: mergedResources, items: matchedItems };
       })()
       : undefined;
-    return { knowledge_nodes: nodes, knowledge_relations: relations, sources, limit };
+    return { knowledge_nodes: nodes, knowledge_edges: relations, sources, limit };
   }
 
   buildPlanHealth(themeId = "") {
@@ -319,7 +318,7 @@ export class ReadOnlyTaskenContext {
 
   buildKnowledgeHealth(themeId = "") {
     const nodes = this.list("knowledge_node").filter((node) => !themeId || node.theme_id === themeId);
-    const relations = this.list("knowledge_relation");
+    const relations = this.list("knowledge_edge");
     const activeNodes = nodes.filter((node) => (node.status || "active") === "active");
     const evidenceIds = new Set(activeNodes.filter((node) => node.node_type === "evidence").map((node) => node.id));
     const hasRelation = (node, type) => relations.some((relation) =>
@@ -398,7 +397,7 @@ export class ReadOnlyTaskenContext {
       notes,
       resources: mergedResources,
       knowledge_nodes: knowledge.knowledge_nodes,
-      knowledge_relations: knowledge.knowledge_relations,
+      knowledge_edges: knowledge.knowledge_edges,
       health: {
         ...this.buildPlanHealth(themeId),
         ...this.buildKnowledgeHealth(themeId),

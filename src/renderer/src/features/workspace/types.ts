@@ -131,21 +131,6 @@ export interface FieldValue extends BaseRecord {
   value_json?: string[] | null;
 }
 
-export interface Relation extends BaseRecord {
-  source_entity_type?: string;
-  source_entity_id?: string;
-  target_entity_type?: string;
-  target_entity_id?: string;
-  relation_type?: string;
-  description?: string;
-}
-
-export interface Dependency extends BaseRecord {
-  source_item_id?: string;
-  target_item_id?: string;
-  dependency_type?: string;
-}
-
 export interface ImportBatch extends BaseRecord {
   source?: string;
   status?: string;
@@ -199,14 +184,6 @@ export interface KnowledgeNode extends BaseRecord {
   status?: "active" | "resolved" | "deprecated" | "rejected";
 }
 
-export interface KnowledgeRelation extends BaseRecord {
-  source_node_id?: string;
-  target_node_id?: string;
-  relation_type?: KnowledgeRelationType;
-  description?: string;
-  confidence?: "low" | "medium" | "high";
-}
-
 // activeRecordsで論理削除を除外した「表示用の正本投影」。
 export interface WorkspaceData {
   themes: Theme[];
@@ -214,18 +191,15 @@ export interface WorkspaceData {
   notes: Note[];
   links: Link[];
   resources: BaseRecord[];
-  dependencys: Dependency[];
   views: BaseRecord[];
   status_updates: StatusUpdate[];
   source_records: SourceRecord[];
   entity_sources: BaseRecord[];
-  relations: Relation[];
   field_definitions: FieldDefinition[];
   field_values: FieldValue[];
   log_entries: BaseRecord[];
   import_batchs: ImportBatch[];
   knowledge_nodes: KnowledgeNode[];
-  knowledge_relations: KnowledgeRelation[];
   ai_proposals: BaseRecord[];
   plan_revisions: PlanRevision[];
   projects: BaseRecord[];
@@ -235,8 +209,8 @@ export interface WorkspaceData {
   plan_nodes: BaseRecord[];
   schedules: BaseRecord[];
   references: BaseRecord[];
-  task_dependencys: BaseRecord[];
-  plan_dependencys: BaseRecord[];
+  task_dependencies: BaseRecord[];
+  plan_dependencies: BaseRecord[];
   knowledge_edges: BaseRecord[];
   change_events: BaseRecord[];
   meta?: WorkspaceMeta;
@@ -256,10 +230,10 @@ export type DrawerEntityType =
   | "status_update"
   | "source_record"
   | "field_definition"
-  | "relation"
-  | "dependency"
+  | "reference"
+  | "task_dependency"
   | "knowledge_node"
-  | "knowledge_relation"
+  | "knowledge_edge"
   | "task"
   | "waiting"
   | "plan_node"

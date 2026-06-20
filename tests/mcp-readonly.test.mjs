@@ -52,7 +52,7 @@ function setupContext() {
       links: [],
       status_updates: [],
       knowledge_nodes: [claim, evidence],
-      knowledge_relations: [relation],
+      knowledge_edges: [relation],
     },
   });
 }

@@ -1,5 +1,5 @@
 const MAX_IMPORT_BYTES = 1024 * 1024;
-const PAYLOAD_KEYS = new Set(["items", "notes", "links", "knowledge_nodes", "knowledge_relations"]);
+const PAYLOAD_KEYS = new Set(["items", "notes", "links", "knowledge_nodes", "knowledge_edges"]);
 const ITEM_KINDS = new Set(["task", "milestone", "period", "waiting", "reminder", "idea"]);
 const ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "done", "inbox"]);
 const PRIORITIES = new Set(["normal", "high"]);
@@ -78,9 +78,9 @@ export function parseAiImportPayload(raw, themes, collections) {
     ...normalizeArray(payload, "links").map((entry) => normalizeLink(entry, themes, collections.links || [])),
     ...normalizeArray(payload, "knowledge_nodes").map((entry, index) => normalizeKnowledgeNode(entry, index, themes, collections.knowledge_nodes || [])),
   ];
-  candidates.push(...normalizeArray(payload, "knowledge_relations").map((entry) =>
-    normalizeKnowledgeRelation(entry, candidates, collections.knowledge_nodes || [], collections.knowledge_relations || [])));
-  if (!candidates.length) throw new Error("items、notes、links、knowledge_nodes、knowledge_relationsのいずれかを含めてください。");
+  candidates.push(...normalizeArray(payload, "knowledge_edges").map((entry) =>
+    normalizeKnowledgeEdge(entry, candidates, collections.knowledge_nodes || [], collections.knowledge_edges || [])));
+  if (!candidates.length) throw new Error("items、notes、links、knowledge_nodes、knowledge_edgesのいずれかを含めてください。");
   return { candidates, payloadIssues };
 }
 
@@ -167,7 +167,7 @@ function normalizeKnowledgeNode(entry, index, themes, collection) {
   return finishCandidate(base, normalized);
 }
 
-function normalizeKnowledgeRelation(entry, nodeCandidates, nodes, collection) {
+function normalizeKnowledgeEdge(entry, nodeCandidates, nodes, collection) {
   const issues = [];
   const relationType = enumValue(entry.relation_type, KNOWLEDGE_RELATION_TYPES, "supports", issues, "relation_type");
   const sourceTempId = text(entry.source_temp_id);
@@ -181,7 +181,7 @@ function normalizeKnowledgeRelation(entry, nodeCandidates, nodes, collection) {
   if (!sourceKnown && !sourceCandidate) issues.push("source_temp_idまたはsource_node_idを解決できません");
   if (!targetKnown && !targetCandidate) issues.push("target_temp_idまたはtarget_node_idを解決できません");
   if ((sourceNodeId && sourceNodeId === targetNodeId) || (sourceTempId && sourceTempId === targetTempId)) {
-    issues.push("relationの自己参照はできません");
+    issues.push("edgeの自己参照はできません");
   }
   const normalized = {
     source_temp_id: sourceTempId,
@@ -190,16 +190,15 @@ function normalizeKnowledgeRelation(entry, nodeCandidates, nodes, collection) {
     target_node_id: targetNodeId,
     relation_type: relationType,
     description: text(entry.description),
-    confidence: enumValue(entry.confidence, CONFIDENCE, "medium", issues, "confidence"),
   };
-  return finishCandidate({ type: "knowledge_relation", duplicate: findDuplicateRelation(collection, normalized), issues }, normalized);
+  return finishCandidate({ type: "knowledge_edge", duplicate: findDuplicateEdge(collection, normalized), issues }, normalized);
 }
 
-function findDuplicateRelation(collection, entry) {
-  return collection.find((relation) =>
-    relation.source_node_id === entry.source_node_id
-    && relation.target_node_id === entry.target_node_id
-    && relation.relation_type === entry.relation_type);
+function findDuplicateEdge(collection, entry) {
+  return collection.find((edge) =>
+    edge.source_node_id === entry.source_node_id
+    && edge.target_node_id === entry.target_node_id
+    && edge.relation_type === entry.relation_type);
 }
 
 function finishCandidate(base, entry) {
@@ -272,13 +271,12 @@ export function buildAiImportPrompt(themeNames, aiContextMarkdown) {
       "status": "active | resolved | deprecated | rejected"
     }
   ],
-  "knowledge_relations": [
+  "knowledge_edges": [
     {
       "source_temp_id": "node-1",
       "target_temp_id": "node-2",
       "relation_type": "supports | contradicts | explains | causes | example_of | generalizes | depends_on | derived_from | answers | raises | similar_to | leads_to",
-      "description": "string",
-      "confidence": "low | medium | high"
+      "description": "string"
     }
   ]
 }
@@ -289,7 +287,7 @@ export function buildAiImportPrompt(themeNames, aiContextMarkdown) {
 - Themeが不明なら空文字にする
 - 日付が曖昧なら null
 - 依存関係や親子関係は作らない
-- Knowledge Relationは同じ出力内のknowledge_nodesをtemp_idで参照する
+- Knowledge Edgeは同じ出力内のknowledge_nodesをtemp_idで参照する
 - 完了済みへの更新は避ける
 - 推測しすぎず、候補として安全に出す
 - ユーザーがTasken上で確認してから保存する前提

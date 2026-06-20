@@ -309,7 +309,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                       <textarea value={draft.description} onChange={(event) => patchDraft(row.entry.id, { description: event.target.value })} />
                     </label>
                     <div className="form-actions">
-                      <button className="secondary-button compact" onClick={() => openDrawer({ type: "capture_entry", entity: row.entry as Record<string, unknown> })}>詳細</button>
+                      <button className="secondary-button compact" onClick={() => openDrawer({ type: "capture_entry", entity: row.entry as unknown as Record<string, unknown> })}>詳細</button>
                       <button className="primary-button compact" onClick={() => organize(row)}>整理する</button>
                     </div>
                   </div>

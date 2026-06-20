@@ -4,10 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
-  assertDependencyAcyclic,
   assertEntityType,
   assertItemParentAcyclic,
-  assertKnowledgeRelationAcyclic,
   hasPath,
   normalizeEntity,
   validateEntity,
@@ -52,6 +50,8 @@ function isPlainObject(value) {
 }
 
 function collectionKey(type) {
+  if (type === "task_dependency") return "task_dependencies";
+  if (type === "plan_dependency") return "plan_dependencies";
   return `${type}s`;
 }
 
@@ -286,18 +286,6 @@ export class WorkspaceDatabase {
     requireReference("link", entity.source_link_id, "source_link_id");
     requireReference("item", entity.source_item_id, "source_item_id");
 
-    if (type === "dependency") {
-      requireReference("item", entity.source_item_id, "source_item_id");
-      requireReference("item", entity.target_item_id, "target_item_id");
-    }
-    if (type === "knowledge_relation") {
-      requireReference("knowledge_node", entity.source_node_id, "source_node_id");
-      requireReference("knowledge_node", entity.target_node_id, "target_node_id");
-    }
-    if (type === "relation") {
-      requireReference(entity.source_entity_type, entity.source_entity_id, "source_entity_id");
-      requireReference(entity.target_entity_type, entity.target_entity_id, "target_entity_id");
-    }
     if (type === "field_value" || type === "entity_source") {
       requireReference(entity.entity_type, entity.entity_id, "entity_id");
     }
@@ -359,8 +347,6 @@ export class WorkspaceDatabase {
 
   validateGraph(type, entity) {
     if (type === "item") this.validateItemParentGraph(entity);
-    if (type === "dependency") this.validateDependencyGraph(entity);
-    if (type === "knowledge_relation") this.validateKnowledgeRelationGraph(entity);
     if (type === "task" && entity.parent_task_id) this.validateTaskParentGraph(entity);
     if (type === "plan_node" && entity.parent_plan_node_id) this.validatePlanNodeParentGraph(entity);
     if (type === "task_dependency") this.validateTaskDependencyGraph(entity);
@@ -369,14 +355,6 @@ export class WorkspaceDatabase {
 
   validateItemParentGraph(entity) {
     assertItemParentAcyclic(this.list("item"), entity);
-  }
-
-  validateDependencyGraph(entity) {
-    assertDependencyAcyclic(this.list("dependency"), entity);
-  }
-
-  validateKnowledgeRelationGraph(entity) {
-    assertKnowledgeRelationAcyclic(this.list("knowledge_relation"), entity);
   }
 
   validateTaskParentGraph(entity) {
@@ -461,21 +439,6 @@ export class WorkspaceDatabase {
         requireSnapshotReference(type, record, "note", record.source_note_id, "source_note_id");
         requireSnapshotReference(type, record, "link", record.source_link_id, "source_link_id");
         requireSnapshotReference(type, record, "item", record.source_item_id, "source_item_id");
-        if (type === "dependency") {
-          requireSnapshotReference(type, record, "item", record.source_item_id, "source_item_id");
-          requireSnapshotReference(type, record, "item", record.target_item_id, "target_item_id");
-        }
-        if (type === "knowledge_relation") {
-          requireSnapshotReference(type, record, "knowledge_node", record.source_node_id, "source_node_id");
-          requireSnapshotReference(type, record, "knowledge_node", record.target_node_id, "target_node_id");
-        }
-        if (type === "relation") {
-          if (!workspaceEntityTypes.includes(record.source_entity_type) || !workspaceEntityTypes.includes(record.target_entity_type)) {
-            throw new Error("relationの参照先種別が不正です。");
-          }
-          requireSnapshotReference(type, record, record.source_entity_type, record.source_entity_id, "source_entity_id");
-          requireSnapshotReference(type, record, record.target_entity_type, record.target_entity_id, "target_entity_id");
-        }
         if (type === "field_value" || type === "entity_source") {
           if (!workspaceEntityTypes.includes(record.entity_type)) throw new Error(`${type}.entity_typeが不正です。`);
           requireSnapshotReference(type, record, record.entity_type, record.entity_id, "entity_id");
@@ -530,29 +493,15 @@ export class WorkspaceDatabase {
     }
 
     this.validateSnapshotItemParentGraph(snapshot.items || []);
-    this.validateSnapshotDependencyGraph(snapshot.dependencys || []);
-    this.validateSnapshotKnowledgeRelationGraph(snapshot.knowledge_relations || []);
     this.validateSnapshotTaskParentGraph(snapshot.tasks || []);
     this.validateSnapshotPlanNodeParentGraph(snapshot.plan_nodes || []);
-    this.validateSnapshotTaskDependencyGraph(snapshot.task_dependencys || []);
-    this.validateSnapshotPlanDependencyGraph(snapshot.plan_dependencys || []);
+    this.validateSnapshotTaskDependencyGraph(snapshot.task_dependencies || []);
+    this.validateSnapshotPlanDependencyGraph(snapshot.plan_dependencies || []);
   }
 
   validateSnapshotItemParentGraph(items) {
     for (const item of items.filter((entry) => !entry.deleted_at)) {
       assertItemParentAcyclic(items, item, "Snapshot内のItem親子関係が循環しています。Import前に親Itemを修正してください。");
-    }
-  }
-
-  validateSnapshotDependencyGraph(dependencies) {
-    for (const dependency of dependencies.filter((entry) => !entry.deleted_at)) {
-      assertDependencyAcyclic(dependencies, dependency, "Snapshot内のDependencyが循環しています。Import前に依存関係を修正してください。");
-    }
-  }
-
-  validateSnapshotKnowledgeRelationGraph(relations) {
-    for (const relation of relations.filter((entry) => !entry.deleted_at)) {
-      assertKnowledgeRelationAcyclic(relations, relation, "Snapshot内のKnowledge Relationが循環しています。Import前に関係の向きを修正してください。");
     }
   }
 
@@ -690,7 +639,6 @@ export class WorkspaceDatabase {
         ["knowledge_node", "source_item_id"],
         ["log_entry", "item_id"],
       ], id);
-      this.cascadeWhere("dependency", (entry) => entry.source_item_id === id || entry.target_item_id === id, type, id);
     }
 
     if (type === "note") {
@@ -716,7 +664,7 @@ export class WorkspaceDatabase {
 
     if (type === "knowledge_node") {
       this.cascadeWhere(
-        "knowledge_relation",
+        "knowledge_edge",
         (entry) => entry.source_node_id === id || entry.target_node_id === id,
         type,
         id,
@@ -724,13 +672,6 @@ export class WorkspaceDatabase {
     }
 
     if (["theme", "item", "note", "link", "source_record", "knowledge_node"].includes(type)) {
-      this.cascadeWhere(
-        "relation",
-        (entry) => (entry.source_entity_type === type && entry.source_entity_id === id)
-          || (entry.target_entity_type === type && entry.target_entity_id === id),
-        type,
-        id,
-      );
       this.cascadeWhere(
         "entity_source",
         (entry) => (entry.entity_type === type && entry.entity_id === id)

@@ -49,12 +49,12 @@ import { InboxPage } from "./pages/InboxPage";
 import { ChatRefsPage } from "./pages/ChatRefsPage";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
-  "themes", "items", "notes", "links", "resources", "dependencys", "views",
-  "status_updates", "source_records", "entity_sources", "relations",
+  "themes", "items", "notes", "links", "resources", "views",
+  "status_updates", "source_records", "entity_sources",
   "field_definitions", "field_values", "log_entries", "import_batchs",
-  "knowledge_nodes", "knowledge_relations", "ai_proposals", "plan_revisions",
+  "knowledge_nodes", "ai_proposals", "plan_revisions",
   "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
-  "schedules", "references", "task_dependencys", "plan_dependencys",
+  "schedules", "references", "task_dependencies", "plan_dependencies",
   "knowledge_edges", "change_events",
 ];
 
@@ -484,17 +484,17 @@ export function WorkspaceApp() {
         is_required: values.get("is_required") === "on",
       };
       if (!entity.name) { setToast("項目名を入力してください。"); return; }
-    } else if (type === "relation") {
+    } else if (type === "reference") {
       entity = {
         ...base,
-        source_entity_type: formText(values, "source_entity_type", "item"),
-        source_entity_id: formText(values, "source_entity_id"),
-        target_entity_type: formText(values, "target_entity_type", "item"),
-        target_entity_id: formText(values, "target_entity_id"),
-        relation_type: formText(values, "relation_type", "relates_to"),
-        description: formText(values, "description"),
+        source_type: formText(values, "source_type", "task"),
+        source_id: formText(values, "source_id"),
+        target_type: formText(values, "target_type", "task"),
+        target_id: formText(values, "target_id"),
+        relation_type: formText(values, "relation_type", "related_to"),
+        note: formText(values, "note"),
       };
-      if (!entity.source_entity_id || !entity.target_entity_id) { setToast("関係元と関係先を選択してください。"); return; }
+      if (!entity.source_id || !entity.target_id) { setToast("参照元と参照先を選択してください。"); return; }
     } else if (type === "knowledge_node") {
       const sourceType = formText(values, "source_type") || null;
       const sourceId = formText(values, "source_id") || null;
@@ -513,27 +513,25 @@ export function WorkspaceApp() {
         status: formText(values, "status", "active"),
       };
       if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return; }
-    } else if (type === "knowledge_relation") {
+    } else if (type === "knowledge_edge") {
       entity = {
         ...base,
         source_node_id: formText(values, "source_node_id"),
         target_node_id: formText(values, "target_node_id"),
         relation_type: formText(values, "relation_type", "supports"),
         description: formText(values, "description"),
-        confidence: formText(values, "confidence", "medium"),
       };
       if (!entity.source_node_id || !entity.target_node_id || entity.source_node_id === entity.target_node_id) {
         setToast("異なる2つのKnowledgeを選択してください。");
         return;
       }
-    } else if (type === "dependency") {
+    } else if (type === "task_dependency") {
       entity = {
         ...base,
-        source_item_id: formText(values, "source_item_id"),
-        target_item_id: formText(values, "target_item_id"),
-        dependency_type: "finish_to_start",
+        task_id: formText(values, "task_id"),
+        depends_on_task_id: formText(values, "depends_on_task_id"),
       };
-      if (!entity.source_item_id || !entity.target_item_id || entity.source_item_id === entity.target_item_id) {
+      if (!entity.task_id || !entity.depends_on_task_id || entity.task_id === entity.depends_on_task_id) {
         setToast("異なる2つのタスクを選択してください。");
         return;
       }

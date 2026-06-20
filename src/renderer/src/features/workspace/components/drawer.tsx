@@ -145,8 +145,8 @@ interface EntityDrawerProps {
 }
 
 function findSchedule(data: WorkspaceData, ownerType: string, ownerId: string, passedSchedule?: unknown): Schedule | undefined {
-  if (passedSchedule && typeof passedSchedule === "object" && "id" in (passedSchedule as object)) return passedSchedule as Schedule;
-  return (data.schedules || []).find((s) => (s as Schedule).owner_type === ownerType && (s as Schedule).owner_id === ownerId) as Schedule | undefined;
+  if (passedSchedule && typeof passedSchedule === "object" && "id" in (passedSchedule as object)) return passedSchedule as unknown as Schedule;
+  return (data.schedules || []).find((s) => (s as unknown as Schedule).owner_type === ownerType && (s as unknown as Schedule).owner_id === ownerId) as unknown as Schedule | undefined;
 }
 
 export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
@@ -184,11 +184,11 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
         onDelete={() => removeEntity("resource", entity)}
       >
         <h2>{str(entity.title)}</h2>
-        {entity.url && <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>}
+        {Boolean(entity.url) && <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>}
         <dl>
           <dt>Theme</dt><dd>{themeName}</dd>
         </dl>
-        {entity.description && <p>{str(entity.description)}</p>}
+        {Boolean(entity.description) && <p>{str(entity.description)}</p>}
       </DetailDrawer>
     );
   }
@@ -329,10 +329,10 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
     status_update: "現在地",
     source_record: "情報源",
     field_definition: "追加項目",
-    relation: "関連づけ",
-    dependency: "依存",
+    reference: "参照",
+    task_dependency: "タスク依存",
     knowledge_node: "Knowledge",
-    knowledge_relation: "Knowledge Relation",
+    knowledge_edge: "Knowledge Edge",
     task: "タスク",
     waiting: "待ち",
     plan_node: "計画ノード",
@@ -419,16 +419,15 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
             <label className="toggle"><input name="is_required" type="checkbox" defaultChecked={Boolean(entity.is_required)} />必須</label>
           </>
         )}
-        {type === "dependency" && (
+        {type === "task_dependency" && (
           <>
-            <Field label="先行タスク"><select name="source_item_id" defaultValue={str(entity.source_item_id)}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field>
-            <Field label="後続タスク"><select name="target_item_id" defaultValue={str(entity.target_item_id)}><option value="">選択</option>{(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field>
-            <p className="field-help">初期実装ではfinish-to-startのみ扱います。</p>
+            <Field label="タスク"><select name="task_id" defaultValue={str(entity.task_id)}><option value="">選択</option>{(data.tasks || []).map((t) => <option key={t.id} value={t.id}>{str(t.title)}</option>)}</select></Field>
+            <Field label="依存先タスク"><select name="depends_on_task_id" defaultValue={str(entity.depends_on_task_id)}><option value="">選択</option>{(data.tasks || []).map((t) => <option key={t.id} value={t.id}>{str(t.title)}</option>)}</select></Field>
           </>
         )}
-        {type === "relation" && <RelationFields entity={entity} data={data} />}
+        {type === "reference" && <ReferenceFields entity={entity} data={data} />}
         {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
-        {type === "knowledge_relation" && <KnowledgeRelationFields entity={entity} data={data} />}
+        {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
         {type === "task" && <TaskFields entity={entity} data={data} />}
         {type === "waiting" && <WaitingFields entity={entity} data={data} />}
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
@@ -440,24 +439,27 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
 }
 
 
-function RelationFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
-  const [targetType, setTargetType] = useState(str(entity.target_entity_type) || "item");
-  const collections: Record<string, { id: string; title?: string; source_title?: string; name?: string }[]> = {
-    item: data.items || [],
+function ReferenceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const [sourceType, setSourceType] = useState(str(entity.source_type) || "task");
+  const [targetType, setTargetType] = useState(str(entity.target_type) || "task");
+  const REF_TYPES: Record<string, { id: string; title?: string; name?: string }[]> = {
+    task: data.tasks || [],
+    project: data.projects || [],
     note: data.notes || [],
-    link: data.links || [],
-    source_record: data.source_records || [],
+    resource: [...(data.resources || []), ...(data.links || [])],
+    knowledge_node: data.knowledge_nodes || [],
   };
-  const targets = collections[targetType] || [];
+  const sourceOptions = REF_TYPES[sourceType] || [];
+  const targetOptions = REF_TYPES[targetType] || [];
+  const RELATION_TYPES = ["related_to", "derived_from", "mentions", "blocks", "supports"];
   return (
     <>
-      <input type="hidden" name="source_entity_type" value={str(entity.source_entity_type) || "item"} />
-      <input type="hidden" name="source_entity_id" value={str(entity.source_entity_id)} />
-      <Field label="関係種別"><select name="relation_type" defaultValue={str(entity.relation_type) || "relates_to"}>{["blocks", "blocked_by", "relates_to", "duplicated_by", "follows", "references", "created_from", "evidence_for", "caused_by", "supports"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="関係先の種類"><select name="target_entity_type" value={targetType} onChange={(event) => setTargetType(event.target.value)}><option value="item">タスク</option><option value="note">メモ</option><option value="link">リンク</option><option value="source_record">情報源</option></select></Field>
-      <Field label="関係先"><select name="target_entity_id" defaultValue={str(entity.target_entity_id)} key={targetType}><option value="">選択</option>{targets.map((target) => <option key={target.id} value={target.id}>{target.title || target.source_title || target.name}</option>)}</select></Field>
-      {!targets.length && <p className="field-help">選択できる{targetType}がありません。先に対象を追加してください。</p>}
-      <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      <Field label="参照元の種類"><select name="source_type" value={sourceType} onChange={(e) => setSourceType(e.target.value)}>{Object.keys(REF_TYPES).map((k) => <option key={k} value={k}>{k}</option>)}</select></Field>
+      <Field label="参照元"><select name="source_id" defaultValue={str(entity.source_id)} key={sourceType}><option value="">選択</option>{sourceOptions.map((o) => <option key={o.id} value={o.id}>{o.title || o.name}</option>)}</select></Field>
+      <Field label="関係種別"><select name="relation_type" defaultValue={str(entity.relation_type) || "related_to"}>{RELATION_TYPES.map((v) => <option key={v}>{v}</option>)}</select></Field>
+      <Field label="参照先の種類"><select name="target_type" value={targetType} onChange={(e) => setTargetType(e.target.value)}>{Object.keys(REF_TYPES).map((k) => <option key={k} value={k}>{k}</option>)}</select></Field>
+      <Field label="参照先"><select name="target_id" defaultValue={str(entity.target_id)} key={targetType}><option value="">選択</option>{targetOptions.map((o) => <option key={o.id} value={o.id}>{o.title || o.name}</option>)}</select></Field>
+      <Field label="メモ"><textarea name="note" defaultValue={str(entity.note)} /></Field>
     </>
   );
 }
@@ -498,7 +500,7 @@ function KnowledgeNodeFields({ entity, data }: { entity: DrawerConfig["entity"];
 const SOURCE_TYPE_LABELS: Record<string, string> = { note: "メモ", resource: "リソース", task: "タスク", waiting: "待ち", plan_node: "計画ノード" };
 
 function resolveSourceType(entity: DrawerConfig["entity"]): string {
-  if (entity.source_type) return entity.source_type;
+  if (entity.source_type) return str(entity.source_type);
   if (entity.source_note_id) return "note";
   if (entity.source_link_id) return "resource";
   if (entity.source_item_id) return "task";
@@ -518,7 +520,7 @@ function KnowledgeSourceFields({ entity, data }: { entity: DrawerConfig["entity"
   const candidates: Record<string, { id: string; title: string }[]> = {
     note: (data.notes || []).map((n) => ({ id: n.id, title: n.title })),
     resource: [
-      ...(data.resources || []).map((r) => ({ id: r.id, title: r.title })),
+      ...(data.resources || []).map((r) => ({ id: r.id, title: str(r.title) })),
       ...(data.links || []).filter((l) => !(data.resources || []).some((r) => r.id === l.id)).map((l) => ({ id: l.id, title: l.title })),
     ],
     task: (data.items || []).filter((i) => i.kind === "task" || !i.kind).map((i) => ({ id: i.id, title: i.title })),
@@ -544,7 +546,7 @@ function KnowledgeSourceFields({ entity, data }: { entity: DrawerConfig["entity"
   );
 }
 
-function KnowledgeRelationFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+function KnowledgeEdgeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const nodes = data.knowledge_nodes || [];
   return (
     <>
@@ -563,13 +565,6 @@ function KnowledgeRelationFields({ entity, data }: { entity: DrawerConfig["entit
         <select name="target_node_id" defaultValue={str(entity.target_node_id)}>
           <option value="">選択</option>
           {nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
-        </select>
-      </Field>
-      <Field label="確度">
-        <select name="confidence" defaultValue={str(entity.confidence) || "medium"}>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
         </select>
       </Field>
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
@@ -679,7 +674,6 @@ function NoteDetailDrawer({
                 theme_id: note.theme_id || null,
                 source_type: "note",
                 source_id: note.id,
-                source_note_id: note.id,
                 confidence: "medium",
                 status: "active",
               },
@@ -706,7 +700,7 @@ function KnowledgeNodeDetailDrawer({
   close: CloseDrawer;
   removeEntity: RemoveEntity;
 }) {
-  const relations = (data.knowledge_relations || []).filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id);
+  const relations = ((data.knowledge_edges || []) as unknown as import("../domain-model/types").KnowledgeEdge[]).filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id);
   const sourceLabel = (() => {
     if (node.source_type && node.source_id) {
       const typeLabel = SOURCE_TYPE_LABELS[node.source_type] || node.source_type;
@@ -741,14 +735,14 @@ function KnowledgeNodeDetailDrawer({
               const other = data.knowledge_nodes.find((entry) => entry.id === (isSource ? relation.target_node_id : relation.source_node_id));
               return (
                 <div key={relation.id}>
-                  <span>{isSource ? "→" : "←"} {relation.relation_type}: {other?.title || "不明"}</span>
+                  <span>{isSource ? "→" : "←"} {relation.relation_type}: {str(other?.title) || "不明"}</span>
                 </div>
               );
             })}
           </div>
         )}
         <div className="drawer-actions">
-          <button className="secondary-button" onClick={() => close({ type: "knowledge_relation", mode: "edit", entity: { source_node_id: node.id } })}>関係を追加</button>
+          <button className="secondary-button" onClick={() => close({ type: "knowledge_edge", mode: "edit", entity: { source_node_id: node.id } })}>関係を追加</button>
           <button className="primary-button" onClick={() => close({ type: "knowledge_node", mode: "edit", entity: node })}>編集する</button>
           <button className="danger-button" onClick={() => removeEntity("knowledge_node", node)}>削除する</button>
         </div>

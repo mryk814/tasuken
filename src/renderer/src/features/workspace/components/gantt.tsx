@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { Dependency, Item } from "../types";
+import type { BaseRecord, Item } from "../types";
+
+type Dependency = BaseRecord;
 import { DAY, hasPlannedSchedule, itemLevel, statusProgress } from "../lib/domain";
-import { daysBetween, localDateIso } from "../lib/format";
+import { daysBetween, localDateIso, str } from "../lib/format";
 import type { GanttRange, TimelineRow } from "../lib/timeline";
 
 export interface SelectedDependency {
@@ -309,13 +311,15 @@ export function DependencyOverlay({
   const ROW_H = 44;
   const rowIndexOf = (id?: string) => rows.findIndex((row) => row.rowType === "item" && (row.item.id === id || row.laneItems.some((item) => item.id === id)));
   const lines = dependencies.flatMap((dependency) => {
-    const sourceIndex = rowIndexOf(dependency.source_item_id);
-    const targetIndex = rowIndexOf(dependency.target_item_id);
+    const sourceItemId = str(dependency.source_item_id);
+    const targetItemId = str(dependency.target_item_id);
+    const sourceIndex = rowIndexOf(sourceItemId);
+    const targetIndex = rowIndexOf(targetItemId);
     if (sourceIndex < 0 || targetIndex < 0) return [];
     const sourceRow = rows[sourceIndex] as ItemRow;
     const targetRow = rows[targetIndex] as ItemRow;
-    const source = sourceRow.item.id === dependency.source_item_id ? sourceRow.item : sourceRow.laneItems.find((item) => item.id === dependency.source_item_id) || sourceRow.item;
-    const target = targetRow.item.id === dependency.target_item_id ? targetRow.item : targetRow.laneItems.find((item) => item.id === dependency.target_item_id) || targetRow.item;
+    const source = sourceRow.item.id === sourceItemId ? sourceRow.item : sourceRow.laneItems.find((item) => item.id === sourceItemId) || sourceRow.item;
+    const target = targetRow.item.id === targetItemId ? targetRow.item : targetRow.laneItems.find((item) => item.id === targetItemId) || targetRow.item;
     const sourceDate = source.planned_end;
     const targetDate = target.planned_start || target.planned_end;
     if (!sourceDate || !targetDate) return [];

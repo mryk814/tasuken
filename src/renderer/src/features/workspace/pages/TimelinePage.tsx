@@ -64,7 +64,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const today = todayIso();
   const timelineWorkspace = legacyTimelineWorkspace(data, v2);
   const timelineItems = timelineWorkspace.items || [];
-  const timelineDependencies = timelineWorkspace.dependencys || [];
+  const timelineDependencies = timelineWorkspace.dependencies || [];
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -110,26 +110,17 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   async function deleteDependency(sel: SelectedDependency) {
     try {
       const v2Id = timelineFindDependencyV2Id(sel.dependency, v2);
-      if (v2Id) {
-        const planDep = v2.plan_dependencies.find((pd) => pd.id === v2Id);
-        await removeEntityQuiet("plan_dependency", v2Id);
-        pushUndo({
-          label: "依存削除",
-          run: async () => {
-            if (planDep) {
-              await saveEntity("plan_dependency", planDep as unknown as Record<string, unknown>);
-            }
-          },
-        });
-      } else {
-        await removeEntityQuiet("dependency", sel.dependency.id);
-        pushUndo({
-          label: "依存削除",
-          run: async () => {
-            await saveEntity("dependency", sel.dependency);
-          },
-        });
-      }
+      const depId = v2Id || sel.dependency.id;
+      const planDep = v2.plan_dependencies.find((pd) => pd.id === depId);
+      await removeEntityQuiet("plan_dependency", depId);
+      pushUndo({
+        label: "依存削除",
+        run: async () => {
+          if (planDep) {
+            await saveEntity("plan_dependency", planDep as unknown as Record<string, unknown>);
+          }
+        },
+      });
       setToast("依存を削除しました。Ctrl+Zで元に戻せます。");
     } catch {
       setToast("依存を削除できませんでした。");
@@ -161,17 +152,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
           run: async () => { await removeEntityQuiet("plan_dependency", depId); },
         });
       } else {
-        const saved = await saveEntity("dependency", {
-          id: uuid(),
-          source_item_id: connecting.sourceId,
-          target_item_id: target.id,
-          dependency_type: "finish_to_start",
-        });
-        pushUndo({
-          label: "依存追加",
-          run: async () => { await removeEntityQuiet("dependency", saved.id); },
-        });
-        setToast(`依存を追加: ${connecting.sourceTitle} → ${target.title}`);
+        setToast("対応する計画ノードが見つかりません。先にPlanNodeを追加してください。");
       }
     } catch {
       // saveEntity already shows error toast

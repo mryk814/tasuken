@@ -47,7 +47,7 @@ test("AI Import accepts knowledge nodes and relation candidates through preview"
       { temp_id: "claim-1", node_type: "claim", title: "条件Bが遅延要因", theme: "材料A評価", confidence: "medium" },
       { temp_id: "evidence-1", node_type: "evidence", title: "測定ログ", theme: "材料A評価", confidence: "high" },
     ],
-    knowledge_relations: [
+    knowledge_edges: [
       { source_temp_id: "claim-1", target_temp_id: "evidence-1", relation_type: "supports" },
       { source_temp_id: "missing", target_temp_id: "evidence-1", relation_type: "supports" },
     ],
@@ -56,12 +56,12 @@ test("AI Import accepts knowledge nodes and relation candidates through preview"
     notes: [],
     links: [],
     knowledge_nodes: [],
-    knowledge_relations: [],
+    knowledge_edges: [],
   });
 
   assert.equal(preview.candidates[0].type, "knowledge_node");
   assert.equal(preview.candidates[0].action, "create");
-  assert.equal(preview.candidates[2].type, "knowledge_relation");
+  assert.equal(preview.candidates[2].type, "knowledge_edge");
   assert.equal(preview.candidates[2].action, "create");
   assert.equal(preview.candidates[3].action, "ignore");
   assert.match(preview.candidates[3].issues.join(" / "), /解決できません/);

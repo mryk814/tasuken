@@ -1,4 +1,4 @@
-import type { Dependency, Item, SaveOperation, WorkspaceData } from "../../types";
+import type { BaseRecord, Item, SaveOperation, WorkspaceData } from "../../types";
 import { addDays } from "../../lib/format";
 import type { PlanDependency, PlanNode, Schedule, WorkspaceDomain } from "../types";
 import { buildSavePlanNodeOperations, buildSaveScheduleOperations } from "../persistence";
@@ -51,12 +51,12 @@ export function v2TimelineItems(domain: WorkspaceDomain): TimelineItem[] {
   });
 }
 
-export function v2TimelineDependencies(domain: WorkspaceDomain): Dependency[] {
+export function v2TimelineDependencies(domain: WorkspaceDomain): BaseRecord[] {
   return domain.plan_dependencies.map((dependency) => {
     const planNode = domain.plan_nodes.find((node) => node.id === dependency.plan_node_id);
     const dependsOn = domain.plan_nodes.find((node) => node.id === dependency.depends_on_plan_node_id);
     return {
-      id: dependency.legacy_dependency_id || dependency.id,
+      id: dependency.id,
       source_item_id: dependsOn?.legacy_item_id || dependency.depends_on_plan_node_id,
       target_item_id: planNode?.legacy_item_id || dependency.plan_node_id,
       dependency_type: dependency.dependency_type || undefined,
@@ -141,11 +141,15 @@ export function timelineAddPlanDraft(parent: TimelineItem): Partial<TimelineItem
 }
 
 
-export function legacyTimelineWorkspace(data: WorkspaceData, domain: WorkspaceDomain): WorkspaceData {
+export interface TimelineWorkspace {
+  items: Item[];
+  dependencies: BaseRecord[];
+}
+
+export function legacyTimelineWorkspace(_data: WorkspaceData, domain: WorkspaceDomain): TimelineWorkspace {
   return {
-    ...data,
     items: v2TimelineItems(domain),
-    dependencys: v2TimelineDependencies(domain),
+    dependencies: v2TimelineDependencies(domain),
   };
 }
 
@@ -232,9 +236,9 @@ export function timelineAddDependencyOperations(
   };
 }
 
-export function timelineFindDependencyV2Id(dep: Dependency, domain: WorkspaceDomain): string | null {
+export function timelineFindDependencyV2Id(dep: BaseRecord, domain: WorkspaceDomain): string | null {
   const match = domain.plan_dependencies.find(
-    (pd) => pd.legacy_dependency_id === dep.id || pd.id === dep.id,
+    (pd) => pd.id === dep.id,
   );
   return match?.id || null;
 }

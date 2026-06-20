@@ -3,18 +3,15 @@ export const entityTypes = [
   "item",
   "note",
   "link",
-  "dependency",
   "view",
   "status_update",
   "source_record",
   "entity_source",
-  "relation",
   "field_definition",
   "field_value",
   "log_entry",
   "import_batch",
   "knowledge_node",
-  "knowledge_relation",
   "ai_proposal",
   "resource",
   "project",
@@ -57,18 +54,15 @@ export interface Workspace {
   notes?: Entity[];
   links?: Entity[];
   resources?: Entity[];
-  dependencys?: Entity[];
   views?: Entity[];
   status_updates?: Entity[];
   source_records?: Entity[];
   entity_sources?: Entity[];
-  relations?: Entity[];
   field_definitions?: Entity[];
   field_values?: Entity[];
   log_entries?: Entity[];
   import_batchs?: Entity[];
   knowledge_nodes?: Entity[];
-  knowledge_relations?: Entity[];
   ai_proposals?: Entity[];
   projects?: Entity[];
   capture_entrys?: Entity[];
@@ -77,8 +71,8 @@ export interface Workspace {
   plan_nodes?: Entity[];
   schedules?: Entity[];
   references?: Entity[];
-  task_dependencys?: Entity[];
-  plan_dependencys?: Entity[];
+  task_dependencies?: Entity[];
+  plan_dependencies?: Entity[];
   knowledge_edges?: Entity[];
   change_events?: Entity[];
   plan_revisions?: Entity[];

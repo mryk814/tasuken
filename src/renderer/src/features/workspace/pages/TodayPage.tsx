@@ -298,7 +298,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         return;
       }
       if (row.v2.type === "capture") {
-        openDrawer({ type: "capture_entry", entity: row.v2.captureEntry as Record<string, unknown> });
+        openDrawer({ type: "capture_entry", entity: row.v2.captureEntry as unknown as Record<string, unknown> });
         return;
       }
     }

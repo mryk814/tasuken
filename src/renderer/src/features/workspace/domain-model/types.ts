@@ -155,8 +155,6 @@ export interface Reference {
   target_id: string;
   relation_type: "related_to" | "derived_from" | "mentions" | "blocks" | "supports";
   note?: string | null;
-  legacy_relation_id?: string | null;
-  legacy_dependency_id?: string | null;
 }
 
 export interface TaskDependency {
@@ -164,7 +162,6 @@ export interface TaskDependency {
   task_id: string;
   depends_on_task_id: string;
   dependency_type?: string | null;
-  legacy_dependency_id?: string | null;
 }
 
 export interface PlanDependency {
@@ -172,7 +169,6 @@ export interface PlanDependency {
   plan_node_id: string;
   depends_on_plan_node_id: string;
   dependency_type?: string | null;
-  legacy_dependency_id?: string | null;
 }
 
 export interface KnowledgeEdge {
@@ -181,7 +177,6 @@ export interface KnowledgeEdge {
   target_node_id: string;
   relation_type: string;
   description?: string | null;
-  legacy_relation_id?: string | null;
 }
 
 export interface ChangeEvent {

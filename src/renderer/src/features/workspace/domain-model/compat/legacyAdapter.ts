@@ -4,7 +4,7 @@
  * 責任: 旧 Item/Link/Theme/Dependency の読み込み・v2 変換・移行・逆投影（export互換）。
  * ここに新しい業務ロジックを追加しない。新機能は v2 entity に直接実装すること。
  */
-import type { BaseRecord, Dependency, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../types";
+import type { BaseRecord, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../types";
 import type {
   CaptureEntry,
   ChangeEvent,
@@ -485,68 +485,6 @@ function applyParentLinks(workspace: WorkspaceDomain, items: Item[], itemRefsByL
   }
 }
 
-function applyDependencyLinks(workspace: WorkspaceDomain, dependencies: Dependency[], itemRefsByLegacyId: Map<string, LegacyItemRef>, report: MigrationReport): void {
-  for (const dependency of dependencies) {
-    const sourceLegacyId = nullableText(dependency.source_item_id);
-    const targetLegacyId = nullableText(dependency.target_item_id);
-    if (!sourceLegacyId || !targetLegacyId) continue;
-
-    const source = itemRefsByLegacyId.get(sourceLegacyId);
-    const target = itemRefsByLegacyId.get(targetLegacyId);
-    if (!source || !target) {
-      report.warningCounts.missingDependencyEndpoint += 1;
-      report.warnings.push(`Dependency ${dependency.id} referenced missing item endpoint.`);
-      continue;
-    }
-
-    if (source.type === "task" && target.type === "task") {
-      workspace.task_dependencies.push({
-        id: legacyId("task-dependency", dependency.id),
-        task_id: target.id,
-        depends_on_task_id: source.id,
-        dependency_type: nullableText(dependency.dependency_type),
-        legacy_dependency_id: dependency.id,
-      });
-      continue;
-    }
-
-    if (source.type === "plan_node" && target.type === "plan_node") {
-      workspace.plan_dependencies.push({
-        id: legacyId("plan-dependency", dependency.id),
-        plan_node_id: target.id,
-        depends_on_plan_node_id: source.id,
-        dependency_type: nullableText(dependency.dependency_type),
-        legacy_dependency_id: dependency.id,
-      });
-      continue;
-    }
-
-    workspace.references.push({
-      id: legacyId("dependency-reference", dependency.id),
-      source_type: source.type,
-      source_id: source.id,
-      target_type: target.type,
-      target_id: target.id,
-      relation_type: "blocks",
-      note: nullableText(dependency.dependency_type),
-      legacy_dependency_id: dependency.id,
-    });
-    report.warningCounts.mixedDependencyToReference += 1;
-    report.warnings.push(`Dependency ${dependency.id} was mixed type and converted to Reference(blocks).`);
-  }
-}
-
-function applyKnowledgeEdges(workspace: WorkspaceDomain, data: WorkspaceData): void {
-  workspace.knowledge_edges = (data.knowledge_relations || []).map((relation) => ({
-    id: relation.id,
-    source_node_id: String(relation.source_node_id || ""),
-    target_node_id: String(relation.target_node_id || ""),
-    relation_type: String(relation.relation_type || "related_to"),
-    description: nullableText(relation.description),
-    legacy_relation_id: relation.id,
-  })).filter((edge) => edge.source_node_id && edge.target_node_id);
-}
-
 function updateCreatedCounts(workspace: WorkspaceDomain, report: MigrationReport): void {
   report.created.Project = workspace.projects.length;
   report.created.CaptureEntry = workspace.capture_entries.length;
@@ -591,8 +529,6 @@ export function legacyWorkspaceToDomainMigration(data: WorkspaceData): DomainMig
 
   workspace.knowledge_nodes = (data.knowledge_nodes || []).map((node) => migrateKnowledgeNode(node, itemRefsByLegacyId));
   applyParentLinks(workspace, items, itemRefsByLegacyId, report);
-  applyDependencyLinks(workspace, data.dependencys || [], itemRefsByLegacyId, report);
-  applyKnowledgeEdges(workspace, data);
   updateCreatedCounts(workspace, report);
 
   return { workspace, report };
@@ -655,8 +591,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pPlanNodes = castRecords<PlanNode>(data.plan_nodes);
   const pSchedules = castRecords<Schedule>(data.schedules);
   const pReferences = castRecords<Reference>(data.references);
-  const pTaskDeps = castRecords<TaskDependency>(data.task_dependencys);
-  const pPlanDeps = castRecords<PlanDependency>(data.plan_dependencys);
+  const pTaskDeps = castRecords<TaskDependency>(data.task_dependencies);
+  const pPlanDeps = castRecords<PlanDependency>(data.plan_dependencies);
   const pKnowledgeEdges = castRecords<KnowledgeEdge>(data.knowledge_edges);
   const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
   const pResources = castRecords<Resource>(data.resources);
@@ -679,10 +615,10 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     notes: legacy.notes as Note[],
     resources: mergeById(pResources, legacy.resources),
     knowledge_nodes: legacy.knowledge_nodes,
-    references: mergeV2(pReferences, legacy.references, "legacy_dependency_id"),
-    task_dependencies: mergeV2(pTaskDeps, legacy.task_dependencies, "legacy_dependency_id"),
-    plan_dependencies: mergeV2(pPlanDeps, legacy.plan_dependencies, "legacy_dependency_id"),
-    knowledge_edges: mergeV2(pKnowledgeEdges, legacy.knowledge_edges, "legacy_relation_id"),
+    references: mergeById(pReferences, legacy.references),
+    task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
+    plan_dependencies: mergeById(pPlanDeps, legacy.plan_dependencies),
+    knowledge_edges: mergeById(pKnowledgeEdges, legacy.knowledge_edges),
     change_events: mergeV2(pChangeEvents, legacy.change_events, "legacy_item_id"),
   };
 }
@@ -722,7 +658,6 @@ export function formatMigrationReport(report: MigrationReport): string {
 export interface MigrationOperations {
   saveOperations: import("../../types").SaveOperation[];
   deleteItemIds: string[];
-  deleteDependencyIds: string[];
   deleteLinkIds: string[];
   deleteThemeIds: string[];
   report: MigrationReport;
@@ -748,16 +683,16 @@ export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOp
   const persistedCaptureIds = new Set(castRecords<CaptureEntry>(data.capture_entrys).flatMap((c) => [c.id, c.legacy_item_id].filter(Boolean) as string[]));
   const persistedScheduleIds = new Set(castRecords<Schedule>(data.schedules).map((s) => s.id));
   const persistedResourceIds = new Set(castRecords<Resource>(data.resources).map((r) => r.id));
-  const persistedTaskDepIds = new Set(castRecords<TaskDependency>(data.task_dependencys).flatMap((d) => [d.id, d.legacy_dependency_id].filter(Boolean) as string[]));
-  const persistedPlanDepIds = new Set(castRecords<PlanDependency>(data.plan_dependencys).flatMap((d) => [d.id, d.legacy_dependency_id].filter(Boolean) as string[]));
+  const persistedTaskDepIds = new Set(castRecords<TaskDependency>(data.task_dependencies).map((d) => d.id));
+  const persistedPlanDepIds = new Set(castRecords<PlanDependency>(data.plan_dependencies).map((d) => d.id));
 
   type Entity = import("../../types").Entity;
   type SaveOp = import("../../types").SaveOperation;
   const ops: SaveOp[] = [];
   const src = "migration";
 
-  const isNew = (id: string, legacyId: string | null | undefined, existing: Set<string>) =>
-    !existing.has(id) && !(legacyId && existing.has(legacyId));
+  const isNew = (id: string, _legacyId: string | null | undefined, existing: Set<string>) =>
+    !existing.has(id);
 
   for (const proj of derived.projects) {
     if (isNew(proj.id, proj.legacy_theme_id, persistedProjectIds)) {
@@ -795,22 +730,21 @@ export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOp
     }
   }
   for (const td of derived.task_dependencies) {
-    if (isNew(td.id, td.legacy_dependency_id, persistedTaskDepIds)) {
+    if (isNew(td.id, null, persistedTaskDepIds)) {
       ops.push({ action: "save", type: "task_dependency", entity: td as unknown as Entity, options: { source: src } });
     }
   }
   for (const pd of derived.plan_dependencies) {
-    if (isNew(pd.id, pd.legacy_dependency_id, persistedPlanDepIds)) {
+    if (isNew(pd.id, null, persistedPlanDepIds)) {
       ops.push({ action: "save", type: "plan_dependency", entity: pd as unknown as Entity, options: { source: src } });
     }
   }
 
   const deleteItemIds = (data.items || []).map((item) => item.id);
-  const deleteDependencyIds = (data.dependencys || []).map((dep) => dep.id);
   const deleteLinkIds = (data.links || []).map((link) => link.id);
   const deleteThemeIds = (data.themes || []).map((theme) => theme.id);
 
-  return { saveOperations: ops, deleteItemIds, deleteDependencyIds, deleteLinkIds, deleteThemeIds, report };
+  return { saveOperations: ops, deleteItemIds, deleteLinkIds, deleteThemeIds, report };
 }
 
 function scheduleByOwner(domain: WorkspaceDomain): Map<string, Schedule> {
@@ -918,32 +852,28 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
       theme_id: resource.project_id,
       source_record_id: resource.source_record_id,
     })),
-    dependencys: compact([
-      ...domain.task_dependencies.map((dependency): Dependency => ({
-        id: dependency.legacy_dependency_id || dependency.id,
-        source_item_id: dependency.depends_on_task_id,
-        target_item_id: dependency.task_id,
-        dependency_type: dependency.dependency_type || undefined,
-      })),
-      ...domain.plan_dependencies.map((dependency): Dependency => ({
-        id: dependency.legacy_dependency_id || dependency.id,
-        source_item_id: dependency.depends_on_plan_node_id,
-        target_item_id: dependency.plan_node_id,
-        dependency_type: dependency.dependency_type || undefined,
-      })),
-    ]),
     views: base?.views || [],
     status_updates: base?.status_updates || [],
     source_records: base?.source_records || [],
     entity_sources: base?.entity_sources || [],
-    relations: base?.relations || [],
+    resources: base?.resources || [],
     field_definitions: base?.field_definitions || [],
     field_values: base?.field_values || [],
     log_entries: base?.log_entries || [],
     import_batchs: base?.import_batchs || [],
     knowledge_nodes: base?.knowledge_nodes || [],
-    knowledge_relations: base?.knowledge_relations || [],
+    references: base?.references || [],
+    task_dependencies: base?.task_dependencies || [],
+    plan_dependencies: base?.plan_dependencies || [],
+    knowledge_edges: base?.knowledge_edges || [],
     ai_proposals: base?.ai_proposals || [],
+    projects: base?.projects || [],
+    capture_entrys: base?.capture_entrys || [],
+    tasks: base?.tasks || [],
+    waitings: base?.waitings || [],
+    plan_nodes: base?.plan_nodes || [],
+    schedules: base?.schedules || [],
+    change_events: base?.change_events || [],
     plan_revisions: base?.plan_revisions || [],
     meta: base?.meta,
   };

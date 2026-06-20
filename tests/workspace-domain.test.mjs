@@ -28,18 +28,15 @@ function workspace(overrides = {}) {
     items: [],
     notes: [],
     links: [],
-    dependencys: [],
     views: [],
     status_updates: [],
     source_records: [],
     entity_sources: [],
-    relations: [],
     field_definitions: [],
     field_values: [],
     log_entries: [],
     import_batchs: [],
     knowledge_nodes: [],
-    knowledge_relations: [],
     ai_proposals: [],
     plan_revisions: [],
     ...overrides,
@@ -57,11 +54,6 @@ test("compat migration: legacy workspace conversion preserves first-class entity
       { id: "period-1", title: "phase", kind: "period", status: "todo", planned_start: "2026-06-01", planned_end: "2026-06-30" },
       { id: "task-1", title: "write", kind: "task", status: "todo", due_date: "2026-06-19", parent_item_id: "period-1" },
       { id: "unknown-1", title: "mystery", kind: "surprise", status: "todo" },
-    ],
-    dependencys: [
-      { id: "dep-task", source_item_id: "task-1", target_item_id: "unknown-1" },
-      { id: "dep-plan", source_item_id: "period-1", target_item_id: "milestone-1" },
-      { id: "dep-mixed", source_item_id: "task-1", target_item_id: "milestone-1" },
     ],
     knowledge_nodes: [
       { id: "knowledge-1", title: "plan evidence", node_type: "evidence", source_item_id: "period-1" },
@@ -82,13 +74,13 @@ test("compat migration: legacy workspace conversion preserves first-class entity
   assert.equal(domain.plan_nodes.find((node) => node.legacy_item_id === "milestone-1")?.type, "milestone");
   assert.equal(domain.plan_nodes.find((node) => node.legacy_item_id === "period-1")?.type, "phase");
   assert.equal(domain.tasks.find((task) => task.legacy_item_id === "task-1")?.plan_node_id, "plan_node-period-1");
-  assert.equal(domain.task_dependencies.length, 1);
-  assert.equal(domain.plan_dependencies.length, 1);
-  assert.equal(domain.references.length, 1);
+  assert.equal(domain.task_dependencies.length, 0);
+  assert.equal(domain.plan_dependencies.length, 0);
+  assert.equal(domain.references.length, 0);
   assert.equal(domain.knowledge_nodes[0].source_type, "plan_node");
   assert.equal(domain.knowledge_nodes[0].source_id, "plan_node-period-1");
   assert.equal(report.warningCounts.unknownKindToTask, 1);
-  assert.equal(report.warningCounts.mixedDependencyToReference, 1);
+  assert.equal(report.warningCounts.mixedDependencyToReference, 0);
   assert.equal(report.warningCounts.dueDateOnlyToScheduleEnd, 1);
   assert.match(adapter.formatMigrationReport(report), /Migration report\n----------------\nLegacy items: 7/);
 
@@ -255,6 +247,7 @@ test("post-migration smoke: legacy items=[] still produces meaningful views and 
   });
   const exportData = io.buildExportData({
     data: emptyWorkspace,
+    domain: domainOnly,
     themes: [{ id: "proj-1", name: "材料A評価" }],
     items: [],
     activeTheme: null,
@@ -287,7 +280,7 @@ test("post-migration smoke: MCP mergedItems includes plan_nodes", async () => {
       links: [],
       status_updates: [],
       knowledge_nodes: [],
-      knowledge_relations: [],
+      knowledge_edges: [],
       tasks: [{ id: "t1", title: "task", project_id: "theme-1", state: "todo", priority: "normal", updated_at: "2026-06-20T00:00:00.000Z" }],
       waitings: [{ id: "w1", title: "wait", project_id: "theme-1", waiting_for: "Lab", state: "waiting", updated_at: "2026-06-20T00:00:00.000Z" }],
       plan_nodes: [{ id: "pn1", title: "milestone", project_id: "theme-1", type: "milestone", state: "planned", sort_order: 1, updated_at: "2026-06-20T00:00:00.000Z" }],

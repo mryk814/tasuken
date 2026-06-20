@@ -52,8 +52,9 @@ test("link URL validation allows web and mailto but rejects file", () => {
 test("knowledge entity validation rejects invalid enums", () => {
   assert.doesNotThrow(() => validateEntity("knowledge_node", { id: "kn-1", node_type: "claim", title: "Claim" }));
   assert.throws(() => validateEntity("knowledge_node", { id: "kn-2", node_type: "unknown", title: "Bad" }), /node_type/);
-  assert.doesNotThrow(() => validateEntity("knowledge_relation", { id: "kr-1", source_node_id: "a", target_node_id: "b", relation_type: "supports" }));
-  assert.throws(() => validateEntity("knowledge_relation", { id: "kr-2", source_node_id: "a", target_node_id: "a", relation_type: "supports" }), /自分自身/);
+  assert.doesNotThrow(() => validateEntity("knowledge_edge", { id: "ke-1", source_node_id: "a", target_node_id: "b", relation_type: "supports" }));
+  assert.throws(() => validateEntity("knowledge_edge", { id: "ke-invalid", source_node_id: "a", target_node_id: "b", relation_type: "unknown" }), /relation_type/);
+  assert.throws(() => validateEntity("knowledge_edge", { id: "ke-2", source_node_id: "a", target_node_id: "a", relation_type: "supports" }), /自分自身/);
 });
 
 test("workspace entity types and snapshots include v2 domain records", () => {

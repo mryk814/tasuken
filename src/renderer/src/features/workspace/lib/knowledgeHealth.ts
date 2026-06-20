@@ -1,4 +1,5 @@
-import type { Item, KnowledgeNode, KnowledgeRelation } from "../types";
+import type { Item, KnowledgeNode } from "../types";
+import type { KnowledgeEdge } from "../domain-model/types";
 
 export interface KnowledgeHealthIssue {
   id: string;
@@ -17,13 +18,13 @@ function daysSince(value?: string): number {
   return Math.floor((Date.now() - time) / 86400000);
 }
 
-function hasRelation(node: KnowledgeNode, relations: KnowledgeRelation[], predicate?: (relation: KnowledgeRelation) => boolean): boolean {
+function hasRelation(node: KnowledgeNode, relations: KnowledgeEdge[], predicate?: (relation: KnowledgeEdge) => boolean): boolean {
   return relations.some((relation) =>
     (relation.source_node_id === node.id || relation.target_node_id === node.id)
     && (!predicate || predicate(relation)));
 }
 
-function hasEvidenceSupport(claim: KnowledgeNode, nodes: KnowledgeNode[], relations: KnowledgeRelation[]): boolean {
+function hasEvidenceSupport(claim: KnowledgeNode, nodes: KnowledgeNode[], relations: KnowledgeEdge[]): boolean {
   const evidenceIds = new Set(nodes.filter((node) => node.node_type === "evidence").map((node) => node.id));
   return relations.some((relation) => {
     if (relation.relation_type !== "supports") return false;
@@ -33,7 +34,7 @@ function hasEvidenceSupport(claim: KnowledgeNode, nodes: KnowledgeNode[], relati
   });
 }
 
-export function buildKnowledgeHealth(nodes: KnowledgeNode[], relations: KnowledgeRelation[], items: Item[] = []): KnowledgeHealthIssue[] {
+export function buildKnowledgeHealth(nodes: KnowledgeNode[], relations: KnowledgeEdge[], items: Item[] = []): KnowledgeHealthIssue[] {
   const issues: KnowledgeHealthIssue[] = [];
   const openItemIds = new Set(items.filter((item) => !["done", "cancelled", "archived"].includes(item.status || "")).map((item) => item.id));
   for (const node of nodes.filter((entry) => (entry.status || "active") === "active")) {

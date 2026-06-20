@@ -13,7 +13,7 @@ import { PageHeader } from "../components/common";
 type ImportEntry = Record<string, unknown>;
 
 interface ImportCandidate {
-  type: "item" | "note" | "link" | "knowledge_node" | "knowledge_relation";
+  type: "item" | "note" | "link" | "knowledge_node" | "knowledge_edge";
   entry: ImportEntry;
   theme?: Theme;
   duplicate?: BaseRecord;
@@ -55,7 +55,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
         notes: data.notes || [],
         links: data.links || [],
         knowledge_nodes: data.knowledge_nodes || [],
-        knowledge_relations: data.knowledge_relations || [],
+        knowledge_edges: data.knowledge_edges || [],
       });
       setPreview(parsed);
     } catch (error) {
@@ -202,13 +202,13 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
           },
           options: { source: "imported" },
         });
-      } else if (candidate.type === "knowledge_relation") {
+      } else if (candidate.type === "knowledge_edge") {
         const sourceNodeId = str(entry.source_node_id) || acceptedKnowledgeNodeIds.get(str(entry.source_temp_id)) || "";
         const targetNodeId = str(entry.target_node_id) || acceptedKnowledgeNodeIds.get(str(entry.target_temp_id)) || "";
         if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) continue;
         operations.push({
           action: "save",
-          type: "knowledge_relation",
+          type: "knowledge_edge",
           entity: {
             ...base,
             id: str(base.id) || uuid(),
@@ -216,7 +216,6 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
             target_node_id: targetNodeId,
             relation_type: str(entry.relation_type) || str(base.relation_type) || "supports",
             description: str(entry.description) || str(base.description),
-            confidence: str(entry.confidence) || str(base.confidence) || "medium",
           },
           options: { source: "imported" },
         });
@@ -267,9 +266,6 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
       if (migrationPreview.saveOperations.length) {
         await saveEntities(migrationPreview.saveOperations, `${migrationPreview.saveOperations.length}件のv2エンティティを保存しました。`);
       }
-      for (const id of migrationPreview.deleteDependencyIds) {
-        await removeEntityQuiet("dependency", id);
-      }
       for (const id of migrationPreview.deleteItemIds) {
         await removeEntityQuiet("item", id);
       }
@@ -279,7 +275,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
       for (const id of migrationPreview.deleteThemeIds) {
         await removeEntityQuiet("theme", id);
       }
-      const deletedCount = migrationPreview.deleteItemIds.length + migrationPreview.deleteLinkIds.length + migrationPreview.deleteThemeIds.length + migrationPreview.deleteDependencyIds.length;
+      const deletedCount = migrationPreview.deleteItemIds.length + migrationPreview.deleteLinkIds.length + migrationPreview.deleteThemeIds.length;
       setToast(`マイグレーション完了: ${deletedCount}件のlegacyエンティティを削除しました。`);
       setMigrationPreview(null);
       setMigrationSnapshotDone(false);
@@ -338,7 +334,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
   "notes": [{ "title": "解析方針", "theme": "材料A評価", "note_type": "memo", "body": "条件Bを再確認する", "source_url": "" }],
   "links": [{ "title": "参考", "url": "https://example.com", "link_type": "paper", "theme": "材料A評価", "description": "" }],
   "knowledge_nodes": [{ "temp_id": "n1", "node_type": "claim", "title": "仮説", "theme": "材料A評価", "confidence": "medium" }],
-  "knowledge_relations": []
+  "knowledge_edges": []
 }`}</pre>
           )}
           <textarea value={text} onChange={(event) => { setText(event.target.value); setPreview(null); }} placeholder={'{\n  "items": [\n    { "title": "測定結果を確認", "theme": "材料A評価", "planned_end": "2026-06-20" }\n  ],\n  "knowledge_nodes": [\n    { "temp_id": "n1", "node_type": "claim", "title": "測定条件Bが遅延要因", "theme": "材料A評価" }\n  ]\n}'} />
@@ -391,7 +387,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
             <pre className="schema-help">{formatMigrationReport(migrationPreview.report)}</pre>
             <p className="field-help">
               v2保存: {migrationPreview.saveOperations.length}件 /
-              legacy削除: item {migrationPreview.deleteItemIds.length}件 / dependency {migrationPreview.deleteDependencyIds.length}件 / link {migrationPreview.deleteLinkIds.length}件 / theme {migrationPreview.deleteThemeIds.length}件
+              legacy削除: item {migrationPreview.deleteItemIds.length}件 / link {migrationPreview.deleteLinkIds.length}件 / theme {migrationPreview.deleteThemeIds.length}件
             </p>
             {migrationPreview.report.warnings.length > 0 && (
               <p className="field-help" style={{ color: "var(--color-danger)" }}>
@@ -415,7 +411,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
                   onChange={(event) => setMigrationConfirmed(event.target.checked)}
                   disabled={!migrationSnapshotDone}
                 />
-                変換レポートを確認し、legacy item/dependency/link/themeの削除に同意する
+                変換レポートを確認し、legacy item/link/themeの削除に同意する
               </label>
             </div>
             <div className="form-actions">
