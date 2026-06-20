@@ -8,6 +8,7 @@ import {
   assertEntityType,
   assertItemParentAcyclic,
   assertKnowledgeRelationAcyclic,
+  hasPath,
   normalizeEntity,
   validateEntity,
   workspaceEntityTypes,
@@ -303,12 +304,67 @@ export class WorkspaceDatabase {
     if (type === "entity_source") {
       requireReference("source_record", entity.source_record_id, "source_record_id");
     }
+
+    // v2 domain references
+    const requireV2 = (targetType, id, field) => {
+      if (!id) return;
+      // project_id は project と旧 theme の両方を許容する（移行期間中）
+      if (field === "project_id" && (this.get("project", id) || this.get("theme", id))) return;
+      if (field !== "project_id" && this.get(targetType, id)) return;
+      throw new Error(`${type}.${field}が存在しない${targetType}を参照しています。`);
+    };
+
+    if (type === "task") {
+      requireV2("project", entity.project_id, "project_id");
+      requireV2("plan_node", entity.plan_node_id, "plan_node_id");
+      requireV2("task", entity.parent_task_id, "parent_task_id");
+    }
+    if (type === "waiting") {
+      requireV2("project", entity.project_id, "project_id");
+      requireV2("task", entity.task_id, "task_id");
+    }
+    if (type === "plan_node") {
+      requireV2("project", entity.project_id, "project_id");
+      requireV2("plan_node", entity.parent_plan_node_id, "parent_plan_node_id");
+    }
+    if (type === "schedule") {
+      const ownerType = entity.owner_type;
+      if (ownerType && entity.owner_id) {
+        requireV2(ownerType, entity.owner_id, "owner_id");
+      }
+    }
+    if (type === "resource") {
+      requireV2("project", entity.project_id, "project_id");
+    }
+    if (type === "reference") {
+      requireV2(entity.source_type, entity.source_id, "source_id");
+      requireV2(entity.target_type, entity.target_id, "target_id");
+    }
+    if (type === "task_dependency") {
+      requireV2("task", entity.task_id, "task_id");
+      requireV2("task", entity.depends_on_task_id, "depends_on_task_id");
+    }
+    if (type === "plan_dependency") {
+      requireV2("plan_node", entity.plan_node_id, "plan_node_id");
+      requireV2("plan_node", entity.depends_on_plan_node_id, "depends_on_plan_node_id");
+    }
+    if (type === "knowledge_edge") {
+      requireV2("knowledge_node", entity.source_node_id, "source_node_id");
+      requireV2("knowledge_node", entity.target_node_id, "target_node_id");
+    }
+    if (type === "capture_entry" && entity.triaged_to_type && entity.triaged_to_id) {
+      requireV2(entity.triaged_to_type, entity.triaged_to_id, "triaged_to_id");
+    }
   }
 
   validateGraph(type, entity) {
     if (type === "item") this.validateItemParentGraph(entity);
     if (type === "dependency") this.validateDependencyGraph(entity);
     if (type === "knowledge_relation") this.validateKnowledgeRelationGraph(entity);
+    if (type === "task" && entity.parent_task_id) this.validateTaskParentGraph(entity);
+    if (type === "plan_node" && entity.parent_plan_node_id) this.validatePlanNodeParentGraph(entity);
+    if (type === "task_dependency") this.validateTaskDependencyGraph(entity);
+    if (type === "plan_dependency") this.validatePlanDependencyGraph(entity);
   }
 
   validateItemParentGraph(entity) {
@@ -321,6 +377,54 @@ export class WorkspaceDatabase {
 
   validateKnowledgeRelationGraph(entity) {
     assertKnowledgeRelationAcyclic(this.list("knowledge_relation"), entity);
+  }
+
+  validateTaskParentGraph(entity) {
+    const tasks = this.list("task");
+    const byId = new Map(tasks.filter((t) => !t.deleted_at).map((t) => [String(t.id), t]));
+    byId.set(String(entity.id), entity);
+    const seen = new Set([String(entity.id)]);
+    let currentId = String(entity.parent_task_id || "");
+    while (currentId) {
+      if (seen.has(currentId)) throw new Error("Taskの親子関係が循環しています。別の親Taskを選んでください。");
+      seen.add(currentId);
+      currentId = String(byId.get(currentId)?.parent_task_id || "");
+    }
+  }
+
+  validatePlanNodeParentGraph(entity) {
+    const nodes = this.list("plan_node");
+    const byId = new Map(nodes.filter((n) => !n.deleted_at).map((n) => [String(n.id), n]));
+    byId.set(String(entity.id), entity);
+    const seen = new Set([String(entity.id)]);
+    let currentId = String(entity.parent_plan_node_id || "");
+    while (currentId) {
+      if (seen.has(currentId)) throw new Error("PlanNodeの親子関係が循環しています。別の親PlanNodeを選んでください。");
+      seen.add(currentId);
+      currentId = String(byId.get(currentId)?.parent_plan_node_id || "");
+    }
+  }
+
+  validateTaskDependencyGraph(entity) {
+    if (!entity.task_id || !entity.depends_on_task_id) return;
+    const deps = this.list("task_dependency")
+      .filter((d) => !d.deleted_at && String(d.id) !== String(entity.id))
+      .map((d) => [String(d.task_id), String(d.depends_on_task_id)]);
+    deps.push([String(entity.task_id), String(entity.depends_on_task_id)]);
+    if (hasPath(deps, String(entity.depends_on_task_id), String(entity.task_id))) {
+      throw new Error("TaskDependencyが循環します。依存関係の向きを見直してください。");
+    }
+  }
+
+  validatePlanDependencyGraph(entity) {
+    if (!entity.plan_node_id || !entity.depends_on_plan_node_id) return;
+    const deps = this.list("plan_dependency")
+      .filter((d) => !d.deleted_at && String(d.id) !== String(entity.id))
+      .map((d) => [String(d.plan_node_id), String(d.depends_on_plan_node_id)]);
+    deps.push([String(entity.plan_node_id), String(entity.depends_on_plan_node_id)]);
+    if (hasPath(deps, String(entity.depends_on_plan_node_id), String(entity.plan_node_id))) {
+      throw new Error("PlanDependencyが循環します。依存関係の向きを見直してください。");
+    }
   }
 
   validateSnapshotWorkspace(snapshot) {
@@ -376,12 +480,62 @@ export class WorkspaceDatabase {
           if (!workspaceEntityTypes.includes(record.entity_type)) throw new Error(`${type}.entity_typeが不正です。`);
           requireSnapshotReference(type, record, record.entity_type, record.entity_id, "entity_id");
         }
+
+        // v2 domain references
+        const requireV2Ref = (targetType, id, field) => {
+          if (!id || record.deleted_at) return;
+          if (field === "project_id" && (activeIds.get("project")?.has(String(id)) || activeIds.get("theme")?.has(String(id)))) return;
+          if (field !== "project_id" && activeIds.get(targetType)?.has(String(id))) return;
+          throw new Error(`${type}.${field}がSnapshot内に存在しない${targetType}を参照しています。`);
+        };
+        if (type === "task") {
+          requireV2Ref("project", record.project_id, "project_id");
+          requireV2Ref("plan_node", record.plan_node_id, "plan_node_id");
+          requireV2Ref("task", record.parent_task_id, "parent_task_id");
+        }
+        if (type === "waiting") {
+          requireV2Ref("project", record.project_id, "project_id");
+          requireV2Ref("task", record.task_id, "task_id");
+        }
+        if (type === "plan_node") {
+          requireV2Ref("project", record.project_id, "project_id");
+          requireV2Ref("plan_node", record.parent_plan_node_id, "parent_plan_node_id");
+        }
+        if (type === "schedule" && record.owner_type && record.owner_id) {
+          requireV2Ref(record.owner_type, record.owner_id, "owner_id");
+        }
+        if (type === "resource") {
+          requireV2Ref("project", record.project_id, "project_id");
+        }
+        if (type === "reference") {
+          requireV2Ref(record.source_type, record.source_id, "source_id");
+          requireV2Ref(record.target_type, record.target_id, "target_id");
+        }
+        if (type === "task_dependency") {
+          requireV2Ref("task", record.task_id, "task_id");
+          requireV2Ref("task", record.depends_on_task_id, "depends_on_task_id");
+        }
+        if (type === "plan_dependency") {
+          requireV2Ref("plan_node", record.plan_node_id, "plan_node_id");
+          requireV2Ref("plan_node", record.depends_on_plan_node_id, "depends_on_plan_node_id");
+        }
+        if (type === "knowledge_edge") {
+          requireV2Ref("knowledge_node", record.source_node_id, "source_node_id");
+          requireV2Ref("knowledge_node", record.target_node_id, "target_node_id");
+        }
+        if (type === "capture_entry" && record.triaged_to_type && record.triaged_to_id) {
+          requireV2Ref(record.triaged_to_type, record.triaged_to_id, "triaged_to_id");
+        }
       }
     }
 
     this.validateSnapshotItemParentGraph(snapshot.items || []);
     this.validateSnapshotDependencyGraph(snapshot.dependencys || []);
     this.validateSnapshotKnowledgeRelationGraph(snapshot.knowledge_relations || []);
+    this.validateSnapshotTaskParentGraph(snapshot.tasks || []);
+    this.validateSnapshotPlanNodeParentGraph(snapshot.plan_nodes || []);
+    this.validateSnapshotTaskDependencyGraph(snapshot.task_dependencys || []);
+    this.validateSnapshotPlanDependencyGraph(snapshot.plan_dependencys || []);
   }
 
   validateSnapshotItemParentGraph(items) {
@@ -399,6 +553,62 @@ export class WorkspaceDatabase {
   validateSnapshotKnowledgeRelationGraph(relations) {
     for (const relation of relations.filter((entry) => !entry.deleted_at)) {
       assertKnowledgeRelationAcyclic(relations, relation, "Snapshot内のKnowledge Relationが循環しています。Import前に関係の向きを修正してください。");
+    }
+  }
+
+  validateSnapshotTaskParentGraph(tasks) {
+    const active = tasks.filter((t) => !t.deleted_at);
+    for (const task of active) {
+      if (!task.parent_task_id) continue;
+      const byId = new Map(active.map((t) => [String(t.id), t]));
+      const seen = new Set([String(task.id)]);
+      let currentId = String(task.parent_task_id);
+      while (currentId) {
+        if (seen.has(currentId)) throw new Error("Snapshot内のTask親子関係が循環しています。Import前に親Taskを修正してください。");
+        seen.add(currentId);
+        currentId = String(byId.get(currentId)?.parent_task_id || "");
+      }
+    }
+  }
+
+  validateSnapshotPlanNodeParentGraph(nodes) {
+    const active = nodes.filter((n) => !n.deleted_at);
+    for (const node of active) {
+      if (!node.parent_plan_node_id) continue;
+      const byId = new Map(active.map((n) => [String(n.id), n]));
+      const seen = new Set([String(node.id)]);
+      let currentId = String(node.parent_plan_node_id);
+      while (currentId) {
+        if (seen.has(currentId)) throw new Error("Snapshot内のPlanNode親子関係が循環しています。Import前に親PlanNodeを修正してください。");
+        seen.add(currentId);
+        currentId = String(byId.get(currentId)?.parent_plan_node_id || "");
+      }
+    }
+  }
+
+  validateSnapshotTaskDependencyGraph(deps) {
+    for (const dep of deps.filter((d) => !d.deleted_at)) {
+      if (!dep.task_id || !dep.depends_on_task_id) continue;
+      const edges = deps
+        .filter((d) => !d.deleted_at && String(d.id) !== String(dep.id))
+        .map((d) => [String(d.task_id), String(d.depends_on_task_id)]);
+      edges.push([String(dep.task_id), String(dep.depends_on_task_id)]);
+      if (hasPath(edges, String(dep.depends_on_task_id), String(dep.task_id))) {
+        throw new Error("Snapshot内のTaskDependencyが循環しています。Import前に依存関係を修正してください。");
+      }
+    }
+  }
+
+  validateSnapshotPlanDependencyGraph(deps) {
+    for (const dep of deps.filter((d) => !d.deleted_at)) {
+      if (!dep.plan_node_id || !dep.depends_on_plan_node_id) continue;
+      const edges = deps
+        .filter((d) => !d.deleted_at && String(d.id) !== String(dep.id))
+        .map((d) => [String(d.plan_node_id), String(d.depends_on_plan_node_id)]);
+      edges.push([String(dep.plan_node_id), String(dep.depends_on_plan_node_id)]);
+      if (hasPath(edges, String(dep.depends_on_plan_node_id), String(dep.plan_node_id))) {
+        throw new Error("Snapshot内のPlanDependencyが循環しています。Import前に依存関係を修正してください。");
+      }
     }
   }
 

@@ -23,6 +23,7 @@ const entityKeys: Record<EntityType, keyof Workspace> = {
   item: "items",
   note: "notes",
   link: "links",
+  resource: "resources",
   dependency: "dependencys",
   view: "views",
   status_update: "status_updates",

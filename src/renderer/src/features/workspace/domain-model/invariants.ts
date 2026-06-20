@@ -111,6 +111,112 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
+  // project_id が存在する
+  const projectIds = allEntityIds.project;
+  for (const task of domain.tasks) {
+    if (task.project_id && !projectIds.has(task.project_id)) {
+      violations.push({ rule: "project_ref_exists", entity_type: "task", entity_id: task.id, message: `Task ${task.id} references project ${task.project_id} which does not exist.` });
+    }
+  }
+  for (const waiting of domain.waitings) {
+    if (waiting.project_id && !projectIds.has(waiting.project_id)) {
+      violations.push({ rule: "project_ref_exists", entity_type: "waiting", entity_id: waiting.id, message: `Waiting ${waiting.id} references project ${waiting.project_id} which does not exist.` });
+    }
+  }
+  for (const node of domain.plan_nodes) {
+    if (node.project_id && !projectIds.has(node.project_id)) {
+      violations.push({ rule: "project_ref_exists", entity_type: "plan_node", entity_id: node.id, message: `PlanNode ${node.id} references project ${node.project_id} which does not exist.` });
+    }
+  }
+
+  // parent_task_id が存在し循環しない
+  const taskIds = ownerSets.task;
+  const planNodeIds = ownerSets.plan_node;
+  for (const task of domain.tasks) {
+    if (task.parent_task_id) {
+      if (!taskIds.has(task.parent_task_id)) {
+        violations.push({ rule: "parent_task_exists", entity_type: "task", entity_id: task.id, message: `Task ${task.id} references parent_task ${task.parent_task_id} which does not exist.` });
+      }
+    }
+    if (task.plan_node_id && !planNodeIds.has(task.plan_node_id)) {
+      violations.push({ rule: "plan_node_ref_exists", entity_type: "task", entity_id: task.id, message: `Task ${task.id} references plan_node ${task.plan_node_id} which does not exist.` });
+    }
+  }
+
+  // parent_plan_node_id が存在する
+  for (const node of domain.plan_nodes) {
+    if (node.parent_plan_node_id && !planNodeIds.has(node.parent_plan_node_id)) {
+      violations.push({ rule: "parent_plan_node_exists", entity_type: "plan_node", entity_id: node.id, message: `PlanNode ${node.id} references parent_plan_node ${node.parent_plan_node_id} which does not exist.` });
+    }
+  }
+
+  // Task.task_id in Waiting が存在する
+  for (const waiting of domain.waitings) {
+    if (waiting.task_id && !taskIds.has(waiting.task_id)) {
+      violations.push({ rule: "waiting_task_ref_exists", entity_type: "waiting", entity_id: waiting.id, message: `Waiting ${waiting.id} references task ${waiting.task_id} which does not exist.` });
+    }
+  }
+
+  // Reference の source/target が存在する
+  for (const ref of domain.references) {
+    const sourceSet = allEntityIds[ref.source_type];
+    if (sourceSet && !sourceSet.has(ref.source_id)) {
+      violations.push({ rule: "reference_source_exists", entity_type: "reference", entity_id: ref.id, message: `Reference ${ref.id} source ${ref.source_type}:${ref.source_id} does not exist.` });
+    }
+    const targetSet = allEntityIds[ref.target_type];
+    if (targetSet && !targetSet.has(ref.target_id)) {
+      violations.push({ rule: "reference_target_exists", entity_type: "reference", entity_id: ref.id, message: `Reference ${ref.id} target ${ref.target_type}:${ref.target_id} does not exist.` });
+    }
+  }
+
+  // TaskDependency の task_id/depends_on_task_id が存在する
+  for (const dep of domain.task_dependencies) {
+    if (!taskIds.has(dep.task_id)) {
+      violations.push({ rule: "task_dep_ref_exists", entity_type: "task_dependency", entity_id: dep.id, message: `TaskDependency ${dep.id} references task ${dep.task_id} which does not exist.` });
+    }
+    if (!taskIds.has(dep.depends_on_task_id)) {
+      violations.push({ rule: "task_dep_ref_exists", entity_type: "task_dependency", entity_id: dep.id, message: `TaskDependency ${dep.id} references task ${dep.depends_on_task_id} which does not exist.` });
+    }
+  }
+
+  // PlanDependency の plan_node_id/depends_on_plan_node_id が存在する
+  for (const dep of domain.plan_dependencies) {
+    if (!planNodeIds.has(dep.plan_node_id)) {
+      violations.push({ rule: "plan_dep_ref_exists", entity_type: "plan_dependency", entity_id: dep.id, message: `PlanDependency ${dep.id} references plan_node ${dep.plan_node_id} which does not exist.` });
+    }
+    if (!planNodeIds.has(dep.depends_on_plan_node_id)) {
+      violations.push({ rule: "plan_dep_ref_exists", entity_type: "plan_dependency", entity_id: dep.id, message: `PlanDependency ${dep.id} references plan_node ${dep.depends_on_plan_node_id} which does not exist.` });
+    }
+  }
+
+  // parent_task_id 循環チェック
+  const taskParentAdj = new Map<string, string[]>();
+  for (const task of domain.tasks) {
+    if (task.parent_task_id) {
+      const list = taskParentAdj.get(task.parent_task_id) || [];
+      list.push(task.id);
+      taskParentAdj.set(task.parent_task_id, list);
+    }
+  }
+  const taskParentCycle = hasCycle(taskParentAdj);
+  if (taskParentCycle.hasCycle) {
+    violations.push({ rule: "task_parent_acyclic", entity_type: "task", entity_id: taskParentCycle.path.join(" → "), message: `Task parent cycle detected: ${taskParentCycle.path.join(" → ")}.` });
+  }
+
+  // parent_plan_node_id 循環チェック
+  const planParentAdj = new Map<string, string[]>();
+  for (const node of domain.plan_nodes) {
+    if (node.parent_plan_node_id) {
+      const list = planParentAdj.get(node.parent_plan_node_id) || [];
+      list.push(node.id);
+      planParentAdj.set(node.parent_plan_node_id, list);
+    }
+  }
+  const planParentCycle = hasCycle(planParentAdj);
+  if (planParentCycle.hasCycle) {
+    violations.push({ rule: "plan_node_parent_acyclic", entity_type: "plan_node", entity_id: planParentCycle.path.join(" → "), message: `PlanNode parent cycle detected: ${planParentCycle.path.join(" → ")}.` });
+  }
+
   // legacy_item_id 由来の重複がない
   function checkLegacyDuplicates<T extends { id: string; legacy_item_id?: string | null }>(
     entities: T[],

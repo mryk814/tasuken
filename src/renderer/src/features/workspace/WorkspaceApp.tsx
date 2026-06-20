@@ -48,7 +48,7 @@ import { InboxPage } from "./pages/InboxPage";
 import { ChatRefsPage } from "./pages/ChatRefsPage";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
-  "themes", "items", "notes", "links", "dependencys", "views",
+  "themes", "items", "notes", "links", "resources", "dependencys", "views",
   "status_updates", "source_records", "entity_sources", "relations",
   "field_definitions", "field_values", "log_entries", "import_batchs",
   "knowledge_nodes", "knowledge_relations", "ai_proposals", "plan_revisions",

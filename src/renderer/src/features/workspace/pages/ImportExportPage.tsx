@@ -273,7 +273,14 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
       for (const id of migrationPreview.deleteItemIds) {
         await removeEntityQuiet("item", id);
       }
-      setToast(`マイグレーション完了: ${migrationPreview.deleteItemIds.length}件のlegacy itemを削除しました。`);
+      for (const id of migrationPreview.deleteLinkIds) {
+        await removeEntityQuiet("link", id);
+      }
+      for (const id of migrationPreview.deleteThemeIds) {
+        await removeEntityQuiet("theme", id);
+      }
+      const deletedCount = migrationPreview.deleteItemIds.length + migrationPreview.deleteLinkIds.length + migrationPreview.deleteThemeIds.length + migrationPreview.deleteDependencyIds.length;
+      setToast(`マイグレーション完了: ${deletedCount}件のlegacyエンティティを削除しました。`);
       setMigrationPreview(null);
       setMigrationSnapshotDone(false);
       setMigrationConfirmed(false);
@@ -384,8 +391,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
             <pre className="schema-help">{formatMigrationReport(migrationPreview.report)}</pre>
             <p className="field-help">
               v2保存: {migrationPreview.saveOperations.length}件 /
-              legacy item削除: {migrationPreview.deleteItemIds.length}件 /
-              legacy dependency削除: {migrationPreview.deleteDependencyIds.length}件
+              legacy削除: item {migrationPreview.deleteItemIds.length}件 / dependency {migrationPreview.deleteDependencyIds.length}件 / link {migrationPreview.deleteLinkIds.length}件 / theme {migrationPreview.deleteThemeIds.length}件
             </p>
             {migrationPreview.report.warnings.length > 0 && (
               <p className="field-help" style={{ color: "var(--color-danger)" }}>
@@ -409,7 +415,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
                   onChange={(event) => setMigrationConfirmed(event.target.checked)}
                   disabled={!migrationSnapshotDone}
                 />
-                変換レポートを確認し、{migrationPreview.deleteItemIds.length}件のlegacy itemと{migrationPreview.deleteDependencyIds.length}件のdependencyの削除に同意する
+                変換レポートを確認し、legacy item/dependency/link/themeの削除に同意する
               </label>
             </div>
             <div className="form-actions">

@@ -16,6 +16,7 @@ export const workspaceEntityTypes = [
   "knowledge_node",
   "knowledge_relation",
   "ai_proposal",
+  "resource",
   "project",
   "capture_entry",
   "task",
@@ -34,6 +35,7 @@ const requiredTextFields = {
   item: ["title"],
   note: ["title", "body_markdown"],
   link: ["title", "url"],
+  resource: ["title"],
   status_update: ["theme_id", "summary"],
   source_record: ["source_title"],
   field_definition: ["name", "field_type", "applies_to"],
@@ -133,7 +135,7 @@ function isAllowedExternalUrl(value) {
   }
 }
 
-function hasPath(edges, fromId, toId) {
+export function hasPath(edges, fromId, toId) {
   const graph = new Map();
   for (const [sourceId, targetId] of edges) {
     if (!sourceId || !targetId) continue;

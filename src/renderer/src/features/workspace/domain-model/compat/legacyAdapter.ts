@@ -1,3 +1,9 @@
+/**
+ * Legacy compatibility layer.
+ *
+ * 責任: 旧 Item/Link/Theme/Dependency の読み込み・v2 変換・移行・逆投影（export互換）。
+ * ここに新しい業務ロジックを追加しない。新機能は v2 entity に直接実装すること。
+ */
 import type { BaseRecord, Dependency, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../types";
 import type {
   CaptureEntry,
@@ -56,6 +62,7 @@ export interface MigrationReport {
     Waiting: number;
     PlanNode: number;
     Schedule: number;
+    Resource: number;
     Reference: number;
     TaskDependency: number;
     PlanDependency: number;
@@ -403,6 +410,7 @@ function emptyMigrationReport(legacyItems: number): MigrationReport {
       Waiting: 0,
       PlanNode: 0,
       Schedule: 0,
+      Resource: 0,
       Reference: 0,
       TaskDependency: 0,
       PlanDependency: 0,
@@ -546,6 +554,7 @@ function updateCreatedCounts(workspace: WorkspaceDomain, report: MigrationReport
   report.created.Waiting = workspace.waitings.length;
   report.created.PlanNode = workspace.plan_nodes.length;
   report.created.Schedule = workspace.schedules.length;
+  report.created.Resource = workspace.resources.length;
   report.created.Reference = workspace.references.length;
   report.created.TaskDependency = workspace.task_dependencies.length;
   report.created.PlanDependency = workspace.plan_dependencies.length;
@@ -626,6 +635,12 @@ function mergeV2<T extends { id: string }>(
   return [...persisted, ...supplemental];
 }
 
+function mergeById<T extends { id: string }>(persisted: T[], legacyDerived: T[]): T[] {
+  if (!persisted.length) return legacyDerived;
+  const ids = new Set(persisted.map((e) => e.id));
+  return [...persisted, ...legacyDerived.filter((e) => !ids.has(e.id))];
+}
+
 function castRecords<T>(records: BaseRecord[] | undefined): T[] {
   return (records || []) as unknown as T[];
 }
@@ -644,12 +659,13 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pPlanDeps = castRecords<PlanDependency>(data.plan_dependencys);
   const pKnowledgeEdges = castRecords<KnowledgeEdge>(data.knowledge_edges);
   const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
+  const pResources = castRecords<Resource>(data.resources);
 
   const hasPersistedV2 =
     pProjects.length || pCaptures.length || pTasks.length ||
     pWaitings.length || pPlanNodes.length || pSchedules.length ||
     pReferences.length || pTaskDeps.length || pPlanDeps.length ||
-    pKnowledgeEdges.length || pChangeEvents.length;
+    pKnowledgeEdges.length || pChangeEvents.length || pResources.length;
 
   if (!hasPersistedV2) return legacy;
 
@@ -661,7 +677,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     plan_nodes: mergeV2(pPlanNodes, legacy.plan_nodes, "legacy_item_id"),
     schedules: mergeV2(pSchedules, legacy.schedules, "legacy_item_id"),
     notes: legacy.notes as Note[],
-    resources: legacy.resources,
+    resources: mergeById(pResources, legacy.resources),
     knowledge_nodes: legacy.knowledge_nodes,
     references: mergeV2(pReferences, legacy.references, "legacy_dependency_id"),
     task_dependencies: mergeV2(pTaskDeps, legacy.task_dependencies, "legacy_dependency_id"),
@@ -691,6 +707,7 @@ export function formatMigrationReport(report: MigrationReport): string {
     `- Waiting: ${report.created.Waiting}`,
     `- PlanNode: ${report.created.PlanNode}`,
     `- Schedule: ${report.created.Schedule}`,
+    `- Resource: ${report.created.Resource}`,
     `- Reference: ${report.created.Reference}`,
     `- TaskDependency: ${report.created.TaskDependency}`,
     `- PlanDependency: ${report.created.PlanDependency}`,
@@ -706,17 +723,31 @@ export interface MigrationOperations {
   saveOperations: import("../../types").SaveOperation[];
   deleteItemIds: string[];
   deleteDependencyIds: string[];
+  deleteLinkIds: string[];
+  deleteThemeIds: string[];
   report: MigrationReport;
 }
 
+/**
+ * 旧 Item/Link/Theme/Dependency を v2 entity として保存する migration operations を生成する。
+ *
+ * 責任範囲:
+ * - 旧データを v2 entity に変換し、未保存分のみ SaveOperation として返す
+ * - 移行済みの旧データの削除候補 ID を返す
+ *
+ * この関数は「入口」であり、業務ロジックを置く場所ではない。
+ * 新機能は v2 entity (Task/Waiting/PlanNode/Resource 等) に対して直接実装すること。
+ */
 export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOperations {
   const { workspace: derived, report } = legacyWorkspaceToDomainMigration(data);
 
+  const persistedProjectIds = new Set(castRecords<Project>(data.projects).flatMap((p) => [p.id, p.legacy_theme_id].filter(Boolean) as string[]));
   const persistedTaskIds = new Set(castRecords<Task>(data.tasks).flatMap((t) => [t.id, t.legacy_item_id].filter(Boolean) as string[]));
   const persistedWaitingIds = new Set(castRecords<Waiting>(data.waitings).flatMap((w) => [w.id, w.legacy_item_id].filter(Boolean) as string[]));
   const persistedPlanNodeIds = new Set(castRecords<PlanNode>(data.plan_nodes).flatMap((p) => [p.id, p.legacy_item_id].filter(Boolean) as string[]));
   const persistedCaptureIds = new Set(castRecords<CaptureEntry>(data.capture_entrys).flatMap((c) => [c.id, c.legacy_item_id].filter(Boolean) as string[]));
   const persistedScheduleIds = new Set(castRecords<Schedule>(data.schedules).map((s) => s.id));
+  const persistedResourceIds = new Set(castRecords<Resource>(data.resources).map((r) => r.id));
   const persistedTaskDepIds = new Set(castRecords<TaskDependency>(data.task_dependencys).flatMap((d) => [d.id, d.legacy_dependency_id].filter(Boolean) as string[]));
   const persistedPlanDepIds = new Set(castRecords<PlanDependency>(data.plan_dependencys).flatMap((d) => [d.id, d.legacy_dependency_id].filter(Boolean) as string[]));
 
@@ -728,6 +759,11 @@ export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOp
   const isNew = (id: string, legacyId: string | null | undefined, existing: Set<string>) =>
     !existing.has(id) && !(legacyId && existing.has(legacyId));
 
+  for (const proj of derived.projects) {
+    if (isNew(proj.id, proj.legacy_theme_id, persistedProjectIds)) {
+      ops.push({ action: "save", type: "project", entity: proj as unknown as Entity, options: { source: src } });
+    }
+  }
   for (const t of derived.tasks) {
     if (isNew(t.id, t.legacy_item_id, persistedTaskIds)) {
       ops.push({ action: "save", type: "task", entity: t as unknown as Entity, options: { source: src } });
@@ -753,6 +789,11 @@ export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOp
       ops.push({ action: "save", type: "schedule", entity: s as unknown as Entity, options: { source: src } });
     }
   }
+  for (const r of derived.resources) {
+    if (!persistedResourceIds.has(r.id)) {
+      ops.push({ action: "save", type: "resource", entity: r as unknown as Entity, options: { source: src } });
+    }
+  }
   for (const td of derived.task_dependencies) {
     if (isNew(td.id, td.legacy_dependency_id, persistedTaskDepIds)) {
       ops.push({ action: "save", type: "task_dependency", entity: td as unknown as Entity, options: { source: src } });
@@ -766,8 +807,10 @@ export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOp
 
   const deleteItemIds = (data.items || []).map((item) => item.id);
   const deleteDependencyIds = (data.dependencys || []).map((dep) => dep.id);
+  const deleteLinkIds = (data.links || []).map((link) => link.id);
+  const deleteThemeIds = (data.themes || []).map((theme) => theme.id);
 
-  return { saveOperations: ops, deleteItemIds, deleteDependencyIds, report };
+  return { saveOperations: ops, deleteItemIds, deleteDependencyIds, deleteLinkIds, deleteThemeIds, report };
 }
 
 function scheduleByOwner(domain: WorkspaceDomain): Map<string, Schedule> {

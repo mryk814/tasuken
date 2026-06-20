@@ -87,7 +87,7 @@ export function buildSaveCaptureEntryOperations(entry: CaptureEntry, context: Sa
 
 export function buildSaveResourceOperations(resource: Resource, context: SaveContext = {}): SaveOperation[] {
   return [
-    saveOperation("link", resource as unknown as Entity, { source: context.source || "manual", reason: context.reason || undefined }),
+    saveOperation("resource", resource as unknown as Entity, { source: context.source || "manual", reason: context.reason || undefined }),
     buildChangeEventOperation("resource", resource.id, "updated", context, undefined, resource),
   ];
 }

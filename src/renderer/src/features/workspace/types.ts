@@ -208,6 +208,7 @@ export interface WorkspaceData {
   items: Item[];
   notes: Note[];
   links: Link[];
+  resources: BaseRecord[];
   dependencys: Dependency[];
   views: BaseRecord[];
   status_updates: StatusUpdate[];

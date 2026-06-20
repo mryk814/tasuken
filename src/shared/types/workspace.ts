@@ -16,6 +16,7 @@ export const entityTypes = [
   "knowledge_node",
   "knowledge_relation",
   "ai_proposal",
+  "resource",
   "project",
   "capture_entry",
   "task",
@@ -55,6 +56,7 @@ export interface Workspace {
   items?: Entity[];
   notes?: Entity[];
   links?: Entity[];
+  resources?: Entity[];
   dependencys?: Entity[];
   views?: Entity[];
   status_updates?: Entity[];
