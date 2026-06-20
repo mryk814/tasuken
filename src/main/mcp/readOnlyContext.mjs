@@ -134,6 +134,7 @@ export class ReadOnlyTaskenContext {
     const legacyItems = this.list("item", includeArchived);
     const tasks = this.list("task", includeArchived);
     const waitings = this.list("waiting", includeArchived);
+    const planNodes = this.list("plan_node", includeArchived);
     const schedules = this.list("schedule", includeArchived);
     const scheduleMap = new Map();
     for (const s of schedules) scheduleMap.set(`${s.owner_type}:${s.owner_id}`, s);
@@ -179,6 +180,26 @@ export class ReadOnlyTaskenContext {
         created_at: w.created_at,
         updated_at: w.updated_at,
         deleted_at: w.deleted_at,
+      });
+    }
+    for (const p of planNodes) {
+      if (p.legacy_item_id) v2Ids.add(p.legacy_item_id);
+      const s = scheduleMap.get(`plan_node:${p.id}`);
+      projected.push({
+        id: p.legacy_item_id || p.id,
+        title: p.title,
+        kind: p.type === "milestone" ? "milestone" : "period",
+        status: p.state === "done" ? "done" : p.state === "cancelled" ? "cancelled" : "todo",
+        priority: "normal",
+        theme_id: p.project_id || null,
+        description: p.description || "",
+        planned_start: s?.start_date || null,
+        planned_end: s?.end_date || null,
+        due_date: null,
+        source_record_id: p.source_record_id,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        deleted_at: p.deleted_at,
       });
     }
     const deduped = legacyItems.filter((item) => !v2Ids.has(item.id));
@@ -240,9 +261,9 @@ export class ReadOnlyTaskenContext {
       : [];
     const sources = Boolean(args.include_sources)
       ? {
-        notes: this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id)).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
-        links: this.list("link").filter((link) => nodes.some((node) => node.source_link_id === link.id)),
-        items: this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id)),
+        notes: this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id || (node.source_type === "note" && node.source_id === note.id))).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
+        links: this.list("link").filter((link) => nodes.some((node) => node.source_link_id === link.id || (node.source_type === "resource" && node.source_id === link.id))),
+        items: this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id || (node.source_type === "task" && node.source_id === item.id) || (node.source_type === "waiting" && node.source_id === item.id) || (node.source_type === "plan_node" && node.source_id === item.id))),
       }
       : undefined;
     return { knowledge_nodes: nodes, knowledge_relations: relations, sources, limit };
@@ -250,13 +271,36 @@ export class ReadOnlyTaskenContext {
 
   buildPlanHealth(themeId = "") {
     const today = new Date().toISOString().slice(0, 10);
-    const items = this.mergedItems().filter((item) => !themeId || item.theme_id === themeId);
-    const openItems = items.filter(isOpenItem);
+    const tasks = this.list("task").filter((t) => !themeId || t.project_id === themeId);
+    const waitings = this.list("waiting").filter((w) => !themeId || w.project_id === themeId);
+    const planNodes = this.list("plan_node").filter((p) => !themeId || p.project_id === themeId);
+    const schedules = this.list("schedule");
+    const scheduleMap = new Map();
+    for (const s of schedules) scheduleMap.set(`${s.owner_type}:${s.owner_id}`, s);
+    const endDate = (ownerType, ownerId) => {
+      const s = scheduleMap.get(`${ownerType}:${ownerId}`);
+      return s?.end_date || s?.start_date || "";
+    };
+    const openTasks = tasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
+    const openWaitings = waitings.filter((w) => w.state === "waiting");
+    const openPlanNodes = planNodes.filter((p) => p.state !== "done" && p.state !== "cancelled");
+    const overdue = [
+      ...openTasks.filter((t) => { const d = endDate("task", t.id); return d && d < today; }).map((t) => ({ id: t.id, title: t.title, kind: "task", date: endDate("task", t.id), theme_id: t.project_id })),
+      ...openWaitings.filter((w) => { const d = endDate("waiting", w.id); return d && d < today; }).map((w) => ({ id: w.id, title: w.title, kind: "waiting", date: endDate("waiting", w.id), theme_id: w.project_id })),
+      ...openPlanNodes.filter((p) => { const d = endDate("plan_node", p.id); return d && d < today; }).map((p) => ({ id: p.id, title: p.title, kind: p.type, date: endDate("plan_node", p.id), theme_id: p.project_id })),
+    ];
+    const unscheduled = [
+      ...openTasks.filter((t) => !scheduleMap.has(`task:${t.id}`)).map((t) => ({ id: t.id, title: t.title, kind: "task", theme_id: t.project_id })),
+      ...openPlanNodes.filter((p) => !scheduleMap.has(`plan_node:${p.id}`)).map((p) => ({ id: p.id, title: p.title, kind: p.type, theme_id: p.project_id })),
+    ];
     return {
-      open_count: openItems.length,
-      overdue_items: openItems.filter((item) => itemDate(item) && itemDate(item) < today),
-      waiting_items: openItems.filter((item) => item.status === "waiting" || item.kind === "waiting"),
-      unscheduled_items: openItems.filter((item) => !item.planned_start && !item.planned_end && !item.due_date),
+      open_tasks: openTasks.length,
+      open_waitings: openWaitings.length,
+      open_plan_nodes: openPlanNodes.length,
+      open_count: openTasks.length + openWaitings.length + openPlanNodes.length,
+      overdue_items: overdue,
+      waiting_items: openWaitings.map((w) => ({ id: w.id, title: w.title, waiting_for: w.waiting_for, date: endDate("waiting", w.id), theme_id: w.project_id })),
+      unscheduled_items: unscheduled,
     };
   }
 
@@ -276,7 +320,7 @@ export class ReadOnlyTaskenContext {
       unresolved_questions: activeNodes.filter((node) => node.node_type === "question" && !hasRelation(node, "answers")),
       claims_without_evidence: activeNodes.filter((node) => node.node_type === "claim" && !supportsEvidence(node)),
       contradicted_claims: activeNodes.filter((node) => node.node_type === "claim" && hasRelation(node, "contradicts")),
-      evidence_without_source: activeNodes.filter((node) => node.node_type === "evidence" && !node.source_note_id && !node.source_link_id && !node.source_item_id),
+      evidence_without_source: activeNodes.filter((node) => node.node_type === "evidence" && !node.source_note_id && !node.source_link_id && !node.source_item_id && !node.source_id),
       isolated_nodes: activeNodes.filter((node) => !hasRelation(node)),
     };
   }

@@ -35,6 +35,8 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
   const [showSchema, setShowSchema] = useState(false);
   const [migrationPreview, setMigrationPreview] = useState<MigrationOperations | null>(null);
   const [migrating, setMigrating] = useState(false);
+  const [migrationSnapshotDone, setMigrationSnapshotDone] = useState(false);
+  const [migrationConfirmed, setMigrationConfirmed] = useState(false);
   const exportData = useMemo(() => buildExportData({ data, themes, items, activeTheme, scope }), [data, themes, items, activeTheme, scope]);
   const exported = format === "json"
     ? JSON.stringify({ version: 2, exported_at: new Date().toISOString(), ...exportData }, null, 2)
@@ -248,8 +250,18 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
     }
   }
 
+  async function createMigrationSnapshot() {
+    try {
+      await workspaceApi.exportSnapshot();
+      setMigrationSnapshotDone(true);
+      setToast("スナップショットを保存しました。マイグレーションを実行できます。");
+    } catch (error) {
+      setToast(`スナップショットの保存に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async function executeMigration() {
-    if (!migrationPreview) return;
+    if (!migrationPreview || !migrationSnapshotDone || !migrationConfirmed) return;
     setMigrating(true);
     try {
       if (migrationPreview.saveOperations.length) {
@@ -263,6 +275,8 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
       }
       setToast(`マイグレーション完了: ${migrationPreview.deleteItemIds.length}件のlegacy itemを削除しました。`);
       setMigrationPreview(null);
+      setMigrationSnapshotDone(false);
+      setMigrationConfirmed(false);
     } catch (error) {
       setToast(`マイグレーションに失敗しました。${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -373,9 +387,36 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
               legacy item削除: {migrationPreview.deleteItemIds.length}件 /
               legacy dependency削除: {migrationPreview.deleteDependencyIds.length}件
             </p>
+            {migrationPreview.report.warnings.length > 0 && (
+              <p className="field-help" style={{ color: "var(--color-danger)" }}>
+                警告 {migrationPreview.report.warnings.length}件: 変換候補を確認してください
+              </p>
+            )}
+            <div className="migration-safety">
+              <p className="field-help">
+                legacy itemを削除するとExport/Themes等で参照されていたデータが消えます。
+                必ずスナップショットを保存してから実行してください。
+              </p>
+              <div className="form-actions">
+                <button className="secondary-button" onClick={createMigrationSnapshot} disabled={migrationSnapshotDone}>
+                  {migrationSnapshotDone ? "スナップショット保存済み" : "スナップショットを保存"}
+                </button>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)", marginTop: "var(--spacing-xs)" }}>
+                <input
+                  type="checkbox"
+                  checked={migrationConfirmed}
+                  onChange={(event) => setMigrationConfirmed(event.target.checked)}
+                  disabled={!migrationSnapshotDone}
+                />
+                変換レポートを確認し、{migrationPreview.deleteItemIds.length}件のlegacy itemと{migrationPreview.deleteDependencyIds.length}件のdependencyの削除に同意する
+              </label>
+            </div>
             <div className="form-actions">
-              <button className="secondary-button" onClick={() => setMigrationPreview(null)}>戻る</button>
-              <button className="primary-button" onClick={executeMigration} disabled={migrating}>{migrating ? "実行中..." : "マイグレーションを実行"}</button>
+              <button className="secondary-button" onClick={() => { setMigrationPreview(null); setMigrationSnapshotDone(false); setMigrationConfirmed(false); }}>戻る</button>
+              <button className="primary-button" onClick={executeMigration} disabled={migrating || !migrationSnapshotDone || !migrationConfirmed}>
+                {migrating ? "実行中..." : "マイグレーションを実行"}
+              </button>
             </div>
           </div>
         )}

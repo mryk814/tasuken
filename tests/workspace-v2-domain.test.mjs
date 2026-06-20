@@ -20,6 +20,7 @@ async function importBundled(relativePath) {
 const adapter = await importBundled("src/renderer/src/features/workspace-v2/domain/legacyAdapter.ts");
 const selectors = await importBundled("src/renderer/src/features/workspace-v2/domain/selectors.ts");
 const timelineBridge = await importBundled("src/renderer/src/features/workspace-v2/domain/timelineBridge.ts");
+const io = await importBundled("src/renderer/src/features/workspace/lib/io.ts");
 
 function workspace(overrides = {}) {
   return {
@@ -187,4 +188,138 @@ test("timeline bridge projects only plan nodes into legacy-compatible gantt item
     target_item_id: "legacy-ms-1",
     dependency_type: undefined,
   }]);
+});
+
+test("post-migration smoke: legacy items=[] still produces meaningful views and export", () => {
+  const v2Only = {
+    projects: [{ id: "proj-1", name: "材料A評価", state: "active" }],
+    capture_entries: [
+      { id: "cap-1", text: "quick note", captured_at: "2026-06-20T00:00:00.000Z", state: "untriaged" },
+    ],
+    tasks: [
+      { id: "task-1", project_id: "proj-1", title: "測定結果を確認", state: "todo", priority: "high" },
+      { id: "task-2", project_id: "proj-1", title: "完了タスク", state: "done", priority: "normal", completed_at: "2026-06-18T00:00:00.000Z" },
+    ],
+    waitings: [
+      { id: "wait-1", project_id: "proj-1", title: "試薬待ち", waiting_for: "Lab", state: "waiting" },
+    ],
+    plan_nodes: [
+      { id: "pn-1", project_id: "proj-1", title: "Phase 1", type: "phase", state: "active", sort_order: 1 },
+      { id: "ms-1", project_id: "proj-1", title: "初回報告", type: "milestone", state: "planned", sort_order: 2, parent_plan_node_id: "pn-1" },
+    ],
+    schedules: [
+      { id: "s-task", owner_type: "task", owner_id: "task-1", end_date: "2026-06-20", date_kind: "deadline", confidence: "fixed", granularity: "day" },
+      { id: "s-wait", owner_type: "waiting", owner_id: "wait-1", end_date: "2026-06-25", date_kind: "deadline", confidence: "tentative", granularity: "day" },
+      { id: "s-pn", owner_type: "plan_node", owner_id: "pn-1", start_date: "2026-06-01", end_date: "2026-06-30", date_kind: "range", confidence: "fixed", granularity: "day" },
+      { id: "s-ms", owner_type: "plan_node", owner_id: "ms-1", end_date: "2026-06-20", date_kind: "point", confidence: "fixed", granularity: "day" },
+    ],
+    notes: [],
+    resources: [],
+    knowledge_nodes: [],
+    references: [],
+    task_dependencies: [],
+    plan_dependencies: [],
+    knowledge_edges: [],
+    change_events: [],
+  };
+
+  // Todo view: shows all tasks
+  const todo = selectors.buildTodoView(v2Only);
+  assert.equal(todo.tasks.length, 2);
+
+  // Waiting view: shows open waitings
+  const waiting = selectors.buildWaitingView(v2Only);
+  assert.equal(waiting.waitings.length, 1);
+  assert.equal(waiting.waitings[0].waiting.waiting_for, "Lab");
+
+  // Inbox view: shows untriaged captures
+  const inbox = selectors.buildInboxView(v2Only);
+  assert.equal(inbox.entries.length, 1);
+
+  // Today view: shows today's entries
+  const today = selectors.buildTodayView(v2Only, "2026-06-20");
+  assert.ok(today.length >= 2, `expected >= 2 today entries, got ${today.length}`);
+  const types = today.map((e) => e.type);
+  assert.ok(types.includes("task"), "today should include task");
+  assert.ok(types.includes("milestone"), "today should include milestone");
+
+  // Timeline view: shows plan nodes
+  const timeline = selectors.buildTimelineView(v2Only);
+  assert.equal(timeline.rows.length, 1);
+  assert.equal(timeline.rows[0].planNode.id, "pn-1");
+  assert.equal(timeline.rows[0].children.length, 1);
+
+  // Export: v2 entities produce content even when legacy items=[]
+  const emptyWorkspace = workspace({
+    themes: [{ id: "proj-1", name: "材料A評価" }],
+    items: [],
+    projects: [{ id: "proj-1", name: "材料A評価", state: "active" }],
+    tasks: v2Only.tasks,
+    waitings: v2Only.waitings,
+    plan_nodes: v2Only.plan_nodes,
+    schedules: v2Only.schedules,
+  });
+  const exportData = io.buildExportData({
+    data: emptyWorkspace,
+    themes: [{ id: "proj-1", name: "材料A評価" }],
+    items: [],
+    activeTheme: null,
+    scope: "all",
+  });
+  assert.ok(exportData.items.length >= 4, `expected >= 4 export items from v2, got ${exportData.items.length}`);
+  const exportHasTask = exportData.items.some((item) => item.title === "測定結果を確認");
+  const exportHasWaiting = exportData.items.some((item) => item.kind === "waiting");
+  const exportHasMilestone = exportData.items.some((item) => item.kind === "milestone");
+  assert.ok(exportHasTask, "export should include task from v2");
+  assert.ok(exportHasWaiting, "export should include waiting from v2");
+  assert.ok(exportHasMilestone, "export should include milestone from v2");
+
+  // Markdown export should produce readable output
+  const markdown = io.exportMarkdown(exportData);
+  assert.match(markdown, /測定結果を確認/);
+  assert.match(markdown, /試薬待ち/);
+
+  // Progress report should work
+  const report = io.exportProgressReport(exportData);
+  assert.match(report, /週報/);
+  assert.match(report, /試薬待ち/);
+});
+
+test("post-migration smoke: MCP mergedItems includes plan_nodes", async () => {
+  const { ReadOnlyTaskenContext } = await import("../src/main/mcp/readOnlyContext.mjs");
+  const ctx = new ReadOnlyTaskenContext("in-memory.sqlite", {
+    workspace: {
+      themes: [{ id: "theme-1", name: "A", updated_at: "2026-06-20T00:00:00.000Z" }],
+      items: [],
+      notes: [],
+      links: [],
+      status_updates: [],
+      knowledge_nodes: [],
+      knowledge_relations: [],
+      tasks: [{ id: "t1", title: "task", project_id: "theme-1", state: "todo", priority: "normal", updated_at: "2026-06-20T00:00:00.000Z" }],
+      waitings: [{ id: "w1", title: "wait", project_id: "theme-1", waiting_for: "Lab", state: "waiting", updated_at: "2026-06-20T00:00:00.000Z" }],
+      plan_nodes: [{ id: "pn1", title: "milestone", project_id: "theme-1", type: "milestone", state: "planned", sort_order: 1, updated_at: "2026-06-20T00:00:00.000Z" }],
+      schedules: [
+        { id: "s1", owner_type: "task", owner_id: "t1", end_date: "2026-06-20", date_kind: "deadline", confidence: "fixed", granularity: "day", updated_at: "2026-06-20T00:00:00.000Z" },
+        { id: "s2", owner_type: "plan_node", owner_id: "pn1", end_date: "2026-06-25", date_kind: "point", confidence: "fixed", granularity: "day", updated_at: "2026-06-20T00:00:00.000Z" },
+      ],
+      capture_entrys: [],
+    },
+  });
+  try {
+    const merged = ctx.mergedItems();
+    assert.equal(merged.length, 3, `expected 3 merged items (task+waiting+plan_node), got ${merged.length}`);
+    assert.ok(merged.some((i) => i.kind === "milestone"), "merged should include milestone from plan_node");
+
+    const open = ctx.toolListOpenItems({});
+    assert.ok(open.items.length >= 2, "open items should include task and plan_node");
+
+    const health = ctx.buildPlanHealth("theme-1");
+    assert.equal(health.open_tasks, 1);
+    assert.equal(health.open_waitings, 1);
+    assert.equal(health.open_plan_nodes, 1);
+    assert.equal(health.open_count, 3);
+  } finally {
+    ctx.close();
+  }
 });

@@ -14,6 +14,8 @@ import type {
 } from "../types";
 import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS } from "./domain";
 import { addDays } from "./format";
+import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import type { Task, Waiting, PlanNode, Schedule, WorkspaceV2 } from "../../workspace-v2/domain/types";
 
 export interface ParsedTaskRow {
   title: string;
@@ -81,35 +83,107 @@ interface BuildExportArgs {
   scope: string;
 }
 
+function v2ScheduleMap(v2: WorkspaceV2): Map<string, Schedule> {
+  return new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
+}
+
+function taskToItem(task: Task, schedule?: Schedule): Item {
+  return {
+    id: task.id,
+    title: task.title,
+    kind: "task",
+    theme_id: task.project_id,
+    status: task.state,
+    priority: task.priority,
+    description: task.description ?? undefined,
+    planned_start: schedule?.start_date ?? null,
+    planned_end: schedule?.end_date ?? null,
+    completed_at: task.completed_at,
+    source_record_id: task.source_record_id,
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+  };
+}
+
+function waitingToItem(waiting: Waiting, schedule?: Schedule): Item {
+  return {
+    id: waiting.id,
+    title: waiting.title,
+    kind: "waiting",
+    theme_id: waiting.project_id,
+    status: waiting.state === "received" ? "done" : waiting.state === "cancelled" ? "cancelled" : "waiting",
+    waiting_for: waiting.waiting_for,
+    next_action: waiting.next_action ?? undefined,
+    description: waiting.description ?? undefined,
+    planned_start: schedule?.start_date ?? null,
+    planned_end: schedule?.end_date ?? null,
+    source_record_id: waiting.source_record_id,
+    created_at: waiting.created_at,
+    updated_at: waiting.updated_at,
+  };
+}
+
+function planNodeToItem(planNode: PlanNode, schedule?: Schedule): Item {
+  return {
+    id: planNode.id,
+    title: planNode.title,
+    kind: planNode.type === "milestone" ? "milestone" : "period",
+    theme_id: planNode.project_id,
+    status: planNode.state === "done" ? "done" : planNode.state === "cancelled" ? "cancelled" : "todo",
+    description: planNode.description ?? undefined,
+    planned_start: schedule?.start_date ?? null,
+    planned_end: schedule?.end_date ?? null,
+    source_record_id: planNode.source_record_id,
+    created_at: planNode.created_at,
+    updated_at: planNode.updated_at,
+  };
+}
+
+function v2ToItems(v2: WorkspaceV2): Item[] {
+  const schedMap = v2ScheduleMap(v2);
+  const items: Item[] = [];
+  for (const task of v2.tasks) items.push(taskToItem(task, schedMap.get(`task:${task.id}`)));
+  for (const waiting of v2.waitings) items.push(waitingToItem(waiting, schedMap.get(`waiting:${waiting.id}`)));
+  for (const planNode of v2.plan_nodes) items.push(planNodeToItem(planNode, schedMap.get(`plan_node:${planNode.id}`)));
+  return items;
+}
+
 export function buildExportData({ data, themes, items, activeTheme, scope }: BuildExportArgs): ExportData {
   const today = todayIso();
   const horizon = scope === "week" ? 7 : scope === "month" ? 30 : scope === "quarter" ? 90 : null;
+
+  const v2 = workspaceToV2(data);
+  const v2Items = v2ToItems(v2);
+  const legacyIds = new Set(items.map((item) => item.id));
+  const v2OnlyItems = v2Items.filter((item) => !legacyIds.has(item.id));
+  const mergedItems = [...items, ...v2OnlyItems];
+
   const inHorizon = (item: Item) => {
     const date = item.planned_end || item.planned_start;
     return Boolean(date && horizon != null && date >= today && date <= addDays(today, horizon));
   };
-  let scopedItems = items;
+  let scopedItems = mergedItems;
   let scopedNotes = data.notes || [];
   let scopedLinks = data.links || [];
   let scopedKnowledgeNodes = data.knowledge_nodes || [];
   let scopedThemes = themes;
   if (scope === "theme" && activeTheme) {
     scopedThemes = [activeTheme];
-    scopedItems = items.filter((item) => item.theme_id === activeTheme.id);
+    scopedItems = mergedItems.filter((item) => item.theme_id === activeTheme.id);
     scopedNotes = scopedNotes.filter((note) => note.theme_id === activeTheme.id);
     scopedLinks = scopedLinks.filter((link) => link.theme_id === activeTheme.id);
     scopedKnowledgeNodes = scopedKnowledgeNodes.filter((node) => node.theme_id === activeTheme.id);
   } else if (horizon) {
-    scopedItems = items.filter(inHorizon);
+    scopedItems = mergedItems.filter(inHorizon);
   } else if (scope === "open") {
-    scopedItems = items.filter((item) => item.status !== "done" && item.status !== "cancelled");
+    scopedItems = mergedItems.filter((item) => item.status !== "done" && item.status !== "cancelled");
   } else if (scope === "waiting") {
-    scopedItems = items.filter((item) => item.kind === "waiting" || item.status === "waiting");
+    scopedItems = mergedItems.filter((item) => item.kind === "waiting" || item.status === "waiting");
   } else if (scope === "recent_notes") {
     scopedItems = [];
     scopedNotes = [...scopedNotes].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, 20);
   } else if (scope === "milestones") {
-    scopedItems = items.filter((item) => item.kind === "milestone");
+    scopedItems = mergedItems.filter((item) => item.kind === "milestone");
   }
   const themeIds = new Set(
     [

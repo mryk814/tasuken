@@ -113,16 +113,25 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, save
     try {
       const v2Id = timelineFindDependencyV2Id(sel.dependency, v2);
       if (v2Id) {
+        const planDep = v2.plan_dependencies.find((pd) => pd.id === v2Id);
         await removeEntityQuiet("plan_dependency", v2Id);
+        pushUndo({
+          label: "依存削除",
+          run: async () => {
+            if (planDep) {
+              await saveEntity("plan_dependency", planDep as unknown as Record<string, unknown>);
+            }
+          },
+        });
       } else {
         await removeEntityQuiet("dependency", sel.dependency.id);
+        pushUndo({
+          label: "依存削除",
+          run: async () => {
+            await saveEntity("dependency", sel.dependency);
+          },
+        });
       }
-      pushUndo({
-        label: "依存削除",
-        run: async () => {
-          await saveEntity("dependency", sel.dependency);
-        },
-      });
       setToast("依存を削除しました。Ctrl+Zで元に戻せます。");
     } catch {
       setToast("依存を削除できませんでした。");
