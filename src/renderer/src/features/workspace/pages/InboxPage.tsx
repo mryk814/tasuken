@@ -31,6 +31,7 @@ interface InboxDraft {
   link_url: string;
   link_type: string;
   reference_status: string;
+  waiting_for: string;
 }
 
 interface InboxRow {
@@ -50,6 +51,7 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
     link_url: "",
     link_type: "chatgpt",
     reference_status: "inbox",
+    waiting_for: "",
   };
 }
 
@@ -91,6 +93,10 @@ export function InboxPage({ data, themes, openDrawer, saveEntity, saveEntities, 
       setToast("リンクに整理するにはURLを入力してください。入力内容は保持されています。");
       return;
     }
+    if (draft.output === "waiting" && !draft.waiting_for.trim()) {
+      setToast("相手を入力してください。入力内容は保持されています。");
+      return;
+    }
     const themeId = draft.theme_id || null;
     const sourceRecordId = row.entry.source_record_id || null;
 
@@ -129,7 +135,7 @@ export function InboxPage({ data, themes, openDrawer, saveEntity, saveEntities, 
           id: waitingId,
           project_id: themeId,
           title,
-          waiting_for: "",
+          waiting_for: draft.waiting_for.trim(),
           description: draft.description || null,
           state: "waiting",
           source_record_id: sourceRecordId,
@@ -266,6 +272,13 @@ export function InboxPage({ data, themes, openDrawer, saveEntity, saveEntities, 
                     </button>
                   </div>
                   <div className="inbox-card-details">
+                    {draft.output === "waiting" && (
+                      <div className="inbox-waiting-fields">
+                        <label>相手
+                          <input value={draft.waiting_for} onChange={(event) => patchDraft(row.entry.id, { waiting_for: event.target.value })} placeholder="例: 田中さん、外注先A" />
+                        </label>
+                      </div>
+                    )}
                     {draft.output === "link" && (
                       <div className="inbox-link-fields">
                         <label>URL

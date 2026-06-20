@@ -121,7 +121,7 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
             project_id: themeId,
             title: str(entry.title) || "無題",
             description: str(entry.description) || str(base.description) || null,
-            waiting_for: "",
+            waiting_for: str(entry.waiting_for) || "未設定",
             state: "waiting",
             source_record_id: source.id,
           };
