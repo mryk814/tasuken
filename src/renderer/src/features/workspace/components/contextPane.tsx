@@ -1,9 +1,11 @@
 import { IconMessageCircle, IconNotes, IconPointFilled } from "@tabler/icons-react";
 
-import type { Item, Link, Note, OpenDrawer, Theme, WorkspaceData } from "../types";
-import { STATUS_LABELS, THEME_STATUS_LABELS } from "../lib/domain";
+import type { Link, Note, OpenDrawer, Theme, WorkspaceData } from "../types";
+import { THEME_STATUS_LABELS } from "../lib/domain";
 import { dateOnly, formatDate, str } from "../lib/format";
 import { EmptyState, StatusBadge } from "./common";
+import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
+import { WAITING_STATE_LABELS } from "../../workspace-v2/domain/labels";
 
 interface ContextPaneProps {
   data: WorkspaceData;
@@ -40,20 +42,18 @@ function pickRediscovery<T extends { id: string; updated_at?: string; created_at
     .slice(0, count);
 }
 
-function itemDueDate(item: Item): string {
-  return dateOnly(item.planned_end || item.planned_start);
-}
-
-function itemThemeName(themes: Theme[], item: Item): string {
-  return themes.find((theme) => theme.id === item.theme_id)?.name || "個人";
-}
-
 export function ContextPane({ data, activeTheme, openDrawer, navigate }: ContextPaneProps) {
   const today = dateOnly(new Date().toISOString());
-  const themeItems = activeTheme ? data.items.filter((item) => item.theme_id === activeTheme.id) : data.items;
-  const openItems = themeItems.filter((item) => !["done", "cancelled", "archived"].includes(str(item.status)));
-  const overdue = openItems.filter((item) => itemDueDate(item) && itemDueDate(item) < today).sort((a, b) => itemDueDate(a).localeCompare(itemDueDate(b)));
-  const waiting = openItems.filter((item) => item.status === "waiting").slice(0, 4);
+  const v2 = workspaceToV2(data);
+  const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
+  const themeTasks = activeTheme ? v2.tasks.filter((t) => t.project_id === activeTheme.id) : v2.tasks;
+  const openTasks = themeTasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
+  const overdue = openTasks
+    .map((t) => ({ task: t, date: schedulesMap.get(`task:${t.id}`)?.end_date || "" }))
+    .filter((r) => r.date && r.date < today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const themeWaitings = activeTheme ? v2.waitings.filter((w) => w.project_id === activeTheme.id) : v2.waitings;
+  const waitingRows = themeWaitings.filter((w) => w.state === "waiting").slice(0, 4);
   const recentUpdates = [...data.status_updates]
     .filter((entry) => !activeTheme || entry.theme_id === activeTheme.id)
     .sort((a, b) => str(b.date || b.updated_at).localeCompare(str(a.date || a.updated_at)))
@@ -80,15 +80,15 @@ export function ContextPane({ data, activeTheme, openDrawer, navigate }: Context
             </button>
             <button onClick={() => navigate("waiting")}>
               <span>待ち</span>
-              <strong>{waiting.length}</strong>
+              <strong>{waitingRows.length}</strong>
             </button>
           </div>
-          {overdue.slice(0, 3).map((item) => (
-            <button className="context-row" key={item.id} onClick={() => openDrawer({ type: "item", entity: item })}>
+          {overdue.slice(0, 3).map(({ task, date }) => (
+            <button className="context-row" key={task.id} onClick={() => openDrawer({ type: "task", entity: { ...task, _schedule: schedulesMap.get(`task:${task.id}`) } as Record<string, unknown> })}>
               <IconPointFilled size={14} />
               <span>
-                <strong>{item.title}</strong>
-                <small>{itemThemeName(data.themes, item)} / {formatDate(itemDueDate(item))}</small>
+                <strong>{task.title}</strong>
+                <small>{data.themes.find((t) => t.id === task.project_id)?.name || "個人"} / {formatDate(date)}</small>
               </span>
             </button>
           ))}
@@ -112,18 +112,18 @@ export function ContextPane({ data, activeTheme, openDrawer, navigate }: Context
           </div>
         </section>
 
-        {waiting.length > 0 && (
+        {waitingRows.length > 0 && (
           <section className="context-section">
             <div className="context-section-heading">
               <h2>待ちの手触り</h2>
               <button className="text-button compact" onClick={() => navigate("waiting")}>一覧</button>
             </div>
-            {waiting.map((item) => (
-              <button className="context-row" key={item.id} onClick={() => openDrawer({ type: "item", entity: item })}>
-                <StatusBadge value={item.status} label={STATUS_LABELS[item.status ?? ""]} />
+            {waitingRows.map((w) => (
+              <button className="context-row" key={w.id} onClick={() => openDrawer({ type: "waiting", entity: { ...w, _schedule: schedulesMap.get(`waiting:${w.id}`) } as Record<string, unknown> })}>
+                <StatusBadge value={w.state} label={WAITING_STATE_LABELS[w.state]} />
                 <span>
-                  <strong>{item.title}</strong>
-                  <small>{item.next_action || item.description || "次の確認を決める"}</small>
+                  <strong>{w.title}</strong>
+                  <small>{w.next_action || w.description || "次の確認を決める"}</small>
                 </span>
               </button>
             ))}

@@ -19,9 +19,18 @@ import type {
   Theme,
   WorkspaceData,
 } from "./types";
-import { defaultLevel, entityTitle } from "./lib/domain";
+import { entityTitle } from "./lib/domain";
 import { activeRecords, formText, uuid } from "./lib/format";
 import type { SaveOperation } from "./types";
+import {
+  buildSaveTaskOperations,
+  buildSaveWaitingOperations,
+  buildSavePlanNodeOperations,
+  buildSaveScheduleOperations,
+  buildSaveCaptureEntryOperations,
+} from "../workspace-v2/domain/persistence";
+import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "../workspace-v2/domain/types";
+import { workspaceToV2 } from "../workspace-v2/domain/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
@@ -162,7 +171,7 @@ export function WorkspaceApp() {
       }
       if (event.altKey && event.key.toLowerCase() === "n") {
         event.preventDefault();
-        openDrawer({ type: "item", mode: "edit", entity: {} });
+        openDrawer({ type: "task", mode: "edit", entity: {} });
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -238,14 +247,6 @@ export function WorkspaceApp() {
     setToast("削除を元に戻しました。");
   }
 
-  async function toggleItem(item: Item) {
-    await saveEntity("item", {
-      ...item,
-      status: item.status === "done" ? "todo" : "done",
-      completed_at: item.status === "done" ? null : new Date().toISOString(),
-    });
-  }
-
   async function removeEntityQuiet(type: EntityType, id: string) {
     await removeWorkspaceEntity(type, id);
   }
@@ -260,50 +261,139 @@ export function WorkspaceApp() {
     const base = (drawer?.entity || {}) as Record<string, unknown>;
     let entity: Record<string, unknown> | undefined;
 
-    if (type === "item") {
+    // --- v2 entity types: full save cycle, then return ---
+    if (type === "task") {
       const title = formText(values, "title");
-      if (!title) {
-        (named("title") as HTMLInputElement | null)?.focus();
-        setToast("タイトルを入力してください。入力内容は保持されています。");
-        return;
-      }
-      const start = formText(values, "planned_start") || null;
-      const end = formText(values, "planned_end") || null;
-      if (start && end && end < start) {
-        (named("planned_end") as HTMLInputElement | null)?.focus();
-        setToast("終了日は開始日以降にしてください。入力内容は保持されています。");
-        return;
-      }
-      const rawKind = formText(values, "kind") || (base.kind as string) || "task";
-      const status = formText(values, "status", "todo");
-      const kind = rawKind === "idea" && status !== "inbox" ? "task" : rawKind;
-      entity = {
-        ...base,
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
+      const taskId = (base.id as string) || uuid();
+      const task: Task = {
+        id: taskId,
         title,
-        kind,
-        level: formText(values, "level") || (base.level as string) || defaultLevel(kind),
-        theme_id: formText(values, "theme_id") || null,
-        status,
+        project_id: formText(values, "theme_id") || null,
+        state: (formText(values, "state") || "todo") as Task["state"],
         priority: values.has("priority_flag") ? "high" : "normal",
-        parent_item_id: formText(values, "parent_item_id") || null,
-        sort_order: Number(values.get("sort_order") || (base.sort_order as number) || items.length),
-        planned_start: start,
-        planned_end: end,
-        due_date: null,
-        actual_start: null,
-        actual_end: null,
-        baseline_start: start || null,
-        baseline_end: end || null,
-        schedule_confidence: "fixed",
-        date_granularity: "day",
-        date_text: "",
-        waiting_for: "",
-        next_action: "",
-        is_personal_task: !formText(values, "theme_id"),
-        description: formText(values, "description"),
-        source_record_id: null,
+        description: formText(values, "description") || null,
+        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
+        created_at: (base.created_at as string) || new Date().toISOString(),
       };
-    } else if (type === "theme") {
+      const ops = buildSaveTaskOperations(task);
+      const startDate = formText(values, "start_date") || null;
+      const endDate = formText(values, "end_date") || null;
+      const scheduleId = formText(values, "_schedule_id");
+      if (startDate || endDate || scheduleId) {
+        const schedule: Schedule = {
+          id: scheduleId || uuid(),
+          owner_type: "task",
+          owner_id: taskId,
+          start_date: startDate,
+          end_date: endDate,
+          date_kind: startDate && endDate && startDate !== endDate ? "range" : endDate ? "deadline" : startDate ? "point" : "unknown",
+          confidence: "fixed",
+          granularity: "day",
+        };
+        ops.push(...buildSaveScheduleOperations(schedule));
+      }
+      await saveEntities(ops, base.id ? "変更を保存しました。" : "タスクを追加しました。");
+      closeDrawer();
+      return;
+    }
+    if (type === "waiting") {
+      const title = formText(values, "title");
+      const waitingFor = formText(values, "waiting_for");
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
+      if (!waitingFor) { (named("waiting_for") as HTMLInputElement | null)?.focus(); setToast("相手を入力してください。"); return; }
+      const waitingId = (base.id as string) || uuid();
+      const waiting: Waiting = {
+        id: waitingId,
+        title,
+        waiting_for: waitingFor,
+        project_id: formText(values, "theme_id") || null,
+        state: (formText(values, "state") || "waiting") as Waiting["state"],
+        next_action: formText(values, "next_action") || null,
+        description: formText(values, "description") || null,
+        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
+        created_at: (base.created_at as string) || new Date().toISOString(),
+      };
+      const ops = buildSaveWaitingOperations(waiting);
+      const endDate = formText(values, "end_date") || null;
+      const scheduleId = formText(values, "_schedule_id");
+      if (endDate || scheduleId) {
+        const schedule: Schedule = {
+          id: scheduleId || uuid(),
+          owner_type: "waiting",
+          owner_id: waitingId,
+          end_date: endDate,
+          date_kind: endDate ? "deadline" : "unknown",
+          confidence: "fixed",
+          granularity: "day",
+        };
+        ops.push(...buildSaveScheduleOperations(schedule));
+      }
+      await saveEntities(ops, base.id ? "変更を保存しました。" : "待ちを追加しました。");
+      closeDrawer();
+      return;
+    }
+    if (type === "plan_node") {
+      const title = formText(values, "title");
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
+      const nodeId = (base.id as string) || uuid();
+      let parentPlanNodeId = (base.parent_plan_node_id as string | null) ?? null;
+      if (!parentPlanNodeId && base._parent_plan_node_item_id) {
+        const v2data = workspaceToV2(data);
+        const parentItemId = base._parent_plan_node_item_id as string;
+        const parentNode = v2data.plan_nodes.find((n) => n.legacy_item_id === parentItemId || n.id === parentItemId);
+        parentPlanNodeId = parentNode?.id || parentItemId;
+      }
+      const planNode: PlanNode = {
+        id: nodeId,
+        title,
+        project_id: formText(values, "theme_id") || null,
+        parent_plan_node_id: parentPlanNodeId,
+        type: (formText(values, "node_type") || "milestone") as PlanNode["type"],
+        state: (formText(values, "node_state") || "planned") as PlanNode["state"],
+        sort_order: Number(base.sort_order) || 0,
+        description: formText(values, "description") || null,
+        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
+        created_at: (base.created_at as string) || new Date().toISOString(),
+      };
+      const ops = buildSavePlanNodeOperations(planNode);
+      const startDate = formText(values, "start_date") || null;
+      const endDate = formText(values, "end_date") || null;
+      const scheduleId = formText(values, "_schedule_id");
+      if (startDate || endDate || scheduleId) {
+        const schedule: Schedule = {
+          id: scheduleId || uuid(),
+          owner_type: "plan_node",
+          owner_id: nodeId,
+          start_date: startDate,
+          end_date: endDate,
+          date_kind: startDate && endDate && startDate !== endDate ? "range" : endDate ? "deadline" : startDate ? "point" : "unknown",
+          confidence: "fixed",
+          granularity: "day",
+        };
+        ops.push(...buildSaveScheduleOperations(schedule));
+      }
+      await saveEntities(ops, base.id ? "変更を保存しました。" : "計画ノードを追加しました。");
+      closeDrawer();
+      return;
+    }
+    if (type === "capture_entry") {
+      const text = formText(values, "text") || formText(values, "title");
+      if (!text) { (named("title") as HTMLInputElement | null)?.focus(); setToast("内容を入力してください。"); return; }
+      const entry: CaptureEntry = {
+        id: (base.id as string) || uuid(),
+        text,
+        title: formText(values, "title") || null,
+        captured_at: formText(values, "captured_at") || (base.captured_at as string) || new Date().toISOString().slice(0, 10),
+        state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
+        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
+      };
+      await saveEntities(buildSaveCaptureEntryOperations(entry), base.id ? "変更を保存しました。" : "キャプチャを追加しました。");
+      closeDrawer();
+      return;
+    }
+
+    if (type === "theme") {
       const name = formText(values, "name");
       if (!name) { setToast("テーマ名を入力してください。"); return; }
       entity = { ...base, name, description: formText(values, "description"), status: formText(values, "status", "計画中"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
@@ -430,45 +520,7 @@ export function WorkspaceApp() {
 
     if (!entity) return;
 
-    let saved: Entity;
-    if (type === "item") {
-      const id = (entity.id as string) || uuid();
-      const itemEntity = { ...entity, id };
-      const itemThemeId = entity.theme_id;
-      const definitions = (data.field_definitions || []).filter((field) =>
-        field.applies_to === "item" && (!field.theme_id || field.theme_id === itemThemeId));
-      const operations: SaveOperation[] = [{
-        action: "save",
-        type: "item",
-        entity: itemEntity as Entity,
-        options: { reason: formText(values, "revision_reason") },
-      }];
-      for (const definition of definitions) {
-        const rawValue = formText(values, `custom:${definition.id}`);
-        const existing = (data.field_values || []).find((value) =>
-          value.field_definition_id === definition.id && value.entity_type === "item" && value.entity_id === id);
-        if (rawValue || existing) {
-          operations.push({
-            action: "save",
-            type: "field_value",
-            entity: {
-              ...existing,
-              id: existing?.id || uuid(),
-              field_definition_id: definition.id,
-              entity_type: "item",
-              entity_id: id,
-              value_text: rawValue,
-              value_number: definition.field_type === "number" && rawValue ? Number(rawValue) : null,
-              value_date: definition.field_type === "date" ? rawValue || null : null,
-              value_json: definition.field_type === "multi_select" ? rawValue.split(",").map((value) => value.trim()).filter(Boolean) : null,
-            } as Entity,
-          });
-        }
-      }
-      [saved] = await saveEntities(operations, entity.id ? "変更を保存しました。" : "追加しました。");
-    } else {
-      saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
-    }
+    const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
     if (type === "theme" && !activeThemeId && saved) setActiveThemeId(saved.id);
     closeDrawer();
   }
@@ -492,7 +544,6 @@ export function WorkspaceApp() {
     saveEntities,
     removeEntity,
     removeEntityQuiet,
-    toggleItem,
     setToast,
     snapshotPreview,
     setSnapshotPreview,
@@ -532,8 +583,8 @@ export function WorkspaceApp() {
           close={closeDrawer}
           saveForm={saveForm}
           removeEntity={removeEntity}
-          toggleItem={toggleItem}
           saveEntity={saveEntity}
+          saveEntities={saveEntities}
         />
       ) : (
         <ContextPane

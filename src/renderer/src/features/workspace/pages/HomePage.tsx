@@ -1,15 +1,22 @@
-import type { Item, PageProps } from "../types";
-import { compareDate, formatDate } from "../lib/format";
+import type { BaseRecord, PageProps } from "../types";
+import { formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, SimpleRows, StatusBadge } from "../components/common";
+import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
 
-export function HomePage({ data, activeTheme, items, notes, openDrawer, navigate }: PageProps) {
+export function HomePage({ data, activeTheme, notes, openDrawer, navigate }: PageProps) {
   if (!activeTheme) {
     return <EmptyState title="テーマがありません" action="テーマを追加" onAction={() => openDrawer({ type: "theme", mode: "edit", entity: {} })} />;
   }
-  const related = items.filter((item) => item.theme_id === activeTheme.id);
-  const open = related.filter((item) => item.status !== "done");
-  const waiting = open.filter((item) => item.kind === "waiting" || item.status === "waiting");
-  const milestones = open.filter((item) => item.kind === "milestone").sort(compareDate);
+  const v2 = workspaceToV2(data);
+  const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
+  const themeTasks = v2.tasks.filter((t) => t.project_id === activeTheme.id);
+  const themeWaitings = v2.waitings.filter((w) => w.project_id === activeTheme.id);
+  const themePlanNodes = v2.plan_nodes.filter((p) => p.project_id === activeTheme.id);
+  const openTasks = themeTasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
+  const activeWaitings = themeWaitings.filter((w) => w.state === "waiting");
+  const milestones = themePlanNodes
+    .filter((p) => p.type === "milestone" && p.state !== "done" && p.state !== "cancelled")
+    .sort((a, b) => (schedulesMap.get(`plan_node:${a.id}`)?.end_date || "9999").localeCompare(schedulesMap.get(`plan_node:${b.id}`)?.end_date || "9999"));
   const updates = (data.status_updates || [])
     .filter((entry) => entry.theme_id === activeTheme.id)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
@@ -20,11 +27,11 @@ export function HomePage({ data, activeTheme, items, notes, openDrawer, navigate
       <PageHeader title={activeTheme.name} subtitle={activeTheme.description}>
         <StatusBadge value={activeTheme.status} label={activeTheme.status} />
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })}>現在地を記録</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { theme_id: activeTheme.id } })}>タスクを追加</button>
+        <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: activeTheme.id } })}>タスクを追加</button>
       </PageHeader>
       <div className="metric-grid home-metrics">
-        <Metric label="未完了" value={open.length} tone="primary" />
-        <Metric label="待ち" value={waiting.length} />
+        <Metric label="未完了" value={openTasks.length} tone="primary" />
+        <Metric label="待ち" value={activeWaitings.length} />
         <Metric label="マイルストーン" value={milestones.length} />
       </div>
       <div className="dashboard-grid">
@@ -43,16 +50,16 @@ export function HomePage({ data, activeTheme, items, notes, openDrawer, navigate
         </section>
         <section className="panel">
           <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
-          <SimpleRows records={milestones.slice(0, 5)} onOpen={(item) => openDrawer({ type: "item", entity: item })} meta={(item) => String(formatDate((item as Item).planned_end))} />
+          <SimpleRows records={milestones as unknown as BaseRecord[]} onOpen={(node) => openDrawer({ type: "plan_node", entity: node })} meta={(node) => formatDate(schedulesMap.get(`plan_node:${node.id}`)?.end_date)} />
         </section>
       </div>
       <div className="dashboard-grid">
         <section className="panel">
           <div className="section-heading"><h2>次のタスク</h2><button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button></div>
           <SimpleRows
-            records={open.filter((item) => item.kind === "task" || item.kind === "deliverable").sort(compareDate).slice(0, 7)}
-            onOpen={(item) => openDrawer({ type: "item", entity: item })}
-            meta={(item) => formatDate((item as Item).planned_end)}
+            records={openTasks.sort((a, b) => (schedulesMap.get(`task:${a.id}`)?.end_date || "9999").localeCompare(schedulesMap.get(`task:${b.id}`)?.end_date || "9999")).slice(0, 7) as unknown as BaseRecord[]}
+            onOpen={(task) => openDrawer({ type: "task", entity: task })}
+            meta={(task) => formatDate(schedulesMap.get(`task:${task.id}`)?.end_date)}
           />
         </section>
         <section className="panel">

@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
-import { defaultLevel } from "../lib/domain";
-import { num, str, uuid } from "../lib/format";
+import { str, uuid } from "../lib/format";
+import { buildSaveTaskOperations, buildSaveWaitingOperations, buildSavePlanNodeOperations, buildSaveScheduleOperations } from "../../workspace-v2/domain/persistence";
+import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../../workspace-v2/domain/types";
+import { buildLegacyMigrationOperations, formatMigrationReport, type MigrationOperations } from "../../workspace-v2/domain/legacyAdapter";
 import { assertImportCandidateSavable, buildAiImportPrompt, parseAiImportPayload } from "../lib/aiImport.js";
 import { buildExportData, exportMarkdown, exportProgressReport, toYaml } from "../lib/io";
 import { PageHeader } from "../components/common";
@@ -25,12 +27,14 @@ interface ImportPreview {
   payloadIssues: string[];
 }
 
-export function ImportExportPage({ data, themes, items, activeTheme, saveEntities, setToast }: PageProps) {
+export function ImportExportPage({ data, themes, items, activeTheme, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [format, setFormat] = useState("markdown");
   const [scope, setScope] = useState("all");
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [showSchema, setShowSchema] = useState(false);
+  const [migrationPreview, setMigrationPreview] = useState<MigrationOperations | null>(null);
+  const [migrating, setMigrating] = useState(false);
   const exportData = useMemo(() => buildExportData({ data, themes, items, activeTheme, scope }), [data, themes, items, activeTheme, scope]);
   const exported = format === "json"
     ? JSON.stringify({ version: 2, exported_at: new Date().toISOString(), ...exportData }, null, 2)
@@ -108,29 +112,60 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
       const base: BaseRecord | Record<string, never> = candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
       const entry = candidate.entry;
       if (candidate.type === "item") {
-        operations.push({
-          action: "save",
-          type: "item",
-          entity: {
-            ...base,
-            id: str(base.id) || uuid(),
+        const kind = str(entry.kind) || str(base.kind) || "task";
+        const entityId = str(base.id) || uuid();
+        const themeId = candidate.theme?.id || str(base.theme_id) || null;
+        if (kind === "waiting") {
+          const waiting: Waiting = {
+            id: entityId,
+            project_id: themeId,
             title: str(entry.title) || "無題",
-            kind: str(entry.kind) || str(base.kind) || "task",
-            level: str(entry.level) || str(base.level) || defaultLevel(str(entry.kind) || str(base.kind) || "task"),
-            theme_id: candidate.theme?.id || str(base.theme_id) || null,
-            status: str(entry.status) || str(base.status) || "todo",
-            priority: str(entry.priority) === "high" || entry.priority === true ? "high" : "normal",
-            planned_start: str(entry.planned_start) || null,
-            planned_end: str(entry.planned_end) || null,
-            due_date: null,
-            schedule_confidence: "fixed",
-            date_granularity: "day",
-            progress: 0,
-            description: str(entry.description) || str(base.description),
+            description: str(entry.description) || str(base.description) || null,
+            waiting_for: "",
+            state: "waiting",
             source_record_id: source.id,
-          },
-          options: { source: "imported" },
-        });
+          };
+          operations.push(...buildSaveWaitingOperations(waiting, { source: "import" }));
+        } else if (kind === "milestone" || kind === "period") {
+          const planNode: PlanNode = {
+            id: entityId,
+            project_id: themeId,
+            title: str(entry.title) || "無題",
+            description: str(entry.description) || str(base.description) || null,
+            type: kind === "milestone" ? "milestone" : "phase",
+            state: "planned",
+            sort_order: 0,
+            source_record_id: source.id,
+          };
+          operations.push(...buildSavePlanNodeOperations(planNode, { source: "import" }));
+        } else {
+          const task: Task = {
+            id: entityId,
+            project_id: themeId,
+            title: str(entry.title) || "無題",
+            description: str(entry.description) || str(base.description) || null,
+            state: (str(entry.status) || str(base.status) || "todo") as Task["state"],
+            priority: str(entry.priority) === "high" || entry.priority === true ? "high" : "normal",
+            source_record_id: source.id,
+          };
+          operations.push(...buildSaveTaskOperations(task, { source: "import" }));
+        }
+        const startDate = str(entry.planned_start) || null;
+        const endDate = str(entry.planned_end) || null;
+        if (startDate || endDate) {
+          const ownerType: ScheduleOwnerType = kind === "waiting" ? "waiting" : kind === "milestone" || kind === "period" ? "plan_node" : "task";
+          const schedule: Schedule = {
+            id: uuid(),
+            owner_type: ownerType,
+            owner_id: entityId,
+            start_date: startDate,
+            end_date: endDate,
+            date_kind: startDate && endDate ? "range" : endDate ? "deadline" : "point",
+            confidence: "fixed",
+            granularity: "day",
+          };
+          operations.push(...buildSaveScheduleOperations(schedule, { source: "import" }));
+        }
       } else if (candidate.type === "note") {
         operations.push({
           action: "save",
@@ -202,6 +237,37 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
     await saveEntities(operations, `${count}件を取り込みました。`);
     setPreview(null);
     setText("");
+  }
+
+  function previewMigration() {
+    try {
+      const result = buildLegacyMigrationOperations(data);
+      setMigrationPreview(result);
+    } catch (error) {
+      setToast(`マイグレーション候補の生成に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async function executeMigration() {
+    if (!migrationPreview) return;
+    setMigrating(true);
+    try {
+      if (migrationPreview.saveOperations.length) {
+        await saveEntities(migrationPreview.saveOperations, `${migrationPreview.saveOperations.length}件のv2エンティティを保存しました。`);
+      }
+      for (const id of migrationPreview.deleteDependencyIds) {
+        await removeEntityQuiet("dependency", id);
+      }
+      for (const id of migrationPreview.deleteItemIds) {
+        await removeEntityQuiet("item", id);
+      }
+      setToast(`マイグレーション完了: ${migrationPreview.deleteItemIds.length}件のlegacy itemを削除しました。`);
+      setMigrationPreview(null);
+    } catch (error) {
+      setToast(`マイグレーションに失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setMigrating(false);
+    }
   }
 
   return (
@@ -282,6 +348,38 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
           </div>
         </section>
       )}
+      <section className="panel io-panel">
+        <div className="section-heading">
+          <h2>Legacy → v2 マイグレーション</h2>
+          <span>{items.length}件のlegacy item</span>
+        </div>
+        {items.length === 0 ? (
+          <p className="field-help">legacy item はありません。マイグレーション済みです。</p>
+        ) : (
+          <>
+            <p className="field-help">既存のlegacy itemをv2エンティティ（Task / Waiting / PlanNode / CaptureEntry + Schedule）に変換し、legacy itemを削除します。</p>
+            {!migrationPreview && (
+              <div className="form-actions">
+                <button className="secondary-button" onClick={previewMigration}>変換候補を確認</button>
+              </div>
+            )}
+          </>
+        )}
+        {migrationPreview && (
+          <div className="migration-preview">
+            <pre className="schema-help">{formatMigrationReport(migrationPreview.report)}</pre>
+            <p className="field-help">
+              v2保存: {migrationPreview.saveOperations.length}件 /
+              legacy item削除: {migrationPreview.deleteItemIds.length}件 /
+              legacy dependency削除: {migrationPreview.deleteDependencyIds.length}件
+            </p>
+            <div className="form-actions">
+              <button className="secondary-button" onClick={() => setMigrationPreview(null)}>戻る</button>
+              <button className="primary-button" onClick={executeMigration} disabled={migrating}>{migrating ? "実行中..." : "マイグレーションを実行"}</button>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

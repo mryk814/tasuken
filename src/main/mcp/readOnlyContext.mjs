@@ -16,6 +16,11 @@ const ENTITY_TYPES = [
   "status_update",
   "knowledge_node",
   "knowledge_relation",
+  "task",
+  "waiting",
+  "plan_node",
+  "schedule",
+  "capture_entry",
 ];
 
 function collectionKey(type) {
@@ -125,9 +130,64 @@ export class ReadOnlyTaskenContext {
     return workspace;
   }
 
+  mergedItems(includeArchived = false) {
+    const legacyItems = this.list("item", includeArchived);
+    const tasks = this.list("task", includeArchived);
+    const waitings = this.list("waiting", includeArchived);
+    const schedules = this.list("schedule", includeArchived);
+    const scheduleMap = new Map();
+    for (const s of schedules) scheduleMap.set(`${s.owner_type}:${s.owner_id}`, s);
+    const v2Ids = new Set();
+    const projected = [];
+    for (const t of tasks) {
+      if (t.legacy_item_id) v2Ids.add(t.legacy_item_id);
+      const s = scheduleMap.get(`task:${t.id}`);
+      projected.push({
+        id: t.legacy_item_id || t.id,
+        title: t.title,
+        kind: "task",
+        status: t.state || "todo",
+        priority: t.priority || "normal",
+        theme_id: t.project_id || null,
+        description: t.description || "",
+        planned_start: s?.start_date || null,
+        planned_end: s?.end_date || null,
+        due_date: null,
+        source_record_id: t.source_record_id,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+        deleted_at: t.deleted_at,
+      });
+    }
+    for (const w of waitings) {
+      if (w.legacy_item_id) v2Ids.add(w.legacy_item_id);
+      const s = scheduleMap.get(`waiting:${w.id}`);
+      projected.push({
+        id: w.legacy_item_id || w.id,
+        title: w.title,
+        kind: "waiting",
+        status: w.state === "received" ? "done" : w.state === "cancelled" ? "cancelled" : "waiting",
+        priority: "normal",
+        theme_id: w.project_id || null,
+        description: w.description || "",
+        waiting_for: w.waiting_for || "",
+        next_action: w.next_action || "",
+        planned_start: s?.start_date || null,
+        planned_end: s?.end_date || null,
+        due_date: null,
+        source_record_id: w.source_record_id,
+        created_at: w.created_at,
+        updated_at: w.updated_at,
+        deleted_at: w.deleted_at,
+      });
+    }
+    const deduped = legacyItems.filter((item) => !v2Ids.has(item.id));
+    return sortUpdated([...deduped, ...projected]);
+  }
+
   toolSearchItems(args = {}) {
     const limit = clampLimit(args.limit);
-    const records = this.list("item", Boolean(args.include_archived))
+    const records = this.mergedItems(Boolean(args.include_archived))
       .filter((item) => matchQuery(item, ["title", "description", "next_action", "waiting_for"], args.query))
       .filter((item) => !args.theme_id || item.theme_id === args.theme_id)
       .slice(0, limit);
@@ -136,7 +196,7 @@ export class ReadOnlyTaskenContext {
 
   toolListOpenItems(args = {}) {
     const limit = clampLimit(args.limit);
-    const items = this.list("item", Boolean(args.include_archived))
+    const items = this.mergedItems(Boolean(args.include_archived))
       .filter(isOpenItem)
       .filter((item) => !args.theme_id || item.theme_id === args.theme_id)
       .sort((a, b) => (itemDate(a) || "9999-12-31").localeCompare(itemDate(b) || "9999-12-31"))
@@ -182,7 +242,7 @@ export class ReadOnlyTaskenContext {
       ? {
         notes: this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id)).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
         links: this.list("link").filter((link) => nodes.some((node) => node.source_link_id === link.id)),
-        items: this.list("item").filter((item) => nodes.some((node) => node.source_item_id === item.id)),
+        items: this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id)),
       }
       : undefined;
     return { knowledge_nodes: nodes, knowledge_relations: relations, sources, limit };
@@ -190,7 +250,7 @@ export class ReadOnlyTaskenContext {
 
   buildPlanHealth(themeId = "") {
     const today = new Date().toISOString().slice(0, 10);
-    const items = this.list("item").filter((item) => !themeId || item.theme_id === themeId);
+    const items = this.mergedItems().filter((item) => !themeId || item.theme_id === themeId);
     const openItems = items.filter(isOpenItem);
     return {
       open_count: openItems.length,
@@ -228,7 +288,7 @@ export class ReadOnlyTaskenContext {
     const themeIds = new Set(themes.map((theme) => theme.id));
     return {
       themes,
-      open_items: this.list("item").filter((item) => themeIds.has(item.theme_id) && isOpenItem(item)).slice(0, limit),
+      open_items: this.mergedItems().filter((item) => themeIds.has(item.theme_id) && isOpenItem(item)).slice(0, limit),
       recent_notes: this.list("note").filter((note) => themeIds.has(note.theme_id)).slice(0, limit).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
       knowledge: this.toolGetKnowledgeContext({ theme_id: args.theme_id, limit, max_chars: textLimit, include_relations: true }),
       health: {
@@ -256,7 +316,7 @@ export class ReadOnlyTaskenContext {
     const themeId = args.theme_id || "";
     const themes = this.list("theme").filter((theme) => !themeId || theme.id === themeId);
     const themeIds = new Set(themes.map((theme) => theme.id));
-    const allItems = this.list("item").filter((item) => !themeId || item.theme_id === themeId);
+    const allItems = this.mergedItems().filter((item) => !themeId || item.theme_id === themeId);
     const items = (scope === "open_items" ? allItems.filter(isOpenItem) : allItems).slice(0, maxItems);
     const notes = this.list("note")
       .filter((note) => !themeId || themeIds.has(note.theme_id))

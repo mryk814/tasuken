@@ -52,7 +52,6 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntities, setToa
   const [addTheme, setAddTheme] = useState("");
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
-  const legacyItemsById = new Map(items.map((item) => [item.id, item]));
   const taskRows: TodoRow[] = buildTodoView(workspaceToV2(data)).tasks;
   const counters = {
     today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
@@ -229,11 +228,8 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntities, setToa
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
-  function openTaskDetail(task: Task) {
-    const legacyItem = task.legacy_item_id ? legacyItemsById.get(task.legacy_item_id) : undefined;
-    if (legacyItem) {
-      openDrawer({ type: "item", entity: legacyItem });
-    }
+  function openTaskDetail(task: Task, schedule?: Schedule) {
+    openDrawer({ type: "task", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
   }
 
   return (
@@ -332,7 +328,7 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntities, setToa
                 >
                   {isTodayRow({ task, schedule }, today) ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
                 </button>
-                <button className="row-title" onClick={() => openTaskDetail(task)}>{task.title}</button>
+                <button className="row-title" onClick={() => openTaskDetail(task, schedule)}>{task.title}</button>
               </div>
               <button className="check-action" onClick={() => toggleTask(task)}>{task.state === "done" ? "戻す" : "完了"}</button>
               <span className="theme-inline">

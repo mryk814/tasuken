@@ -1,8 +1,9 @@
-import { IconCalendarPlus, IconClipboard, IconFlagFilled } from "@tabler/icons-react";
+import { useState } from "react";
+import { IconCalendarPlus, IconClipboard, IconFlagFilled, IconPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
-import type { Item, PageProps } from "../types";
+import type { PageProps } from "../types";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, StatusBadge } from "../components/common";
 import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
@@ -14,8 +15,20 @@ import {
   WAITING_STATE_LABELS,
 } from "../../workspace-v2/domain/labels";
 import { buildTodayView } from "../../workspace-v2/domain/selectors";
+import {
+  buildSaveTaskOperations,
+  buildSaveWaitingOperations,
+  buildSavePlanNodeOperations,
+  buildSaveScheduleOperations,
+} from "../../workspace-v2/domain/persistence";
 import type { CaptureEntry, PlanNode, Schedule, Task, Waiting, WorkspaceV2 } from "../../workspace-v2/domain/types";
 import type { TodayEntry } from "../../workspace-v2/domain/viewModels";
+
+type V2Entity =
+  | { type: "task"; task: Task; schedule?: Schedule }
+  | { type: "waiting"; waiting: Waiting; schedule?: Schedule }
+  | { type: "milestone"; planNode: PlanNode; schedule?: Schedule }
+  | { type: "capture"; captureEntry: CaptureEntry };
 
 type TodayRow = {
   id: string;
@@ -26,8 +39,8 @@ type TodayRow = {
   status: string;
   statusLabel: string;
   priority?: "normal" | "high";
-  legacyItem?: Item;
   waitingFor?: string | null;
+  v2?: V2Entity;
 };
 
 function scheduleDate(schedule?: Schedule): string {
@@ -59,7 +72,7 @@ function compareRows(a: TodayRow, b: TodayRow): number {
   return rowDate(a).localeCompare(rowDate(b)) || a.title.localeCompare(b.title, "ja");
 }
 
-function taskToRow(task: Task, schedule: Schedule | undefined, legacyItem?: Item): TodayRow {
+function taskToRow(task: Task, schedule: Schedule | undefined): TodayRow {
   return {
     id: task.id,
     title: task.title,
@@ -69,11 +82,11 @@ function taskToRow(task: Task, schedule: Schedule | undefined, legacyItem?: Item
     status: task.state,
     statusLabel: TASK_STATE_LABELS[task.state],
     priority: task.priority,
-    legacyItem,
+    v2: { type: "task", task, schedule },
   };
 }
 
-function waitingToRow(waiting: Waiting, schedule: Schedule | undefined, legacyItem?: Item): TodayRow {
+function waitingToRow(waiting: Waiting, schedule: Schedule | undefined): TodayRow {
   return {
     id: waiting.id,
     title: waiting.title,
@@ -82,12 +95,12 @@ function waitingToRow(waiting: Waiting, schedule: Schedule | undefined, legacyIt
     kindLabel: "待ち",
     status: waiting.state,
     statusLabel: WAITING_STATE_LABELS[waiting.state],
-    legacyItem,
     waitingFor: waiting.waiting_for,
+    v2: { type: "waiting", waiting, schedule },
   };
 }
 
-function planNodeToRow(planNode: PlanNode, schedule: Schedule | undefined, legacyItem?: Item): TodayRow {
+function planNodeToRow(planNode: PlanNode, schedule: Schedule | undefined): TodayRow {
   return {
     id: planNode.id,
     title: planNode.title,
@@ -96,11 +109,11 @@ function planNodeToRow(planNode: PlanNode, schedule: Schedule | undefined, legac
     kindLabel: PLAN_NODE_TYPE_LABELS[planNode.type],
     status: planNode.state,
     statusLabel: planNode.type === "milestone" ? "マイルストーン" : PLAN_NODE_STATE_LABELS[planNode.state],
-    legacyItem,
+    v2: { type: "milestone", planNode, schedule },
   };
 }
 
-function captureToRow(captureEntry: CaptureEntry, legacyItem?: Item): TodayRow {
+function captureToRow(captureEntry: CaptureEntry): TodayRow {
   return {
     id: captureEntry.id,
     title: captureEntry.title || captureEntry.text,
@@ -108,15 +121,23 @@ function captureToRow(captureEntry: CaptureEntry, legacyItem?: Item): TodayRow {
     kindLabel: "Capture",
     status: captureEntry.state,
     statusLabel: CAPTURE_ENTRY_STATE_LABELS[captureEntry.state],
-    legacyItem,
+    v2: { type: "capture", captureEntry },
   };
 }
 
-function todayEntryToRow(entry: TodayEntry, legacyItemsById: Map<string, Item>): TodayRow {
-  if (entry.type === "task") return taskToRow(entry.task, entry.schedule, entry.task.legacy_item_id ? legacyItemsById.get(entry.task.legacy_item_id) : undefined);
-  if (entry.type === "waiting") return waitingToRow(entry.waiting, entry.schedule, entry.waiting.legacy_item_id ? legacyItemsById.get(entry.waiting.legacy_item_id) : undefined);
-  if (entry.type === "milestone") return planNodeToRow(entry.planNode, entry.schedule, entry.planNode.legacy_item_id ? legacyItemsById.get(entry.planNode.legacy_item_id) : undefined);
-  return captureToRow(entry.captureEntry, entry.captureEntry.legacy_item_id ? legacyItemsById.get(entry.captureEntry.legacy_item_id) : undefined);
+function todayEntryToRow(entry: TodayEntry): TodayRow {
+  if (entry.type === "task") return taskToRow(entry.task, entry.schedule);
+  if (entry.type === "waiting") return waitingToRow(entry.waiting, entry.schedule);
+  if (entry.type === "milestone") return planNodeToRow(entry.planNode, entry.schedule);
+  return captureToRow(entry.captureEntry);
+}
+
+function canComplete(row: TodayRow): boolean {
+  return row.v2?.type === "task" || row.v2?.type === "waiting" || row.v2?.type === "milestone";
+}
+
+function canToggleToday(row: TodayRow): boolean {
+  return row.v2 != null && row.v2.type !== "capture";
 }
 
 function TodayRows({
@@ -124,15 +145,21 @@ function TodayRows({
   themes,
   empty,
   today,
-  openDrawer,
-  toggleItem,
-  saveEntity,
-}: Pick<PageProps, "themes" | "openDrawer" | "toggleItem" | "saveEntity"> & {
+  onToggleComplete,
+  onToggleToday,
+  onOpenDetail,
+  onAdd,
+}: {
   rows: TodayRow[];
+  themes: PageProps["themes"];
   empty: string;
   today: string;
+  onToggleComplete: (row: TodayRow) => void;
+  onToggleToday: (row: TodayRow) => void;
+  onOpenDetail: (row: TodayRow) => void;
+  onAdd?: () => void;
 }) {
-  if (!rows.length) return <EmptyState title={empty} action="タスクを追加" onAction={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "task" } })} />;
+  if (!rows.length) return <EmptyState title={empty} action={onAdd ? "タスクを追加" : undefined} onAction={onAdd} />;
   return (
     <div className="today-task-list">
       {rows.map((row) => {
@@ -140,8 +167,13 @@ function TodayRows({
         const isToday = row.date?.slice(0, 10) === today;
         return (
           <div className="today-task-row" key={row.id}>
-            <button className="check-button" aria-label={`${row.title}を完了`} onClick={() => row.legacyItem && toggleItem(row.legacyItem)} disabled={!row.legacyItem} />
-            <button className="today-task-title" onClick={() => row.legacyItem && openDrawer({ type: "item", entity: row.legacyItem })}>
+            <button
+              className="check-button"
+              aria-label={`${row.title}を完了`}
+              onClick={() => onToggleComplete(row)}
+              disabled={!canComplete(row)}
+            />
+            <button className="today-task-title" onClick={() => onOpenDetail(row)}>
               <strong>{row.title}</strong>
               <span>{theme?.name || "個人業務"} / {row.kindLabel}</span>
             </button>
@@ -150,10 +182,10 @@ function TodayRows({
             <time>{formatDate(row.date)}</time>
             <button
               className={`today-plan-button ${isToday ? "is-active" : ""}`}
-              onClick={() => row.legacyItem && saveEntity("item", { ...row.legacyItem, today_flag: !row.legacyItem.today_flag })}
+              onClick={() => onToggleToday(row)}
               aria-label={isToday ? "今日の予定から外す" : "今日の予定に追加"}
               title={isToday ? "今日の予定から外す" : "今日の予定に追加"}
-              disabled={!row.legacyItem}
+              disabled={!canToggleToday(row)}
             >
               <IconCalendarPlus size={16} />
             </button>
@@ -164,17 +196,18 @@ function TodayRows({
   );
 }
 
-export function TodayPage({ data, themes, items, openDrawer, navigate, saveEntity, toggleItem, setToast }: PageProps) {
+export function TodayPage({ data, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [addTitle, setAddTitle] = useState("");
+  const [addTheme, setAddTheme] = useState("");
   const today = todayIso();
   const soon = addDays(today, 14);
   const v2 = workspaceToV2(data);
   const schedules = schedulesByOwner(v2);
-  const legacyItemsById = new Map(items.map((item) => [item.id, item]));
-  const legacyFor = (legacyItemId?: string | null): Item | undefined => legacyItemId ? legacyItemsById.get(legacyItemId) : undefined;
-  const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry, legacyItemsById));
-  const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`), legacyFor(task.legacy_item_id)));
-  const waitingRows = v2.waitings.map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`), legacyFor(waiting.legacy_item_id)));
-  const planNodeRows = v2.plan_nodes.map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`), legacyFor(planNode.legacy_item_id)));
+  const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
+  const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
+  const waitingRows = v2.waitings.map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)));
+  const planNodeRows = v2.plan_nodes.map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)));
   const overdue = [
     ...taskRows.filter((row) => row.status !== "done" && row.status !== "cancelled" && row.date && row.date < today),
     ...waitingRows.filter((row) => row.status === "waiting" && row.date && row.date < today),
@@ -182,22 +215,121 @@ export function TodayPage({ data, themes, items, openDrawer, navigate, saveEntit
   ].sort(compareRows);
   const inbox = v2.capture_entries
     .filter((entry) => entry.state === "untriaged")
-    .map((entry) => captureToRow(entry, legacyFor(entry.legacy_item_id)))
+    .map((entry) => captureToRow(entry))
     .sort(compareRows);
   const noSchedule = taskRows
     .filter((row) => row.status !== "done" && row.status !== "cancelled" && !row.date)
     .sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high") || a.title.localeCompare(b.title, "ja"));
   const milestones = v2.plan_nodes
     .filter((planNode) => planNode.type === "milestone" && isActivePlanNode(planNode) && scheduleTouchesRange(schedules.get(`plan_node:${planNode.id}`), today, soon))
-    .map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`), legacyFor(planNode.legacy_item_id)))
+    .map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)))
     .sort(compareRows);
   const waitingSoon = v2.waitings
     .filter((waiting) => waiting.state === "waiting" && scheduleTouchesRange(schedules.get(`waiting:${waiting.id}`), "", soon))
-    .map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`), legacyFor(waiting.legacy_item_id)))
+    .map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)))
     .sort(compareRows);
   const latestUpdates = [...(data.status_updates || [])]
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
     .slice(0, 5);
+
+  async function handleToggleComplete(row: TodayRow) {
+    if (row.v2?.type === "task") {
+      const nextState = row.v2.task.state === "done" ? "todo" : "done";
+      const next: Task = { ...row.v2.task, state: nextState, completed_at: nextState === "done" ? new Date().toISOString() : null };
+      await saveEntities(buildSaveTaskOperations(next), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
+      return;
+    }
+    if (row.v2?.type === "waiting") {
+      const nextState = row.v2.waiting.state === "received" ? "waiting" : "received";
+      const next: Waiting = { ...row.v2.waiting, state: nextState };
+      await saveEntities(buildSaveWaitingOperations(next), nextState === "received" ? "受領しました。" : "待ちに戻しました。");
+      return;
+    }
+    if (row.v2?.type === "milestone") {
+      const nextState = row.v2.planNode.state === "done" ? "planned" : "done";
+      const next: PlanNode = { ...row.v2.planNode, state: nextState };
+      await saveEntities(buildSavePlanNodeOperations(next), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
+      return;
+    }
+  }
+
+  async function handleToggleToday(row: TodayRow) {
+    if (row.v2 && row.v2.type !== "capture") {
+      const schedule = row.v2.schedule;
+      const ownerType: Schedule["owner_type"] = row.v2.type === "task" ? "task" : row.v2.type === "waiting" ? "waiting" : "plan_node";
+      const ownerId = row.v2.type === "task" ? row.v2.task.id : row.v2.type === "waiting" ? row.v2.waiting.id : row.v2.planNode.id;
+      const isToday = schedule?.start_date === today || schedule?.end_date === today;
+
+      if (!schedule) {
+        const newSchedule: Schedule = {
+          id: crypto.randomUUID(),
+          owner_type: ownerType,
+          owner_id: ownerId,
+          end_date: today,
+          date_kind: "deadline",
+          confidence: "fixed",
+          granularity: "day",
+        };
+        await saveEntities(buildSaveScheduleOperations(newSchedule), "今日の予定に追加しました。");
+      } else if (isToday) {
+        const next: Schedule = {
+          ...schedule,
+          start_date: schedule.start_date === today ? null : schedule.start_date,
+          end_date: schedule.end_date === today ? null : schedule.end_date,
+        };
+        await saveEntities(buildSaveScheduleOperations(next), "今日の予定から外しました。");
+      } else {
+        await saveEntities(buildSaveScheduleOperations({ ...schedule, end_date: today }), "今日の予定に追加しました。");
+      }
+      return;
+    }
+  }
+
+  function handleOpenDetail(row: TodayRow) {
+    if (row.v2) {
+      if (row.v2.type === "task") {
+        openDrawer({ type: "task", entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown> });
+        return;
+      }
+      if (row.v2.type === "waiting") {
+        openDrawer({ type: "waiting", entity: { ...row.v2.waiting, _schedule: row.v2.schedule } as Record<string, unknown> });
+        return;
+      }
+      if (row.v2.type === "milestone") {
+        openDrawer({ type: "plan_node", entity: { ...row.v2.planNode, _schedule: row.v2.schedule } as Record<string, unknown> });
+        return;
+      }
+      if (row.v2.type === "capture") {
+        openDrawer({ type: "capture_entry", entity: row.v2.captureEntry as Record<string, unknown> });
+        return;
+      }
+    }
+  }
+
+  async function addTask() {
+    const title = addTitle.trim();
+    if (!title) { setToast("タイトルを入力してください。"); return; }
+    const taskId = crypto.randomUUID();
+    const task: Task = {
+      id: taskId,
+      project_id: addTheme || null,
+      title,
+      state: "todo",
+      priority: "normal",
+      created_at: new Date().toISOString(),
+    };
+    const schedule: Schedule = {
+      id: crypto.randomUUID(),
+      owner_type: "task",
+      owner_id: taskId,
+      end_date: today,
+      date_kind: "deadline",
+      confidence: "fixed",
+      granularity: "day",
+    };
+    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日のタスクを追加しました。");
+    setAddTitle("");
+  }
 
   const todayMarkdown = [
     "# Today",
@@ -212,14 +344,41 @@ export function TodayPage({ data, themes, items, openDrawer, navigate, saveEntit
     ...(waitingSoon.length ? waitingSoon.map((row) => `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`) : ["- なし"]),
   ].join("\n");
 
+  const rowHandlers = {
+    onToggleComplete: handleToggleComplete,
+    onToggleToday: handleToggleToday,
+    onOpenDetail: handleOpenDetail,
+  };
+
   return (
     <div className="page today-page">
       <PageHeader title="Today" subtitle="今日見るものを一か所に集めます。">
         <button className="secondary-button" onClick={() => workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。"))}>
           <IconClipboard size={16} /> コピー
         </button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "task", today_flag: true, planned_end: today } })}>今日のタスクを追加</button>
+        <button className="primary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
       </PageHeader>
+
+      {showAdd && (
+        <section className="panel">
+          <div className="section-heading"><h2>今日のタスクを追加</h2></div>
+          <div className="inline-actions" style={{ gap: "var(--space-sm)" }}>
+            <input
+              style={{ flex: 1 }}
+              value={addTitle}
+              onChange={(e) => setAddTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addTask()}
+              placeholder="タスク名"
+              autoFocus
+            />
+            <select value={addTheme} onChange={(e) => setAddTheme(e.target.value)}>
+              <option value="">個人業務</option>
+              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+            </select>
+            <button className="primary-button compact" onClick={addTask}>追加</button>
+          </div>
+        </section>
+      )}
 
       <div className="metric-grid today-metrics">
         <Metric label="今日" value={todayRows.length} tone="primary" />
@@ -233,35 +392,35 @@ export function TodayPage({ data, themes, items, openDrawer, navigate, saveEntit
           <h2>今日やること</h2>
           <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
-        <TodayRows rows={todayRows} themes={themes} empty="今日のタスクはありません" today={today} openDrawer={openDrawer} toggleItem={toggleItem} saveEntity={saveEntity} />
+        <TodayRows rows={todayRows} themes={themes} empty="今日のタスクはありません" today={today} {...rowHandlers} onAdd={() => setShowAdd(true)} />
       </section>
 
       <div className="today-grid">
         <section className="panel">
           <div className="section-heading"><h2>期限切れ</h2><span>{overdue.length}件</span></div>
-          <TodayRows rows={overdue.slice(0, 8)} themes={themes} empty="期限切れはありません" today={today} openDrawer={openDrawer} toggleItem={toggleItem} saveEntity={saveEntity} />
+          <TodayRows rows={overdue.slice(0, 8)} themes={themes} empty="期限切れはありません" today={today} {...rowHandlers} />
         </section>
         <section className="panel">
           <div className="section-heading"><h2>Inbox未整理</h2><button className="text-button compact" onClick={() => navigate("inbox")}>整理へ</button></div>
-          <TodayRows rows={inbox.slice(0, 8)} themes={themes} empty="未整理の記録はありません" today={today} openDrawer={openDrawer} toggleItem={toggleItem} saveEntity={saveEntity} />
+          <TodayRows rows={inbox.slice(0, 8)} themes={themes} empty="未整理の記録はありません" today={today} {...rowHandlers} />
         </section>
       </div>
 
       <div className="today-grid">
         <section className="panel">
           <div className="section-heading"><h2>予定なし</h2><span>{noSchedule.length}件</span></div>
-          <TodayRows rows={noSchedule.slice(0, 8)} themes={themes} empty="予定なしのタスクはありません" today={today} openDrawer={openDrawer} toggleItem={toggleItem} saveEntity={saveEntity} />
+          <TodayRows rows={noSchedule.slice(0, 8)} themes={themes} empty="予定なしのタスクはありません" today={today} {...rowHandlers} onAdd={() => setShowAdd(true)} />
         </section>
         <section className="panel">
           <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
-          <TodayRows rows={milestones.slice(0, 8)} themes={themes} empty="近いマイルストーンはありません" today={today} openDrawer={openDrawer} toggleItem={toggleItem} saveEntity={saveEntity} />
+          <TodayRows rows={milestones.slice(0, 8)} themes={themes} empty="近いマイルストーンはありません" today={today} {...rowHandlers} />
         </section>
       </div>
 
       <div className="today-grid">
         <section className="panel">
           <div className="section-heading"><h2>期限が近い待ち</h2><button className="text-button compact" onClick={() => navigate("waiting")}>Waitingへ</button></div>
-          <TodayRows rows={waitingSoon.slice(0, 8)} themes={themes} empty="近い待ちはありません" today={today} openDrawer={openDrawer} toggleItem={toggleItem} saveEntity={saveEntity} />
+          <TodayRows rows={waitingSoon.slice(0, 8)} themes={themes} empty="近い待ちはありません" today={today} {...rowHandlers} />
         </section>
         <section className="panel">
           <div className="section-heading"><h2>最近の現在地</h2><button className="text-button compact" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { date: today } })}>記録する</button></div>

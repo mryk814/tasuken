@@ -3,16 +3,29 @@ import { useState } from "react";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type {
   DrawerConfig,
-  Item,
   KnowledgeNode,
   Note,
   RemoveEntity,
+  SaveEntities,
   SaveEntity,
   WorkspaceData,
 } from "../types";
-import { CHART_COLORS, KIND_LABELS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, LEVEL_LABELS, NOTE_TYPE_LABELS, STATUS_LABELS, THEME_STATUS_LABELS, itemLevel, relatedEntityTitle } from "../lib/domain";
+import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
+import {
+  TASK_STATE_LABELS,
+  WAITING_STATE_LABELS,
+  PLAN_NODE_TYPE_LABELS,
+  PLAN_NODE_STATE_LABELS,
+  CAPTURE_ENTRY_STATE_LABELS,
+} from "../../workspace-v2/domain/labels";
+import {
+  buildSaveTaskOperations,
+  buildSaveWaitingOperations,
+  buildSavePlanNodeOperations,
+} from "../../workspace-v2/domain/persistence";
+import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "../../workspace-v2/domain/types";
 
 const LINK_TYPES = ["chatgpt", "claude", "gemini", "copilot", "github", "paper", "notebook", "document", "other"];
 const LINK_TYPE_LABELS: Record<string, string> = {
@@ -127,69 +140,19 @@ interface EntityDrawerProps {
   close: CloseDrawer;
   saveForm: SaveForm;
   removeEntity: RemoveEntity;
-  toggleItem: (item: Item) => Promise<void>;
   saveEntity: SaveEntity;
+  saveEntities: SaveEntities;
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, toggleItem, saveEntity }: EntityDrawerProps) {
+function findSchedule(data: WorkspaceData, ownerType: string, ownerId: string, passedSchedule?: unknown): Schedule | undefined {
+  if (passedSchedule && typeof passedSchedule === "object" && "id" in (passedSchedule as object)) return passedSchedule as Schedule;
+  return (data.schedules || []).find((s) => (s as Schedule).owner_type === ownerType && (s as Schedule).owner_id === ownerId) as Schedule | undefined;
+}
+
+export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} />;
   const type = drawer.type;
-  if (type === "item") {
-    const item = entity as Item;
-    const revisions = (data.plan_revisions || []).filter((revision) => revision.item_id === item.id);
-    const relations = (data.relations || []).filter((relation) => relation.source_entity_id === item.id || relation.target_entity_id === item.id);
-    const dependencies = (data.dependencys || []).filter((dependency) => dependency.source_item_id === item.id || dependency.target_item_id === item.id);
-    return (
-      <aside className="drawer">
-        <DrawerHeader title="タスク詳細" close={close} />
-        <div className="drawer-content">
-          <div className="badge-row">
-            <StatusBadge value={item.status} label={STATUS_LABELS[item.status ?? ""]} />
-          </div>
-          <h2>{item.title}</h2>
-          <p>{item.description || "説明なし"}</p>
-          <dl>
-            <dt>種類</dt><dd>{KIND_LABELS[item.kind ?? ""]}</dd>
-            <dt>予定</dt><dd>{`${formatDate(item.planned_start)} - ${formatDate(item.planned_end)}`}</dd>
-          </dl>
-          {(relations.length > 0 || dependencies.length > 0) && (
-            <div className="revision-list">
-              <h3>関係</h3>
-              {dependencies.map((dependency) => (
-                <div key={dependency.id}>
-                  <span>依存: {(data.items || []).find((entry) => entry.id === dependency.source_item_id)?.title} → {(data.items || []).find((entry) => entry.id === dependency.target_item_id)?.title}</span>
-                </div>
-              ))}
-              {relations.map((relation) => (
-                <div key={relation.id}>
-                  <span>{relation.relation_type}: {relatedEntityTitle(data, relation.target_entity_type ?? "", relation.target_entity_id)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {revisions.length > 0 && (
-            <div className="revision-list">
-              <h3>予定変更履歴</h3>
-              {revisions.slice(0, 8).map((revision) => (
-                <div key={revision.id}>
-                  <time>{new Date(revision.changed_at).toLocaleString("ja-JP")}</time>
-                  <span>{revision.reason || "理由未記入"}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="drawer-actions">
-            <button className="secondary-button" onClick={() => close({ type: "item", mode: "edit", entity: item })}>編集する</button>
-            <button className="secondary-button" onClick={() => close({ type: "dependency", mode: "edit", entity: { source_item_id: item.id } })}>依存を追加</button>
-            <button className="secondary-button" onClick={() => close({ type: "relation", mode: "edit", entity: { source_entity_type: "item", source_entity_id: item.id } })}>関係を追加</button>
-            <button className="primary-button" onClick={() => { void toggleItem(item); close(); }}>{item.status === "done" ? "未完了に戻す" : "完了にする"}</button>
-            <button className="danger-button" onClick={() => removeEntity("item", item)}>削除する</button>
-          </div>
-        </div>
-      </aside>
-    );
-  }
   if (type === "note") return <NoteDetailDrawer note={entity as Note} close={close} removeEntity={removeEntity} saveEntity={saveEntity} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
   if (type === "link") {
@@ -211,6 +174,128 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, togg
       </DetailDrawer>
     );
   }
+  if (type === "task") {
+    const task = entity as unknown as Task;
+    const schedule = findSchedule(data, "task", task.id, entity._schedule);
+    const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
+    return (
+      <aside className="drawer">
+        <DrawerHeader title="タスク詳細" close={close} />
+        <div className="drawer-content">
+          <div className="badge-row">
+            <StatusBadge value={task.state} label={TASK_STATE_LABELS[task.state]} />
+            {task.priority === "high" && <StatusBadge value="review" label="優先" />}
+          </div>
+          <h2>{task.title}</h2>
+          <p>{task.description || "説明なし"}</p>
+          <dl>
+            <dt>Theme</dt><dd>{themeName}</dd>
+            <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
+          </dl>
+          <div className="drawer-actions">
+            <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
+            <button className="primary-button" onClick={async () => {
+              const nextState = task.state === "done" ? "todo" : "done";
+              await saveEntities(buildSaveTaskOperations({ ...task, state: nextState, completed_at: nextState === "done" ? new Date().toISOString() : null }), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
+              close();
+            }}>{task.state === "done" ? "未完了に戻す" : "完了にする"}</button>
+            <button className="danger-button" onClick={() => removeEntity("task", entity)}>削除する</button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+  if (type === "waiting") {
+    const waiting = entity as unknown as Waiting;
+    const schedule = findSchedule(data, "waiting", waiting.id, entity._schedule);
+    const themeName = (data.themes || []).find((t) => t.id === waiting.project_id)?.name || "個人業務";
+    return (
+      <aside className="drawer">
+        <DrawerHeader title="待ち詳細" close={close} />
+        <div className="drawer-content">
+          <div className="badge-row">
+            <StatusBadge value={waiting.state} label={WAITING_STATE_LABELS[waiting.state]} />
+          </div>
+          <h2>{waiting.title}</h2>
+          <dl>
+            <dt>相手</dt><dd>{waiting.waiting_for}</dd>
+            <dt>Theme</dt><dd>{themeName}</dd>
+            <dt>期限</dt><dd>{formatDate(schedule?.end_date)}</dd>
+          </dl>
+          {waiting.description && <p>{waiting.description}</p>}
+          <div className="drawer-actions">
+            <button className="secondary-button" onClick={() => close({ type: "waiting", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
+            {waiting.state === "waiting" ? (
+              <>
+                <button className="primary-button" onClick={async () => {
+                  await saveEntities(buildSaveWaitingOperations({ ...waiting, state: "received" }), "受領しました。");
+                  close();
+                }}>受領する</button>
+                <button className="secondary-button" onClick={async () => {
+                  await saveEntities(buildSaveWaitingOperations({ ...waiting, state: "cancelled" }), "中止しました。");
+                  close();
+                }}>中止する</button>
+              </>
+            ) : (
+              <button className="secondary-button" onClick={async () => {
+                await saveEntities(buildSaveWaitingOperations({ ...waiting, state: "waiting" }), "待ちに戻しました。");
+                close();
+              }}>待ちに戻す</button>
+            )}
+            <button className="danger-button" onClick={() => removeEntity("waiting", entity)}>削除する</button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+  if (type === "plan_node") {
+    const planNode = entity as unknown as PlanNode;
+    const schedule = findSchedule(data, "plan_node", planNode.id, entity._schedule);
+    const themeName = (data.themes || []).find((t) => t.id === planNode.project_id)?.name || "個人業務";
+    return (
+      <aside className="drawer">
+        <DrawerHeader title={`${PLAN_NODE_TYPE_LABELS[planNode.type]}詳細`} close={close} />
+        <div className="drawer-content">
+          <div className="badge-row">
+            <StatusBadge value={planNode.state} label={PLAN_NODE_STATE_LABELS[planNode.state]} />
+            <StatusBadge value="neutral" label={PLAN_NODE_TYPE_LABELS[planNode.type]} />
+          </div>
+          <h2>{planNode.title}</h2>
+          <p>{planNode.description || "説明なし"}</p>
+          <dl>
+            <dt>Theme</dt><dd>{themeName}</dd>
+            <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
+          </dl>
+          <div className="drawer-actions">
+            <button className="secondary-button" onClick={() => close({ type: "plan_node", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
+            <button className="primary-button" onClick={async () => {
+              const nextState = planNode.state === "done" ? "planned" : "done";
+              await saveEntities(buildSavePlanNodeOperations({ ...planNode, state: nextState }), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
+              close();
+            }}>{planNode.state === "done" ? "未完了に戻す" : "完了にする"}</button>
+            <button className="danger-button" onClick={() => removeEntity("plan_node", entity)}>削除する</button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+  if (type === "capture_entry") {
+    const entry = entity as unknown as CaptureEntry;
+    return (
+      <aside className="drawer">
+        <DrawerHeader title="キャプチャ詳細" close={close} />
+        <div className="drawer-content">
+          <StatusBadge value={entry.state} label={CAPTURE_ENTRY_STATE_LABELS[entry.state]} />
+          <h2>{entry.title || entry.text}</h2>
+          <dl><dt>記録日</dt><dd>{formatDate(entry.captured_at)}</dd></dl>
+          <div className="drawer-actions">
+            <button className="secondary-button" onClick={() => close({ type: "capture_entry", mode: "edit", entity })}>編集する</button>
+            <button className="danger-button" onClick={() => removeEntity("capture_entry", entity)}>削除する</button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
   return <EditDrawer drawer={{ ...drawer, mode: "edit" }} data={data} close={close} saveForm={saveForm} />;
 }
 
@@ -229,14 +314,17 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
     dependency: "依存",
     knowledge_node: "Knowledge",
     knowledge_relation: "Knowledge Relation",
+    task: "タスク",
+    waiting: "待ち",
+    plan_node: "計画ノード",
+    capture_entry: "キャプチャ",
   };
-  const kindLabel = type === "item" && !entity.id ? KIND_LABELS[(entity as Partial<Item>).kind ?? ""] || "タスク" : typeLabels[type] || type;
+  const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   return (
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
       <form className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${str(entity.id) || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
-        {type === "item" && <ItemFields entity={entity as Partial<Item>} data={data} />}
         {type === "theme" && (
           <>
             <Field label="テーマ名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
@@ -314,64 +402,16 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
         {type === "relation" && <RelationFields entity={entity} data={data} />}
         {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
         {type === "knowledge_relation" && <KnowledgeRelationFields entity={entity} data={data} />}
+        {type === "task" && <TaskFields entity={entity} data={data} />}
+        {type === "waiting" && <WaitingFields entity={entity} data={data} />}
+        {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
+        {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
         <button className="primary-button" type="submit">保存する</button>
       </form>
     </aside>
   );
 }
 
-function ItemFields({ entity, data }: { entity: Partial<Item>; data: WorkspaceData }) {
-  const isNew = !entity.id;
-  const customDefinitions = (data.field_definitions || []).filter((field) => field.applies_to === "item" && (!field.theme_id || field.theme_id === entity.theme_id));
-
-  if (isNew) {
-    return (
-      <>
-        <Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title ?? ""} /></Field>
-        <ThemeSelect themes={data.themes} value={entity.theme_id} allowPersonal />
-        <Field label="状態"><select name="status" defaultValue={entity.status || "todo"}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-        {(entity.kind === "period" || entity.kind === "milestone") && (
-          <Field label="予定開始"><input name="planned_start" type="date" defaultValue={dateOnly(entity.planned_start)} /></Field>
-        )}
-        <Field label="予定終了"><input name="planned_end" type="date" defaultValue={dateOnly(entity.planned_end)} /></Field>
-        <Field label="説明"><textarea name="description" defaultValue={entity.description ?? ""} /></Field>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <Field label="タイトル"><input name="title" autoFocus defaultValue={entity.title ?? ""} /></Field>
-      <ThemeSelect themes={data.themes} value={entity.theme_id} allowPersonal />
-      <div className="form-grid">
-        <Field label="種類"><select name="kind" defaultValue={entity.kind || "task"}>{Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-        <Field label="レベル"><select name="level" defaultValue={itemLevel(entity as Item)}>{Object.entries(LEVEL_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-      </div>
-      <Field label="状態"><select name="status" defaultValue={entity.status || "todo"}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-      <ItemSelect label="親タスク" items={(data.items || []).filter((item) => item.id !== entity.id)} value={entity.parent_item_id} />
-      <div className="form-grid">
-        <Field label="予定開始"><input name="planned_start" type="date" defaultValue={dateOnly(entity.planned_start)} /></Field>
-        <Field label="予定終了"><input name="planned_end" type="date" defaultValue={dateOnly(entity.planned_end)} /></Field>
-      </div>
-      <label className="toggle priority-toggle"><input name="priority_flag" type="checkbox" defaultChecked={entity.priority === "high"} />旗を付ける</label>
-      <Field label="説明"><textarea name="description" defaultValue={entity.description ?? ""} /></Field>
-      {customDefinitions.map((definition) => {
-        const value = (data.field_values || []).find((entry) => entry.field_definition_id === definition.id && entry.entity_id === entity.id);
-        return (
-          <Field key={definition.id} label={definition.name}>
-            <input
-              name={`custom:${definition.id}`}
-              type={definition.field_type === "date" ? "date" : definition.field_type === "number" ? "number" : definition.field_type === "url" ? "url" : "text"}
-              required={definition.is_required}
-              defaultValue={value?.value_text ?? ""}
-            />
-          </Field>
-        );
-      })}
-      {entity.id && <Field label="予定変更理由（任意）"><textarea name="revision_reason" placeholder="測定結果の受領が遅れたため" /></Field>}
-    </>
-  );
-}
 
 function RelationFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const [targetType, setTargetType] = useState(str(entity.target_entity_type) || "item");
@@ -642,5 +682,90 @@ function KnowledgeNodeDetailDrawer({
         </div>
       </div>
     </aside>
+  );
+}
+
+function TaskFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
+  return (
+    <>
+      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
+      <Field label="状態">
+        <select name="state" defaultValue={str(entity.state) || "todo"}>
+          {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </Field>
+      <label className="toggle priority-toggle"><input name="priority_flag" type="checkbox" defaultChecked={str(entity.priority) === "high"} />旗を付ける</label>
+      <div className="form-grid">
+        <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>
+        <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
+      </div>
+      <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
+    </>
+  );
+}
+
+function WaitingFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const schedule = findSchedule(data, "waiting", str(entity.id), entity._schedule);
+  return (
+    <>
+      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <Field label="相手"><input name="waiting_for" defaultValue={str(entity.waiting_for)} /></Field>
+      <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
+      <Field label="状態">
+        <select name="state" defaultValue={str(entity.state) || "waiting"}>
+          {Object.entries(WAITING_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </Field>
+      <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
+      <Field label="次アクション"><input name="next_action" defaultValue={str(entity.next_action)} /></Field>
+      <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
+    </>
+  );
+}
+
+function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const schedule = findSchedule(data, "plan_node", str(entity.id), entity._schedule);
+  return (
+    <>
+      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
+      <div className="form-grid">
+        <Field label="種類">
+          <select name="node_type" defaultValue={str(entity.type) || "milestone"}>
+            {Object.entries(PLAN_NODE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+        <Field label="状態">
+          <select name="node_state" defaultValue={str(entity.state) || "planned"}>
+            {Object.entries(PLAN_NODE_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+      </div>
+      <div className="form-grid">
+        <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>
+        <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
+      </div>
+      <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
+    </>
+  );
+}
+
+function CaptureEntryFields({ entity }: { entity: DrawerConfig["entity"] }) {
+  return (
+    <>
+      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <Field label="本文"><textarea name="text" defaultValue={str(entity.text)} /></Field>
+      <Field label="記録日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at)} /></Field>
+      <Field label="状態">
+        <select name="entry_state" defaultValue={str(entity.state) || "untriaged"}>
+          {Object.entries(CAPTURE_ENTRY_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </Field>
+    </>
   );
 }

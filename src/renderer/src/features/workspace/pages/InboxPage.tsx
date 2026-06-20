@@ -2,13 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { IconCalendarCheck, IconFlag, IconFlagFilled } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
-import type { Item, PageProps } from "../types";
-import { defaultLevel } from "../lib/domain";
+import type { PageProps } from "../types";
 import { uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
 import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
 import { buildInboxView } from "../../workspace-v2/domain/selectors";
-import type { CaptureEntry } from "../../workspace-v2/domain/types";
+import {
+  buildSaveTaskOperations,
+  buildSaveWaitingOperations,
+  buildSaveScheduleOperations,
+  buildSaveCaptureEntryOperations,
+  buildTriageCaptureEntryOperations,
+} from "../../workspace-v2/domain/persistence";
+import type { CaptureEntry, Schedule, Task, Waiting } from "../../workspace-v2/domain/types";
+import type { SaveOperation } from "../types";
 
 type InboxKind = "task" | "memo" | "link" | "waiting" | "idea";
 
@@ -28,50 +35,39 @@ interface InboxDraft {
 
 interface InboxRow {
   entry: CaptureEntry;
-  legacyItem?: Item;
 }
 
-function draftFromEntry(entry: CaptureEntry, legacyItem?: Item): InboxDraft {
+function draftFromEntry(entry: CaptureEntry): InboxDraft {
   return {
     output: "task",
-    title: entry.title || legacyItem?.title || entry.text,
-    theme_id: legacyItem?.theme_id || "",
+    title: entry.title || entry.text,
+    theme_id: "",
     item_id: "",
-    planned_end: legacyItem?.planned_end || "",
-    today_flag: legacyItem?.today_flag === true,
-    priority: legacyItem?.priority === "high" ? "high" : "normal",
-    description: legacyItem?.description || entry.text,
+    planned_end: "",
+    today_flag: false,
+    priority: "normal",
+    description: entry.text,
     link_url: "",
     link_type: "chatgpt",
     reference_status: "inbox",
   };
 }
 
-export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeEntityQuiet, setToast }: PageProps) {
+export function InboxPage({ data, themes, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
+  const v2 = useMemo(() => workspaceToV2(data), [data]);
+  const v2Tasks = v2.tasks;
   const inboxRows = useMemo(() => {
-    const legacyItemsById = new Map(items.map((item) => [item.id, item]));
-    return buildInboxView(workspaceToV2(data)).entries.map((entry) => ({
-      entry,
-      legacyItem: entry.legacy_item_id ? legacyItemsById.get(entry.legacy_item_id) : undefined,
-    }));
-  }, [data, items]);
+    return buildInboxView(v2).entries.map((entry) => ({ entry }));
+  }, [v2]);
   const [drafts, setDrafts] = useState<Record<string, InboxDraft>>({});
   const [selected, setSelected] = useState<string[]>([]);
   const today = todayIso();
-  const legacyItemsByTheme = useMemo(() => {
-    const byTheme = new Map<string, Item[]>();
-    for (const item of items) {
-      const key = item.theme_id || "";
-      byTheme.set(key, [...(byTheme.get(key) || []), item]);
-    }
-    return byTheme;
-  }, [items]);
 
   useEffect(() => {
     setDrafts((current) => {
       const next = { ...current };
       for (const row of inboxRows) {
-        if (!next[row.entry.id]) next[row.entry.id] = draftFromEntry(row.entry, row.legacyItem);
+        if (!next[row.entry.id]) next[row.entry.id] = draftFromEntry(row.entry);
       }
       for (const id of Object.keys(next)) {
         if (!inboxRows.some((row) => row.entry.id === id)) delete next[id];
@@ -85,12 +81,7 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
   }
 
   async function organize(row: InboxRow) {
-    const item = row.legacyItem;
-    if (!item) {
-      setToast("この記録はまだlegacy itemに紐づいていないため、次のv2保存フェーズで整理します。");
-      return;
-    }
-    const draft = drafts[row.entry.id] || draftFromEntry(row.entry, item);
+    const draft = drafts[row.entry.id] || draftFromEntry(row.entry);
     const title = draft.title.trim();
     if (!title) {
       setToast("タイトルを入力してください。入力内容は保持されています。");
@@ -101,57 +92,104 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
       return;
     }
     const themeId = draft.theme_id || null;
-    const common = {
-      title,
-      theme_id: themeId,
-      description: draft.description,
-      source_record_id: item.source_record_id || null,
-    };
+    const sourceRecordId = row.entry.source_record_id || null;
+
     try {
-      if (draft.output === "memo") {
-        await saveEntity("note", {
-          id: uuid(),
+      if (draft.output === "task" || draft.output === "idea") {
+        const taskId = crypto.randomUUID();
+        const task: Task = {
+          id: taskId,
+          project_id: themeId,
           title,
-          body_markdown: draft.description || item.description || title,
+          description: draft.description || null,
+          state: "todo",
+          priority: draft.priority === "high" ? "high" : "normal",
+          source_record_id: sourceRecordId,
+          created_at: new Date().toISOString(),
+        };
+        const ops: SaveOperation[] = [...buildSaveTaskOperations(task)];
+        if (draft.planned_end || draft.today_flag) {
+          const schedule: Schedule = {
+            id: crypto.randomUUID(),
+            owner_type: "task",
+            owner_id: taskId,
+            end_date: draft.planned_end || (draft.today_flag ? today : null),
+            date_kind: "deadline",
+            confidence: "tentative",
+            granularity: "day",
+          };
+          ops.push(...buildSaveScheduleOperations(schedule));
+        }
+        ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "task", id: taskId }));
+        await saveEntities(ops, "タスクに整理しました。");
+
+      } else if (draft.output === "waiting") {
+        const waitingId = crypto.randomUUID();
+        const waiting: Waiting = {
+          id: waitingId,
+          project_id: themeId,
+          title,
+          waiting_for: "",
+          description: draft.description || null,
+          state: "waiting",
+          source_record_id: sourceRecordId,
+          created_at: new Date().toISOString(),
+        };
+        const ops: SaveOperation[] = [...buildSaveWaitingOperations(waiting)];
+        if (draft.planned_end) {
+          const schedule: Schedule = {
+            id: crypto.randomUUID(),
+            owner_type: "waiting",
+            owner_id: waitingId,
+            end_date: draft.planned_end,
+            date_kind: "deadline",
+            confidence: "tentative",
+            granularity: "day",
+          };
+          ops.push(...buildSaveScheduleOperations(schedule));
+        }
+        ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "waiting", id: waitingId }));
+        await saveEntities(ops, "待ちに整理しました。");
+
+      } else if (draft.output === "memo") {
+        const noteId = uuid();
+        await saveEntity("note", {
+          id: noteId,
+          title,
+          body_markdown: draft.description || title,
           note_type: "memo",
           theme_id: themeId,
           item_id: null,
           source_url: "",
-          source_record_id: item.source_record_id || null,
+          source_record_id: sourceRecordId,
         });
-        await removeEntityQuiet("item", item.id);
+        await saveEntities(
+          buildTriageCaptureEntryOperations(row.entry, { type: "note", id: noteId }),
+          "メモに整理しました。",
+        );
+
       } else if (draft.output === "link") {
         await saveEntity("link", {
           id: uuid(),
-          ...common,
+          title,
           url: draft.link_url.trim(),
           link_type: draft.link_type,
+          theme_id: themeId,
+          description: draft.description,
           item_id: draft.item_id || null,
           note_id: null,
           reference_status: draft.reference_status,
           importance: draft.priority === "high" ? "high" : "normal",
           captured_at: new Date().toISOString().slice(0, 10),
+          source_record_id: sourceRecordId,
         });
-        await removeEntityQuiet("item", item.id);
-      } else {
-        const kind = draft.output === "waiting" ? "waiting" : draft.output === "idea" ? "idea" : "task";
-        await saveEntity("item", {
-          ...item,
-          title,
-          kind,
-          level: defaultLevel(kind),
-          theme_id: themeId,
-          status: draft.output === "waiting" ? "waiting" : "todo",
-          priority: draft.priority,
-          planned_end: draft.planned_end || null,
-          planned_start: null,
-          today_flag: draft.today_flag,
-          is_personal_task: !themeId,
-          description: draft.description,
-        });
+        await saveEntities(
+          buildSaveCaptureEntryOperations({ ...row.entry, state: "triaged" }),
+          "リンクに整理しました。",
+        );
+
       }
       setSelected((current) => current.filter((id) => id !== row.entry.id));
-      setToast("Inboxを整理しました。");
     } catch {
       // saveEntity側のtoastを使い、draftは消さない。
     }
@@ -167,7 +205,7 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
   return (
     <div className="page inbox-page">
       <PageHeader title="Inbox整理" subtitle="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
-        <button className="secondary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { status: "inbox", kind: "idea" } })}>記録を追加</button>
+        <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "link", mode: "edit", entity: { link_type: "chatgpt", reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
         <button className="primary-button" disabled={!selected.length} onClick={organizeSelectedAsTasks}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
       </PageHeader>
@@ -179,9 +217,7 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
         {inboxRows.length ? (
           <div className="inbox-list">
             {inboxRows.map((row) => {
-              const item = row.legacyItem;
-              const draft = drafts[row.entry.id] || draftFromEntry(row.entry, item);
-              const linkTargetItems = draft.theme_id ? (legacyItemsByTheme.get(draft.theme_id) || []) : items;
+              const draft = drafts[row.entry.id] || draftFromEntry(row.entry);
               return (
                 <div className="inbox-card" key={row.entry.id}>
                   <div className="inbox-card-main">
@@ -190,7 +226,6 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
                       checked={selected.includes(row.entry.id)}
                       onChange={(event) => setSelected((current) => event.target.checked ? [...current, row.entry.id] : current.filter((id) => id !== row.entry.id))}
                       aria-label={`${draft.title}を選択`}
-                      disabled={!item}
                     />
                     <label>種類
                       <select value={draft.output} onChange={(event) => patchDraft(row.entry.id, { output: event.target.value as InboxKind })}>
@@ -248,7 +283,9 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
                         <label>実施事項
                           <select value={draft.item_id} onChange={(event) => patchDraft(row.entry.id, { item_id: event.target.value })}>
                             <option value="">未設定</option>
-                            {linkTargetItems.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}
+                            {v2Tasks
+                              .filter((t) => !draft.theme_id || t.project_id === draft.theme_id)
+                              .map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
                           </select>
                         </label>
                         <label>参照状態
@@ -266,8 +303,8 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
                       <textarea value={draft.description} onChange={(event) => patchDraft(row.entry.id, { description: event.target.value })} />
                     </label>
                     <div className="form-actions">
-                      <button className="secondary-button compact" onClick={() => item && openDrawer({ type: "item", entity: item })} disabled={!item}>詳細</button>
-                      <button className="primary-button compact" onClick={() => organize(row)} disabled={!item}>整理する</button>
+                      <button className="secondary-button compact" onClick={() => openDrawer({ type: "capture_entry", entity: row.entry as Record<string, unknown> })}>詳細</button>
+                      <button className="primary-button compact" onClick={() => organize(row)}>整理する</button>
                     </div>
                   </div>
                 </div>
@@ -275,7 +312,7 @@ export function InboxPage({ data, themes, items, openDrawer, saveEntity, removeE
             })}
           </div>
         ) : (
-          <EmptyState title="未整理の記録はありません" action="記録を追加" onAction={() => openDrawer({ type: "item", mode: "edit", entity: { status: "inbox", kind: "idea" } })} />
+          <EmptyState title="未整理の記録はありません" action="記録を追加" onAction={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })} />
         )}
       </section>
     </div>

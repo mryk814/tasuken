@@ -252,7 +252,11 @@ export type DrawerEntityType =
   | "relation"
   | "dependency"
   | "knowledge_node"
-  | "knowledge_relation";
+  | "knowledge_relation"
+  | "task"
+  | "waiting"
+  | "plan_node"
+  | "capture_entry";
 
 export interface DrawerConfig {
   type: DrawerEntityType;
@@ -307,7 +311,6 @@ export interface PageProps {
   saveEntities: SaveEntities;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
-  toggleItem(item: Item): Promise<void>;
   setToast(message: string): void;
   snapshotPreview: SnapshotPreview | null;
   setSnapshotPreview(preview: SnapshotPreview | null): void;

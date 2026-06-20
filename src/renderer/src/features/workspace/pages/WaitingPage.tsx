@@ -22,7 +22,6 @@ export function WaitingPage({ data, themes, items, openDrawer, saveEntities, set
   const [addWaitingFor, setAddWaitingFor] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const [addDate, setAddDate] = useState("");
-  const legacyItemsById = new Map(items.map((item) => [item.id, item]));
   const v2 = workspaceToV2(data);
   const schedulesByOwner = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const allRows = v2.waitings
@@ -76,9 +75,8 @@ export function WaitingPage({ data, themes, items, openDrawer, saveEntities, set
     );
   }
 
-  function openDetail(waiting: Waiting) {
-    const legacyItem = waiting.legacy_item_id ? legacyItemsById.get(waiting.legacy_item_id) : undefined;
-    if (legacyItem) openDrawer({ type: "item", entity: legacyItem });
+  function openDetail(waiting: Waiting, schedule?: Schedule) {
+    openDrawer({ type: "waiting", entity: { ...waiting, _schedule: schedule } as Record<string, unknown> });
   }
 
   function copy() {
@@ -136,7 +134,7 @@ export function WaitingPage({ data, themes, items, openDrawer, saveEntities, set
             return (
               <div className="table-row" key={waiting.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
                 <span className="todo-theme-bar" />
-                <button className="row-title" onClick={() => openDetail(waiting)}>{waiting.title}</button>
+                <button className="row-title" onClick={() => openDetail(waiting, schedule)}>{waiting.title}</button>
                 <span>{waiting.waiting_for}</span>
                 <span>
                   {waiting.state === "waiting" ? (

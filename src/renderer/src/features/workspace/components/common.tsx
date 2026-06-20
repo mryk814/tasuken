@@ -30,11 +30,11 @@ export function Metric({ label, value, tone = "" }: { label: string; value: Reac
   );
 }
 
-export function EmptyState({ title, action, onAction }: { title: string; action: string; onAction: () => void }) {
+export function EmptyState({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
   return (
     <div className="empty-state">
       <strong>{title}</strong>
-      <button className="secondary-button compact" onClick={onAction}>{action}</button>
+      {action && onAction && <button className="secondary-button compact" onClick={onAction}>{action}</button>}
     </div>
   );
 }

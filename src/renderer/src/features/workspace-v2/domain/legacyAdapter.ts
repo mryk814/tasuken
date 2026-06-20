@@ -684,6 +684,74 @@ export function formatMigrationReport(report: MigrationReport): string {
   ].join("\n");
 }
 
+export interface MigrationOperations {
+  saveOperations: import("../../workspace/types").SaveOperation[];
+  deleteItemIds: string[];
+  deleteDependencyIds: string[];
+  report: MigrationReport;
+}
+
+export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOperations {
+  const { workspace: derived, report } = legacyWorkspaceToV2Migration(data);
+
+  const persistedTaskIds = new Set(castRecords<Task>(data.tasks).flatMap((t) => [t.id, t.legacy_item_id].filter(Boolean) as string[]));
+  const persistedWaitingIds = new Set(castRecords<Waiting>(data.waitings).flatMap((w) => [w.id, w.legacy_item_id].filter(Boolean) as string[]));
+  const persistedPlanNodeIds = new Set(castRecords<PlanNode>(data.plan_nodes).flatMap((p) => [p.id, p.legacy_item_id].filter(Boolean) as string[]));
+  const persistedCaptureIds = new Set(castRecords<CaptureEntry>(data.capture_entrys).flatMap((c) => [c.id, c.legacy_item_id].filter(Boolean) as string[]));
+  const persistedScheduleIds = new Set(castRecords<Schedule>(data.schedules).map((s) => s.id));
+  const persistedTaskDepIds = new Set(castRecords<import("./types").TaskDependency>(data.task_dependencys).flatMap((d) => [d.id, d.legacy_dependency_id].filter(Boolean) as string[]));
+  const persistedPlanDepIds = new Set(castRecords<import("./types").PlanDependency>(data.plan_dependencys).flatMap((d) => [d.id, d.legacy_dependency_id].filter(Boolean) as string[]));
+
+  type Entity = import("../../workspace/types").Entity;
+  type SaveOp = import("../../workspace/types").SaveOperation;
+  const ops: SaveOp[] = [];
+  const src = "migration";
+
+  const isNew = (id: string, legacyId: string | null | undefined, existing: Set<string>) =>
+    !existing.has(id) && !(legacyId && existing.has(legacyId));
+
+  for (const t of derived.tasks) {
+    if (isNew(t.id, t.legacy_item_id, persistedTaskIds)) {
+      ops.push({ action: "save", type: "task", entity: t as unknown as Entity, options: { source: src } });
+    }
+  }
+  for (const w of derived.waitings) {
+    if (isNew(w.id, w.legacy_item_id, persistedWaitingIds)) {
+      ops.push({ action: "save", type: "waiting", entity: w as unknown as Entity, options: { source: src } });
+    }
+  }
+  for (const p of derived.plan_nodes) {
+    if (isNew(p.id, p.legacy_item_id, persistedPlanNodeIds)) {
+      ops.push({ action: "save", type: "plan_node", entity: p as unknown as Entity, options: { source: src } });
+    }
+  }
+  for (const c of derived.capture_entries) {
+    if (isNew(c.id, c.legacy_item_id, persistedCaptureIds)) {
+      ops.push({ action: "save", type: "capture_entry", entity: c as unknown as Entity, options: { source: src } });
+    }
+  }
+  for (const s of derived.schedules) {
+    if (!persistedScheduleIds.has(s.id)) {
+      ops.push({ action: "save", type: "schedule", entity: s as unknown as Entity, options: { source: src } });
+    }
+  }
+  for (const td of derived.task_dependencies) {
+    if (isNew(td.id, td.legacy_dependency_id, persistedTaskDepIds)) {
+      ops.push({ action: "save", type: "task_dependency", entity: td as unknown as Entity, options: { source: src } });
+    }
+  }
+  for (const pd of derived.plan_dependencies) {
+    if (isNew(pd.id, pd.legacy_dependency_id, persistedPlanDepIds)) {
+      ops.push({ action: "save", type: "plan_dependency", entity: pd as unknown as Entity, options: { source: src } });
+    }
+  }
+
+  const deleteItemIds = (data.items || []).map((item) => item.id);
+  const deleteDependencyIds = (data.dependencys || []).map((dep) => dep.id);
+
+  return { saveOperations: ops, deleteItemIds, deleteDependencyIds, report };
+}
+
 function scheduleByOwner(v2: WorkspaceV2): Map<string, Schedule> {
   return new Map(v2.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]));
 }

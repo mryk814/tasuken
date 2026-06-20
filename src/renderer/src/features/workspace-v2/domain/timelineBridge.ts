@@ -1,6 +1,7 @@
-import type { Dependency, Item, WorkspaceData } from "../../workspace/types";
+import type { Dependency, Item, SaveOperation, WorkspaceData } from "../../workspace/types";
 import { addDays } from "../../workspace/lib/format";
-import type { PlanNode, Schedule, WorkspaceV2 } from "./types";
+import type { PlanDependency, PlanNode, Schedule, WorkspaceV2 } from "./types";
+import { buildSavePlanNodeOperations, buildSaveScheduleOperations } from "./persistence";
 
 type TimelineItem = Item;
 
@@ -25,6 +26,7 @@ export function v2TimelineItems(v2: WorkspaceV2): TimelineItem[] {
     const schedule = schedules.get(`plan_node:${planNode.id}`);
     return {
       id: planNode.legacy_item_id || planNode.id,
+      _planNodeId: planNode.id,
       title: planNode.title,
       kind: legacyPlanKind(planNode),
       level: "plan",
@@ -145,4 +147,94 @@ export function legacyTimelineWorkspace(data: WorkspaceData, v2: WorkspaceV2): W
     items: v2TimelineItems(v2),
     dependencys: v2TimelineDependencies(v2),
   };
+}
+
+function findPlanNode(v2: WorkspaceV2, itemId: string): PlanNode | undefined {
+  return v2.plan_nodes.find((node) => node.legacy_item_id === itemId || node.id === itemId);
+}
+
+function resolvePlanNodeId(v2: WorkspaceV2, itemId: string | null | undefined): string | null {
+  if (!itemId) return null;
+  const node = findPlanNode(v2, itemId);
+  return node?.id || itemId;
+}
+
+export function timelineSaveItemOperations(item: TimelineItem, v2: WorkspaceV2): SaveOperation[] {
+  const planNode = findPlanNode(v2, item.id);
+  if (!planNode) return [];
+
+  const parentPlanNodeId = resolvePlanNodeId(v2, item.parent_item_id);
+  const updated: PlanNode = {
+    ...planNode,
+    title: item.title,
+    project_id: item.theme_id || null,
+    parent_plan_node_id: parentPlanNodeId,
+  };
+
+  const schedules = scheduleByOwner(v2);
+  const existing = schedules.get(`plan_node:${planNode.id}`);
+  const schedule: Schedule = {
+    id: existing?.id || crypto.randomUUID(),
+    owner_type: "plan_node",
+    owner_id: planNode.id,
+    start_date: item.planned_start || null,
+    end_date: item.planned_end || null,
+    date_kind: existing?.date_kind || "range",
+    confidence: (item.schedule_confidence as Schedule["confidence"]) || existing?.confidence || "tentative",
+    granularity: (item.date_granularity as Schedule["granularity"]) || existing?.granularity || "day",
+    baseline_start: item.baseline_start || existing?.baseline_start || null,
+    baseline_end: item.baseline_end || existing?.baseline_end || null,
+    actual_start: item.actual_start || existing?.actual_start || null,
+    actual_end: item.actual_end || existing?.actual_end || null,
+  };
+
+  return [...buildSavePlanNodeOperations(updated), ...buildSaveScheduleOperations(schedule)];
+}
+
+export function timelineCreatePlanNodeDraft(
+  parentItemId: string | null,
+  themeId: string | null | undefined,
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+): Record<string, unknown> {
+  return {
+    node_type: "phase",
+    node_state: "planned",
+    project_id: themeId || null,
+    _parent_plan_node_item_id: parentItemId,
+    start_date: startDate || "",
+    end_date: endDate || "",
+  };
+}
+
+export function timelineResolveParentPlanNodeId(v2: WorkspaceV2, parentItemId: string | null | undefined): string | null {
+  return resolvePlanNodeId(v2, parentItemId);
+}
+
+export function timelineAddDependencyOperations(
+  sourceItemId: string,
+  targetItemId: string,
+  v2: WorkspaceV2,
+): { ops: SaveOperation[]; planDepId: string } | null {
+  const sourcePlanNode = findPlanNode(v2, sourceItemId);
+  const targetPlanNode = findPlanNode(v2, targetItemId);
+  if (!sourcePlanNode || !targetPlanNode) return null;
+  const planDepId = crypto.randomUUID();
+  const planDep: PlanDependency = {
+    id: planDepId,
+    plan_node_id: targetPlanNode.id,
+    depends_on_plan_node_id: sourcePlanNode.id,
+    dependency_type: "finish_to_start",
+  };
+  return {
+    ops: [{ action: "save", type: "plan_dependency", entity: planDep as unknown as import("../../workspace/types").Entity }],
+    planDepId,
+  };
+}
+
+export function timelineFindDependencyV2Id(dep: Dependency, v2: WorkspaceV2): string | null {
+  const match = v2.plan_dependencies.find(
+    (pd) => pd.legacy_dependency_id === dep.id || pd.id === dep.id,
+  );
+  return match?.id || null;
 }

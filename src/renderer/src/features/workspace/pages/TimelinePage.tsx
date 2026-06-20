@@ -12,7 +12,9 @@ import { workspaceToV2 } from "../../workspace-v2/domain/legacyAdapter";
 import {
   isTimelineCompleted,
   legacyTimelineWorkspace,
-  timelineAddPlanDraft,
+  timelineAddDependencyOperations,
+  timelineCreatePlanNodeDraft,
+  timelineFindDependencyV2Id,
   timelineItemDateSpan,
   timelineItemHasSchedule,
   timelineItemIsMilestone,
@@ -20,6 +22,7 @@ import {
   timelineItemStatusLabel,
   timelineItemStatusValue,
   timelineReparentItemDraft,
+  timelineSaveItemOperations,
   timelineShiftItemDraft,
   timelineThemeId,
 } from "../../workspace-v2/domain/timelineBridge";
@@ -46,7 +49,7 @@ const DEFAULT_PREFS: TimelinePrefs = {
   showLightning: true,
 };
 
-export function TimelinePage({ data, themes, items, openDrawer, saveEntity, removeEntityQuiet, setToast }: PageProps) {
+export function TimelinePage({ data, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v5", DEFAULT_PREFS);
   const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning } = prefs;
   const scale = scaleFromDayWidth(dayWidth);
@@ -60,7 +63,8 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
   const canvasRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<TimelineUndo[]>([]);
   const today = todayIso();
-  const timelineWorkspace = legacyTimelineWorkspace(data, workspaceToV2(data));
+  const v2 = workspaceToV2(data);
+  const timelineWorkspace = legacyTimelineWorkspace(data, v2);
   const timelineItems = timelineWorkspace.items || [];
   const timelineDependencies = timelineWorkspace.dependencys || [];
 
@@ -107,7 +111,12 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
 
   async function deleteDependency(sel: SelectedDependency) {
     try {
-      await removeEntityQuiet("dependency", sel.dependency.id);
+      const v2Id = timelineFindDependencyV2Id(sel.dependency, v2);
+      if (v2Id) {
+        await removeEntityQuiet("plan_dependency", v2Id);
+      } else {
+        await removeEntityQuiet("dependency", sel.dependency.id);
+      }
       pushUndo({
         label: "依存削除",
         run: async () => {
@@ -136,25 +145,33 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
       return;
     }
     try {
-      const saved = await saveEntity("dependency", {
-        id: uuid(),
-        source_item_id: connecting.sourceId,
-        target_item_id: target.id,
-        dependency_type: "finish_to_start",
-      });
-      pushUndo({
-        label: "依存追加",
-        run: async () => {
-          await removeEntityQuiet("dependency", saved.id);
-        },
-      });
-      setToast(`依存を追加: ${connecting.sourceTitle} → ${target.title}`);
+      const result = timelineAddDependencyOperations(connecting.sourceId, target.id, v2);
+      if (result) {
+        await saveEntities(result.ops, `依存を追加: ${connecting.sourceTitle} → ${target.title}`);
+        const depId = result.planDepId;
+        pushUndo({
+          label: "依存追加",
+          run: async () => { await removeEntityQuiet("plan_dependency", depId); },
+        });
+      } else {
+        const saved = await saveEntity("dependency", {
+          id: uuid(),
+          source_item_id: connecting.sourceId,
+          target_item_id: target.id,
+          dependency_type: "finish_to_start",
+        });
+        pushUndo({
+          label: "依存追加",
+          run: async () => { await removeEntityQuiet("dependency", saved.id); },
+        });
+        setToast(`依存を追加: ${connecting.sourceTitle} → ${target.title}`);
+      }
     } catch {
       // saveEntity already shows error toast
     }
     setConnecting(null);
     setConnectMode(false);
-  }, [connecting, timelineDependencies, saveEntity, setToast]);
+  }, [connecting, timelineDependencies, v2, saveEntity, saveEntities, setToast]);
 
   function startConnecting(item: Item) {
     if (!connecting && !connectMode) return;
@@ -251,13 +268,11 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
     const nextTitle = title.trim();
     setEditingTitle(null);
     if (!nextTitle || nextTitle === item.title) return;
-    await saveEntity("item", { ...item, title: nextTitle });
-    pushUndo({
-      label: "名称変更",
-      run: async () => {
-        await saveEntity("item", item);
-      },
-    });
+    const next = { ...item, title: nextTitle };
+    const ops = timelineSaveItemOperations(next, v2);
+    if (!ops.length) return;
+    await saveEntities(ops);
+    pushUndo({ label: "名称変更", run: async () => { await saveEntities(timelineSaveItemOperations(item, v2)); } });
   }
 
   async function moveItem(item: Item, delta: number, mode: DragMode = "move", targetParent?: Item | null) {
@@ -274,20 +289,16 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
       setToast("開始日と終了日の順序が逆になるため変更しませんでした。");
       return;
     }
-    await saveEntity("item", next);
-    pushUndo({
-      label: "計画変更",
-      run: async () => {
-        await saveEntity("item", item);
-      },
-    });
-    setToast("日程を移動しました。Ctrl+Zで戻せます。");
+    const ops = timelineSaveItemOperations(next, v2);
+    if (!ops.length) return;
+    await saveEntities(ops, "日程を移動しました。Ctrl+Zで戻せます。");
+    pushUndo({ label: "計画変更", run: async () => { await saveEntities(timelineSaveItemOperations(item, v2)); } });
   }
 
   return (
     <div className="page timeline-wide">
       <PageHeader title="Timeline" subtitle="実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。">
-        <button className="primary-button" onClick={() => openDrawer({ type: "item", mode: "edit", entity: { kind: "period", level: "plan" } })}>実施事項を追加</button>
+        <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}>実施事項を追加</button>
       </PageHeader>
       <section className="timeline-toolbar panel">
         <label>Theme
@@ -366,14 +377,14 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
                   ) : (
                     <button className="gantt-title-button" onClick={(e) => {
                       if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openDrawer({ type: "item", entity: item });
+                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openDrawer({ type: "plan_node", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> });
                     }}>
                       {item.title}
                     </button>
                   )}
                 </div>
                 {isPlan
-                  ? <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "item", mode: "edit", entity: timelineAddPlanDraft(item) })}>＋</button>
+                  ? <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: timelineCreatePlanNodeDraft(item.id, item.theme_id, item.planned_start, item.planned_end) })}>＋</button>
                   : <StatusBadge value={timelineItemStatusValue(item)} label={timelineItemStatusLabel(item)} />}
               </div>
             );
@@ -387,11 +398,11 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, remo
               if (row.rowType === "theme") return <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />;
               if (row.rowType === "milestones") {
                 const colorKey = themeColor(row.theme, themes.indexOf(row.theme ?? themes[0]));
-                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={(item) => openDrawer({ type: "item", entity: item })} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
+                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={(item) => openDrawer({ type: "plan_node", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
               }
               const itemTheme = themes.find((t) => t.id === row.item.theme_id);
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
-              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "item", entity: item })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
+              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "plan_node", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
             })}
             {showDependencies && <DependencyOverlay dependencies={timelineDependencies} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
             {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}
