@@ -15,7 +15,7 @@ import type {
 import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS } from "./domain";
 import { addDays } from "./format";
 import { domainToItems } from "../domain-model/compat/itemProjection";
-import type { WorkspaceDomain } from "../domain-model/types";
+import type { Resource, WorkspaceDomain } from "../domain-model/types";
 
 export interface ParsedTaskRow {
   title: string;
@@ -98,7 +98,19 @@ export function buildExportData({ data, domain, themes, items, activeTheme, scop
   };
   let scopedItems = mergedItems;
   let scopedNotes = data.notes || [];
-  let scopedLinks = data.links || [];
+  const resourcesAsLinks: Link[] = (domain.resources || [])
+    .filter((r) => r.title)
+    .map((r) => ({
+      id: r.id,
+      title: r.title,
+      url: r.url || "",
+      theme_id: r.project_id || null,
+      description: r.description || "",
+      source_record_id: r.source_record_id || null,
+    }));
+  const legacyLinkIds = new Set((data.links || []).map((l) => l.id));
+  const mergedLinks: Link[] = [...(data.links || []), ...resourcesAsLinks.filter((r) => !legacyLinkIds.has(r.id))];
+  let scopedLinks = mergedLinks;
   let scopedKnowledgeNodes = data.knowledge_nodes || [];
   let scopedThemes = themes;
   if (scope === "theme" && activeTheme) {

@@ -59,7 +59,10 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
     .sort((a, b) => str(b.date || b.updated_at).localeCompare(str(a.date || a.updated_at)))
     .slice(0, 2);
   const notes = pickRediscovery<Note>(data.notes, 2);
-  const chatLinks = pickRediscovery<Link>(data.links.filter((link) => ["chatgpt", "claude", "gemini", "copilot"].includes(str(link.link_type))), 2);
+  const resourceRecords = (data.resources || []) as (Link & { project_id?: string | null })[];
+  const resourceIds = new Set(resourceRecords.map((r) => r.id));
+  const allLinks = [...data.links.filter((l) => !resourceIds.has(l.id)), ...resourceRecords.map((r) => ({ ...r, theme_id: r.project_id || r.theme_id || null }))];
+  const chatLinks = pickRediscovery<Link>(allLinks.filter((link) => ["chatgpt", "claude", "gemini", "copilot"].includes(str(link.link_type))), 2);
 
   return (
     <aside className="context-pane" aria-label="コンテキスト">

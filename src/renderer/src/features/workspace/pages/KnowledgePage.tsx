@@ -9,6 +9,22 @@ import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 
 const ALL = "all";
 
+function resolveSourceName(node: KnowledgeNode, data: { notes: { id: string; title: string }[]; links: { id: string; title: string }[]; resources?: { id: string; title: string }[]; items: { id: string; title: string }[] }): string {
+  if (node.source_type && node.source_id) {
+    if (node.source_type === "note") return data.notes.find((n) => n.id === node.source_id)?.title || node.source_id;
+    if (node.source_type === "resource") {
+      const r = (data.resources || []).find((r) => r.id === node.source_id) || data.links.find((l) => l.id === node.source_id);
+      return r?.title || node.source_id;
+    }
+    const item = data.items.find((i) => i.id === node.source_id);
+    return item?.title || node.source_id;
+  }
+  if (node.source_note_id) return data.notes.find((n) => n.id === node.source_note_id)?.title || "";
+  if (node.source_link_id) return data.links.find((l) => l.id === node.source_link_id)?.title || "";
+  if (node.source_item_id) return data.items.find((i) => i.id === node.source_item_id)?.title || "";
+  return "";
+}
+
 export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [themeId, setThemeId] = useState(ALL);
@@ -85,7 +101,7 @@ export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps)
         <div className="section-heading"><h2>Nodes</h2><span>{visible.length}件</span></div>
         {visible.map((node) => {
           const related = relationCount(node);
-          const sourceNote = data.notes.find((note) => note.id === node.source_note_id);
+          const sourceName = resolveSourceName(node, data);
           return (
             <div className="note-row" key={node.id}>
               <button className="note-row-main" onClick={() => openDrawer({ type: "knowledge_node", entity: node })}>
@@ -95,7 +111,7 @@ export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps)
                   <span className="comment-count" aria-label={`${related}件の関係`}>{related}</span>
                 </span>
                 <span className="note-row-body">
-                  {themeName(node.theme_id)} / {node.confidence || "medium"} / {sourceNote ? `source: ${sourceNote.title}` : "sourceなし"} / {str(node.body) || "本文なし"}
+                  {themeName(node.theme_id)} / {node.confidence || "medium"} / {sourceName ? `source: ${sourceName}` : "sourceなし"} / {str(node.body) || "本文なし"}
                 </span>
               </button>
               <button className="secondary-button compact note-row-open" onClick={() => openDrawer({ type: "knowledge_relation", mode: "edit", entity: { source_node_id: node.id } })}>

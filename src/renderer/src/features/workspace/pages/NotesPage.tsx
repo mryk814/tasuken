@@ -6,15 +6,19 @@ import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 
-type Combined = BaseRecord & { recordType: "note" | "link" };
+type Combined = BaseRecord & { recordType: "note" | "link" | "resource" };
 
-export function NotesPage({ themes, notes, links, openDrawer, setToast }: PageProps) {
+export function NotesPage({ themes, notes, links, data, openDrawer, setToast }: PageProps) {
   const [query, setQuery] = useState("");
+  const resources = (data.resources || []) as BaseRecord[];
+  const resourceIds = new Set(resources.map((r) => r.id));
   const records: Combined[] = [
     ...notes.map((note) => ({ ...note, recordType: "note" as const })),
     ...links
       .filter((link) => !notes.some((note) => note.source_url && note.source_url === link.url))
+      .filter((link) => !resourceIds.has(link.id))
       .map((link) => ({ ...link, recordType: "link" as const })),
+    ...resources.map((r) => ({ ...r, recordType: "resource" as const })),
   ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   const visible = records.filter((record) =>
     `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`
@@ -29,8 +33,9 @@ export function NotesPage({ themes, notes, links, openDrawer, setToast }: PagePr
 
   return (
     <div className="page">
-      <PageHeader title="Notes">
+      <PageHeader title="Notes & Resources">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
+        <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: {} })}>リソースを追加</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button>
       </PageHeader>
       <div className="filter-bar panel">
@@ -45,7 +50,7 @@ export function NotesPage({ themes, notes, links, openDrawer, setToast }: PagePr
             <div className="note-row" key={`${record.recordType}-${record.id}`}>
               <button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, entity: record })}>
                 <span className="note-row-head">
-                  <StatusBadge value="neutral" label={record.recordType === "link" ? "リンク" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
+                  <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : record.recordType === "link" ? "リンク" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
                   <strong className="note-row-title">{str(record.title)}</strong>
                   {record.recordType === "note" && comments && comments.length > 0 && <span className="comment-count" aria-label={`${comments.length}件のコメント`}>{comments.length}</span>}
                 </span>

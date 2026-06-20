@@ -174,6 +174,24 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
       </DetailDrawer>
     );
   }
+  if (type === "resource") {
+    const themeName = (data.themes || []).find((t) => t.id === entity.project_id)?.name || "未設定";
+    return (
+      <DetailDrawer
+        title="リソース詳細"
+        close={close}
+        onEdit={() => close({ type: "resource", mode: "edit", entity })}
+        onDelete={() => removeEntity("resource", entity)}
+      >
+        <h2>{str(entity.title)}</h2>
+        {entity.url && <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>}
+        <dl>
+          <dt>Theme</dt><dd>{themeName}</dd>
+        </dl>
+        {entity.description && <p>{str(entity.description)}</p>}
+      </DetailDrawer>
+    );
+  }
   if (type === "task") {
     const task = entity as unknown as Task;
     const schedule = findSchedule(data, "task", task.id, entity._schedule);
@@ -307,6 +325,7 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
     theme: "Theme",
     note: "メモ",
     link: "リンク",
+    resource: "リソース",
     status_update: "現在地",
     source_record: "情報源",
     field_definition: "追加項目",
@@ -359,6 +378,14 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
               <Field label="保存日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at || entity.created_at)} /></Field>
             </div>
             <label className="toggle priority-toggle"><input name="importance_high" type="checkbox" defaultChecked={str(entity.importance) === "high"} />重要として残す</label>
+            <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+          </>
+        )}
+        {type === "resource" && (
+          <>
+            <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+            <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
+            <ThemeSelect themes={data.themes} value={str(entity.project_id)} fieldName="project_id" />
             <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
           </>
         )}
@@ -463,25 +490,57 @@ function KnowledgeNodeFields({ entity, data }: { entity: DrawerConfig["entity"];
         </Field>
       </div>
       <Field label="本文"><textarea className="large-textarea" name="body" defaultValue={str(entity.body)} /></Field>
-      <Field label="元メモ">
-        <select name="source_note_id" defaultValue={str(entity.source_note_id)}>
-          <option value="">未設定</option>
-          {(data.notes || []).map((note) => <option key={note.id} value={note.id}>{note.title}</option>)}
-        </select>
-      </Field>
-      <Field label="元リンク">
-        <select name="source_link_id" defaultValue={str(entity.source_link_id)}>
-          <option value="">未設定</option>
-          {(data.links || []).map((link) => <option key={link.id} value={link.id}>{link.title}</option>)}
-        </select>
-      </Field>
-      <Field label="元タスク">
-        <select name="source_item_id" defaultValue={str(entity.source_item_id)}>
-          <option value="">未設定</option>
-          {(data.items || []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-        </select>
-      </Field>
+      <KnowledgeSourceFields entity={entity} data={data} />
     </>
+  );
+}
+
+const SOURCE_TYPE_LABELS: Record<string, string> = { note: "メモ", resource: "リソース", task: "タスク", waiting: "待ち", plan_node: "計画ノード" };
+
+function resolveSourceType(entity: DrawerConfig["entity"]): string {
+  if (entity.source_type) return entity.source_type;
+  if (entity.source_note_id) return "note";
+  if (entity.source_link_id) return "resource";
+  if (entity.source_item_id) return "task";
+  return "";
+}
+
+function resolveSourceId(entity: DrawerConfig["entity"]): string {
+  if (entity.source_id) return str(entity.source_id);
+  if (entity.source_note_id) return str(entity.source_note_id);
+  if (entity.source_link_id) return str(entity.source_link_id);
+  if (entity.source_item_id) return str(entity.source_item_id);
+  return "";
+}
+
+function KnowledgeSourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const [sourceType, setSourceType] = useState(resolveSourceType(entity));
+  const candidates: Record<string, { id: string; title: string }[]> = {
+    note: (data.notes || []).map((n) => ({ id: n.id, title: n.title })),
+    resource: [
+      ...(data.resources || []).map((r) => ({ id: r.id, title: r.title })),
+      ...(data.links || []).filter((l) => !(data.resources || []).some((r) => r.id === l.id)).map((l) => ({ id: l.id, title: l.title })),
+    ],
+    task: (data.items || []).filter((i) => i.kind === "task" || !i.kind).map((i) => ({ id: i.id, title: i.title })),
+    waiting: (data.items || []).filter((i) => i.kind === "waiting" || i.status === "waiting").map((i) => ({ id: i.id, title: i.title })),
+    plan_node: (data.items || []).filter((i) => i.kind === "milestone" || i.kind === "period").map((i) => ({ id: i.id, title: i.title })),
+  };
+  const options = candidates[sourceType] || [];
+  return (
+    <div className="form-grid">
+      <Field label="出典の種類">
+        <select name="source_type" value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
+          <option value="">未設定</option>
+          {Object.entries(SOURCE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </Field>
+      <Field label="出典">
+        <select name="source_id" defaultValue={resolveSourceId(entity)} key={sourceType}>
+          <option value="">未設定</option>
+          {options.map((o) => <option key={o.id} value={o.id}>{o.title}</option>)}
+        </select>
+      </Field>
+    </div>
   );
 }
 
@@ -618,6 +677,8 @@ function NoteDetailDrawer({
                 title: note.title,
                 body: note.body_markdown,
                 theme_id: note.theme_id || null,
+                source_type: "note",
+                source_id: note.id,
                 source_note_id: note.id,
                 confidence: "medium",
                 status: "active",
@@ -646,7 +707,18 @@ function KnowledgeNodeDetailDrawer({
   removeEntity: RemoveEntity;
 }) {
   const relations = (data.knowledge_relations || []).filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id);
-  const sourceNote = data.notes.find((note) => note.id === node.source_note_id);
+  const sourceLabel = (() => {
+    if (node.source_type && node.source_id) {
+      const typeLabel = SOURCE_TYPE_LABELS[node.source_type] || node.source_type;
+      if (node.source_type === "note") { const n = data.notes.find((n) => n.id === node.source_id); return `${typeLabel}: ${n?.title || node.source_id}`; }
+      if (node.source_type === "resource") { const r = (data.resources || []).find((r) => r.id === node.source_id) || data.links.find((l) => l.id === node.source_id); return `${typeLabel}: ${r?.title || node.source_id}`; }
+      const item = (data.items || []).find((i) => i.id === node.source_id); return `${typeLabel}: ${item?.title || node.source_id}`;
+    }
+    if (node.source_note_id) return `メモ: ${data.notes.find((n) => n.id === node.source_note_id)?.title || "不明"}`;
+    if (node.source_link_id) return `リンク: ${data.links.find((l) => l.id === node.source_link_id)?.title || "不明"}`;
+    if (node.source_item_id) return `タスク: ${(data.items || []).find((i) => i.id === node.source_item_id)?.title || "不明"}`;
+    return "未設定";
+  })();
   return (
     <aside className="drawer">
       <DrawerHeader title="Knowledge詳細" close={close} />
@@ -659,7 +731,7 @@ function KnowledgeNodeDetailDrawer({
         <p className="note-body">{node.body || "本文なし"}</p>
         <dl>
           <dt>Theme</dt><dd>{data.themes.find((theme) => theme.id === node.theme_id)?.name || "未設定"}</dd>
-          <dt>元メモ</dt><dd>{sourceNote?.title || "未設定"}</dd>
+          <dt>出典</dt><dd>{sourceLabel}</dd>
         </dl>
         {relations.length > 0 && (
           <div className="revision-list">

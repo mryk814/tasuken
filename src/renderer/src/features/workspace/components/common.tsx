@@ -69,11 +69,13 @@ export function ThemeSelect({
   value,
   allowPersonal = false,
   allowAll = false,
+  fieldName = "theme_id",
 }: {
   themes?: Theme[];
   value?: string | null;
   allowPersonal?: boolean;
   allowAll?: boolean;
+  fieldName?: string;
 }) {
   const [selected, setSelected] = useState(value || "");
   useEffect(() => {
@@ -82,7 +84,7 @@ export function ThemeSelect({
   const noneLabel = allowAll ? "全体共通" : allowPersonal ? "個人業務" : "未設定";
   return (
     <Field label="Theme">
-      <input type="hidden" name="theme_id" value={selected} />
+      <input type="hidden" name={fieldName} value={selected} />
       <div className="theme-chips">
         <button
           type="button"

@@ -28,8 +28,9 @@ import {
   buildSavePlanNodeOperations,
   buildSaveScheduleOperations,
   buildSaveCaptureEntryOperations,
+  buildSaveResourceOperations,
 } from "./domain-model/persistence";
-import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "./domain-model/types";
+import type { CaptureEntry, PlanNode, Resource, Schedule, Task, Waiting } from "./domain-model/types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { EntityDrawer } from "./components/drawer";
@@ -393,6 +394,21 @@ export function WorkspaceApp() {
       closeDrawer();
       return;
     }
+    if (type === "resource") {
+      const title = formText(values, "title");
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
+      const resource: Resource = {
+        id: (base.id as string) || uuid(),
+        title,
+        url: formText(values, "url") || null,
+        project_id: formText(values, "project_id") || null,
+        description: formText(values, "description") || null,
+        source_record_id: (base.source_record_id as string | null) ?? null,
+      };
+      await saveEntities(buildSaveResourceOperations(resource), base.id ? "変更を保存しました。" : "リソースを追加しました。");
+      closeDrawer();
+      return;
+    }
 
     if (type === "theme") {
       const name = formText(values, "name");
@@ -480,15 +496,19 @@ export function WorkspaceApp() {
       };
       if (!entity.source_entity_id || !entity.target_entity_id) { setToast("関係元と関係先を選択してください。"); return; }
     } else if (type === "knowledge_node") {
+      const sourceType = formText(values, "source_type") || null;
+      const sourceId = formText(values, "source_id") || null;
       entity = {
         ...base,
         node_type: formText(values, "node_type", "insight"),
         title: formText(values, "title"),
         body: formText(values, "body"),
         theme_id: formText(values, "theme_id") || null,
-        source_note_id: formText(values, "source_note_id") || null,
-        source_link_id: formText(values, "source_link_id") || null,
-        source_item_id: formText(values, "source_item_id") || null,
+        source_type: sourceType,
+        source_id: sourceId,
+        source_note_id: sourceType === "note" ? sourceId : (base.source_note_id as string | null) ?? null,
+        source_link_id: sourceType === "resource" ? sourceId : (base.source_link_id as string | null) ?? null,
+        source_item_id: (sourceType === "task" || sourceType === "waiting" || sourceType === "plan_node") ? sourceId : (base.source_item_id as string | null) ?? null,
         confidence: formText(values, "confidence", "medium"),
         status: formText(values, "status", "active"),
       };

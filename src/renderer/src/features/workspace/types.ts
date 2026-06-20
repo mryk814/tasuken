@@ -187,8 +187,13 @@ export interface KnowledgeNode extends BaseRecord {
   title: string;
   body?: string;
   theme_id?: string | null;
+  source_type?: string | null;
+  source_id?: string | null;
+  /** @deprecated use source_type/source_id */
   source_note_id?: string | null;
+  /** @deprecated use source_type/source_id */
   source_link_id?: string | null;
+  /** @deprecated use source_type/source_id */
   source_item_id?: string | null;
   confidence?: "low" | "medium" | "high";
   status?: "active" | "resolved" | "deprecated" | "rejected";
@@ -247,6 +252,7 @@ export type DrawerEntityType =
   | "theme"
   | "note"
   | "link"
+  | "resource"
   | "status_update"
   | "source_record"
   | "field_definition"

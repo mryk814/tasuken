@@ -64,13 +64,13 @@ export function buildKnowledgeHealth(nodes: KnowledgeNode[], relations: Knowledg
         action: "どちらの主張を採用するか確認し、statusを更新します。",
       });
     }
-    if (node.node_type === "evidence" && !node.source_note_id && !node.source_link_id && !node.source_item_id) {
+    if (node.node_type === "evidence" && !node.source_id && !node.source_note_id && !node.source_link_id && !node.source_item_id) {
       issues.push({
         id: `${node.id}:evidence_without_source`,
         kind: "evidence_without_source",
         node,
-        message: "Source Note / Link / Itemが未設定のEvidenceです。",
-        action: "元メモ、リンク、タスクのいずれかに接続します。",
+        message: "出典が未設定のEvidenceです。",
+        action: "出典（メモ、リソース、タスク等）を設定します。",
       });
     }
     if (!hasRelation(node, relations)) {
@@ -82,7 +82,8 @@ export function buildKnowledgeHealth(nodes: KnowledgeNode[], relations: Knowledg
         action: "関連する問い・根拠・決定へ接続するか、不要ならrejectedにします。",
       });
     }
-    if (node.node_type === "decision" && (!node.source_item_id || !openItemIds.has(String(node.source_item_id))) && daysSince(node.updated_at || node.created_at) >= STALE_DECISION_DAYS) {
+    const decisionItemId = (node.source_type === "task" || node.source_type === "waiting" || node.source_type === "plan_node") ? node.source_id : node.source_item_id;
+    if (node.node_type === "decision" && (!decisionItemId || !openItemIds.has(String(decisionItemId))) && daysSince(node.updated_at || node.created_at) >= STALE_DECISION_DAYS) {
       issues.push({
         id: `${node.id}:stale_decision`,
         kind: "stale_decision",

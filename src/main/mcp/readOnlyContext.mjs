@@ -13,14 +13,21 @@ const ENTITY_TYPES = [
   "item",
   "note",
   "link",
+  "resource",
   "status_update",
   "knowledge_node",
   "knowledge_relation",
+  "project",
   "task",
   "waiting",
   "plan_node",
   "schedule",
   "capture_entry",
+  "reference",
+  "task_dependency",
+  "plan_dependency",
+  "knowledge_edge",
+  "change_event",
 ];
 
 function collectionKey(type) {
@@ -260,11 +267,17 @@ export class ReadOnlyTaskenContext {
         .filter((relation) => nodeIds.has(relation.source_node_id) || nodeIds.has(relation.target_node_id))
       : [];
     const sources = Boolean(args.include_sources)
-      ? {
-        notes: this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id || (node.source_type === "note" && node.source_id === note.id))).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
-        links: this.list("link").filter((link) => nodes.some((node) => node.source_link_id === link.id || (node.source_type === "resource" && node.source_id === link.id))),
-        items: this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id || (node.source_type === "task" && node.source_id === item.id) || (node.source_type === "waiting" && node.source_id === item.id) || (node.source_type === "plan_node" && node.source_id === item.id))),
-      }
+      ? (() => {
+        const legacyLinks = this.list("link");
+        const resources = this.list("resource");
+        const matchedNotes = this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id || (node.source_type === "note" && node.source_id === note.id))).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
+        const matchedLegacyLinks = legacyLinks.filter((link) => nodes.some((node) => node.source_link_id === link.id));
+        const matchedResources = resources.filter((r) => nodes.some((node) => (node.source_type === "resource" && node.source_id === r.id)));
+        const resourceIds = new Set(matchedResources.map((r) => r.id));
+        const mergedResources = [...matchedResources, ...matchedLegacyLinks.filter((l) => !resourceIds.has(l.id))];
+        const matchedItems = this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id || (node.source_type === "task" && node.source_id === item.id) || (node.source_type === "waiting" && node.source_id === item.id) || (node.source_type === "plan_node" && node.source_id === item.id)));
+        return { notes: matchedNotes, resources: mergedResources, items: matchedItems };
+      })()
       : undefined;
     return { knowledge_nodes: nodes, knowledge_relations: relations, sources, limit };
   }
@@ -366,7 +379,10 @@ export class ReadOnlyTaskenContext {
       .filter((note) => !themeId || themeIds.has(note.theme_id))
       .slice(0, maxNotes)
       .map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
-    const links = this.list("link").filter((link) => !themeId || themeIds.has(link.theme_id)).slice(0, maxItems);
+    const legacyLinks = this.list("link").filter((link) => !themeId || themeIds.has(link.theme_id));
+    const resources = this.list("resource").filter((r) => !themeId || themeIds.has(r.project_id));
+    const resourceIds = new Set(resources.map((r) => r.id));
+    const mergedResources = [...resources, ...legacyLinks.filter((l) => !resourceIds.has(l.id))].slice(0, maxItems);
     const knowledge = this.toolGetKnowledgeContext({
       theme_id: themeId,
       limit: maxKnowledgeNodes,
@@ -380,7 +396,7 @@ export class ReadOnlyTaskenContext {
       themes,
       items,
       notes,
-      links,
+      resources: mergedResources,
       knowledge_nodes: knowledge.knowledge_nodes,
       knowledge_relations: knowledge.knowledge_relations,
       health: {
