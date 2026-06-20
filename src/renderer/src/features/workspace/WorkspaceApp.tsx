@@ -184,6 +184,7 @@ export function WorkspaceApp() {
   }, [drawer, showShortcuts]);
 
   const data = useMemo(() => projectWorkspace(workspace as Record<string, unknown> | null), [workspace]);
+  const domain = useMemo(() => buildWorkspaceDomain(data), [data]);
   const allThemes = data.themes;
   const themes = activeGroup ? allThemes.filter((t) => t.group === activeGroup) : allThemes;
   const items = data.items;
@@ -339,7 +340,7 @@ export function WorkspaceApp() {
       const nodeId = (base.id as string) || uuid();
       let parentPlanNodeId = (base.parent_plan_node_id as string | null) ?? null;
       if (!parentPlanNodeId && base._parent_plan_node_item_id) {
-        const v2data = buildWorkspaceDomain(data);
+        const v2data = domain;
         const parentItemId = base._parent_plan_node_item_id as string;
         const parentNode = v2data.plan_nodes.find((n) => n.legacy_item_id === parentItemId || n.id === parentItemId);
         parentPlanNodeId = parentNode?.id || parentItemId;
@@ -531,6 +532,7 @@ export function WorkspaceApp() {
 
   const common = {
     data,
+    domain,
     themes,
     items,
     notes,
@@ -589,6 +591,7 @@ export function WorkspaceApp() {
       ) : (
         <ContextPane
           data={data}
+          domain={domain}
           activeTheme={activeTheme}
           openDrawer={openDrawer}
           navigate={navigate}

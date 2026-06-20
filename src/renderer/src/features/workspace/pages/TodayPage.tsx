@@ -6,7 +6,6 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, StatusBadge } from "../components/common";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -196,13 +195,12 @@ function TodayRows({
   );
 }
 
-export function TodayPage({ data, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
+export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const today = todayIso();
   const soon = addDays(today, 14);
-  const v2 = buildWorkspaceDomain(data);
   const schedules = schedulesByOwner(v2);
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));

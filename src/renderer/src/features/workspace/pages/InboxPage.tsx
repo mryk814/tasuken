@@ -5,16 +5,16 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 import { buildInboxView } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSaveScheduleOperations,
-  buildSaveCaptureEntryOperations,
+  buildSaveResourceOperations,
+  buildSaveNoteOperations,
   buildTriageCaptureEntryOperations,
 } from "../domain-model/persistence";
-import type { CaptureEntry, Schedule, Task, Waiting } from "../domain-model/types";
+import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 import type { SaveOperation } from "../types";
 
 type InboxKind = "task" | "memo" | "link" | "waiting" | "idea";
@@ -55,8 +55,7 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
   };
 }
 
-export function InboxPage({ data, themes, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
-  const v2 = useMemo(() => buildWorkspaceDomain(data), [data]);
+export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
   const inboxRows = useMemo(() => {
     return buildInboxView(v2).entries.map((entry) => ({ entry }));
@@ -159,40 +158,34 @@ export function InboxPage({ data, themes, openDrawer, saveEntity, saveEntities, 
 
       } else if (draft.output === "memo") {
         const noteId = uuid();
-        await saveEntity("note", {
+        const note: DomainNote = {
           id: noteId,
           title,
           body_markdown: draft.description || title,
-          note_type: "memo",
-          theme_id: themeId,
-          item_id: null,
-          source_url: "",
+          project_id: themeId,
           source_record_id: sourceRecordId,
-        });
-        await saveEntities(
-          buildTriageCaptureEntryOperations(row.entry, { type: "note", id: noteId }),
-          "メモに整理しました。",
-        );
+        };
+        const ops: SaveOperation[] = [
+          ...buildSaveNoteOperations(note),
+          ...buildTriageCaptureEntryOperations(row.entry, { type: "note", id: noteId }),
+        ];
+        await saveEntities(ops, "メモに整理しました。");
 
       } else if (draft.output === "link") {
-        await saveEntity("link", {
-          id: uuid(),
+        const resourceId = uuid();
+        const resource: Resource = {
+          id: resourceId,
           title,
           url: draft.link_url.trim(),
-          link_type: draft.link_type,
-          theme_id: themeId,
-          description: draft.description,
-          item_id: draft.item_id || null,
-          note_id: null,
-          reference_status: draft.reference_status,
-          importance: draft.priority === "high" ? "high" : "normal",
-          captured_at: new Date().toISOString().slice(0, 10),
+          description: draft.description || null,
+          project_id: themeId,
           source_record_id: sourceRecordId,
-        });
-        await saveEntities(
-          buildSaveCaptureEntryOperations({ ...row.entry, state: "triaged" }),
-          "リンクに整理しました。",
-        );
+        };
+        const ops: SaveOperation[] = [
+          ...buildSaveResourceOperations(resource),
+          ...buildTriageCaptureEntryOperations(row.entry, { type: "resource", id: resourceId }),
+        ];
+        await saveEntities(ops, "リンクに整理しました。");
 
       }
       setSelected((current) => current.filter((id) => id !== row.entry.id));

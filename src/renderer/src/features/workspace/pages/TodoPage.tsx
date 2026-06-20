@@ -8,7 +8,6 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { EmptyState, PageHeader } from "../components/common";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 import { TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
@@ -40,7 +39,7 @@ function compareTodoRows(today: string) {
   };
 }
 
-export function TodoPage({ data, themes, items, openDrawer, saveEntities, setToast }: PageProps) {
+export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
   const [selected, setSelected] = useState<string[]>([]);
   const [showPaste, setShowPaste] = useState(false);
@@ -52,7 +51,7 @@ export function TodoPage({ data, themes, items, openDrawer, saveEntities, setToa
   const [addTheme, setAddTheme] = useState("");
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
-  const taskRows: TodoRow[] = buildTodoView(buildWorkspaceDomain(data)).tasks;
+  const taskRows: TodoRow[] = buildTodoView(domain).tasks;
   const counters = {
     today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
     open: taskRows.filter((row) => !isDoneRow(row)).length,

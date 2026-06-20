@@ -27,7 +27,7 @@ interface ImportPreview {
   payloadIssues: string[];
 }
 
-export function ImportExportPage({ data, themes, items, activeTheme, saveEntities, removeEntityQuiet, setToast }: PageProps) {
+export function ImportExportPage({ data, domain, themes, items, activeTheme, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [format, setFormat] = useState("markdown");
   const [scope, setScope] = useState("all");
   const [text, setText] = useState("");
@@ -37,7 +37,7 @@ export function ImportExportPage({ data, themes, items, activeTheme, saveEntitie
   const [migrating, setMigrating] = useState(false);
   const [migrationSnapshotDone, setMigrationSnapshotDone] = useState(false);
   const [migrationConfirmed, setMigrationConfirmed] = useState(false);
-  const exportData = useMemo(() => buildExportData({ data, themes, items, activeTheme, scope }), [data, themes, items, activeTheme, scope]);
+  const exportData = useMemo(() => buildExportData({ data, domain, themes, items, activeTheme, scope }), [data, domain, themes, items, activeTheme, scope]);
   const exported = format === "json"
     ? JSON.stringify({ version: 2, exported_at: new Date().toISOString(), ...exportData }, null, 2)
     : format === "yaml"

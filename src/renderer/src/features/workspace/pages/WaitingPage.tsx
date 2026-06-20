@@ -6,7 +6,6 @@ import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
 import { themeColor } from "../lib/domain";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Schedule, Waiting } from "../domain-model/types";
@@ -15,14 +14,13 @@ function scheduledDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
 }
 
-export function WaitingPage({ data, themes, items, openDrawer, saveEntities, setToast }: PageProps) {
+export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveEntities, setToast }: PageProps) {
   const [filter, setFilter] = useState<Waiting["state"]>("waiting");
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addWaitingFor, setAddWaitingFor] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const [addDate, setAddDate] = useState("");
-  const v2 = buildWorkspaceDomain(data);
   const schedulesByOwner = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const allRows = v2.waitings
     .map((w) => ({ waiting: w, schedule: schedulesByOwner.get(`waiting:${w.id}`) }))

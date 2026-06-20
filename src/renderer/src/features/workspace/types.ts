@@ -5,6 +5,7 @@ import type {
   SaveOptions,
   WorkspaceMeta,
 } from "../../../../shared/types/workspace";
+import type { WorkspaceDomain } from "./domain-model/types";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
 export type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
@@ -242,7 +243,6 @@ export interface DrawerEntity {
 }
 
 export type DrawerEntityType =
-  | "item"
   | "theme"
   | "note"
   | "link"
@@ -298,6 +298,7 @@ export type OpenDrawer = (config: DrawerConfig) => void;
 
 export interface PageProps {
   data: WorkspaceData;
+  domain: WorkspaceDomain;
   themes: Theme[];
   items: Item[];
   notes: Note[];

@@ -4,6 +4,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
+import { validateInvariants, formatViolations } from "../domain-model/invariants";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -14,8 +15,9 @@ interface SettingsPageProps extends PageProps {
   loadSample: () => Promise<unknown>;
 }
 
-export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setActiveGroup, allThemes, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
+export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroup, setActiveGroup, allThemes, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
+  const [healthResult, setHealthResult] = useState<string | null>(null);
   const isEmpty = (data.themes.length + data.items.length + data.notes.length + data.links.length) === 0;
 
   async function addSample() {
@@ -100,6 +102,18 @@ export function SettingsPage({ data, themeMode, setThemeMode, activeGroup, setAc
             </select>
           </label>
           <p className="field-help">グループを選ぶと、サイドバーに表示されるテーマが絞り込まれます。テーマ編集でグループを設定してください。</p>
+        </section>
+        <section className="panel settings-form">
+          <h2>データ整合性チェック</h2>
+          <p className="field-help">ドメインモデルの不変条件（参照整合、循環依存、重複、状態矛盾）を検証します。</p>
+          <button className="secondary-button" onClick={() => {
+            const violations = validateInvariants(domain);
+            setHealthResult(formatViolations(violations));
+            if (!violations.length) setToast("すべての不変条件を満たしています。");
+          }}>整合性をチェック</button>
+          {healthResult && (
+            <pre className="health-result" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-small)", marginTop: "var(--spacing-sm)", padding: "var(--spacing-sm)", background: "var(--color-surface-sunken)", borderRadius: "var(--radius-default)" }}>{healthResult}</pre>
+          )}
         </section>
         <section className="panel settings-form">
           <h2>バックアップ</h2>

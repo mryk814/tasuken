@@ -1,13 +1,11 @@
 import type { BaseRecord, PageProps } from "../types";
 import { formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, SimpleRows, StatusBadge } from "../components/common";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 
-export function HomePage({ data, activeTheme, notes, openDrawer, navigate }: PageProps) {
+export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, navigate }: PageProps) {
   if (!activeTheme) {
     return <EmptyState title="テーマがありません" action="テーマを追加" onAction={() => openDrawer({ type: "theme", mode: "edit", entity: {} })} />;
   }
-  const v2 = buildWorkspaceDomain(data);
   const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const themeTasks = v2.tasks.filter((t) => t.project_id === activeTheme.id);
   const themeWaitings = v2.waitings.filter((w) => w.project_id === activeTheme.id);

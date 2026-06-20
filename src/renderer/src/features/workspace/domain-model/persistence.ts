@@ -1,5 +1,5 @@
 import type { Entity, SaveOperation, SaveOptions } from "../types";
-import type { CaptureEntry, ChangeEvent, EntityRefType, PlanNode, Schedule, Task, Waiting } from "./types";
+import type { CaptureEntry, ChangeEvent, EntityRefType, Note, PlanNode, Resource, Schedule, Task, Waiting } from "./types";
 
 type SaveSource = ChangeEvent["source"];
 
@@ -82,6 +82,20 @@ export function buildSaveCaptureEntryOperations(entry: CaptureEntry, context: Sa
   return [
     saveOperation("capture_entry", entry as unknown as Entity, { source: context.source || "manual", reason: context.reason || undefined }),
     buildChangeEventOperation("capture_entry", entry.id, "updated", context, undefined, entry),
+  ];
+}
+
+export function buildSaveResourceOperations(resource: Resource, context: SaveContext = {}): SaveOperation[] {
+  return [
+    saveOperation("link", resource as unknown as Entity, { source: context.source || "manual", reason: context.reason || undefined }),
+    buildChangeEventOperation("resource", resource.id, "updated", context, undefined, resource),
+  ];
+}
+
+export function buildSaveNoteOperations(note: Note, context: SaveContext = {}): SaveOperation[] {
+  return [
+    saveOperation("note", note as unknown as Entity, { source: context.source || "manual", reason: context.reason || undefined }),
+    buildChangeEventOperation("note", note.id, "updated", context, undefined, note),
   ];
 }
 

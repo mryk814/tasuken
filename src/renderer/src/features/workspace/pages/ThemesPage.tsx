@@ -1,12 +1,8 @@
-import { useMemo } from "react";
-
 import type { PageProps } from "../types";
 import { THEME_STATUS_LABELS, themeColor } from "../lib/domain";
 import { PageHeader, StatusBadge } from "../components/common";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 
-export function ThemesPage({ themes, data, activeThemeId, setActiveThemeId, navigate, openDrawer }: PageProps) {
-  const v2 = useMemo(() => buildWorkspaceDomain(data), [data]);
+export function ThemesPage({ themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer }: PageProps) {
 
   return (
     <div className="page">

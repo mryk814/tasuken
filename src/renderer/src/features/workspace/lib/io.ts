@@ -14,7 +14,6 @@ import type {
 } from "../types";
 import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS } from "./domain";
 import { addDays } from "./format";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 import { domainToItems } from "../domain-model/compat/itemProjection";
 import type { WorkspaceDomain } from "../domain-model/types";
 
@@ -78,17 +77,16 @@ export interface ExportData {
 
 interface BuildExportArgs {
   data: WorkspaceData;
+  domain: WorkspaceDomain;
   themes: Theme[];
   items: Item[];
   activeTheme: Theme | null;
   scope: string;
 }
 
-export function buildExportData({ data, themes, items, activeTheme, scope }: BuildExportArgs): ExportData {
+export function buildExportData({ data, domain, themes, items, activeTheme, scope }: BuildExportArgs): ExportData {
   const today = todayIso();
   const horizon = scope === "week" ? 7 : scope === "month" ? 30 : scope === "quarter" ? 90 : null;
-
-  const domain = buildWorkspaceDomain(data);
   const v2Items = domainToItems(domain);
   const legacyIds = new Set(items.map((item) => item.id));
   const v2OnlyItems = v2Items.filter((item) => !legacyIds.has(item.id));

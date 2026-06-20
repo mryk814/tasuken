@@ -8,7 +8,6 @@ import { daysBetween, formatDate, uuid } from "../lib/format";
 import { buildTimelineRows, dataRange, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
-import { buildWorkspaceDomain } from "../domain-model/compat/legacyAdapter";
 import {
   isTimelineCompleted,
   legacyTimelineWorkspace,
@@ -49,7 +48,7 @@ const DEFAULT_PREFS: TimelinePrefs = {
   showLightning: true,
 };
 
-export function TimelinePage({ data, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
+export function TimelinePage({ data, domain: v2, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v5", DEFAULT_PREFS);
   const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning } = prefs;
   const scale = scaleFromDayWidth(dayWidth);
@@ -63,7 +62,6 @@ export function TimelinePage({ data, themes, items, openDrawer, saveEntity, save
   const canvasRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<TimelineUndo[]>([]);
   const today = todayIso();
-  const v2 = buildWorkspaceDomain(data);
   const timelineWorkspace = legacyTimelineWorkspace(data, v2);
   const timelineItems = timelineWorkspace.items || [];
   const timelineDependencies = timelineWorkspace.dependencys || [];
