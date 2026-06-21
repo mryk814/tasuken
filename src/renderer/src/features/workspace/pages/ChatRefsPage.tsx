@@ -36,7 +36,7 @@ function isAdopted(r: Resource): boolean {
 }
 
 function resourceDate(r: Resource): string {
-  return str(r.captured_at || (r as Record<string, unknown>).created_at || (r as Record<string, unknown>).updated_at);
+  return str(r.captured_at || (r as unknown as Record<string, unknown>).created_at || (r as unknown as Record<string, unknown>).updated_at);
 }
 
 function themeTitle(themes: Theme[], id?: string | null): string {

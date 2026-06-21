@@ -361,7 +361,7 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
               <ThemeSelect themes={data.themes} value={str(entity.project_id || entity.theme_id)} fieldName="project_id" />
               {isChatRef && (
                 <>
-                  <ChatGroupPicker value={str(entity.chat_group)} resources={allResources} />
+                  <ChatGroupPicker value={str(entity.chat_group)} resources={allResources as { chat_group?: string | null }[]} />
                   <div className="form-grid">
                     <Field label="参照状態">
                       <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
