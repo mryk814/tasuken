@@ -9,13 +9,13 @@ import { validateInvariants, formatViolations } from "../domain-model/invariants
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
   setThemeMode: (mode: "light" | "dark") => void;
-  activeGroup: string;
-  setActiveGroup: (group: string) => void;
+  activeGroups: string[];
+  setActiveGroups: (groups: string[]) => void;
   allThemes: Theme[];
   loadSample: () => Promise<unknown>;
 }
 
-export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroup, setActiveGroup, allThemes, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
+export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroups, setActiveGroups, allThemes, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
   const [healthResult, setHealthResult] = useState<string | null>(null);
   const isEmpty = (data.themes.length + data.items.length + data.notes.length + data.links.length) === 0;
@@ -93,15 +93,32 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             </select>
           </label>
           <h2>テーマグループ</h2>
-          <label>活動中のグループ
-            <select value={activeGroup} onChange={(event) => setActiveGroup(event.target.value)}>
-              <option value="">すべて表示</option>
-              {[...new Set(allThemes.map((t) => t.group).filter(Boolean))].map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          </label>
-          <p className="field-help">グループを選ぶと、サイドバーに表示されるテーマが絞り込まれます。テーマ編集でグループを設定してください。</p>
+          <p className="field-help">選択したグループに属するテーマだけを表示します。未選択なら全テーマを表示します。</p>
+          {(() => {
+            const groups = [...new Set(allThemes.map((t) => t.group).filter(Boolean))] as string[];
+            const toggle = (group: string) => {
+              setActiveGroups(activeGroups.includes(group) ? activeGroups.filter((g) => g !== group) : [...activeGroups, group]);
+            };
+            return groups.length > 0 ? (
+              <div className="group-chip-list">
+                {groups.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    className={`theme-chip ${activeGroups.includes(g) ? "is-selected" : ""}`}
+                    onClick={() => toggle(g)}
+                  >
+                    {g}
+                  </button>
+                ))}
+                {activeGroups.length > 0 && (
+                  <button type="button" className="text-button compact" onClick={() => setActiveGroups([])}>すべて表示に戻す</button>
+                )}
+              </div>
+            ) : (
+              <p className="field-help">テーマにグループが設定されていません。テーマ編集でグループを設定してください。</p>
+            );
+          })()}
         </section>
         <section className="panel settings-form">
           <h2>データ整合性チェック</h2>

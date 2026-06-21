@@ -151,7 +151,7 @@ function findSchedule(data: WorkspaceData, ownerType: string, ownerId: string, p
 
 export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
   const entity = drawer.entity || {};
-  if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} />;
+  if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} removeEntity={removeEntity} />;
   const type = drawer.type;
   if (type === "note") return <NoteDetailDrawer note={entity as Note} close={close} removeEntity={removeEntity} saveEntity={saveEntity} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
@@ -317,7 +317,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
   return <EditDrawer drawer={{ ...drawer, mode: "edit" }} data={data} close={close} saveForm={saveForm} />;
 }
 
-function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm }) {
+function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm; removeEntity?: RemoveEntity }) {
   const type = drawer.type;
   const entity = drawer.entity;
   const typeLabels: Record<string, string> = {
@@ -433,6 +433,9 @@ function EditDrawer({ drawer, data, close, saveForm }: { drawer: DrawerConfig; d
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
         {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
         <button className="primary-button" type="submit">保存する</button>
+        {type === "theme" && entity.id && removeEntity && (
+          <button className="danger-button" type="button" onClick={() => removeEntity("theme", entity)}>このテーマを削除する</button>
+        )}
       </form>
     </aside>
   );
