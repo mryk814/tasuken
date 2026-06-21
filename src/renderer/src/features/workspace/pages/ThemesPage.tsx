@@ -2,7 +2,7 @@ import type { PageProps } from "../types";
 import { THEME_STATUS_LABELS, themeColor } from "../lib/domain";
 import { PageHeader, StatusBadge } from "../components/common";
 
-export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer }: PageProps) {
+export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer, removeEntity }: PageProps) {
 
   return (
     <div className="page">
@@ -17,6 +17,7 @@ export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveT
           const latest = (data.status_updates || [])
             .filter((entry) => entry.theme_id === theme.id)
             .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+          const childCount = openTasks + openPlanNodes + openWaitings;
           return (
             <article
               className={`panel theme-card ${activeThemeId === theme.id ? "selected" : ""}`}
@@ -25,7 +26,19 @@ export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveT
             >
               <div className="theme-card-top">
                 <StatusBadge value={theme.status} label={THEME_STATUS_LABELS[theme.status ?? ""] || theme.status} />
-                <button className="secondary-button compact" onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}>編集</button>
+                <div className="inline-actions" style={{ gap: "var(--space-xs)" }}>
+                  <button className="secondary-button compact" onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}>編集</button>
+                  <button
+                    className="danger-button compact"
+                    onClick={() => {
+                      if (childCount > 0) {
+                        const ok = confirm(`「${theme.name}」には未完了の項目が${childCount}件あります。本当に削除しますか？`);
+                        if (!ok) return;
+                      }
+                      removeEntity("theme", theme);
+                    }}
+                  >削除</button>
+                </div>
               </div>
               <h2>{theme.name}</h2>
               <p>{latest?.summary || theme.description || "現在地は未記録です。"}</p>

@@ -96,8 +96,8 @@ export function WorkspaceApp() {
   const setToast = useUiStore((state) => state.setToast);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
-  const activeGroup = useUiStore((state) => state.activeGroup);
-  const setActiveGroup = useUiStore((state) => state.setActiveGroup);
+  const activeGroups = useUiStore((state) => state.activeGroups);
+  const setActiveGroups = useUiStore((state) => state.setActiveGroups);
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
@@ -107,7 +107,15 @@ export function WorkspaceApp() {
     try {
       const loaded = await loadWorkspaceAction();
       setThemeMode((loaded.meta?.themeMode as "light" | "dark") || "light");
-      setActiveGroup((loaded.meta?.activeGroup as string) || "");
+      const storedGroups = loaded.meta?.activeGroups;
+      if (Array.isArray(storedGroups)) {
+        setActiveGroups(storedGroups as string[]);
+      } else if (typeof storedGroups === "string" && storedGroups) {
+        setActiveGroups([storedGroups]);
+      } else {
+        const legacy = loaded.meta?.activeGroup;
+        setActiveGroups(typeof legacy === "string" && legacy ? [legacy] : []);
+      }
       if (!useUiStore.getState().activeThemeId) {
         setActiveThemeId(activeRecords((loaded.themes as Theme[]) || [])[0]?.id || "");
       }
@@ -145,9 +153,9 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (loadState === "success") {
-      workspaceApi.setPreference("activeGroup", activeGroup).catch(() => {});
+      workspaceApi.setPreference("activeGroups", activeGroups).catch(() => {});
     }
-  }, [activeGroup, loadState]);
+  }, [activeGroups, loadState]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -184,10 +192,56 @@ export function WorkspaceApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawer, showShortcuts]);
 
-  const data = useMemo(() => projectWorkspace(workspace as Record<string, unknown> | null), [workspace]);
-  const domain = useMemo(() => buildWorkspaceDomain(data), [data]);
-  const allThemes = data.themes;
-  const themes = activeGroup ? allThemes.filter((t) => t.group === activeGroup) : allThemes;
+  const fullData = useMemo(() => projectWorkspace(workspace as Record<string, unknown> | null), [workspace]);
+  const fullDomain = useMemo(() => buildWorkspaceDomain(fullData), [fullData]);
+  const allThemes = fullData.themes;
+  const themes = activeGroups.length > 0 ? allThemes.filter((t) => activeGroups.includes(t.group || "")) : allThemes;
+  const groupThemeIds = useMemo(() => new Set(themes.map((t) => t.id)), [themes]);
+  const hasGroupFilter = activeGroups.length > 0;
+
+  const data = useMemo(() => {
+    if (!hasGroupFilter) return fullData;
+    const match = (themeId: unknown) => typeof themeId === "string" && groupThemeIds.has(themeId);
+    return {
+      ...fullData,
+      themes,
+      items: fullData.items.filter((i) => match(i.theme_id)),
+      notes: fullData.notes.filter((n) => match(n.theme_id)),
+      links: fullData.links.filter((l) => match(l.theme_id)),
+      status_updates: fullData.status_updates.filter((u) => match(u.theme_id)),
+      knowledge_nodes: fullData.knowledge_nodes.filter((k) => match(k.theme_id)),
+    };
+  }, [fullData, hasGroupFilter, groupThemeIds, themes]);
+
+  const domain = useMemo(() => {
+    if (!hasGroupFilter) return fullDomain;
+    const match = (projectId: unknown) => typeof projectId === "string" && groupThemeIds.has(projectId);
+    const tasks = fullDomain.tasks.filter((t) => match(t.project_id));
+    const waitings = fullDomain.waitings.filter((w) => match(w.project_id));
+    const plan_nodes = fullDomain.plan_nodes.filter((p) => match(p.project_id));
+    const taskIds = new Set(tasks.map((t) => t.id));
+    const waitingIds = new Set(waitings.map((w) => w.id));
+    const planNodeIds = new Set(plan_nodes.map((p) => p.id));
+    const ownerKey = (s: { owner_type: string; owner_id: string }) => `${s.owner_type}:${s.owner_id}`;
+    const ownerSet = new Set([
+      ...tasks.map((t) => `task:${t.id}`),
+      ...waitings.map((w) => `waiting:${w.id}`),
+      ...plan_nodes.map((p) => `plan_node:${p.id}`),
+    ]);
+    return {
+      ...fullDomain,
+      tasks,
+      waitings,
+      plan_nodes,
+      schedules: fullDomain.schedules.filter((s) => ownerSet.has(ownerKey(s))),
+      knowledge_nodes: fullDomain.knowledge_nodes.filter((k) => match(k.project_id)),
+      notes: fullDomain.notes.filter((n) => match(n.project_id)),
+      resources: fullDomain.resources.filter((r) => match(r.project_id)),
+      task_dependencies: fullDomain.task_dependencies.filter((d) => taskIds.has(d.task_id) && taskIds.has(d.depends_on_task_id)),
+      plan_dependencies: fullDomain.plan_dependencies.filter((d) => planNodeIds.has(d.plan_node_id) && planNodeIds.has(d.depends_on_plan_node_id)),
+    };
+  }, [fullDomain, hasGroupFilter, groupThemeIds]);
+
   const items = data.items;
   const notes = data.notes;
   const links = data.links;
@@ -581,7 +635,7 @@ export function WorkspaceApp() {
     knowledge: <KnowledgePage {...common} />,
     waiting: <WaitingPage {...common} />,
     "ai-io": <ImportExportPage {...common} />,
-    settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroup={activeGroup} setActiveGroup={setActiveGroup} allThemes={allThemes} loadSample={loadSampleAction} />,
+    settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroups={activeGroups} setActiveGroups={setActiveGroups} allThemes={allThemes} loadSample={loadSampleAction} />,
   };
 
   return (
