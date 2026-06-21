@@ -188,15 +188,14 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
       } else if (candidate.type === "link") {
         operations.push({
           action: "save",
-          type: "link",
+          type: "resource",
           entity: {
             ...base,
             id: str(base.id) || uuid(),
             title: str(entry.title) || "無題",
             url: str(entry.url) || str(base.url),
             link_type: str(entry.link_type) || str(base.link_type) || "other",
-            theme_id: candidate.theme?.id || str(base.theme_id) || null,
-            item_id: str(entry.item_id) || str(base.item_id) || null,
+            project_id: candidate.theme?.id || str(base.theme_id) || null,
             description: str(entry.description) || str(base.description),
             source_record_id: source.id,
           },

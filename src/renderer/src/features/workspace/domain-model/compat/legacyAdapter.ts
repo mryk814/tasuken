@@ -267,6 +267,11 @@ function migrateResource(link: LegacyLink): Resource {
     description: nullableText(link.description),
     project_id: nullableText(link.theme_id),
     source_record_id: nullableText(link.source_record_id),
+    link_type: nullableText(link.link_type),
+    reference_status: nullableText(link.reference_status),
+    importance: nullableText(link.importance),
+    captured_at: nullableText(link.captured_at),
+    chat_group: nullableText(link.chat_group),
   };
 }
 

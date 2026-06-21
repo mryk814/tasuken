@@ -112,9 +112,15 @@ export function WorkspaceApp() {
         setActiveGroups(storedGroups as string[]);
       } else if (typeof storedGroups === "string" && storedGroups) {
         setActiveGroups([storedGroups]);
+        workspaceApi.setPreference("activeGroups", [storedGroups]).catch(() => {});
       } else {
         const legacy = loaded.meta?.activeGroup;
-        setActiveGroups(typeof legacy === "string" && legacy ? [legacy] : []);
+        const migrated = typeof legacy === "string" && legacy ? [legacy] : [];
+        setActiveGroups(migrated);
+        if (legacy) {
+          workspaceApi.setPreference("activeGroups", migrated).catch(() => {});
+          workspaceApi.setPreference("activeGroup", null).catch(() => {});
+        }
       }
       if (!useUiStore.getState().activeThemeId) {
         setActiveThemeId(activeRecords((loaded.themes as Theme[]) || [])[0]?.id || "");
@@ -180,7 +186,7 @@ export function WorkspaceApp() {
       }
       if (event.altKey && event.key.toLowerCase() === "n") {
         event.preventDefault();
-        openDrawer({ type: "task", mode: "edit", entity: {} });
+        openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } });
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -450,14 +456,21 @@ export function WorkspaceApp() {
     }
     if (type === "resource") {
       const title = formText(values, "title");
+      const url = formText(values, "url");
       if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
+      if (!url) { (named("url") as HTMLInputElement | null)?.focus(); setToast("URLを入力してください。"); return; }
       const resource: Resource = {
         id: (base.id as string) || uuid(),
         title,
-        url: formText(values, "url") || null,
-        project_id: formText(values, "project_id") || null,
+        url,
+        project_id: formText(values, "project_id") || formText(values, "theme_id") || null,
         description: formText(values, "description") || null,
         source_record_id: (base.source_record_id as string | null) ?? null,
+        link_type: formText(values, "link_type") || ((base.link_type as string | null) ?? null),
+        reference_status: formText(values, "reference_status") || ((base.reference_status as string | null) ?? null),
+        importance: values.has("importance_high") ? "high" : (formText(values, "importance") || null),
+        captured_at: formText(values, "captured_at") || ((base.captured_at as string | null) ?? null),
+        chat_group: formText(values, "chat_group") || null,
       };
       await saveEntities(buildSaveResourceOperations(resource), base.id ? "変更を保存しました。" : "リソースを追加しました。");
       closeDrawer();
@@ -483,25 +496,6 @@ export function WorkspaceApp() {
         source_record_id: formText(values, "source_record_id") || null,
         properties_json: (base.properties_json as Record<string, unknown>) || {},
         comments: (base.comments as Note["comments"]) || [],
-      };
-    } else if (type === "link") {
-      const title = formText(values, "title");
-      const url = formText(values, "url");
-      if (!title || !url) { setToast("タイトルとURLを入力してください。"); return; }
-      entity = {
-        ...base,
-        title,
-        url,
-        link_type: formText(values, "link_type", "other"),
-        theme_id: formText(values, "theme_id") || null,
-        item_id: formText(values, "item_id") || null,
-        note_id: formText(values, "note_id") || null,
-        description: formText(values, "description"),
-        source_record_id: formText(values, "source_record_id") || null,
-        reference_status: formText(values, "reference_status", "keep"),
-        importance: values.has("importance_high") ? "high" : "normal",
-        captured_at: formText(values, "captured_at") || (base.captured_at as string) || new Date().toISOString().slice(0, 10),
-        chat_group: formText(values, "chat_group") || null,
       };
     } else if (type === "status_update") {
       entity = {
@@ -646,7 +640,7 @@ export function WorkspaceApp() {
         themes={themes}
         activeThemeId={activeThemeId}
         setActiveThemeId={setActiveThemeId}
-        items={items}
+        domain={domain}
         openDrawer={openDrawer}
       />
       <main className="main-area">{pages[route] || pages.today}</main>

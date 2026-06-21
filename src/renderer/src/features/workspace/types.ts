@@ -225,7 +225,6 @@ export interface DrawerEntity {
 export type DrawerEntityType =
   | "theme"
   | "note"
-  | "link"
   | "resource"
   | "status_update"
   | "source_record"

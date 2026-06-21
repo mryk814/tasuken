@@ -25,7 +25,7 @@ import {
   buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
 } from "../domain-model/persistence";
-import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "../domain-model/types";
+import type { CaptureEntry, PlanNode, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 
 const LINK_TYPES = ["chatgpt", "claude", "gemini", "copilot", "github", "paper", "notebook", "document", "other"];
 const LINK_TYPE_LABELS: Record<string, string> = {
@@ -101,9 +101,9 @@ function ThemeGroupPicker({ value, themes }: { value?: string; themes: Workspace
   );
 }
 
-function ChatGroupPicker({ value, links }: { value?: string; links: WorkspaceData["links"] }) {
+function ChatGroupPicker({ value, resources }: { value?: string; resources: { chat_group?: string | null }[] }) {
   const [selected, setSelected] = useState(value || "");
-  const groups = [...new Set(links.map((link) => str(link.chat_group).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja-JP"));
+  const groups = [...new Set(resources.map((r) => str(r.chat_group).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja-JP"));
   return (
     <Field label="グループ">
       <input name="chat_group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="例: 〇〇モデル改善検討" />
@@ -155,34 +155,23 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
   const type = drawer.type;
   if (type === "note") return <NoteDetailDrawer note={entity as Note} close={close} removeEntity={removeEntity} saveEntity={saveEntity} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
-  if (type === "link") {
-    return (
-      <DetailDrawer
-        title="リンク詳細"
-        close={close}
-        onEdit={() => close({ type: "link", mode: "edit", entity })}
-        onDelete={() => removeEntity("link", entity)}
-      >
-        <div className="badge-row">
-          <StatusBadge value="neutral" label={LINK_TYPE_LABELS[normalizeLinkType(entity.link_type)]} />
-          <StatusBadge value={normalizeReferenceStatus(entity.reference_status)} label={CHAT_REFERENCE_STATUS_LABELS[normalizeReferenceStatus(entity.reference_status)]} />
-          {str(entity.importance) === "high" && <StatusBadge value="review" label="重要" />}
-        </div>
-        <h2>{str(entity.title)}</h2>
-        <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>
-        <p>{str(entity.description)}</p>
-      </DetailDrawer>
-    );
-  }
   if (type === "resource") {
-    const themeName = (data.themes || []).find((t) => t.id === entity.project_id)?.name || "未設定";
+    const isChatRef = Boolean(entity.link_type || entity.reference_status);
+    const themeName = (data.themes || []).find((t) => t.id === (entity.project_id || entity.theme_id))?.name || "未設定";
     return (
       <DetailDrawer
-        title="リソース詳細"
+        title={isChatRef ? "リンク詳細" : "リソース詳細"}
         close={close}
         onEdit={() => close({ type: "resource", mode: "edit", entity })}
         onDelete={() => removeEntity("resource", entity)}
       >
+        {isChatRef && (
+          <div className="badge-row">
+            <StatusBadge value="neutral" label={LINK_TYPE_LABELS[normalizeLinkType(entity.link_type)]} />
+            <StatusBadge value={normalizeReferenceStatus(entity.reference_status)} label={CHAT_REFERENCE_STATUS_LABELS[normalizeReferenceStatus(entity.reference_status)]} />
+            {str(entity.importance) === "high" && <StatusBadge value="review" label="重要" />}
+          </div>
+        )}
         <h2>{str(entity.title)}</h2>
         {Boolean(entity.url) && <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>}
         <dl>
@@ -324,7 +313,6 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
     item: "タスク",
     theme: "Theme",
     note: "メモ",
-    link: "リンク",
     resource: "リソース",
     status_update: "現在地",
     source_record: "情報源",
@@ -363,32 +351,32 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
             <Field label="本文（Markdown）"><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
           </>
         )}
-        {type === "link" && (
-          <>
-            <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
-            <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
-            <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
-            <ChatGroupPicker value={str(entity.chat_group)} links={data.links} />
-            <div className="form-grid">
-              <Field label="参照状態">
-                <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
-                  {CHAT_REFERENCE_STATUSES.map((value) => <option key={value} value={value}>{CHAT_REFERENCE_STATUS_LABELS[value]}</option>)}
-                </select>
-              </Field>
-              <Field label="保存日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at || entity.created_at)} /></Field>
-            </div>
-            <label className="toggle priority-toggle"><input name="importance_high" type="checkbox" defaultChecked={str(entity.importance) === "high"} />重要として残す</label>
-            <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
-          </>
-        )}
-        {type === "resource" && (
-          <>
-            <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
-            <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
-            <ThemeSelect themes={data.themes} value={str(entity.project_id)} fieldName="project_id" />
-            <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
-          </>
-        )}
+        {type === "resource" && (() => {
+          const isChatRef = Boolean(entity.link_type || entity.reference_status || entity.chat_group);
+          const allResources = [...(data.resources || []), ...data.links];
+          return (
+            <>
+              <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+              <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
+              <ThemeSelect themes={data.themes} value={str(entity.project_id || entity.theme_id)} fieldName="project_id" />
+              {isChatRef && (
+                <>
+                  <ChatGroupPicker value={str(entity.chat_group)} resources={allResources} />
+                  <div className="form-grid">
+                    <Field label="参照状態">
+                      <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
+                        {CHAT_REFERENCE_STATUSES.map((value) => <option key={value} value={value}>{CHAT_REFERENCE_STATUS_LABELS[value]}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="保存日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at || entity.created_at)} /></Field>
+                  </div>
+                  <label className="toggle priority-toggle"><input name="importance_high" type="checkbox" defaultChecked={str(entity.importance) === "high"} />重要として残す</label>
+                </>
+              )}
+              <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+            </>
+          );
+        })()}
         {type === "status_update" && (
           <>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
@@ -445,11 +433,12 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
 function ReferenceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const [sourceType, setSourceType] = useState(str(entity.source_type) || "task");
   const [targetType, setTargetType] = useState(str(entity.target_type) || "task");
+  const resourceIds = new Set((data.resources || []).map((r) => r.id));
   const REF_TYPES: Record<string, { id: string; title?: string; name?: string }[]> = {
     task: data.tasks || [],
     project: data.projects || [],
     note: data.notes || [],
-    resource: [...(data.resources || []), ...(data.links || [])],
+    resource: [...(data.resources || []), ...(data.links || []).filter((l) => !resourceIds.has(l.id))],
     knowledge_node: data.knowledge_nodes || [],
   };
   const sourceOptions = REF_TYPES[sourceType] || [];
@@ -520,15 +509,16 @@ function resolveSourceId(entity: DrawerConfig["entity"]): string {
 
 function KnowledgeSourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const [sourceType, setSourceType] = useState(resolveSourceType(entity));
+  const resourceIds = new Set((data.resources || []).map((r) => r.id));
   const candidates: Record<string, { id: string; title: string }[]> = {
     note: (data.notes || []).map((n) => ({ id: n.id, title: n.title })),
     resource: [
       ...(data.resources || []).map((r) => ({ id: r.id, title: str(r.title) })),
-      ...(data.links || []).filter((l) => !(data.resources || []).some((r) => r.id === l.id)).map((l) => ({ id: l.id, title: l.title })),
+      ...(data.links || []).filter((l) => !resourceIds.has(l.id)).map((l) => ({ id: l.id, title: l.title })),
     ],
-    task: (data.items || []).filter((i) => i.kind === "task" || !i.kind).map((i) => ({ id: i.id, title: i.title })),
-    waiting: (data.items || []).filter((i) => i.kind === "waiting" || i.status === "waiting").map((i) => ({ id: i.id, title: i.title })),
-    plan_node: (data.items || []).filter((i) => i.kind === "milestone" || i.kind === "period").map((i) => ({ id: i.id, title: i.title })),
+    task: (data.tasks || []).map((t) => ({ id: t.id, title: str(t.title) })),
+    waiting: (data.waitings || []).map((w) => ({ id: w.id, title: str(w.title) })),
+    plan_node: (data.plan_nodes || []).map((p) => ({ id: p.id, title: str(p.title) })),
   };
   const options = candidates[sourceType] || [];
   return (
@@ -704,16 +694,19 @@ function KnowledgeNodeDetailDrawer({
   removeEntity: RemoveEntity;
 }) {
   const relations = ((data.knowledge_edges || []) as unknown as import("../domain-model/types").KnowledgeEdge[]).filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id);
+  const resourceIds = new Set((data.resources || []).map((r) => r.id));
+  const allResources = [...(data.resources || []), ...(data.links || []).filter((l) => !resourceIds.has(l.id))];
+  const allTasks = [...(data.tasks || []), ...(data.waitings || []), ...(data.plan_nodes || [])];
   const sourceLabel = (() => {
     if (node.source_type && node.source_id) {
       const typeLabel = SOURCE_TYPE_LABELS[node.source_type] || node.source_type;
       if (node.source_type === "note") { const n = data.notes.find((n) => n.id === node.source_id); return `${typeLabel}: ${n?.title || node.source_id}`; }
-      if (node.source_type === "resource") { const r = (data.resources || []).find((r) => r.id === node.source_id) || data.links.find((l) => l.id === node.source_id); return `${typeLabel}: ${r?.title || node.source_id}`; }
-      const item = (data.items || []).find((i) => i.id === node.source_id); return `${typeLabel}: ${item?.title || node.source_id}`;
+      if (node.source_type === "resource") { const r = allResources.find((r) => r.id === node.source_id); return `${typeLabel}: ${str(r?.title) || node.source_id}`; }
+      const t = allTasks.find((t) => t.id === node.source_id); return `${typeLabel}: ${str(t?.title) || node.source_id}`;
     }
     if (node.source_note_id) return `メモ: ${data.notes.find((n) => n.id === node.source_note_id)?.title || "不明"}`;
-    if (node.source_link_id) return `リンク: ${data.links.find((l) => l.id === node.source_link_id)?.title || "不明"}`;
-    if (node.source_item_id) return `タスク: ${(data.items || []).find((i) => i.id === node.source_item_id)?.title || "不明"}`;
+    if (node.source_link_id) return `リソース: ${allResources.find((r) => r.id === node.source_link_id)?.title || "不明"}`;
+    if (node.source_item_id) return `タスク: ${allTasks.find((t) => t.id === node.source_item_id)?.title || "不明"}`;
     return "未設定";
   })();
   return (

@@ -1,6 +1,7 @@
 import { crossNavigation, toolNavigation } from "../../../pages/routes";
 import { todayIso } from "../../../utils/dataFormat.js";
-import type { Item, OpenDrawer, Theme } from "../types";
+import type { OpenDrawer, Theme } from "../types";
+import type { WorkspaceDomain } from "../domain-model/types";
 import { themeColor } from "../lib/domain";
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
@@ -27,7 +28,7 @@ interface SidebarProps {
   themes: Theme[];
   activeThemeId: string;
   setActiveThemeId: (id: string) => void;
-  items: Item[];
+  domain: WorkspaceDomain;
   openDrawer: OpenDrawer;
 }
 
@@ -37,13 +38,18 @@ export function Sidebar({
   themes,
   activeThemeId,
   setActiveThemeId,
-  items,
+  domain,
   openDrawer,
 }: SidebarProps) {
-  const inbox = items.filter((item) => item.status === "inbox").length;
+  const inbox = domain.capture_entries.filter((e) => e.state === "untriaged").length;
   const today = todayIso();
-  const todayCount = items.filter((item) => item.status !== "done" && (item.today_flag || item.planned_end === today)).length;
-  const waiting = items.filter((item) => item.status === "waiting" || item.kind === "waiting").length;
+  const schedulesByOwner = new Map(domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
+  const todayCount = domain.tasks.filter((t) => {
+    if (t.state === "done" || t.state === "cancelled") return false;
+    const s = schedulesByOwner.get(`task:${t.id}`);
+    return s && (s.start_date === today || s.end_date === today || (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today));
+  }).length;
+  const waiting = domain.waitings.filter((w) => w.state === "waiting").length;
   return (
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">T</span><div><strong>Tasken</strong></div></div>
@@ -91,7 +97,7 @@ export function ShortcutDialog({ close }: { close: () => void }) {
         <div className="drawer-header"><strong>キーボードショートカット</strong><button onClick={close}>閉じる</button></div>
         <dl className="shortcut-list">
           <dt><kbd>?</kbd></dt><dd>この一覧を表示</dd>
-          <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>タスクを追加</dd>
+          <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>クイック記録</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>検索へ移動</dd>
           <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる</dd>
         </dl>
