@@ -1,7 +1,7 @@
 import { IconMessageCircle, IconNotes, IconPointFilled } from "@tabler/icons-react";
 
-import type { Link, Note, OpenDrawer, Theme, WorkspaceData } from "../types";
-import type { WorkspaceDomain } from "../domain-model/types";
+import type { OpenDrawer, Theme, WorkspaceData } from "../types";
+import type { Note, Resource, WorkspaceDomain } from "../domain-model/types";
 import { THEME_STATUS_LABELS } from "../lib/domain";
 import { dateOnly, formatDate, str } from "../lib/format";
 import { EmptyState, StatusBadge } from "./common";
@@ -43,6 +43,8 @@ function pickRediscovery<T extends { id: string; updated_at?: string; created_at
     .slice(0, count);
 }
 
+const CHAT_LINK_TYPES = new Set(["chatgpt", "claude", "gemini", "copilot"]);
+
 export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigate }: ContextPaneProps) {
   const today = dateOnly(new Date().toISOString());
   const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
@@ -58,11 +60,11 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
     .filter((entry) => !activeTheme || entry.theme_id === activeTheme.id)
     .sort((a, b) => str(b.date || b.updated_at).localeCompare(str(a.date || a.updated_at)))
     .slice(0, 2);
-  const notes = pickRediscovery<Note>(data.notes, 2);
-  const resourceRecords = (data.resources || []) as (Link & { project_id?: string | null })[];
-  const resourceIds = new Set(resourceRecords.map((r) => r.id));
-  const allLinks = [...data.links.filter((l) => !resourceIds.has(l.id)), ...resourceRecords.map((r) => ({ ...r, theme_id: r.project_id || r.theme_id || null }))];
-  const chatLinks = pickRediscovery<Link>(allLinks.filter((link) => ["chatgpt", "claude", "gemini", "copilot"].includes(str(link.link_type))), 2);
+  const notes = pickRediscovery(v2.notes as (Note & { updated_at?: string; created_at?: string })[], 2);
+  const chatResources = pickRediscovery(
+    v2.resources.filter((r) => CHAT_LINK_TYPES.has(str(r.link_type))) as (Resource & { updated_at?: string; created_at?: string })[],
+    2,
+  );
 
   return (
     <aside className="context-pane" aria-label="コンテキスト">
@@ -140,7 +142,7 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
           </div>
           <div className="context-stack">
             {notes.map((note) => (
-              <button className="context-note-row" key={note.id} onClick={() => openDrawer({ type: "note", entity: note })}>
+              <button className="context-note-row" key={note.id} onClick={() => openDrawer({ type: "note", entity: note as unknown as Record<string, unknown> })}>
                 <IconNotes size={16} />
                 <span>
                   <strong>{note.title}</strong>
@@ -148,16 +150,16 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
                 </span>
               </button>
             ))}
-            {chatLinks.map((link) => (
-              <button className="context-note-row" key={link.id} onClick={() => openDrawer({ type: "link", entity: link })}>
+            {chatResources.map((r) => (
+              <button className="context-note-row" key={r.id} onClick={() => openDrawer({ type: "resource", entity: r as unknown as Record<string, unknown> })}>
                 <IconMessageCircle size={16} />
                 <span>
-                  <strong>{link.title}</strong>
-                  <small>{str(link.chat_group) || str(link.description).slice(0, 84) || formatDate(recordDate(link))}</small>
+                  <strong>{r.title}</strong>
+                  <small>{str(r.chat_group) || str(r.description).slice(0, 84) || formatDate(recordDate(r))}</small>
                 </span>
               </button>
             ))}
-            {!notes.length && !chatLinks.length && <EmptyState title="拾い直せるメモはまだありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}
+            {!notes.length && !chatResources.length && <EmptyState title="拾い直せるメモはまだありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}
           </div>
         </section>
       </div>

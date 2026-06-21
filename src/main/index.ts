@@ -151,12 +151,11 @@ function registerCaptureIpc(): void {
   ipcMain.handle("quick-capture:save", (_event, text: string) => {
     const trimmed = (text || "").trim();
     if (!trimmed) throw new Error("入力が空です。");
-    const saved = workspaceRepository.save("item", {
+    const saved = workspaceRepository.save("capture_entry", {
+      text: trimmed,
       title: trimmed,
-      kind: "idea",
-      level: "task",
-      status: "inbox",
-      priority: "normal",
+      captured_at: new Date().toISOString().slice(0, 10),
+      state: "untriaged",
     }, { source: "quick-capture" });
     notifyMainWindowRefresh();
     return saved;

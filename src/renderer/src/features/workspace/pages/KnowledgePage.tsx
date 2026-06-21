@@ -11,22 +11,25 @@ import type { KnowledgeEdge } from "../domain-model/types";
 const ALL = "all";
 
 function resolveSourceName(node: KnowledgeNode, data: PageProps["data"]): string {
+  const resourceIds = new Set((data.resources || []).map((r) => r.id));
+  const allResources = [...(data.resources || []), ...(data.links || []).filter((l) => !resourceIds.has(l.id))];
+  const allEntities = [...(data.tasks || []), ...(data.waitings || []), ...(data.plan_nodes || [])];
   if (node.source_type && node.source_id) {
     if (node.source_type === "note") return data.notes.find((n) => n.id === node.source_id)?.title || node.source_id;
     if (node.source_type === "resource") {
-      const r = (data.resources || []).find((r) => r.id === node.source_id) || data.links.find((l) => l.id === node.source_id);
+      const r = allResources.find((r) => r.id === node.source_id);
       return str(r?.title) || node.source_id;
     }
-    const item = data.items.find((i) => i.id === node.source_id);
-    return item?.title || node.source_id;
+    const entity = allEntities.find((e) => e.id === node.source_id);
+    return str(entity?.title) || node.source_id;
   }
   if (node.source_note_id) return data.notes.find((n) => n.id === node.source_note_id)?.title || "";
-  if (node.source_link_id) return data.links.find((l) => l.id === node.source_link_id)?.title || "";
-  if (node.source_item_id) return data.items.find((i) => i.id === node.source_item_id)?.title || "";
+  if (node.source_link_id) return str(allResources.find((r) => r.id === node.source_link_id)?.title) || "";
+  if (node.source_item_id) return str(allEntities.find((e) => e.id === node.source_item_id)?.title) || "";
   return "";
 }
 
-export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps) {
+export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [themeId, setThemeId] = useState(ALL);
   const [nodeType, setNodeType] = useState(ALL);
@@ -41,7 +44,12 @@ export function KnowledgePage({ data, themes, openDrawer, setToast }: PageProps)
       && (nodeType === ALL || node.node_type === nodeType)
       && (status === ALL || node.status === status);
   }).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || ""))), [nodes, query, themeId, nodeType, status]);
-  const healthIssues = useMemo(() => buildKnowledgeHealth(visible, relations, data.items || []), [visible, relations, data.items]);
+  const domainEntities = useMemo(() => [
+    ...domain.tasks.map((t) => ({ id: t.id, status: t.state, title: t.title })),
+    ...domain.waitings.map((w) => ({ id: w.id, status: w.state, title: w.title })),
+    ...domain.plan_nodes.map((p) => ({ id: p.id, status: p.state, title: p.title })),
+  ], [domain.tasks, domain.waitings, domain.plan_nodes]);
+  const healthIssues = useMemo(() => buildKnowledgeHealth(visible, relations, domainEntities), [visible, relations, domainEntities]);
 
   function relationCount(node: KnowledgeNode) {
     return relations.filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id).length;

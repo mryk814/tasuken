@@ -1,5 +1,7 @@
-import type { Item, KnowledgeNode } from "../types";
+import type { KnowledgeNode } from "../types";
 import type { KnowledgeEdge } from "../domain-model/types";
+
+interface HealthEntity { id: string; status?: string; title?: string }
 
 export interface KnowledgeHealthIssue {
   id: string;
@@ -34,9 +36,9 @@ function hasEvidenceSupport(claim: KnowledgeNode, nodes: KnowledgeNode[], relati
   });
 }
 
-export function buildKnowledgeHealth(nodes: KnowledgeNode[], relations: KnowledgeEdge[], items: Item[] = []): KnowledgeHealthIssue[] {
+export function buildKnowledgeHealth(nodes: KnowledgeNode[], relations: KnowledgeEdge[], entities: HealthEntity[] = []): KnowledgeHealthIssue[] {
   const issues: KnowledgeHealthIssue[] = [];
-  const openItemIds = new Set(items.filter((item) => !["done", "cancelled", "archived"].includes(item.status || "")).map((item) => item.id));
+  const openItemIds = new Set(entities.filter((e) => !["done", "cancelled", "archived"].includes(e.status || "")).map((e) => e.id));
   for (const node of nodes.filter((entry) => (entry.status || "active") === "active")) {
     if (node.node_type === "claim" && !hasEvidenceSupport(node, nodes, relations)) {
       issues.push({

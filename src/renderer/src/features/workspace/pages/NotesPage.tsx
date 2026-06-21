@@ -6,19 +6,13 @@ import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 
-type Combined = BaseRecord & { recordType: "note" | "link" | "resource" };
+type Combined = BaseRecord & { recordType: "note" | "resource" };
 
-export function NotesPage({ themes, notes, links, data, openDrawer, setToast }: PageProps) {
+export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
   const [query, setQuery] = useState("");
-  const resources = (data.resources || []) as BaseRecord[];
-  const resourceIds = new Set(resources.map((r) => r.id));
   const records: Combined[] = [
-    ...notes.map((note) => ({ ...note, recordType: "note" as const })),
-    ...links
-      .filter((link) => !notes.some((note) => note.source_url && note.source_url === link.url))
-      .filter((link) => !resourceIds.has(link.id))
-      .map((link) => ({ ...link, recordType: "link" as const })),
-    ...resources.map((r) => ({ ...r, recordType: "resource" as const })),
+    ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
+    ...domain.resources.map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   const visible = records.filter((record) =>
     `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`
@@ -27,7 +21,7 @@ export function NotesPage({ themes, notes, links, data, openDrawer, setToast }: 
 
   function copy() {
     workspaceApi
-      .copyText(visible.map((record) => `${str(record.title)}\t${record.recordType === "link" ? "link" : str(record.note_type)}\t${themes.find((theme) => theme.id === record.theme_id)?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
+      .copyText(visible.map((record) => `${str(record.title)}\t${record.recordType === "resource" ? "リソース" : str(record.note_type)}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
       .then(() => setToast("Notes一覧をコピーしました。"));
   }
 
@@ -50,7 +44,7 @@ export function NotesPage({ themes, notes, links, data, openDrawer, setToast }: 
             <div className="note-row" key={`${record.recordType}-${record.id}`}>
               <button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, entity: record })}>
                 <span className="note-row-head">
-                  <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : record.recordType === "link" ? "リンク" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
+                  <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
                   <strong className="note-row-title">{str(record.title)}</strong>
                   {record.recordType === "note" && comments && comments.length > 0 && <span className="comment-count" aria-label={`${comments.length}件のコメント`}>{comments.length}</span>}
                 </span>

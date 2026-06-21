@@ -117,6 +117,11 @@ export interface Resource {
   description?: string | null;
   project_id?: string | null;
   source_record_id?: string | null;
+  link_type?: string | null;
+  reference_status?: string | null;
+  importance?: string | null;
+  captured_at?: string | null;
+  chat_group?: string | null;
 }
 
 export type KnowledgeNodeType =

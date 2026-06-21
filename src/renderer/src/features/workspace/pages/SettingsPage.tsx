@@ -18,7 +18,7 @@ interface SettingsPageProps extends PageProps {
 export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroups, setActiveGroups, allThemes, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
   const [healthResult, setHealthResult] = useState<string | null>(null);
-  const isEmpty = (data.themes.length + data.items.length + data.notes.length + data.links.length) === 0;
+  const isEmpty = (data.themes.length + domain.tasks.length + domain.waitings.length + domain.plan_nodes.length + domain.capture_entries.length + domain.notes.length + domain.resources.length) === 0;
 
   async function addSample() {
     if (!isEmpty) {
