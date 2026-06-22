@@ -91,12 +91,6 @@ export function buildTodayView(domain: WorkspaceDomain, date = todayString()): T
     }
   }
 
-  for (const captureEntry of domain.capture_entries) {
-    if (captureEntry.state === "untriaged" && captureEntry.captured_at.slice(0, 10) === date) {
-      entries.push({ type: "capture", captureEntry });
-    }
-  }
-
   return entries.sort((a, b) => todayEntryDate(a).localeCompare(todayEntryDate(b)));
 }
 

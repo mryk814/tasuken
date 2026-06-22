@@ -1,11 +1,23 @@
 import { useState } from "react";
-import { IconCalendarPlus, IconClipboard, IconFlagFilled, IconPlus } from "@tabler/icons-react";
+import {
+  IconCalendarCheck,
+  IconCalendarPlus,
+  IconCheck,
+  IconChevronRight,
+  IconClipboard,
+  IconClock,
+  IconFlag,
+  IconFlagFilled,
+  IconPlus,
+} from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
+import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
+import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
-import { EmptyState, Metric, PageHeader, StatusBadge } from "../components/common";
+import { EmptyState, Metric, PageHeader } from "../components/common";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -139,13 +151,19 @@ function canToggleToday(row: TodayRow): boolean {
   return row.v2 != null && row.v2.type !== "capture";
 }
 
+function hasSchedule(row: TodayRow): boolean {
+  return row.v2 != null && row.v2.type !== "capture" && row.v2.schedule != null;
+}
+
 function TodayRows({
   rows,
   themes,
   empty,
   today,
   onToggleComplete,
+  onTogglePriority,
   onToggleToday,
+  onPostpone,
   onOpenDetail,
   onAdd,
 }: {
@@ -154,7 +172,9 @@ function TodayRows({
   empty: string;
   today: string;
   onToggleComplete: (row: TodayRow) => void;
+  onTogglePriority: (row: TodayRow) => void;
   onToggleToday: (row: TodayRow) => void;
+  onPostpone: (row: TodayRow, days: number) => void;
   onOpenDetail: (row: TodayRow) => void;
   onAdd?: () => void;
 }) {
@@ -162,32 +182,58 @@ function TodayRows({
   return (
     <div className="today-task-list">
       {rows.map((row) => {
-        const theme = themes.find((entry) => entry.id === row.projectId);
+        const themeIndex = themes.findIndex((entry) => entry.id === row.projectId);
+        const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
+        const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
         const isToday = row.date?.slice(0, 10) === today;
+        const done = row.status === "done" || row.status === "cancelled" || row.status === "received";
         return (
-          <div className="today-task-row" key={row.id}>
+          <div className="today-task-row" key={row.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
+            <span className="todo-theme-bar" />
             <button
-              className="check-button"
+              className={`todo-check-circle ${done ? "is-done" : ""}`}
               aria-label={`${row.title}を完了`}
               onClick={() => onToggleComplete(row)}
               disabled={!canComplete(row)}
-            />
-            <button className="today-task-title" onClick={() => onOpenDetail(row)}>
-              <strong>{row.title}</strong>
-              <span>{theme?.name || "個人業務"} / {row.kindLabel}</span>
-            </button>
-            {row.priority === "high" && <IconFlagFilled className="inline-icon accent" size={16} aria-label="優先" />}
-            <StatusBadge value={row.status} label={row.statusLabel} />
-            <time>{formatDate(row.date)}</time>
-            <button
-              className={`today-plan-button ${isToday ? "is-active" : ""}`}
-              onClick={() => onToggleToday(row)}
-              aria-label={isToday ? "今日の予定から外す" : "今日の予定に追加"}
-              title={isToday ? "今日の予定から外す" : "今日の予定に追加"}
-              disabled={!canToggleToday(row)}
             >
-              <IconCalendarPlus size={16} />
+              {done && <IconCheck size={13} stroke={2.4} />}
             </button>
+            <div className="row-title-wrap">
+              {row.v2?.type === "task" ? (
+                <button
+                  className={`priority-flag-button ${row.priority === "high" ? "is-active" : ""}`}
+                  onClick={() => onTogglePriority(row)}
+                  aria-label={row.priority === "high" ? "旗を外す" : "旗を付ける"}
+                  title={row.priority === "high" ? "旗を外す" : "旗を付ける"}
+                >
+                  {row.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
+                </button>
+              ) : (
+                <span className="today-row-spacer" />
+              )}
+              <button
+                className={`today-plan-button ${isToday ? "is-active" : ""}`}
+                onClick={() => onToggleToday(row)}
+                aria-label={isToday ? "今日の予定から外す" : "今日の予定に追加"}
+                title={isToday ? "今日の予定から外す" : "今日の予定に追加"}
+                disabled={!canToggleToday(row)}
+              >
+                {isToday ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
+              </button>
+              <button className="today-task-title" onClick={() => onOpenDetail(row)}>
+                <strong>{row.title}</strong>
+                <span>{theme?.name || "個人業務"} / {row.kindLabel}</span>
+              </button>
+            </div>
+            <time>{formatDate(row.date)}</time>
+            <span className="today-postpone-actions">
+              {hasSchedule(row) && (
+                <>
+                  <button className="postpone-button" onClick={() => onPostpone(row, 1)} title="+1日" aria-label={`${row.title}を1日延期`}>+1d</button>
+                  <button className="postpone-button" onClick={() => onPostpone(row, 7)} title="+7日" aria-label={`${row.title}を7日延期`}>+7d</button>
+                </>
+              )}
+            </span>
           </div>
         );
       })}
@@ -234,21 +280,48 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     if (row.v2?.type === "task") {
       const nextState = row.v2.task.state === "done" ? "todo" : "done";
       const next: Task = { ...row.v2.task, state: nextState, completed_at: nextState === "done" ? new Date().toISOString() : null };
+      if (nextState === "done") playCompleteSound();
       await saveEntities(buildSaveTaskOperations(next), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
       return;
     }
     if (row.v2?.type === "waiting") {
       const nextState = row.v2.waiting.state === "received" ? "waiting" : "received";
       const next: Waiting = { ...row.v2.waiting, state: nextState };
+      if (nextState === "received") playCompleteSound();
       await saveEntities(buildSaveWaitingOperations(next), nextState === "received" ? "受領しました。" : "待ちに戻しました。");
       return;
     }
     if (row.v2?.type === "milestone") {
       const nextState = row.v2.planNode.state === "done" ? "planned" : "done";
       const next: PlanNode = { ...row.v2.planNode, state: nextState };
+      if (nextState === "done") playCompleteSound();
       await saveEntities(buildSavePlanNodeOperations(next), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
       return;
     }
+  }
+
+  async function handleTogglePriority(row: TodayRow) {
+    if (row.v2?.type !== "task") return;
+    const next: Task = { ...row.v2.task, priority: row.v2.task.priority === "high" ? "normal" : "high" };
+    await saveEntities(buildSaveTaskOperations(next));
+  }
+
+  const focusItem: TodayRow | null =
+    overdue[0] ||
+    todayRows.find((row) => row.priority === "high") ||
+    todayRows[0] ||
+    null;
+
+  async function handlePostpone(row: TodayRow, days: number) {
+    if (!row.v2 || row.v2.type === "capture") return;
+    const schedule = row.v2.schedule;
+    if (!schedule) return;
+    const next: Schedule = {
+      ...schedule,
+      start_date: schedule.start_date ? addDays(schedule.start_date, days) || null : null,
+      end_date: schedule.end_date ? addDays(schedule.end_date, days) || null : null,
+    };
+    await saveEntities(buildSaveScheduleOperations(next), `${days}日延期しました。`);
   }
 
   async function handleToggleToday(row: TodayRow) {
@@ -344,7 +417,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
 
   const rowHandlers = {
     onToggleComplete: handleToggleComplete,
+    onTogglePriority: handleTogglePriority,
     onToggleToday: handleToggleToday,
+    onPostpone: handlePostpone,
     onOpenDetail: handleOpenDetail,
   };
 
@@ -378,10 +453,25 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         </section>
       )}
 
+      {focusItem && (
+        <section className="today-focus-hero panel" onClick={() => handleOpenDetail(focusItem)}>
+          <div className="focus-hero-content">
+            <span className="focus-hero-label"><IconClock size={14} /> {focusItem.date && focusItem.date < today ? "期限切れ" : "次にやること"}</span>
+            <strong className="focus-hero-title">{focusItem.title}</strong>
+            <span className="focus-hero-meta">{themes.find((t) => t.id === focusItem.projectId)?.name || "個人業務"} / {focusItem.kindLabel}{focusItem.date ? ` / ${formatDate(focusItem.date)}` : ""}</span>
+          </div>
+          <div className="focus-hero-actions">
+            <button className="secondary-button compact" onClick={(e) => { e.stopPropagation(); handleToggleComplete(focusItem); }}>{canComplete(focusItem) ? "完了" : "開く"}</button>
+            {hasSchedule(focusItem) && <button className="secondary-button compact" onClick={(e) => { e.stopPropagation(); handlePostpone(focusItem, 1); }}>+1日</button>}
+            <IconChevronRight size={18} className="focus-hero-arrow" />
+          </div>
+        </section>
+      )}
+
       <div className="metric-grid today-metrics">
         <Metric label="今日" value={todayRows.length} tone="primary" />
         <Metric label="期限切れ" value={overdue.length} tone={overdue.length ? "danger" : ""} />
-        <Metric label="Inbox" value={inbox.length} />
+        <Metric label="Inbox" value={inbox.length} tone={inbox.length ? "warning" : ""} />
         <Metric label="予定なし" value={noSchedule.length} />
       </div>
 

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { IconPlus } from "@tabler/icons-react";
+import { IconCheck, IconPlus, IconX } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
 import { themeColor } from "../lib/domain";
@@ -67,6 +68,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
 
   async function changeState(waiting: Waiting, nextState: Waiting["state"]) {
     const next: Waiting = { ...waiting, state: nextState };
+    if (nextState === "received") playCompleteSound();
     await saveEntities(
       buildSaveWaitingOperations(next),
       nextState === "received" ? "受領しました。" : nextState === "cancelled" ? "中止しました。" : "待ちに戻しました。",
@@ -124,22 +126,36 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
       </div>
       <section className="panel list-page">
         <div className="data-table waiting-table">
-          <div className="table-head"><span /><span>タスク</span><span>相手</span><span>状態</span><span>Theme</span><span>期限</span></div>
+          <div className="table-head"><span /><span /><span>タスク</span><span>相手</span><span>状態</span><span>Theme</span><span>期限</span></div>
           {visible.map(({ waiting, schedule }) => {
             const theme = themes.find((t) => t.id === waiting.project_id);
             const themeIndex = Math.max(0, themes.findIndex((t) => t.id === waiting.project_id));
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
+            const received = waiting.state === "received";
+            const cancelled = waiting.state === "cancelled";
             return (
-              <div className="table-row" key={waiting.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
+              <div
+                className={`table-row ${cancelled ? "is-cancelled" : ""}`}
+                key={waiting.id}
+                style={{ "--chip-color": chipColor } as React.CSSProperties}
+              >
                 <span className="todo-theme-bar" />
+                <button
+                  className={`todo-check-circle ${received ? "is-done" : ""}`}
+                  onClick={() => changeState(waiting, received ? "waiting" : "received")}
+                  disabled={cancelled}
+                  aria-label={received ? `${waiting.title}を待ちに戻す` : `${waiting.title}を受領`}
+                  title={received ? "待ちに戻す" : "受領する"}
+                >
+                  {received && <IconCheck size={13} stroke={2.4} />}
+                </button>
                 <button className="row-title" onClick={() => openDetail(waiting, schedule)}>{waiting.title}</button>
                 <span>{waiting.waiting_for}</span>
-                <span>
+                <span className="waiting-state-actions">
                   {waiting.state === "waiting" ? (
-                    <span className="inline-actions" style={{ gap: "var(--space-xs)" }}>
-                      <button className="secondary-button compact" onClick={() => changeState(waiting, "received")}>受領</button>
-                      <button className="secondary-button compact" onClick={() => changeState(waiting, "cancelled")}>中止</button>
-                    </span>
+                    <button className="danger-button compact waiting-cancel-button" onClick={() => changeState(waiting, "cancelled")}>
+                      <IconX size={14} /> 中止
+                    </button>
                   ) : (
                     <span className="inline-actions" style={{ gap: "var(--space-xs)" }}>
                       <StatusBadge value={waiting.state} label={WAITING_STATE_LABELS[waiting.state]} />

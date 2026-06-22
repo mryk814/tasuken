@@ -163,7 +163,7 @@ function resolvePlanNodeId(domain: WorkspaceDomain, itemId: string | null | unde
   return node?.id || itemId;
 }
 
-export function timelineSaveItemOperations(item: TimelineItem, domain: WorkspaceDomain): SaveOperation[] {
+export function timelineSaveItemOperations(item: TimelineItem, domain: WorkspaceDomain, context?: import("../persistence").SaveContext): SaveOperation[] {
   const planNode = findPlanNode(domain, item.id);
   if (!planNode) return [];
 
@@ -192,7 +192,7 @@ export function timelineSaveItemOperations(item: TimelineItem, domain: Workspace
     actual_end: item.actual_end || existing?.actual_end || null,
   };
 
-  return [...buildSavePlanNodeOperations(updated), ...buildSaveScheduleOperations(schedule)];
+  return [...buildSavePlanNodeOperations(updated, context), ...buildSaveScheduleOperations(schedule, context)];
 }
 
 export function timelineCreatePlanNodeDraft(

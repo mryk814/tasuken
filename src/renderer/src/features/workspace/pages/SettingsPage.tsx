@@ -4,7 +4,6 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
-import { validateInvariants, formatViolations } from "../domain-model/invariants";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -12,28 +11,10 @@ interface SettingsPageProps extends PageProps {
   activeGroups: string[];
   setActiveGroups: (groups: string[]) => void;
   allThemes: Theme[];
-  loadSample: () => Promise<unknown>;
 }
 
-export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroups, setActiveGroups, allThemes, setSnapshotPreview, snapshotPreview, setToast, loadSample }: SettingsPageProps) {
+export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroups, setActiveGroups, allThemes, setSnapshotPreview, snapshotPreview, setToast }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
-  const [healthResult, setHealthResult] = useState<string | null>(null);
-  const isEmpty = (data.themes.length + domain.tasks.length + domain.waitings.length + domain.plan_nodes.length + domain.capture_entries.length + domain.notes.length + domain.resources.length) === 0;
-
-  async function addSample() {
-    if (!isEmpty) {
-      setToast("既にデータがあります。サンプルは追加されません。");
-      return;
-    }
-    setBusy(true);
-    try {
-      await loadSample();
-      await workspaceApi.reload();
-    } catch (error) {
-      setToast(`サンプルを追加できませんでした。${error instanceof Error ? error.message : String(error)}`);
-      setBusy(false);
-    }
-  }
 
   async function exportSnapshot() {
     setBusy(true);
@@ -121,25 +102,10 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           })()}
         </section>
         <section className="panel settings-form">
-          <h2>データ整合性チェック</h2>
-          <p className="field-help">ドメインモデルの不変条件（参照整合、循環依存、重複、状態矛盾）を検証します。</p>
-          <button className="secondary-button" onClick={() => {
-            const violations = validateInvariants(domain);
-            setHealthResult(formatViolations(violations));
-            if (!violations.length) setToast("すべての不変条件を満たしています。");
-          }}>整合性をチェック</button>
-          {healthResult && (
-            <pre className="health-result" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-small)", marginTop: "var(--spacing-sm)", padding: "var(--spacing-sm)", background: "var(--color-surface-sunken)", borderRadius: "var(--radius-default)" }}>{healthResult}</pre>
-          )}
-        </section>
-        <section className="panel settings-form">
           <h2>バックアップ</h2>
           <p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p>
           <button className="secondary-button" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</button>
           <button className="secondary-button" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</button>
-          <h2>サンプルデータ</h2>
-          <p className="field-help">{isEmpty ? "空の状態です。研究テーマ・タスクの例を入れて操作を試せます（あとから削除できます）。" : "既にデータがあるため、サンプルは追加できません。"}</p>
-          <button className="secondary-button" disabled={busy || !isEmpty} onClick={addSample}>サンプルデータを入れる</button>
         </section>
       </div>
       {snapshotPreview && (

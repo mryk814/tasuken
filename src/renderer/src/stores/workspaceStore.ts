@@ -16,6 +16,8 @@ interface WorkspaceState {
   remove(type: EntityType, id: string): Promise<Entity>;
   restore(type: EntityType, id: string): Promise<Entity>;
   refresh(): Promise<Workspace>;
+  applyExternalSave(type: EntityType, entity: Entity): void;
+  applyExternalSaves(changes: Array<{ type: EntityType; entity: Entity }>): void;
 }
 
 const entityKeys: Record<EntityType, keyof Workspace> = {
@@ -108,5 +110,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const restored = await workspaceApi.restore(type, id);
     await get().refresh();
     return restored;
+  },
+  applyExternalSave(type, entity) {
+    const workspace = get().workspace;
+    if (workspace) set({ workspace: replaceEntity(workspace, type, entity) });
+  },
+  applyExternalSaves(changes) {
+    let workspace = get().workspace;
+    if (!workspace) return;
+    for (const change of changes) {
+      workspace = replaceEntity(workspace, change.type, change.entity);
+    }
+    set({ workspace });
   },
 }));

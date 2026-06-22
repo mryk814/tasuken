@@ -129,6 +129,16 @@ export function ItemSelect({
   );
 }
 
+export function HubTabs({ tabs, route, navigate }: { tabs: readonly (readonly [string, string])[]; route: string; navigate: (id: string) => void }) {
+  return (
+    <nav className="hub-tabs" aria-label="サブナビゲーション">
+      {tabs.map(([id, label]) => (
+        <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>{label}</button>
+      ))}
+    </nav>
+  );
+}
+
 export function DrawerHeader({ title, close }: { title: string; close: CloseDrawer }) {
   return (
     <div className="drawer-header">

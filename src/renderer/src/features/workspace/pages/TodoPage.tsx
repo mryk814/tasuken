@@ -3,6 +3,7 @@ import { IconCalendarPlus, IconCalendarCheck, IconFlag, IconFlagFilled, IconPlus
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
+import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
@@ -41,11 +42,9 @@ function compareTodoRows(today: string) {
 
 export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
-  const [selected, setSelected] = useState<string[]>([]);
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pastePreview, setPastePreview] = useState<ParsedTaskRow[]>([]);
-  const [shiftDays, setShiftDays] = useState(7);
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
@@ -104,6 +103,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
       state: nextState,
       completed_at: nextState === "done" ? new Date().toISOString() : null,
     };
+    if (nextState === "done") playCompleteSound();
     await saveEntities(buildSaveTaskOperations(nextTask), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
   }
 
@@ -135,44 +135,6 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
     } else {
       await saveEntities(buildSaveScheduleOperations({ ...schedule, end_date: today }), "今日の予定に追加しました。");
     }
-  }
-
-  async function bulkComplete() {
-    const now = new Date().toISOString();
-    const ops = selected.flatMap((id) => {
-      const row = taskRows.find((r) => r.task.id === id);
-      if (!row || isDoneRow(row)) return [];
-      return buildSaveTaskOperations({ ...row.task, state: "done", completed_at: now });
-    });
-    if (!ops.length) return;
-    await saveEntities(ops, `${selected.length}件を完了にしました。`);
-    setSelected([]);
-  }
-
-  async function bulkThemeChange(projectId: string) {
-    const ops = selected.flatMap((id) => {
-      const row = taskRows.find((r) => r.task.id === id);
-      if (!row) return [];
-      return buildSaveTaskOperations({ ...row.task, project_id: projectId });
-    });
-    if (!ops.length) return;
-    await saveEntities(ops, `${selected.length}件のThemeを変更しました。`);
-    setSelected([]);
-  }
-
-  async function shiftSelected() {
-    const ops = selected.flatMap((id) => {
-      const row = taskRows.find((r) => r.task.id === id);
-      if (!row?.schedule) return [];
-      return buildSaveScheduleOperations({
-        ...row.schedule,
-        start_date: row.schedule.start_date ? addDays(row.schedule.start_date, shiftDays) || null : null,
-        end_date: row.schedule.end_date ? addDays(row.schedule.end_date, shiftDays) || null : null,
-      }, { reason: `一括操作で${shiftDays}日シフト` });
-    });
-    if (!ops.length) { setToast("日程のあるタスクが選択されていません。"); return; }
-    await saveEntities(ops, `${selected.length}件の日程を${shiftDays}日移動しました。`);
-    setSelected([]);
   }
 
   function previewPaste() {
@@ -286,30 +248,24 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
         </section>
       )}
       <section className="panel list-page">
-        {selected.length > 0 && (
-          <div className="list-toolbar">
-            <div className="inline-actions bulk-actions">
-              <span>{selected.length}件選択</span>
-              <button className="secondary-button compact" onClick={bulkComplete}>完了にする</button>
-              <select aria-label="Themeを一括変更" onChange={(event) => event.target.value && bulkThemeChange(event.target.value)} defaultValue="">
-                <option value="">Theme変更</option>
-                {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-              </select>
-              <input className="shift-days" aria-label="日程を移動する日数" type="number" value={shiftDays} onChange={(event) => setShiftDays(Number(event.target.value) || 0)} />
-              <button className="secondary-button compact" onClick={shiftSelected}>日程を移動</button>
-            </div>
-          </div>
-        )}
         <div className="data-table todo-table">
-          <div className="table-head"><span /><span /><span>タスク</span><span>状態</span><span>Theme</span><span>予定終了</span></div>
+          <div className="table-head"><span /><span /><span>タスク</span><span /><span>Theme</span><span>予定終了</span></div>
           {visible.map(({ task, schedule }) => {
             const theme = (data.themes || []).find((entry) => entry.id === task.project_id);
             const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
+            const done = task.state === "done" || task.state === "cancelled";
             return (
             <div className="table-row" key={task.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
               <span className="todo-theme-bar" />
-              <input type="checkbox" checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} aria-label={`${task.title}を選択`} />
+              <button
+                className={`todo-check-circle ${done ? "is-done" : ""}`}
+                onClick={() => toggleTask(task)}
+                aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了`}
+                title={done ? "未完了に戻す" : "完了にする"}
+              >
+                {done && <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+              </button>
               <div className="row-title-wrap">
                 <button
                   className={`priority-flag-button ${task.priority === "high" ? "is-active" : ""}`}
@@ -327,9 +283,9 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
                 >
                   {isTodayRow({ task, schedule }, today) ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
                 </button>
-                <button className="row-title" onClick={() => openTaskDetail(task, schedule)}>{task.title}</button>
+                <button className={`row-title ${done ? "is-done" : ""}`} onClick={() => openTaskDetail(task, schedule)}>{task.title}</button>
               </div>
-              <button className="check-action" onClick={() => toggleTask(task)}>{task.state === "done" ? "戻す" : "完了"}</button>
+              <span />
               <span className="theme-inline">
                 <span className="chip-dot" />
                 {theme?.name || "個人業務"}

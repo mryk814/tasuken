@@ -2,10 +2,12 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, shell, 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
+import type { Entity, EntityType } from "../shared/types/workspace";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
@@ -15,6 +17,7 @@ const APP_NAME = "Tasken";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
+type QuickCaptureMode = "inbox" | "today-task";
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
   try {
@@ -85,7 +88,7 @@ function createCaptureWindow(): BrowserWindow {
   return win;
 }
 
-function showCaptureWindow(): void {
+function showCaptureWindow(mode: QuickCaptureMode = "inbox"): void {
   if (!captureWindow || captureWindow.isDestroyed()) {
     captureWindow = createCaptureWindow();
   }
@@ -96,7 +99,7 @@ function showCaptureWindow(): void {
   captureWindow.center();
   captureWindow.show();
   captureWindow.focus();
-  captureWindow.webContents.send("quick-capture:shown");
+  captureWindow.webContents.send("quick-capture:shown", mode);
 }
 
 function createTrayIcon(): Electron.NativeImage {
@@ -124,7 +127,8 @@ function setupTray(): void {
   tray = new Tray(createTrayIcon());
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: "クイック記録", accelerator: "CmdOrCtrl+Shift+N", click: showCaptureWindow },
+    { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => showCaptureWindow("inbox") },
+    { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => showCaptureWindow("today-task") },
     { type: "separator" },
     { label: `${APP_NAME} を開く`, click: () => {
       const windows = BrowserWindow.getAllWindows().filter((w) => w !== captureWindow);
@@ -136,28 +140,75 @@ function setupTray(): void {
 
   tray.setToolTip(APP_NAME);
   tray.setContextMenu(contextMenu);
-  tray.on("click", showCaptureWindow);
+  tray.on("click", () => showCaptureWindow("inbox"));
 }
 
-function notifyMainWindowRefresh(): void {
+function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win !== captureWindow && !win.isDestroyed()) {
-      win.webContents.send("workspace:changed");
+      win.webContents.send("workspace:changed", change);
     }
   }
 }
 
+function localDateString(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function registerCaptureIpc(): void {
-  ipcMain.handle("quick-capture:save", (_event, text: string) => {
+  ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox") => {
     const trimmed = (text || "").trim();
     if (!trimmed) throw new Error("入力が空です。");
+    if (mode === "today-task") {
+      const taskId = randomUUID();
+      const today = localDateString();
+      const saved = workspaceRepository.saveMany([
+        {
+          action: "save",
+          type: "task",
+          entity: {
+            id: taskId,
+            title: trimmed,
+            description: null,
+            state: "todo",
+            priority: "normal",
+          },
+          options: { source: "quick-capture" },
+        },
+        {
+          action: "save",
+          type: "schedule",
+          entity: {
+            id: randomUUID(),
+            owner_type: "task",
+            owner_id: taskId,
+            start_date: today,
+            end_date: today,
+            date_kind: "point",
+            confidence: "fixed",
+            granularity: "day",
+          },
+          options: { source: "quick-capture" },
+        },
+      ]);
+      notifyMainWindowRefresh({
+        entities: [
+          { type: "task", entity: saved[0] as Entity },
+          { type: "schedule", entity: saved[1] as Entity },
+        ],
+      });
+      return saved[0];
+    }
     const saved = workspaceRepository.save("capture_entry", {
       text: trimmed,
       title: trimmed,
-      captured_at: new Date().toISOString().slice(0, 10),
+      captured_at: localDateString(),
       state: "untriaged",
     }, { source: "quick-capture" });
-    notifyMainWindowRefresh();
+    notifyMainWindowRefresh({ entities: [{ type: "capture_entry", entity: saved as Entity }] });
     return saved;
   });
 
@@ -209,7 +260,10 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const waitForButton = async (label) => {
         for (let attempt = 0; attempt < 50; attempt += 1) {
-          const target = [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === label);
+          const target = [...document.querySelectorAll("button")].find((button) => {
+            const firstLabel = button.querySelector("span")?.textContent?.trim();
+            return firstLabel === label || button.textContent.trim() === label;
+          });
           if (target) return target;
           await delay(100);
         }
@@ -352,7 +406,8 @@ void app.whenReady().then(() => {
 
   if (!isSmokeTest) {
     setupTray();
-    globalShortcut.register("CmdOrCtrl+Shift+N", showCaptureWindow);
+    globalShortcut.register("CmdOrCtrl+Shift+N", () => showCaptureWindow("inbox"));
+    globalShortcut.register("CmdOrCtrl+Shift+M", () => showCaptureWindow("today-task"));
   }
 
   app.on("activate", () => {

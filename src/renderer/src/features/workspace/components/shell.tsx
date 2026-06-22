@@ -1,4 +1,4 @@
-import { crossNavigation, toolNavigation } from "../../../pages/routes";
+import { crossNavigation, knowledgeHubTabs, todayHubTabs, toolNavigation } from "../../../pages/routes";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
@@ -50,19 +50,46 @@ export function Sidebar({
     return s && (s.start_date === today || s.end_date === today || (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today));
   }).length;
   const waiting = domain.waitings.filter((w) => w.state === "waiting").length;
+  const openTasks = domain.tasks.filter((t) => t.state !== "done" && t.state !== "cancelled").length;
+  const notesCount = domain.notes.length + domain.resources.length;
+  const knowledgeCount = domain.knowledge_nodes.length;
+  const chatRefCount = domain.resources.filter((resource) => {
+    const type = String(resource.link_type || "");
+    return ["chatgpt", "claude", "gemini", "copilot"].includes(type) || Boolean(resource.reference_status);
+  }).length;
+  const countByRoute: Record<string, number> = {
+    today: todayCount,
+    todo: openTasks,
+    waiting,
+    inbox,
+    knowledge: knowledgeCount,
+    notes: notesCount,
+    "chat-refs": chatRefCount,
+  };
+  const renderNavButton = ([id, label]: readonly [string, string]) => {
+    const count = countByRoute[id] || 0;
+    return (
+      <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
+        <span>{label}</span>
+        {count > 0 && <span className="count">{count}</span>}
+      </button>
+    );
+  };
+
   return (
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">T</span><div><strong>Tasken</strong></div></div>
+      <nav className="primary-nav nav-group" aria-label="今日の運用">
+        <div className="nav-heading"><span>今日の運用</span></div>
+        {todayHubTabs.map(renderNavButton)}
+      </nav>
       <nav className="primary-nav" aria-label="横断ビュー">
         <div className="nav-heading"><span>横断</span></div>
-        {crossNavigation.map(([id, label]) => (
-          <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
-            <span>{label}</span>
-            {id === "today" && todayCount > 0 && <span className="count">{todayCount}</span>}
-            {id === "inbox" && inbox > 0 && <span className="count">{inbox}</span>}
-            {id === "waiting" && waiting > 0 && <span className="count">{waiting}</span>}
-          </button>
-        ))}
+        {crossNavigation.map(renderNavButton)}
+      </nav>
+      <nav className="primary-nav nav-group" aria-label="知識整理">
+        <div className="nav-heading"><span>知識整理</span></div>
+        {knowledgeHubTabs.map(renderNavButton)}
       </nav>
       <div className="theme-nav">
         <div className="nav-heading"><span>テーマ別</span><button onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>＋ 追加</button></div>

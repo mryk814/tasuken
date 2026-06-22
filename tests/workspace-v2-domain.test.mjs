@@ -126,7 +126,7 @@ test("v2 view models keep task, waiting, capture, and timeline concerns separate
   assert.deepEqual(selectors.buildTodoView(v2).tasks.map((row) => row.task.id), ["task-1", "task-done"]);
   assert.deepEqual(selectors.buildInboxView(v2).entries.map((entry) => entry.id), ["capture-1"]);
   assert.deepEqual(selectors.buildWaitingView(v2).waitings.map((row) => row.waiting.id), ["waiting-1"]);
-  assert.deepEqual(selectors.buildTodayView(v2, "2026-06-19").map((entry) => entry.type), ["task", "waiting", "milestone", "capture"]);
+  assert.deepEqual(selectors.buildTodayView(v2, "2026-06-19").map((entry) => entry.type), ["task", "waiting", "milestone"]);
 
   const timeline = selectors.buildTimelineView(v2);
   assert.equal(timeline.rows.length, 1);

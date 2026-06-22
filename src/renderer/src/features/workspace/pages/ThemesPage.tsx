@@ -30,13 +30,7 @@ export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveT
                   <button className="secondary-button compact" onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}>編集</button>
                   <button
                     className="danger-button compact"
-                    onClick={() => {
-                      if (childCount > 0) {
-                        const ok = confirm(`「${theme.name}」には未完了の項目が${childCount}件あります。本当に削除しますか？`);
-                        if (!ok) return;
-                      }
-                      removeEntity("theme", theme);
-                    }}
+                    onClick={() => removeEntity("theme", theme)}
                   >削除</button>
                 </div>
               </div>

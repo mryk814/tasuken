@@ -82,7 +82,6 @@ export function WorkspaceApp() {
   const loadState = useWorkspaceStore((state) => state.loadState);
   const loadError = useWorkspaceStore((state) => state.loadError);
   const loadWorkspaceAction = useWorkspaceStore((state) => state.load);
-  const loadSampleAction = useWorkspaceStore((state) => state.loadSample);
   const saveWorkspaceEntity = useWorkspaceStore((state) => state.save);
   const saveWorkspaceEntities = useWorkspaceStore((state) => state.saveMany);
   const removeWorkspaceEntity = useWorkspaceStore((state) => state.remove);
@@ -131,6 +130,8 @@ export function WorkspaceApp() {
   }
 
   const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
+  const applyExternalSave = useWorkspaceStore((state) => state.applyExternalSave);
+  const applyExternalSaves = useWorkspaceStore((state) => state.applyExternalSaves);
 
   useEffect(() => {
     void loadWorkspace();
@@ -139,8 +140,18 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (!window.api?.app?.onWorkspaceChanged) return;
-    return window.api.app.onWorkspaceChanged(() => { void refreshWorkspace(); });
-  }, [refreshWorkspace]);
+    return window.api.app.onWorkspaceChanged((change) => {
+      if (change?.entities?.length) {
+        applyExternalSaves(change.entities);
+        return;
+      }
+      if (change?.type && change.entity) {
+        applyExternalSave(change.type, change.entity);
+        return;
+      }
+      void refreshWorkspace();
+    });
+  }, [applyExternalSave, applyExternalSaves, refreshWorkspace]);
 
   useEffect(() => {
     const onHash = () => setRoute(location.hash.slice(1) || "today");
@@ -292,6 +303,20 @@ export function WorkspaceApp() {
 
   async function removeEntity(type: EntityType, entity: BaseRecord | { id?: string }) {
     const id = entity.id ?? "";
+    if (type === "theme") {
+      const name = entityTitle(type, entity as BaseRecord);
+      const openTasks = fullDomain.tasks.filter((task) => task.project_id === id && task.state !== "done" && task.state !== "cancelled").length;
+      const openWaitings = fullDomain.waitings.filter((waiting) => waiting.project_id === id && waiting.state === "waiting").length;
+      const openPlanNodes = fullDomain.plan_nodes.filter((node) => node.project_id === id && node.state !== "done" && node.state !== "cancelled").length;
+      const notesCount = fullDomain.notes.filter((note) => note.project_id === id).length;
+      const resourcesCount = fullDomain.resources.filter((resource) => resource.project_id === id).length;
+      const relatedCount = openTasks + openWaitings + openPlanNodes + notesCount + resourcesCount;
+      const detail = relatedCount > 0
+        ? `\n未完了/待ち/メモ/資料など関連する項目が${relatedCount}件あります。`
+        : "";
+      const ok = confirm(`「${name}」を削除しますか？${detail}\n削除後も「元に戻す」から復元できます。`);
+      if (!ok) return;
+    }
     try {
       await removeWorkspaceEntity(type, id);
       lastDeleted.current = { type, id };
@@ -450,8 +475,9 @@ export function WorkspaceApp() {
         state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
         legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       };
-      await saveEntities(buildSaveCaptureEntryOperations(entry), base.id ? "変更を保存しました。" : "キャプチャを追加しました。");
+      await saveEntities(buildSaveCaptureEntryOperations(entry), base.id ? "変更を保存しました。" : "Inboxに追加しました。Inboxで整理できます。");
       closeDrawer();
+      if (!base.id) navigate("inbox");
       return;
     }
     if (type === "resource") {
@@ -606,6 +632,7 @@ export function WorkspaceApp() {
     activeTheme,
     activeThemeId,
     setActiveThemeId,
+    route,
     navigate,
     openDrawer,
     saveEntity,
@@ -629,7 +656,7 @@ export function WorkspaceApp() {
     knowledge: <KnowledgePage {...common} />,
     waiting: <WaitingPage {...common} />,
     "ai-io": <ImportExportPage {...common} />,
-    settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroups={activeGroups} setActiveGroups={setActiveGroups} allThemes={allThemes} loadSample={loadSampleAction} />,
+    settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroups={activeGroups} setActiveGroups={setActiveGroups} allThemes={allThemes} />,
   };
 
   return (

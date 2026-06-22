@@ -41,7 +41,7 @@ interface TimelinePrefs {
   showLightning: boolean;
 }
 const DEFAULT_PREFS: TimelinePrefs = {
-  dayWidth: 8,
+  dayWidth: 2,
   themeFilter: "all",
   showCompleted: true,
   showDependencies: true,
@@ -49,7 +49,7 @@ const DEFAULT_PREFS: TimelinePrefs = {
 };
 
 export function TimelinePage({ data, domain: v2, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
-  const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v5", DEFAULT_PREFS);
+  const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v6", DEFAULT_PREFS);
   const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning } = prefs;
   const scale = scaleFromDayWidth(dayWidth);
   const updatePrefs = (patch: Partial<TimelinePrefs>) => setPrefs((current) => ({ ...current, ...patch }));

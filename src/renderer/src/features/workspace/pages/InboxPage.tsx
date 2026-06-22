@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconCalendarCheck, IconFlag, IconFlagFilled } from "@tabler/icons-react";
+import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
+import { themeColor } from "../lib/domain";
 import { uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
 import { buildInboxView } from "../domain-model/selectors";
@@ -18,6 +19,14 @@ import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waitin
 import type { SaveOperation } from "../types";
 
 type InboxKind = "task" | "memo" | "link" | "waiting" | "idea";
+
+const INBOX_KIND_OPTIONS: Array<[InboxKind, string]> = [
+  ["task", "タスク"],
+  ["memo", "メモ"],
+  ["link", "リンク"],
+  ["waiting", "待ち"],
+  ["idea", "アイデア"],
+];
 
 interface InboxDraft {
   output: InboxKind;
@@ -62,6 +71,8 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
   }, [v2]);
   const [drafts, setDrafts] = useState<Record<string, InboxDraft>>({});
   const [selected, setSelected] = useState<string[]>([]);
+  const [organizing, setOrganizing] = useState<Record<string, boolean>>({});
+  const [feedback, setFeedback] = useState("");
   const today = todayIso();
 
   useEffect(() => {
@@ -100,6 +111,8 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
     const sourceRecordId = row.entry.source_record_id || null;
 
     try {
+      setFeedback("");
+      setOrganizing((current) => ({ ...current, [row.entry.id]: true }));
       if (draft.output === "task" || draft.output === "idea") {
         const taskId = crypto.randomUUID();
         const task: Task = {
@@ -127,6 +140,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
         }
         ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "task", id: taskId }));
         await saveEntities(ops, "タスクに整理しました。");
+        setFeedback("タスクに整理しました。");
 
       } else if (draft.output === "waiting") {
         const waitingId = crypto.randomUUID();
@@ -155,6 +169,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
         }
         ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "waiting", id: waitingId }));
         await saveEntities(ops, "待ちに整理しました。");
+        setFeedback("待ちに整理しました。");
 
       } else if (draft.output === "memo") {
         const noteId = uuid();
@@ -170,6 +185,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
           ...buildTriageCaptureEntryOperations(row.entry, { type: "note", id: noteId }),
         ];
         await saveEntities(ops, "メモに整理しました。");
+        setFeedback("メモに整理しました。");
 
       } else if (draft.output === "link") {
         const resourceId = uuid();
@@ -186,15 +202,40 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
           ...buildTriageCaptureEntryOperations(row.entry, { type: "resource", id: resourceId }),
         ];
         await saveEntities(ops, "リンクに整理しました。");
+        setFeedback("リンクに整理しました。");
 
       }
       setSelected((current) => current.filter((id) => id !== row.entry.id));
     } catch {
       // saveEntity側のtoastを使い、draftは消さない。
+    } finally {
+      setOrganizing((current) => {
+        const next = { ...current };
+        delete next[row.entry.id];
+        return next;
+      });
     }
   }
 
-  async function organizeSelectedAsTasks() {
+  function bulkPatch(patch: Partial<InboxDraft>) {
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const id of selected) {
+        if (next[id]) next[id] = { ...next[id], ...patch };
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.length === inboxRows.length) {
+      setSelected([]);
+    } else {
+      setSelected(inboxRows.map((row) => row.entry.id));
+    }
+  }
+
+  async function organizeSelected() {
     for (const id of selected) {
       const row = inboxRows.find((entry) => entry.entry.id === id);
       if (row) await organize(row);
@@ -206,19 +247,57 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
       <PageHeader title="Inbox整理" subtitle="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
         <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { link_type: "chatgpt", reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
-        <button className="primary-button" disabled={!selected.length} onClick={organizeSelectedAsTasks}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
+        <button className="primary-button" disabled={!selected.length} onClick={organizeSelected}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
       </PageHeader>
+      {selected.length > 0 && (
+        <section className="panel inbox-bulk-toolbar">
+          <label className="inbox-bulk-check">
+            <input type="checkbox" checked={selected.length === inboxRows.length} onChange={toggleSelectAll} />
+            {selected.length}件選択中
+          </label>
+          <label>種類
+            <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ output: e.target.value as InboxKind }); e.target.value = ""; }}>
+              <option value="" disabled>一括変更</option>
+              <option value="task">タスク</option>
+              <option value="memo">メモ</option>
+              <option value="link">リンク</option>
+              <option value="waiting">待ち</option>
+              <option value="idea">アイデア</option>
+            </select>
+          </label>
+          <label>Theme
+            <select defaultValue="" onChange={(e) => { if (e.target.value === "__clear") bulkPatch({ theme_id: "" }); else if (e.target.value) bulkPatch({ theme_id: e.target.value }); e.target.value = ""; }}>
+              <option value="" disabled>一括変更</option>
+              <option value="__clear">個人業務</option>
+              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+            </select>
+          </label>
+          <label>予定日
+            <input type="date" defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ planned_end: e.target.value }); }} />
+          </label>
+          <button className="secondary-button compact" onClick={() => bulkPatch({ today_flag: true, planned_end: today })}>今日やる</button>
+          <button className="secondary-button compact" onClick={() => bulkPatch({ priority: "high" })}>優先</button>
+          <button className="primary-button compact" onClick={organizeSelected}>一括整理</button>
+        </section>
+      )}
       <section className="panel inbox-panel">
         <div className="section-heading">
           <h2>未整理</h2>
           <span>{inboxRows.length}件</span>
         </div>
+        {feedback && (
+          <div className="inbox-feedback" role="status" aria-live="polite">
+            <IconCheck size={16} />
+            {feedback}
+          </div>
+        )}
         {inboxRows.length ? (
           <div className="inbox-list">
             {inboxRows.map((row) => {
               const draft = drafts[row.entry.id] || draftFromEntry(row.entry);
+              const isOrganizing = Boolean(organizing[row.entry.id]);
               return (
-                <div className="inbox-card" key={row.entry.id}>
+                <div className={`inbox-card ${isOrganizing ? "is-organizing" : ""}`} key={row.entry.id}>
                   <div className="inbox-card-main">
                     <input
                       type="checkbox"
@@ -226,23 +305,20 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                       onChange={(event) => setSelected((current) => event.target.checked ? [...current, row.entry.id] : current.filter((id) => id !== row.entry.id))}
                       aria-label={`${draft.title}を選択`}
                     />
-                    <label>種類
-                      <select value={draft.output} onChange={(event) => patchDraft(row.entry.id, { output: event.target.value as InboxKind })}>
-                        <option value="task">タスク</option>
-                        <option value="memo">メモ</option>
-                        <option value="link">リンク</option>
-                        <option value="waiting">待ち</option>
-                        <option value="idea">アイデア</option>
-                      </select>
-                    </label>
+                    <div className="inbox-kind-picker" aria-label="種類">
+                      {INBOX_KIND_OPTIONS.map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={draft.output === value ? "is-selected" : ""}
+                          onClick={() => patchDraft(row.entry.id, { output: value })}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                     <label className="inbox-title-field">タイトル
                       <input value={draft.title} onChange={(event) => patchDraft(row.entry.id, { title: event.target.value })} />
-                    </label>
-                    <label>Theme
-                      <select value={draft.theme_id} onChange={(event) => patchDraft(row.entry.id, { theme_id: event.target.value })}>
-                        <option value="">個人業務</option>
-                        {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-                      </select>
                     </label>
                     <label>予定日
                       <input type="date" value={draft.planned_end} onChange={(event) => patchDraft(row.entry.id, { planned_end: event.target.value })} />
@@ -265,6 +341,30 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                     </button>
                   </div>
                   <div className="inbox-card-details">
+                    <div className="inbox-theme-field">
+                      <span>Theme</span>
+                      <div className="inbox-theme-picker" aria-label="Theme">
+                        <button
+                          type="button"
+                          className={`theme-chip ${!draft.theme_id ? "is-selected" : ""}`}
+                          onClick={() => patchDraft(row.entry.id, { theme_id: "" })}
+                        >
+                          個人業務
+                        </button>
+                        {themes.map((theme, index) => (
+                          <button
+                            key={theme.id}
+                            type="button"
+                            className={`theme-chip ${draft.theme_id === theme.id ? "is-selected" : ""}`}
+                            style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
+                            onClick={() => patchDraft(row.entry.id, { theme_id: theme.id })}
+                          >
+                            <span className="chip-dot" />
+                            {theme.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     {draft.output === "waiting" && (
                       <div className="inbox-waiting-fields">
                         <label>相手
@@ -310,7 +410,9 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                     </label>
                     <div className="form-actions">
                       <button className="secondary-button compact" onClick={() => openDrawer({ type: "capture_entry", entity: row.entry as unknown as Record<string, unknown> })}>詳細</button>
-                      <button className="primary-button compact" onClick={() => organize(row)}>整理する</button>
+                      <button className="primary-button compact" disabled={isOrganizing} onClick={() => organize(row)}>
+                        {isOrganizing ? "整理中..." : "整理する"}
+                      </button>
                     </div>
                   </div>
                 </div>

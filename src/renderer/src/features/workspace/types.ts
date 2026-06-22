@@ -286,6 +286,7 @@ export interface PageProps {
   activeTheme: Theme | null;
   activeThemeId: string;
   setActiveThemeId(id: string): void;
+  route: string;
   navigate(next: string): void;
   openDrawer: OpenDrawer;
   saveEntity: SaveEntity;

@@ -145,6 +145,7 @@ export class WorkspaceDatabase {
       workspaceId: this.workspaceId,
       deviceId: this.deviceId,
       themeMode: this.getPreference("themeMode"),
+      activeGroups: this.getPreference("activeGroups"),
       activeGroup: this.getPreference("activeGroup"),
       entityCount: this.db.prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL").get().count,
     };
@@ -152,6 +153,15 @@ export class WorkspaceDatabase {
 
   getPreference(key) {
     if (key === "themeMode") return this.ensureMeta("theme_mode", "light");
+    if (key === "activeGroups") {
+      const value = this.ensureMeta("active_groups", "[]");
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.filter((entry) => typeof entry === "string") : [];
+      } catch {
+        return [];
+      }
+    }
     if (key === "activeGroup") return this.ensureMeta("active_group", "");
     throw new Error(`未対応の設定です: ${key}`);
   }
@@ -163,6 +173,16 @@ export class WorkspaceDatabase {
         INSERT INTO workspace_meta(key, value) VALUES('theme_mode', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `).run(value);
+      return value;
+    }
+    if (key === "activeGroups") {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+        throw new Error("表示グループの値が不正です。");
+      }
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('active_groups', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(JSON.stringify(value));
       return value;
     }
     if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);

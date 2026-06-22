@@ -10,6 +10,69 @@ const KNOWLEDGE_NODE_TYPES = new Set(["source", "evidence", "claim", "question",
 const KNOWLEDGE_RELATION_TYPES = new Set(["supports", "contradicts", "explains", "causes", "example_of", "generalizes", "depends_on", "derived_from", "answers", "raises", "similar_to", "leads_to"]);
 const CONFIDENCE = new Set(["low", "medium", "high"]);
 const KNOWLEDGE_STATUSES = new Set(["active", "resolved", "deprecated", "rejected"]);
+const IMPORT_ACTIONS = new Set(["create", "merge", "ignore"]);
+
+export const AI_IMPORT_SCHEMA = `{
+  "items": [
+    {
+      "action": "create | merge | ignore",
+      "reason": "候補にした理由、merge/ignoreの根拠",
+      "title": "string 必須",
+      "theme": "既存Theme名。分からなければ空文字",
+      "kind": "task | milestone | period | waiting | reminder | idea",
+      "status": "todo | doing | waiting | review | done | inbox",
+      "priority": "normal | high",
+      "planned_start": "YYYY-MM-DD または null",
+      "planned_end": "YYYY-MM-DD または null",
+      "description": "string。根拠や不確実性もここに書く"
+    }
+  ],
+  "notes": [
+    {
+      "action": "create | merge | ignore",
+      "reason": "候補にした理由、merge/ignoreの根拠",
+      "title": "string 必須",
+      "theme": "既存Theme名。分からなければ空文字",
+      "note_type": "memo | decision | meeting | experiment | analysis | ai_chat | learning | reflection",
+      "body": "string 必須",
+      "source_url": "https/http URL または空文字"
+    }
+  ],
+  "links": [
+    {
+      "action": "create | merge | ignore",
+      "reason": "候補にした理由、merge/ignoreの根拠",
+      "title": "string 必須",
+      "url": "https/http/mailto URL",
+      "link_type": "chatgpt | copilot | github | paper | notebook | document | other",
+      "theme": "既存Theme名。分からなければ空文字",
+      "description": "string"
+    }
+  ],
+  "knowledge_nodes": [
+    {
+      "action": "create | merge | ignore",
+      "reason": "候補にした理由、merge/ignoreの根拠",
+      "temp_id": "node-1",
+      "node_type": "source | evidence | claim | question | decision | insight",
+      "title": "string 必須",
+      "body": "string",
+      "theme": "既存Theme名。分からなければ空文字",
+      "confidence": "low | medium | high",
+      "status": "active | resolved | deprecated | rejected"
+    }
+  ],
+  "knowledge_edges": [
+    {
+      "action": "create | merge | ignore",
+      "reason": "候補にした理由、merge/ignoreの根拠",
+      "source_temp_id": "node-1",
+      "target_temp_id": "node-2",
+      "relation_type": "supports | contradicts | explains | causes | example_of | generalizes | depends_on | derived_from | answers | raises | similar_to | leads_to",
+      "description": "string"
+    }
+  ]
+}`;
 
 export function isAllowedImportUrl(value) {
   try {
@@ -106,6 +169,8 @@ function candidateBase(type, entry, themes, collection) {
 function normalizeItem(entry, themes, collection) {
   const base = candidateBase("item", entry, themes, collection);
   const normalized = {
+    action: enumValue(entry.action, IMPORT_ACTIONS, "", base.issues, "action"),
+    reason: text(entry.reason),
     title: text(entry.title),
     theme: text(entry.theme),
     kind: enumValue(entry.kind, ITEM_KINDS, "task", base.issues, "kind"),
@@ -124,6 +189,8 @@ function normalizeNote(entry, themes, collection) {
   if (!text(entry.body)) base.issues.push("bodyがありません");
   if (sourceUrl && !isAllowedImportUrl(sourceUrl)) base.issues.push("source_urlはhttps、http、mailtoのみ使えます");
   const normalized = {
+    action: enumValue(entry.action, IMPORT_ACTIONS, "", base.issues, "action"),
+    reason: text(entry.reason),
     title: text(entry.title),
     theme: text(entry.theme),
     note_type: enumValue(entry.note_type, NOTE_TYPES, "memo", base.issues, "note_type"),
@@ -139,6 +206,8 @@ function normalizeLink(entry, themes, collection) {
   if (!url) base.issues.push("urlがありません");
   else if (!isAllowedImportUrl(url)) base.issues.push("urlはhttps、http、mailtoのみ使えます");
   const normalized = {
+    action: enumValue(entry.action, IMPORT_ACTIONS, "", base.issues, "action"),
+    reason: text(entry.reason),
     title: text(entry.title),
     url,
     link_type: enumValue(entry.link_type, LINK_TYPES, "other", base.issues, "link_type"),
@@ -151,6 +220,8 @@ function normalizeLink(entry, themes, collection) {
 function normalizeKnowledgeNode(entry, index, themes, collection) {
   const base = candidateBase("knowledge_node", entry, themes, collection);
   const normalized = {
+    action: enumValue(entry.action, IMPORT_ACTIONS, "", base.issues, "action"),
+    reason: text(entry.reason),
     temp_id: text(entry.temp_id) || `knowledge_node_${index + 1}`,
     node_type: enumValue(entry.node_type, KNOWLEDGE_NODE_TYPES, "insight", base.issues, "node_type"),
     title: text(entry.title),
@@ -184,6 +255,8 @@ function normalizeKnowledgeEdge(entry, nodeCandidates, nodes, collection) {
     issues.push("edgeの自己参照はできません");
   }
   const normalized = {
+    action: enumValue(entry.action, IMPORT_ACTIONS, "", issues, "action"),
+    reason: text(entry.reason),
     source_temp_id: sourceTempId,
     target_temp_id: targetTempId,
     source_node_id: sourceNodeId,
@@ -202,10 +275,12 @@ function findDuplicateEdge(collection, entry) {
 }
 
 function finishCandidate(base, entry) {
+  const requestedAction = IMPORT_ACTIONS.has(entry.action) ? entry.action : "";
+  const defaultAction = base.issues.length ? "ignore" : base.duplicate ? "merge" : "create";
   return {
     ...base,
     entry,
-    action: base.issues.length ? "ignore" : base.duplicate ? "merge" : "create",
+    action: base.issues.length && requestedAction !== "ignore" ? "ignore" : requestedAction || defaultAction,
     sourceRecordTitle: "貼り付けAI出力",
   };
 }
@@ -229,57 +304,7 @@ export function buildAiImportPrompt(themeNames, aiContextMarkdown) {
 説明文、Markdownコードブロック、コメントは禁止です。
 
 出力形式:
-{
-  "items": [
-    {
-      "title": "string 必須",
-      "theme": "既存Theme名。分からなければ空文字",
-      "kind": "task | milestone | period | waiting | reminder | idea",
-      "status": "todo | doing | waiting | review | done | inbox",
-      "priority": "normal | high",
-      "planned_start": "YYYY-MM-DD または null",
-      "planned_end": "YYYY-MM-DD または null",
-      "description": "string"
-    }
-  ],
-  "notes": [
-    {
-      "title": "string 必須",
-      "theme": "既存Theme名。分からなければ空文字",
-      "note_type": "memo | decision | meeting | experiment | analysis | ai_chat | learning | reflection",
-      "body": "string 必須",
-      "source_url": "https/http URL または空文字"
-    }
-  ],
-  "links": [
-    {
-      "title": "string 必須",
-      "url": "https/http/mailto URL",
-      "link_type": "chatgpt | copilot | github | paper | notebook | document | other",
-      "theme": "既存Theme名。分からなければ空文字",
-      "description": "string"
-    }
-  ],
-  "knowledge_nodes": [
-    {
-      "temp_id": "node-1",
-      "node_type": "source | evidence | claim | question | decision | insight",
-      "title": "string 必須",
-      "body": "string",
-      "theme": "既存Theme名。分からなければ空文字",
-      "confidence": "low | medium | high",
-      "status": "active | resolved | deprecated | rejected"
-    }
-  ],
-  "knowledge_edges": [
-    {
-      "source_temp_id": "node-1",
-      "target_temp_id": "node-2",
-      "relation_type": "supports | contradicts | explains | causes | example_of | generalizes | depends_on | derived_from | answers | raises | similar_to | leads_to",
-      "description": "string"
-    }
-  ]
-}
+${AI_IMPORT_SCHEMA}
 
 ルール:
 - JSONだけを返す
@@ -297,4 +322,52 @@ ${themeNames || "なし"}
 
 作業文脈:
 ${aiContextMarkdown || "なし"}`;
+}
+
+export function buildAiOrganizePrompt(appContext, importSchema = AI_IMPORT_SCHEMA) {
+  return `あなたは、いま利用しているAIサービス側に蓄積された作業文脈を、Taskenへ持ち帰るための整理アシスタントです。
+あなた自身が参照できる会話履歴、プロジェクト文脈、添付資料、接続済みツール、記憶、現在のスレッド内容を棚卸しし、TaskenにImportできる候補JSONだけを返してください。
+
+重要:
+- 下のTaskenコンテキストは、Tasken側に既にある情報と既存Theme名です
+- 新しく持ち帰る内容は、あなたがTasken外で把握している文脈から選んでください
+- Taskenコンテキストを単に要約し直すだけならignoreにしてください
+- あなたが実際に参照できない外部情報は推測で作らないでください
+
+目的:
+- Tasken外に散らばっている会話、決定、未処理、参照リンク、論点をTaskenへ持ち帰る
+- 新しいタスク、待ち、ナレッジ候補、メモ候補、リンク候補を提案する
+- 既存データを直接変更せず、Import候補JSONだけを返す
+- 不確かな内容は断定せず、description、body、reasonに根拠を書く
+
+整理の観点:
+- Taskenに既にありそうな内容はmerge候補にする
+- すぐ動けるものだけtaskにする
+- 相手の返答や外部作業待ちはwaitingにする
+- 根拠つきの主張はknowledge claimまたはevidenceにする
+- 根拠が薄いもの、不明点、確認したいことはquestionにする
+- 生ログ、会話メモ、観察記録はnoteにする
+- 参照URL、AIチャットURL、リポジトリ、ドキュメントはlinksにする
+- 危ない断定はしない
+
+作りすぎない制約:
+- itemsは最大7件
+- waitingは最大5件
+- notesは最大5件
+- knowledge_nodesは最大10件
+- 重要度が低い、根拠が薄すぎる、既存候補とほぼ同じものはignoreにする
+
+出力:
+- 指定されたJSON schemaに厳密に従う
+- create / merge / ignore の候補として返す
+- 既存Themeに紐づく場合は theme 名を使う
+- タスクは実行可能な粒度に分ける
+- ナレッジは claim / question / evidence / decision を混ぜすぎず、根拠が薄いものは question にする
+- JSONだけを返す。説明文、Markdownコードブロック、コメントは禁止
+
+Tasken側の既存情報:
+${appContext || "なし"}
+
+出力schema:
+${importSchema}`;
 }

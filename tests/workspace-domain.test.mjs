@@ -126,7 +126,7 @@ test("domain view models keep task, waiting, capture, and timeline concerns sepa
   assert.deepEqual(selectors.buildTodoView(domain).tasks.map((row) => row.task.id), ["task-1", "task-done"]);
   assert.deepEqual(selectors.buildInboxView(domain).entries.map((entry) => entry.id), ["capture-1"]);
   assert.deepEqual(selectors.buildWaitingView(domain).waitings.map((row) => row.waiting.id), ["waiting-1"]);
-  assert.deepEqual(selectors.buildTodayView(domain, "2026-06-19").map((entry) => entry.type), ["task", "waiting", "milestone", "capture"]);
+  assert.deepEqual(selectors.buildTodayView(domain, "2026-06-19").map((entry) => entry.type), ["task", "waiting", "milestone"]);
 
   const timeline = selectors.buildTimelineView(domain);
   assert.equal(timeline.rows.length, 1);

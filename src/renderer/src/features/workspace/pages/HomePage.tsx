@@ -1,4 +1,5 @@
 import type { BaseRecord, PageProps } from "../types";
+import { THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 
@@ -23,7 +24,7 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
   return (
     <div className="page">
       <PageHeader title={activeTheme.name} subtitle={activeTheme.description}>
-        <StatusBadge value={activeTheme.status} label={activeTheme.status} />
+        <StatusBadge value={activeTheme.status} label={THEME_STATUS_LABELS[String(activeTheme.status || "")] || String(activeTheme.status || "未設定")} />
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })}>現在地を記録</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: activeTheme.id } })}>タスクを追加</button>
       </PageHeader>
@@ -37,7 +38,7 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
           <div className="section-heading"><h2>現在地</h2><span>{latest ? formatDate(latest.date) : "未記録"}</span></div>
           {latest ? (
             <div className="status-summary">
-              <StatusBadge value={latest.status} label={latest.status} />
+              <StatusBadge value={latest.status} label={THEME_STATUS_LABELS[String(latest.status || "")] || String(latest.status || "未設定")} />
               <strong>{latest.summary}</strong>
               {latest.risks && <p>{latest.risks}</p>}
               {latest.next_actions && <p><b>次:</b> {latest.next_actions}</p>}

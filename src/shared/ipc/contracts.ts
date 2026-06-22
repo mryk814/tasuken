@@ -27,6 +27,12 @@ export const IPC = {
   snapshotApply: "snapshot:apply",
 } as const;
 
+export interface WorkspaceChangePayload {
+  type?: EntityType;
+  entity?: Entity;
+  entities?: Array<{ type: EntityType; entity: Entity }>;
+}
+
 export interface ResearchDeskApi {
   workspace: {
     load(): Promise<Workspace>;
@@ -42,7 +48,7 @@ export interface ResearchDeskApi {
   };
   app: {
     reload(): Promise<boolean>;
-    onWorkspaceChanged(callback: () => void): () => void;
+    onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
   };
   entities: {
     list(type: EntityType, includeDeleted?: boolean): Promise<Entity[]>;

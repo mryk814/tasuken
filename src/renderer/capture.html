@@ -51,8 +51,26 @@
         color: #7A6E69;
         -webkit-app-region: no-drag;
       }
+      .mode-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        padding: 2px 8px;
+        border: 1px solid #D8A1A9;
+        border-radius: 999px;
+        color: #8A2F3B;
+        background: rgba(138, 47, 59, 0.08);
+        font-size: 11px;
+        font-weight: 700;
+        -webkit-app-region: no-drag;
+      }
       [data-theme="dark"] .capture-hint {
         color: #9B8E89;
+      }
+      [data-theme="dark"] .mode-pill {
+        border-color: #7B4D54;
+        color: #F0B7BE;
+        background: rgba(212, 133, 143, 0.12);
       }
       textarea {
         flex: 1;
@@ -126,26 +144,40 @@
   <body>
     <div class="capture-form">
       <div class="capture-header">
-        <strong>Inbox に記録</strong>
-        <span class="capture-hint">Ctrl+Enter で送信 / Esc で閉じる</span>
+        <strong id="title">Inbox に記録</strong>
+        <span id="mode-pill" class="mode-pill">Inbox</span>
       </div>
+      <span id="hint" class="capture-hint">Ctrl+Enter で送信 / Esc で閉じる</span>
       <textarea id="input" placeholder="タスク・メモ・アイデア" autofocus></textarea>
       <div class="capture-actions">
         <button id="submit" type="button">記録する</button>
       </div>
     </div>
-    <div id="feedback" class="feedback" style="display:none">記録しました</div>
+    <div id="feedback" class="feedback" style="display:none">Inbox整理に記録しました</div>
     <script>
       const input = document.getElementById("input");
       const submitButton = document.getElementById("submit");
       const feedback = document.getElementById("feedback");
+      const title = document.getElementById("title");
+      const modePill = document.getElementById("mode-pill");
+      let mode = "inbox";
+
+      function applyMode(nextMode) {
+        mode = nextMode === "today-task" ? "today-task" : "inbox";
+        const isTodayTask = mode === "today-task";
+        title.textContent = isTodayTask ? "今日のタスクに追加" : "Inbox に記録";
+        modePill.textContent = isTodayTask ? "Today Task" : "Inbox";
+        input.placeholder = isTodayTask ? "今日やるタスク" : "メモ・気づき・あとで整理すること";
+        submitButton.textContent = isTodayTask ? "今日に追加" : "記録する";
+        feedback.textContent = isTodayTask ? "今日のタスクに追加しました" : "Inbox整理に記録しました";
+      }
 
       async function submit() {
         const text = input.value.trim();
         if (!text) return;
         submitButton.disabled = true;
         try {
-          await window.captureApi.save(text);
+          await window.captureApi.save(text, mode);
           input.value = "";
           feedback.style.display = "";
           feedback.style.animation = "none";
@@ -177,12 +209,12 @@
         }
       });
 
-      window.captureApi.onShow(() => {
+      window.captureApi.onShow((nextMode) => {
+        applyMode(nextMode);
         input.value = "";
         input.focus();
         feedback.style.display = "none";
         feedback.classList.remove("error");
-        feedback.textContent = "記録しました";
         const theme = document.documentElement.dataset.theme;
         if (!theme) document.documentElement.dataset.theme = "light";
       });
@@ -190,6 +222,7 @@
       window.captureApi.onThemeChange((mode) => {
         document.documentElement.dataset.theme = mode;
       });
+      applyMode("inbox");
     </script>
   </body>
 </html>
