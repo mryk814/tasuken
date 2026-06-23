@@ -361,19 +361,19 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   function handleOpenDetail(row: TodayRow) {
     if (row.v2) {
       if (row.v2.type === "task") {
-        openDrawer({ type: "task", entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown> });
+        openDrawer({ type: "task", mode: "edit", entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown> });
         return;
       }
       if (row.v2.type === "waiting") {
-        openDrawer({ type: "waiting", entity: { ...row.v2.waiting, _schedule: row.v2.schedule } as Record<string, unknown> });
+        openDrawer({ type: "waiting", mode: "edit", entity: { ...row.v2.waiting, _schedule: row.v2.schedule } as Record<string, unknown> });
         return;
       }
       if (row.v2.type === "milestone") {
-        openDrawer({ type: "plan_node", entity: { ...row.v2.planNode, _schedule: row.v2.schedule } as Record<string, unknown> });
+        openDrawer({ type: "plan_node", mode: "edit", entity: { ...row.v2.planNode, _schedule: row.v2.schedule } as Record<string, unknown> });
         return;
       }
       if (row.v2.type === "capture") {
-        openDrawer({ type: "capture_entry", entity: row.v2.captureEntry as unknown as Record<string, unknown> });
+        openDrawer({ type: "capture_entry", mode: "edit", entity: row.v2.captureEntry as unknown as Record<string, unknown> });
         return;
       }
     }

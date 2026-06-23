@@ -190,7 +190,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
   }
 
   function openTaskDetail(task: Task, schedule?: Schedule) {
-    openDrawer({ type: "task", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+    openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
   }
 
   return (

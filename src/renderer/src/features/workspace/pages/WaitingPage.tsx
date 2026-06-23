@@ -76,7 +76,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
   }
 
   function openDetail(waiting: Waiting, schedule?: Schedule) {
-    openDrawer({ type: "waiting", entity: { ...waiting, _schedule: schedule } as Record<string, unknown> });
+    openDrawer({ type: "waiting", mode: "edit", entity: { ...waiting, _schedule: schedule } as Record<string, unknown> });
   }
 
   function copy() {

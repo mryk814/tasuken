@@ -42,7 +42,7 @@ export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
           const url = str(record.source_url || record.url);
           return (
             <div className="note-row" key={`${record.recordType}-${record.id}`}>
-              <button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, entity: record })}>
+              <button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, mode: "edit", entity: record })}>
                 <span className="note-row-head">
                   <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
                   <strong className="note-row-title">{str(record.title)}</strong>
