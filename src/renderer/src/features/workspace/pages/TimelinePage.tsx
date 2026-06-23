@@ -365,7 +365,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                   ) : (
                     <button className="gantt-title-button" onClick={(e) => {
                       if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openDrawer({ type: "plan_node", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> });
+                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openDrawer({ type: "plan_node", mode: "edit", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> });
                     }}>
                       {item.title}
                     </button>
@@ -386,11 +386,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
               if (row.rowType === "theme") return <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />;
               if (row.rowType === "milestones") {
                 const colorKey = themeColor(row.theme, themes.indexOf(row.theme ?? themes[0]));
-                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={(item) => openDrawer({ type: "plan_node", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
+                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={(item) => openDrawer({ type: "plan_node", mode: "edit", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
               }
               const itemTheme = themes.find((t) => t.id === row.item.theme_id);
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
-              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "plan_node", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
+              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "plan_node", mode: "edit", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
             })}
             {showDependencies && <DependencyOverlay dependencies={timelineDependencies} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
             {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}
