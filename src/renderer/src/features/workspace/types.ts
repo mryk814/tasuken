@@ -291,6 +291,7 @@ export interface PageProps {
   openDrawer: OpenDrawer;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  refreshWorkspace(): Promise<void>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
   setToast(message: string): void;

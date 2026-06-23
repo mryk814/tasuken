@@ -9,6 +9,7 @@ import {
   IconFlag,
   IconFlagFilled,
   IconPlus,
+  IconRefresh,
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -25,7 +26,7 @@ import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
-import { buildTodayView } from "../domain-model/selectors";
+import { buildTodayView, compareCapturesNewestFirst } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
@@ -241,10 +242,11 @@ function TodayRows({
   );
 }
 
-export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
+export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, refreshWorkspace, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const today = todayIso();
   const soon = addDays(today, 14);
   const schedules = schedulesByOwner(v2);
@@ -259,8 +261,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   ].sort(compareRows);
   const inbox = v2.capture_entries
     .filter((entry) => entry.state === "untriaged")
-    .map((entry) => captureToRow(entry))
-    .sort(compareRows);
+    .sort(compareCapturesNewestFirst)
+    .map((entry) => captureToRow(entry));
   const noSchedule = taskRows
     .filter((row) => row.status !== "done" && row.status !== "cancelled" && !row.date)
     .sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high") || a.title.localeCompare(b.title, "ja"));
@@ -423,9 +425,24 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     onOpenDetail: handleOpenDetail,
   };
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await refreshWorkspace();
+      setToast("Todayを更新しました。");
+    } catch (error) {
+      setToast(`Todayを更新できませんでした。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <div className="page today-page">
       <PageHeader title="Today" subtitle="今日見るものを一か所に集めます。">
+        <button className="secondary-button" onClick={handleRefresh} disabled={refreshing}>
+          <IconRefresh size={16} /> {refreshing ? "更新中" : "更新"}
+        </button>
         <button className="secondary-button" onClick={() => workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。"))}>
           <IconClipboard size={16} /> コピー
         </button>

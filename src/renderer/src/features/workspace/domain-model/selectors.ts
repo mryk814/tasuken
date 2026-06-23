@@ -1,4 +1,4 @@
-import type { PlanNode, Schedule, WorkspaceDomain } from "./types";
+import type { CaptureEntry, PlanNode, Schedule, WorkspaceDomain } from "./types";
 import type { InboxView, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
 
 function todayString(): string {
@@ -43,6 +43,17 @@ function todayEntryDate(entry: TodayEntry): string {
   }
 }
 
+export function captureSortKey(entry: CaptureEntry & { created_at?: string; updated_at?: string }): string {
+  return String(entry.captured_at || entry.updated_at || entry.created_at || "");
+}
+
+export function compareCapturesNewestFirst(
+  a: CaptureEntry & { created_at?: string; updated_at?: string },
+  b: CaptureEntry & { created_at?: string; updated_at?: string },
+): number {
+  return captureSortKey(b).localeCompare(captureSortKey(a)) || b.id.localeCompare(a.id);
+}
+
 export function buildTodoView(domain: WorkspaceDomain): TodoView {
   const schedules = schedulesByOwner(domain);
   return {
@@ -56,7 +67,7 @@ export function buildInboxView(domain: WorkspaceDomain): InboxView {
   return {
     entries: domain.capture_entries
       .filter((entry) => entry.state === "untriaged")
-      .sort((a, b) => b.captured_at.localeCompare(a.captured_at)),
+      .sort(compareCapturesNewestFirst),
   };
 }
 

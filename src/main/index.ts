@@ -88,18 +88,29 @@ function createCaptureWindow(): BrowserWindow {
   return win;
 }
 
+function sendCaptureWindowState(win: BrowserWindow, mode: QuickCaptureMode): void {
+  const themeMode = workspaceRepository?.getPreference("themeMode") ?? "light";
+  win.webContents.send("quick-capture:theme", themeMode);
+  win.webContents.send("quick-capture:shown", mode);
+}
+
 function showCaptureWindow(mode: QuickCaptureMode = "inbox"): void {
   if (!captureWindow || captureWindow.isDestroyed()) {
     captureWindow = createCaptureWindow();
   }
 
-  const themeMode = workspaceRepository?.getPreference("themeMode") ?? "light";
-  captureWindow.webContents.send("quick-capture:theme", themeMode);
-
   captureWindow.center();
   captureWindow.show();
   captureWindow.focus();
-  captureWindow.webContents.send("quick-capture:shown", mode);
+
+  const win = captureWindow;
+  if (win.webContents.isLoading()) {
+    win.webContents.once("did-finish-load", () => {
+      if (!win.isDestroyed()) sendCaptureWindowState(win, mode);
+    });
+  } else {
+    sendCaptureWindowState(win, mode);
+  }
 }
 
 function createTrayIcon(): Electron.NativeImage {
@@ -158,6 +169,16 @@ function localDateString(date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+function localDateTimeString(date = new Date()): string {
+  const time = [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    String(date.getSeconds()).padStart(2, "0"),
+  ].join(":");
+  const ms = String(date.getMilliseconds()).padStart(3, "0");
+  return `${localDateString(date)}T${time}.${ms}`;
+}
+
 function registerCaptureIpc(): void {
   ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox") => {
     const trimmed = (text || "").trim();
@@ -205,7 +226,7 @@ function registerCaptureIpc(): void {
     const saved = workspaceRepository.save("capture_entry", {
       text: trimmed,
       title: trimmed,
-      captured_at: localDateString(),
+      captured_at: localDateTimeString(),
       state: "untriaged",
     }, { source: "quick-capture" });
     notifyMainWindowRefresh({ entities: [{ type: "capture_entry", entity: saved as Entity }] });

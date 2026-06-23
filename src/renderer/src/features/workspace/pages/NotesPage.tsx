@@ -27,7 +27,7 @@ export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
 
   return (
     <div className="page">
-      <PageHeader title="Notes & Resources">
+      <PageHeader title="Notes & Resources" subtitle="作業ログや素材はここへ入れ、判断に使う部品だけKnowledge化します">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: {} })}>リソースを追加</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button>
@@ -50,6 +50,27 @@ export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
                 </span>
                 <span className="note-row-body">{str(record.body_markdown || record.description || record.url) || "本文なし"}</span>
               </button>
+              {record.recordType === "note" && (
+                <button
+                  className="secondary-button compact note-row-open"
+                  onClick={() => openDrawer({
+                    type: "knowledge_node",
+                    mode: "edit",
+                    entity: {
+                      node_type: "claim",
+                      title: record.title,
+                      body: record.body_markdown,
+                      theme_id: record.theme_id || null,
+                      source_type: "note",
+                      source_id: record.id,
+                      confidence: "medium",
+                      status: "active",
+                    },
+                  })}
+                >
+                  Knowledge化
+                </button>
+              )}
               {url && <a className="secondary-button compact note-row-open" href={url} target="_blank" rel="noreferrer">開く</a>}
             </div>
           );

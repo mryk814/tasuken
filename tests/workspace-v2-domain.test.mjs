@@ -134,6 +134,38 @@ test("v2 view models keep task, waiting, capture, and timeline concerns separate
   assert.equal(timeline.rows[0].children[0].planNode.id, "milestone-1");
 });
 
+test("inbox view sorts untriaged captures by newest timestamp", () => {
+  const v2 = {
+    projects: [],
+    capture_entries: [
+      { id: "cap-date-a", text: "date only a", captured_at: "2026-06-23", state: "untriaged" },
+      { id: "cap-new", text: "new", captured_at: "2026-06-23T10:30:00.000", state: "untriaged" },
+      { id: "cap-old", text: "old", captured_at: "2026-06-23T09:00:00.000", state: "untriaged" },
+      { id: "cap-date-b", text: "date only b", captured_at: "2026-06-23", state: "untriaged" },
+      { id: "cap-triaged", text: "done", captured_at: "2026-06-23T11:00:00.000", state: "triaged" },
+    ],
+    tasks: [],
+    waitings: [],
+    plan_nodes: [],
+    schedules: [],
+    notes: [],
+    resources: [],
+    knowledge_nodes: [],
+    references: [],
+    task_dependencies: [],
+    plan_dependencies: [],
+    knowledge_edges: [],
+    change_events: [],
+  };
+
+  assert.deepEqual(selectors.buildInboxView(v2).entries.map((entry) => entry.id), [
+    "cap-new",
+    "cap-old",
+    "cap-date-b",
+    "cap-date-a",
+  ]);
+});
+
 test("timeline bridge projects only plan nodes into legacy-compatible gantt items", () => {
   const v2 = {
     projects: [],

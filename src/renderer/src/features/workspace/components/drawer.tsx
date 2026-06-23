@@ -49,6 +49,7 @@ const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
 };
 const normalizeLinkType = (value: unknown) => LINK_TYPES.includes(str(value)) ? str(value) : "other";
 const normalizeReferenceStatus = (value: unknown) => CHAT_REFERENCE_STATUSES.includes(str(value)) ? str(value) : "keep";
+const PRIMARY_KNOWLEDGE_NODE_TYPES = ["question", "claim", "evidence", "decision"];
 
 function ThemeColorPicker({ value }: { value?: string }) {
   const [selected, setSelected] = useState(value || CHART_COLORS[0]);
@@ -457,11 +458,15 @@ function ReferenceFields({ entity, data }: { entity: DrawerConfig["entity"]; dat
 }
 
 function KnowledgeNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const selectedNodeType = str(entity.node_type) || "question";
+  const nodeTypeOptions = PRIMARY_KNOWLEDGE_NODE_TYPES.includes(selectedNodeType)
+    ? PRIMARY_KNOWLEDGE_NODE_TYPES
+    : [...PRIMARY_KNOWLEDGE_NODE_TYPES, selectedNodeType];
   return (
     <>
       <Field label="種類">
-        <select name="node_type" defaultValue={str(entity.node_type) || "insight"}>
-          {Object.entries(KNOWLEDGE_NODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        <select name="node_type" defaultValue={selectedNodeType}>
+          {nodeTypeOptions.map((value) => <option key={value} value={value}>{KNOWLEDGE_NODE_LABELS[value] || value}</option>)}
         </select>
       </Field>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
@@ -661,7 +666,7 @@ function NoteDetailDrawer({
               type: "knowledge_node",
               mode: "edit",
               entity: {
-                node_type: "insight",
+                node_type: "claim",
                 title: note.title,
                 body: note.body_markdown,
                 theme_id: note.theme_id || null,
@@ -672,7 +677,7 @@ function NoteDetailDrawer({
               },
             })}
           >
-            構造化する
+            Knowledge化する
           </button>
           <button className="primary-button" onClick={() => close({ type: "note", mode: "edit", entity: note })}>編集する</button>
           <button className="danger-button" onClick={() => removeEntity("note", note)}>削除する</button>

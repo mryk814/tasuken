@@ -44,11 +44,11 @@ export const NOTE_TYPE_LABELS: Record<string, string> = {
 };
 
 export const KNOWLEDGE_NODE_LABELS: Record<string, string> = {
-  source: "Source",
-  evidence: "Evidence",
-  claim: "Claim",
   question: "Question",
+  claim: "Claim",
+  evidence: "Evidence",
   decision: "Decision",
+  source: "Source",
   insight: "Insight",
 };
 

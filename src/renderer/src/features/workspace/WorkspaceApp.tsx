@@ -143,15 +143,17 @@ export function WorkspaceApp() {
     return window.api.app.onWorkspaceChanged((change) => {
       if (change?.entities?.length) {
         applyExternalSaves(change.entities);
+        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`));
         return;
       }
       if (change?.type && change.entity) {
         applyExternalSave(change.type, change.entity);
+        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`));
         return;
       }
       void refreshWorkspace();
     });
-  }, [applyExternalSave, applyExternalSaves, refreshWorkspace]);
+  }, [applyExternalSave, applyExternalSaves, refreshWorkspace, setToast]);
 
   useEffect(() => {
     const onHash = () => setRoute(location.hash.slice(1) || "today");
@@ -574,7 +576,7 @@ export function WorkspaceApp() {
       const sourceId = formText(values, "source_id") || null;
       entity = {
         ...base,
-        node_type: formText(values, "node_type", "insight"),
+        node_type: formText(values, "node_type", "question"),
         title: formText(values, "title"),
         body: formText(values, "body"),
         theme_id: formText(values, "theme_id") || null,
@@ -637,6 +639,9 @@ export function WorkspaceApp() {
     openDrawer,
     saveEntity,
     saveEntities,
+    refreshWorkspace: async () => {
+      await refreshWorkspace();
+    },
     removeEntity,
     removeEntityQuiet,
     setToast,

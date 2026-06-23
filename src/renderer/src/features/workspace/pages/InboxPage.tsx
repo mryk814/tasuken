@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled } from "@tabler/icons-react";
+import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconRefresh } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
@@ -64,13 +64,14 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
   };
 }
 
-export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
+export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, saveEntities, refreshWorkspace, removeEntityQuiet, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
   const inboxRows = useMemo(() => {
     return buildInboxView(v2).entries.map((entry) => ({ entry }));
   }, [v2]);
   const [drafts, setDrafts] = useState<Record<string, InboxDraft>>({});
   const [selected, setSelected] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [organizing, setOrganizing] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState("");
   const today = todayIso();
@@ -242,9 +243,24 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
     }
   }
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await refreshWorkspace();
+      setToast("Inboxを更新しました。");
+    } catch (error) {
+      setToast(`Inboxを更新できませんでした。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <div className="page inbox-page">
       <PageHeader title="Inbox整理" subtitle="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
+        <button className="secondary-button" onClick={handleRefresh} disabled={refreshing}>
+          <IconRefresh size={16} /> {refreshing ? "更新中" : "更新"}
+        </button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { link_type: "chatgpt", reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
         <button className="primary-button" disabled={!selected.length} onClick={organizeSelected}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
