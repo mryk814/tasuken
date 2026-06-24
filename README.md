@@ -61,6 +61,15 @@ npm run package
 - `release/Tasken-Setup-0.1.0-x64.exe`
 - `release/Tasken-Portable-0.1.0-x64.exe`
 
+GitHub Release用の検証とpackageをまとめて実行:
+
+```powershell
+npm run release:check
+```
+
+配布版は`vX.Y.Z`タグをpushするとGitHub Actionsで作成されます。
+詳しい手順は [`release.md`](./docs/release.md) を参照してください。
+
 インストール版とportable版はいずれもElectronの`userData`配下に
 `research-desk.sqlite`を保存します。端末間移行やバックアップにはSettingsの
 Workspace Snapshotを使用してください。

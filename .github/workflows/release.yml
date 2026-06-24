@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Package Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release tag
+        run: npm run release:verify-version
+
+      - name: Run tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build and package
+        run: npm run package
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assets = Get-ChildItem -Path release -File | Where-Object {
+            $_.Name -like "*.exe" -or $_.Name -like "*.blockmap" -or $_.Name -like "latest*.yml"
+          } | ForEach-Object { $_.FullName }
+          if ($assets.Count -eq 0) {
+            throw "No release assets found in release/."
+          }
+          gh release create $env:TAG_NAME $assets `
+            --title "Tasken $env:TAG_NAME" `
+            --notes "Windows installer and portable build for Tasken $env:TAG_NAME."
