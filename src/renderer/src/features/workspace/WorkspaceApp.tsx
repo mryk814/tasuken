@@ -30,7 +30,7 @@ import {
   buildSaveCaptureEntryOperations,
   buildSaveResourceOperations,
 } from "./domain-model/persistence";
-import type { CaptureEntry, PlanNode, Resource, Schedule, Task, Waiting } from "./domain-model/types";
+import type { CaptureEntry, PlanNode, Resource, Schedule, Task, TaskChecklistItem, TaskRepeatRule, Waiting } from "./domain-model/types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { EntityDrawer } from "./components/drawer";
@@ -57,6 +57,42 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "schedules", "references", "task_dependencies", "plan_dependencies",
   "knowledge_edges", "change_events",
 ];
+
+function taskRepeatRuleFromForm(values: FormData, fallbackDay: number): TaskRepeatRule | null {
+  const frequency = formText(values, "repeat_frequency");
+  if (!frequency) return null;
+  const interval = Math.max(1, Number(formText(values, "repeat_interval") || 1));
+  const weekdays = values.getAll("repeat_weekdays")
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+  const monthDay = Number(formText(values, "repeat_month_day") || fallbackDay || 1);
+  return {
+    frequency: frequency as TaskRepeatRule["frequency"],
+    interval,
+    weekdays: frequency === "weekly" ? weekdays : undefined,
+    month_day: frequency === "monthly" ? monthDay : null,
+    next_from: (formText(values, "repeat_next_from") || "scheduled") as TaskRepeatRule["next_from"],
+    until: formText(values, "repeat_until") || null,
+  };
+}
+
+function taskChecklistFromForm(values: FormData): TaskChecklistItem[] {
+  const ids = values.getAll("checklist_id").map(String);
+  const titles = values.getAll("checklist_title").map(String);
+  return titles
+    .flatMap((title, index): TaskChecklistItem[] => {
+      const trimmed = title.trim();
+      if (!trimmed) return [];
+      const done = values.has(`checklist_done_${index}`);
+      return [{
+        id: ids[index] || uuid(),
+        title: trimmed,
+        done,
+        sort_order: index,
+        completed_at: done ? (formText(values, `checklist_completed_at_${index}`) || new Date().toISOString()) : null,
+      }];
+    });
+}
 
 function emptyData(): WorkspaceData {
   return Object.fromEntries(ARRAY_KEYS.map((key) => [key, []])) as unknown as WorkspaceData;
@@ -362,6 +398,10 @@ export function WorkspaceApp() {
         state: (formText(values, "state") || "todo") as Task["state"],
         priority: values.has("priority_flag") ? "high" : "normal",
         description: formText(values, "description") || null,
+        repeat_rule: taskRepeatRuleFromForm(values, Number((formText(values, "end_date") || todayIso()).slice(-2))),
+        repeat_series_id: formText(values, "repeat_frequency") ? String(base.repeat_series_id || base.id || taskId) : null,
+        repeat_parent_task_id: (base.repeat_parent_task_id as string | null) ?? null,
+        checklist_items: taskChecklistFromForm(values),
         legacy_item_id: (base.legacy_item_id as string | null) ?? null,
         created_at: (base.created_at as string) || new Date().toISOString(),
       };
@@ -589,6 +629,8 @@ export function WorkspaceApp() {
         status: formText(values, "status", "active"),
       };
       if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return; }
+      delete entity._auto_edge_target_id;
+      delete entity._auto_edge_relation_type;
     } else if (type === "knowledge_edge") {
       entity = {
         ...base,
@@ -617,6 +659,17 @@ export function WorkspaceApp() {
 
     const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
     if (type === "theme" && !activeThemeId && saved) setActiveThemeId(saved.id);
+    if (type === "knowledge_node" && saved) {
+      const autoTarget = base._auto_edge_target_id as string | undefined;
+      const autoRelation = base._auto_edge_relation_type as string | undefined;
+      if (autoTarget && autoRelation) {
+        await saveEntity("knowledge_edge", {
+          source_node_id: saved.id,
+          target_node_id: autoTarget,
+          relation_type: autoRelation,
+        });
+      }
+    }
     closeDrawer();
   }
 

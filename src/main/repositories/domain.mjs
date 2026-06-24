@@ -92,6 +92,8 @@ const proposalStatuses = new Set(["pending", "accepted", "rejected", "partially_
 const projectStates = new Set(["idea", "active", "paused", "closed"]);
 const captureEntryStates = new Set(["untriaged", "triaged", "archived"]);
 const taskStates = new Set(["todo", "doing", "waiting", "review", "done", "cancelled"]);
+const taskRepeatFrequencies = new Set(["daily", "weekly", "monthly"]);
+const taskRepeatNextFromValues = new Set(["scheduled", "completed"]);
 const waitingStates = new Set(["waiting", "received", "cancelled"]);
 const planNodeTypes = new Set(["phase", "milestone", "deliverable"]);
 const planNodeStates = new Set(["planned", "active", "done", "cancelled"]);
@@ -126,6 +128,51 @@ function isAllowedExternalUrl(value) {
     return allowedUrlProtocols.has(new URL(value).protocol);
   } catch {
     return false;
+  }
+}
+
+function validateTaskRepeatRule(rule) {
+  if (rule == null || rule === "") return;
+  if (!isPlainObject(rule)) throw new Error("task.repeat_ruleが不正です。");
+  if (!taskRepeatFrequencies.has(rule.frequency)) throw new Error("task.repeat_rule.frequencyが不正です。");
+  const interval = Number(rule.interval);
+  if (!Number.isInteger(interval) || interval < 1 || interval > 365) {
+    throw new Error("task.repeat_rule.intervalは1以上365以下で指定してください。");
+  }
+  if (!taskRepeatNextFromValues.has(rule.next_from)) throw new Error("task.repeat_rule.next_fromが不正です。");
+  if (rule.until != null && rule.until !== "" && !isIsoDate(rule.until)) {
+    throw new Error("task.repeat_rule.untilはYYYY-MM-DD形式で指定してください。");
+  }
+  if (rule.weekdays != null) {
+    if (!Array.isArray(rule.weekdays)) throw new Error("task.repeat_rule.weekdaysが不正です。");
+    for (const weekday of rule.weekdays) {
+      if (!Number.isInteger(Number(weekday)) || Number(weekday) < 0 || Number(weekday) > 6) {
+        throw new Error("task.repeat_rule.weekdaysは0から6で指定してください。");
+      }
+    }
+  }
+  if (rule.month_day != null && rule.month_day !== "") {
+    const monthDay = Number(rule.month_day);
+    if (!Number.isInteger(monthDay) || monthDay < 1 || monthDay > 31) {
+      throw new Error("task.repeat_rule.month_dayは1から31で指定してください。");
+    }
+  }
+}
+
+function validateTaskChecklist(items) {
+  if (items == null) return;
+  if (!Array.isArray(items)) throw new Error("task.checklist_itemsが不正です。");
+  if (items.length > 100) throw new Error("task.checklist_itemsは100件以内にしてください。");
+  for (const item of items) {
+    if (!isPlainObject(item)) throw new Error("task.checklist_itemsが不正です。");
+    if (typeof item.id !== "string" || !item.id.trim()) throw new Error("task.checklist_items.idを入力してください。");
+    if (typeof item.title !== "string" || !item.title.trim()) throw new Error("task.checklist_items.titleを入力してください。");
+    if (item.title.length > 200) throw new Error("task.checklist_items.titleは200文字以内で入力してください。");
+    if (typeof item.done !== "boolean") throw new Error("task.checklist_items.doneが不正です。");
+    if (!Number.isFinite(Number(item.sort_order))) throw new Error("task.checklist_items.sort_orderが不正です。");
+    if (item.completed_at != null && item.completed_at !== "" && Number.isNaN(new Date(item.completed_at).getTime())) {
+      throw new Error("task.checklist_items.completed_atが不正です。");
+    }
   }
 }
 
@@ -237,6 +284,8 @@ export function validateEntity(type, input) {
     if (input.priority != null && input.priority !== "" && !["normal", "high"].includes(input.priority)) {
       throw new Error("task.priorityが不正です。");
     }
+    validateTaskRepeatRule(input.repeat_rule);
+    validateTaskChecklist(input.checklist_items);
   }
   if (type === "waiting" && !waitingStates.has(input.state)) throw new Error("waiting.stateが不正です。");
   if (type === "plan_node") {
@@ -299,6 +348,28 @@ export function normalizeEntity(type, input) {
     normalized.confidence ||= "medium";
   }
   if (type === "ai_proposal") normalized.status ||= "pending";
+  if (type === "task") {
+    if (normalized.repeat_rule) {
+      normalized.repeat_rule = {
+        ...normalized.repeat_rule,
+        interval: Number(normalized.repeat_rule.interval || 1),
+        weekdays: Array.isArray(normalized.repeat_rule.weekdays)
+          ? [...new Set(normalized.repeat_rule.weekdays.map((weekday) => Number(weekday)))].sort((a, b) => a - b)
+          : undefined,
+        month_day: normalized.repeat_rule.month_day == null || normalized.repeat_rule.month_day === "" ? null : Number(normalized.repeat_rule.month_day),
+        until: normalized.repeat_rule.until || null,
+      };
+    }
+    if (Array.isArray(normalized.checklist_items)) {
+      normalized.checklist_items = normalized.checklist_items
+        .map((item, index) => ({
+          ...item,
+          title: typeof item.title === "string" ? item.title.trim() : item.title,
+          sort_order: Number(item.sort_order ?? index),
+        }))
+        .filter((item) => item.title);
+    }
+  }
   validateEntity(type, normalized);
   return normalized;
 }

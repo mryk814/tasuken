@@ -21,10 +21,10 @@ import {
   CAPTURE_ENTRY_STATE_LABELS,
 } from "../domain-model/labels";
 import {
-  buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
 } from "../domain-model/persistence";
+import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 
 const LINK_TYPES = ["chatgpt", "claude", "gemini", "copilot", "github", "paper", "notebook", "document", "other"];
@@ -50,6 +50,12 @@ const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
 const normalizeLinkType = (value: unknown) => LINK_TYPES.includes(str(value)) ? str(value) : "other";
 const normalizeReferenceStatus = (value: unknown) => CHAT_REFERENCE_STATUSES.includes(str(value)) ? str(value) : "keep";
 const PRIMARY_KNOWLEDGE_NODE_TYPES = ["question", "claim", "evidence", "decision"];
+const REPEAT_FREQUENCY_LABELS = {
+  daily: "毎日",
+  weekly: "毎週",
+  monthly: "毎月",
+};
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
 function ThemeColorPicker({ value }: { value?: string }) {
   const [selected, setSelected] = useState(value || CHART_COLORS[0]);
@@ -150,6 +156,17 @@ function findSchedule(data: WorkspaceData, ownerType: string, ownerId: string, p
   return (data.schedules || []).find((s) => (s as unknown as Schedule).owner_type === ownerType && (s as unknown as Schedule).owner_id === ownerId) as unknown as Schedule | undefined;
 }
 
+function normalizeChecklistItems(entity: DrawerConfig["entity"]) {
+  const items = Array.isArray(entity.checklist_items) ? entity.checklist_items : [];
+  return items.map((item, index) => ({
+    id: str((item as Record<string, unknown>).id) || uuid(),
+    title: str((item as Record<string, unknown>).title),
+    done: Boolean((item as Record<string, unknown>).done),
+    completed_at: str((item as Record<string, unknown>).completed_at),
+    sort_order: Number((item as Record<string, unknown>).sort_order ?? index),
+  })).sort((a, b) => a.sort_order - b.sort_order);
+}
+
 export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} removeEntity={removeEntity} />;
@@ -193,9 +210,17 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
           <div className="badge-row">
             <StatusBadge value={task.state} label={TASK_STATE_LABELS[task.state]} />
             {task.priority === "high" && <StatusBadge value="review" label="優先" />}
+            {task.repeat_rule && <StatusBadge value="doing" label={repeatRuleLabel(task.repeat_rule)} />}
           </div>
           <h2>{task.title}</h2>
           <p>{task.description || "説明なし"}</p>
+          {Boolean(task.checklist_items?.length) && (
+            <ul className="task-checklist-detail">
+              {task.checklist_items?.map((item) => (
+                <li key={item.id} className={item.done ? "is-done" : ""}>{item.title}</li>
+              ))}
+            </ul>
+          )}
           <dl>
             <dt>Theme</dt><dd>{themeName}</dd>
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
@@ -204,7 +229,8 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
             <button className="primary-button" onClick={async () => {
               const nextState = task.state === "done" ? "todo" : "done";
-              await saveEntities(buildSaveTaskOperations({ ...task, state: nextState, completed_at: nextState === "done" ? new Date().toISOString() : null }), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
+              const message = nextState === "done" && task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
+              await saveEntities(buildCompleteTaskOperations(task, schedule), message);
               close();
             }}>{task.state === "done" ? "未完了に戻す" : "完了にする"}</button>
             <button className="danger-button" onClick={() => removeEntity("task", entity)}>削除する</button>
@@ -754,6 +780,11 @@ function KnowledgeNodeDetailDrawer({
 
 function TaskFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
+  const repeatRule = entity.repeat_rule && typeof entity.repeat_rule === "object" ? entity.repeat_rule as Record<string, unknown> : null;
+  const [repeatFrequency, setRepeatFrequency] = useState(str(repeatRule?.frequency));
+  const [checklist, setChecklist] = useState(normalizeChecklistItems(entity));
+  const selectedWeekdays = Array.isArray(repeatRule?.weekdays) ? repeatRule.weekdays.map((value) => Number(value)) : [];
+  const fallbackMonthDay = dateOnly(schedule?.end_date || schedule?.start_date || todayIso()).slice(-2);
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
@@ -769,6 +800,78 @@ function TaskFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
         <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
       </div>
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      <section className="drawer-subsection">
+        <div className="section-heading"><h2>繰り返し</h2></div>
+        <div className="form-grid">
+          <Field label="頻度">
+            <select name="repeat_frequency" value={repeatFrequency} onChange={(event) => setRepeatFrequency(event.target.value)}>
+              <option value="">なし</option>
+              {Object.entries(REPEAT_FREQUENCY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="間隔">
+            <input name="repeat_interval" type="number" min="1" max="365" defaultValue={str(repeatRule?.interval) || "1"} disabled={!repeatFrequency} />
+          </Field>
+        </div>
+        {repeatFrequency === "weekly" && (
+          <div className="weekday-picker">
+            {WEEKDAY_LABELS.map((label, index) => (
+              <label key={label} className="weekday-choice">
+                <input name="repeat_weekdays" type="checkbox" value={index} defaultChecked={selectedWeekdays.includes(index)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        )}
+        {repeatFrequency === "monthly" && (
+          <Field label="毎月の日">
+            <input name="repeat_month_day" type="number" min="1" max="31" defaultValue={str(repeatRule?.month_day) || fallbackMonthDay} />
+          </Field>
+        )}
+        {repeatFrequency && (
+          <div className="form-grid">
+            <Field label="次回の基準">
+              <select name="repeat_next_from" defaultValue={str(repeatRule?.next_from) || "scheduled"}>
+                <option value="scheduled">予定日から</option>
+                <option value="completed">完了日から</option>
+              </select>
+            </Field>
+            <Field label="終了日">
+              <input name="repeat_until" type="date" defaultValue={dateOnly(repeatRule?.until)} />
+            </Field>
+          </div>
+        )}
+      </section>
+      <section className="drawer-subsection">
+        <div className="section-heading">
+          <h2>チェックリスト</h2>
+          <button
+            className="text-button compact"
+            type="button"
+            onClick={() => setChecklist((current) => [...current, { id: uuid(), title: "", done: false, completed_at: "", sort_order: current.length }])}
+          >
+            追加
+          </button>
+        </div>
+        <div className="task-checklist-editor">
+          {checklist.map((item, index) => (
+            <div className="task-checklist-row" key={item.id}>
+              <input type="hidden" name="checklist_id" value={item.id} />
+              <input type="hidden" name={`checklist_completed_at_${index}`} value={item.completed_at} />
+              <label className="checklist-toggle">
+                <input name={`checklist_done_${index}`} type="checkbox" defaultChecked={item.done} />
+              </label>
+              <input
+                name="checklist_title"
+                value={item.title}
+                onChange={(event) => setChecklist((current) => current.map((entry) => entry.id === item.id ? { ...entry, title: event.target.value } : entry))}
+                placeholder="手順"
+              />
+              <button className="text-button compact" type="button" onClick={() => setChecklist((current) => current.filter((entry) => entry.id !== item.id))}>削除</button>
+            </div>
+          ))}
+        </div>
+      </section>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
     </>
   );

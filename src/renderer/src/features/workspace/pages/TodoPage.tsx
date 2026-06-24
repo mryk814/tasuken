@@ -12,6 +12,7 @@ import { EmptyState, PageHeader } from "../components/common";
 import { TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
+import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { Schedule, Task } from "../domain-model/types";
 
 type TodoRow = {
@@ -98,13 +99,10 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
 
   async function toggleTask(task: Task) {
     const nextState = task.state === "done" ? "todo" : "done";
-    const nextTask: Task = {
-      ...task,
-      state: nextState,
-      completed_at: nextState === "done" ? new Date().toISOString() : null,
-    };
     if (nextState === "done") playCompleteSound();
-    await saveEntities(buildSaveTaskOperations(nextTask), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
+    const row = taskRows.find((entry) => entry.task.id === task.id);
+    const nextMessage = nextState === "done" && task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
+    await saveEntities(buildCompleteTaskOperations(task, row?.schedule), nextMessage);
   }
 
   async function togglePriority(task: Task) {
@@ -184,8 +182,8 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
   }
 
   function copyRows() {
-    const header = "タスク\t状態\tテーマ\t今日\t予定終了\t旗";
-    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.priority === "high" ? "あり" : "なし"}`);
+    const header = "タスク\t状態\tテーマ\t今日\t予定終了\t旗\t繰り返し";
+    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
@@ -249,7 +247,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
       )}
       <section className="panel list-page">
         <div className="data-table todo-table">
-          <div className="table-head"><span /><span /><span>タスク</span><span /><span>Theme</span><span>予定終了</span></div>
+          <div className="table-head"><span /><span /><span>タスク</span><span>繰り返し</span><span>Theme</span><span>予定終了</span></div>
           {visible.map(({ task, schedule }) => {
             const theme = (data.themes || []).find((entry) => entry.id === task.project_id);
             const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
@@ -285,7 +283,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
                 </button>
                 <button className={`row-title ${done ? "is-done" : ""}`} onClick={() => openTaskDetail(task, schedule)}>{task.title}</button>
               </div>
-              <span />
+              <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
               <span className="theme-inline">
                 <span className="chip-dot" />
                 {theme?.name || "個人業務"}

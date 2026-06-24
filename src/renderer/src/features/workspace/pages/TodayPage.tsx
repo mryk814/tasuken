@@ -33,6 +33,7 @@ import {
   buildSavePlanNodeOperations,
   buildSaveScheduleOperations,
 } from "../domain-model/persistence";
+import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Schedule, Task, Waiting, WorkspaceDomain } from "../domain-model/types";
 import type { TodayEntry } from "../domain-model/viewModels";
 
@@ -224,6 +225,7 @@ function TodayRows({
               <button className="today-task-title" onClick={() => onOpenDetail(row)}>
                 <strong>{row.title}</strong>
                 <span>{theme?.name || "個人業務"} / {row.kindLabel}</span>
+                {row.v2?.type === "task" && row.v2.task.repeat_rule && <small>{repeatRuleLabel(row.v2.task.repeat_rule)}</small>}
               </button>
             </div>
             <time>{formatDate(row.date)}</time>
@@ -281,9 +283,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   async function handleToggleComplete(row: TodayRow) {
     if (row.v2?.type === "task") {
       const nextState = row.v2.task.state === "done" ? "todo" : "done";
-      const next: Task = { ...row.v2.task, state: nextState, completed_at: nextState === "done" ? new Date().toISOString() : null };
       if (nextState === "done") playCompleteSound();
-      await saveEntities(buildSaveTaskOperations(next), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
+      const nextMessage = nextState === "done" && row.v2.task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
+      await saveEntities(buildCompleteTaskOperations(row.v2.task, row.v2.schedule), nextMessage);
       return;
     }
     if (row.v2?.type === "waiting") {

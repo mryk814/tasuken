@@ -33,6 +33,25 @@ export type TaskState =
   | "done"
   | "cancelled";
 
+export type TaskRepeatFrequency = "daily" | "weekly" | "monthly";
+
+export interface TaskRepeatRule {
+  frequency: TaskRepeatFrequency;
+  interval: number;
+  weekdays?: number[];
+  month_day?: number | null;
+  next_from: "scheduled" | "completed";
+  until?: string | null;
+}
+
+export interface TaskChecklistItem {
+  id: string;
+  title: string;
+  done: boolean;
+  sort_order: number;
+  completed_at?: string | null;
+}
+
 export interface Task {
   id: string;
   project_id?: string | null;
@@ -43,6 +62,10 @@ export interface Task {
   state: TaskState;
   priority: "normal" | "high";
   completed_at?: string | null;
+  repeat_rule?: TaskRepeatRule | null;
+  repeat_series_id?: string | null;
+  repeat_parent_task_id?: string | null;
+  checklist_items?: TaskChecklistItem[];
   source_record_id?: string | null;
   legacy_item_id?: string | null;
   created_at?: string;

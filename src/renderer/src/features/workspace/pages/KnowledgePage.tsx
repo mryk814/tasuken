@@ -23,6 +23,10 @@ const ALL = "all";
 const NODE_TYPE_ORDER = ["question", "claim", "evidence", "decision"] as const;
 const GRAPH_NODE_WIDTH = 164;
 const GRAPH_NODE_HEIGHT = 62;
+const GRAPH_HEIGHT = 420;
+const GRAPH_MAX_NODES = 40;
+const GRAPH_MAX_EDGES = 80;
+const GRAPH_LABEL_HEIGHT = 18;
 const GRAPH_LANES: Record<string, "left" | "center" | "right"> = {
   question: "left",
   evidence: "left",
@@ -64,6 +68,16 @@ const NODE_TYPE_ICONS: Record<string, ComponentType<{ size?: number }>> = {
   source: IconLink,
   insight: IconBulb,
 };
+type GraphScope = "selected" | "theme" | "health";
+type PositionedKnowledgeNode = KnowledgeNode & {
+  x: number;
+  y: number;
+  issueKinds: Set<KnowledgeHealthIssue["kind"]>;
+  relationCount: number;
+  hop: number;
+  priority: number;
+};
+type GraphRect = { x: number; y: number; width: number; height: number };
 
 function resolveSourceName(node: KnowledgeNode, data: PageProps["data"]): string {
   const resourceIds = new Set((data.resources || []).map((r) => r.id));
@@ -86,7 +100,7 @@ function resolveSourceName(node: KnowledgeNode, data: PageProps["data"]): string
 
 function shortText(value: unknown, max = 34): string {
   const text = str(value).replace(/\s+/g, " ").trim();
-  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 function relationClassName(value?: string | null): string {
@@ -119,68 +133,276 @@ function issueKindsByNode(issues: KnowledgeHealthIssue[]): Map<string, Set<Knowl
   return map;
 }
 
-function buildEgoGraph(nodes: KnowledgeNode[], relations: KnowledgeEdge[], selectedId: string | null, issues: KnowledgeHealthIssue[]) {
+function relationWeight(type?: string | null): number {
+  switch (type) {
+    case "contradicts":
+      return 42;
+    case "answers":
+    case "supports":
+      return 34;
+    case "derived_from":
+    case "depends_on":
+      return 24;
+    case "leads_to":
+    case "causes":
+      return 22;
+    case "explains":
+    case "example_of":
+      return 18;
+    default:
+      return 12;
+  }
+}
+
+function issueWeight(kinds: Set<KnowledgeHealthIssue["kind"]>): number {
+  let score = 0;
+  for (const kind of kinds) {
+    score += Math.max(2, 18 - ISSUE_PRIORITY[kind] * 2);
+  }
+  return score;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function rectsOverlap(a: GraphRect, b: GraphRect, padding = 0): boolean {
+  return a.x < b.x + b.width + padding
+    && a.x + a.width + padding > b.x
+    && a.y < b.y + b.height + padding
+    && a.y + a.height + padding > b.y;
+}
+
+function relationLabelWidth(label: string): number {
+  return clamp(label.length * 7 + 14, 44, 104);
+}
+
+function labelRect(x: number, y: number, width: number): GraphRect {
+  return {
+    x: x - width / 2,
+    y: y - GRAPH_LABEL_HEIGHT + 4,
+    width,
+    height: GRAPH_LABEL_HEIGHT,
+  };
+}
+
+function placeRelationLabel(
+  candidates: Array<{ x: number; y: number }>,
+  width: number,
+  nodeRects: GraphRect[],
+  usedLabelRects: GraphRect[],
+) {
+  const scored = candidates.map((candidate, index) => {
+    const x = clamp(candidate.x, width / 2 + 10, 890 - width / 2);
+    const y = clamp(candidate.y, GRAPH_LABEL_HEIGHT + 8, GRAPH_HEIGHT - 12);
+    const rect = labelRect(x, y, width);
+    const nodeHits = nodeRects.filter((nodeRect) => rectsOverlap(rect, nodeRect, 6)).length;
+    const labelHits = usedLabelRects.filter((usedRect) => rectsOverlap(rect, usedRect, 4)).length;
+    return {
+      x,
+      y,
+      rect,
+      score: nodeHits * 1000 + labelHits * 180 + index * 4 + Math.abs(candidate.y - y) + Math.abs(candidate.x - x),
+    };
+  });
+  scored.sort((a, b) => a.score - b.score);
+  return scored[0];
+}
+
+function buildKnowledgeGraphLayout(
+  nodes: KnowledgeNode[],
+  relations: KnowledgeEdge[],
+  selectedId: string | null,
+  graphScope: GraphScope,
+  issues: KnowledgeHealthIssue[],
+) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const selected = selectedId ? nodeById.get(selectedId) : null;
-  if (!selected) return { nodes: [], edges: [], hidden: 0 };
+  if (!nodes.length) return { nodes: [], edges: [], hidden: 0 };
 
-  const graphRelations = relations.filter((relation) =>
-    relation.source_node_id === selected.id || relation.target_node_id === selected.id);
-  const graphIds = new Set<string>([selected.id]);
-  for (const relation of graphRelations) {
-    graphIds.add(String(relation.source_node_id));
-    graphIds.add(String(relation.target_node_id));
+  const scopedRelations = relations.filter((relation) =>
+    nodeById.has(String(relation.source_node_id)) && nodeById.has(String(relation.target_node_id)));
+  const issueMap = issueKindsByNode(issues);
+  const issueNodeIds = new Set(issues.map((issue) => issue.node.id).filter((id) => nodeById.has(id)));
+  const relationCounts = new Map<string, number>();
+  const weightedRelationCounts = new Map<string, number>();
+  const adjacency = new Map<string, Array<{ id: string; relation: KnowledgeEdge }>>();
+
+  for (const relation of scopedRelations) {
+    const sourceId = String(relation.source_node_id);
+    const targetId = String(relation.target_node_id);
+    relationCounts.set(sourceId, (relationCounts.get(sourceId) || 0) + 1);
+    relationCounts.set(targetId, (relationCounts.get(targetId) || 0) + 1);
+    const weight = relationWeight(relation.relation_type);
+    weightedRelationCounts.set(sourceId, (weightedRelationCounts.get(sourceId) || 0) + weight);
+    weightedRelationCounts.set(targetId, (weightedRelationCounts.get(targetId) || 0) + weight);
+    adjacency.set(sourceId, [...(adjacency.get(sourceId) || []), { id: targetId, relation }]);
+    adjacency.set(targetId, [...(adjacency.get(targetId) || []), { id: sourceId, relation }]);
   }
 
-  const issueMap = issueKindsByNode(issues);
+  const candidateIds = new Set<string>();
+  const hopById = new Map<string, number>();
+  const addCandidate = (id: string, hop: number) => {
+    if (!nodeById.has(id)) return;
+    candidateIds.add(id);
+    hopById.set(id, Math.min(hopById.get(id) ?? hop, hop));
+  };
+
+  if (graphScope === "selected" && selected) {
+    addCandidate(selected.id, 0);
+    for (const neighbor of adjacency.get(selected.id) || []) {
+      addCandidate(neighbor.id, 1);
+      for (const secondHop of adjacency.get(neighbor.id) || []) {
+        addCandidate(secondHop.id, secondHop.id === selected.id ? 0 : 2);
+      }
+    }
+  } else if (graphScope === "health") {
+    for (const id of issueNodeIds) {
+      addCandidate(id, selected?.id === id ? 0 : 1);
+      for (const neighbor of adjacency.get(id) || []) addCandidate(neighbor.id, 2);
+    }
+    if (!candidateIds.size && selected) addCandidate(selected.id, 0);
+  } else {
+    for (const node of nodes) addCandidate(node.id, selected?.id === node.id ? 0 : 1);
+  }
+
+  if (!candidateIds.size) return { nodes: [], edges: [], hidden: 0 };
+
+  const scoreNode = (node: KnowledgeNode) => {
+    const kinds = issueMap.get(node.id) || new Set<KnowledgeHealthIssue["kind"]>();
+    const hop = hopById.get(node.id) ?? 3;
+    const selectedScore = node.id === selected?.id ? 1000 : 0;
+    const scopeScore = graphScope === "health" && issueNodeIds.has(node.id) ? 240 : 0;
+    const distanceScore = Math.max(0, 160 - hop * 48);
+    return selectedScore
+      + scopeScore
+      + distanceScore
+      + issueWeight(kinds)
+      + (relationCounts.get(node.id) || 0) * 10
+      + (weightedRelationCounts.get(node.id) || 0)
+      + (String(node.updated_at || "").length ? 2 : 0);
+  };
+
+  const rankedNodes = [...candidateIds]
+    .map((id) => nodeById.get(id))
+    .filter((node): node is KnowledgeNode => Boolean(node))
+    .sort((a, b) => scoreNode(b) - scoreNode(a) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  const shownNodes = rankedNodes.slice(0, GRAPH_MAX_NODES);
+  const shownIds = new Set(shownNodes.map((node) => node.id));
+  let hidden = Math.max(0, rankedNodes.length - shownNodes.length);
+
   const lanes: Record<"left" | "center" | "right", KnowledgeNode[]> = { left: [], center: [], right: [] };
-  for (const id of graphIds) {
-    const node = nodeById.get(id);
-    if (!node) continue;
+  for (const node of shownNodes) {
     lanes[GRAPH_LANES[node.node_type] || "center"].push(node);
   }
 
-  const positioned = new Map<string, KnowledgeNode & { x: number; y: number; issueKinds: Set<KnowledgeHealthIssue["kind"]> }>();
-  let hidden = 0;
+  const positioned = new Map<string, PositionedKnowledgeNode>();
   (Object.keys(lanes) as Array<keyof typeof lanes>).forEach((lane) => {
-    const laneNodes = lanes[lane]
-      .sort((a, b) => Number(b.id === selected.id) - Number(a.id === selected.id) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
-    const shown = laneNodes.slice(0, 4);
-    hidden += Math.max(0, laneNodes.length - shown.length);
-    const gap = shown.length >= 4 ? 78 : 92;
-    const top = Math.max(28, 190 - ((shown.length - 1) * gap) / 2);
-    shown.forEach((node, index) => {
+    const sortedLaneNodes = lanes[lane].sort((a, b) => {
+      const scoreDiff = scoreNode(b) - scoreNode(a);
+      if (scoreDiff) return scoreDiff;
+      return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+    });
+    const selectedInLane = selected ? sortedLaneNodes.find((node) => node.id === selected.id) : null;
+    const laneNodes = selectedInLane
+      ? (() => {
+          const ordered = sortedLaneNodes.filter((node) => node.id !== selectedInLane.id);
+          const center = Math.floor(sortedLaneNodes.length / 2);
+          ordered.splice(center, 0, selectedInLane);
+          return ordered;
+        })()
+      : sortedLaneNodes;
+    const gap = Math.max(GRAPH_NODE_HEIGHT + 14, Math.min(86, (GRAPH_HEIGHT - 68) / Math.max(1, laneNodes.length)));
+    const centerIndex = Math.max(0, (laneNodes.length - 1) / 2);
+    const top = Math.max(24, GRAPH_HEIGHT / 2 - centerIndex * gap - GRAPH_NODE_HEIGHT / 2);
+    laneNodes.forEach((node, index) => {
+      const kinds = issueMap.get(node.id) || new Set<KnowledgeHealthIssue["kind"]>();
+      const issueOffset = kinds.has("contradicted_claim") || kinds.has("claim_without_evidence") || kinds.has("unanswered_question") ? -10 : 0;
+      const y = Math.min(GRAPH_HEIGHT - GRAPH_NODE_HEIGHT - 24, top + index * gap + issueOffset);
       positioned.set(node.id, {
         ...node,
         x: GRAPH_LANE_X[lane],
-        y: top + index * gap,
-        issueKinds: issueMap.get(node.id) || new Set(),
+        y,
+        issueKinds: kinds,
+        relationCount: relationCounts.get(node.id) || 0,
+        hop: hopById.get(node.id) ?? 3,
+        priority: scoreNode(node),
       });
     });
   });
 
-  const graphEdges = graphRelations
-    .map((relation) => {
+  const visibleRelations = scopedRelations
+    .filter((relation) => shownIds.has(String(relation.source_node_id)) && shownIds.has(String(relation.target_node_id)))
+    .sort((a, b) => relationWeight(b.relation_type) - relationWeight(a.relation_type))
+    .slice(0, GRAPH_MAX_EDGES);
+  hidden += Math.max(0, scopedRelations.filter((relation) =>
+    candidateIds.has(String(relation.source_node_id)) && candidateIds.has(String(relation.target_node_id))).length - visibleRelations.length);
+
+  const nodeRects = [...positioned.values()].map((node) => ({
+    x: node.x,
+    y: node.y,
+    width: GRAPH_NODE_WIDTH,
+    height: GRAPH_NODE_HEIGHT,
+  }));
+  const usedLabelRects: GraphRect[] = [];
+  const graphEdges = visibleRelations
+    .map((relation, index) => {
       const source = positioned.get(String(relation.source_node_id));
       const target = positioned.get(String(relation.target_node_id));
       if (!source || !target) return null;
-      const sourceRight = source.x + GRAPH_NODE_WIDTH;
-      const targetLeft = target.x;
-      const forward = source.x <= target.x;
-      const x1 = forward ? sourceRight : source.x;
-      const x2 = forward ? targetLeft : target.x + GRAPH_NODE_WIDTH;
+      const sourceLane = GRAPH_LANES[source.node_type] || "center";
+      const targetLane = GRAPH_LANES[target.node_type] || "center";
       const y1 = source.y + GRAPH_NODE_HEIGHT / 2;
       const y2 = target.y + GRAPH_NODE_HEIGHT / 2;
+      const sameLane = sourceLane === targetLane;
+      const forward = source.x < target.x;
+      const x1 = sameLane ? source.x : forward ? source.x + GRAPH_NODE_WIDTH : source.x;
+      const x2 = sameLane ? target.x : forward ? target.x : target.x + GRAPH_NODE_WIDTH;
+      const routeSide = sourceLane === "right" ? 1 : -1;
+      const laneRouteX = sameLane ? source.x + (routeSide < 0 ? -22 : GRAPH_NODE_WIDTH + 22) + routeSide * ((index % 4) * 10) : 0;
+      const offset = sameLane ? 0 : Math.min(64, Math.max(30, Math.abs(x2 - x1) * 0.34));
+      const pathD = sameLane
+        ? `M${x1},${y1} C${laneRouteX},${y1} ${laneRouteX},${y2} ${x2},${y2}`
+        : `M${x1},${y1} C${x1 + (forward ? offset : -offset)},${y1} ${x2 - (forward ? offset : -offset)},${y2} ${x2},${y2}`;
+      const labelText = KNOWLEDGE_RELATION_LABELS[relation.relation_type || "supports"] || relation.relation_type || "relation";
+      const labelWidth = relationLabelWidth(labelText);
+      const midX = (x1 + x2) / 2;
+      const midY = (y1 + y2) / 2;
+      const label = placeRelationLabel(
+        sameLane
+          ? [
+              { x: laneRouteX + routeSide * 42, y: midY - 8 },
+              { x: laneRouteX + routeSide * 56, y: midY + 18 },
+              { x: laneRouteX + routeSide * 42, y: Math.min(y1, y2) - 16 },
+              { x: laneRouteX + routeSide * 42, y: Math.max(y1, y2) + 22 },
+              { x: source.x + GRAPH_NODE_WIDTH / 2, y: midY },
+            ]
+          : [
+              { x: midX, y: midY - 14 },
+              { x: midX, y: midY + 18 },
+              { x: x1 + (x2 - x1) * 0.35, y: y1 - 18 },
+              { x: x1 + (x2 - x1) * 0.65, y: y2 + 18 },
+              { x: midX, y: Math.min(y1, y2) - 22 },
+            ],
+        labelWidth,
+        nodeRects,
+        usedLabelRects,
+      );
+      usedLabelRects.push(label.rect);
       return {
         relation,
+        labelText,
+        labelWidth,
         source,
         target,
         x1,
         y1,
         x2,
         y2,
-        labelX: (x1 + x2) / 2,
-        labelY: (y1 + y2) / 2 - 8,
+        pathD,
+        sameLane,
+        labelX: label.x,
+        labelY: label.y,
       };
     })
     .filter((edge): edge is NonNullable<typeof edge> => edge !== null);
@@ -194,6 +416,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   const [nodeType, setNodeType] = useState(ALL);
   const [status, setStatus] = useState(ALL);
   const [viewMode, setViewMode] = useState<"graph" | "list">("graph");
+  const [graphScope, setGraphScope] = useState<GraphScope>("selected");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const nodes = data.knowledge_nodes || [];
   const relations = (data.knowledge_edges || []) as unknown as KnowledgeEdge[];
@@ -211,7 +434,6 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
     ...domain.plan_nodes.map((p) => ({ id: p.id, status: p.state, title: p.title })),
   ], [domain.tasks, domain.waitings, domain.plan_nodes]);
   const healthIssues = useMemo(() => buildKnowledgeHealth(visible, relations, domainEntities), [visible, relations, domainEntities]);
-  const allHealthIssues = useMemo(() => buildKnowledgeHealth(nodes, relations, domainEntities), [nodes, relations, domainEntities]);
   const sortedIssues = useMemo(() => [...healthIssues].sort((a, b) =>
     ISSUE_PRIORITY[a.kind] - ISSUE_PRIORITY[b.kind] || String(b.node.updated_at || "").localeCompare(String(a.node.updated_at || ""))),
   [healthIssues]);
@@ -236,7 +458,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   }, [nodes, relations, visible]);
   const selectableNodes = useMemo(() => visible.slice(0, 12), [visible]);
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedId) || null, [nodes, selectedId]);
-  const graph = useMemo(() => buildEgoGraph(nodes, relations, selectedId, allHealthIssues), [nodes, relations, selectedId, allHealthIssues]);
+  const graph = useMemo(() => buildKnowledgeGraphLayout(visible, relations, selectedId, graphScope, healthIssues), [visible, relations, selectedId, graphScope, healthIssues]);
 
   useEffect(() => {
     const visibleIds = new Set(visible.map((node) => node.id));
@@ -275,6 +497,8 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
           theme_id: issue.node.theme_id || null,
           confidence: "medium",
           status: "active",
+          _auto_edge_target_id: issue.node.id,
+          _auto_edge_relation_type: "answers",
         },
       });
       return;
@@ -289,6 +513,8 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
           theme_id: issue.node.theme_id || null,
           confidence: "medium",
           status: "active",
+          _auto_edge_target_id: issue.node.id,
+          _auto_edge_relation_type: "supports",
         },
       });
       return;
@@ -339,18 +565,35 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
         <span>{visible.length}件</span>
       </div>
       <section className="knowledge-explorer panel">
-        <div className="section-heading"><h2>{viewMode === "graph" ? "根拠チェーン" : "関係の流れ"}</h2><span>{viewMode === "graph" ? `${graph.edges.length} relation` : `${relationPreview.length}件`}</span></div>
+        <div className="section-heading">
+          <h2>つながり</h2>
+          <span>{viewMode === "graph" ? `${graph.nodes.length} node / ${graph.edges.length} relation` : `${relationPreview.length}件`}</span>
+        </div>
         {viewMode === "graph" && selectedNode && (
           <div className="knowledge-focus-bar">
-            <span><StatusBadge value={selectedNode.status} label={KNOWLEDGE_NODE_LABELS[selectedNode.node_type] || selectedNode.node_type} /> {selectedNode.title}</span>
+            <StatusBadge value={selectedNode.status} label={KNOWLEDGE_NODE_LABELS[selectedNode.node_type] || selectedNode.node_type} />
+            <div className="knowledge-focus-info">
+              <strong>{selectedNode.title}</strong>
+              <span>{nodeBody(selectedNode)}</span>
+            </div>
             <button className="secondary-button compact" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: selectedNode })}>開く</button>
+          </div>
+        )}
+        {viewMode === "graph" && (
+          <div className="knowledge-graph-toolbar">
+            <div className="segmented" aria-label="Graph範囲">
+              <button className={graphScope === "selected" ? "is-active" : ""} onClick={() => setGraphScope("selected")}>選択中心</button>
+              <button className={graphScope === "theme" ? "is-active" : ""} onClick={() => setGraphScope("theme")}>Theme</button>
+              <button className={graphScope === "health" ? "is-active" : ""} onClick={() => setGraphScope("health")}>Health</button>
+            </div>
+            <span>最大40 node / 80 relation</span>
           </div>
         )}
         <div className="knowledge-explorer-body">
           <div className="knowledge-graph-main">
             {viewMode === "graph" ? (
               graph.nodes.length ? (
-                <svg className="knowledge-graph" viewBox="0 0 900 420" role="img" aria-label="選択中Knowledgeの1-hop関係グラフ">
+                <svg className="knowledge-graph" viewBox="0 0 900 420" role="img" aria-label="選択中Knowledgeの関係グラフ">
                   <defs>
                     <marker id="knowledge-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                       <path d="M 0 0 L 10 5 L 0 10 z" />
@@ -367,12 +610,17 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
                     <marker id="knowledge-arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                       <path d="M 0 0 L 10 5 L 0 10 z" />
                     </marker>
+                    <pattern id="knowledge-dots" width="24" height="24" patternUnits="userSpaceOnUse">
+                      <circle cx="12" cy="12" r="0.8" className="knowledge-grid-dot" />
+                    </pattern>
                   </defs>
+                  <rect width="900" height="420" fill="url(#knowledge-dots)" />
                   {graph.edges.map((edge) => (
-                    <g className={`graph-edge graph-edge-${relationClassName(edge.relation.relation_type)}`} key={edge.relation.id}>
-                      <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} markerEnd={`url(#${relationMarkerId(edge.relation.relation_type)})`} />
+                    <g className={`graph-edge graph-edge-${relationClassName(edge.relation.relation_type)} ${edge.sameLane ? "is-same-lane" : ""}`} key={edge.relation.id}>
+                      <path d={edge.pathD} markerEnd={`url(#${relationMarkerId(edge.relation.relation_type)})`} />
+                      <rect className="graph-edge-label-bg" x={edge.labelX - edge.labelWidth / 2} y={edge.labelY - GRAPH_LABEL_HEIGHT + 4} width={edge.labelWidth} height={GRAPH_LABEL_HEIGHT} rx="5" />
                       <text x={edge.labelX} y={edge.labelY} textAnchor="middle">
-                        {KNOWLEDGE_RELATION_LABELS[edge.relation.relation_type || "supports"] || edge.relation.relation_type}
+                        {edge.labelText}
                       </text>
                     </g>
                   ))}
@@ -381,7 +629,9 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
                       ? "has-contradiction"
                       : node.issueKinds.has("claim_without_evidence")
                         ? "needs-evidence"
-                        : "";
+                        : node.issueKinds.has("unanswered_question")
+                          ? "needs-answer"
+                          : "";
                     return (
                       <g
                         className={`graph-node graph-node-${node.node_type} ${node.id === selectedId ? "is-selected" : ""} ${issueClass}`}
@@ -390,16 +640,18 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
                         aria-label={`${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}`}
                         tabIndex={0}
                         onClick={() => setSelectedId(node.id)}
+                        onDoubleClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: node })}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            setSelectedId(node.id);
+                            openDrawer({ type: "knowledge_node", mode: "edit", entity: node });
                           }
                         }}
                       >
+                        <title>{`${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}${str(node.body) ? `\n${str(node.body).slice(0, 120)}` : ""}`}</title>
                         <rect x={node.x} y={node.y} width={GRAPH_NODE_WIDTH} height={GRAPH_NODE_HEIGHT} rx="7" />
                         <text className="graph-node-type" x={node.x + 12} y={node.y + 21}>{KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}</text>
-                        <text className="graph-node-title" x={node.x + 12} y={node.y + 43}>{shortText(node.title, 24)}</text>
+                        <text className="graph-node-title" x={node.x + 12} y={node.y + 43}>{shortText(node.title, 10)}</text>
                       </g>
                     );
                   })}
@@ -434,8 +686,8 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
         {selectableNodes.length > 0 && (
           <div className="knowledge-selector-list" aria-label="Knowledge選択">
             {selectableNodes.map((node) => (
-              <button className={node.id === selectedId ? "is-selected" : ""} key={node.id} onClick={() => setSelectedId(node.id)}>
-                <span>{KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}</span>
+              <button className={`${node.node_type} ${node.id === selectedId ? "is-selected" : ""}`} key={node.id} title={node.title} onClick={() => setSelectedId(node.id)} onDoubleClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: node })}>
+                <span><NodeTypeIcon type={node.node_type} /> {KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}</span>
                 <strong>{node.title}</strong>
               </button>
             ))}
@@ -466,7 +718,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
           {NODE_TYPE_ORDER.map((type) => {
             const laneNodes = visibleByType[type] || [];
             return (
-              <div className="knowledge-lane panel" key={type}>
+              <div className={`knowledge-lane panel ${type}`} key={type}>
                 <div className="knowledge-lane-heading">
                   <span><NodeTypeIcon type={type} /> {KNOWLEDGE_NODE_LABELS[type]}</span>
                   <strong>{laneNodes.length}</strong>
