@@ -5,7 +5,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { EmptyState, PageHeader } from "../components/common";
@@ -183,7 +183,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
 
   function copyRows() {
     const header = "タスク\t状態\tテーマ\t今日\t予定終了\t旗\t繰り返し";
-    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
+    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themeLabel(themes.find((theme) => theme.id === task.project_id), "個人業務")}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
@@ -212,7 +212,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
             />
             <select value={addTheme} onChange={(e) => setAddTheme(e.target.value)}>
               <option value="">個人業務</option>
-              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+              {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
             </select>
             <input type="date" value={addDate} onChange={(e) => setAddDate(e.target.value)} />
             <button className="primary-button compact" onClick={addTask}>追加</button>
@@ -233,7 +233,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
               {pastePreview.map((row, index) => (
                 <div key={`${row.title}-${index}`}>
                   <strong>{row.title}</strong>
-                  <span>{themes.find((theme) => theme.id === row.theme_id)?.name || "個人業務"}</span>
+                  <span>{themeLabel(themes.find((theme) => theme.id === row.theme_id), "個人業務")}</span>
                   <time>{row.planned_end || "予定なし"}</time>
                 </div>
               ))}
@@ -286,7 +286,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
               <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
               <span className="theme-inline">
                 <span className="chip-dot" />
-                {theme?.name || "個人業務"}
+                {themeLabel(theme, "個人業務")}
               </span>
               <span className="num">{formatDate(scheduledDate(schedule))}</span>
             </div>

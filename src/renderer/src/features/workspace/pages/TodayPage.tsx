@@ -16,7 +16,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader } from "../components/common";
 import {
@@ -410,7 +410,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     "# Today",
     "",
     "## 今日やること",
-    ...(todayRows.length ? todayRows.map((row) => `- [ ] ${row.title} (${themes.find((theme) => theme.id === row.projectId)?.name || "個人業務"})`) : ["- なし"]),
+    ...(todayRows.length ? todayRows.map((row) => `- [ ] ${row.title} (${themeLabel(themes.find((theme) => theme.id === row.projectId), "個人業務")})`) : ["- なし"]),
     "",
     "## 期限切れ",
     ...(overdue.length ? overdue.map((row) => `- ${row.date || "予定なし"} ${row.title}`) : ["- なし"]),
@@ -465,7 +465,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
             />
             <select value={addTheme} onChange={(e) => setAddTheme(e.target.value)}>
               <option value="">個人業務</option>
-              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+              {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
             </select>
             <button className="primary-button compact" onClick={addTask}>追加</button>
           </div>
@@ -477,7 +477,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <div className="focus-hero-content">
             <span className="focus-hero-label"><IconClock size={14} /> {focusItem.date && focusItem.date < today ? "期限切れ" : "次にやること"}</span>
             <strong className="focus-hero-title">{focusItem.title}</strong>
-            <span className="focus-hero-meta">{themes.find((t) => t.id === focusItem.projectId)?.name || "個人業務"} / {focusItem.kindLabel}{focusItem.date ? ` / ${formatDate(focusItem.date)}` : ""}</span>
+            <span className="focus-hero-meta">{themeLabel(themes.find((t) => t.id === focusItem.projectId), "個人業務")} / {focusItem.kindLabel}{focusItem.date ? ` / ${formatDate(focusItem.date)}` : ""}</span>
           </div>
           <div className="focus-hero-actions">
             <button className="secondary-button compact" onClick={(e) => { e.stopPropagation(); handleToggleComplete(focusItem); }}>{canComplete(focusItem) ? "完了" : "開く"}</button>
@@ -534,7 +534,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <div className="today-update-list">
             {latestUpdates.length ? latestUpdates.map((entry) => (
               <button key={entry.id} className="wide-row" onClick={() => openDrawer({ type: "status_update", entity: entry })}>
-                <strong>{themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}</strong>
+                <strong>{themeLabel(themes.find((theme) => theme.id === entry.theme_id), "全体")}</strong>
                 <span>{formatDate(entry.date)} / {entry.summary}</span>
               </button>
             )) : <EmptyState title="現在地がまだありません" action="記録する" onAction={() => openDrawer({ type: "status_update", mode: "edit", entity: { date: today } })} />}

@@ -271,9 +271,11 @@ export function WorkspaceApp() {
   const domain = useMemo(() => {
     if (!hasGroupFilter) return fullDomain;
     const match = (projectId: unknown) => typeof projectId === "string" && groupThemeIds.has(projectId);
-    const tasks = fullDomain.tasks.filter((t) => match(t.project_id));
-    const waitings = fullDomain.waitings.filter((w) => match(w.project_id));
-    const plan_nodes = fullDomain.plan_nodes.filter((p) => match(p.project_id));
+    const isPersonal = (projectId: unknown) => !projectId;
+    const matchOrPersonal = (projectId: unknown) => match(projectId) || isPersonal(projectId);
+    const tasks = fullDomain.tasks.filter((t) => matchOrPersonal(t.project_id));
+    const waitings = fullDomain.waitings.filter((w) => matchOrPersonal(w.project_id));
+    const plan_nodes = fullDomain.plan_nodes.filter((p) => matchOrPersonal(p.project_id));
     const taskIds = new Set(tasks.map((t) => t.id));
     const waitingIds = new Set(waitings.map((w) => w.id));
     const planNodeIds = new Set(plan_nodes.map((p) => p.id));
@@ -548,7 +550,7 @@ export function WorkspaceApp() {
     if (type === "theme") {
       const name = formText(values, "name");
       if (!name) { setToast("テーマ名を入力してください。"); return; }
-      entity = { ...base, name, description: formText(values, "description"), status: formText(values, "status", "計画中"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
+      entity = { ...base, name, code: formText(values, "code"), description: formText(values, "description"), status: formText(values, "status", "計画中"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
     } else if (type === "note") {
       const title = formText(values, "title");
       const body = formText(values, "body_markdown");

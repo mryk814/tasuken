@@ -3,7 +3,7 @@ import { useState } from "react";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
 
@@ -29,7 +29,7 @@ export function MilestonePage({ data, domain: v2, themes, openDrawer, setToast }
     workspaceApi
       .copyText(records.map((node) => {
         const date = schedulesMap.get(`plan_node:${node.id}`)?.end_date || "";
-        return `${date}\t${themes.find((t) => t.id === node.project_id)?.name || "—"}\t${node.title}`;
+        return `${date}\t${themeLabel(themes.find((t) => t.id === node.project_id), "—")}\t${node.title}`;
       }).join("\n"))
       .then(() => setToast("マイルストーンをコピーしました。"));
   }

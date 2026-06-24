@@ -9,7 +9,7 @@ import {
   parseAiImportPayload,
 } from "../src/renderer/src/features/workspace/lib/aiImport.js";
 
-const themes = [{ id: "theme-1", name: "材料A評価" }];
+const themes = [{ id: "theme-1", name: "材料A評価", code: "MAT-A" }];
 
 test("AI Import rejects invalid url, date, and enum by defaulting candidate to ignore", () => {
   const preview = parseAiImportPayload(JSON.stringify({
@@ -77,6 +77,15 @@ test("AI Import prompt includes theme names and the current export context", () 
   assert.match(prompt, /JSONだけを返す/);
   assert.match(prompt, /"action": "create \| merge \| ignore"/);
   assert.match(AI_IMPORT_SCHEMA, /"reason"/);
+});
+
+test("AI Import resolves themes by identifier code", () => {
+  const preview = parseAiImportPayload(JSON.stringify({
+    items: [{ title: "識別子で整理", theme: "MAT-A", kind: "task", status: "todo" }],
+  }), themes, { items: [], notes: [], links: [] });
+
+  assert.equal(preview.candidates[0].theme?.id, "theme-1");
+  assert.equal(preview.candidates[0].action, "create");
 });
 
 test("AI organize prompt brings external AI context back into Tasken", () => {

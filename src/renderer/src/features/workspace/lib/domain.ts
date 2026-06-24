@@ -135,6 +135,16 @@ export function themeColor(theme: Theme | null | undefined, index = 0): string {
   return CHART_COLORS[safeIndex];
 }
 
+export function themeCode(theme: Theme | null | undefined): string {
+  return typeof theme?.code === "string" ? theme.code.trim() : "";
+}
+
+export function themeLabel(theme: Theme | null | undefined, fallback = "Themeなし"): string {
+  if (!theme) return fallback;
+  const code = themeCode(theme);
+  return code ? `[${code}] ${theme.name}` : theme.name;
+}
+
 export function relatedEntityTitle(data: WorkspaceData, type: string, id?: string): string {
   const keys: Record<string, keyof WorkspaceData> = {
     item: "items",

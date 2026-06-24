@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   IconAlertCircle,
   IconArrowRight,
@@ -13,7 +13,7 @@ import {
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { KnowledgeNode, PageProps } from "../types";
-import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS } from "../lib/domain";
+import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, themeLabel } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeHealth, type KnowledgeHealthIssue } from "../lib/knowledgeHealth";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
@@ -418,6 +418,9 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   const [viewMode, setViewMode] = useState<"graph" | "list">("graph");
   const [graphScope, setGraphScope] = useState<GraphScope>("selected");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [linkDrag, setLinkDrag] = useState<{ sourceId: string; x: number; y: number; hoverId: string | null } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const linkDragRef = useRef(false);
   const nodes = data.knowledge_nodes || [];
   const relations = (data.knowledge_edges || []) as unknown as KnowledgeEdge[];
 
@@ -471,7 +474,65 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   }
 
   function themeName(id?: string | null) {
-    return themes.find((theme) => theme.id === id)?.name || "未設定";
+    return themeLabel(themes.find((theme) => theme.id === id), "未設定");
+  }
+
+  function svgPoint(clientX: number, clientY: number): { x: number; y: number } {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const inv = ctm.inverse();
+    return { x: clientX * inv.a + clientY * inv.c + inv.e, y: clientX * inv.b + clientY * inv.d + inv.f };
+  }
+
+  function hitTestNode(svgX: number, svgY: number, excludeId?: string): PositionedKnowledgeNode | null {
+    const pad = 12;
+    for (const node of graph.nodes) {
+      if (node.id === excludeId) continue;
+      if (svgX >= node.x - pad && svgX <= node.x + GRAPH_NODE_WIDTH + pad && svgY >= node.y - pad && svgY <= node.y + GRAPH_NODE_HEIGHT + pad) return node;
+    }
+    return null;
+  }
+
+  function beginLinkDrag(e: React.PointerEvent, sourceNode: PositionedKnowledgeNode) {
+    e.preventDefault();
+    e.stopPropagation();
+    linkDragRef.current = false;
+    const startPt = svgPoint(e.clientX, e.clientY);
+
+    const onPointerMove = (me: PointerEvent) => {
+      const pt = svgPoint(me.clientX, me.clientY);
+      if (!linkDragRef.current) {
+        if (Math.abs(pt.x - startPt.x) > 8 || Math.abs(pt.y - startPt.y) > 8) {
+          linkDragRef.current = true;
+        } else {
+          return;
+        }
+      }
+      const hover = hitTestNode(pt.x, pt.y, sourceNode.id);
+      setLinkDrag({ sourceId: sourceNode.id, x: pt.x, y: pt.y, hoverId: hover?.id || null });
+    };
+    const cleanup = () => {
+      removeEventListener("pointermove", onPointerMove);
+      removeEventListener("pointerup", onPointerUp);
+      removeEventListener("pointercancel", onPointerCancel);
+      setLinkDrag(null);
+    };
+    const onPointerUp = (ue: PointerEvent) => {
+      const wasDragging = linkDragRef.current;
+      cleanup();
+      if (!wasDragging) return;
+      const pt = svgPoint(ue.clientX, ue.clientY);
+      const target = hitTestNode(pt.x, pt.y, sourceNode.id);
+      if (target) {
+        openDrawer({ type: "knowledge_edge", mode: "edit", entity: { source_node_id: sourceNode.id, target_node_id: target.id } });
+      }
+    };
+    const onPointerCancel = () => { linkDragRef.current = false; cleanup(); };
+    addEventListener("pointermove", onPointerMove);
+    addEventListener("pointerup", onPointerUp);
+    addEventListener("pointercancel", onPointerCancel);
   }
 
   function copy() {
@@ -545,7 +606,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル・本文を検索" />
         <select value={themeId} onChange={(event) => setThemeId(event.target.value)} aria-label="Theme">
           <option value={ALL}>すべてのTheme</option>
-          {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+          {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
         </select>
         <select value={nodeType} onChange={(event) => setNodeType(event.target.value)} aria-label="Node type">
           <option value={ALL}>すべての種類</option>
@@ -593,7 +654,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
           <div className="knowledge-graph-main">
             {viewMode === "graph" ? (
               graph.nodes.length ? (
-                <svg className="knowledge-graph" viewBox="0 0 900 420" role="img" aria-label="選択中Knowledgeの関係グラフ">
+                <svg className={`knowledge-graph ${linkDrag ? "is-linking" : ""}`} viewBox="0 0 900 420" role="img" aria-label="選択中Knowledgeの関係グラフ" ref={svgRef}>
                   <defs>
                     <marker id="knowledge-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                       <path d="M 0 0 L 10 5 L 0 10 z" />
@@ -632,14 +693,16 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
                         : node.issueKinds.has("unanswered_question")
                           ? "needs-answer"
                           : "";
+                    const dragClass = linkDrag?.sourceId === node.id ? "is-link-source" : linkDrag?.hoverId === node.id ? "is-link-target" : "";
                     return (
                       <g
-                        className={`graph-node graph-node-${node.node_type} ${node.id === selectedId ? "is-selected" : ""} ${issueClass}`}
+                        className={`graph-node graph-node-${node.node_type} ${node.id === selectedId ? "is-selected" : ""} ${issueClass} ${dragClass}`}
                         key={node.id}
                         role="button"
                         aria-label={`${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}`}
                         tabIndex={0}
-                        onClick={() => setSelectedId(node.id)}
+                        onPointerDown={(e) => beginLinkDrag(e, node)}
+                        onClick={() => { if (!linkDragRef.current) setSelectedId(node.id); linkDragRef.current = false; }}
                         onDoubleClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: node })}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
@@ -655,6 +718,13 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
                       </g>
                     );
                   })}
+                  {linkDrag && (() => {
+                    const src = graph.nodes.find((n) => n.id === linkDrag.sourceId);
+                    if (!src) return null;
+                    const sx = src.x + GRAPH_NODE_WIDTH / 2;
+                    const sy = src.y + GRAPH_NODE_HEIGHT / 2;
+                    return <line className="graph-link-drag-line" x1={sx} y1={sy} x2={linkDrag.x} y2={linkDrag.y} />;
+                  })()}
                   {graph.hidden > 0 && <text className="graph-hidden" x="450" y="400" textAnchor="middle">他 {graph.hidden} 件は省略</text>}
                 </svg>
               ) : (

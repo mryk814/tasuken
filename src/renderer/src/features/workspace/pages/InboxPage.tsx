@@ -3,7 +3,7 @@ import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconRefresh } f
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 import { uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
 import { buildInboxView } from "../domain-model/selectors";
@@ -285,7 +285,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
             <select defaultValue="" onChange={(e) => { if (e.target.value === "__clear") bulkPatch({ theme_id: "" }); else if (e.target.value) bulkPatch({ theme_id: e.target.value }); e.target.value = ""; }}>
               <option value="" disabled>一括変更</option>
               <option value="__clear">個人業務</option>
-              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+              {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
             </select>
           </label>
           <label>予定日
@@ -376,7 +376,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                             onClick={() => patchDraft(row.entry.id, { theme_id: theme.id })}
                           >
                             <span className="chip-dot" />
-                            {theme.name}
+                            {themeLabel(theme)}
                           </button>
                         ))}
                       </div>

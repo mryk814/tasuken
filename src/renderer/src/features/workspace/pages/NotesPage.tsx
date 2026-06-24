@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
-import { NOTE_TYPE_LABELS } from "../lib/domain";
+import { NOTE_TYPE_LABELS, themeLabel } from "../lib/domain";
 import { str } from "../lib/format";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 
@@ -21,7 +21,7 @@ export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
 
   function copy() {
     workspaceApi
-      .copyText(visible.map((record) => `${str(record.title)}\t${record.recordType === "resource" ? "リソース" : str(record.note_type)}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
+      .copyText(visible.map((record) => `${str(record.title)}\t${record.recordType === "resource" ? "リソース" : str(record.note_type)}\t${themeLabel(themes.find((theme) => theme.id === (record.project_id || record.theme_id)), "—")}\t${str(record.url || record.source_url)}`).join("\n"))
       .then(() => setToast("Notes一覧をコピーしました。"));
   }
 

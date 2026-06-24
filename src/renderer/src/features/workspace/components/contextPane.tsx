@@ -2,7 +2,7 @@ import { IconMessageCircle, IconNotes, IconPointFilled } from "@tabler/icons-rea
 
 import type { OpenDrawer, Theme, WorkspaceData } from "../types";
 import type { Note, Resource, WorkspaceDomain } from "../domain-model/types";
-import { THEME_STATUS_LABELS } from "../lib/domain";
+import { THEME_STATUS_LABELS, themeLabel } from "../lib/domain";
 import { dateOnly, formatDate, str } from "../lib/format";
 import { EmptyState, StatusBadge } from "./common";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
@@ -93,7 +93,7 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
               <IconPointFilled size={14} />
               <span>
                 <strong>{task.title}</strong>
-                <small>{data.themes.find((t) => t.id === task.project_id)?.name || "個人"} / {formatDate(date)}</small>
+                <small>{themeLabel(data.themes.find((t) => t.id === task.project_id), "個人")} / {formatDate(date)}</small>
               </span>
             </button>
           ))}

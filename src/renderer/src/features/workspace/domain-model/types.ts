@@ -3,6 +3,7 @@ export type ProjectState = "idea" | "active" | "paused" | "closed";
 export interface Project {
   id: string;
   name: string;
+  code?: string | null;
   description?: string | null;
   state: ProjectState;
   color?: string | null;

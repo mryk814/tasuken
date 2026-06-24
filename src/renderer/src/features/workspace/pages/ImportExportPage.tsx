@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import { str, uuid } from "../lib/format";
+import { themeLabel } from "../lib/domain";
 import { buildSaveTaskOperations, buildSaveWaitingOperations, buildSavePlanNodeOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../domain-model/types";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, buildAiImportPrompt, buildAiOrganizePrompt, parseAiImportPayload } from "../lib/aiImport.js";
@@ -43,7 +44,7 @@ function sortByDateDesc<T>(records: T[], fields: string[]): T[] {
 }
 
 function buildOrganizeContext({ data, domain, themes, activeTheme }: Pick<PageProps, "data" | "domain" | "themes" | "activeTheme">): string {
-  const themeName = (id?: string | null) => themes.find((theme) => theme.id === id)?.name || "Themeなし";
+  const themeName = (id?: string | null) => themeLabel(themes.find((theme) => theme.id === id), "Themeなし");
   const targetThemeIds = activeTheme ? new Set([activeTheme.id]) : null;
   const inScope = (id?: string | null) => !targetThemeIds || (id != null && targetThemeIds.has(id));
   const scheduleByOwner = new Map(domain.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]));
@@ -73,7 +74,7 @@ function buildOrganizeContext({ data, domain, themes, activeTheme }: Pick<PagePr
   const lines = [
     "# Active Theme",
     ...(activeThemes.length
-      ? activeThemes.map((theme) => `- ${theme.name}: ${compactText(theme.description || theme.status || "") || "説明なし"}`)
+      ? activeThemes.map((theme) => `- ${themeLabel(theme)}: ${compactText(theme.description || theme.status || "") || "説明なし"}`)
       : ["- なし"]),
     "",
     "# 最近の現在地",
@@ -129,7 +130,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
       : format === "report"
         ? exportProgressReport(exportData)
         : exportMarkdown(exportData);
-  const themeNames = themes.map((theme) => theme.name).join("\n");
+  const themeNames = themes.map((theme) => themeLabel(theme)).join("\n");
   const conversionPromptText = useMemo(() => buildAiImportPrompt(themeNames, exported), [themeNames, exported]);
   const organizeContext = useMemo(() => buildOrganizeContext({ data, domain, themes, activeTheme }), [data, domain, themes, activeTheme]);
   const externalContextPromptText = useMemo(() => buildAiOrganizePrompt(organizeContext), [organizeContext]);

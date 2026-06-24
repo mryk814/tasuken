@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type {
@@ -10,7 +10,7 @@ import type {
   SaveEntity,
   WorkspaceData,
 } from "../types";
-import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
+import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle, themeLabel } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import {
@@ -362,6 +362,7 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
         {type === "theme" && (
           <>
             <Field label="テーマ名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
+            <Field label="識別子"><input name="code" defaultValue={str(entity.code)} placeholder="例: PJ-1234" /></Field>
             <Field label="概要"><textarea name="description" defaultValue={str(entity.description)} /></Field>
             <Field label="状態"><select name="status" defaultValue={str(entity.status) || "計画中"}><option>計画中</option><option>進行中</option><option>継続</option><option>保留</option><option>完了</option></select></Field>
             <ThemeColorPicker value={str(entity.color)} />
@@ -570,15 +571,143 @@ function KnowledgeSourceFields({ entity, data }: { entity: DrawerConfig["entity"
   );
 }
 
+function NodeCombobox({
+  name,
+  nodes,
+  defaultValue,
+  preferThemeId,
+}: {
+  name: string;
+  nodes: KnowledgeNode[];
+  defaultValue: string;
+  preferThemeId?: string | null;
+}) {
+  const initial = nodes.find((n) => n.id === defaultValue);
+  const [selectedId, setSelectedId] = useState(defaultValue);
+  const [query, setQuery] = useState(initial?.title || "");
+  const [open, setOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const lowerQuery = query.toLowerCase();
+  const filtered = nodes.filter((n) => !lowerQuery || n.title.toLowerCase().includes(lowerQuery));
+
+  const grouped: Array<{ type: string; label: string; items: KnowledgeNode[] }> = [];
+  const typeOrder = ["question", "claim", "evidence", "decision", "source", "insight"];
+  for (const type of typeOrder) {
+    const items = filtered.filter((n) => n.node_type === type);
+    if (!items.length) continue;
+    if (preferThemeId) {
+      items.sort((a, b) => {
+        const aMatch = a.theme_id === preferThemeId ? 0 : 1;
+        const bMatch = b.theme_id === preferThemeId ? 0 : 1;
+        return aMatch - bMatch;
+      });
+    }
+    grouped.push({ type, label: KNOWLEDGE_NODE_LABELS[type] || type, items });
+  }
+  const remaining = filtered.filter((n) => !typeOrder.includes(n.node_type));
+  if (remaining.length) grouped.push({ type: "_other", label: "その他", items: remaining });
+
+  const flatItems = grouped.flatMap((g) => g.items);
+
+  function select(node: KnowledgeNode) {
+    setSelectedId(node.id);
+    setQuery(node.title);
+    setOpen(false);
+    setHighlightIndex(-1);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") { setOpen(false); return; }
+    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) { setOpen(true); e.preventDefault(); return; }
+    if (!open) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIndex((i) => Math.min(i + 1, flatItems.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (highlightIndex >= 0 && highlightIndex < flatItems.length) select(flatItems[highlightIndex]);
+    }
+  }
+
+  useEffect(() => {
+    if (highlightIndex < 0 || !listRef.current) return;
+    const el = listRef.current.querySelector(`[data-idx="${highlightIndex}"]`);
+    if (el) (el as HTMLElement).scrollIntoView({ block: "nearest" });
+  }, [highlightIndex]);
+
+  let flatIdx = 0;
+
+  return (
+    <div className="node-combobox" ref={wrapRef}>
+      <input type="hidden" name={name} value={selectedId} />
+      <input
+        type="text"
+        className="node-combobox-input"
+        value={query}
+        placeholder="検索…"
+        autoComplete="off"
+        onChange={(e) => { setQuery(e.target.value); setSelectedId(""); setOpen(true); setHighlightIndex(0); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
+        role="combobox"
+        aria-expanded={open}
+      />
+      {open && flatItems.length > 0 && (
+        <div className="node-combobox-dropdown" ref={listRef} role="listbox">
+          {grouped.map((group) => (
+            <div key={group.type}>
+              <div className="node-combobox-group" role="presentation">{group.label}</div>
+              {group.items.map((node) => {
+                const idx = flatIdx++;
+                return (
+                  <button
+                    key={node.id}
+                    type="button"
+                    className={`node-combobox-option ${node.id === selectedId ? "is-selected" : ""} ${idx === highlightIndex ? "is-highlighted" : ""}`}
+                    role="option"
+                    aria-selected={node.id === selectedId}
+                    data-idx={idx}
+                    onMouseDown={(e) => { e.preventDefault(); select(node); }}
+                  >
+                    {node.title}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+      {open && !flatItems.length && query && (
+        <div className="node-combobox-dropdown" role="listbox">
+          <div className="node-combobox-empty">一致するKnowledgeがありません</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function KnowledgeEdgeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const nodes = data.knowledge_nodes || [];
+  const sourceId = str(entity.source_node_id);
+  const sourceNode = nodes.find((n) => n.id === sourceId);
   return (
     <>
       <Field label="関係元">
-        <select name="source_node_id" defaultValue={str(entity.source_node_id)}>
-          <option value="">選択</option>
-          {nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
-        </select>
+        <NodeCombobox name="source_node_id" nodes={nodes} defaultValue={sourceId} />
       </Field>
       <Field label="関係種別">
         <select name="relation_type" defaultValue={str(entity.relation_type) || "supports"}>
@@ -586,10 +715,7 @@ function KnowledgeEdgeFields({ entity, data }: { entity: DrawerConfig["entity"];
         </select>
       </Field>
       <Field label="関係先">
-        <select name="target_node_id" defaultValue={str(entity.target_node_id)}>
-          <option value="">選択</option>
-          {nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
-        </select>
+        <NodeCombobox name="target_node_id" nodes={nodes} defaultValue={str(entity.target_node_id)} preferThemeId={sourceNode?.theme_id} />
       </Field>
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
     </>
@@ -751,7 +877,7 @@ function KnowledgeNodeDetailDrawer({
         <h2>{node.title}</h2>
         <p className="note-body">{node.body || "本文なし"}</p>
         <dl>
-          <dt>Theme</dt><dd>{data.themes.find((theme) => theme.id === node.theme_id)?.name || "未設定"}</dd>
+          <dt>Theme</dt><dd>{themeLabel(data.themes.find((theme) => theme.id === node.theme_id), "未設定")}</dd>
           <dt>出典</dt><dd>{sourceLabel}</dd>
         </dl>
         {relations.length > 0 && (

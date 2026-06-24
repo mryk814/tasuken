@@ -17,7 +17,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps, Theme } from "../types";
 import type { Resource } from "../domain-model/types";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
 
@@ -40,7 +40,7 @@ function resourceDate(r: Resource): string {
 }
 
 function themeTitle(themes: Theme[], id?: string | null): string {
-  return themes.find((theme) => theme.id === id)?.name || "未設定";
+  return themeLabel(themes.find((theme) => theme.id === id), "未設定");
 }
 
 function sortResources(resources: Resource[], order: SortOrder): Resource[] {
@@ -232,7 +232,7 @@ export function ChatRefsPage({
                   onClick={() => selectTheme(theme.id)}
                 >
                   <span className="chip-dot" />
-                  <strong>{theme.name}</strong>
+                  <strong>{themeLabel(theme)}</strong>
                   <span className="count">{count}</span>
                 </button>
               );

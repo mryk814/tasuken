@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import type { Item, PageProps } from "../types";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 import { daysBetween, formatDate, uuid } from "../lib/format";
 import { buildTimelineRows, dataRange, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis } from "../components/gantt";
@@ -292,7 +292,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         <label>Theme
           <select value={themeFilter} onChange={(event) => updatePrefs({ themeFilter: event.target.value })}>
             <option value="all">すべて</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+            {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
           </select>
         </label>
         <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { ratio: (scroll.scrollLeft + cx) / scroll.scrollWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
@@ -329,7 +329,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                 <div className="gantt-theme-row" key={`theme-${row.groupKey}`}>
                   <button className="gantt-theme-toggle" onClick={() => setCollapsedThemes((current) => current.includes(row.groupKey) ? current.filter((key) => key !== row.groupKey) : [...current, row.groupKey])} aria-expanded={!collapsed}>
                     <span className="gantt-theme-caret">{collapsed ? "▸" : "▾"}</span>
-                    <strong>{row.theme?.name || "個人業務 / Themeなし"}</strong>
+                    <strong>{themeLabel(row.theme, "個人業務 / Themeなし")}</strong>
                     {row.theme && <StatusBadge value={row.theme.status} label={row.theme.status} />}
                   </button>
                   <span className="gantt-theme-count">実施事項 {row.initiativeCount} / 計画 {row.planCount}</span>

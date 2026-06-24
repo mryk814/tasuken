@@ -1,5 +1,5 @@
 import type { BaseRecord, PageProps } from "../types";
-import { THEME_STATUS_LABELS } from "../lib/domain";
+import { THEME_STATUS_LABELS, themeCode } from "../lib/domain";
 import { formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 
@@ -24,6 +24,7 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
   return (
     <div className="page">
       <PageHeader title={activeTheme.name} subtitle={activeTheme.description}>
+        {themeCode(activeTheme) && <span className="theme-code-badge">{themeCode(activeTheme)}</span>}
         <StatusBadge value={activeTheme.status} label={THEME_STATUS_LABELS[String(activeTheme.status || "")] || String(activeTheme.status || "未設定")} />
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })}>現在地を記録</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: activeTheme.id } })}>タスクを追加</button>

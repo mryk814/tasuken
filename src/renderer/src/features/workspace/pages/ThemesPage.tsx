@@ -1,5 +1,5 @@
 import type { PageProps } from "../types";
-import { THEME_STATUS_LABELS, themeColor } from "../lib/domain";
+import { THEME_STATUS_LABELS, themeCode, themeColor } from "../lib/domain";
 import { PageHeader, StatusBadge } from "../components/common";
 
 export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer, removeEntity }: PageProps) {
@@ -35,6 +35,7 @@ export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveT
                 </div>
               </div>
               <h2>{theme.name}</h2>
+              {themeCode(theme) && <span className="theme-code-badge">{themeCode(theme)}</span>}
               <p>{latest?.summary || theme.description || "現在地は未記録です。"}</p>
               <div>
                 <span><strong className="metric-value">{openTasks + openPlanNodes}</strong> 未完了</span>

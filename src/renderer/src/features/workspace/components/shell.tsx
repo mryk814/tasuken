@@ -2,7 +2,7 @@ import { crossNavigation, knowledgeHubTabs, todayHubTabs, toolNavigation } from 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
   return (
@@ -99,8 +99,8 @@ export function Sidebar({
         {themes.map((theme, index) => {
           const current = route === "home" && theme.id === activeThemeId;
           return (
-            <button key={theme.id} className={current ? "is-active" : ""} aria-current={current ? "page" : undefined} onClick={() => { setActiveThemeId(theme.id); navigate("home"); }}>
-              <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} /><span>{theme.name}</span>
+            <button key={theme.id} className={current ? "is-active" : ""} aria-current={current ? "page" : undefined} title={themeLabel(theme)} onClick={() => { setActiveThemeId(theme.id); navigate("home"); }}>
+              <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} /><span>{themeLabel(theme)}</span>
             </button>
           );
         })}

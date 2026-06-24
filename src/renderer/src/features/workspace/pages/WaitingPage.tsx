@@ -5,7 +5,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
-import { themeColor } from "../lib/domain";
+import { themeColor, themeLabel } from "../lib/domain";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
@@ -82,7 +82,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
   function copy() {
     const header = "タスク\t相手\t状態\tTheme\t期限";
     const rows = visible.map(({ waiting, schedule }) =>
-      `${waiting.title}\t${waiting.waiting_for}\t${WAITING_STATE_LABELS[waiting.state]}\t${themes.find((t) => t.id === waiting.project_id)?.name || "—"}\t${scheduledDate(schedule) || "—"}`);
+      `${waiting.title}\t${waiting.waiting_for}\t${WAITING_STATE_LABELS[waiting.state]}\t${themeLabel(themes.find((t) => t.id === waiting.project_id), "—")}\t${scheduledDate(schedule) || "—"}`);
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("Waiting一覧をコピーしました。"));
   }
 
@@ -112,7 +112,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
             />
             <select value={addTheme} onChange={(e) => setAddTheme(e.target.value)}>
               <option value="">個人業務</option>
-              {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {themes.map((t) => <option key={t.id} value={t.id}>{themeLabel(t)}</option>)}
             </select>
             <input type="date" value={addDate} onChange={(e) => setAddDate(e.target.value)} />
             <button className="primary-button compact" onClick={addWaiting}>追加</button>
@@ -163,7 +163,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
                     </span>
                   )}
                 </span>
-                <span className="theme-inline"><span className="chip-dot" />{theme?.name || "個人業務"}</span>
+                <span className="theme-inline"><span className="chip-dot" />{themeLabel(theme, "個人業務")}</span>
                 <span className="num">{formatDate(scheduledDate(schedule))}</span>
               </div>
             );

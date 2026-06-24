@@ -18,7 +18,7 @@ export const AI_IMPORT_SCHEMA = `{
       "action": "create | merge | ignore",
       "reason": "候補にした理由、merge/ignoreの根拠",
       "title": "string 必須",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または識別子。分からなければ空文字",
       "kind": "task | milestone | period | waiting | reminder | idea",
       "status": "todo | doing | waiting | review | done | inbox",
       "priority": "normal | high",
@@ -32,7 +32,7 @@ export const AI_IMPORT_SCHEMA = `{
       "action": "create | merge | ignore",
       "reason": "候補にした理由、merge/ignoreの根拠",
       "title": "string 必須",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または識別子。分からなければ空文字",
       "note_type": "memo | decision | meeting | experiment | analysis | ai_chat | learning | reflection",
       "body": "string 必須",
       "source_url": "https/http URL または空文字"
@@ -45,7 +45,7 @@ export const AI_IMPORT_SCHEMA = `{
       "title": "string 必須",
       "url": "https/http/mailto URL",
       "link_type": "chatgpt | copilot | github | paper | notebook | document | other",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または識別子。分からなければ空文字",
       "description": "string"
     }
   ],
@@ -57,7 +57,7 @@ export const AI_IMPORT_SCHEMA = `{
       "node_type": "source | evidence | claim | question | decision | insight",
       "title": "string 必須",
       "body": "string",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または識別子。分からなければ空文字",
       "confidence": "low | medium | high",
       "status": "active | resolved | deprecated | rejected"
     }
@@ -115,7 +115,15 @@ function enumValue(value, allowed, fallback, issues, field) {
 function resolveTheme(themeValue, themes) {
   const normalized = text(themeValue);
   if (!normalized) return undefined;
-  return themes.find((theme) => theme.id === normalized || theme.name === normalized);
+  const lower = normalized.toLowerCase();
+  return themes.find((theme) => {
+    const code = text(theme.code);
+    const name = text(theme.name);
+    const id = text(theme.id);
+    return [id, name, code, `[${code}] ${name}`, `${code} ${name}`, `${code}: ${name}`]
+      .filter(Boolean)
+      .some((value) => value.toLowerCase() === lower);
+  });
 }
 
 function normalizeArray(payload, key) {
@@ -309,7 +317,7 @@ ${AI_IMPORT_SCHEMA}
 ルール:
 - JSONだけを返す
 - 存在しないThemeは作らない
-- Themeが不明なら空文字にする
+- Themeは既存Theme名または識別子を使う。Themeが不明なら空文字にする
 - 日付が曖昧なら null
 - 依存関係や親子関係は作らない
 - Knowledge Edgeは同じ出力内のknowledge_nodesをtemp_idで参照する
@@ -329,7 +337,7 @@ export function buildAiOrganizePrompt(appContext, importSchema = AI_IMPORT_SCHEM
 あなた自身が参照できる会話履歴、プロジェクト文脈、添付資料、接続済みツール、記憶、現在のスレッド内容を棚卸しし、TaskenにImportできる候補JSONだけを返してください。
 
 重要:
-- 下のTaskenコンテキストは、Tasken側に既にある情報と既存Theme名です
+- 下のTaskenコンテキストは、Tasken側に既にある情報と既存Theme名・識別子です
 - 新しく持ち帰る内容は、あなたがTasken外で把握している文脈から選んでください
 - Taskenコンテキストを単に要約し直すだけならignoreにしてください
 - あなたが実際に参照できない外部情報は推測で作らないでください
@@ -360,7 +368,7 @@ export function buildAiOrganizePrompt(appContext, importSchema = AI_IMPORT_SCHEM
 出力:
 - 指定されたJSON schemaに厳密に従う
 - create / merge / ignore の候補として返す
-- 既存Themeに紐づく場合は theme 名を使う
+- 既存Themeに紐づく場合は theme 名または識別子を使う
 - タスクは実行可能な粒度に分ける
 - ナレッジは claim / question / evidence / decision を混ぜすぎず、根拠が薄いものは question にする
 - JSONだけを返す。説明文、Markdownコードブロック、コメントは禁止

@@ -10,7 +10,7 @@ import type {
   Theme,
   WorkspaceData,
 } from "../types";
-import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS } from "./domain";
+import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS, themeLabel } from "./domain";
 import { addDays } from "./format";
 import { domainToItems } from "../domain-model/compat/itemProjection";
 import type { KnowledgeEdge, Resource, TaskDependency, WorkspaceDomain } from "../domain-model/types";
@@ -243,7 +243,7 @@ export function exportMarkdown(data: ExportData): string {
       knowledgeIds.has(edge.source_node_id) || knowledgeIds.has(edge.target_node_id));
     const itemTitle = (id?: string) => data.items.find((item) => item.id === id)?.title || id || "不明";
     return [
-      `## Theme: ${theme.name}`,
+      `## Theme: ${themeLabel(theme)}`,
       theme.description || "",
       "",
       "### Current Status",
@@ -347,7 +347,7 @@ export function exportProgressReport(data: ExportData): string {
     const update = latestUpdateFor(theme, data.status_updates);
     const themeItems = data.items.filter((item) => item.theme_id === theme.id && isOpen(item));
     return [
-      `### ${theme.name}`,
+      `### ${themeLabel(theme)}`,
       `- 現在地: ${update?.summary || "未記録"}`,
       update?.risks ? `- リスク: ${update.risks}` : "- リスク: なし",
       update?.next_actions ? `- 次アクション: ${update.next_actions}` : "- 次アクション: 未設定",
@@ -373,10 +373,10 @@ export function exportProgressReport(data: ExportData): string {
     ...(milestones.length ? milestones.map(itemLine) : ["- なし"]),
     "",
     "## リスク",
-    ...(risks.length ? risks.map((entry) => `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.risks}`) : ["- なし"]),
+    ...(risks.length ? risks.map((entry) => `- ${entry.date || "日付なし"} / ${themeLabel(data.themes.find((theme) => theme.id === entry.theme_id), "全体")}: ${entry.risks}`) : ["- なし"]),
     "",
     "## 次アクション",
-    ...(nextActions.length ? nextActions.map((entry) => `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.next_actions}`) : ["- なし"]),
+    ...(nextActions.length ? nextActions.map((entry) => `- ${entry.date || "日付なし"} / ${themeLabel(data.themes.find((theme) => theme.id === entry.theme_id), "全体")}: ${entry.next_actions}`) : ["- なし"]),
     "",
     "## AIに依頼したい時の補足",
     "- 上の内容をもとに、過不足の確認、優先順位案、報告文への整形を依頼できます。",

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 
 import type { BaseRecord, DrawerConfig, Item, Theme } from "../types";
-import { statusTone, themeColor } from "../lib/domain";
+import { statusTone, themeColor, themeLabel } from "../lib/domain";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
 
@@ -102,7 +102,7 @@ export function ThemeSelect({
             onClick={() => setSelected(theme.id)}
           >
             <span className="chip-dot" />
-            {theme.name}
+            {themeLabel(theme)}
           </button>
         ))}
       </div>
