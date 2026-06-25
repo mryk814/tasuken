@@ -29,6 +29,12 @@ function fakeRepository(preview) {
   return { repo, inserted };
 }
 
+function fakeGraphRepository(records = {}) {
+  const repo = Object.create(WorkspaceDatabase.prototype);
+  repo.list = (type) => records[type] || [];
+  return repo;
+}
+
 test("workspace entity types and snapshots exclude person records", () => {
   assert.equal(workspaceEntityTypes.includes("person"), false);
   assert.equal(workspaceEntityTypes.includes("item"), true);
@@ -84,6 +90,49 @@ test("v2 entity validation rejects invalid enum values", () => {
   assert.throws(() => validateEntity("schedule", { id: "schedule-1", owner_type: "task", owner_id: "task-1", date_kind: "range", confidence: "fixed", granularity: "day", start_date: "2026-06-20", end_date: "2026-06-19" }), /schedule.end_date/);
   assert.throws(() => validateEntity("reference", { id: "ref-1", source_type: "task", source_id: "task-1", target_type: "task", target_id: "task-1", relation_type: "related_to" }), /自分自身/);
   assert.throws(() => validateEntity("knowledge_edge", { id: "edge-1", source_node_id: "node-1", target_node_id: "node-1", relation_type: "supports" }), /自分自身/);
+});
+
+test("directional knowledge edges reject cycles but weak relations do not", () => {
+  const repo = fakeGraphRepository({
+    knowledge_edge: [
+      { id: "ab", source_node_id: "a", target_node_id: "b", relation_type: "depends_on" },
+      { id: "bc", source_node_id: "b", target_node_id: "c", relation_type: "causes" },
+    ],
+  });
+  assert.throws(
+    () => repo.validateKnowledgeEdgeGraph({ id: "ca", source_node_id: "c", target_node_id: "a", relation_type: "leads_to" }),
+    /KnowledgeEdgeが循環/,
+  );
+  assert.doesNotThrow(
+    () => repo.validateKnowledgeEdgeGraph({ id: "weak", source_node_id: "c", target_node_id: "a", relation_type: "supports" }),
+  );
+});
+
+test("snapshot validation rejects directional knowledge edge cycles", () => {
+  const repo = fakeGraphRepository();
+  assert.throws(
+    () => repo.validateSnapshotWorkspace({
+      knowledge_nodes: [
+        { id: "a", node_type: "claim", title: "A" },
+        { id: "b", node_type: "claim", title: "B" },
+      ],
+      knowledge_edges: [
+        { id: "ab", source_node_id: "a", target_node_id: "b", relation_type: "depends_on" },
+        { id: "ba", source_node_id: "b", target_node_id: "a", relation_type: "depends_on" },
+      ],
+    }),
+    /Snapshot内のKnowledgeEdgeが循環/,
+  );
+  assert.doesNotThrow(() => repo.validateSnapshotWorkspace({
+    knowledge_nodes: [
+      { id: "a", node_type: "claim", title: "A" },
+      { id: "b", node_type: "claim", title: "B" },
+    ],
+    knowledge_edges: [
+      { id: "ab", source_node_id: "a", target_node_id: "b", relation_type: "supports" },
+      { id: "ba", source_node_id: "b", target_node_id: "a", relation_type: "similar_to" },
+    ],
+  }));
 });
 
 

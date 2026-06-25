@@ -234,6 +234,7 @@ export interface WorkspaceDomain {
   task_dependencies: TaskDependency[];
   plan_dependencies: PlanDependency[];
   knowledge_edges: KnowledgeEdge[];
+  ai_proposals: Record<string, unknown>[];
   change_events: ChangeEvent[];
 }
 

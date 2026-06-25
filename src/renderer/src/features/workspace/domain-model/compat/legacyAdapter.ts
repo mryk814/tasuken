@@ -401,6 +401,7 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
     task_dependencies: [],
     plan_dependencies: [],
     knowledge_edges: [],
+    ai_proposals: [],
     change_events: [],
   };
 }
@@ -624,6 +625,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
     plan_dependencies: mergeById(pPlanDeps, legacy.plan_dependencies),
     knowledge_edges: mergeById(pKnowledgeEdges, legacy.knowledge_edges),
+    ai_proposals: legacy.ai_proposals,
     change_events: mergeV2(pChangeEvents, legacy.change_events, "legacy_item_id"),
   };
 }

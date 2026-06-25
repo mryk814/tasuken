@@ -7,6 +7,7 @@ import {
   assertEntityType,
   assertItemParentAcyclic,
   hasPath,
+  isKnowledgeDirectionalRelationType,
   normalizeEntity,
   validateEntity,
   workspaceEntityTypes,
@@ -371,6 +372,7 @@ export class WorkspaceDatabase {
     if (type === "plan_node" && entity.parent_plan_node_id) this.validatePlanNodeParentGraph(entity);
     if (type === "task_dependency") this.validateTaskDependencyGraph(entity);
     if (type === "plan_dependency") this.validatePlanDependencyGraph(entity);
+    if (type === "knowledge_edge") this.validateKnowledgeEdgeGraph(entity);
   }
 
   validateItemParentGraph(entity) {
@@ -422,6 +424,18 @@ export class WorkspaceDatabase {
     deps.push([String(entity.plan_node_id), String(entity.depends_on_plan_node_id)]);
     if (hasPath(deps, String(entity.depends_on_plan_node_id), String(entity.plan_node_id))) {
       throw new Error("PlanDependencyが循環します。依存関係の向きを見直してください。");
+    }
+  }
+
+  validateKnowledgeEdgeGraph(entity) {
+    if (!entity.source_node_id || !entity.target_node_id) return;
+    if (!isKnowledgeDirectionalRelationType(entity.relation_type)) return;
+    const edges = this.list("knowledge_edge")
+      .filter((edge) => !edge.deleted_at && String(edge.id) !== String(entity.id) && isKnowledgeDirectionalRelationType(edge.relation_type))
+      .map((edge) => [String(edge.source_node_id), String(edge.target_node_id)]);
+    edges.push([String(entity.source_node_id), String(entity.target_node_id)]);
+    if (hasPath(edges, String(entity.target_node_id), String(entity.source_node_id))) {
+      throw new Error("KnowledgeEdgeが循環します。relationの向きを見直してください。");
     }
   }
 
@@ -517,6 +531,7 @@ export class WorkspaceDatabase {
     this.validateSnapshotPlanNodeParentGraph(snapshot.plan_nodes || []);
     this.validateSnapshotTaskDependencyGraph(snapshot.task_dependencies || []);
     this.validateSnapshotPlanDependencyGraph(snapshot.plan_dependencies || []);
+    this.validateSnapshotKnowledgeEdgeGraph(snapshot.knowledge_edges || []);
   }
 
   validateSnapshotItemParentGraph(items) {
@@ -577,6 +592,19 @@ export class WorkspaceDatabase {
       edges.push([String(dep.plan_node_id), String(dep.depends_on_plan_node_id)]);
       if (hasPath(edges, String(dep.depends_on_plan_node_id), String(dep.plan_node_id))) {
         throw new Error("Snapshot内のPlanDependencyが循環しています。Import前に依存関係を修正してください。");
+      }
+    }
+  }
+
+  validateSnapshotKnowledgeEdgeGraph(edges) {
+    for (const edge of edges.filter((entry) => !entry.deleted_at && isKnowledgeDirectionalRelationType(entry.relation_type))) {
+      if (!edge.source_node_id || !edge.target_node_id) continue;
+      const graph = edges
+        .filter((entry) => !entry.deleted_at && String(entry.id) !== String(edge.id) && isKnowledgeDirectionalRelationType(entry.relation_type))
+        .map((entry) => [String(entry.source_node_id), String(entry.target_node_id)]);
+      graph.push([String(edge.source_node_id), String(edge.target_node_id)]);
+      if (hasPath(graph, String(edge.target_node_id), String(edge.source_node_id))) {
+        throw new Error("Snapshot内のKnowledgeEdgeが循環しています。Import前にrelationの向きを修正してください。");
       }
     }
   }

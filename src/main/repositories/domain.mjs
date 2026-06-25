@@ -373,3 +373,7 @@ export function normalizeEntity(type, input) {
   validateEntity(type, normalized);
   return normalized;
 }
+
+export function isKnowledgeDirectionalRelationType(value) {
+  return knowledgeDirectionalRelationTypes.has(value);
+}

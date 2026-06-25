@@ -57,6 +57,7 @@ export function Sidebar({
     const type = String(resource.link_type || "");
     return ["chatgpt", "claude", "gemini", "copilot"].includes(type) || Boolean(resource.reference_status);
   }).length;
+  const proposalCount = domain.ai_proposals.filter((proposal) => proposal.status === "pending").length;
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: openTasks,
@@ -65,6 +66,7 @@ export function Sidebar({
     knowledge: knowledgeCount,
     notes: notesCount,
     "chat-refs": chatRefCount,
+    "proposal-inbox": proposalCount,
   };
   const renderNavButton = ([id, label]: readonly [string, string]) => {
     const count = countByRoute[id] || 0;
@@ -107,11 +109,7 @@ export function Sidebar({
       </div>
       <nav className="primary-nav utility-nav" aria-label="ツール">
         <div className="nav-heading"><span>ツール</span></div>
-        {toolNavigation.map(([id, label]) => (
-          <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
-            <span>{label}</span>
-          </button>
-        ))}
+        {toolNavigation.map(renderNavButton)}
       </nav>
     </aside>
   );

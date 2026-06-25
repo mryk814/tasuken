@@ -20,7 +20,7 @@ import type {
   WorkspaceData,
 } from "./types";
 import { entityTitle } from "./lib/domain";
-import { activeRecords, formText, uuid } from "./lib/format";
+import { activeRecords, formText, str, uuid } from "./lib/format";
 import type { SaveOperation } from "./types";
 import {
   buildSaveTaskOperations,
@@ -43,6 +43,7 @@ import { NotesPage } from "./pages/NotesPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 import { WaitingPage } from "./pages/WaitingPage";
 import { ImportExportPage } from "./pages/ImportExportPage";
+import { ProposalInboxPage } from "./pages/ProposalInboxPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TodayPage } from "./pages/TodayPage";
 import { InboxPage } from "./pages/InboxPage";
@@ -612,10 +613,14 @@ export function WorkspaceApp() {
       };
       if (!entity.source_id || !entity.target_id) { setToast("参照元と参照先を選択してください。"); return; }
     } else if (type === "knowledge_node") {
+      const autoTarget = str(base._auto_edge_target_id);
+      const autoRelation = str(base._auto_edge_relation_type);
+      const entityId = str(base.id) || uuid();
       const sourceType = formText(values, "source_type") || null;
       const sourceId = formText(values, "source_id") || null;
       entity = {
         ...base,
+        id: entityId,
         node_type: formText(values, "node_type", "question"),
         title: formText(values, "title"),
         body: formText(values, "body"),
@@ -631,6 +636,23 @@ export function WorkspaceApp() {
       if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return; }
       delete entity._auto_edge_target_id;
       delete entity._auto_edge_relation_type;
+      if (autoTarget && autoRelation) {
+        await saveEntities([
+          { action: "save", type: "knowledge_node", entity: entity as Entity },
+          {
+            action: "save",
+            type: "knowledge_edge",
+            entity: {
+              id: uuid(),
+              source_node_id: entityId,
+              target_node_id: autoTarget,
+              relation_type: autoRelation,
+            } as Entity,
+          },
+        ], base.id ? "変更を保存しました。" : "Knowledgeを追加しました。");
+        closeDrawer();
+        return;
+      }
     } else if (type === "knowledge_edge") {
       entity = {
         ...base,
@@ -659,17 +681,6 @@ export function WorkspaceApp() {
 
     const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
     if (type === "theme" && !activeThemeId && saved) setActiveThemeId(saved.id);
-    if (type === "knowledge_node" && saved) {
-      const autoTarget = base._auto_edge_target_id as string | undefined;
-      const autoRelation = base._auto_edge_relation_type as string | undefined;
-      if (autoTarget && autoRelation) {
-        await saveEntity("knowledge_edge", {
-          source_node_id: saved.id,
-          target_node_id: autoTarget,
-          relation_type: autoRelation,
-        });
-      }
-    }
     closeDrawer();
   }
 
@@ -713,6 +724,7 @@ export function WorkspaceApp() {
     notes: <NotesPage {...common} />,
     knowledge: <KnowledgePage {...common} />,
     waiting: <WaitingPage {...common} />,
+    "proposal-inbox": <ProposalInboxPage {...common} />,
     "ai-io": <ImportExportPage {...common} />,
     settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroups={activeGroups} setActiveGroups={setActiveGroups} allThemes={allThemes} />,
   };

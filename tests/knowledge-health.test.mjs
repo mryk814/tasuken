@@ -43,3 +43,19 @@ test("knowledge health accepts supported claims and answered questions", () => {
   assert.equal(kinds.includes("unanswered_question"), false);
   assert.equal(kinds.includes("evidence_without_source"), false);
 });
+
+test("knowledge health detects stale decisions without an open linked item", () => {
+  const nodes = [
+    {
+      id: "decision-1",
+      node_type: "decision",
+      title: "Old decision",
+      status: "active",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      source_type: "task",
+      source_id: "closed-task",
+    },
+  ];
+  const issues = buildKnowledgeHealth(nodes, [], [{ id: "closed-task", state: "done" }], { now: new Date("2026-06-25T00:00:00.000Z").getTime() });
+  assert.ok(issues.some((issue) => issue.kind === "stale_decision"));
+});
