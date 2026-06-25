@@ -919,6 +919,12 @@ function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data
         <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>
         <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
       </div>
+      <Field label="日付の粗さ">
+        <select name="schedule_granularity" defaultValue={str(schedule?.granularity) || str(entity.schedule_granularity) || "day"}>
+          <option value="day">日単位</option>
+          <option value="month">月単位</option>
+        </select>
+      </Field>
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
     </>

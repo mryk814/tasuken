@@ -173,6 +173,7 @@ export function timelineSaveItemOperations(item: TimelineItem, domain: Workspace
     title: item.title,
     project_id: item.theme_id || null,
     parent_plan_node_id: parentPlanNodeId,
+    sort_order: Number(item.sort_order) || 0,
   };
 
   const schedules = scheduleByOwner(domain);

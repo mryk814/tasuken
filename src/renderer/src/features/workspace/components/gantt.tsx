@@ -4,7 +4,7 @@ import type { BaseRecord, Item } from "../types";
 
 type Dependency = BaseRecord;
 import { DAY, hasPlannedSchedule, itemLevel, statusProgress } from "../lib/domain";
-import { daysBetween, localDateIso, str } from "../lib/format";
+import { addDays, daysBetween, localDateIso, str } from "../lib/format";
 import type { GanttRange, TimelineRow } from "../lib/timeline";
 
 export interface SelectedDependency {
@@ -33,6 +33,7 @@ export function GanttItemRow({
   onMove,
   connecting,
   onConnect,
+  onCreateRange,
   themeColorKey,
   resolveDropTarget,
   onCtrlClick,
@@ -45,12 +46,14 @@ export function GanttItemRow({
   onMove: (item: Item, delta: number, mode: DragMode, targetParent?: Item | null) => void;
   connecting?: ConnectingState | null;
   onConnect?: (item: Item) => void;
+  onCreateRange?: (parent: Item, startDate: string, endDate: string) => void;
   themeColorKey?: string;
   resolveDropTarget?: (clientY: number) => Item | null | undefined;
   onCtrlClick?: (item: Item) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ itemId: string; mode: DragMode; dxPercent: number } | null>(null);
+  const [rangeDraft, setRangeDraft] = useState<{ startPercent: number; widthPercent: number } | null>(null);
   const movedRef = useRef(false);
   const total = Math.max(1, daysBetween(range.start, range.end));
   const bars = laneItems?.length ? laneItems : [item];
@@ -89,6 +92,38 @@ export function GanttItemRow({
     addEventListener("pointercancel", onPointerCancel);
   }
 
+  function beginRangeCreate(event: React.PointerEvent<HTMLDivElement>) {
+    if (!onCreateRange || isConnecting || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    const initialX = event.clientX;
+    const trackWidth = rowRef.current?.clientWidth || 1;
+    const startPercent = Math.max(0, Math.min(100, ((initialX - event.currentTarget.getBoundingClientRect().left) / trackWidth) * 100));
+    setRangeDraft({ startPercent, widthPercent: Math.max(0.6, 100 / total) });
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const dxPercent = ((moveEvent.clientX - initialX) / trackWidth) * 100;
+      const nextStart = Math.max(0, Math.min(100, dxPercent < 0 ? startPercent + dxPercent : startPercent));
+      const nextWidth = Math.max(100 / total, Math.min(100 - nextStart, Math.abs(dxPercent)));
+      setRangeDraft({ startPercent: nextStart, widthPercent: nextWidth });
+    };
+    const cleanup = () => {
+      removeEventListener("pointermove", onPointerMove);
+      removeEventListener("pointerup", onPointerUp);
+      removeEventListener("pointercancel", onPointerCancel);
+      setRangeDraft(null);
+    };
+    const onPointerUp = (upEvent: PointerEvent) => {
+      const dxPercent = ((upEvent.clientX - initialX) / trackWidth) * 100;
+      cleanup();
+      const startDays = Math.round((Math.min(startPercent, startPercent + dxPercent) / 100) * total);
+      const endDays = Math.round((Math.max(startPercent, startPercent + dxPercent) / 100) * total);
+      onCreateRange(item, addDays(range.start, startDays), addDays(range.start, Math.max(startDays, endDays)));
+    };
+    const onPointerCancel = () => cleanup();
+    addEventListener("pointermove", onPointerMove);
+    addEventListener("pointerup", onPointerUp);
+    addEventListener("pointercancel", onPointerCancel);
+  }
+
   const isConnecting = !!connecting;
 
   function handleClick(target: Item, event?: React.MouseEvent) {
@@ -108,7 +143,13 @@ export function GanttItemRow({
   }
 
   return (
-    <div className={`gantt-item-row level-${itemLevel(item)}`} ref={rowRef}>
+    <div className={`gantt-item-row level-${itemLevel(item)}`} ref={rowRef} onPointerDown={beginRangeCreate}>
+      {rangeDraft && (
+        <span
+          className="gantt-range-draft"
+          style={{ left: `${rangeDraft.startPercent}%`, width: `${rangeDraft.widthPercent}%` }}
+        />
+      )}
       {bars.map((barItem) => {
         const level = itemLevel(barItem);
         const start = barItem.planned_start || barItem.planned_end;
