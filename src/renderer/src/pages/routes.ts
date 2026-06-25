@@ -4,6 +4,7 @@ export const crossNavigation = [
 ] as const;
 
 export const toolNavigation = [
+  ["proposal-inbox", "Proposal Inbox"],
   ["ai-io", "AI Import / Export"],
   ["settings", "Settings"],
 ] as const;
@@ -38,5 +39,6 @@ export type RouteId =
   | "notes"
   | "knowledge"
   | "waiting"
+  | "proposal-inbox"
   | "ai-io"
   | "settings";

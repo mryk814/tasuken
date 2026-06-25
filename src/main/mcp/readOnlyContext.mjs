@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../shared/knowledgeHealth.mjs";
+
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const DEFAULT_TEXT_LIMIT = 1200;
@@ -319,22 +321,13 @@ export class ReadOnlyTaskenContext {
   buildKnowledgeHealth(themeId = "") {
     const nodes = this.list("knowledge_node").filter((node) => !themeId || node.theme_id === themeId);
     const relations = this.list("knowledge_edge");
-    const activeNodes = nodes.filter((node) => (node.status || "active") === "active");
-    const evidenceIds = new Set(activeNodes.filter((node) => node.node_type === "evidence").map((node) => node.id));
-    const hasRelation = (node, type) => relations.some((relation) =>
-      (relation.source_node_id === node.id || relation.target_node_id === node.id)
-      && (!type || relation.relation_type === type));
-    const supportsEvidence = (claim) => relations.some((relation) =>
-      relation.relation_type === "supports"
-      && ((relation.source_node_id === claim.id && evidenceIds.has(relation.target_node_id))
-        || (relation.target_node_id === claim.id && evidenceIds.has(relation.source_node_id))));
-    return {
-      unresolved_questions: activeNodes.filter((node) => node.node_type === "question" && !hasRelation(node, "answers")),
-      claims_without_evidence: activeNodes.filter((node) => node.node_type === "claim" && !supportsEvidence(node)),
-      contradicted_claims: activeNodes.filter((node) => node.node_type === "claim" && hasRelation(node, "contradicts")),
-      evidence_without_source: activeNodes.filter((node) => node.node_type === "evidence" && !node.source_note_id && !node.source_link_id && !node.source_item_id && !node.source_id),
-      isolated_nodes: activeNodes.filter((node) => !hasRelation(node)),
-    };
+    const entities = [
+      ...this.list("task"),
+      ...this.list("waiting"),
+      ...this.list("plan_node"),
+      ...this.list("item"),
+    ];
+    return groupKnowledgeHealthIssues(buildKnowledgeHealth(nodes, relations, entities));
   }
 
   toolGetThemeContext(args = {}) {

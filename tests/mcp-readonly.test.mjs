@@ -44,6 +44,13 @@ function setupContext() {
     relation_type: "supports",
     updated_at: "2026-06-18T00:00:00.000Z",
   };
+  const staleDecision = {
+    id: "decision-1",
+    node_type: "decision",
+    title: "古い決定",
+    theme_id: theme.id,
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
   return new ReadOnlyTaskenContext("in-memory.sqlite", {
     workspace: {
       themes: [theme],
@@ -51,7 +58,7 @@ function setupContext() {
       notes: [note],
       links: [],
       status_updates: [],
-      knowledge_nodes: [claim, evidence],
+      knowledge_nodes: [claim, evidence, staleDecision],
       knowledge_edges: [relation],
     },
   });
@@ -85,14 +92,17 @@ test("read-only MCP context exports AI context and health", () => {
     const health = context.toolGetKnowledgeHealth({ theme_id: "theme-1" });
     assert.equal(health.claims_without_evidence.length, 0);
     assert.equal(health.evidence_without_source.length, 0);
+    assert.equal(health.stale_decisions.length, 1);
+    assert.ok(health.issues.some((issue) => issue.kind === "stale_decision"));
 
     const markdown = context.toolExportAiContext({ theme_id: "theme-1", format: "markdown" });
     assert.match(markdown, /# Tasken Context/);
     assert.match(markdown, /条件Bが遅延要因/);
 
     const json = context.toolExportAiContext({ theme_id: "theme-1", format: "json" });
-    assert.equal(json.knowledge_nodes.length, 2);
+    assert.equal(json.knowledge_nodes.length, 3);
     assert.equal(json.health.claims_without_evidence.length, 0);
+    assert.equal(json.health.stale_decisions.length, 1);
   } finally {
     context.close();
   }

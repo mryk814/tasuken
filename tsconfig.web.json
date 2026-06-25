@@ -18,6 +18,7 @@
     "src/renderer/src/**/*.tsx",
     "src/renderer/src/**/*.js",
     "src/renderer/src/**/*.jsx",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    "src/shared/**/*.mjs"
   ]
 }
