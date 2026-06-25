@@ -497,8 +497,8 @@ export function WorkspaceApp() {
           start_date: startDate,
           end_date: endDate,
           date_kind: startDate && endDate && startDate !== endDate ? "range" : endDate ? "deadline" : startDate ? "point" : "unknown",
-          confidence: "fixed",
-          granularity: "day",
+          confidence: formText(values, "schedule_granularity") === "month" ? "tentative" : "fixed",
+          granularity: (formText(values, "schedule_granularity") || "day") as Schedule["granularity"],
         };
         ops.push(...buildSaveScheduleOperations(schedule));
       }

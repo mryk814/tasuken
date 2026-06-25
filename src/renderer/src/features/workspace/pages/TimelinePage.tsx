@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { IconArrowDown, IconArrowUp, IconCalendarPlus, IconPlus, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePersistentState } from "../../../utils/usePersistentState";
-import type { Item, PageProps } from "../types";
+import type { Item, PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
-import { daysBetween, formatDate, uuid } from "../lib/format";
-import { buildTimelineRows, dataRange, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
+import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
+import { buildTimelineRows, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
 import {
@@ -39,6 +40,7 @@ interface TimelinePrefs {
   showCompleted: boolean;
   showDependencies: boolean;
   showLightning: boolean;
+  rangeBufferMonths: number;
 }
 const DEFAULT_PREFS: TimelinePrefs = {
   dayWidth: 2,
@@ -46,13 +48,64 @@ const DEFAULT_PREFS: TimelinePrefs = {
   showCompleted: true,
   showDependencies: true,
   showLightning: true,
+  rangeBufferMonths: 0,
 };
+
+interface QuickPlanDraft {
+  title: string;
+  themeId: string;
+  startMonth: string;
+  endMonth: string;
+}
+
+const RANGE_BUFFER_OPTIONS = [
+  { value: 0, label: "年度" },
+  { value: 3, label: "前後3か月" },
+  { value: 6, label: "前後6か月" },
+];
+
+function fiscalYearStart(today: string): number {
+  const date = new Date(`${today}T00:00:00`);
+  return date.getMonth() + 1 >= 4 ? date.getFullYear() : date.getFullYear() - 1;
+}
+
+function fiscalRange(today: string, bufferMonths: number) {
+  const year = fiscalYearStart(today);
+  const start = new Date(year, 3 - bufferMonths, 1);
+  const end = new Date(year, 3 + 12 + bufferMonths, 0);
+  return { start: localDateIso(start), end: localDateIso(end) };
+}
+
+function monthStart(value: string): string {
+  return value ? `${value}-01` : "";
+}
+
+function monthEnd(value: string): string {
+  if (!value) return "";
+  const [year, month] = value.split("-").map(Number);
+  return localDateIso(new Date(year, month, 0));
+}
+
+function monthLabel(value: string): string {
+  return value ? `${value.slice(0, 4)}年${value.slice(5, 7)}月` : "";
+}
+
+function themeLabel(theme: { name?: string } | null | undefined, fallback = "個人業務"): string {
+  return theme?.name || fallback;
+}
 
 export function TimelinePage({ data, domain: v2, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v6", DEFAULT_PREFS);
-  const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning } = prefs;
+  const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning, rangeBufferMonths = 0 } = prefs;
   const scale = scaleFromDayWidth(dayWidth);
   const updatePrefs = (patch: Partial<TimelinePrefs>) => setPrefs((current) => ({ ...current, ...patch }));
+  const today = todayIso();
+  const [quickPlan, setQuickPlan] = useState<QuickPlanDraft>(() => ({
+    title: "",
+    themeId: "",
+    startMonth: todayIso().slice(0, 7),
+    endMonth: todayIso().slice(0, 7),
+  }));
   const [collapsedThemes, setCollapsedThemes] = useState<string[]>([]);
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
   const [connectMode, setConnectMode] = useState(false);
@@ -61,7 +114,6 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<TimelineUndo[]>([]);
-  const today = todayIso();
   const timelineWorkspace = legacyTimelineWorkspace(data, v2);
   const timelineItems = timelineWorkspace.items || [];
   const timelineDependencies = timelineWorkspace.dependencies || [];
@@ -178,7 +230,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
       handleConnect(item);
     }
   }
-  const range = dataRange(timelineItems, today);
+  const range = fiscalRange(today, rangeBufferMonths);
   const visibleTimelineItems = timelineItems.filter((item) => {
     if (!showCompleted && isTimelineCompleted(item)) return false;
     if (themeFilter !== "all" && timelineThemeId(item) !== themeFilter) return false;
@@ -189,6 +241,12 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const days = Math.max(1, daysBetween(range.start, range.end));
   const canvasWidth = Math.round(days * dayWidth);
   const todayLeft = (daysBetween(range.start, today) / days) * 100;
+  const outsideCount = visibleTimelineItems.filter((item) => {
+    const span = timelineItemDateSpan(item);
+    const start = span.start || span.end;
+    const end = span.end || span.start;
+    return start && end && (end < range.start || start > range.end);
+  }).length;
 
   const didInitialScroll = useRef(false);
   useEffect(() => {
@@ -283,18 +341,131 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     pushUndo({ label: "計画変更", run: async () => { await saveEntities(timelineSaveItemOperations(item, v2)); } });
   }
 
+  function planNodeFor(item: Item) {
+    return v2.plan_nodes.find((node) => node.legacy_item_id === item.id || node.id === item.id);
+  }
+
+  function scheduleForPlanNode(planNodeId: string) {
+    return v2.schedules.find((schedule) => schedule.owner_type === "plan_node" && schedule.owner_id === planNodeId);
+  }
+
+  function openPlanNode(item: Item) {
+    const planNode = planNodeFor(item);
+    openDrawer({ type: "plan_node", mode: "edit", entity: { ...(planNode || item) } as Record<string, unknown> });
+  }
+
+  function createRangeFromRow(parent: Item, startDate: string, endDate: string) {
+    const start = startDate <= endDate ? startDate : endDate;
+    const end = endDate >= startDate ? endDate : startDate;
+    openDrawer({
+      type: "plan_node",
+      mode: "edit",
+      entity: {
+        ...timelineCreatePlanNodeDraft(parent.id, parent.theme_id, start, end),
+        title: "",
+        schedule_granularity: "month",
+      },
+    });
+  }
+
+  async function addQuickPlan() {
+    const title = quickPlan.title.trim();
+    if (!title) {
+      setToast("期間ブロックのタイトルを入力してください。");
+      return;
+    }
+    const startMonth = quickPlan.startMonth <= quickPlan.endMonth ? quickPlan.startMonth : quickPlan.endMonth;
+    const endMonth = quickPlan.endMonth >= quickPlan.startMonth ? quickPlan.endMonth : quickPlan.startMonth;
+    const planNodeId = uuid();
+    const rootPlans = timelineItems.filter((item) => !item.parent_item_id && item.theme_id === (quickPlan.themeId || null));
+    const sortOrder = Math.max(0, ...rootPlans.map((item) => Number(item.sort_order) || 0)) + 10;
+    const planNode = {
+      id: planNodeId,
+      title,
+      project_id: quickPlan.themeId || null,
+      parent_plan_node_id: null,
+      type: "phase",
+      state: "planned",
+      sort_order: sortOrder,
+      description: `${monthLabel(startMonth)}〜${monthLabel(endMonth)}`,
+      created_at: new Date().toISOString(),
+    };
+    const schedule = {
+      id: uuid(),
+      owner_type: "plan_node",
+      owner_id: planNodeId,
+      start_date: monthStart(startMonth),
+      end_date: monthEnd(endMonth),
+      date_kind: "range",
+      confidence: "tentative",
+      granularity: "month",
+    };
+    const ops: SaveOperation[] = [
+      { action: "save", type: "plan_node", entity: planNode },
+      { action: "save", type: "schedule", entity: schedule },
+    ];
+    await saveEntities(ops, "期間ブロックを追加しました。");
+    pushUndo({ label: "期間ブロック追加", run: async () => { await removeEntityQuiet("plan_node", planNodeId); } });
+    setQuickPlan((current) => ({ ...current, title: "" }));
+  }
+
+  async function reorderItem(item: Item, direction: -1 | 1) {
+    const siblings = timelineItems
+      .filter((entry) => entry.kind !== "milestone" && entry.parent_item_id === item.parent_item_id && timelineThemeId(entry) === timelineThemeId(item))
+      .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || String(a.title).localeCompare(String(b.title)));
+    const index = siblings.findIndex((entry) => entry.id === item.id);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= siblings.length) return;
+    const reordered = [...siblings];
+    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+    const ops = reordered.flatMap((entry, orderIndex) => timelineSaveItemOperations({ ...entry, sort_order: (orderIndex + 1) * 10 }, v2));
+    await saveEntities(ops, "並び順を変更しました。Ctrl+Zで戻せます。");
+    pushUndo({
+      label: "並び替え",
+      run: async () => {
+        await saveEntities(siblings.flatMap((entry) => timelineSaveItemOperations(entry, v2)));
+      },
+    });
+  }
+
+  async function deleteItem(item: Item) {
+    const planNode = planNodeFor(item);
+    if (!planNode) {
+      setToast("削除対象の計画ノードが見つかりません。");
+      return;
+    }
+    if (!window.confirm(`「${item.title}」を削除します。関連する日程と依存も非表示になります。`)) return;
+    const schedule = scheduleForPlanNode(planNode.id);
+    const deps = v2.plan_dependencies.filter((dep) => dep.plan_node_id === planNode.id || dep.depends_on_plan_node_id === planNode.id);
+    await removeEntityQuiet("plan_node", planNode.id);
+    pushUndo({
+      label: "計画削除",
+      run: async () => {
+        await saveEntities([
+          { action: "save", type: "plan_node", entity: planNode as unknown as SaveOperation["entity"] },
+          ...(schedule ? [{ action: "save" as const, type: "schedule" as const, entity: schedule as unknown as SaveOperation["entity"] }] : []),
+          ...deps.map((dep) => ({ action: "save" as const, type: "plan_dependency" as const, entity: dep as unknown as SaveOperation["entity"] })),
+        ]);
+      },
+    });
+    setToast("計画を削除しました。Ctrl+Zで元に戻せます。");
+  }
+
   return (
     <div className="page timeline-wide">
       <PageHeader title="Timeline" subtitle="実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。">
-        <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}>実施事項を追加</button>
+        <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</button>
       </PageHeader>
       <section className="timeline-toolbar panel">
         <label>Theme
           <select value={themeFilter} onChange={(event) => updatePrefs({ themeFilter: event.target.value })}>
             <option value="all">すべて</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+            {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
           </select>
         </label>
+        <div className="segmented" aria-label="表示範囲">
+          {RANGE_BUFFER_OPTIONS.map((option) => <button key={option.value} className={rangeBufferMonths === option.value ? "is-active" : ""} onClick={() => updatePrefs({ rangeBufferMonths: option.value })}>{option.label}</button>)}
+        </div>
         <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { ratio: (scroll.scrollLeft + cx) / scroll.scrollWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
         <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
         <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
@@ -313,6 +484,25 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         <button className="secondary-button compact" onClick={() => setCollapsedThemes([])}>全展開</button>
         <button className="secondary-button compact" onClick={() => setCollapsedThemes(groupKeys)}>全折りたたみ</button>
       </section>
+      <section className="timeline-quick-add panel">
+        <label>期間
+          <input value={quickPlan.title} onChange={(event) => setQuickPlan((current) => ({ ...current, title: event.target.value }))} placeholder="例: 実験設計" />
+        </label>
+        <label>Theme
+          <select value={quickPlan.themeId} onChange={(event) => setQuickPlan((current) => ({ ...current, themeId: event.target.value }))}>
+            <option value="">個人業務</option>
+            {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
+          </select>
+        </label>
+        <label>開始月
+          <input type="month" value={quickPlan.startMonth} onChange={(event) => setQuickPlan((current) => ({ ...current, startMonth: event.target.value }))} />
+        </label>
+        <label>終了月
+          <input type="month" value={quickPlan.endMonth} onChange={(event) => setQuickPlan((current) => ({ ...current, endMonth: event.target.value }))} />
+        </label>
+        <button className="secondary-button" onClick={addQuickPlan}><IconCalendarPlus size={16} />期間を追加</button>
+      </section>
+      {outsideCount > 0 && <div className="timeline-range-note">表示範囲外の計画が {outsideCount} 件あります。前後期間を広げると確認できます。</div>}
       <section className={`split-gantt panel ${connecting ? "is-connecting" : ""}`}>
         {connecting && (
           <div className="connect-status-popover" role="status" aria-live="polite">
@@ -329,7 +519,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                 <div className="gantt-theme-row" key={`theme-${row.groupKey}`}>
                   <button className="gantt-theme-toggle" onClick={() => setCollapsedThemes((current) => current.includes(row.groupKey) ? current.filter((key) => key !== row.groupKey) : [...current, row.groupKey])} aria-expanded={!collapsed}>
                     <span className="gantt-theme-caret">{collapsed ? "▸" : "▾"}</span>
-                    <strong>{row.theme?.name || "個人業務 / Themeなし"}</strong>
+                    <strong>{themeLabel(row.theme, "個人業務 / Themeなし")}</strong>
                     {row.theme && <StatusBadge value={row.theme.status} label={row.theme.status} />}
                   </button>
                   <span className="gantt-theme-count">実施事項 {row.initiativeCount} / 計画 {row.planCount}</span>
@@ -365,14 +555,21 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                   ) : (
                     <button className="gantt-title-button" onClick={(e) => {
                       if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openDrawer({ type: "plan_node", mode: "edit", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> });
+                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openPlanNode(item);
                     }}>
                       {item.title}
                     </button>
                   )}
                 </div>
                 {isPlan
-                  ? <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: timelineCreatePlanNodeDraft(item.id, item.theme_id, item.planned_start, item.planned_end) })}>＋</button>
+                  ? (
+                    <div className="gantt-row-actions">
+                      {!timelineItemIsMilestone(item) && <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: timelineCreatePlanNodeDraft(item.id, item.theme_id, item.planned_start, item.planned_end) })}><IconPlus size={15} /></button>}
+                      <button className="gantt-row-action" aria-label={`${item.title}を上へ移動`} title="上へ移動" onClick={() => reorderItem(item, -1)}><IconArrowUp size={14} /></button>
+                      <button className="gantt-row-action" aria-label={`${item.title}を下へ移動`} title="下へ移動" onClick={() => reorderItem(item, 1)}><IconArrowDown size={14} /></button>
+                      <button className="gantt-row-action danger" aria-label={`${item.title}を削除`} title="削除" onClick={() => deleteItem(item)}><IconTrash size={14} /></button>
+                    </div>
+                  )
                   : <StatusBadge value={timelineItemStatusValue(item)} label={timelineItemStatusLabel(item)} />}
               </div>
             );
@@ -386,11 +583,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
               if (row.rowType === "theme") return <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />;
               if (row.rowType === "milestones") {
                 const colorKey = themeColor(row.theme, themes.indexOf(row.theme ?? themes[0]));
-                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={(item) => openDrawer({ type: "plan_node", mode: "edit", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
+                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={openPlanNode} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
               }
               const itemTheme = themes.find((t) => t.id === row.item.theme_id);
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
-              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openDrawer({ type: "plan_node", mode: "edit", entity: { ...(v2.plan_nodes.find((n) => n.legacy_item_id === item.id || n.id === item.id) || item) } as Record<string, unknown> })} onMove={moveItem} connecting={connecting} onConnect={startConnecting} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
+              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openPlanNode(item)} onMove={moveItem} connecting={connecting} onConnect={startConnecting} onCreateRange={createRangeFromRow} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
             })}
             {showDependencies && <DependencyOverlay dependencies={timelineDependencies} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
             {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}
