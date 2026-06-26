@@ -495,7 +495,7 @@ export function WorkspaceApp() {
         title,
         project_id: formText(values, "theme_id") || null,
         parent_plan_node_id: parentPlanNodeId,
-        type: (formText(values, "node_type") || "milestone") as PlanNode["type"],
+        type: (formText(values, "node_type") || "phase") as PlanNode["type"],
         state: (formText(values, "node_state") || "planned") as PlanNode["state"],
         sort_order: Number(base.sort_order) || 0,
         description: formText(values, "description") || null,
@@ -504,12 +504,13 @@ export function WorkspaceApp() {
       };
       const ops = buildSavePlanNodeOperations(planNode);
       const inputUnit = formText(values, "schedule_input_unit") || formText(values, "schedule_granularity") || "day";
+      const nodeType = planNode.type;
       const startInput = formText(values, "start_date");
       const endInput = formText(values, "end_date");
       const startDate = inputUnit === "month" ? monthStart(startInput) : (startInput || null);
-      const endDate = inputUnit === "month" ? monthEnd(endInput) : (endInput || null);
+      const endDate = nodeType === "milestone" ? startDate : inputUnit === "month" ? monthEnd(endInput) : (endInput || null);
       const scheduleId = formText(values, "_schedule_id");
-      if (startDate || endDate || scheduleId) {
+      if (nodeType !== "phase" || startDate || endDate || scheduleId) {
         const schedule: Schedule = {
           id: scheduleId || uuid(),
           owner_type: "plan_node",
