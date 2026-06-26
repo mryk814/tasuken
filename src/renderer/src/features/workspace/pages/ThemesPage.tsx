@@ -1,6 +1,6 @@
 import type { PageProps } from "../types";
-import { THEME_STATUS_LABELS, themeColor } from "../lib/domain";
-import { PageHeader, StatusBadge } from "../components/common";
+import { themeColor } from "../lib/domain";
+import { PageHeader } from "../components/common";
 
 export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer, removeEntity }: PageProps) {
 
@@ -25,7 +25,7 @@ export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveT
               style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
             >
               <div className="theme-card-top">
-                <StatusBadge value={theme.status} label={THEME_STATUS_LABELS[theme.status ?? ""] || theme.status} />
+                <span className="theme-code">{theme.code || "識別子なし"}</span>
                 <div className="inline-actions" style={{ gap: "var(--space-xs)" }}>
                   <button className="secondary-button compact" onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}>編集</button>
                   <button

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { IconArrowDown, IconArrowUp, IconCalendarPlus, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconCalendarPlus, IconGripVertical, IconPlus, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePersistentState } from "../../../utils/usePersistentState";
@@ -7,7 +7,7 @@ import type { Item, PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
 import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
 import { buildTimelineRows, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
-import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis } from "../components/gantt";
+import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttRowHeight } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
 import {
   isTimelineCompleted,
@@ -25,7 +25,9 @@ import {
   timelineSaveItemOperations,
   timelineShiftItemDraft,
   timelineThemeId,
+  timelineResolveParentPlanNodeId,
 } from "../domain-model/compat/timelineProjection";
+import type { PlanNode, Schedule } from "../domain-model/types";
 
 type DragMode = "move" | "start" | "end";
 
@@ -111,6 +113,8 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const [connectMode, setConnectMode] = useState(false);
   const [selectedDep, setSelectedDep] = useState<SelectedDependency | null>(null);
   const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
+  const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
+  const [dropSortTargetId, setDropSortTargetId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<TimelineUndo[]>([]);
@@ -305,7 +309,13 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     const y = clientY - canvas.getBoundingClientRect().top - 44;
-    const row = rows[Math.floor(y / 44)];
+    let top = 0;
+    const row = rows.find((entry) => {
+      const height = entry.rowType === "item" ? ganttRowHeight(entry.laneItems.length ? entry.laneItems : [entry.item]) : 44;
+      const hit = y >= top && y < top + height;
+      top += height;
+      return hit;
+    });
     if (!row || row.rowType !== "item" || timelineItemLevel(row.item) !== "plan") return undefined;
     return row.item;
   }
@@ -354,18 +364,40 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     openDrawer({ type: "plan_node", mode: "edit", entity: { ...(planNode || item) } as Record<string, unknown> });
   }
 
-  function createRangeFromRow(parent: Item, startDate: string, endDate: string) {
+  async function createRangeFromRow(parent: Item, startDate: string, endDate: string) {
     const start = startDate <= endDate ? startDate : endDate;
     const end = endDate >= startDate ? endDate : startDate;
-    openDrawer({
-      type: "plan_node",
-      mode: "edit",
-      entity: {
-        ...timelineCreatePlanNodeDraft(parent.id, parent.theme_id, start, end),
-        title: "",
-        schedule_granularity: "month",
-      },
-    });
+    const planNodeId = uuid();
+    const parentPlanNodeId = timelineResolveParentPlanNodeId(v2, parent.id);
+    const siblings = timelineItems.filter((item) => item.parent_item_id === parent.id && timelineThemeId(item) === timelineThemeId(parent));
+    const sortOrder = Math.max(0, ...siblings.map((item) => Number(item.sort_order) || 0)) + 10;
+    const planNode: PlanNode = {
+      id: planNodeId,
+      title: "無題の計画",
+      project_id: parent.theme_id || null,
+      parent_plan_node_id: parentPlanNodeId,
+      type: "phase",
+      state: "planned",
+      sort_order: sortOrder,
+      description: null,
+      created_at: new Date().toISOString(),
+    };
+    const schedule: Schedule = {
+      id: uuid(),
+      owner_type: "plan_node",
+      owner_id: planNodeId,
+      start_date: start,
+      end_date: end,
+      date_kind: "range",
+      confidence: "tentative",
+      granularity: "day",
+    };
+    await saveEntities([
+      { action: "save", type: "plan_node", entity: planNode as unknown as SaveOperation["entity"] },
+      { action: "save", type: "schedule", entity: schedule as unknown as SaveOperation["entity"] },
+    ], "計画を追加しました。Ctrl+Zで戻せます。");
+    pushUndo({ label: "計画追加", run: async () => { await removeEntityQuiet("plan_node", planNodeId); } });
+    setEditingTitle({ id: planNodeId, value: "" });
   }
 
   async function addQuickPlan() {
@@ -409,15 +441,21 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     setQuickPlan((current) => ({ ...current, title: "" }));
   }
 
-  async function reorderItem(item: Item, direction: -1 | 1) {
+  async function reorderItemToTarget(item: Item, target: Item) {
+    if (item.id === target.id) return;
+    if (item.parent_item_id !== target.parent_item_id || timelineThemeId(item) !== timelineThemeId(target)) {
+      setToast("同じ階層の計画同士で並び替えてください。");
+      return;
+    }
     const siblings = timelineItems
       .filter((entry) => entry.kind !== "milestone" && entry.parent_item_id === item.parent_item_id && timelineThemeId(entry) === timelineThemeId(item))
       .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || String(a.title).localeCompare(String(b.title)));
-    const index = siblings.findIndex((entry) => entry.id === item.id);
-    const nextIndex = index + direction;
-    if (index < 0 || nextIndex < 0 || nextIndex >= siblings.length) return;
+    const fromIndex = siblings.findIndex((entry) => entry.id === item.id);
+    const toIndex = siblings.findIndex((entry) => entry.id === target.id);
+    if (fromIndex < 0 || toIndex < 0) return;
     const reordered = [...siblings];
-    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
     const ops = reordered.flatMap((entry, orderIndex) => timelineSaveItemOperations({ ...entry, sort_order: (orderIndex + 1) * 10 }, v2));
     await saveEntities(ops, "並び順を変更しました。Ctrl+Zで戻せます。");
     pushUndo({
@@ -520,7 +558,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                   <button className="gantt-theme-toggle" onClick={() => setCollapsedThemes((current) => current.includes(row.groupKey) ? current.filter((key) => key !== row.groupKey) : [...current, row.groupKey])} aria-expanded={!collapsed}>
                     <span className="gantt-theme-caret">{collapsed ? "▸" : "▾"}</span>
                     <strong>{themeLabel(row.theme, "個人業務 / Themeなし")}</strong>
-                    {row.theme && <StatusBadge value={row.theme.status} label={row.theme.status} />}
+                    {row.theme?.code && <span className="theme-code">{row.theme.code}</span>}
                   </button>
                   <span className="gantt-theme-count">実施事項 {row.initiativeCount} / 計画 {row.planCount}</span>
                 </div>
@@ -536,8 +574,27 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
             }
             const { item, depth } = row;
             const isPlan = timelineItemLevel(item) === "plan";
+            const rowHeight = ganttRowHeight(row.laneItems.length ? row.laneItems : [item]);
             return (
-              <div className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""}`} key={item.id}>
+              <div
+                className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
+                key={item.id}
+                style={{ minHeight: rowHeight }}
+                onDragOver={(event) => {
+                  if (!isPlan || !draggingSortId || draggingSortId === item.id) return;
+                  event.preventDefault();
+                  setDropSortTargetId(item.id);
+                }}
+                onDragLeave={() => dropSortTargetId === item.id && setDropSortTargetId(null)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const sourceId = event.dataTransfer.getData("text/plain") || draggingSortId;
+                  const source = timelineItems.find((entry) => entry.id === sourceId);
+                  setDraggingSortId(null);
+                  setDropSortTargetId(null);
+                  if (source && isPlan) void reorderItemToTarget(source, item);
+                }}
+              >
                 <div className="gantt-name" style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}>
                   {timelineItemIsMilestone(item) && <span className="gantt-milestone-mark">◆</span>}
                   {editingTitle?.id === item.id ? (
@@ -565,8 +622,22 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                   ? (
                     <div className="gantt-row-actions">
                       {!timelineItemIsMilestone(item) && <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: timelineCreatePlanNodeDraft(item.id, item.theme_id, item.planned_start, item.planned_end) })}><IconPlus size={15} /></button>}
-                      <button className="gantt-row-action" aria-label={`${item.title}を上へ移動`} title="上へ移動" onClick={() => reorderItem(item, -1)}><IconArrowUp size={14} /></button>
-                      <button className="gantt-row-action" aria-label={`${item.title}を下へ移動`} title="下へ移動" onClick={() => reorderItem(item, 1)}><IconArrowDown size={14} /></button>
+                      <button
+                        className="gantt-row-action drag"
+                        draggable
+                        aria-label={`${item.title}をドラッグで並べ替え`}
+                        title="ドラッグで並べ替え"
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", item.id);
+                          setDraggingSortId(item.id);
+                          setDropSortTargetId(null);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingSortId(null);
+                          setDropSortTargetId(null);
+                        }}
+                      ><IconGripVertical size={15} /></button>
                       <button className="gantt-row-action danger" aria-label={`${item.title}を削除`} title="削除" onClick={() => deleteItem(item)}><IconTrash size={14} /></button>
                     </div>
                   )

@@ -11,6 +11,7 @@ import {
   IconSortDescending,
   IconStar,
   IconStarFilled,
+  IconTrash,
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -72,6 +73,7 @@ export function ChatRefsPage({
   activeThemeId,
   setActiveThemeId,
   openDrawer,
+  removeEntity,
   saveEntities,
   setToast,
 }: PageProps) {
@@ -278,6 +280,14 @@ export function ChatRefsPage({
                     <a className="chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" aria-label="リンクを開く">
                       <IconExternalLink size={16} />
                     </a>
+                    <button
+                      className="chat-link-delete"
+                      onClick={() => removeEntity("resource", r as unknown as Record<string, unknown>)}
+                      aria-label={`${r.title || "チャットリンク"}を削除`}
+                      title="削除"
+                    >
+                      <IconTrash size={15} />
+                    </button>
                     <span className="chat-link-date">{formatDate(resourceDate(r))}</span>
                   </div>
                 ))}

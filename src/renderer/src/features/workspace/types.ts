@@ -24,6 +24,7 @@ export interface BaseRecord {
 
 export interface Theme extends BaseRecord {
   name: string;
+  code?: string;
   description?: string;
   status?: string;
   color?: string;

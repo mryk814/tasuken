@@ -24,7 +24,7 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
   return (
     <div className="page">
       <PageHeader title={activeTheme.name} subtitle={activeTheme.description}>
-        <StatusBadge value={activeTheme.status} label={THEME_STATUS_LABELS[String(activeTheme.status || "")] || String(activeTheme.status || "未設定")} />
+        {activeTheme.code && <span className="theme-code">{activeTheme.code}</span>}
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: activeTheme.id } })}>現在地を記録</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: activeTheme.id } })}>タスクを追加</button>
       </PageHeader>

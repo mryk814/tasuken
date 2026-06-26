@@ -70,17 +70,23 @@ export function ThemeSelect({
   allowPersonal = false,
   allowAll = false,
   fieldName = "theme_id",
+  onChange,
 }: {
   themes?: Theme[];
   value?: string | null;
   allowPersonal?: boolean;
   allowAll?: boolean;
   fieldName?: string;
+  onChange?: (value: string) => void;
 }) {
   const [selected, setSelected] = useState(value || "");
   useEffect(() => {
     setSelected(value || "");
   }, [value]);
+  function choose(next: string) {
+    setSelected(next);
+    onChange?.(next);
+  }
   const noneLabel = allowAll ? "全体共通" : allowPersonal ? "個人業務" : "未設定";
   return (
     <Field label="Theme">
@@ -89,7 +95,7 @@ export function ThemeSelect({
         <button
           type="button"
           className={`theme-chip ${!selected ? "is-selected" : ""}`}
-          onClick={() => setSelected("")}
+          onClick={() => choose("")}
         >
           {noneLabel}
         </button>
@@ -99,7 +105,7 @@ export function ThemeSelect({
             type="button"
             className={`theme-chip ${selected === theme.id ? "is-selected" : ""}`}
             style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
-            onClick={() => setSelected(theme.id)}
+            onClick={() => choose(theme.id)}
           >
             <span className="chip-dot" />
             {theme.name}

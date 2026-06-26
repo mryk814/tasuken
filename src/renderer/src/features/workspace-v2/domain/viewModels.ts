@@ -3,6 +3,7 @@ export type {
   TodayEntry,
   TodoView,
   InboxView,
+  MicroMemoView,
   WaitingView,
   TimelineRow,
   TimelineView,

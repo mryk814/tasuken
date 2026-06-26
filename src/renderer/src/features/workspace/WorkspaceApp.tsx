@@ -48,6 +48,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TodayPage } from "./pages/TodayPage";
 import { InboxPage } from "./pages/InboxPage";
 import { ChatRefsPage } from "./pages/ChatRefsPage";
+import { MicroMemoPage } from "./pages/MicroMemoPage";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -93,6 +94,21 @@ function taskChecklistFromForm(values: FormData): TaskChecklistItem[] {
         completed_at: done ? (formText(values, `checklist_completed_at_${index}`) || new Date().toISOString()) : null,
       }];
     });
+}
+
+function monthStart(value: string): string | null {
+  return value ? `${value}-01` : null;
+}
+
+function monthEnd(value: string): string | null {
+  if (!value) return null;
+  const [year, month] = value.split("-").map(Number);
+  const last = new Date(year, month, 0);
+  return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeChatReferenceStatus(value: string): string {
+  return value === "adopted" ? "adopted" : "inbox";
 }
 
 function emptyData(): WorkspaceData {
@@ -487,8 +503,11 @@ export function WorkspaceApp() {
         created_at: (base.created_at as string) || new Date().toISOString(),
       };
       const ops = buildSavePlanNodeOperations(planNode);
-      const startDate = formText(values, "start_date") || null;
-      const endDate = formText(values, "end_date") || null;
+      const inputUnit = formText(values, "schedule_input_unit") || formText(values, "schedule_granularity") || "day";
+      const startInput = formText(values, "start_date");
+      const endInput = formText(values, "end_date");
+      const startDate = inputUnit === "month" ? monthStart(startInput) : (startInput || null);
+      const endDate = inputUnit === "month" ? monthEnd(endInput) : (endInput || null);
       const scheduleId = formText(values, "_schedule_id");
       if (startDate || endDate || scheduleId) {
         const schedule: Schedule = {
@@ -498,8 +517,8 @@ export function WorkspaceApp() {
           start_date: startDate,
           end_date: endDate,
           date_kind: startDate && endDate && startDate !== endDate ? "range" : endDate ? "deadline" : startDate ? "point" : "unknown",
-          confidence: formText(values, "schedule_granularity") === "month" ? "tentative" : "fixed",
-          granularity: (formText(values, "schedule_granularity") || "day") as Schedule["granularity"],
+          confidence: inputUnit === "month" ? "tentative" : "fixed",
+          granularity: inputUnit === "month" ? "month" : "day",
         };
         ops.push(...buildSaveScheduleOperations(schedule));
       }
@@ -514,6 +533,7 @@ export function WorkspaceApp() {
         id: (base.id as string) || uuid(),
         text,
         title: formText(values, "title") || null,
+        kind: (base.kind as string | null) ?? null,
         captured_at: formText(values, "captured_at") || (base.captured_at as string) || new Date().toISOString().slice(0, 10),
         state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
         legacy_item_id: (base.legacy_item_id as string | null) ?? null,
@@ -536,8 +556,8 @@ export function WorkspaceApp() {
         description: formText(values, "description") || null,
         source_record_id: (base.source_record_id as string | null) ?? null,
         link_type: formText(values, "link_type") || ((base.link_type as string | null) ?? null),
-        reference_status: formText(values, "reference_status") || ((base.reference_status as string | null) ?? null),
-        importance: values.has("importance_high") ? "high" : (formText(values, "importance") || null),
+        reference_status: formText(values, "reference_status") ? normalizeChatReferenceStatus(formText(values, "reference_status")) : (base.reference_status ? normalizeChatReferenceStatus(String(base.reference_status)) : null),
+        importance: formText(values, "importance") || null,
         captured_at: formText(values, "captured_at") || ((base.captured_at as string | null) ?? null),
         chat_group: formText(values, "chat_group") || null,
       };
@@ -549,7 +569,8 @@ export function WorkspaceApp() {
     if (type === "theme") {
       const name = formText(values, "name");
       if (!name) { setToast("テーマ名を入力してください。"); return; }
-      entity = { ...base, name, description: formText(values, "description"), status: formText(values, "status", "計画中"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
+      const { status: _status, ...rest } = base;
+      entity = { ...rest, name, code: formText(values, "code") || null, description: formText(values, "description"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
     } else if (type === "note") {
       const title = formText(values, "title");
       const body = formText(values, "body_markdown");
@@ -716,6 +737,7 @@ export function WorkspaceApp() {
   const pages: Record<string, React.ReactNode> = {
     today: <TodayPage {...common} />,
     inbox: <InboxPage {...common} />,
+    "micro-memos": <MicroMemoPage {...common} />,
     "chat-refs": <ChatRefsPage {...common} />,
     home: <HomePage {...common} />,
     todo: <TodoPage {...common} />,

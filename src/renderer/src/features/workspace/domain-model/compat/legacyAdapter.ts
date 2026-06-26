@@ -243,6 +243,7 @@ function migrateProject(theme: Theme): Project {
   return {
     id: theme.id,
     name: theme.name,
+    code: nullableText(theme.code),
     description: nullableText(theme.description),
     state: projectStateFromLegacy(theme),
     color: nullableText(theme.color),
@@ -840,6 +841,7 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     themes: domain.projects.map((project) => ({
       id: project.legacy_theme_id || project.id,
       name: project.name,
+      code: project.code || undefined,
       description: project.description || undefined,
       status: project.state === "closed" ? "completed" : project.state,
       color: project.color || undefined,

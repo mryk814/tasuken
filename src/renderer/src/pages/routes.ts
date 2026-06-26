@@ -1,5 +1,6 @@
 export const crossNavigation = [
   ["inbox", "Inbox整理"],
+  ["micro-memos", "付箋メモ"],
   ["timeline", "Timeline"],
 ] as const;
 
@@ -31,6 +32,7 @@ export const knowledgeHubTabs = [
 export type RouteId =
   | "today"
   | "inbox"
+  | "micro-memos"
   | "chat-refs"
   | "home"
   | "todo"

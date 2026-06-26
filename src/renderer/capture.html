@@ -163,13 +163,14 @@
       let mode = "inbox";
 
       function applyMode(nextMode) {
-        mode = nextMode === "today-task" ? "today-task" : "inbox";
+        mode = nextMode === "today-task" || nextMode === "micro-memo" ? nextMode : "inbox";
         const isTodayTask = mode === "today-task";
-        title.textContent = isTodayTask ? "今日のタスクに追加" : "Inbox に記録";
-        modePill.textContent = isTodayTask ? "Today Task" : "Inbox";
-        input.placeholder = isTodayTask ? "今日やるタスク" : "メモ・気づき・あとで整理すること";
+        const isMicroMemo = mode === "micro-memo";
+        title.textContent = isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
+        modePill.textContent = isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
+        input.placeholder = isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
         submitButton.textContent = isTodayTask ? "今日に追加" : "記録する";
-        feedback.textContent = isTodayTask ? "今日のタスクに追加しました" : "Inbox整理に記録しました";
+        feedback.textContent = isTodayTask ? "今日のタスクに追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
       }
 
       async function submit() {

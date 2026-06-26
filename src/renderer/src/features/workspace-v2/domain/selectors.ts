@@ -2,6 +2,7 @@
 export {
   buildTodoView,
   buildInboxView,
+  buildMicroMemoView,
   buildWaitingView,
   buildTodayView,
   buildTimelineView,
