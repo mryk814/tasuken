@@ -32,6 +32,10 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
   const themeWaitings = v2.waitings.filter((w) => w.project_id === theme.id);
   const themePlanNodes = v2.plan_nodes.filter((p) => p.project_id === theme.id);
   const openTasks = themeTasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
+  const doneTasks = themeTasks
+    .filter((t) => t.state === "done")
+    .sort((a, b) => str(b.completed_at || b.updated_at || b.created_at).localeCompare(str(a.completed_at || a.updated_at || a.created_at)))
+    .slice(0, 7);
   const activeWaitings = themeWaitings.filter((w) => w.state === "waiting");
   const milestones = themePlanNodes
     .filter((p) => p.type === "milestone" && p.state !== "done" && p.state !== "cancelled")
@@ -129,6 +133,15 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
           <SimpleRows records={themeNotes.filter((note) => note.note_type !== "report" && note.note_type !== "report_prompt").slice(0, 5)} onOpen={(note) => openDrawer({ type: "note", entity: note })} meta={(note) => String(note.note_type ?? "")} />
         </section>
       </div>
+      <section className="panel">
+        <div className="section-heading"><h2>最近やったこと</h2><button className="text-button compact" onClick={() => navigate("todo")}>完了一覧へ</button></div>
+        <SimpleRows
+          records={doneTasks as unknown as BaseRecord[]}
+          onOpen={(task) => openDrawer({ type: "task", entity: task })}
+          meta={(task) => formatDate(str(task.completed_at || task.updated_at || task.created_at))}
+        />
+        {!doneTasks.length && <EmptyState title="完了済みの記録はまだありません" />}
+      </section>
       <section className="panel report-section">
         <div className="section-heading">
           <h2>報告書</h2>

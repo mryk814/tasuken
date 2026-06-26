@@ -17,7 +17,7 @@ const APP_NAME = "Tasken";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
-type QuickCaptureMode = "inbox" | "today-task" | "micro-memo";
+type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
   try {
@@ -57,7 +57,7 @@ function getCapturePreloadPath(): string {
 function createCaptureWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 420,
-    height: 180,
+    height: 228,
     show: false,
     frame: false,
     resizable: false,
@@ -90,7 +90,14 @@ function createCaptureWindow(): BrowserWindow {
 
 function sendCaptureWindowState(win: BrowserWindow, mode: QuickCaptureMode): void {
   const themeMode = workspaceRepository?.getPreference("themeMode") ?? "light";
+  const themes = [
+    ...(workspaceRepository?.list("theme") ?? []).map((theme: Entity) => ({ id: theme.id, name: String(theme.name || theme.title || "Theme") })),
+    ...(workspaceRepository?.list("project") ?? []).map((project: Entity) => ({ id: project.id, name: String(project.name || project.title || "Theme") })),
+  ];
+  const uniqueThemes = [...new Map(themes.map((theme) => [theme.id, theme])).values()]
+    .sort((a, b) => a.name.localeCompare(b.name, "ja-JP"));
   win.webContents.send("quick-capture:theme", themeMode);
+  win.webContents.send("quick-capture:themes", uniqueThemes);
   win.webContents.send("quick-capture:shown", mode);
 }
 
@@ -140,6 +147,7 @@ function setupTray(): void {
   const contextMenu = Menu.buildFromTemplate([
     { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => showCaptureWindow("inbox") },
     { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => showCaptureWindow("today-task") },
+    { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+L", click: () => showCaptureWindow("done-task") },
     { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => showCaptureWindow("micro-memo") },
     { type: "separator" },
     { label: `${APP_NAME} を開く`, click: () => {
@@ -181,12 +189,14 @@ function localDateTimeString(date = new Date()): string {
 }
 
 function registerCaptureIpc(): void {
-  ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox") => {
+  ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string) => {
     const trimmed = (text || "").trim();
     if (!trimmed) throw new Error("入力が空です。");
-    if (mode === "today-task") {
+    if (mode === "today-task" || mode === "done-task") {
       const taskId = randomUUID();
       const today = localDateString();
+      const now = new Date().toISOString();
+      const isDoneTask = mode === "done-task";
       const saved = workspaceRepository.saveMany([
         {
           action: "save",
@@ -195,8 +205,11 @@ function registerCaptureIpc(): void {
             id: taskId,
             title: trimmed,
             description: null,
-            state: "todo",
+            project_id: themeId || null,
+            state: isDoneTask ? "done" : "todo",
             priority: "normal",
+            completed_at: isDoneTask ? now : null,
+            created_at: now,
           },
           options: { source: "quick-capture" },
         },
@@ -431,6 +444,7 @@ void app.whenReady().then(() => {
     setupTray();
     globalShortcut.register("CmdOrCtrl+Shift+N", () => showCaptureWindow("inbox"));
     globalShortcut.register("CmdOrCtrl+Shift+M", () => showCaptureWindow("today-task"));
+    globalShortcut.register("CmdOrCtrl+Shift+L", () => showCaptureWindow("done-task"));
     globalShortcut.register("CmdOrCtrl+Shift+.", () => showCaptureWindow("micro-memo"));
   }
 
