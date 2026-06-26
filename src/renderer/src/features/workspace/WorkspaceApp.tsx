@@ -576,17 +576,27 @@ export function WorkspaceApp() {
       const title = formText(values, "title");
       const body = formText(values, "body_markdown");
       if (!title || !body) { setToast("タイトルと本文を入力してください。"); return; }
+      const noteType = formText(values, "note_type", "memo");
+      const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
+        report_type: formText(values, "report_type", "weekly"),
+        ...(noteType === "report" ? {
+          report_status: formText(values, "report_status", "draft"),
+          period_start: formText(values, "period_start") || null,
+          period_end: formText(values, "period_end") || null,
+          sent_at: formText(values, "sent_at") || null,
+        } : {}),
+      } : {};
       entity = {
         ...base,
         title,
         body_markdown: body,
-        note_type: formText(values, "note_type", "memo"),
-        content_format: formText(values, "content_format") || (formText(values, "note_type") === "artifact" ? "markdown" : null),
+        note_type: noteType,
+        content_format: formText(values, "content_format") || (noteType === "artifact" || noteType === "report" || noteType === "report_prompt" ? "markdown" : null),
         theme_id: formText(values, "theme_id") || null,
-        item_id: formText(values, "item_id") || null,
-        source_url: formText(values, "source_url"),
+        item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
+        source_url: noteType === "report" || noteType === "report_prompt" ? "" : formText(values, "source_url"),
         source_record_id: formText(values, "source_record_id") || null,
-        properties_json: (base.properties_json as Record<string, unknown>) || {},
+        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), ...reportProperties },
         comments: (base.comments as Note["comments"]) || [],
       };
     } else if (type === "status_update") {

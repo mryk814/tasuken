@@ -19,6 +19,7 @@ import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { EmptyState, Metric, PageHeader } from "../components/common";
+import { ChecklistProgressBadge } from "../components/taskChecklist";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -224,7 +225,10 @@ function TodayRows({
               </button>
               <button className="today-task-title" onClick={() => onOpenDetail(row)}>
                 <strong>{row.title}</strong>
-                <span>{theme?.name || "個人業務"} / {row.kindLabel}</span>
+                <span>
+                  {theme?.name || "個人業務"} / {row.kindLabel}
+                  {row.v2?.type === "task" && <ChecklistProgressBadge items={row.v2.task.checklist_items} />}
+                </span>
                 {row.v2?.type === "task" && row.v2.task.repeat_rule && <small>{repeatRuleLabel(row.v2.task.repeat_rule)}</small>}
               </button>
             </div>

@@ -17,6 +17,7 @@ import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TY
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
+import { ChecklistProgressBadge } from "./taskChecklist";
 import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
@@ -25,6 +26,7 @@ import {
   CAPTURE_ENTRY_STATE_LABELS,
 } from "../domain-model/labels";
 import {
+  buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
 } from "../domain-model/persistence";
@@ -65,6 +67,17 @@ const REPEAT_FREQUENCY_LABELS = {
   monthly: "毎月",
 };
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+const REPORT_TYPE_LABELS: Record<string, string> = {
+  weekly: "週報",
+  monthly: "月報",
+  milestone: "節目報告",
+  ad_hoc: "その他",
+};
+const REPORT_STATUS_LABELS: Record<string, string> = {
+  draft: "下書き",
+  sent: "送付済み",
+  archived: "アーカイブ",
+};
 
 function ThemeColorPicker({ value }: { value?: string }) {
   const [selected, setSelected] = useState(value || CHART_COLORS[0]);
@@ -181,7 +194,7 @@ function normalizeChecklistItems(entity: DrawerConfig["entity"]) {
 
 export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
   const entity = drawer.entity || {};
-  if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} removeEntity={removeEntity} />;
+  if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} removeEntity={removeEntity} saveEntities={saveEntities} />;
   const type = drawer.type;
   if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
@@ -226,11 +239,31 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
           <h2>{task.title}</h2>
           <p>{task.description || "説明なし"}</p>
           {Boolean(task.checklist_items?.length) && (
-            <ul className="task-checklist-detail">
-              {task.checklist_items?.map((item) => (
-                <li key={item.id} className={item.done ? "is-done" : ""}>{item.title}</li>
-              ))}
-            </ul>
+            <>
+              <div className="task-checklist-detail-heading">
+                <strong>チェックリスト</strong>
+                <ChecklistProgressBadge items={task.checklist_items} />
+              </div>
+              <ul className="task-checklist-detail">
+                {task.checklist_items?.map((item) => (
+                  <li key={item.id} className={item.done ? "is-done" : ""}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={item.done}
+                        onChange={async () => {
+                          const nextItems = (task.checklist_items || []).map((entry) => entry.id === item.id
+                            ? { ...entry, done: !entry.done, completed_at: !entry.done ? new Date().toISOString() : null }
+                            : entry);
+                          await saveEntities(buildSaveTaskOperations({ ...task, checklist_items: nextItems }), "チェックリストを保存しました。");
+                        }}
+                      />
+                      <span>{item.title}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           <dl>
             <dt>Theme</dt><dd>{themeName}</dd>
@@ -344,7 +377,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
   return <EditDrawer drawer={{ ...drawer, mode: "edit" }} data={data} close={close} saveForm={saveForm} />;
 }
 
-function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm; removeEntity?: RemoveEntity }) {
+function EditDrawer({ drawer, data, close, saveForm, removeEntity, saveEntities }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm; removeEntity?: RemoveEntity; saveEntities?: SaveEntities }) {
   const type = drawer.type;
   const entity = drawer.entity;
   const typeLabels: Record<string, string> = {
@@ -379,23 +412,7 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
             <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
           </>
         )}
-        {type === "note" && (
-          <>
-            <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
-            <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
-            <ItemSelect items={data.items} value={str(entity.item_id)} />
-            <Field label="種別"><select name="note_type" defaultValue={str(entity.note_type) || "memo"}>{Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-            <Field label="形式">
-              <select name="content_format" defaultValue={str(entity.content_format) || (str(entity.note_type) === "artifact" ? "markdown" : "plain")}>
-                <option value="markdown">Markdown</option>
-                <option value="html">HTML</option>
-                <option value="plain">Plain text</option>
-              </select>
-            </Field>
-            <Field label="参照URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>
-            <Field label="本文"><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
-          </>
-        )}
+        {type === "note" && <NoteFields entity={entity} data={data} />}
         {type === "resource" && <ResourceFields entity={entity} data={data} />}
         {type === "status_update" && (
           <>
@@ -436,7 +453,7 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
         {type === "reference" && <ReferenceFields entity={entity} data={data} />}
         {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
         {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
-        {type === "task" && <TaskFields entity={entity} data={data} />}
+        {type === "task" && <TaskFields entity={entity} data={data} saveEntities={saveEntities} />}
         {type === "waiting" && <WaitingFields entity={entity} data={data} />}
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
         {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
@@ -450,6 +467,60 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
         )}
       </form>
     </aside>
+  );
+}
+
+function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const initialType = str(entity.note_type) || "memo";
+  const [noteType, setNoteType] = useState(initialType);
+  const properties = entity.properties_json && typeof entity.properties_json === "object" ? entity.properties_json as Record<string, unknown> : {};
+  const isReport = noteType === "report";
+  const isReportPrompt = noteType === "report_prompt";
+  return (
+    <>
+      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
+      {!isReport && !isReportPrompt && <ItemSelect items={data.items} value={str(entity.item_id)} />}
+      <Field label="種別">
+        <select name="note_type" value={noteType} onChange={(event) => setNoteType(event.target.value)}>
+          {Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <option value="report">報告書</option>
+          <option value="report_prompt">報告書プロンプト</option>
+        </select>
+      </Field>
+      {(isReport || isReportPrompt) && (
+        <div className="form-grid">
+          <Field label="報告種別">
+            <select name="report_type" defaultValue={str(properties.report_type) || "weekly"}>
+              {Object.entries(REPORT_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          {isReport && (
+            <Field label="状態">
+              <select name="report_status" defaultValue={str(properties.report_status) || "draft"}>
+                {Object.entries(REPORT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+          )}
+        </div>
+      )}
+      {isReport && (
+        <div className="form-grid">
+          <Field label="対象開始"><input name="period_start" type="date" defaultValue={str(properties.period_start)} /></Field>
+          <Field label="対象終了"><input name="period_end" type="date" defaultValue={str(properties.period_end)} /></Field>
+          <Field label="送付日"><input name="sent_at" type="date" defaultValue={str(properties.sent_at)} /></Field>
+        </div>
+      )}
+      <Field label="形式">
+        <select name="content_format" defaultValue={str(entity.content_format) || ((isReport || isReportPrompt || str(entity.note_type) === "artifact") ? "markdown" : "plain")}>
+          <option value="markdown">Markdown</option>
+          <option value="html">HTML</option>
+          <option value="plain">Plain text</option>
+        </select>
+      </Field>
+      {!isReport && !isReportPrompt && <Field label="参照URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>}
+      <Field label={isReportPrompt ? "プロンプト" : "本文"}><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
+    </>
   );
 }
 
@@ -1082,13 +1153,45 @@ function KnowledgeNodeDetailDrawer({
   );
 }
 
-function TaskFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["entity"]; data: WorkspaceData; saveEntities?: SaveEntities }) {
   const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
   const repeatRule = entity.repeat_rule && typeof entity.repeat_rule === "object" ? entity.repeat_rule as Record<string, unknown> : null;
   const [repeatFrequency, setRepeatFrequency] = useState(str(repeatRule?.frequency));
   const [checklist, setChecklist] = useState(normalizeChecklistItems(entity));
+  const [checklistSaveState, setChecklistSaveState] = useState<"idle" | "saving" | "saved" | "error">(entity.id ? "saved" : "idle");
   const selectedWeekdays = Array.isArray(repeatRule?.weekdays) ? repeatRule.weekdays.map((value) => Number(value)) : [];
   const fallbackMonthDay = dateOnly(schedule?.end_date || schedule?.start_date || todayIso()).slice(-2);
+  const canAutoSaveChecklist = Boolean(entity.id && saveEntities);
+  async function saveChecklist(nextChecklist: ReturnType<typeof normalizeChecklistItems>) {
+    setChecklist(nextChecklist);
+    if (!canAutoSaveChecklist) return;
+    const items = nextChecklist
+      .map((item, index) => ({ ...item, title: item.title.trim(), sort_order: index }))
+      .filter((item) => item.title);
+    const task: Task = {
+      id: str(entity.id),
+      title: str(entity.title),
+      project_id: (entity.project_id as string | null) ?? null,
+      plan_node_id: (entity.plan_node_id as string | null) ?? null,
+      parent_task_id: (entity.parent_task_id as string | null) ?? null,
+      state: (str(entity.state) || "todo") as Task["state"],
+      priority: str(entity.priority) === "high" ? "high" : "normal",
+      description: (entity.description as string | null) ?? null,
+      repeat_rule: repeatRule as Task["repeat_rule"],
+      repeat_series_id: (entity.repeat_series_id as string | null) ?? null,
+      repeat_parent_task_id: (entity.repeat_parent_task_id as string | null) ?? null,
+      checklist_items: items,
+      legacy_item_id: (entity.legacy_item_id as string | null) ?? null,
+      created_at: str(entity.created_at) || new Date().toISOString(),
+    };
+    try {
+      setChecklistSaveState("saving");
+      await saveEntities?.(buildSaveTaskOperations(task), "チェックリストを保存しました。");
+      setChecklistSaveState("saved");
+    } catch {
+      setChecklistSaveState("error");
+    }
+  }
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
@@ -1149,6 +1252,11 @@ function TaskFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
       <section className="drawer-subsection">
         <div className="section-heading">
           <h2>チェックリスト</h2>
+          {canAutoSaveChecklist && (
+            <span className={`save-status save-status-${checklistSaveState}`} role="status" aria-live="polite">
+              {checklistSaveState === "saving" ? "保存中" : checklistSaveState === "error" ? "保存できませんでした" : "保存済み"}
+            </span>
+          )}
           <button
             className="text-button compact"
             type="button"
@@ -1163,15 +1271,31 @@ function TaskFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
               <input type="hidden" name="checklist_id" value={item.id} />
               <input type="hidden" name={`checklist_completed_at_${index}`} value={item.completed_at} />
               <label className="checklist-toggle">
-                <input name={`checklist_done_${index}`} type="checkbox" defaultChecked={item.done} />
+                <input
+                  name={`checklist_done_${index}`}
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={(event) => {
+                    const done = event.target.checked;
+                    const next = checklist.map((entry) => entry.id === item.id ? { ...entry, done, completed_at: done ? new Date().toISOString() : "" } : entry);
+                    void saveChecklist(next);
+                  }}
+                />
               </label>
               <input
                 name="checklist_title"
                 value={item.title}
                 onChange={(event) => setChecklist((current) => current.map((entry) => entry.id === item.id ? { ...entry, title: event.target.value } : entry))}
+                onBlur={() => {
+                  const next = checklist.map((entry) => entry.id === item.id ? { ...entry, title: entry.title.trim() } : entry);
+                  if (next.some((entry) => entry.id === item.id && entry.title)) void saveChecklist(next);
+                }}
                 placeholder="手順"
               />
-              <button className="text-button compact" type="button" onClick={() => setChecklist((current) => current.filter((entry) => entry.id !== item.id))}>削除</button>
+              <button className="text-button compact" type="button" onClick={() => {
+                const next = checklist.filter((entry) => entry.id !== item.id);
+                void saveChecklist(next);
+              }}>削除</button>
             </div>
           ))}
         </div>
@@ -1205,8 +1329,8 @@ function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data
   const schedule = findSchedule(data, "plan_node", str(entity.id), entity._schedule);
   const initialNodeType = str(entity.node_type) || str(entity.type) || "phase";
   const [nodeType, setNodeType] = useState(initialNodeType);
-  const hasRangeSchedule = Boolean(schedule?.start_date || schedule?.end_date || entity._parent_plan_node_item_id);
-  const showRangeInputs = hasRangeSchedule && nodeType !== "milestone";
+  const isChildPlan = Boolean(entity.parent_plan_node_id || entity._parent_plan_node_item_id);
+  const showRangeInputs = isChildPlan && nodeType !== "milestone";
   const showMilestoneDate = nodeType === "milestone";
   const [dateUnit, setDateUnit] = useState(str(schedule?.granularity) === "month" || str(entity.schedule_granularity) === "month" ? "month" : "day");
   const startValue = dateUnit === "month" ? dateOnly(schedule?.start_date).slice(0, 7) : dateOnly(schedule?.start_date);
