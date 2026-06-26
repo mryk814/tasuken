@@ -30,6 +30,7 @@ export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
       <PageHeader title="Notes & Resources" subtitle="作業ログや素材はここへ入れ、判断に使う部品だけKnowledge化します">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: {} })}>リソースを追加</button>
+        <button className="secondary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "artifact", content_format: "markdown" } })}>成果物を追加</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button>
       </PageHeader>
       <div className="filter-bar panel">
@@ -42,7 +43,7 @@ export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
           const url = str(record.source_url || record.url);
           return (
             <div className="note-row" key={`${record.recordType}-${record.id}`}>
-              <button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, mode: "edit", entity: record })}>
+              <button className="note-row-main" onClick={() => openDrawer({ type: record.recordType, entity: record })}>
                 <span className="note-row-head">
                   <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
                   <strong className="note-row-title">{str(record.title)}</strong>

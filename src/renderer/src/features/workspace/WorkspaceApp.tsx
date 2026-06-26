@@ -580,6 +580,7 @@ export function WorkspaceApp() {
         title,
         body_markdown: body,
         note_type: formText(values, "note_type", "memo"),
+        content_format: formText(values, "content_format") || (formText(values, "note_type") === "artifact" ? "markdown" : null),
         theme_id: formText(values, "theme_id") || null,
         item_id: formText(values, "item_id") || null,
         source_url: formText(values, "source_url"),

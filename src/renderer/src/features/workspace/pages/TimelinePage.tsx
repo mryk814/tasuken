@@ -262,7 +262,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
 
   const dayWidthRef = useRef(dayWidth);
   dayWidthRef.current = dayWidth;
-  const pendingScroll = useRef<{ ratio: number; mouseX: number } | null>(null);
+  const pendingScroll = useRef<{ cursorDayOffset: number; mouseX: number } | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -271,12 +271,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       const mouseX = e.clientX - el.getBoundingClientRect().left;
-      const oldWidth = el.scrollWidth;
-      const ratio = (el.scrollLeft + mouseX) / oldWidth;
+      const cursorDayOffset = (el.scrollLeft + mouseX) / dayWidthRef.current;
       const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
       const next = Math.min(MAX_DAY_WIDTH, Math.max(MIN_DAY_WIDTH, dayWidthRef.current * factor));
       if (Math.abs(next - dayWidthRef.current) > 0.01) {
-        pendingScroll.current = { ratio, mouseX };
+        pendingScroll.current = { cursorDayOffset, mouseX };
         updatePrefs({ dayWidth: next });
       }
     };
@@ -286,8 +285,10 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
 
   useLayoutEffect(() => {
     if (pendingScroll.current && scrollRef.current) {
-      const { ratio, mouseX } = pendingScroll.current;
-      scrollRef.current.scrollLeft = ratio * scrollRef.current.scrollWidth - mouseX;
+      const { cursorDayOffset, mouseX } = pendingScroll.current;
+      const nextScrollLeft = cursorDayOffset * dayWidth - mouseX;
+      const maxScrollLeft = Math.max(0, scrollRef.current.scrollWidth - scrollRef.current.clientWidth);
+      scrollRef.current.scrollLeft = Math.max(0, Math.min(maxScrollLeft, nextScrollLeft));
       pendingScroll.current = null;
     }
   }, [dayWidth]);
@@ -357,6 +358,30 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
 
   function scheduleForPlanNode(planNodeId: string) {
     return v2.schedules.find((schedule) => schedule.owner_type === "plan_node" && schedule.owner_id === planNodeId);
+  }
+
+  function createMilestone(themeId: string | null, date: string) {
+    openDrawer({
+      type: "plan_node",
+      mode: "edit",
+      entity: {
+        type: "milestone",
+        node_type: "milestone",
+        state: "planned",
+        node_state: "planned",
+        project_id: themeId,
+        _schedule: {
+          id: uuid(),
+          owner_type: "plan_node",
+          owner_id: "",
+          start_date: date,
+          end_date: date,
+          date_kind: "point",
+          confidence: "fixed",
+          granularity: "day",
+        },
+      },
+    });
   }
 
   function openPlanNode(item: Item) {
@@ -504,7 +529,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         <div className="segmented" aria-label="表示範囲">
           {RANGE_BUFFER_OPTIONS.map((option) => <button key={option.value} className={rangeBufferMonths === option.value ? "is-active" : ""} onClick={() => updatePrefs({ rangeBufferMonths: option.value })}>{option.label}</button>)}
         </div>
-        <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { ratio: (scroll.scrollLeft + cx) / scroll.scrollWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
+        <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { cursorDayOffset: (scroll.scrollLeft + cx) / dayWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
         <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
         <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
         <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => updatePrefs({ showLightning: event.target.checked })} />イナズマ線</label>
@@ -654,7 +679,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
               if (row.rowType === "theme") return <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />;
               if (row.rowType === "milestones") {
                 const colorKey = themeColor(row.theme, themes.indexOf(row.theme ?? themes[0]));
-                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={openPlanNode} onMove={(item, delta) => moveItem(item, delta, "move")} themeColorKey={colorKey} />;
+                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={openPlanNode} onMove={(item, delta) => moveItem(item, delta, "move")} onCreateMilestone={(date) => createMilestone(row.theme?.id || null, date)} themeColorKey={colorKey} />;
               }
               const itemTheme = themes.find((t) => t.id === row.item.theme_id);
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
