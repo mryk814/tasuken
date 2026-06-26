@@ -143,6 +143,7 @@ test("inbox view sorts untriaged captures by newest timestamp", () => {
       { id: "cap-old", text: "old", captured_at: "2026-06-23T09:00:00.000", state: "untriaged" },
       { id: "cap-date-b", text: "date only b", captured_at: "2026-06-23", state: "untriaged" },
       { id: "cap-triaged", text: "done", captured_at: "2026-06-23T11:00:00.000", state: "triaged" },
+      { id: "cap-memo", text: "scratch", kind: "micro_memo", captured_at: "2026-06-23T12:00:00.000", state: "untriaged" },
     ],
     tasks: [],
     waitings: [],
@@ -164,6 +165,7 @@ test("inbox view sorts untriaged captures by newest timestamp", () => {
     "cap-date-b",
     "cap-date-a",
   ]);
+  assert.deepEqual(selectors.buildMicroMemoView(domain).entries.map((entry) => entry.id), ["cap-memo"]);
 });
 
 test("compat timeline projection: plan nodes into legacy-compatible gantt items", () => {

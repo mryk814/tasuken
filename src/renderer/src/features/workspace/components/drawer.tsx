@@ -43,16 +43,13 @@ const LINK_TYPE_LABELS: Record<string, string> = {
   document: "文書",
   other: "その他",
 };
-const CHAT_REFERENCE_STATUSES = ["inbox", "keep", "adopted", "pending", "stale"];
+const CHAT_REFERENCE_STATUSES = ["inbox", "adopted"];
 const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
   inbox: "未整理",
-  keep: "参照",
   adopted: "採用",
-  pending: "再確認",
-  stale: "古い",
 };
 const normalizeLinkType = (value: unknown) => LINK_TYPES.includes(str(value)) ? str(value) : "other";
-const normalizeReferenceStatus = (value: unknown) => CHAT_REFERENCE_STATUSES.includes(str(value)) ? str(value) : "keep";
+const normalizeReferenceStatus = (value: unknown) => str(value) === "adopted" ? "adopted" : "inbox";
 const PRIMARY_KNOWLEDGE_NODE_TYPES = ["question", "claim", "evidence", "decision"];
 interface ImportCandidate {
   type: "item" | "note" | "link" | "knowledge_node" | "knowledge_edge";
@@ -120,9 +117,12 @@ function ThemeGroupPicker({ value, themes }: { value?: string; themes: Workspace
   );
 }
 
-function ChatGroupPicker({ value, resources }: { value?: string; resources: { chat_group?: string | null }[] }) {
+function ChatGroupPicker({ value, resources, projectId }: { value?: string; resources: { chat_group?: string | null; project_id?: string | null; theme_id?: string | null }[]; projectId?: string | null }) {
   const [selected, setSelected] = useState(value || "");
-  const groups = [...new Set(resources.map((r) => str(r.chat_group).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja-JP"));
+  const groups = [...new Set(resources
+    .filter((r) => str(r.project_id || r.theme_id) === str(projectId))
+    .map((r) => str(r.chat_group).trim())
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja-JP"));
   return (
     <Field label="グループ">
       <input name="chat_group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="例: 〇〇モデル改善検討" />
@@ -199,7 +199,6 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
           <div className="badge-row">
             <StatusBadge value="neutral" label={LINK_TYPE_LABELS[normalizeLinkType(entity.link_type)]} />
             <StatusBadge value={normalizeReferenceStatus(entity.reference_status)} label={CHAT_REFERENCE_STATUS_LABELS[normalizeReferenceStatus(entity.reference_status)]} />
-            {str(entity.importance) === "high" && <StatusBadge value="review" label="重要" />}
           </div>
         )}
         <h2>{str(entity.title)}</h2>
@@ -374,8 +373,8 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
         {type === "theme" && (
           <>
             <Field label="テーマ名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
+            <Field label="識別子"><input name="code" defaultValue={str(entity.code)} placeholder="例: MAT-A" /></Field>
             <Field label="概要"><textarea name="description" defaultValue={str(entity.description)} /></Field>
-            <Field label="状態"><select name="status" defaultValue={str(entity.status) || "計画中"}><option>計画中</option><option>進行中</option><option>継続</option><option>保留</option><option>完了</option></select></Field>
             <ThemeColorPicker value={str(entity.color)} />
             <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
           </>
@@ -390,32 +389,7 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
             <Field label="本文（Markdown）"><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
           </>
         )}
-        {type === "resource" && (() => {
-          const isChatRef = Boolean(entity.link_type || entity.reference_status || entity.chat_group);
-          const allResources = [...(data.resources || []), ...data.links];
-          return (
-            <>
-              <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
-              <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
-              <ThemeSelect themes={data.themes} value={str(entity.project_id || entity.theme_id)} fieldName="project_id" />
-              {isChatRef && (
-                <>
-                  <ChatGroupPicker value={str(entity.chat_group)} resources={allResources as { chat_group?: string | null }[]} />
-                  <div className="form-grid">
-                    <Field label="参照状態">
-                      <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
-                        {CHAT_REFERENCE_STATUSES.map((value) => <option key={value} value={value}>{CHAT_REFERENCE_STATUS_LABELS[value]}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="保存日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at || entity.created_at)} /></Field>
-                  </div>
-                  <label className="toggle priority-toggle"><input name="importance_high" type="checkbox" defaultChecked={str(entity.importance) === "high"} />重要として残す</label>
-                </>
-              )}
-              <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
-            </>
-          );
-        })()}
+        {type === "resource" && <ResourceFields entity={entity} data={data} />}
         {type === "status_update" && (
           <>
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
@@ -460,11 +434,42 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
         {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
         <button className="primary-button" type="submit">保存する</button>
-        {type === "theme" && entity.id && removeEntity && (
-          <button className="danger-button" type="button" onClick={() => removeEntity("theme", entity)}>このテーマを削除する</button>
+        {entity.id && removeEntity && (
+          <section className="drawer-danger-zone">
+            <strong>削除</strong>
+            <span>完了やアーカイブではなく、実データを削除します。削除後はToastから元に戻せます。</span>
+            <button className="danger-button" type="button" onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}>この{kindLabel}を削除する</button>
+          </section>
         )}
       </form>
     </aside>
+  );
+}
+
+function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
+  const isChatRef = Boolean(entity.link_type || entity.reference_status || entity.chat_group);
+  const allResources = [...(data.resources || []), ...data.links];
+  const [projectId, setProjectId] = useState(str(entity.project_id || entity.theme_id));
+  return (
+    <>
+      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
+      <ThemeSelect themes={data.themes} value={projectId} fieldName="project_id" onChange={setProjectId} />
+      {isChatRef && (
+        <>
+          <ChatGroupPicker value={str(entity.chat_group)} resources={allResources as { chat_group?: string | null; project_id?: string | null; theme_id?: string | null }[]} projectId={projectId} />
+          <div className="form-grid">
+            <Field label="参照状態">
+              <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
+                {CHAT_REFERENCE_STATUSES.map((value) => <option key={value} value={value}>{CHAT_REFERENCE_STATUS_LABELS[value]}</option>)}
+              </select>
+            </Field>
+            <Field label="保存日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at || entity.created_at)} /></Field>
+          </div>
+        </>
+      )}
+      <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+    </>
   );
 }
 
@@ -1072,6 +1077,9 @@ function WaitingFields({ entity, data }: { entity: DrawerConfig["entity"]; data:
 
 function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const schedule = findSchedule(data, "plan_node", str(entity.id), entity._schedule);
+  const [dateUnit, setDateUnit] = useState(str(schedule?.granularity) === "month" || str(entity.schedule_granularity) === "month" ? "month" : "day");
+  const startValue = dateUnit === "month" ? dateOnly(schedule?.start_date).slice(0, 7) : dateOnly(schedule?.start_date);
+  const endValue = dateUnit === "month" ? dateOnly(schedule?.end_date).slice(0, 7) : dateOnly(schedule?.end_date);
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
@@ -1089,15 +1097,17 @@ function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data
         </Field>
       </div>
       <div className="form-grid">
-        <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>
-        <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
+        <Field label="予定の入力単位">
+          <select name="schedule_input_unit" value={dateUnit} onChange={(event) => setDateUnit(event.target.value)}>
+            <option value="day">日単位</option>
+            <option value="month">月単位</option>
+          </select>
+        </Field>
       </div>
-      <Field label="日付の粗さ">
-        <select name="schedule_granularity" defaultValue={str(schedule?.granularity) || str(entity.schedule_granularity) || "day"}>
-          <option value="day">日単位</option>
-          <option value="month">月単位</option>
-        </select>
-      </Field>
+      <div className="form-grid" key={dateUnit}>
+        <Field label="開始"><input name="start_date" type={dateUnit === "month" ? "month" : "date"} defaultValue={startValue} /></Field>
+        <Field label="期限"><input name="end_date" type={dateUnit === "month" ? "month" : "date"} defaultValue={endValue} /></Field>
+      </div>
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
     </>

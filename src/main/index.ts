@@ -17,7 +17,7 @@ const APP_NAME = "Tasken";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
-type QuickCaptureMode = "inbox" | "today-task";
+type QuickCaptureMode = "inbox" | "today-task" | "micro-memo";
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
   try {
@@ -140,6 +140,7 @@ function setupTray(): void {
   const contextMenu = Menu.buildFromTemplate([
     { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => showCaptureWindow("inbox") },
     { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => showCaptureWindow("today-task") },
+    { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => showCaptureWindow("micro-memo") },
     { type: "separator" },
     { label: `${APP_NAME} を開く`, click: () => {
       const windows = BrowserWindow.getAllWindows().filter((w) => w !== captureWindow);
@@ -225,7 +226,8 @@ function registerCaptureIpc(): void {
     }
     const saved = workspaceRepository.save("capture_entry", {
       text: trimmed,
-      title: trimmed,
+      title: mode === "micro-memo" ? null : trimmed,
+      kind: mode === "micro-memo" ? "micro_memo" : "inbox",
       captured_at: localDateTimeString(),
       state: "untriaged",
     }, { source: "quick-capture" });
@@ -429,6 +431,7 @@ void app.whenReady().then(() => {
     setupTray();
     globalShortcut.register("CmdOrCtrl+Shift+N", () => showCaptureWindow("inbox"));
     globalShortcut.register("CmdOrCtrl+Shift+M", () => showCaptureWindow("today-task"));
+    globalShortcut.register("CmdOrCtrl+Shift+.", () => showCaptureWindow("micro-memo"));
   }
 
   app.on("activate", () => {

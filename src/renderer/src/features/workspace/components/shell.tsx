@@ -41,7 +41,8 @@ export function Sidebar({
   domain,
   openDrawer,
 }: SidebarProps) {
-  const inbox = domain.capture_entries.filter((e) => e.state === "untriaged").length;
+  const inbox = domain.capture_entries.filter((e) => e.state === "untriaged" && e.kind !== "micro_memo").length;
+  const microMemos = domain.capture_entries.filter((e) => e.kind === "micro_memo" && e.state !== "archived").length;
   const today = todayIso();
   const schedulesByOwner = new Map(domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const todayCount = domain.tasks.filter((t) => {
@@ -63,6 +64,7 @@ export function Sidebar({
     todo: openTasks,
     waiting,
     inbox,
+    "micro-memos": microMemos,
     knowledge: knowledgeCount,
     notes: notesCount,
     "chat-refs": chatRefCount,
@@ -123,6 +125,7 @@ export function ShortcutDialog({ close }: { close: () => void }) {
         <dl className="shortcut-list">
           <dt><kbd>?</kbd></dt><dd>この一覧を表示</dd>
           <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>クイック記録</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd></dt><dd>付箋メモ</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>検索へ移動</dd>
           <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる</dd>
         </dl>

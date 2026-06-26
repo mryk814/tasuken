@@ -18,10 +18,57 @@ function isInProgressStatus(status?: string): boolean {
 }
 
 type DragMode = "move" | "start" | "end";
+const BASE_ROW_HEIGHT = 44;
+const LANE_STEP = 26;
+const LANE_TOP = 11;
+const LANE_BAR_HEIGHT = 22;
 
 export interface ConnectingState {
   sourceId: string;
   sourceTitle: string;
+}
+
+function barRange(item: Item): { start: string; end: string } | null {
+  const start = item.planned_start || item.planned_end;
+  const end = item.planned_end || start;
+  if (!start || !end || !hasPlannedSchedule(item)) return null;
+  return { start, end };
+}
+
+export function assignGanttSubLanes(items: Item[]): Map<string, number> {
+  const lanes: string[] = [];
+  const result = new Map<string, number>();
+  const scheduled = items
+    .map((item, index) => ({ item, index, range: barRange(item) }))
+    .filter((entry): entry is { item: Item; index: number; range: { start: string; end: string } } => Boolean(entry.range))
+    .sort((a, b) => a.range.start.localeCompare(b.range.start) || a.range.end.localeCompare(b.range.end) || a.index - b.index);
+  for (const entry of scheduled) {
+    let lane = lanes.findIndex((lastEnd) => entry.range.start > lastEnd);
+    if (lane < 0) {
+      lane = lanes.length;
+      lanes.push(entry.range.end);
+    } else {
+      lanes[lane] = entry.range.end;
+    }
+    result.set(entry.item.id, lane);
+  }
+  return result;
+}
+
+export function ganttSubLaneCount(items: Item[]): number {
+  const lanes = assignGanttSubLanes(items);
+  return Math.max(1, ...[...lanes.values()].map((lane) => lane + 1));
+}
+
+export function ganttRowHeight(items: Item[]): number {
+  return BASE_ROW_HEIGHT + Math.max(0, ganttSubLaneCount(items) - 1) * LANE_STEP;
+}
+
+function ganttBarCenterY(rowItems: Item[], itemId: string): number {
+  const lanes = assignGanttSubLanes(rowItems);
+  const lane = lanes.get(itemId) || 0;
+  if (rowItems.length <= 1) return BASE_ROW_HEIGHT / 2;
+  return LANE_TOP + lane * LANE_STEP + LANE_BAR_HEIGHT / 2;
 }
 
 export function GanttItemRow({
@@ -57,6 +104,9 @@ export function GanttItemRow({
   const movedRef = useRef(false);
   const total = Math.max(1, daysBetween(range.start, range.end));
   const bars = laneItems?.length ? laneItems : [item];
+  const lanes = assignGanttSubLanes(bars);
+  const laneCount = Math.max(1, ...[...lanes.values()].map((lane) => lane + 1));
+  const rowHeight = BASE_ROW_HEIGHT + Math.max(0, laneCount - 1) * LANE_STEP;
 
   function beginDrag(event: React.PointerEvent, target: Item, mode: DragMode) {
     event.preventDefault();
@@ -143,7 +193,7 @@ export function GanttItemRow({
   }
 
   return (
-    <div className={`gantt-item-row level-${itemLevel(item)}`} ref={rowRef} onPointerDown={beginRangeCreate}>
+    <div className={`gantt-item-row level-${itemLevel(item)}`} ref={rowRef} onPointerDown={beginRangeCreate} style={{ height: rowHeight }}>
       {rangeDraft && (
         <span
           className="gantt-range-draft"
@@ -167,6 +217,7 @@ export function GanttItemRow({
           displayWidth = Math.max(0.6, displayWidth);
         }
         const isSource = !!connecting?.sourceId && connecting.sourceId === barItem.id;
+        const laneIndex = lanes.get(barItem.id) || 0;
         const barClass = [
           `gantt-item-bar level-${level}`,
           bars.length > 1 ? "in-lane" : "",
@@ -179,7 +230,7 @@ export function GanttItemRow({
           <button
             className={barClass}
             key={barItem.id}
-            style={{ left: `${displayLeft}%`, width: `${displayWidth}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
+            style={{ left: `${displayLeft}%`, width: `${displayWidth}%`, "--lane-index": laneIndex, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
             onClick={(e) => handleClick(barItem, e)}
             onPointerDown={isConnecting ? undefined : (event) => beginDrag(event, barItem, "move")}
             title={isConnecting ? (isSource ? `${barItem.title}（選択中）` : `${barItem.title} を後続にする`) : `${hint(barItem)}\nCtrl+クリックで依存を接続`}
@@ -335,6 +386,26 @@ export function MilestoneLane({
 
 type ItemRow = Extract<TimelineRow, { rowType: "item" }>;
 
+function rowItems(row: TimelineRow): Item[] {
+  if (row.rowType !== "item") return [];
+  return row.laneItems.length ? row.laneItems : [row.item];
+}
+
+function timelineRowHeight(row: TimelineRow): number {
+  if (row.rowType === "item") return ganttRowHeight(rowItems(row));
+  return BASE_ROW_HEIGHT;
+}
+
+function rowTopOffsets(rows: TimelineRow[]): number[] {
+  const offsets: number[] = [];
+  let top = 0;
+  for (const row of rows) {
+    offsets.push(top);
+    top += timelineRowHeight(row);
+  }
+  return offsets;
+}
+
 export function DependencyOverlay({
   dependencies,
   rows,
@@ -349,7 +420,7 @@ export function DependencyOverlay({
   onSelect?: (sel: SelectedDependency | null) => void;
 }) {
   const total = Math.max(1, daysBetween(range.start, range.end));
-  const ROW_H = 44;
+  const rowTops = rowTopOffsets(rows);
   const rowIndexOf = (id?: string) => rows.findIndex((row) => row.rowType === "item" && (row.item.id === id || row.laneItems.some((item) => item.id === id)));
   const lines = dependencies.flatMap((dependency) => {
     const sourceItemId = str(dependency.source_item_id);
@@ -366,13 +437,13 @@ export function DependencyOverlay({
     if (!sourceDate || !targetDate) return [];
     const sourceX = Math.max(0, Math.min(100, ((daysBetween(range.start, sourceDate) + 1) / total) * 100));
     const targetX = Math.max(0, Math.min(100, (daysBetween(range.start, targetDate) / total) * 100));
-    const sourceY = sourceIndex * ROW_H + ROW_H / 2;
-    const targetY = targetIndex * ROW_H + ROW_H / 2;
+    const sourceY = rowTops[sourceIndex] + ganttBarCenterY(rowItems(sourceRow), source.id);
+    const targetY = rowTops[targetIndex] + ganttBarCenterY(rowItems(targetRow), target.id);
     const bendX = Math.max(sourceX + 1.5, (sourceX + targetX) / 2);
     return [{ id: dependency.id, sourceX, sourceY, targetX, targetY, bendX, sourceTitle: source.title, targetTitle: target.title, dependency }];
   });
   if (!lines.length) return null;
-  const height = rows.length * ROW_H;
+  const height = rows.reduce((sum, row) => sum + timelineRowHeight(row), 0);
   return (
     <svg className="dependency-overlay" viewBox={`0 0 100 ${height}`} style={{ height }} preserveAspectRatio="none">
       <defs>
@@ -434,10 +505,11 @@ export function LightningOverlay({
     const actualProgress = isInProgressStatus(item.status) ? plannedProgress : statusProgress(item.status);
     const varianceDays = (actualProgress - plannedProgress) * duration;
     const x = Math.max(0, Math.min(100, todayX + (varianceDays / totalDays) * 100));
-    return [{ x, y: 44 + index * 44 + 22, varianceDays }];
+    const top = rows.slice(0, index).reduce((sum, entry) => sum + timelineRowHeight(entry), 0);
+    return [{ x, y: BASE_ROW_HEIGHT + top + ganttBarCenterY(rowItems(row), item.id), varianceDays }];
   });
   if (!points.length) return null;
-  const height = Math.max(88, rows.length * 44 + 44);
+  const height = Math.max(88, rows.reduce((sum, row) => sum + timelineRowHeight(row), BASE_ROW_HEIGHT));
   const path = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
   return (
     <svg className="lightning-overlay" viewBox={`0 0 100 ${height}`} style={{ height }} preserveAspectRatio="none" aria-label="計画進捗と実進捗の差分">

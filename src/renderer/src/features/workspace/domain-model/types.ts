@@ -3,6 +3,7 @@ export type ProjectState = "idea" | "active" | "paused" | "closed";
 export interface Project {
   id: string;
   name: string;
+  code?: string | null;
   description?: string | null;
   state: ProjectState;
   color?: string | null;
@@ -17,6 +18,7 @@ export interface CaptureEntry {
   id: string;
   text: string;
   title?: string | null;
+  kind?: "inbox" | "micro_memo" | string | null;
   captured_at: string;
   state: CaptureEntryState;
   source_record_id?: string | null;

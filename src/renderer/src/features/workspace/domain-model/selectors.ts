@@ -1,5 +1,5 @@
 import type { CaptureEntry, PlanNode, Schedule, WorkspaceDomain } from "./types";
-import type { InboxView, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
+import type { InboxView, MicroMemoView, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
 
 function todayString(): string {
   return new Date().toISOString().slice(0, 10);
@@ -66,7 +66,15 @@ export function buildTodoView(domain: WorkspaceDomain): TodoView {
 export function buildInboxView(domain: WorkspaceDomain): InboxView {
   return {
     entries: domain.capture_entries
-      .filter((entry) => entry.state === "untriaged")
+      .filter((entry) => entry.state === "untriaged" && entry.kind !== "micro_memo")
+      .sort(compareCapturesNewestFirst),
+  };
+}
+
+export function buildMicroMemoView(domain: WorkspaceDomain): MicroMemoView {
+  return {
+    entries: domain.capture_entries
+      .filter((entry) => entry.kind === "micro_memo" && entry.state !== "archived")
       .sort(compareCapturesNewestFirst),
   };
 }

@@ -413,10 +413,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                         <label>参照状態
                           <select value={draft.reference_status} onChange={(event) => patchDraft(row.entry.id, { reference_status: event.target.value })}>
                             <option value="inbox">未整理</option>
-                            <option value="keep">参照</option>
                             <option value="adopted">採用</option>
-                            <option value="pending">再確認</option>
-                            <option value="stale">古い</option>
                           </select>
                         </label>
                       </div>

@@ -14,6 +14,10 @@ export interface InboxView {
   entries: CaptureEntry[];
 }
 
+export interface MicroMemoView {
+  entries: CaptureEntry[];
+}
+
 export interface WaitingView {
   waitings: Array<{ waiting: Waiting; schedule?: Schedule }>;
 }

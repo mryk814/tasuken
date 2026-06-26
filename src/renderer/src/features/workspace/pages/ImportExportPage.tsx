@@ -73,7 +73,7 @@ function buildOrganizeContext({ data, domain, themes, activeTheme }: Pick<PagePr
   const lines = [
     "# Active Theme",
     ...(activeThemes.length
-      ? activeThemes.map((theme) => `- ${theme.name}: ${compactText(theme.description || theme.status || "") || "説明なし"}`)
+      ? activeThemes.map((theme) => `- ${theme.name}: ${compactText(theme.description || "") || "説明なし"}`)
       : ["- なし"]),
     "",
     "# 最近の現在地",
