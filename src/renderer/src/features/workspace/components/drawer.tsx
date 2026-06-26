@@ -385,8 +385,15 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity }: { drawer: D
             <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
             <ItemSelect items={data.items} value={str(entity.item_id)} />
             <Field label="種別"><select name="note_type" defaultValue={str(entity.note_type) || "memo"}>{Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+            <Field label="形式">
+              <select name="content_format" defaultValue={str(entity.content_format) || (str(entity.note_type) === "artifact" ? "markdown" : "plain")}>
+                <option value="markdown">Markdown</option>
+                <option value="html">HTML</option>
+                <option value="plain">Plain text</option>
+              </select>
+            </Field>
             <Field label="参照URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>
-            <Field label="本文（Markdown）"><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
+            <Field label="本文"><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
           </>
         )}
         {type === "resource" && <ResourceFields entity={entity} data={data} />}
@@ -717,6 +724,98 @@ function buildKnowledgeCandidateOperations(candidates: ImportCandidate[], note: 
   return operations;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizePreviewHtml(value: string): string {
+  return value
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s(src|href)\s*=\s*("|')?(?!https?:|mailto:|#)[^"'\s>]*\2/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
+function renderMarkdownPreview(value: string): string {
+  const lines = value.split(/\r?\n/);
+  const html: string[] = [];
+  let inCode = false;
+  let inList = false;
+  const closeList = () => {
+    if (inList) {
+      html.push("</ul>");
+      inList = false;
+    }
+  };
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      closeList();
+      html.push(inCode ? "</code></pre>" : "<pre><code>");
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) {
+      html.push(`${escapeHtml(line)}\n`);
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      html.push(`<h${level}>${escapeHtml(heading[2])}</h${level}>`);
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bullet) {
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      html.push(`<li>${escapeHtml(bullet[1])}</li>`);
+      continue;
+    }
+    closeList();
+    if (!line.trim()) {
+      html.push("<br />");
+      continue;
+    }
+    html.push(`<p>${escapeHtml(line)}</p>`);
+  }
+  closeList();
+  if (inCode) html.push("</code></pre>");
+  return html.join("");
+}
+
+function artifactPreviewHtml(body: string, format: string): string {
+  const content = format === "html"
+    ? sanitizePreviewHtml(body)
+    : format === "markdown"
+      ? renderMarkdownPreview(body)
+      : `<pre>${escapeHtml(body)}</pre>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6;margin:16px;color:#26211f;background:#fff}
+h1,h2,h3{line-height:1.25;margin:1.2em 0 .5em}
+p{margin:.5em 0}ul{padding-left:1.4em}pre{overflow:auto;padding:12px;border:1px solid #ddd;border-radius:6px;background:#f7f4f2}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+</style></head><body>${content}</body></html>`;
+}
+
+function artifactRenderedText(body: string, format: string): string {
+  if (format === "html") {
+    return sanitizePreviewHtml(body).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  return body
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "- ")
+    .replace(/```/g, "")
+    .trim();
+}
+
 function NoteDetailDrawer({
   note,
   data,
@@ -735,9 +834,13 @@ function NoteDetailDrawer({
   const [comment, setComment] = useState("");
   const [knowledgeText, setKnowledgeText] = useState("");
   const [knowledgePreview, setKnowledgePreview] = useState<{ candidates: ImportCandidate[]; payloadIssues: string[] } | null>(null);
+  const [artifactMode, setArtifactMode] = useState<"preview" | "raw">("preview");
   const comments = note.comments || [];
   const theme = data.themes.find((entry) => entry.id === note.theme_id);
   const extractionPrompt = buildNoteKnowledgePrompt(note, theme?.name || "", AI_IMPORT_SCHEMA);
+  const contentFormat = str(note.content_format) || (note.note_type === "artifact" ? "markdown" : "plain");
+  const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
+  const body = note.body_markdown || "";
 
   async function addComment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -811,7 +914,30 @@ function NoteDetailDrawer({
         <StatusBadge value="neutral" label={NOTE_TYPE_LABELS[note.note_type ?? ""] || note.note_type} />
         <h2>{note.title}</h2>
         {note.source_url && <div className="link-value"><a href={note.source_url} target="_blank" rel="noreferrer">{note.source_url}</a></div>}
-        <p className="note-body">{note.body_markdown}</p>
+        {isArtifact ? (
+          <section className="artifact-preview-section">
+            <div className="section-heading">
+              <div className="segmented" aria-label="成果物表示">
+                <button className={artifactMode === "preview" ? "is-active" : ""} onClick={() => setArtifactMode("preview")}>Preview</button>
+                <button className={artifactMode === "raw" ? "is-active" : ""} onClick={() => setArtifactMode("raw")}>Raw</button>
+              </div>
+              <button className="secondary-button compact" onClick={() => workspaceApi.copyText(body)}>Rawをコピー</button>
+              <button className="secondary-button compact" onClick={() => workspaceApi.copyText(artifactRenderedText(body, contentFormat))}>Previewをコピー</button>
+            </div>
+            {artifactMode === "preview" ? (
+              <iframe
+                className="artifact-preview-frame"
+                sandbox=""
+                srcDoc={artifactPreviewHtml(body, contentFormat)}
+                title={`${note.title} preview`}
+              />
+            ) : (
+              <pre className="artifact-raw">{body}</pre>
+            )}
+          </section>
+        ) : (
+          <p className="note-body">{note.body_markdown}</p>
+        )}
         <section className="comment-thread">
           <h3>コメント {comments.length > 0 && `(${comments.length})`}</h3>
           {comments.length > 0 && (

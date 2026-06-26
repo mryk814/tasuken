@@ -35,6 +35,16 @@ function barRange(item: Item): { start: string; end: string } | null {
   return { start, end };
 }
 
+function clippedBarRange(item: Item, range: GanttRange): { start: string; end: string } | null {
+  const base = barRange(item);
+  if (!base) return null;
+  if (base.end < range.start || base.start > range.end) return null;
+  return {
+    start: base.start < range.start ? range.start : base.start,
+    end: base.end > range.end ? range.end : base.end,
+  };
+}
+
 export function assignGanttSubLanes(items: Item[]): Map<string, number> {
   const lanes: string[] = [];
   const result = new Map<string, number>();
@@ -202,8 +212,9 @@ export function GanttItemRow({
       )}
       {bars.map((barItem) => {
         const level = itemLevel(barItem);
-        const start = barItem.planned_start || barItem.planned_end;
-        const end = barItem.planned_end || start;
+        const clipped = clippedBarRange(barItem, range);
+        const start = clipped?.start || "";
+        const end = clipped?.end || start;
         const left = start ? Math.max(0, Math.min(100, (daysBetween(range.start, start) / total) * 100)) : 0;
         const width = start
           ? Math.max(barItem.kind === "milestone" ? 0.8 : 1.4, Math.min(100 - left, ((daysBetween(start, end || start) + 1) / total) * 100))
@@ -296,6 +307,7 @@ export function MilestoneLane({
   hint,
   onOpen,
   onMove,
+  onCreateMilestone,
   themeColorKey,
 }: {
   milestones: Item[];
@@ -304,12 +316,26 @@ export function MilestoneLane({
   hint: (item: Item) => string;
   onOpen: (item: Item) => void;
   onMove?: (item: Item, delta: number) => void;
+  onCreateMilestone?: (date: string) => void;
   themeColorKey?: string;
 }) {
   const laneRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ itemId: string; dxPercent: number } | null>(null);
   const movedRef = useRef(false);
   const total = Math.max(1, daysBetween(range.start, range.end));
+
+  function dateFromClientX(clientX: number): string | null {
+    const rect = laneRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const offset = Math.max(0, Math.min(total, Math.round(((clientX - rect.left) / Math.max(1, rect.width)) * total)));
+    return addDays(range.start, offset);
+  }
+
+  function createMilestoneAt(event: React.PointerEvent<HTMLDivElement>) {
+    if (!onCreateMilestone || event.target !== event.currentTarget) return;
+    const date = dateFromClientX(event.clientX);
+    if (date && date >= range.start && date <= range.end) onCreateMilestone(date);
+  }
 
   function beginDrag(event: React.PointerEvent, target: Item) {
     if (!onMove) return;
@@ -356,8 +382,9 @@ export function MilestoneLane({
   });
 
   return (
-    <div className="gantt-milestone-lane" ref={laneRef}>
+    <div className="gantt-milestone-lane" ref={laneRef} onPointerUp={createMilestoneAt} title="空白をクリックしてマイルストーンを追加">
       {marks.map((mark) => {
+        if (mark.date < range.start || mark.date > range.end) return null;
         const baseLeft = Math.max(0, Math.min(100, (daysBetween(range.start, mark.date) / total) * 100));
         const first = mark.items[0];
         const clustered = mark.items.length > 1;
@@ -372,7 +399,7 @@ export function MilestoneLane({
             key={mark.id}
             style={{ left: `${displayLeft}%`, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
             onClick={() => { if (!movedRef.current) onOpen(first); movedRef.current = false; }}
-            onPointerDown={clustered ? undefined : (event) => beginDrag(event, first)}
+            onPointerDown={clustered ? (event) => event.stopPropagation() : (event) => beginDrag(event, first)}
             title={title}
           >
             <span>{clustered ? `◆${mark.items.length}` : "◆"}</span>
@@ -435,11 +462,17 @@ export function DependencyOverlay({
     const sourceDate = source.planned_end;
     const targetDate = target.planned_start || target.planned_end;
     if (!sourceDate || !targetDate) return [];
+    if (sourceDate < range.start || sourceDate > range.end || targetDate < range.start || targetDate > range.end) return [];
     const sourceX = Math.max(0, Math.min(100, ((daysBetween(range.start, sourceDate) + 1) / total) * 100));
     const targetX = Math.max(0, Math.min(100, (daysBetween(range.start, targetDate) / total) * 100));
     const sourceY = rowTops[sourceIndex] + ganttBarCenterY(rowItems(sourceRow), source.id);
     const targetY = rowTops[targetIndex] + ganttBarCenterY(rowItems(targetRow), target.id);
-    const bendX = Math.max(sourceX + 1.5, (sourceX + targetX) / 2);
+    const dayPercent = 100 / total;
+    const preferredBend = sourceX + Math.max(dayPercent * 2, 0.9);
+    const targetSide = targetX >= sourceX ? targetX - Math.max(dayPercent, 0.6) : targetX + Math.max(dayPercent, 0.6);
+    const bendX = targetX >= sourceX
+      ? Math.min(Math.max(preferredBend, sourceX + 0.6), Math.max(sourceX + 0.6, targetSide))
+      : Math.max(Math.min(sourceX - Math.max(dayPercent * 2, 0.9), sourceX - 0.6), Math.min(sourceX - 0.6, targetSide));
     return [{ id: dependency.id, sourceX, sourceY, targetX, targetY, bendX, sourceTitle: source.title, targetTitle: target.title, dependency }];
   });
   if (!lines.length) return null;
@@ -447,11 +480,11 @@ export function DependencyOverlay({
   return (
     <svg className="dependency-overlay" viewBox={`0 0 100 ${height}`} style={{ height }} preserveAspectRatio="none">
       <defs>
-        <marker id="dependency-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-          <path d="M0,0 L7,3.5 L0,7 Z" />
+        <marker id="dependency-arrow" markerWidth="5" markerHeight="5" refX="4.4" refY="2.5" orient="auto">
+          <path d="M0,0 L5,2.5 L0,5 Z" />
         </marker>
-        <marker id="dependency-arrow-selected" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-          <path d="M0,0 L7,3.5 L0,7 Z" className="dep-selected-marker" />
+        <marker id="dependency-arrow-selected" markerWidth="5" markerHeight="5" refX="4.4" refY="2.5" orient="auto">
+          <path d="M0,0 L5,2.5 L0,5 Z" className="dep-selected-marker" />
         </marker>
       </defs>
       {lines.map((line) => {
@@ -499,6 +532,7 @@ export function LightningOverlay({
     const start = item.planned_start || item.planned_end;
     const end = item.planned_end || start;
     if (!start || !end || !hasPlannedSchedule(item)) return [];
+    if (end < range.start || start > range.end) return [];
     const duration = Math.max(1, daysBetween(start, end) + 1);
     const elapsed = Math.max(0, Math.min(duration, daysBetween(start, today) + 1));
     const plannedProgress = elapsed / duration;

@@ -131,6 +131,7 @@ export interface Note {
   id: string;
   title: string;
   body_markdown?: string;
+  content_format?: string | null;
   project_id?: string | null;
   source_record_id?: string | null;
 }

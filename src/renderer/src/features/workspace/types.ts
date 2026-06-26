@@ -70,6 +70,7 @@ export interface Note extends BaseRecord {
   title: string;
   body_markdown?: string;
   note_type?: string;
+  content_format?: string;
   theme_id?: string | null;
   item_id?: string | null;
   source_url?: string;

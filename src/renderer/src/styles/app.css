@@ -479,6 +479,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .drawer-content dd { margin: 0; padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .drawer-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: auto; }
 .note-body { white-space: pre-line; }
+.artifact-preview-section { display: grid; gap: var(--space-2); }
+.artifact-preview-frame { width: 100%; min-height: 380px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.artifact-raw { max-height: 420px; overflow: auto; margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; }
 .context-pane { position: sticky; z-index: 9; top: 0; height: 100vh; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); }
 .context-pane-header { min-height: 44px; display: grid; align-content: center; gap: 1px; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); }
 .context-pane-header span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-transform: uppercase; letter-spacing: 0; }
@@ -574,6 +577,9 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-row-action.danger:hover { border-color: var(--color-danger); background: var(--color-danger-bg); color: var(--color-danger-strong); }
 .gantt-title-button { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-title-button:hover { color: var(--color-accent-strong); }
+.gantt-table-row.level-plan { background: color-mix(in srgb, var(--color-accent-subtle-bg) 42%, var(--color-surface)); box-shadow: inset 3px 0 0 var(--color-accent); }
+.gantt-table-row.level-plan .gantt-title-button { font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.gantt-table-row.level-plan .gantt-name { color: var(--color-text); }
 .gantt-title-input { width: 100%; min-height: 28px; padding: 0 var(--space-1); font-size: var(--text-xs); }
 .gantt-table-row.is-row-dragging { opacity: .58; }
 .gantt-table-row.is-row-drop-target { background: var(--color-accent-subtle-bg); box-shadow: inset 0 2px 0 var(--color-accent); }
