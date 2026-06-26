@@ -9,6 +9,7 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { EmptyState, PageHeader } from "../components/common";
+import { ChecklistProgressBadge } from "../components/taskChecklist";
 import { TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
@@ -281,7 +282,10 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
                 >
                   {isTodayRow({ task, schedule }, today) ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
                 </button>
-                <button className={`row-title ${done ? "is-done" : ""}`} onClick={() => openTaskDetail(task, schedule)}>{task.title}</button>
+                <button className={`row-title ${done ? "is-done" : ""}`} onClick={() => openTaskDetail(task, schedule)}>
+                  <span>{task.title}</span>
+                  <ChecklistProgressBadge items={task.checklist_items} />
+                </button>
               </div>
               <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
               <span className="theme-inline">
