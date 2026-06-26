@@ -72,6 +72,39 @@
         color: #F0B7BE;
         background: rgba(212, 133, 143, 0.12);
       }
+      .theme-row {
+        display: none;
+        grid-template-columns: 56px 1fr;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: #7A6E69;
+      }
+      .theme-row.is-visible { display: grid; }
+      select {
+        min-height: 28px;
+        padding: 3px 8px;
+        border: 1px solid #D5C9C3;
+        border-radius: 7px;
+        background: #FDFBFA;
+        color: inherit;
+        font: inherit;
+        font-size: 12px;
+        outline: none;
+      }
+      select:focus {
+        border-color: #8A2F3B;
+        box-shadow: 0 0 0 2px rgba(138, 47, 59, 0.15);
+      }
+      [data-theme="dark"] .theme-row { color: #9B8E89; }
+      [data-theme="dark"] select {
+        background: #1E1816;
+        border-color: #4A3E3A;
+      }
+      [data-theme="dark"] select:focus {
+        border-color: #D4858F;
+        box-shadow: 0 0 0 2px rgba(212, 133, 143, 0.2);
+      }
       textarea {
         flex: 1;
         min-height: 60px;
@@ -148,6 +181,12 @@
         <span id="mode-pill" class="mode-pill">Inbox</span>
       </div>
       <span id="hint" class="capture-hint">Ctrl+Enter で送信 / Esc で閉じる</span>
+      <label id="theme-row" class="theme-row">
+        <span>Theme</span>
+        <select id="theme-select">
+          <option value="">個人業務 / Themeなし</option>
+        </select>
+      </label>
       <textarea id="input" placeholder="タスク・メモ・アイデア" autofocus></textarea>
       <div class="capture-actions">
         <button id="submit" type="button">記録する</button>
@@ -160,17 +199,34 @@
       const feedback = document.getElementById("feedback");
       const title = document.getElementById("title");
       const modePill = document.getElementById("mode-pill");
+      const themeRow = document.getElementById("theme-row");
+      const themeSelect = document.getElementById("theme-select");
       let mode = "inbox";
+      let lastThemeId = localStorage.getItem("tasken:quick-capture:last-theme-id") || "";
+
+      function applyThemes(themes) {
+        const current = themeSelect.value || lastThemeId;
+        themeSelect.innerHTML = '<option value="">個人業務 / Themeなし</option>';
+        for (const theme of themes || []) {
+          const option = document.createElement("option");
+          option.value = theme.id;
+          option.textContent = theme.name;
+          themeSelect.append(option);
+        }
+        themeSelect.value = [...themeSelect.options].some((option) => option.value === current) ? current : "";
+      }
 
       function applyMode(nextMode) {
-        mode = nextMode === "today-task" || nextMode === "micro-memo" ? nextMode : "inbox";
+        mode = nextMode === "today-task" || nextMode === "micro-memo" || nextMode === "done-task" ? nextMode : "inbox";
         const isTodayTask = mode === "today-task";
         const isMicroMemo = mode === "micro-memo";
-        title.textContent = isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
-        modePill.textContent = isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
-        input.placeholder = isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
-        submitButton.textContent = isTodayTask ? "今日に追加" : "記録する";
-        feedback.textContent = isTodayTask ? "今日のタスクに追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
+        const isDoneTask = mode === "done-task";
+        title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
+        modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
+        input.placeholder = isDoneTask ? "今やったこと" : isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
+        submitButton.textContent = isTodayTask ? "今日に追加" : isDoneTask ? "完了で記録" : "記録する";
+        feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "今日のタスクに追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
+        themeRow.classList.toggle("is-visible", isDoneTask);
       }
 
       async function submit() {
@@ -178,7 +234,12 @@
         if (!text) return;
         submitButton.disabled = true;
         try {
-          await window.captureApi.save(text, mode);
+          const themeId = mode === "done-task" ? themeSelect.value : "";
+          await window.captureApi.save(text, mode, themeId);
+          if (mode === "done-task") {
+            lastThemeId = themeId;
+            localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
+          }
           input.value = "";
           feedback.style.display = "";
           feedback.style.animation = "none";
@@ -222,6 +283,9 @@
 
       window.captureApi.onThemeChange((mode) => {
         document.documentElement.dataset.theme = mode;
+      });
+      window.captureApi.onThemes((themes) => {
+        applyThemes(themes);
       });
       applyMode("inbox");
     </script>
