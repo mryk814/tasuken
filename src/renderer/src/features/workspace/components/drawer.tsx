@@ -1203,17 +1203,25 @@ function WaitingFields({ entity, data }: { entity: DrawerConfig["entity"]; data:
 
 function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const schedule = findSchedule(data, "plan_node", str(entity.id), entity._schedule);
+  const initialNodeType = str(entity.node_type) || str(entity.type) || "phase";
+  const [nodeType, setNodeType] = useState(initialNodeType);
+  const hasRangeSchedule = Boolean(schedule?.start_date || schedule?.end_date || entity._parent_plan_node_item_id);
+  const showRangeInputs = hasRangeSchedule && nodeType !== "milestone";
+  const showMilestoneDate = nodeType === "milestone";
   const [dateUnit, setDateUnit] = useState(str(schedule?.granularity) === "month" || str(entity.schedule_granularity) === "month" ? "month" : "day");
   const startValue = dateUnit === "month" ? dateOnly(schedule?.start_date).slice(0, 7) : dateOnly(schedule?.start_date);
   const endValue = dateUnit === "month" ? dateOnly(schedule?.end_date).slice(0, 7) : dateOnly(schedule?.end_date);
+  const milestoneDate = dateOnly(schedule?.end_date || schedule?.start_date);
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
       <div className="form-grid">
         <Field label="種類">
-          <select name="node_type" defaultValue={str(entity.type) || "milestone"}>
-            {Object.entries(PLAN_NODE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <select name="node_type" value={nodeType} onChange={(event) => setNodeType(event.target.value)}>
+            {Object.entries(PLAN_NODE_TYPE_LABELS)
+              .filter(([value]) => value === "phase" || value === "milestone")
+              .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </Field>
         <Field label="状態">
@@ -1222,20 +1230,25 @@ function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data
           </select>
         </Field>
       </div>
-      <div className="form-grid">
-        <Field label="予定の入力単位">
-          <select name="schedule_input_unit" value={dateUnit} onChange={(event) => setDateUnit(event.target.value)}>
-            <option value="day">日単位</option>
-            <option value="month">月単位</option>
-          </select>
-        </Field>
-      </div>
-      <div className="form-grid" key={dateUnit}>
-        <Field label="開始"><input name="start_date" type={dateUnit === "month" ? "month" : "date"} defaultValue={startValue} /></Field>
-        <Field label="期限"><input name="end_date" type={dateUnit === "month" ? "month" : "date"} defaultValue={endValue} /></Field>
-      </div>
+      {showRangeInputs && (
+        <>
+          <div className="form-grid">
+            <Field label="予定の入力単位">
+              <select name="schedule_input_unit" value={dateUnit} onChange={(event) => setDateUnit(event.target.value)}>
+                <option value="day">日単位</option>
+                <option value="month">月単位</option>
+              </select>
+            </Field>
+          </div>
+          <div className="form-grid" key={dateUnit}>
+            <Field label="開始"><input name="start_date" type={dateUnit === "month" ? "month" : "date"} defaultValue={startValue} /></Field>
+            <Field label="期限"><input name="end_date" type={dateUnit === "month" ? "month" : "date"} defaultValue={endValue} /></Field>
+          </div>
+        </>
+      )}
+      {showMilestoneDate && <Field label="日付"><input name="start_date" type="date" defaultValue={milestoneDate} /></Field>}
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
-      {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
+      {(showRangeInputs || showMilestoneDate) && schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
     </>
   );
 }

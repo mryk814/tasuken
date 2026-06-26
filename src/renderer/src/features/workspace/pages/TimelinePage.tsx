@@ -13,7 +13,6 @@ import {
   isTimelineCompleted,
   legacyTimelineWorkspace,
   timelineAddDependencyOperations,
-  timelineCreatePlanNodeDraft,
   timelineFindDependencyV2Id,
   timelineItemDateSpan,
   timelineItemHasSchedule,
@@ -646,7 +645,6 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                 {isPlan
                   ? (
                     <div className="gantt-row-actions">
-                      {!timelineItemIsMilestone(item) && <button className="gantt-add-plan-button" aria-label={`${item.title}に計画を追加`} title="計画を追加" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: timelineCreatePlanNodeDraft(item.id, item.theme_id, item.planned_start, item.planned_end) })}><IconPlus size={15} /></button>}
                       <button
                         className="gantt-row-action drag"
                         draggable

@@ -160,7 +160,7 @@ export function ChatRefsPage({
     workspaceApi.copyText(visibleResources.map((r) => r.url || "").join("\n")).then(() => setToast("チャットURLをコピーしました。"));
   }
 
-  function addChatLink() {
+  function addChatLink(chatGroup = "") {
     openDrawer({
       type: "resource",
       mode: "edit",
@@ -168,6 +168,7 @@ export function ChatRefsPage({
         link_type: "chatgpt",
         reference_status: "inbox",
         project_id: selectedThemeId || null,
+        chat_group: chatGroup,
         importance: "normal",
         captured_at: new Date().toISOString().slice(0, 10),
       },
@@ -179,7 +180,7 @@ export function ChatRefsPage({
       <PageHeader title="チャット参照棚" subtitle="外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。">
         <button className="secondary-button" onClick={copyUrls} disabled={!visibleResources.length}><IconCopy size={16} />URLをコピー</button>
         <button className="secondary-button" onClick={copyList} disabled={!visibleResources.length}><IconCopy size={16} />一覧をコピー</button>
-        <button className="primary-button" onClick={addChatLink}><IconLinkPlus size={16} />追加</button>
+        <button className="primary-button" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</button>
       </PageHeader>
 
       <section className="chat-ref-toolbar panel">
@@ -258,9 +259,18 @@ export function ChatRefsPage({
                     <span className="count">{group.resources.length}</span>
                   </button>
                   <button
+                    className="chat-group-add"
+                    onClick={() => addChatLink(group.key === UNGROUPED ? "" : group.key)}
+                    aria-label={`${group.label}にチャットリンクを追加`}
+                    title="このグループに追加"
+                  >
+                    <IconLinkPlus size={14} />
+                  </button>
+                  <button
                     className="chat-group-copy"
                     onClick={() => copyGroupUrls(group.resources)}
                     aria-label={`${group.label}のURLをコピー`}
+                    title="URLをコピー"
                   >
                     <IconCopy size={14} />
                   </button>
@@ -293,7 +303,7 @@ export function ChatRefsPage({
                 ))}
               </div>
             ))}
-            {!visibleResources.length && <EmptyState title="チャット参照がありません" action="チャットリンクを追加" onAction={addChatLink} />}
+            {!visibleResources.length && <EmptyState title="チャット参照がありません" action="チャットリンクを追加" onAction={() => addChatLink()} />}
           </div>
         </div>
       </section>
