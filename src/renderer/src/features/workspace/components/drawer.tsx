@@ -42,7 +42,7 @@ const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
 const normalizeReferenceStatus = (value: unknown) => str(value) === "adopted" ? "adopted" : "inbox";
 const initialChatLinkType = (value: unknown) => {
   const normalized = str(value);
-  if (isKnownChatService(normalized) || normalized === "other") return normalized;
+  if (isKnownChatService(normalized)) return normalized;
   return "";
 };
 const isChatReferenceEntity = (entity: Record<string, unknown>) => (

@@ -12,14 +12,6 @@ export const CHAT_SERVICE_LABELS: Record<ChatServiceType, string> = {
   other: "Other",
 };
 
-export const CHAT_SERVICE_SHORT_LABELS: Record<ChatServiceType, string> = {
-  chatgpt: "GPT",
-  claude: "Claude",
-  gemini: "Gemini",
-  copilot: "Copilot",
-  other: "Other",
-};
-
 const CHAT_SERVICE_SET = new Set<string>(CHAT_SERVICE_TYPES);
 
 export function isKnownChatService(value: unknown): value is typeof CHAT_SERVICE_TYPES[number] {
@@ -64,6 +56,6 @@ export function inferChatServiceFromUrl(url: unknown): ChatServiceType {
 export function resolveChatService(resource: { link_type?: unknown; url?: unknown }): ChatServiceType {
   const linkType = str(resource.link_type);
   if (isKnownChatService(linkType)) return linkType;
-  if (linkType === "other") return "other";
-  return inferChatServiceFromUrl(resource.url);
+  const inferred = inferChatServiceFromUrl(resource.url);
+  return inferred !== "other" ? inferred : "other";
 }
