@@ -239,7 +239,7 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(""), 6000);
+    const timer = setTimeout(() => setToast(""), lastDeleted.current ? 4500 : 3200);
     return () => clearTimeout(timer);
   }, [toast, setToast]);
 
