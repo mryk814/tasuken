@@ -350,6 +350,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   async function moveItem(item: Item, delta: number, mode: DragMode = "move", targetParent?: Item | null) {
     if (!delta && targetParent === undefined) return;
     let next: Item = { ...item };
+    const currentSpan = timelineItemDateSpan(item);
     if (delta) {
       const shifted = timelineShiftItemDraft(item, delta, mode);
       if (!shifted) return;
@@ -357,13 +358,16 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     }
     next = timelineReparentItemDraft(next, targetParent);
     const nextSpan = timelineItemDateSpan(next);
+    const dateChanged = currentSpan.start !== nextSpan.start || currentSpan.end !== nextSpan.end || item.due_date !== next.due_date;
+    const parentChanged = item.parent_item_id !== next.parent_item_id || timelineThemeId(item) !== timelineThemeId(next);
+    if (!dateChanged && !parentChanged) return;
     if (nextSpan.start && nextSpan.end && nextSpan.end < nextSpan.start) {
       setToast("開始日と終了日の順序が逆になるため変更しませんでした。");
       return;
     }
     const ops = timelineSaveItemOperations(next, v2);
     if (!ops.length) return;
-    await saveEntities(ops, "日程を移動しました。Ctrl+Zで戻せます。");
+    await saveEntities(ops, dateChanged ? "日程を移動しました。Ctrl+Zで戻せます。" : undefined);
     pushUndo({ label: "計画変更", run: async () => { await saveEntities(timelineSaveItemOperations(item, v2)); } });
   }
 

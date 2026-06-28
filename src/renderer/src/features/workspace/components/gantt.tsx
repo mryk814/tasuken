@@ -144,6 +144,7 @@ export function GanttItemRow({
     const onPointerUp = (upEvent: PointerEvent) => {
       cleanup();
       const delta = Math.round(((upEvent.clientX - initialX) / trackWidth) * total);
+      if (!movedRef.current && !delta) return;
       const targetParent = resolveDropTarget?.(upEvent.clientY);
       if (delta || targetParent !== undefined) onMove(target, delta, mode, targetParent);
     };
