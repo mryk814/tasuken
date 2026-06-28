@@ -3,6 +3,7 @@ import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconRefresh } f
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
+import { inferChatServiceFromUrl } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
 import { uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
@@ -58,7 +59,7 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
     priority: "normal",
     description: entry.text,
     link_url: "",
-    link_type: "chatgpt",
+    link_type: "",
     reference_status: "inbox",
     waiting_for: "",
   };
@@ -190,6 +191,8 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
 
       } else if (draft.output === "link") {
         const resourceId = uuid();
+        const inferredLinkType = inferChatServiceFromUrl(draft.link_url);
+        const linkType = draft.link_type || (inferredLinkType !== "other" ? inferredLinkType : null);
         const resource: Resource = {
           id: resourceId,
           title,
@@ -197,6 +200,8 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
           description: draft.description || null,
           project_id: themeId,
           source_record_id: sourceRecordId,
+          link_type: linkType,
+          reference_status: linkType ? draft.reference_status : null,
         };
         const ops: SaveOperation[] = [
           ...buildSaveResourceOperations(resource),
@@ -262,7 +267,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
           <IconRefresh size={16} /> {refreshing ? "更新中" : "更新"}
         </button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
-        <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { link_type: "chatgpt", reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
+        <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
         <button className="primary-button" disabled={!selected.length} onClick={organizeSelected}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
       </PageHeader>
       {selected.length > 0 && (
@@ -395,6 +400,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                         </label>
                         <label>サービス
                           <select value={draft.link_type} onChange={(event) => patchDraft(row.entry.id, { link_type: event.target.value })}>
+                            <option value="">URLから推定</option>
                             <option value="chatgpt">ChatGPT</option>
                             <option value="claude">Claude</option>
                             <option value="gemini">Gemini</option>
