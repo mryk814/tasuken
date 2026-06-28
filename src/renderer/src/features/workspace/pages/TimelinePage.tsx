@@ -111,6 +111,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
   const [connectMode, setConnectMode] = useState(false);
   const [selectedDep, setSelectedDep] = useState<SelectedDependency | null>(null);
+  const [selectedTimelineItemId, setSelectedTimelineItemId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
   const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
   const [dropSortTargetId, setDropSortTargetId] = useState<string | null>(null);
@@ -125,6 +126,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const inInput = ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "") || target?.isContentEditable;
+      if (target?.closest(".drawer")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey && !inInput) {
         event.preventDefault();
         void undoTimelineOperation();
@@ -134,15 +136,24 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         setConnecting(null);
         setConnectMode(false);
         setSelectedDep(null);
+        setSelectedTimelineItemId(null);
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedDep) {
         event.preventDefault();
         void deleteDependency(selectedDep);
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedTimelineItemId && !inInput) {
+        const item = timelineItems.find((entry) => entry.id === selectedTimelineItemId);
+        if (item && timelineItemLevel(item) === "plan") {
+          event.preventDefault();
+          void deleteItem(item);
+        }
       }
     };
     addEventListener("keydown", onKeyDown);
     return () => removeEventListener("keydown", onKeyDown);
-  }, [selectedDep]);
+  }, [selectedDep, selectedTimelineItemId, timelineItems]);
 
   function pushUndo(entry: TimelineUndo) {
     undoStack.current = [...undoStack.current.slice(-19), entry];
@@ -232,6 +243,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     } else {
       handleConnect(item);
     }
+  }
+
+  function selectTimelineItem(item: Item) {
+    setSelectedTimelineItemId(item.id);
+    setSelectedDep(null);
   }
   const range = fiscalRange(today, rangeBufferMonths);
   const visibleTimelineItems = timelineItems.filter((item) => {
@@ -384,6 +400,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   }
 
   function openPlanNode(item: Item) {
+    selectTimelineItem(item);
     const planNode = planNodeFor(item);
     openDrawer({ type: "plan_node", mode: "edit", entity: { ...(planNode || item) } as Record<string, unknown> });
   }
@@ -421,7 +438,8 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
       { action: "save", type: "schedule", entity: schedule as unknown as SaveOperation["entity"] },
     ], "計画を追加しました。Ctrl+Zで戻せます。");
     pushUndo({ label: "計画追加", run: async () => { await removeEntityQuiet("plan_node", planNodeId); } });
-    setEditingTitle({ id: planNodeId, value: "" });
+    setSelectedTimelineItemId(planNodeId);
+    openDrawer({ type: "plan_node", mode: "edit", entity: { ...planNode, _schedule: schedule } as unknown as Record<string, unknown> });
   }
 
   async function addQuickPlan() {
@@ -510,6 +528,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         ]);
       },
     });
+    setSelectedTimelineItemId((current) => current === item.id ? null : current);
     setToast("計画を削除しました。Ctrl+Zで元に戻せます。");
   }
 
@@ -600,9 +619,10 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
             const rowHeight = ganttRowHeight(row.laneItems.length ? row.laneItems : [item]);
             return (
               <div
-                className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
+                className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${selectedTimelineItemId === item.id ? "is-selected" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
                 key={item.id}
                 style={{ minHeight: rowHeight }}
+                onClick={() => selectTimelineItem(item)}
                 onDragOver={(event) => {
                   if (!isPlan || !draggingSortId || draggingSortId === item.id) return;
                   event.preventDefault();
@@ -644,6 +664,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                 {isPlan
                   ? (
                     <div className="gantt-row-actions">
+                      {dropSortTargetId === item.id && draggingSortId && <span className="gantt-drop-label">ここへ移動</span>}
                       <button
                         className="gantt-row-action drag"
                         draggable
@@ -652,6 +673,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = "move";
                           event.dataTransfer.setData("text/plain", item.id);
+                          selectTimelineItem(item);
                           setDraggingSortId(item.id);
                           setDropSortTargetId(null);
                         }}
@@ -676,11 +698,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
               if (row.rowType === "theme") return <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />;
               if (row.rowType === "milestones") {
                 const colorKey = themeColor(row.theme, themes.indexOf(row.theme ?? themes[0]));
-                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={openPlanNode} onMove={(item, delta) => moveItem(item, delta, "move")} onCreateMilestone={(date) => createMilestone(row.theme?.id || null, date)} themeColorKey={colorKey} />;
+                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={openPlanNode} onMove={(item, delta) => { selectTimelineItem(item); moveItem(item, delta, "move"); }} onCreateMilestone={(date) => createMilestone(row.theme?.id || null, date)} themeColorKey={colorKey} />;
               }
               const itemTheme = themes.find((t) => t.id === row.item.theme_id);
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
-              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openPlanNode(item)} onMove={moveItem} connecting={connecting} onConnect={startConnecting} onCreateRange={createRangeFromRow} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
+              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} selectedItemId={selectedTimelineItemId} onOpen={(item) => connecting ? startConnecting(item) : openPlanNode(item)} onSelect={selectTimelineItem} onMove={(item, delta, mode, targetParent) => { selectTimelineItem(item); moveItem(item, delta, mode, targetParent); }} connecting={connecting} onConnect={startConnecting} onCreateRange={createRangeFromRow} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
             })}
             {showDependencies && <DependencyOverlay dependencies={timelineDependencies} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
             {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}

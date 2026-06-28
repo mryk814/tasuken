@@ -86,7 +86,9 @@ export function GanttItemRow({
   laneItems,
   range,
   hint,
+  selectedItemId,
   onOpen,
+  onSelect,
   onMove,
   connecting,
   onConnect,
@@ -99,7 +101,9 @@ export function GanttItemRow({
   laneItems?: Item[];
   range: GanttRange;
   hint: (item: Item) => string;
+  selectedItemId?: string | null;
   onOpen: (item: Item) => void;
+  onSelect?: (item: Item) => void;
   onMove: (item: Item, delta: number, mode: DragMode, targetParent?: Item | null) => void;
   connecting?: ConnectingState | null;
   onConnect?: (item: Item) => void;
@@ -125,6 +129,7 @@ export function GanttItemRow({
     const initialY = event.clientY;
     const trackWidth = rowRef.current?.clientWidth || 1;
     movedRef.current = false;
+    onSelect?.(target);
     const onPointerMove = (moveEvent: PointerEvent) => {
       const dxPercent = ((moveEvent.clientX - initialX) / trackWidth) * 100;
       if (Math.abs(dxPercent) > 0.5 || Math.abs(moveEvent.clientY - initialY) > 6) movedRef.current = true;
@@ -196,9 +201,11 @@ export function GanttItemRow({
       return;
     }
     if (isConnecting && onConnect) {
+      onSelect?.(target);
       onConnect(target);
       return;
     }
+    onSelect?.(target);
     onOpen(target);
   }
 
@@ -234,6 +241,7 @@ export function GanttItemRow({
           bars.length > 1 ? "in-lane" : "",
           barItem.kind === "milestone" ? "milestone" : "",
           drag?.itemId === barItem.id ? "is-dragging" : "",
+          selectedItemId === barItem.id ? "is-selected" : "",
           isSource ? "is-connect-source" : "",
           isConnecting && !isSource ? "is-connect-target" : "",
         ].filter(Boolean).join(" ");

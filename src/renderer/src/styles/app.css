@@ -584,6 +584,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-add-plan-button { width: 30px; height: 30px; justify-self: end; display: grid; place-items: center; padding: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-accent-strong); font-weight: var(--weight-bold); }
 .gantt-add-plan-button:hover { background: var(--color-accent-subtle-bg); border-color: var(--color-accent-subtle-bd); }
 .gantt-row-actions { justify-self: end; display: flex; align-items: center; gap: var(--space-1); }
+.gantt-drop-label { padding: 2px var(--space-2); border: 1px solid var(--color-accent-subtle-bd); border-radius: var(--radius-sm); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); font-size: var(--text-xs); font-weight: var(--weight-medium); white-space: nowrap; }
 .gantt-row-action { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); }
 .gantt-row-action:hover { border-color: var(--color-border); background: var(--color-surface-muted); color: var(--color-text); }
 .gantt-row-action.drag { cursor: grab; }
@@ -594,9 +595,10 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-table-row.level-plan { background: color-mix(in srgb, var(--color-accent-subtle-bg) 42%, var(--color-surface)); box-shadow: inset 3px 0 0 var(--color-accent); }
 .gantt-table-row.level-plan .gantt-title-button { font-size: var(--text-sm); font-weight: var(--weight-bold); }
 .gantt-table-row.level-plan .gantt-name { color: var(--color-text); }
+.gantt-table-row.is-selected { box-shadow: inset 3px 0 0 var(--color-accent), inset 0 0 0 1px var(--color-accent-subtle-bd); }
 .gantt-title-input { width: 100%; min-height: 28px; padding: 0 var(--space-1); font-size: var(--text-xs); }
 .gantt-table-row.is-row-dragging { opacity: .58; }
-.gantt-table-row.is-row-drop-target { background: var(--color-accent-subtle-bg); box-shadow: inset 0 2px 0 var(--color-accent); }
+.gantt-table-row.is-row-drop-target { position: relative; background: var(--color-accent-subtle-bg); box-shadow: inset 0 3px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent-subtle-bd); }
 .gantt-scroll { min-width: 0; overflow-x: auto; overflow-y: clip; }
 .gantt-canvas { position: relative; min-width: 100%; }
 .gantt-axis { position: sticky; z-index: 3; top: 0; height: 44px; display: grid; background: var(--color-surface-subtle); border-bottom: 1px solid var(--color-border); }
@@ -607,6 +609,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-item-bar:active { cursor: grabbing; }
 /* ドラッグ中の操作対象を浮かせる（位置/幅はライブプレビュー）。影でなくアクセント枠で示す。 */
 .gantt-item-bar.is-dragging { z-index: 6; cursor: grabbing; outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.gantt-item-bar.is-selected { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 .gantt-item-bar.schedule-tentative, .gantt-item-bar.confidence-rough { border-style: dashed; background: color-mix(in srgb, var(--bar-color) 8%, var(--color-surface)); }
 .gantt-item-bar.schedule-fixed { border-width: 2px; font-weight: var(--weight-medium); }
 .gantt-item-bar.milestone { width: 26px !important; justify-content: center; overflow: visible; padding: 0; border: 0; background: transparent; color: var(--color-accent-strong); font-size: var(--text-lg); }
