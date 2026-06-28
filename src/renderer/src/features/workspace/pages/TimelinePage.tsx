@@ -514,7 +514,6 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
       setToast("削除対象の計画ノードが見つかりません。");
       return;
     }
-    if (!window.confirm(`「${item.title}」を削除します。関連する日程と依存も非表示になります。`)) return;
     const schedule = scheduleForPlanNode(planNode.id);
     const deps = v2.plan_dependencies.filter((dep) => dep.plan_node_id === planNode.id || dep.depends_on_plan_node_id === planNode.id);
     await removeEntityQuiet("plan_node", planNode.id);
