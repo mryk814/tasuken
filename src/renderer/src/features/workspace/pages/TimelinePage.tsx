@@ -564,7 +564,6 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         </label>
         <button className="secondary-button" onClick={addQuickPlan}><IconCalendarPlus size={16} />期間を追加</button>
       </section>
-      {outsideCount > 0 && <div className="timeline-range-note">表示範囲外の計画が {outsideCount} 件あります。前後期間を広げると確認できます。</div>}
       <section className={`split-gantt panel ${connecting ? "is-connecting" : ""}`}>
         {connecting && (
           <div className="connect-status-popover" role="status" aria-live="polite">
@@ -688,7 +687,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
           </div>
         </div>
       </section>
-      <div className="timeline-legend"><span><i className="legend-solid" />実施事項</span><span><i className="legend-diamond" />マイルストーン</span><span><i className="legend-task" />計画</span><span><i className="legend-lightning" />実進捗の到達日</span><span>予定なしは左表のみ</span></div>
+      {outsideCount > 0 && <div className="timeline-range-note">表示範囲外の計画が {outsideCount} 件あります。前後期間を広げると確認できます。</div>}
     </div>
   );
 }

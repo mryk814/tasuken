@@ -205,7 +205,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .timeline-toolbar label { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .timeline-quick-add { display: grid; grid-template-columns: minmax(180px, 1fr) 180px 140px 140px auto; align-items: end; gap: var(--space-3); padding: var(--pad-card); margin-bottom: var(--space-3); }
 .timeline-quick-add label { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
-.timeline-range-note { margin: calc(var(--space-2) * -1) 0 var(--space-3); padding: 0 var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.timeline-range-note { margin: var(--space-2) 0 0; padding: 0 var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .segmented { display: inline-flex; align-items: center; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
 .segmented button { min-height: 34px; padding: 0 var(--space-3); border: 0; border-right: 1px solid var(--color-border); background: var(--color-surface); font-size: var(--text-sm); }
 .segmented button:last-child { border-right: 0; }
@@ -232,12 +232,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .wait-bar { color: var(--color-warning-strong); border-color: var(--color-warning-bd); background: var(--color-warning-bg); }
 .full-today { top: 40px; bottom: 0; z-index: 2; }
 .full-today span { top: 0; transform: translate(-50%, 0); }
-.timeline-legend { display: flex; justify-content: flex-end; gap: var(--space-4); padding: var(--space-3); color: var(--color-text-secondary); font-size: var(--text-xs); }
-.timeline-legend span { display: flex; align-items: center; gap: var(--space-1); }
-.timeline-legend i { width: 20px; height: 8px; border-radius: var(--radius-sm); }
-.legend-solid { border: 1px solid color-mix(in srgb, var(--color-chart-1) 48%, var(--color-surface)); background: color-mix(in srgb, var(--color-chart-1) 16%, var(--color-surface)); }
-.legend-hatch { border: 1px dashed var(--color-border-strong); background: var(--color-surface-muted); }
-.legend-wait { border: 1px solid var(--color-warning-bd); background: var(--color-warning-bg); }
 
 .list-page { overflow: hidden; }
 .wide-row, .waiting-row { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--pad-card); border: 0; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface); text-align: left; }
@@ -628,10 +622,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .dependency-overlay .dep-selected-marker { fill: var(--color-danger); stroke: none; }
 .lightning-overlay { position: absolute; z-index: 3; top: 0; left: 0; width: 100%; pointer-events: none; overflow: visible; }
 .lightning-overlay path { fill: none; stroke: var(--color-chart-4); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.legend-lightning { width: 18px; height: 2px; display: inline-block; background: var(--color-chart-4); }
-.legend-diamond { width: 9px; height: 9px; transform: rotate(45deg); border-radius: 1px; background: var(--color-accent-strong); }
-.legend-task { width: 20px; height: 5px; border: 1px solid color-mix(in srgb, var(--color-chart-1) 40%, var(--color-surface)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-chart-1) 12%, var(--color-surface)); opacity: .82; }
-
 /* テーマ別レーンのヘッダ行（左表）。面の明度差でグループを区切る（影に頼らない）。 */
 .gantt-theme-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-2); background: var(--color-surface-muted); border-bottom: 1px solid var(--color-border); }
 .gantt-theme-toggle { display: flex; align-items: center; gap: var(--space-2); min-width: 0; border: 0; background: transparent; text-align: left; white-space: nowrap; }
