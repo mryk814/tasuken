@@ -16,7 +16,7 @@ import type {
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
-import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, inferChatServiceFromUrl, isKnownChatService, resolveChatService } from "../lib/chatServices";
+import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import {
@@ -529,8 +529,6 @@ function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data
   const [projectId, setProjectId] = useState(str(entity.project_id || entity.theme_id));
   const [url, setUrl] = useState(str(entity.url));
   const [linkType, setLinkType] = useState(initialChatLinkType(entity.link_type));
-  const inferredService = inferChatServiceFromUrl(url);
-  const resolvedService = linkType ? resolveChatService({ link_type: linkType, url }) : inferredService;
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
@@ -546,7 +544,6 @@ function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data
                 {CHAT_SERVICE_TYPES.map((value) => <option key={value} value={value}>{CHAT_SERVICE_LABELS[value]}</option>)}
                 <option value="other">{CHAT_SERVICE_LABELS.other}</option>
               </select>
-              <p className="field-help">URL推定: {CHAT_SERVICE_LABELS[inferredService]} / 表示: {CHAT_SERVICE_LABELS[resolvedService]}</p>
             </Field>
             <Field label="参照状態">
               <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
