@@ -163,12 +163,14 @@ function ChatGroupPicker({ value, resources, projectId }: { value?: string; reso
 }
 
 type SaveForm = (event: React.FormEvent<HTMLFormElement>) => void;
+type RegisterEditForm = (form: HTMLFormElement | null) => void;
 
 interface EntityDrawerProps {
   drawer: DrawerConfig;
   data: WorkspaceData;
   close: CloseDrawer;
   saveForm: SaveForm;
+  registerEditForm: RegisterEditForm;
   removeEntity: RemoveEntity;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
@@ -190,9 +192,9 @@ function normalizeChecklistItems(entity: DrawerConfig["entity"]) {
   })).sort((a, b) => a.sort_order - b.sort_order);
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
   const entity = drawer.entity || {};
-  if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} removeEntity={removeEntity} saveEntities={saveEntities} />;
+  if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} registerEditForm={registerEditForm} removeEntity={removeEntity} saveEntities={saveEntities} />;
   const type = drawer.type;
   if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
@@ -373,10 +375,10 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
       </aside>
     );
   }
-  return <EditDrawer drawer={{ ...drawer, mode: "edit" }} data={data} close={close} saveForm={saveForm} />;
+  return <EditDrawer drawer={{ ...drawer, mode: "edit" }} data={data} close={close} saveForm={saveForm} registerEditForm={registerEditForm} />;
 }
 
-function EditDrawer({ drawer, data, close, saveForm, removeEntity, saveEntities }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm; removeEntity?: RemoveEntity; saveEntities?: SaveEntities }) {
+function EditDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntities }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm; registerEditForm: RegisterEditForm; removeEntity?: RemoveEntity; saveEntities?: SaveEntities }) {
   const type = drawer.type;
   const entity = drawer.entity;
   const typeLabels: Record<string, string> = {
@@ -401,7 +403,7 @@ function EditDrawer({ drawer, data, close, saveForm, removeEntity, saveEntities 
   return (
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
-      <form className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${str(entity.id) || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
+      <form ref={registerEditForm} className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${str(entity.id) || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
         {type === "theme" && (
           <>
             <Field label="テーマ名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
