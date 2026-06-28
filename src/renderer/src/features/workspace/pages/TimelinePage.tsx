@@ -652,10 +652,18 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                       }}
                     />
                   ) : (
-                    <button className="gantt-title-button" onClick={(e) => {
-                      if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openPlanNode(item);
-                    }}>
+                    <button
+                      className="gantt-title-button"
+                      onClick={(e) => {
+                        if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
+                        if (connecting || connectMode) { startConnecting(item); return; }
+                        if (isPlan) selectTimelineItem(item);
+                        else openPlanNode(item);
+                      }}
+                      onDoubleClick={() => {
+                        if (isPlan && !connectMode && !connecting) setEditingTitle({ id: item.id, value: item.title });
+                      }}
+                    >
                       {item.title}
                     </button>
                   )}
