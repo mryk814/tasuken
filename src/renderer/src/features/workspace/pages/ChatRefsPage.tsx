@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  IconBrandGoogle,
+  IconBrandOpenai,
+  IconBrandWindows,
   IconChevronDown,
   IconChevronRight,
   IconCopy,
@@ -9,8 +12,10 @@ import {
   IconLinkPlus,
   IconSortAscending,
   IconSortDescending,
+  IconSparkles,
   IconStar,
   IconStarFilled,
+  IconMessageCircleQuestion,
   IconTrash,
 } from "@tabler/icons-react";
 
@@ -18,7 +23,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps, Theme } from "../types";
 import type { Resource } from "../domain-model/types";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
-import { CHAT_SERVICE_LABELS, CHAT_SERVICE_SHORT_LABELS, isKnownChatService, resolveChatService } from "../lib/chatServices";
+import { CHAT_SERVICE_LABELS, type ChatServiceType, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
@@ -42,6 +47,14 @@ function resourceDate(r: Resource): string {
 
 function themeTitle(themes: Theme[], id?: string | null): string {
   return themes.find((theme) => theme.id === id)?.name || "未設定";
+}
+
+function ChatServiceIcon({ service }: { service: ChatServiceType }) {
+  if (service === "chatgpt") return <IconBrandOpenai size={16} />;
+  if (service === "claude") return <IconSparkles size={16} />;
+  if (service === "gemini") return <IconBrandGoogle size={16} />;
+  if (service === "copilot") return <IconBrandWindows size={16} />;
+  return <IconMessageCircleQuestion size={16} />;
 }
 
 function sortResources(resources: Resource[], order: SortOrder): Resource[] {
@@ -287,7 +300,7 @@ export function ChatRefsPage({
                         {isAdopted(r) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
                       </button>
                       <span className={`chat-service-chip chat-service-${service}`} title={CHAT_SERVICE_LABELS[service]} aria-label={CHAT_SERVICE_LABELS[service]}>
-                        {CHAT_SERVICE_SHORT_LABELS[service]}
+                        <ChatServiceIcon service={service} />
                       </span>
                       <button className="chat-link-title" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
                         {r.title || "無題"}
