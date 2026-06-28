@@ -598,7 +598,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-table-row.is-selected { box-shadow: inset 3px 0 0 var(--color-accent), inset 0 0 0 1px var(--color-accent-subtle-bd); }
 .gantt-title-input { width: 100%; min-height: 28px; padding: 0 var(--space-1); font-size: var(--text-xs); }
 .gantt-table-row.is-row-dragging { opacity: .58; }
-.gantt-table-row.is-row-drop-target { position: relative; background: var(--color-accent-subtle-bg); box-shadow: inset 0 3px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent-subtle-bd); }
+.gantt-table-row.is-row-drop-target { position: relative; background: color-mix(in srgb, var(--color-accent-subtle-bg) 74%, var(--color-surface)); box-shadow: inset 3px 0 0 var(--color-accent), inset 0 0 0 1px var(--color-accent-subtle-bd); }
+.gantt-table-row.is-row-drop-target .gantt-drop-label { border-color: var(--color-accent); background: var(--color-surface); }
 .gantt-scroll { min-width: 0; overflow-x: auto; overflow-y: clip; }
 .gantt-canvas { position: relative; min-width: 100%; }
 .gantt-axis { position: sticky; z-index: 3; top: 0; height: 44px; display: grid; background: var(--color-surface-subtle); border-bottom: 1px solid var(--color-border); }
