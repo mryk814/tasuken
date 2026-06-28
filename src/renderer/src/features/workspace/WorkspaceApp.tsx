@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { workspaceApi } from "../../services/workspaceApi";
 import { useUiStore } from "../../stores/uiStore";
@@ -131,6 +131,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function formSignature(form: HTMLFormElement): string {
+  return JSON.stringify(Array.from(new FormData(form).entries()).map(([key, value]) => [key, typeof value === "string" ? value : value.name]));
+}
+
 export function WorkspaceApp() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const loadState = useWorkspaceStore((state) => state.loadState);
@@ -155,6 +159,9 @@ export function WorkspaceApp() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
+  const drawerFormRef = useRef<HTMLFormElement | null>(null);
+  const drawerFormInitialSignature = useRef("");
+  const drawerAutosaving = useRef(false);
 
   async function loadWorkspace() {
     try {
@@ -232,7 +239,7 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(""), 6000);
+    const timer = setTimeout(() => setToast(""), lastDeleted.current ? 4500 : 3200);
     return () => clearTimeout(timer);
   }, [toast, setToast]);
 
@@ -320,19 +327,53 @@ export function WorkspaceApp() {
   const links = data.links;
   const activeTheme = themes.find((theme) => theme.id === activeThemeId) || themes[0] || null;
 
+  const registerEditForm = useCallback((form: HTMLFormElement | null) => {
+    drawerFormRef.current = form;
+    drawerFormInitialSignature.current = form ? formSignature(form) : "";
+  }, []);
+
+  function isDrawerFormDirty(): boolean {
+    const form = drawerFormRef.current;
+    return Boolean(form && drawer && formSignature(form) !== drawerFormInitialSignature.current);
+  }
+
+  async function saveDirtyDrawerForm(): Promise<boolean> {
+    const form = drawerFormRef.current;
+    if (!form || !drawer || !isDrawerFormDirty() || drawerAutosaving.current) return true;
+    try {
+      drawerAutosaving.current = true;
+      const saved = await saveFormElement(form, { closeAfterSave: false });
+      if (saved) drawerFormInitialSignature.current = formSignature(form);
+      return saved;
+    } catch {
+      return false;
+    } finally {
+      drawerAutosaving.current = false;
+    }
+  }
+
   function navigate(next: string) {
-    location.hash = next;
-    setRoute(next);
+    void (async () => {
+      if (!(await saveDirtyDrawerForm())) return;
+      location.hash = next;
+      setRoute(next);
+    })();
   }
 
   function openDrawer(config: DrawerConfig) {
-    drawerTrigger.current = document.activeElement as HTMLElement | null;
-    setDrawer(config);
+    void (async () => {
+      if (!(await saveDirtyDrawerForm())) return;
+      drawerTrigger.current = document.activeElement as HTMLElement | null;
+      setDrawer(config);
+    })();
   }
 
   function closeDrawer(next: DrawerConfig | null = null) {
-    setDrawer(next);
-    if (!next) requestAnimationFrame(() => drawerTrigger.current?.focus?.());
+    void (async () => {
+      if (!(await saveDirtyDrawerForm())) return;
+      setDrawer(next);
+      if (!next) requestAnimationFrame(() => drawerTrigger.current?.focus?.());
+    })();
   }
 
   const saveEntity: SaveEntity = async (type, entity, options = {}) => {
@@ -376,7 +417,10 @@ export function WorkspaceApp() {
     try {
       await removeWorkspaceEntity(type, id);
       lastDeleted.current = { type, id };
-      closeDrawer();
+      drawerFormRef.current = null;
+      drawerFormInitialSignature.current = "";
+      setDrawer(null);
+      requestAnimationFrame(() => drawerTrigger.current?.focus?.());
       setToast(`${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`);
     } catch (error) {
       setToast(`削除できませんでした。${errorMessage(error)}`);
@@ -396,10 +440,18 @@ export function WorkspaceApp() {
 
   async function saveForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
+    await saveFormElement(event.currentTarget);
+  }
+
+  async function saveFormElement(form: HTMLFormElement, options: { closeAfterSave?: boolean } = {}): Promise<boolean> {
+    const closeAfterSave = options.closeAfterSave ?? true;
+    const finishSave = () => {
+      drawerFormInitialSignature.current = formSignature(form);
+      if (closeAfterSave) closeDrawer();
+    };
     const values = new FormData(form);
     const type = form.dataset.entityType as DrawerEntityType | undefined;
-    if (!type) return;
+    if (!type) return false;
     const named = (name: string) => form.elements.namedItem(name) as HTMLElement | null;
     const base = (drawer?.entity || {}) as Record<string, unknown>;
     let entity: Record<string, unknown> | undefined;
@@ -407,7 +459,7 @@ export function WorkspaceApp() {
     // --- v2 entity types: full save cycle, then return ---
     if (type === "task") {
       const title = formText(values, "title");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
       const taskId = (base.id as string) || uuid();
       const task: Task = {
         id: taskId,
@@ -441,14 +493,14 @@ export function WorkspaceApp() {
         ops.push(...buildSaveScheduleOperations(schedule));
       }
       await saveEntities(ops, base.id ? "変更を保存しました。" : "タスクを追加しました。");
-      closeDrawer();
-      return;
+      finishSave();
+      return true;
     }
     if (type === "waiting") {
       const title = formText(values, "title");
       const waitingFor = formText(values, "waiting_for");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
-      if (!waitingFor) { (named("waiting_for") as HTMLInputElement | null)?.focus(); setToast("相手を入力してください。"); return; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
+      if (!waitingFor) { (named("waiting_for") as HTMLInputElement | null)?.focus(); setToast("相手を入力してください。"); return false; }
       const waitingId = (base.id as string) || uuid();
       const waiting: Waiting = {
         id: waitingId,
@@ -477,12 +529,12 @@ export function WorkspaceApp() {
         ops.push(...buildSaveScheduleOperations(schedule));
       }
       await saveEntities(ops, base.id ? "変更を保存しました。" : "待ちを追加しました。");
-      closeDrawer();
-      return;
+      finishSave();
+      return true;
     }
     if (type === "plan_node") {
       const title = formText(values, "title");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
       const nodeId = (base.id as string) || uuid();
       let parentPlanNodeId = (base.parent_plan_node_id as string | null) ?? null;
       if (!parentPlanNodeId && base._parent_plan_node_item_id) {
@@ -525,12 +577,12 @@ export function WorkspaceApp() {
         ops.push(...buildSaveScheduleOperations(schedule));
       }
       await saveEntities(ops, base.id ? "変更を保存しました。" : "計画ノードを追加しました。");
-      closeDrawer();
-      return;
+      finishSave();
+      return true;
     }
     if (type === "capture_entry") {
       const text = formText(values, "text") || formText(values, "title");
-      if (!text) { (named("title") as HTMLInputElement | null)?.focus(); setToast("内容を入力してください。"); return; }
+      if (!text) { (named("title") as HTMLInputElement | null)?.focus(); setToast("内容を入力してください。"); return false; }
       const entry: CaptureEntry = {
         id: (base.id as string) || uuid(),
         text,
@@ -541,15 +593,15 @@ export function WorkspaceApp() {
         legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       };
       await saveEntities(buildSaveCaptureEntryOperations(entry), base.id ? "変更を保存しました。" : "Inboxに追加しました。Inboxで整理できます。");
-      closeDrawer();
-      if (!base.id) navigate("inbox");
-      return;
+      finishSave();
+      if (!base.id && closeAfterSave) navigate("inbox");
+      return true;
     }
     if (type === "resource") {
       const title = formText(values, "title");
       const url = formText(values, "url");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
-      if (!url) { (named("url") as HTMLInputElement | null)?.focus(); setToast("URLを入力してください。"); return; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
+      if (!url) { (named("url") as HTMLInputElement | null)?.focus(); setToast("URLを入力してください。"); return false; }
       const hasLinkTypeField = Boolean(named("link_type"));
       const submittedLinkType = formText(values, "link_type");
       const inferredLinkType = inferChatServiceFromUrl(url);
@@ -569,19 +621,19 @@ export function WorkspaceApp() {
         chat_group: formText(values, "chat_group") || null,
       };
       await saveEntities(buildSaveResourceOperations(resource), base.id ? "変更を保存しました。" : "リソースを追加しました。");
-      closeDrawer();
-      return;
+      finishSave();
+      return true;
     }
 
     if (type === "theme") {
       const name = formText(values, "name");
-      if (!name) { setToast("テーマ名を入力してください。"); return; }
+      if (!name) { setToast("テーマ名を入力してください。"); return false; }
       const { status: _status, ...rest } = base;
       entity = { ...rest, name, code: formText(values, "code") || null, description: formText(values, "description"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
     } else if (type === "note") {
       const title = formText(values, "title");
       const body = formText(values, "body_markdown");
-      if (!title || !body) { setToast("タイトルと本文を入力してください。"); return; }
+      if (!title || !body) { setToast("タイトルと本文を入力してください。"); return false; }
       const noteType = formText(values, "note_type", "memo");
       const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
         report_type: formText(values, "report_type", "weekly"),
@@ -616,7 +668,7 @@ export function WorkspaceApp() {
         risks: formText(values, "risks"),
         next_actions: formText(values, "next_actions"),
       };
-      if (!entity.summary) { setToast("現在地の概要を入力してください。"); return; }
+      if (!entity.summary) { setToast("現在地の概要を入力してください。"); return false; }
     } else if (type === "source_record") {
       entity = {
         ...base,
@@ -627,7 +679,7 @@ export function WorkspaceApp() {
         raw_text: formText(values, "raw_text"),
         summary: formText(values, "summary"),
       };
-      if (!entity.source_title) { setToast("情報源のタイトルを入力してください。"); return; }
+      if (!entity.source_title) { setToast("情報源のタイトルを入力してください。"); return false; }
     } else if (type === "field_definition") {
       entity = {
         ...base,
@@ -639,7 +691,7 @@ export function WorkspaceApp() {
         sort_order: Number(values.get("sort_order") || 0),
         is_required: values.get("is_required") === "on",
       };
-      if (!entity.name) { setToast("項目名を入力してください。"); return; }
+      if (!entity.name) { setToast("項目名を入力してください。"); return false; }
     } else if (type === "reference") {
       entity = {
         ...base,
@@ -650,7 +702,7 @@ export function WorkspaceApp() {
         relation_type: formText(values, "relation_type", "related_to"),
         note: formText(values, "note"),
       };
-      if (!entity.source_id || !entity.target_id) { setToast("参照元と参照先を選択してください。"); return; }
+      if (!entity.source_id || !entity.target_id) { setToast("参照元と参照先を選択してください。"); return false; }
     } else if (type === "knowledge_node") {
       const autoTarget = str(base._auto_edge_target_id);
       const autoRelation = str(base._auto_edge_relation_type);
@@ -672,7 +724,7 @@ export function WorkspaceApp() {
         confidence: formText(values, "confidence", "medium"),
         status: formText(values, "status", "active"),
       };
-      if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return; }
+      if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return false; }
       delete entity._auto_edge_target_id;
       delete entity._auto_edge_relation_type;
       if (autoTarget && autoRelation) {
@@ -689,8 +741,8 @@ export function WorkspaceApp() {
             } as Entity,
           },
         ], base.id ? "変更を保存しました。" : "Knowledgeを追加しました。");
-        closeDrawer();
-        return;
+        finishSave();
+        return true;
       }
     } else if (type === "knowledge_edge") {
       entity = {
@@ -702,7 +754,7 @@ export function WorkspaceApp() {
       };
       if (!entity.source_node_id || !entity.target_node_id || entity.source_node_id === entity.target_node_id) {
         setToast("異なる2つのKnowledgeを選択してください。");
-        return;
+        return false;
       }
     } else if (type === "task_dependency") {
       entity = {
@@ -712,15 +764,16 @@ export function WorkspaceApp() {
       };
       if (!entity.task_id || !entity.depends_on_task_id || entity.task_id === entity.depends_on_task_id) {
         setToast("異なる2つのタスクを選択してください。");
-        return;
+        return false;
       }
     }
 
-    if (!entity) return;
+    if (!entity) return false;
 
     const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
     if (type === "theme" && !activeThemeId && saved) setActiveThemeId(saved.id);
-    closeDrawer();
+    finishSave();
+    return true;
   }
 
   if (loadState === "loading") return <AppState state="loading" />;
@@ -787,6 +840,7 @@ export function WorkspaceApp() {
           data={data}
           close={closeDrawer}
           saveForm={saveForm}
+          registerEditForm={registerEditForm}
           removeEntity={removeEntity}
           saveEntity={saveEntity}
           saveEntities={saveEntities}

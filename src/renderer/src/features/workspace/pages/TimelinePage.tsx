@@ -111,6 +111,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
   const [connectMode, setConnectMode] = useState(false);
   const [selectedDep, setSelectedDep] = useState<SelectedDependency | null>(null);
+  const [selectedTimelineItemId, setSelectedTimelineItemId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
   const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
   const [dropSortTargetId, setDropSortTargetId] = useState<string | null>(null);
@@ -125,6 +126,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const inInput = ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "") || target?.isContentEditable;
+      if (target?.closest(".drawer")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey && !inInput) {
         event.preventDefault();
         void undoTimelineOperation();
@@ -134,15 +136,24 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         setConnecting(null);
         setConnectMode(false);
         setSelectedDep(null);
+        setSelectedTimelineItemId(null);
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedDep) {
         event.preventDefault();
         void deleteDependency(selectedDep);
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedTimelineItemId && !inInput) {
+        const item = timelineItems.find((entry) => entry.id === selectedTimelineItemId);
+        if (item && timelineItemLevel(item) === "plan") {
+          event.preventDefault();
+          void deleteItem(item);
+        }
       }
     };
     addEventListener("keydown", onKeyDown);
     return () => removeEventListener("keydown", onKeyDown);
-  }, [selectedDep]);
+  }, [selectedDep, selectedTimelineItemId, timelineItems]);
 
   function pushUndo(entry: TimelineUndo) {
     undoStack.current = [...undoStack.current.slice(-19), entry];
@@ -232,6 +243,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     } else {
       handleConnect(item);
     }
+  }
+
+  function selectTimelineItem(item: Item) {
+    setSelectedTimelineItemId(item.id);
+    setSelectedDep(null);
   }
   const range = fiscalRange(today, rangeBufferMonths);
   const visibleTimelineItems = timelineItems.filter((item) => {
@@ -334,6 +350,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   async function moveItem(item: Item, delta: number, mode: DragMode = "move", targetParent?: Item | null) {
     if (!delta && targetParent === undefined) return;
     let next: Item = { ...item };
+    const currentSpan = timelineItemDateSpan(item);
     if (delta) {
       const shifted = timelineShiftItemDraft(item, delta, mode);
       if (!shifted) return;
@@ -341,13 +358,16 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     }
     next = timelineReparentItemDraft(next, targetParent);
     const nextSpan = timelineItemDateSpan(next);
+    const dateChanged = currentSpan.start !== nextSpan.start || currentSpan.end !== nextSpan.end || item.due_date !== next.due_date;
+    const parentChanged = item.parent_item_id !== next.parent_item_id || timelineThemeId(item) !== timelineThemeId(next);
+    if (!dateChanged && !parentChanged) return;
     if (nextSpan.start && nextSpan.end && nextSpan.end < nextSpan.start) {
       setToast("開始日と終了日の順序が逆になるため変更しませんでした。");
       return;
     }
     const ops = timelineSaveItemOperations(next, v2);
     if (!ops.length) return;
-    await saveEntities(ops, "日程を移動しました。Ctrl+Zで戻せます。");
+    await saveEntities(ops, dateChanged ? "日程を移動しました。Ctrl+Zで戻せます。" : undefined);
     pushUndo({ label: "計画変更", run: async () => { await saveEntities(timelineSaveItemOperations(item, v2)); } });
   }
 
@@ -369,6 +389,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         state: "planned",
         node_state: "planned",
         project_id: themeId,
+        _focusTitle: true,
         _schedule: {
           id: uuid(),
           owner_type: "plan_node",
@@ -384,6 +405,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   }
 
   function openPlanNode(item: Item) {
+    selectTimelineItem(item);
     const planNode = planNodeFor(item);
     openDrawer({ type: "plan_node", mode: "edit", entity: { ...(planNode || item) } as Record<string, unknown> });
   }
@@ -421,7 +443,8 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
       { action: "save", type: "schedule", entity: schedule as unknown as SaveOperation["entity"] },
     ], "計画を追加しました。Ctrl+Zで戻せます。");
     pushUndo({ label: "計画追加", run: async () => { await removeEntityQuiet("plan_node", planNodeId); } });
-    setEditingTitle({ id: planNodeId, value: "" });
+    setSelectedTimelineItemId(planNodeId);
+    openDrawer({ type: "plan_node", mode: "edit", entity: { ...planNode, _schedule: schedule, _focusTitle: true } as unknown as Record<string, unknown> });
   }
 
   async function addQuickPlan() {
@@ -496,7 +519,6 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
       setToast("削除対象の計画ノードが見つかりません。");
       return;
     }
-    if (!window.confirm(`「${item.title}」を削除します。関連する日程と依存も非表示になります。`)) return;
     const schedule = scheduleForPlanNode(planNode.id);
     const deps = v2.plan_dependencies.filter((dep) => dep.plan_node_id === planNode.id || dep.depends_on_plan_node_id === planNode.id);
     await removeEntityQuiet("plan_node", planNode.id);
@@ -510,6 +532,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         ]);
       },
     });
+    setSelectedTimelineItemId((current) => current === item.id ? null : current);
     setToast("計画を削除しました。Ctrl+Zで元に戻せます。");
   }
 
@@ -564,7 +587,6 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         </label>
         <button className="secondary-button" onClick={addQuickPlan}><IconCalendarPlus size={16} />期間を追加</button>
       </section>
-      {outsideCount > 0 && <div className="timeline-range-note">表示範囲外の計画が {outsideCount} 件あります。前後期間を広げると確認できます。</div>}
       <section className={`split-gantt panel ${connecting ? "is-connecting" : ""}`}>
         {connecting && (
           <div className="connect-status-popover" role="status" aria-live="polite">
@@ -601,9 +623,10 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
             const rowHeight = ganttRowHeight(row.laneItems.length ? row.laneItems : [item]);
             return (
               <div
-                className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
+                className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${selectedTimelineItemId === item.id ? "is-selected" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
                 key={item.id}
                 style={{ minHeight: rowHeight }}
+                onClick={() => selectTimelineItem(item)}
                 onDragOver={(event) => {
                   if (!isPlan || !draggingSortId || draggingSortId === item.id) return;
                   event.preventDefault();
@@ -634,10 +657,13 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                       }}
                     />
                   ) : (
-                    <button className="gantt-title-button" onClick={(e) => {
-                      if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                      isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openPlanNode(item);
-                    }}>
+                    <button
+                      className="gantt-title-button"
+                      onClick={(e) => {
+                        if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
+                        isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openPlanNode(item);
+                      }}
+                    >
                       {item.title}
                     </button>
                   )}
@@ -645,6 +671,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                 {isPlan
                   ? (
                     <div className="gantt-row-actions">
+                      {dropSortTargetId === item.id && draggingSortId && <span className="gantt-drop-label">ここへ移動</span>}
                       <button
                         className="gantt-row-action drag"
                         draggable
@@ -653,6 +680,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = "move";
                           event.dataTransfer.setData("text/plain", item.id);
+                          selectTimelineItem(item);
                           setDraggingSortId(item.id);
                           setDropSortTargetId(null);
                         }}
@@ -677,18 +705,18 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
               if (row.rowType === "theme") return <div className="gantt-canvas-theme-row" key={`theme-${row.groupKey}`} />;
               if (row.rowType === "milestones") {
                 const colorKey = themeColor(row.theme, themes.indexOf(row.theme ?? themes[0]));
-                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={openPlanNode} onMove={(item, delta) => moveItem(item, delta, "move")} onCreateMilestone={(date) => createMilestone(row.theme?.id || null, date)} themeColorKey={colorKey} />;
+                return <MilestoneLane key={`milestones-${row.groupKey}`} milestones={row.milestones} range={range} dayWidth={dayWidth} hint={dateHint} onOpen={openPlanNode} onMove={(item, delta) => { selectTimelineItem(item); moveItem(item, delta, "move"); }} onCreateMilestone={(date) => createMilestone(row.theme?.id || null, date)} themeColorKey={colorKey} />;
               }
               const itemTheme = themes.find((t) => t.id === row.item.theme_id);
               const colorKey = themeColor(itemTheme, themes.indexOf(itemTheme ?? themes[0]));
-              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} onOpen={(item) => connecting ? startConnecting(item) : openPlanNode(item)} onMove={moveItem} connecting={connecting} onConnect={startConnecting} onCreateRange={createRangeFromRow} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
+              return <GanttItemRow key={row.item.id} item={row.item} laneItems={row.laneItems} range={range} hint={dateHint} selectedItemId={selectedTimelineItemId} onOpen={(item) => connecting ? startConnecting(item) : openPlanNode(item)} onSelect={selectTimelineItem} onMove={(item, delta, mode, targetParent) => { selectTimelineItem(item); moveItem(item, delta, mode, targetParent); }} connecting={connecting} onConnect={startConnecting} onCreateRange={createRangeFromRow} themeColorKey={colorKey} resolveDropTarget={resolveDropTarget} onCtrlClick={handleCtrlClick} />;
             })}
             {showDependencies && <DependencyOverlay dependencies={timelineDependencies} rows={rows} range={range} selected={selectedDep} onSelect={setSelectedDep} />}
             {showLightning && <LightningOverlay rows={rows} range={range} today={today} />}
           </div>
         </div>
       </section>
-      <div className="timeline-legend"><span><i className="legend-solid" />実施事項</span><span><i className="legend-diamond" />マイルストーン</span><span><i className="legend-task" />計画</span><span><i className="legend-lightning" />実進捗の到達日</span><span>予定なしは左表のみ</span></div>
+      {outsideCount > 0 && <div className="timeline-range-note">表示範囲外の計画が {outsideCount} 件あります。前後期間を広げると確認できます。</div>}
     </div>
   );
 }
