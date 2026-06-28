@@ -178,7 +178,6 @@ export function ChatRefsPage({
       type: "resource",
       mode: "edit",
       entity: {
-        link_type: "chatgpt",
         reference_status: "inbox",
         project_id: selectedThemeId || null,
         chat_group: chatGroup,
