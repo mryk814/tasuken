@@ -1338,6 +1338,7 @@ function WaitingFields({ entity, data }: { entity: DrawerConfig["entity"]; data:
 function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const schedule = findSchedule(data, "plan_node", str(entity.id), entity._schedule);
   const initialNodeType = str(entity.node_type) || str(entity.type) || "phase";
+  const focusTitle = Boolean(entity._focusTitle);
   const [nodeType, setNodeType] = useState(initialNodeType);
   const isChildPlan = Boolean(entity.parent_plan_node_id || entity._parent_plan_node_item_id);
   const showRangeInputs = isChildPlan && nodeType !== "milestone";
@@ -1348,7 +1349,7 @@ function PlanNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data
   const milestoneDate = dateOnly(schedule?.end_date || schedule?.start_date);
   return (
     <>
-      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <Field label="タイトル"><input name="title" autoFocus={focusTitle} defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
       <div className="form-grid">
         <Field label="種類">

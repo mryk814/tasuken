@@ -385,6 +385,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         state: "planned",
         node_state: "planned",
         project_id: themeId,
+        _focusTitle: true,
         _schedule: {
           id: uuid(),
           owner_type: "plan_node",
@@ -439,7 +440,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     ], "計画を追加しました。Ctrl+Zで戻せます。");
     pushUndo({ label: "計画追加", run: async () => { await removeEntityQuiet("plan_node", planNodeId); } });
     setSelectedTimelineItemId(planNodeId);
-    openDrawer({ type: "plan_node", mode: "edit", entity: { ...planNode, _schedule: schedule } as unknown as Record<string, unknown> });
+    openDrawer({ type: "plan_node", mode: "edit", entity: { ...planNode, _schedule: schedule, _focusTitle: true } as unknown as Record<string, unknown> });
   }
 
   async function addQuickPlan() {
@@ -656,12 +657,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                       className="gantt-title-button"
                       onClick={(e) => {
                         if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                        if (connecting || connectMode) { startConnecting(item); return; }
-                        if (isPlan) selectTimelineItem(item);
-                        else openPlanNode(item);
-                      }}
-                      onDoubleClick={() => {
-                        if (isPlan && !connectMode && !connecting) setEditingTitle({ id: item.id, value: item.title });
+                        isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openPlanNode(item);
                       }}
                     >
                       {item.title}
