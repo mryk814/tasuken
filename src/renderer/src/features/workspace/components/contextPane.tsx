@@ -2,6 +2,7 @@ import { IconMessageCircle, IconNotes, IconPointFilled } from "@tabler/icons-rea
 
 import type { OpenDrawer, Theme, WorkspaceData } from "../types";
 import type { Note, Resource, WorkspaceDomain } from "../domain-model/types";
+import { resolveChatService } from "../lib/chatServices";
 import { THEME_STATUS_LABELS } from "../lib/domain";
 import { dateOnly, formatDate, str } from "../lib/format";
 import { EmptyState, StatusBadge } from "./common";
@@ -43,8 +44,6 @@ function pickRediscovery<T extends { id: string; updated_at?: string; created_at
     .slice(0, count);
 }
 
-const CHAT_LINK_TYPES = new Set(["chatgpt", "claude", "gemini", "copilot"]);
-
 export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigate }: ContextPaneProps) {
   const today = dateOnly(new Date().toISOString());
   const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
@@ -62,7 +61,7 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
     .slice(0, 2);
   const notes = pickRediscovery(v2.notes as (Note & { updated_at?: string; created_at?: string })[], 2);
   const chatResources = pickRediscovery(
-    v2.resources.filter((r) => CHAT_LINK_TYPES.has(str(r.link_type))) as (Resource & { updated_at?: string; created_at?: string })[],
+    v2.resources.filter((r) => resolveChatService(r) !== "other") as (Resource & { updated_at?: string; created_at?: string })[],
     2,
   );
 

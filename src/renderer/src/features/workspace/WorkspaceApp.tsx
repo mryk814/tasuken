@@ -20,6 +20,7 @@ import type {
   WorkspaceData,
 } from "./types";
 import { entityTitle } from "./lib/domain";
+import { inferChatServiceFromUrl } from "./lib/chatServices";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import type { SaveOperation } from "./types";
 import {
@@ -549,6 +550,9 @@ export function WorkspaceApp() {
       const url = formText(values, "url");
       if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return; }
       if (!url) { (named("url") as HTMLInputElement | null)?.focus(); setToast("URLを入力してください。"); return; }
+      const hasLinkTypeField = Boolean(named("link_type"));
+      const submittedLinkType = formText(values, "link_type");
+      const inferredLinkType = inferChatServiceFromUrl(url);
       const resource: Resource = {
         id: (base.id as string) || uuid(),
         title,
@@ -556,7 +560,9 @@ export function WorkspaceApp() {
         project_id: formText(values, "project_id") || formText(values, "theme_id") || null,
         description: formText(values, "description") || null,
         source_record_id: (base.source_record_id as string | null) ?? null,
-        link_type: formText(values, "link_type") || ((base.link_type as string | null) ?? null),
+        link_type: hasLinkTypeField
+          ? (submittedLinkType || (inferredLinkType !== "other" ? inferredLinkType : null))
+          : ((base.link_type as string | null) ?? null),
         reference_status: formText(values, "reference_status") ? normalizeChatReferenceStatus(formText(values, "reference_status")) : (base.reference_status ? normalizeChatReferenceStatus(String(base.reference_status)) : null),
         importance: formText(values, "importance") || null,
         captured_at: formText(values, "captured_at") || ((base.captured_at as string | null) ?? null),

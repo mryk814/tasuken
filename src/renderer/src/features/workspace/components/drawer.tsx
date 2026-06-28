@@ -16,6 +16,7 @@ import type {
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
+import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, inferChatServiceFromUrl, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import {
@@ -33,25 +34,22 @@ import {
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 
-const LINK_TYPES = ["chatgpt", "claude", "gemini", "copilot", "github", "paper", "notebook", "document", "other"];
-const LINK_TYPE_LABELS: Record<string, string> = {
-  chatgpt: "ChatGPT",
-  claude: "Claude",
-  gemini: "Gemini",
-  copilot: "Copilot",
-  github: "GitHub",
-  paper: "論文",
-  notebook: "Notebook",
-  document: "文書",
-  other: "その他",
-};
 const CHAT_REFERENCE_STATUSES = ["inbox", "adopted"];
 const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
   inbox: "未整理",
   adopted: "採用",
 };
-const normalizeLinkType = (value: unknown) => LINK_TYPES.includes(str(value)) ? str(value) : "other";
 const normalizeReferenceStatus = (value: unknown) => str(value) === "adopted" ? "adopted" : "inbox";
+const initialChatLinkType = (value: unknown) => {
+  const normalized = str(value);
+  if (isKnownChatService(normalized) || normalized === "other") return normalized;
+  return "";
+};
+const isChatReferenceEntity = (entity: Record<string, unknown>) => (
+  isKnownChatService(entity.link_type) ||
+  resolveChatService({ link_type: entity.link_type, url: entity.url }) !== "other" ||
+  Boolean(entity.reference_status || entity.chat_group)
+);
 const PRIMARY_KNOWLEDGE_NODE_TYPES = ["question", "claim", "evidence", "decision"];
 interface ImportCandidate {
   type: "item" | "note" | "link" | "knowledge_node" | "knowledge_edge";
@@ -199,7 +197,8 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
   if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
   if (type === "resource") {
-    const isChatRef = Boolean(entity.link_type || entity.reference_status);
+    const isChatRef = isChatReferenceEntity(entity);
+    const service = resolveChatService({ link_type: entity.link_type, url: entity.url });
     const themeName = (data.themes || []).find((t) => t.id === (entity.project_id || entity.theme_id))?.name || "未設定";
     return (
       <DetailDrawer
@@ -210,7 +209,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, removeEntity, save
       >
         {isChatRef && (
           <div className="badge-row">
-            <StatusBadge value="neutral" label={LINK_TYPE_LABELS[normalizeLinkType(entity.link_type)]} />
+            <StatusBadge value="neutral" label={CHAT_SERVICE_LABELS[service]} />
             <StatusBadge value={normalizeReferenceStatus(entity.reference_status)} label={CHAT_REFERENCE_STATUS_LABELS[normalizeReferenceStatus(entity.reference_status)]} />
           </div>
         )}
@@ -525,18 +524,30 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
 }
 
 function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
-  const isChatRef = Boolean(entity.link_type || entity.reference_status || entity.chat_group);
+  const isChatRef = isChatReferenceEntity(entity);
   const allResources = [...(data.resources || []), ...data.links];
   const [projectId, setProjectId] = useState(str(entity.project_id || entity.theme_id));
+  const [url, setUrl] = useState(str(entity.url));
+  const [linkType, setLinkType] = useState(initialChatLinkType(entity.link_type));
+  const inferredService = inferChatServiceFromUrl(url);
+  const resolvedService = linkType ? resolveChatService({ link_type: linkType, url }) : inferredService;
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
-      <Field label="URL"><input name="url" type="url" defaultValue={str(entity.url)} /></Field>
+      <Field label="URL"><input name="url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} /></Field>
       <ThemeSelect themes={data.themes} value={projectId} fieldName="project_id" onChange={setProjectId} />
       {isChatRef && (
         <>
           <ChatGroupPicker value={str(entity.chat_group)} resources={allResources as { chat_group?: string | null; project_id?: string | null; theme_id?: string | null }[]} projectId={projectId} />
           <div className="form-grid">
+            <Field label="サービス">
+              <select name="link_type" value={linkType} onChange={(event) => setLinkType(event.target.value)}>
+                <option value="">URLから推定</option>
+                {CHAT_SERVICE_TYPES.map((value) => <option key={value} value={value}>{CHAT_SERVICE_LABELS[value]}</option>)}
+                <option value="other">{CHAT_SERVICE_LABELS.other}</option>
+              </select>
+              <p className="field-help">URL推定: {CHAT_SERVICE_LABELS[inferredService]} / 表示: {CHAT_SERVICE_LABELS[resolvedService]}</p>
+            </Field>
             <Field label="参照状態">
               <select name="reference_status" defaultValue={normalizeReferenceStatus(entity.reference_status)}>
                 {CHAT_REFERENCE_STATUSES.map((value) => <option key={value} value={value}>{CHAT_REFERENCE_STATUS_LABELS[value]}</option>)}

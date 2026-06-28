@@ -18,18 +18,18 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps, Theme } from "../types";
 import type { Resource } from "../domain-model/types";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
+import { CHAT_SERVICE_LABELS, CHAT_SERVICE_SHORT_LABELS, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
 
-const CHAT_LINK_TYPES = ["chatgpt", "claude", "gemini", "copilot"];
 const UNGROUPED = "__ungrouped__";
 
 type SortOrder = "newest" | "oldest";
 type StatusFilter = "all" | "inbox" | "adopted";
 
 function isChatReference(r: Resource): boolean {
-  return CHAT_LINK_TYPES.includes(str(r.link_type)) || Boolean(r.reference_status);
+  return isKnownChatService(r.link_type) || resolveChatService(r) !== "other" || Boolean(r.reference_status);
 }
 
 function isAdopted(r: Resource): boolean {
@@ -275,32 +275,38 @@ export function ChatRefsPage({
                     <IconCopy size={14} />
                   </button>
                 </div>
-                {!collapsed.has(group.key) && group.resources.map((r) => (
-                  <div className="chat-link-row" key={r.id}>
-                    <button
-                      className={`chat-star ${isAdopted(r) ? "is-adopted" : ""}`}
-                      onClick={() => toggleAdopted(r)}
-                      aria-label={isAdopted(r) ? "採用を解除" : "採用にする"}
-                    >
-                      {isAdopted(r) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
-                    </button>
-                    <button className="chat-link-title" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
-                      {r.title || "無題"}
-                    </button>
-                    <a className="chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" aria-label="リンクを開く">
-                      <IconExternalLink size={16} />
-                    </a>
-                    <button
-                      className="chat-link-delete"
-                      onClick={() => removeEntity("resource", r as unknown as Record<string, unknown>)}
-                      aria-label={`${r.title || "チャットリンク"}を削除`}
-                      title="削除"
-                    >
-                      <IconTrash size={15} />
-                    </button>
-                    <span className="chat-link-date">{formatDate(resourceDate(r))}</span>
-                  </div>
-                ))}
+                {!collapsed.has(group.key) && group.resources.map((r) => {
+                  const service = resolveChatService(r);
+                  return (
+                    <div className="chat-link-row" key={r.id}>
+                      <button
+                        className={`chat-star ${isAdopted(r) ? "is-adopted" : ""}`}
+                        onClick={() => toggleAdopted(r)}
+                        aria-label={isAdopted(r) ? "採用を解除" : "採用にする"}
+                      >
+                        {isAdopted(r) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
+                      </button>
+                      <span className={`chat-service-chip chat-service-${service}`} title={CHAT_SERVICE_LABELS[service]} aria-label={CHAT_SERVICE_LABELS[service]}>
+                        {CHAT_SERVICE_SHORT_LABELS[service]}
+                      </span>
+                      <button className="chat-link-title" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
+                        {r.title || "無題"}
+                      </button>
+                      <a className="chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" aria-label="リンクを開く">
+                        <IconExternalLink size={16} />
+                      </a>
+                      <button
+                        className="chat-link-delete"
+                        onClick={() => removeEntity("resource", r as unknown as Record<string, unknown>)}
+                        aria-label={`${r.title || "チャットリンク"}を削除`}
+                        title="削除"
+                      >
+                        <IconTrash size={15} />
+                      </button>
+                      <span className="chat-link-date">{formatDate(resourceDate(r))}</span>
+                    </div>
+                  );
+                })}
               </div>
             ))}
             {!visibleResources.length && <EmptyState title="チャット参照がありません" action="チャットリンクを追加" onAction={() => addChatLink()} />}
