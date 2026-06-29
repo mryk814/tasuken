@@ -30,7 +30,7 @@ export function NotesPage({ themes, domain, openDrawer, setToast }: PageProps) {
       <PageHeader title="Notes & Resources" subtitle="作業ログや素材はここへ入れ、判断に使う部品だけKnowledge化します">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: {} })}>リソースを追加</button>
-        <button className="secondary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "artifact", content_format: "markdown" } })}>成果物を追加</button>
+        <button className="secondary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "artifact", content_format: "markdown" } })}>Markdown文書</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button>
       </PageHeader>
       <div className="filter-bar panel">

@@ -15,10 +15,12 @@ import type {
 } from "../types";
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
+import { previewDocument, renderedText } from "../lib/markdown";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
+import { MarkdownEditorPanel } from "./MarkdownEditorPanel";
 import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
@@ -477,13 +479,21 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
   const properties = entity.properties_json && typeof entity.properties_json === "object" ? entity.properties_json as Record<string, unknown> : {};
   const isReport = noteType === "report";
   const isReportPrompt = noteType === "report_prompt";
+  const initialFormat = str(entity.content_format) || ((isReport || isReportPrompt || initialType === "artifact") ? "markdown" : "plain");
+  const [contentFormat, setContentFormat] = useState(initialFormat);
+  function chooseNoteType(next: string) {
+    setNoteType(next);
+    if ((next === "artifact" || next === "report" || next === "report_prompt") && contentFormat === "plain") {
+      setContentFormat("markdown");
+    }
+  }
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
       {!isReport && !isReportPrompt && <ItemSelect items={data.items} value={str(entity.item_id)} />}
       <Field label="種別">
-        <select name="note_type" value={noteType} onChange={(event) => setNoteType(event.target.value)}>
+        <select name="note_type" value={noteType} onChange={(event) => chooseNoteType(event.target.value)}>
           {Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           <option value="report">報告書</option>
           <option value="report_prompt">報告書プロンプト</option>
@@ -513,14 +523,14 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
         </div>
       )}
       <Field label="形式">
-        <select name="content_format" defaultValue={str(entity.content_format) || ((isReport || isReportPrompt || str(entity.note_type) === "artifact") ? "markdown" : "plain")}>
+        <select name="content_format" value={contentFormat} onChange={(event) => setContentFormat(event.target.value)}>
           <option value="markdown">Markdown</option>
           <option value="html">HTML</option>
           <option value="plain">Plain text</option>
         </select>
       </Field>
       {!isReport && !isReportPrompt && <Field label="参照URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>}
-      <Field label={isReportPrompt ? "プロンプト" : "本文"}><textarea className="large-textarea" name="body_markdown" defaultValue={str(entity.body_markdown)} /></Field>
+      <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
     </>
   );
 }
@@ -805,98 +815,6 @@ function buildKnowledgeCandidateOperations(candidates: ImportCandidate[], note: 
   return operations;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function sanitizePreviewHtml(value: string): string {
-  return value
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s(src|href)\s*=\s*("|')?(?!https?:|mailto:|#)[^"'\s>]*\2/gi, "")
-    .replace(/javascript:/gi, "");
-}
-
-function renderMarkdownPreview(value: string): string {
-  const lines = value.split(/\r?\n/);
-  const html: string[] = [];
-  let inCode = false;
-  let inList = false;
-  const closeList = () => {
-    if (inList) {
-      html.push("</ul>");
-      inList = false;
-    }
-  };
-  for (const line of lines) {
-    if (line.trim().startsWith("```")) {
-      closeList();
-      html.push(inCode ? "</code></pre>" : "<pre><code>");
-      inCode = !inCode;
-      continue;
-    }
-    if (inCode) {
-      html.push(`${escapeHtml(line)}\n`);
-      continue;
-    }
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      closeList();
-      const level = heading[1].length;
-      html.push(`<h${level}>${escapeHtml(heading[2])}</h${level}>`);
-      continue;
-    }
-    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
-    if (bullet) {
-      if (!inList) {
-        html.push("<ul>");
-        inList = true;
-      }
-      html.push(`<li>${escapeHtml(bullet[1])}</li>`);
-      continue;
-    }
-    closeList();
-    if (!line.trim()) {
-      html.push("<br />");
-      continue;
-    }
-    html.push(`<p>${escapeHtml(line)}</p>`);
-  }
-  closeList();
-  if (inCode) html.push("</code></pre>");
-  return html.join("");
-}
-
-function artifactPreviewHtml(body: string, format: string): string {
-  const content = format === "html"
-    ? sanitizePreviewHtml(body)
-    : format === "markdown"
-      ? renderMarkdownPreview(body)
-      : `<pre>${escapeHtml(body)}</pre>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6;margin:16px;color:#26211f;background:#fff}
-h1,h2,h3{line-height:1.25;margin:1.2em 0 .5em}
-p{margin:.5em 0}ul{padding-left:1.4em}pre{overflow:auto;padding:12px;border:1px solid #ddd;border-radius:6px;background:#f7f4f2}
-code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
-</style></head><body>${content}</body></html>`;
-}
-
-function artifactRenderedText(body: string, format: string): string {
-  if (format === "html") {
-    return sanitizePreviewHtml(body).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  }
-  return body
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^\s*[-*]\s+/gm, "- ")
-    .replace(/```/g, "")
-    .trim();
-}
-
 function NoteDetailDrawer({
   note,
   data,
@@ -1003,13 +921,13 @@ function NoteDetailDrawer({
                 <button className={artifactMode === "raw" ? "is-active" : ""} onClick={() => setArtifactMode("raw")}>Raw</button>
               </div>
               <button className="secondary-button compact" onClick={() => workspaceApi.copyText(body)}>Rawをコピー</button>
-              <button className="secondary-button compact" onClick={() => workspaceApi.copyText(artifactRenderedText(body, contentFormat))}>Previewをコピー</button>
+              <button className="secondary-button compact" onClick={() => workspaceApi.copyText(renderedText(body, contentFormat))}>Previewをコピー</button>
             </div>
             {artifactMode === "preview" ? (
               <iframe
                 className="artifact-preview-frame"
                 sandbox=""
-                srcDoc={artifactPreviewHtml(body, contentFormat)}
+                srcDoc={previewDocument(body, contentFormat)}
                 title={`${note.title} preview`}
               />
             ) : (

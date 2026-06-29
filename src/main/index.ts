@@ -257,12 +257,20 @@ interface SmokeCreatedResult {
   title: string;
   rootReady: boolean;
   saved: boolean;
+  markdownSaved: boolean;
+  markdownPreviewRendered: boolean;
+  markdownFrontmatterRendered: boolean;
+  rawCopyNotified: boolean;
+  renderedCopyNotified: boolean;
   themeMode: string;
   clipboardWritten: boolean;
 }
 
 interface SmokeReloadResult {
   persisted: boolean;
+  markdownPersisted: boolean;
+  markdownThemeLinked: boolean;
+  markdownFrontmatterPersisted: boolean;
   themeMode: string;
 }
 
@@ -291,9 +299,27 @@ if (requestedUserDataPath) {
 async function runSmokeTest(window: BrowserWindow): Promise<void> {
   recordSmoke("renderer-loaded");
   const testTitle = `デスクトップ動作確認 ${Date.now()}`;
+  const markdownTitle = `Markdown動作確認 ${Date.now()}`;
+  const smokeThemeId = `smoke-theme-${Date.now()}`;
+  const markdownBody = `---
+theme: smoke
+type: report
+---
+# Markdown Preview
+- 箇条書き
+
+\`\`\`
+code block
+\`\`\``;
   const created = await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const setInputValue = (element, value) => {
+        const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set;
+        if (setter) setter.call(element, value);
+        else element.value = value;
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+      };
       const waitForButton = async (label) => {
         for (let attempt = 0; attempt < 50; attempt += 1) {
           const target = [...document.querySelectorAll("button")].find((button) => {
@@ -320,6 +346,36 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
       body.value = "Electron内で入力と保存を確認しました。";
       form.requestSubmit();
       await delay(120);
+
+      await window.api.entities.save("theme", { id: ${JSON.stringify(smokeThemeId)}, name: "Smoke Theme", code: "SMOKE", status: "active" });
+      (await waitForButton("Markdown文書")).click();
+      await delay(80);
+      const markdownForm = document.querySelector(".drawer-form");
+      const markdownTitle = markdownForm?.querySelector('input[name="title"]');
+      const markdownBody = markdownForm?.querySelector('textarea[name="body_markdown"]');
+      const markdownTheme = markdownForm?.querySelector('input[name="theme_id"]');
+      if (!markdownForm || !markdownTitle || !markdownBody || !markdownTheme) throw new Error("Markdown入力フォームが見つかりません");
+      setInputValue(markdownTitle, ${JSON.stringify(markdownTitle)});
+      markdownTheme.value = ${JSON.stringify(smokeThemeId)};
+      markdownTheme.dispatchEvent(new Event("input", { bubbles: true }));
+      setInputValue(markdownBody, ${JSON.stringify(markdownBody)});
+      (await waitForButton("Preview")).click();
+      await delay(80);
+      const preview = document.querySelector(".markdown-preview");
+      const markdownPreviewRendered = Boolean(
+        preview?.querySelector("h1")?.textContent?.includes("Markdown Preview")
+        && preview?.querySelector("li")?.textContent?.includes("箇条書き")
+        && preview?.querySelector("code")?.textContent?.includes("code block")
+      );
+      const markdownFrontmatterRendered = Boolean(preview?.querySelector(".md-frontmatter")?.textContent?.includes("type: report"));
+      (await waitForButton("Copy Raw")).click();
+      await delay(60);
+      const rawCopyNotified = document.body.innerText.includes("Rawをコピーしました。");
+      (await waitForButton("Copy Rendered text")).click();
+      await delay(60);
+      const renderedCopyNotified = document.body.innerText.includes("Previewをコピーしました。");
+      markdownForm.requestSubmit();
+      await delay(160);
       await window.api.preferences.set("themeMode", "dark");
       const themeMode = await window.api.preferences.get("themeMode");
       const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
@@ -328,6 +384,11 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
         title: document.title,
         rootReady: Boolean(document.querySelector("#root > *")),
         saved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)})),
+        markdownSaved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)})),
+        markdownPreviewRendered,
+        markdownFrontmatterRendered,
+        rawCopyNotified,
+        renderedCopyNotified,
         themeMode,
         clipboardWritten,
       };
@@ -340,21 +401,38 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
         Promise.all([
           window.api.entities.list("note"),
           window.api.preferences.get("themeMode"),
-        ]).then(([notes, themeMode]) => ({
+        ]).then(([notes, themeMode]) => {
+          const markdown = notes.find((note) => note.title === ${JSON.stringify(markdownTitle)});
+          return ({
           persisted: notes.some((note) => note.title === ${JSON.stringify(testTitle)}),
+          markdownPersisted: Boolean(markdown?.body_markdown?.includes("Markdown Preview")),
+          markdownThemeLinked: markdown?.theme_id === ${JSON.stringify(smokeThemeId)},
+          markdownFrontmatterPersisted: Boolean(markdown?.body_markdown?.includes("type: report")),
           themeMode,
-        }))
+        });
+        })
       `) as SmokeReloadResult;
       const result = {
         ...created,
         persistedAfterReload: afterReload.persisted,
+        markdownPersistedAfterReload: afterReload.markdownPersisted,
+        markdownThemeLinkedAfterReload: afterReload.markdownThemeLinked,
+        markdownFrontmatterPersistedAfterReload: afterReload.markdownFrontmatterPersisted,
         themeModeAfterReload: afterReload.themeMode,
       };
       console.log(JSON.stringify(result));
       recordSmoke("passed", result);
       app.exit(
         result.persistedAfterReload
+        && result.markdownPersistedAfterReload
+        && result.markdownThemeLinkedAfterReload
+        && result.markdownFrontmatterPersistedAfterReload
         && result.saved
+        && result.markdownSaved
+        && result.markdownPreviewRendered
+        && result.markdownFrontmatterRendered
+        && result.rawCopyNotified
+        && result.renderedCopyNotified
         && result.rootReady
         && result.clipboardWritten
         && result.themeMode === "dark"
