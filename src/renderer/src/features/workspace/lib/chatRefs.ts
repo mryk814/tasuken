@@ -1,9 +1,14 @@
 import type { Resource } from "../domain-model/types";
+import { isKnownChatService, resolveChatService } from "./chatServices";
 
 export const UNGROUPED_CHAT_GROUP = "__ungrouped__";
 
 export type ChatRefSortOrder = "manual" | "newest" | "oldest";
 export type ChatRefGroup = { key: string; label: string; resources: Resource[] };
+
+export function isChatReference(resource: Resource): boolean {
+  return isKnownChatService(resource.link_type) || resolveChatService(resource) !== "other" || Boolean(resource.reference_status);
+}
 
 export function chatResourceDate(resource: Resource): string {
   return String(resource.captured_at || (resource as unknown as Record<string, unknown>).created_at || (resource as unknown as Record<string, unknown>).updated_at || "");

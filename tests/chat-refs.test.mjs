@@ -30,6 +30,13 @@ function resource(id, title, extra = {}) {
   };
 }
 
+test("chat reference detection separates chat links from ordinary resources", () => {
+  assert.equal(chatRefs.isChatReference(resource("chatgpt", "ChatGPT", { link_type: "chatgpt" })), true);
+  assert.equal(chatRefs.isChatReference(resource("claude", "Claude", { url: "https://claude.ai/chat/abc" })), true);
+  assert.equal(chatRefs.isChatReference(resource("adopted", "採用", { reference_status: "adopted" })), true);
+  assert.equal(chatRefs.isChatReference(resource("paper", "論文", { link_type: "paper", url: "https://example.test/paper" })), false);
+});
+
 test("chat references keep manual order before date fallback", () => {
   const grouped = chatRefs.groupChatResources([
     resource("b", "B", { sort_order: 20, captured_at: "2026-06-29" }),

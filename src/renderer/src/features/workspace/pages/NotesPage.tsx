@@ -32,6 +32,7 @@ import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { previewHtml } from "../lib/markdown";
+import { isChatReference } from "../lib/chatRefs";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
 
@@ -232,7 +233,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const records: Combined[] = [
     ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
-    ...domain.resources.map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
+    ...domain.resources.filter((resource) => !isChatReference(resource)).map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   const visible = records.filter((record) =>
     `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`

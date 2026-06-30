@@ -3,6 +3,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { themeColor } from "../lib/domain";
+import { isChatReference } from "../lib/chatRefs";
 import { isPromptNote } from "../lib/prompts";
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
@@ -54,12 +55,9 @@ export function Sidebar({
   const waiting = domain.waitings.filter((w) => w.state === "waiting").length;
   const openTasks = domain.tasks.filter((t) => t.state !== "done" && t.state !== "cancelled").length;
   const promptCount = domain.notes.filter(isPromptNote).length;
-  const notesCount = domain.notes.filter((note) => !isPromptNote(note)).length + domain.resources.length;
+  const notesCount = domain.notes.filter((note) => !isPromptNote(note)).length + domain.resources.filter((resource) => !isChatReference(resource)).length;
   const knowledgeCount = domain.knowledge_nodes.length;
-  const chatRefCount = domain.resources.filter((resource) => {
-    const type = String(resource.link_type || "");
-    return ["chatgpt", "claude", "gemini", "copilot"].includes(type) || Boolean(resource.reference_status);
-  }).length;
+  const chatRefCount = domain.resources.filter(isChatReference).length;
   const proposalCount = domain.ai_proposals.filter((proposal) => proposal.status === "pending").length;
   const countByRoute: Record<string, number> = {
     today: todayCount,

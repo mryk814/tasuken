@@ -23,12 +23,13 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps, Theme } from "../types";
 import type { Resource } from "../domain-model/types";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
-import { CHAT_SERVICE_LABELS, type ChatServiceType, isKnownChatService, resolveChatService } from "../lib/chatServices";
+import { CHAT_SERVICE_LABELS, type ChatServiceType, resolveChatService } from "../lib/chatServices";
 import {
   buildChatGroupKnowledgePrompt,
   chatResourceDate,
   clearChatGroupResources,
   groupChatResources,
+  isChatReference,
   renameChatGroupResources,
   reorderChatGroupResources,
   UNGROUPED_CHAT_GROUP,
@@ -43,10 +44,6 @@ import { EmptyState, PageHeader } from "../components/common";
 type StatusFilter = "all" | "inbox" | "adopted";
 type DragPlacement = "before" | "after";
 type DragTarget = { id: string; placement: DragPlacement } | null;
-
-function isChatReference(r: Resource): boolean {
-  return isKnownChatService(r.link_type) || resolveChatService(r) !== "other" || Boolean(r.reference_status);
-}
 
 function isAdopted(r: Resource): boolean {
   return str(r.reference_status) === "adopted";
