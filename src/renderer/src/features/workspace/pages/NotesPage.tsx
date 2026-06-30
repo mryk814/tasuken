@@ -244,7 +244,6 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
   const selected = markdownNotes.find((record) => record.id === selectedId) || markdownNotes[0] || null;
   const selectedTheme = selected ? themes.find((theme) => theme.id === selected.theme_id) : null;
   const selectedBody = selected ? str(selected.body_markdown) : "";
-  const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
   const selectedProperties = selected ? noteProperties(selected) : {};
   const wordExport = selectedProperties.word_export && typeof selectedProperties.word_export === "object" && !Array.isArray(selectedProperties.word_export)
     ? selectedProperties.word_export as Record<string, unknown>
@@ -287,12 +286,6 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
     workspaceApi
       .copyText(visible.map((record) => `${str(record.title)}\t${record.recordType === "resource" ? "リソース" : str(record.note_type)}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
       .then(() => setToast("Notes一覧をコピーしました。"));
-  }
-
-  async function copySelectedRaw() {
-    if (!selected) return;
-    await workspaceApi.copyText(effectiveBody);
-    setToast("本文をコピーしました。");
   }
 
   function openRecord(record: Combined, isMarkdown: boolean) {
@@ -518,15 +511,6 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   <span className="note-preview-theme">{selectedTheme?.name || "Theme未設定"}</span>
                   <h2>{str(selected.title)}</h2>
                 </div>
-              </div>
-              <div className="note-preview-actions">
-                {draftState && <span className={`note-draft-state ${draftDirty ? "is-dirty" : ""}`}>{draftState}</span>}
-                <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
-                <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
-                  setDraftBody(selectedBody);
-                  setDraftState("変更を戻しました。");
-                }}>戻す</button>
-                <button className="primary-button compact" disabled={!draftDirty} onClick={saveSelectedDraft} title="Ctrl+S">保存</button>
                 <button
                   className="secondary-button compact"
                   onClick={() => openDrawer({
@@ -547,6 +531,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   Knowledge化
                 </button>
               </div>
+              {(draftState || draftDirty) && <span className={`note-draft-state ${draftDirty ? "is-dirty" : ""}`}>{draftState || "本文変更あり"}</span>}
               <div className={`word-export-panel word-export-strip ${wordExportStale ? "needs-export" : ""}`}>
                 <div className="word-export-title">
                   <strong>Word出力</strong>
@@ -583,19 +568,17 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   )}
                 </div>
                 <div className="word-export-actions">
+                  <div className="segmented note-editor-mode-tabs" aria-label="Markdown表示">
+                    <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => setPreviewMode("edit")}>編集</button>
+                    <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => setPreviewMode("preview")}>Preview</button>
+                    <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => setPreviewMode("raw")}>Raw</button>
+                  </div>
                   <button className="primary-button compact" disabled={wordExporting} onClick={() => exportSelectedWord(!hasWordExportDirectory)}>
                     {hasWordExportDirectory ? "Wordを再出力" : "出力先を選ぶ"}
                   </button>
                   {hasWordExportDirectory && (
                     <button className="secondary-button compact" disabled={wordExporting} onClick={() => exportSelectedWord(true)}>出力先を変更</button>
                   )}
-                </div>
-              </div>
-              <div className="note-editor-mode-bar">
-                <div className="segmented" aria-label="Markdown表示">
-                  <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => setPreviewMode("edit")}>編集</button>
-                  <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => setPreviewMode("preview")}>Preview</button>
-                  <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => setPreviewMode("raw")}>Raw</button>
                 </div>
               </div>
               {previewMode === "edit" ? (

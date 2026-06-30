@@ -308,10 +308,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-preview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-1); border-bottom: 1px solid var(--color-border-subtle); }
 .note-preview-header h2 { margin: 0; font-size: var(--text-xl); line-height: var(--lh-tight); }
 .note-preview-theme { display: block; margin-bottom: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
-.note-preview-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
-.note-draft-state { margin-right: auto; color: var(--color-text-secondary); font-size: var(--text-xs); }
+.note-draft-state { min-height: 14px; margin-top: calc(var(--space-1) * -1); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .note-draft-state.is-dirty { color: var(--color-accent-strong); }
-.note-editor-mode-bar { display: flex; justify-content: flex-end; margin-top: calc(var(--space-1) * -1); }
+.note-editor-mode-tabs { flex-shrink: 0; margin-right: var(--space-1); }
+.note-editor-mode-tabs button { min-height: 32px; padding: 0 var(--space-2); }
 .note-edit-preview-grid { flex: 1; min-height: 520px; display: grid; grid-template-columns: minmax(300px, 0.92fr) minmax(320px, 1fr); gap: var(--space-2); align-items: stretch; }
 .note-main-editor { min-height: 520px; resize: vertical; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: var(--text-sm) var(--font-mono); line-height: var(--lh-relaxed); }
 .note-main-editor-raw { flex: 1; }
@@ -770,7 +770,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .word-export-meta { grid-template-columns: 58px minmax(0, 1fr); gap: 2px var(--space-2) !important; }
 .word-export-meta dt { margin-top: 0 !important; }
 .word-export-meta dd { overflow: hidden; padding: 0 !important; border: 0 !important; background: transparent !important; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
-.word-export-actions { display: flex; flex-wrap: nowrap; gap: var(--space-1); justify-content: flex-end; }
+.word-export-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-1); justify-content: flex-end; }
 .context-pane { position: sticky; z-index: 9; top: 0; height: 100vh; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); }
 .context-pane-header { min-height: 44px; display: grid; align-content: center; gap: 1px; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); }
 .context-pane-header span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-transform: uppercase; letter-spacing: 0; }
@@ -1083,7 +1083,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .notes-workbench { grid-template-columns: 1fr; }
   .notes-list-panel, .note-preview-panel { max-height: none; min-height: auto; }
   .note-preview-header { flex-direction: column; }
-  .note-preview-actions { justify-content: flex-start; }
   .word-export-strip { grid-template-columns: 1fr; }
   .word-export-strip .word-export-title, .word-export-strip .word-export-inline-meta, .word-export-strip .word-export-actions { grid-column: auto; grid-row: auto; }
   .word-export-inline-item strong, .word-export-inline-item time { max-width: 74vw; }
