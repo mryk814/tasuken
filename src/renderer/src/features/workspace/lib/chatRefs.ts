@@ -60,15 +60,17 @@ export function groupChatResources(resources: Resource[], order: ChatRefSortOrde
   return groups;
 }
 
-export function reorderChatGroupResources(resources: Resource[], resourceId: string, direction: "up" | "down"): Resource[] {
-  const index = resources.findIndex((resource) => resource.id === resourceId);
-  if (index < 0) return [];
-  const nextIndex = direction === "up" ? index - 1 : index + 1;
-  if (nextIndex < 0 || nextIndex >= resources.length) return [];
+export function reorderChatGroupResources(resources: Resource[], draggedId: string, targetId: string, placement: "before" | "after" = "before"): Resource[] {
+  if (draggedId === targetId) return [];
+  const fromIndex = resources.findIndex((resource) => resource.id === draggedId);
+  const targetIndex = resources.findIndex((resource) => resource.id === targetId);
+  if (fromIndex < 0 || targetIndex < 0) return [];
 
   const next = [...resources];
-  const [moved] = next.splice(index, 1);
-  next.splice(nextIndex, 0, moved);
+  const [moved] = next.splice(fromIndex, 1);
+  const adjustedTargetIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  const insertIndex = placement === "after" ? adjustedTargetIndex + 1 : adjustedTargetIndex;
+  next.splice(insertIndex, 0, moved);
   return next.map((resource, orderIndex) => ({
     ...resource,
     sort_order: (orderIndex + 1) * 10,

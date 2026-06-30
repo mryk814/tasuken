@@ -42,15 +42,19 @@ test("chat references keep manual order before date fallback", () => {
   assert.equal(grouped[1].key, chatRefs.UNGROUPED_CHAT_GROUP);
 });
 
-test("reordering a chat group rewrites stable sort_order values", () => {
-  const reordered = chatRefs.reorderChatGroupResources([
+test("drag reordering a chat group rewrites stable sort_order values", () => {
+  const current = [
     resource("a", "A", { sort_order: 10 }),
     resource("b", "B", { sort_order: 20 }),
     resource("c", "C", { sort_order: 30 }),
-  ], "c", "up");
+  ];
+  const reordered = chatRefs.reorderChatGroupResources(current, "c", "b", "before");
 
   assert.deepEqual(reordered.map((r) => r.id), ["a", "c", "b"]);
   assert.deepEqual(reordered.map((r) => r.sort_order), [10, 20, 30]);
+
+  const movedToEnd = chatRefs.reorderChatGroupResources(current, "a", "c", "after");
+  assert.deepEqual(movedToEnd.map((r) => r.id), ["b", "c", "a"]);
 });
 
 test("renaming and clearing a chat group keeps every link record", () => {

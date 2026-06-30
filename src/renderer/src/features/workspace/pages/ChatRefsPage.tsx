@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  IconArrowDown,
-  IconArrowUp,
   IconBrandGoogle,
   IconBrandOpenai,
   IconBrandWindows,
@@ -11,6 +9,7 @@ import {
   IconExternalLink,
   IconFoldDown,
   IconFoldUp,
+  IconGripVertical,
   IconLinkPlus,
   IconPencil,
   IconSparkles,
@@ -79,6 +78,8 @@ export function ChatRefsPage({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortOrder, setSortOrder] = useState<ChatRefSortOrder>("manual");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
@@ -196,10 +197,15 @@ export function ChatRefsPage({
     workspaceApi.copyText(prompt).then(() => setToast(`${group.label}のKnowledge化プロンプトをコピーしました。`));
   }
 
-  function moveChatLink(group: ChatRefGroup, resource: Resource, direction: "up" | "down") {
-    const reordered = reorderChatGroupResources(group.resources, resource.id, direction);
+  function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: "before" | "after") {
+    const reordered = reorderChatGroupResources(group.resources, draggedId, targetId, placement);
     if (!reordered.length) return;
     saveGroupResources(reordered, "並び替えを保存しました。");
+  }
+
+  function clearDragState() {
+    setDraggingId(null);
+    setDragOverId(null);
   }
 
   function copyList() {
@@ -365,30 +371,44 @@ export function ChatRefsPage({
                     </>
                   )}
                 </div>
-                {!collapsed.has(group.key) && group.resources.map((r, index) => {
+                {!collapsed.has(group.key) && group.resources.map((r) => {
                   const service = resolveChatService(r);
+                  const canDrag = sortOrder === "manual" && group.resources.length > 1;
                   return (
-                    <div className="chat-link-row" key={r.id}>
+                    <div
+                      className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${dragOverId === r.id && draggingId !== r.id ? "is-drag-over" : ""}`}
+                      key={r.id}
+                      onDragOver={canDrag ? (event) => {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        setDragOverId(r.id);
+                      } : undefined}
+                      onDragLeave={canDrag ? () => setDragOverId((current) => current === r.id ? null : current) : undefined}
+                      onDrop={canDrag ? (event) => {
+                        event.preventDefault();
+                        const draggedId = event.dataTransfer.getData("application/x-tasken-chat-ref") || draggingId;
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const placement = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+                        if (draggedId) moveChatLink(group, draggedId, r.id, placement);
+                        clearDragState();
+                      } : undefined}
+                    >
                       {sortOrder === "manual" && (
-                        <span className="chat-row-order-actions">
-                          <button
-                            className="row-action-button"
-                            onClick={() => moveChatLink(group, r, "up")}
-                            disabled={index === 0}
-                            aria-label={`${r.title || "チャットリンク"}を上へ移動`}
-                            title="上へ"
-                          >
-                            <IconArrowUp size={14} />
-                          </button>
-                          <button
-                            className="row-action-button"
-                            onClick={() => moveChatLink(group, r, "down")}
-                            disabled={index === group.resources.length - 1}
-                            aria-label={`${r.title || "チャットリンク"}を下へ移動`}
-                            title="下へ"
-                          >
-                            <IconArrowDown size={14} />
-                          </button>
+                        <span
+                          className={`chat-row-drag-handle ${canDrag ? "" : "is-disabled"}`}
+                          draggable={canDrag}
+                          onDragStart={(event) => {
+                            if (!canDrag) return;
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("application/x-tasken-chat-ref", r.id);
+                            setDraggingId(r.id);
+                            setDragOverId(null);
+                          }}
+                          onDragEnd={clearDragState}
+                          aria-label={`${r.title || "チャットリンク"}をドラッグして並び替え`}
+                          title={canDrag ? "ドラッグして並び替え" : "並び替え対象が1件だけです"}
+                        >
+                          <IconGripVertical size={16} />
                         </span>
                       )}
                       <button
