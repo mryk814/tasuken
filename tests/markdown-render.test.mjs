@@ -44,3 +44,30 @@ test("markdown preview does not render unsafe image urls", () => {
   assert.doesNotMatch(html, /<img /);
   assert.match(html, /\[画像: bad\]/);
 });
+
+test("renderedText converts markdown report bodies into readable email text", () => {
+  const text = markdown.renderedText(`---
+type: report
+---
+# 週報
+
+## 進捗
+
+- 試作条件を整理
+- CAE結果を確認
+
+$$
+x = T_a(x)
+$$
+
+![Chart](tasken-attachment://local/image.png/chart)`, "markdown");
+
+  assert.match(text, /Frontmatter/);
+  assert.match(text, /週報/);
+  assert.match(text, /- 試作条件を整理/);
+  assert.match(text, /- CAE結果を確認/);
+  assert.match(text, /x = T_a\(x\)/);
+  assert.match(text, /\[画像: Chart\]/);
+  assert.doesNotMatch(text, /#/);
+  assert.doesNotMatch(text, /\$\$/);
+});

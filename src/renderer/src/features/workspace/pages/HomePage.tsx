@@ -12,11 +12,6 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
   milestone: "節目報告",
   ad_hoc: "その他",
 };
-const REPORT_STATUS_LABELS: Record<string, string> = {
-  draft: "下書き",
-  sent: "送付済み",
-  archived: "アーカイブ",
-};
 
 function noteProps(note: BaseRecord): Record<string, unknown> {
   return note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
@@ -67,7 +62,6 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
         title: `${theme.name} ${REPORT_TYPE_LABELS.weekly}`,
         properties_json: {
           report_type: "weekly",
-          report_status: "draft",
           period_start: previousEnd,
           period_end: "",
         },
@@ -171,12 +165,11 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
           {reportNotes.slice(0, 5).map((note) => {
             const props = noteProps(note);
             const reportType = str(props.report_type) || "weekly";
-            const reportStatus = str(props.report_status) || "draft";
             return (
               <div className="report-row" key={note.id}>
                 <button onClick={() => openDrawer({ type: "note", mode: "edit", entity: note })}>
                   <strong>{note.title}</strong>
-                  <span>{REPORT_TYPE_LABELS[reportType] || reportType} / {formatDate(str(props.period_start))} - {formatDate(str(props.period_end))} / {REPORT_STATUS_LABELS[reportStatus] || reportStatus}</span>
+                  <span>{REPORT_TYPE_LABELS[reportType] || reportType} / {formatDate(str(props.period_start))} - {formatDate(str(props.period_end))}</span>
                 </button>
                 <button className="secondary-button compact icon-only" onClick={() => copyNoteText(note, "報告書本文をコピーしました。")} aria-label={`${note.title}の本文をコピー`} title="本文をコピー">
                   <IconCopy size={15} />
