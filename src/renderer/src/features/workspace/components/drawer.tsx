@@ -1059,7 +1059,7 @@ function NoteDetailDrawer({
           <button className="secondary-button compact" onClick={previewKnowledgeCandidates}>候補を確認</button>
           {knowledgePreview && (
             <div className="import-preview inline-preview">
-              {knowledgePreview.payloadIssues.length > 0 && <p className="field-help">注意: {knowledgePreview.payloadIssues.join(" / ")}</p>}
+              {knowledgePreview.payloadIssues.length > 0 && <p className="alert-note warning">注意: {knowledgePreview.payloadIssues.join(" / ")}</p>}
               {knowledgePreview.candidates.map((candidate, index) => (
                 <div className="import-candidate" key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
                   <div>
