@@ -575,7 +575,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .prompt-mode.is-featured { border-color: var(--color-accent-subtle-bd); background: color-mix(in srgb, var(--color-accent-subtle-bg) 58%, var(--color-surface)); }
 .prompt-mode p { margin: 0; color: var(--color-text-secondary); font-size: var(--text-sm); line-height: var(--lh-relaxed); }
 .prompt-mode button { justify-self: start; }
-.prompt-purpose-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
 .prompt-library-section { margin-bottom: var(--space-3); overflow: hidden; }
 .prompt-library-list { display: grid; }
 .prompt-library-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--pad-card); border-top: 1px solid var(--color-border-subtle); }

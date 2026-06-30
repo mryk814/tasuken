@@ -55,11 +55,6 @@ export function PromptsPage({ notes, themes, activeTheme, openDrawer, removeEnti
       <PageHeader title="Prompts" subtitle="用途別に再利用するプロンプトを整理します">
         <button className="primary-button" onClick={() => addPrompt()}>プロンプトを追加</button>
       </PageHeader>
-      <div className="prompt-purpose-actions">
-        {purposeValues.map((purpose) => (
-          <button className="secondary-button compact" key={purpose} onClick={() => addPrompt(purpose)}>{PROMPT_PURPOSE_LABELS[purpose]}</button>
-        ))}
-      </div>
       {grouped.length ? grouped.map((group) => (
         <section className="panel prompt-library-section" key={group.purpose}>
           <div className="section-heading">
