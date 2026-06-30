@@ -432,7 +432,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
       {preview && (
         <section className="panel import-preview">
           <div className="section-heading"><h2>取り込み候補</h2><span>{preview.candidates.length}件</span></div>
-          {preview.payloadIssues.length > 0 && <p className="field-help">注意: {preview.payloadIssues.join(" / ")}</p>}
+          {preview.payloadIssues.length > 0 && <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>}
           {preview.candidates.map((candidate, index) => (
             <div className="import-candidate" key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
               <div>

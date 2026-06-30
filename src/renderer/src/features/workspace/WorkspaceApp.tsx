@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconAlertTriangle, IconCheck, IconInfoCircle, IconTrash } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../services/workspaceApi";
 import { useUiStore } from "../../stores/uiStore";
@@ -129,6 +130,23 @@ function projectWorkspace(workspace: Record<string, unknown> | null): WorkspaceD
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+type ToastTone = "info" | "success" | "warning" | "danger";
+
+function toastTone(message: string, hasUndo: boolean): ToastTone {
+  if (/できません|失敗|エラー|読み込めません|書き出せません|反映できません/.test(message)) return "danger";
+  if (hasUndo || /削除しました/.test(message)) return "warning";
+  if (/注意|警告|期限切れ/.test(message)) return "warning";
+  if (/保存しました|追加しました|更新しました|コピーしました|元に戻しました|完了しました|整理しました/.test(message)) return "success";
+  return "info";
+}
+
+function toastIcon(tone: ToastTone) {
+  if (tone === "danger") return <IconAlertTriangle size={18} />;
+  if (tone === "warning") return <IconTrash size={18} />;
+  if (tone === "success") return <IconCheck size={18} />;
+  return <IconInfoCircle size={18} />;
 }
 
 function formSignature(form: HTMLFormElement): string {
@@ -821,6 +839,7 @@ export function WorkspaceApp() {
     "ai-io": <ImportExportPage {...common} />,
     settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroups={activeGroups} setActiveGroups={setActiveGroups} allThemes={allThemes} />,
   };
+  const toastToneValue = toast ? toastTone(toast, Boolean(lastDeleted.current)) : "info";
 
   return (
     <div className={`app-shell ${drawer ? "has-drawer" : ""}`}>
@@ -856,8 +875,13 @@ export function WorkspaceApp() {
         />
       )}
       {toast && (
-        <div className="toast" role="status" aria-live="polite">
-          <span>{toast}</span>
+        <div
+          className={`toast is-${toastToneValue}`}
+          role={toastToneValue === "danger" ? "alert" : "status"}
+          aria-live={toastToneValue === "danger" || toastToneValue === "warning" ? "assertive" : "polite"}
+        >
+          <span className="toast-icon" aria-hidden="true">{toastIcon(toastToneValue)}</span>
+          <span className="toast-message">{toast}</span>
           {lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>}
           <button onClick={() => setToast("")}>閉じる</button>
         </div>
