@@ -10,6 +10,7 @@ import {
   IconFoldDown,
   IconFoldUp,
   IconLinkPlus,
+  IconPencil,
   IconSortAscending,
   IconSortDescending,
   IconSparkles,
@@ -304,11 +305,19 @@ export function ChatRefsPage({
                       <button className="chat-link-title" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
                         {r.title || "無題"}
                       </button>
-                      <a className="chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" aria-label="リンクを開く">
+                      <button
+                        className="row-action-button"
+                        onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}
+                        aria-label={`${r.title || "チャットリンク"}を編集`}
+                        title="編集"
+                      >
+                        <IconPencil size={15} />
+                      </button>
+                      <a className="row-action-button chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" aria-label={`${r.title || "リンク"}を開く`} title="開く">
                         <IconExternalLink size={16} />
                       </a>
                       <button
-                        className="chat-link-delete"
+                        className="row-action-button danger chat-link-delete"
                         onClick={() => removeEntity("resource", r as unknown as Record<string, unknown>)}
                         aria-label={`${r.title || "チャットリンク"}を削除`}
                         title="削除"

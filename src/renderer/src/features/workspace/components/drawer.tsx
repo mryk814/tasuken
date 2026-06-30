@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconCopy } from "@tabler/icons-react";
+import { IconCopy, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -287,7 +287,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
           <div className="drawer-actions">
-            <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
+            <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             <button className="secondary-button" onClick={copyTask}><IconCopy size={16} />複製する</button>
             <button className="primary-button" onClick={async () => {
               const nextState = task.state === "done" ? "todo" : "done";
@@ -295,7 +295,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
               await saveEntities(buildCompleteTaskOperations(task, schedule), message);
               close();
             }}>{task.state === "done" ? "未完了に戻す" : "完了にする"}</button>
-            <button className="danger-button" onClick={() => removeEntity("task", entity)}>削除する</button>
+            <button className="danger-button" onClick={() => removeEntity("task", entity)}><IconTrash size={16} />削除する</button>
           </div>
         </div>
       </aside>
@@ -320,7 +320,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           </dl>
           {waiting.description && <p>{waiting.description}</p>}
           <div className="drawer-actions">
-            <button className="secondary-button" onClick={() => close({ type: "waiting", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
+            <button className="secondary-button" onClick={() => close({ type: "waiting", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             {waiting.state === "waiting" ? (
               <>
                 <button className="primary-button" onClick={async () => {
@@ -338,7 +338,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
                 close();
               }}>待ちに戻す</button>
             )}
-            <button className="danger-button" onClick={() => removeEntity("waiting", entity)}>削除する</button>
+            <button className="danger-button" onClick={() => removeEntity("waiting", entity)}><IconTrash size={16} />削除する</button>
           </div>
         </div>
       </aside>
@@ -363,13 +363,13 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
           <div className="drawer-actions">
-            <button className="secondary-button" onClick={() => close({ type: "plan_node", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
+            <button className="secondary-button" onClick={() => close({ type: "plan_node", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             <button className="primary-button" onClick={async () => {
               const nextState = planNode.state === "done" ? "planned" : "done";
               await saveEntities(buildSavePlanNodeOperations({ ...planNode, state: nextState }), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
               close();
             }}>{planNode.state === "done" ? "未完了に戻す" : "完了にする"}</button>
-            <button className="danger-button" onClick={() => removeEntity("plan_node", entity)}>削除する</button>
+            <button className="danger-button" onClick={() => removeEntity("plan_node", entity)}><IconTrash size={16} />削除する</button>
           </div>
         </div>
       </aside>
@@ -385,8 +385,8 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <h2>{entry.title || entry.text}</h2>
           <dl><dt>記録日</dt><dd>{formatDate(entry.captured_at)}</dd></dl>
           <div className="drawer-actions">
-            <button className="secondary-button" onClick={() => close({ type: "capture_entry", mode: "edit", entity })}>編集する</button>
-            <button className="danger-button" onClick={() => removeEntity("capture_entry", entity)}>削除する</button>
+            <button className="secondary-button" onClick={() => close({ type: "capture_entry", mode: "edit", entity })}><IconPencil size={16} />編集する</button>
+            <button className="danger-button" onClick={() => removeEntity("capture_entry", entity)}><IconTrash size={16} />削除する</button>
           </div>
         </div>
       </aside>
@@ -480,7 +480,7 @@ function EditDrawer({ drawer, data, close, saveForm, registerEditForm, removeEnt
           <section className="drawer-danger-zone">
             <strong>削除</strong>
             <span>完了やアーカイブではなく、実データを削除します。削除後はToastから元に戻せます。</span>
-            <button className="danger-button" type="button" onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}>この{kindLabel}を削除する</button>
+            <button className="danger-button" type="button" onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}><IconTrash size={16} />この{kindLabel}を削除する</button>
           </section>
         )}
       </form>
@@ -745,8 +745,8 @@ function DetailDrawer({
       <div className="drawer-content">
         {children}
         <div className="drawer-actions">
-          <button className="primary-button" onClick={onEdit}>編集する</button>
-          <button className="danger-button" onClick={onDelete}>削除する</button>
+          <button className="primary-button" onClick={onEdit}><IconPencil size={16} />編集する</button>
+          <button className="danger-button" onClick={onDelete}><IconTrash size={16} />削除する</button>
         </div>
       </div>
     </aside>
@@ -1096,8 +1096,8 @@ function NoteDetailDrawer({
           >
             Knowledge化する
           </button>
-          <button className="primary-button" onClick={() => close({ type: "note", mode: "edit", entity: note })}>編集する</button>
-          <button className="danger-button" onClick={() => removeEntity("note", note)}>削除する</button>
+          <button className="primary-button" onClick={() => close({ type: "note", mode: "edit", entity: note })}><IconPencil size={16} />編集する</button>
+          <button className="danger-button" onClick={() => removeEntity("note", note)}><IconTrash size={16} />削除する</button>
         </div>
       </div>
     </aside>
@@ -1161,8 +1161,8 @@ function KnowledgeNodeDetailDrawer({
         )}
         <div className="drawer-actions">
           <button className="secondary-button" onClick={() => close({ type: "knowledge_edge", mode: "edit", entity: { source_node_id: node.id } })}>関係を追加</button>
-          <button className="primary-button" onClick={() => close({ type: "knowledge_node", mode: "edit", entity: node })}>編集する</button>
-          <button className="danger-button" onClick={() => removeEntity("knowledge_node", node)}>削除する</button>
+          <button className="primary-button" onClick={() => close({ type: "knowledge_node", mode: "edit", entity: node })}><IconPencil size={16} />編集する</button>
+          <button className="danger-button" onClick={() => removeEntity("knowledge_node", node)}><IconTrash size={16} />削除する</button>
         </div>
       </div>
     </aside>
