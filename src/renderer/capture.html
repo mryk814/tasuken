@@ -207,10 +207,16 @@
       function applyThemes(themes) {
         const current = themeSelect.value || lastThemeId;
         themeSelect.innerHTML = '<option value="">個人業務 / Themeなし</option>';
-        for (const theme of themes || []) {
+        const orderedThemes = [...(themes || [])];
+        const recentIndex = orderedThemes.findIndex((theme) => theme.id === lastThemeId);
+        if (recentIndex > 0) {
+          const [recent] = orderedThemes.splice(recentIndex, 1);
+          orderedThemes.unshift(recent);
+        }
+        for (const theme of orderedThemes) {
           const option = document.createElement("option");
           option.value = theme.id;
-          option.textContent = theme.name;
+          option.textContent = theme.id === lastThemeId ? `${theme.name}（最近）` : theme.name;
           themeSelect.append(option);
         }
         themeSelect.value = [...themeSelect.options].some((option) => option.value === current) ? current : "";
@@ -221,12 +227,13 @@
         const isTodayTask = mode === "today-task";
         const isMicroMemo = mode === "micro-memo";
         const isDoneTask = mode === "done-task";
+        const usesTheme = isTodayTask || isDoneTask;
         title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
         modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
         input.placeholder = isDoneTask ? "今やったこと" : isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
         submitButton.textContent = isTodayTask ? "今日に追加" : isDoneTask ? "完了で記録" : "記録する";
         feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "今日のタスクに追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
-        themeRow.classList.toggle("is-visible", isDoneTask);
+        themeRow.classList.toggle("is-visible", usesTheme);
       }
 
       async function submit() {
@@ -234,9 +241,10 @@
         if (!text) return;
         submitButton.disabled = true;
         try {
-          const themeId = mode === "done-task" ? themeSelect.value : "";
+          const usesTheme = mode === "today-task" || mode === "done-task";
+          const themeId = usesTheme ? themeSelect.value : "";
           await window.captureApi.save(text, mode, themeId);
-          if (mode === "done-task") {
+          if (usesTheme) {
             lastThemeId = themeId;
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
           }
