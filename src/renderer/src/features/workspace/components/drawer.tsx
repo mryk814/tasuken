@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
+import { noteExportEnabled } from "../lib/io";
 import { previewDocument, renderedText } from "../lib/markdown";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
@@ -531,6 +532,13 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           <option value="plain">Plain text</option>
         </select>
       </Field>
+      <Field label="書き出し">
+        <input type="hidden" name="export_enabled" value="false" />
+        <label className="toggle">
+          <input type="checkbox" name="export_enabled" value="true" defaultChecked={properties.export_enabled !== false} />
+          Export対象にする
+        </label>
+      </Field>
       <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
     </>
   );
@@ -845,6 +853,7 @@ function NoteDetailDrawer({
   const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
   const body = note.body_markdown || "";
   const properties = note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
+  const exportEnabled = noteExportEnabled(note);
   const isReport = note.note_type === "report";
   const reportType = str(properties.report_type) || "weekly";
   const reportTypeLabel = REPORT_TYPE_LABELS[reportType] || "報告";
@@ -876,6 +885,18 @@ function NoteDetailDrawer({
         : `件名: ${emailSubject}\n\n${emailBody}`;
     await workspaceApi.copyText(text);
     setToast(kind === "subject" ? "件名候補をコピーしました。" : kind === "combined" ? "件名とメール本文をコピーしました。" : "Outlook貼り付け用本文をコピーしました。");
+  }
+
+  async function setExportEnabled(next: boolean) {
+    const saved = await saveEntity("note", {
+      ...note,
+      properties_json: {
+        ...properties,
+        export_enabled: next,
+      },
+    });
+    setToast(next ? "Export対象にしました。" : "Export対象から外しました。");
+    close({ type: "note", entity: saved });
   }
 
   async function addComment(event: React.FormEvent<HTMLFormElement>) {
@@ -985,6 +1006,16 @@ function NoteDetailDrawer({
       <div className="drawer-content">
         <StatusBadge value="neutral" label={NOTE_TYPE_LABELS[note.note_type ?? ""] || note.note_type} />
         <h2>{note.title}</h2>
+        <section className={`document-rule-strip ${exportEnabled ? "is-export-target" : "is-export-muted"}`}>
+          <div>
+            <strong>{exportEnabled ? "Export対象" : "Export対象外"}</strong>
+            <span>{exportEnabled ? "AI Context / Report Exportに含めます。" : "Exportでは本文を除外します。"}</span>
+          </div>
+          <label className="toggle">
+            <input type="checkbox" checked={exportEnabled} onChange={(event) => setExportEnabled(event.target.checked)} />
+            対象
+          </label>
+        </section>
         {note.source_url && <div className="link-value"><a href={note.source_url} target="_blank" rel="noreferrer">{note.source_url}</a></div>}
         {isArtifact ? (
           <section className="artifact-preview-section">

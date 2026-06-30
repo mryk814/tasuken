@@ -6,7 +6,8 @@ import { str, uuid } from "../lib/format";
 import { buildSaveTaskOperations, buildSaveWaitingOperations, buildSavePlanNodeOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../domain-model/types";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, buildAiImportPrompt, buildAiOrganizePrompt, parseAiImportPayload } from "../lib/aiImport.js";
-import { buildExportData, exportMarkdown, exportProgressReport, toYaml } from "../lib/io";
+import { NOTE_TYPE_LABELS } from "../lib/domain";
+import { buildExportData, exportMarkdown, exportProgressReport, noteExportEnabled, noteProperties, toYaml } from "../lib/io";
 import { PageHeader } from "../components/common";
 
 type ImportEntry = Record<string, unknown>;
@@ -133,6 +134,28 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
   const conversionPromptText = useMemo(() => buildAiImportPrompt(themeNames, exported), [themeNames, exported]);
   const organizeContext = useMemo(() => buildOrganizeContext({ data, domain, themes, activeTheme }), [data, domain, themes, activeTheme]);
   const externalContextPromptText = useMemo(() => buildAiOrganizePrompt(organizeContext), [organizeContext]);
+  const exportTargetNotes = useMemo(() => {
+    const notes = scope === "theme" && activeTheme
+      ? (data.notes || []).filter((note) => note.theme_id === activeTheme.id)
+      : data.notes || [];
+    return [...notes].sort((a, b) => str(b.updated_at || b.created_at).localeCompare(str(a.updated_at || a.created_at)));
+  }, [activeTheme, data.notes, scope]);
+  const exportEnabledCount = exportTargetNotes.filter(noteExportEnabled).length;
+
+  async function setNoteExportEnabled(note: BaseRecord, enabled: boolean) {
+    const properties = noteProperties(note);
+    await saveEntities([{
+      action: "save",
+      type: "note",
+      entity: {
+        ...note,
+        properties_json: {
+          ...properties,
+          export_enabled: enabled,
+        },
+      },
+    }], enabled ? "Export対象にしました。" : "Export対象から外しました。");
+  }
 
   function parseImport() {
     try {
@@ -421,6 +444,30 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
                 <option value="yaml">YAML</option>
                 <option value="json">JSON</option>
               </select>
+            </div>
+          </div>
+          <div className="export-target-panel">
+            <div className="section-heading">
+              <h2>Export対象文書</h2>
+              <span>{exportEnabledCount}/{exportTargetNotes.length}件</span>
+            </div>
+            <div className="export-target-list">
+              {exportTargetNotes.length ? exportTargetNotes.slice(0, 12).map((note) => {
+                const enabled = noteExportEnabled(note);
+                const noteType = str(note.note_type) || "memo";
+                return (
+                  <label className={`export-target-row ${enabled ? "" : "is-muted"}`} key={note.id}>
+                    <input type="checkbox" checked={enabled} onChange={(event) => setNoteExportEnabled(note, event.target.checked)} />
+                    <span>
+                      <strong>{note.title}</strong>
+                      <small>{NOTE_TYPE_LABELS[noteType] || noteType} / {themes.find((theme) => theme.id === note.theme_id)?.name || "Themeなし"}</small>
+                    </span>
+                  </label>
+                );
+              }) : (
+                <p className="field-help">Export対象を切り替えられる文書はまだありません。</p>
+              )}
+              {exportTargetNotes.length > 12 && <p className="field-help">ほか {exportTargetNotes.length - 12} 件はNotes側から切り替えできます。</p>}
             </div>
           </div>
           <textarea readOnly value={exported} />

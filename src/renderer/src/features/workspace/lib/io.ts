@@ -73,6 +73,17 @@ export interface ExportData {
   knowledge_edges: KnowledgeEdge[];
 }
 
+export function noteProperties(note: object): Record<string, unknown> {
+  const properties = (note as { properties_json?: unknown }).properties_json;
+  return properties && typeof properties === "object" && !Array.isArray(properties)
+    ? properties as Record<string, unknown>
+    : {};
+}
+
+export function noteExportEnabled(note: object): boolean {
+  return noteProperties(note).export_enabled !== false;
+}
+
 interface BuildExportArgs {
   data: WorkspaceData;
   domain: WorkspaceDomain;
@@ -129,6 +140,7 @@ export function buildExportData({ data, domain, themes, items, activeTheme, scop
   } else if (scope === "milestones") {
     scopedItems = mergedItems.filter((item) => item.kind === "milestone");
   }
+  scopedNotes = scopedNotes.filter(noteExportEnabled);
   const themeIds = new Set(
     [
       ...scopedItems.map((item) => item.theme_id),
