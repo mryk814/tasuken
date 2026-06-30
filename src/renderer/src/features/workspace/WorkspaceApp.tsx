@@ -42,6 +42,7 @@ import { TodoPage } from "./pages/TodoPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { ThemesPage } from "./pages/ThemesPage";
 import { NotesPage } from "./pages/NotesPage";
+import { PromptsPage } from "./pages/PromptsPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 import { WaitingPage } from "./pages/WaitingPage";
 import { ImportExportPage } from "./pages/ImportExportPage";
@@ -655,6 +656,11 @@ export function WorkspaceApp() {
       const noteType = formText(values, "note_type", "memo");
       const hasSourceUrlField = Boolean(named("source_url"));
       const exportEnabled = values.getAll("export_enabled").map(String).includes("true");
+      const promptProperties = noteType === "prompt" || noteType === "report_prompt" ? {
+        prompt_purpose: formText(values, "prompt_purpose", noteType === "report_prompt" ? "report" : "other"),
+        prompt_variables: formText(values, "prompt_variables"),
+        is_default: values.getAll("prompt_is_default").map(String).includes("true"),
+      } : {};
       const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
         report_type: formText(values, "report_type", "weekly"),
         ...(noteType === "report" ? {
@@ -672,7 +678,7 @@ export function WorkspaceApp() {
         item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
         source_url: noteType === "report" || noteType === "report_prompt" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
-        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), export_enabled: exportEnabled, ...reportProperties },
+        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), export_enabled: exportEnabled, ...reportProperties, ...promptProperties },
         comments: (base.comments as Note["comments"]) || [],
       };
     } else if (type === "status_update") {
@@ -833,6 +839,7 @@ export function WorkspaceApp() {
     timeline: <TimelinePage {...common} />,
     themes: <ThemesPage {...common} />,
     notes: <NotesPage {...common} />,
+    prompts: <PromptsPage {...common} />,
     knowledge: <KnowledgePage {...common} />,
     waiting: <WaitingPage {...common} />,
     "proposal-inbox": <ProposalInboxPage {...common} />,

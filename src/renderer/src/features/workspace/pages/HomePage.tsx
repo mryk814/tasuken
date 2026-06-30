@@ -4,6 +4,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, PageProps } from "../types";
 import { THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
+import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
 import { EmptyState, Metric, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 
 const REPORT_TYPE_LABELS: Record<string, string> = {
@@ -43,7 +44,9 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
   const reportNotes = themeNotes
     .filter((note) => note.note_type === "report")
     .sort((a, b) => str(noteProps(b).period_end || b.updated_at || b.created_at).localeCompare(str(noteProps(a).period_end || a.updated_at || a.created_at)));
-  const reportPrompts = themeNotes.filter((note) => note.note_type === "report_prompt");
+  const reportPrompts = themeNotes
+    .filter((note) => note.note_type === "report_prompt" || (isPromptNote(note) && promptPurpose(note) === "report"))
+    .sort((a, b) => Number(isDefaultPrompt(b)) - Number(isDefaultPrompt(a)) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   const latestReport = reportNotes[0];
   const latestReportProps = latestReport ? noteProps(latestReport) : null;
   const defaultPrompt = reportPrompts[0];
@@ -124,7 +127,7 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
         </section>
         <section className="panel">
           <div className="section-heading"><h2>最近のメモ</h2><span>{themeNotes.length}件</span></div>
-          <SimpleRows records={themeNotes.filter((note) => note.note_type !== "report" && note.note_type !== "report_prompt").slice(0, 5)} onOpen={(note) => openDrawer({ type: "note", entity: note })} meta={(note) => String(note.note_type ?? "")} />
+          <SimpleRows records={themeNotes.filter((note) => note.note_type !== "report" && !isPromptNote(note)).slice(0, 5)} onOpen={(note) => openDrawer({ type: "note", entity: note })} meta={(note) => String(note.note_type ?? "")} />
         </section>
       </div>
       <section className="panel">

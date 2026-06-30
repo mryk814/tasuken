@@ -16,6 +16,7 @@ import type { KnowledgeNode, PageProps } from "../types";
 import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeHealth, type KnowledgeHealthIssue } from "../lib/knowledgeHealth";
+import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 import type { KnowledgeEdge } from "../domain-model/types";
 
@@ -459,6 +460,11 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   const selectableNodes = useMemo(() => visible.slice(0, 12), [visible]);
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedId) || null, [nodes, selectedId]);
   const graph = useMemo(() => buildKnowledgeGraphLayout(visible, relations, selectedId, graphScope, healthIssues), [visible, relations, selectedId, graphScope, healthIssues]);
+  const knowledgePrompt = useMemo(() => (data.notes || [])
+    .filter((note) => isPromptNote(note) && promptPurpose(note) === "knowledge")
+    .filter((note) => themeId === ALL || !note.theme_id || note.theme_id === themeId)
+    .sort((a, b) => Number(isDefaultPrompt(b)) - Number(isDefaultPrompt(a)) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0] || null,
+  [data.notes, themeId]);
 
   useEffect(() => {
     const visibleIds = new Set(visible.map((node) => node.id));
@@ -484,6 +490,11 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
       relationCount(node),
     ].join("\t")).join("\n");
     workspaceApi.copyText(text).then(() => setToast("Knowledge一覧をコピーしました。"));
+  }
+
+  function copyKnowledgePrompt() {
+    if (!knowledgePrompt) return;
+    workspaceApi.copyText(str(knowledgePrompt.body_markdown)).then(() => setToast("Knowledge用プロンプトをコピーしました。"));
   }
 
   function openIssueAction(issue: KnowledgeHealthIssue) {
@@ -538,6 +549,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   return (
     <div className="page knowledge-page">
       <PageHeader title="Knowledge" subtitle="後から判断に使う問い・主張・根拠・決定を整理します">
+        {knowledgePrompt && <button className="secondary-button" onClick={copyKnowledgePrompt}>Knowledgeプロンプトをコピー</button>}
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: { node_type: "question" } })}>問いを追加</button>
       </PageHeader>

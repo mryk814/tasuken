@@ -14,6 +14,7 @@ export const routeParent: Record<string, string> = {
   todo: "today",
   waiting: "today",
   notes: "knowledge",
+  prompts: "knowledge",
   "chat-refs": "knowledge",
 };
 
@@ -26,6 +27,7 @@ export const todayHubTabs = [
 export const knowledgeHubTabs = [
   ["knowledge", "Knowledge"],
   ["notes", "Notes"],
+  ["prompts", "Prompts"],
   ["chat-refs", "チャット参照"],
 ] as const;
 
@@ -39,6 +41,7 @@ export type RouteId =
   | "timeline"
   | "themes"
   | "notes"
+  | "prompts"
   | "knowledge"
   | "waiting"
   | "proposal-inbox"

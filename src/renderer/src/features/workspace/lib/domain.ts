@@ -40,6 +40,7 @@ export const NOTE_TYPE_LABELS: Record<string, string> = {
   analysis: "分析",
   ai_chat: "AI対話",
   artifact: "文章成果物",
+  prompt: "プロンプト",
   learning: "学習",
   reflection: "振り返り",
 };
