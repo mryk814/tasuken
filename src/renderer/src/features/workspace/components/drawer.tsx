@@ -19,6 +19,7 @@ import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { previewDocument, renderedText } from "../lib/markdown";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
+import { formatReportSubject, formatReportEmailBody } from "../lib/emailFormat";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import { MarkdownEditorPanel } from "./MarkdownEditorPanel";
@@ -275,6 +276,24 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
           <div className="drawer-actions">
+            <button className="secondary-button" onClick={() => {
+              const duplicated = {
+                title: task.title,
+                description: task.description || null,
+                project_id: task.project_id || null,
+                priority: task.priority,
+                state: "todo" as const,
+                checklist_items: (task.checklist_items || []).map(item => ({
+                  ...item,
+                  id: uuid(),
+                  done: false,
+                  completed_at: null,
+                })),
+                repeat_rule: task.repeat_rule || null,
+                _schedule: schedule ? { ...schedule, id: undefined, owner_id: undefined } : undefined,
+              };
+              close({ type: "task", mode: "edit", entity: duplicated });
+            }}>複製する</button>
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
             <button className="primary-button" onClick={async () => {
               const nextState = task.state === "done" ? "todo" : "done";
@@ -479,6 +498,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
   const initialType = str(entity.note_type) || "memo";
   const [noteType, setNoteType] = useState(initialType);
   const properties = entity.properties_json && typeof entity.properties_json === "object" ? entity.properties_json as Record<string, unknown> : {};
+  const [exportTarget, setExportTarget] = useState(Boolean(properties.export_target));
   const isReport = noteType === "report";
   const isReportPrompt = noteType === "report_prompt";
   const initialFormat = str(entity.content_format) || ((isReport || isReportPrompt || initialType === "artifact") ? "markdown" : "plain");
@@ -498,7 +518,6 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
         <select name="note_type" value={noteType} onChange={(event) => chooseNoteType(event.target.value)}>
           {Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           <option value="report">報告書</option>
-          <option value="report_prompt">報告書プロンプト</option>
         </select>
       </Field>
       {(isReport || isReportPrompt) && (
@@ -532,6 +551,10 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
         </select>
       </Field>
       {!isReport && !isReportPrompt && <Field label="参照URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>}
+      <label className="toggle">
+        <input name="export_target" type="checkbox" checked={exportTarget} onChange={(event) => setExportTarget(event.target.checked)} />
+        エクスポート対象
+      </label>
       <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
     </>
   );
@@ -960,7 +983,10 @@ function NoteDetailDrawer({
     <aside className="drawer">
       <DrawerHeader title="メモ詳細" close={close} />
       <div className="drawer-content">
-        <StatusBadge value="neutral" label={NOTE_TYPE_LABELS[note.note_type ?? ""] || note.note_type} />
+        <div className="badge-row">
+          <StatusBadge value="neutral" label={NOTE_TYPE_LABELS[note.note_type ?? ""] || note.note_type} />
+          {Boolean(properties.export_target) && <span className="export-indicator">エクスポート対象</span>}
+        </div>
         <h2>{note.title}</h2>
         {note.source_url && <div className="link-value"><a href={note.source_url} target="_blank" rel="noreferrer">{note.source_url}</a></div>}
         {isArtifact ? (
@@ -1063,6 +1089,44 @@ function NoteDetailDrawer({
             </div>
           )}
         </section>
+        {note.note_type === "report" && (
+          <section className="email-copy-section">
+            <h3>メール用コピー</h3>
+            <div className="email-copy-actions">
+              <button
+                className="secondary-button compact"
+                onClick={() => {
+                  const subject = formatReportSubject(note, theme?.name || "");
+                  workspaceApi.copyText(subject);
+                  setToast("件名をコピーしました。");
+                }}
+              >
+                件名をコピー
+              </button>
+              <button
+                className="secondary-button compact"
+                onClick={() => {
+                  const emailBody = formatReportEmailBody(note);
+                  workspaceApi.copyText(emailBody);
+                  setToast("メール本文をコピーしました。");
+                }}
+              >
+                メール本文をコピー
+              </button>
+              <button
+                className="primary-button compact"
+                onClick={() => {
+                  const subject = formatReportSubject(note, theme?.name || "");
+                  const emailBody = formatReportEmailBody(note);
+                  workspaceApi.copyText(`${subject}\n\n${emailBody}`);
+                  setToast("件名+本文をコピーしました。");
+                }}
+              >
+                件名+本文をコピー
+              </button>
+            </div>
+          </section>
+        )}
         <div className="drawer-actions">
           <button
             className="secondary-button"

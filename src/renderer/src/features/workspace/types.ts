@@ -296,7 +296,7 @@ export interface PageProps {
   refreshWorkspace(): Promise<void>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
-  setToast(message: string): void;
+  setToast(message: string, type?: import("../../stores/uiStore").ToastType): void;
   snapshotPreview: SnapshotPreview | null;
   setSnapshotPreview(preview: SnapshotPreview | null): void;
 }

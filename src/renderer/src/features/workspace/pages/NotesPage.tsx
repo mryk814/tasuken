@@ -1,4 +1,5 @@
 import { Component, memo, type ClipboardEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { IconPencil, IconTrash } from "@tabler/icons-react";
 import {
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
@@ -27,12 +28,13 @@ import {
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { noteWordExportSignature } from "../../../../../shared/wordExport";
-import type { BaseRecord, NoteComment, PageProps } from "../types";
+import type { BaseRecord, Note, NoteComment, PageProps } from "../types";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { previewHtml } from "../lib/markdown";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
+import { formatReportSubject, formatReportEmailBody } from "../lib/emailFormat";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
@@ -219,8 +221,39 @@ function noteProperties(record: BaseRecord): Record<string, unknown> {
     : {};
 }
 
-export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: PageProps) {
+type NoteTypeFilter = "all" | "memo" | "artifact" | "report" | "report_prompt" | "resource";
+
+const NOTE_TYPE_FILTER_LABELS: Record<NoteTypeFilter, string> = {
+  all: "すべて",
+  memo: "メモ",
+  artifact: "成果物",
+  report: "報告書",
+  report_prompt: "プロンプト",
+  resource: "リソース",
+};
+
+function matchesTypeFilter(record: Combined, filter: NoteTypeFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "resource") return record.recordType === "resource";
+  if (record.recordType !== "note") return false;
+  const noteType = str(record.note_type);
+  if (filter === "memo") return !noteType || noteType === "memo" || noteType === "decision" || noteType === "meeting" || noteType === "experiment" || noteType === "analysis" || noteType === "ai_chat" || noteType === "learning" || noteType === "reflection";
+  if (filter === "artifact") return noteType === "artifact";
+  if (filter === "report") return noteType === "report";
+  if (filter === "report_prompt") return noteType === "report_prompt";
+  return true;
+}
+
+function hasExportTarget(record: Combined): boolean {
+  if (record.recordType !== "note") return false;
+  const props = record.properties_json;
+  return Boolean(props && typeof props === "object" && !Array.isArray(props) && (props as Record<string, unknown>).export_target);
+}
+
+export function NotesPage({ themes, domain, openDrawer, saveEntity, removeEntity, setToast }: PageProps) {
   const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<NoteTypeFilter>("all");
+  const [exportOnly, setExportOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const [draftBody, setDraftBody] = useState("");
@@ -232,10 +265,13 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
     ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
     ...domain.resources.map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
-  const visible = records.filter((record) =>
-    `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`
-      .toLowerCase()
-      .includes(query.toLowerCase()));
+  const visible = records
+    .filter((record) =>
+      `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`
+        .toLowerCase()
+        .includes(query.toLowerCase()))
+    .filter((record) => matchesTypeFilter(record, typeFilter))
+    .filter((record) => !exportOnly || hasExportTarget(record));
   const markdownNotes = visible.filter((record) => record.recordType === "note" && noteFormat(record) === "markdown" && str(record.body_markdown).trim());
   const selected = markdownNotes.find((record) => record.id === selectedId) || markdownNotes[0] || null;
   const selectedTheme = selected ? themes.find((theme) => theme.id === selected.theme_id) : null;
@@ -404,11 +440,21 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
       <PageHeader title="Notes & Resources" subtitle="作業ログや素材はここへ入れ、判断に使う部品だけKnowledge化します">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: {} })}>リソースを追加</button>
+        <button className="secondary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "report_prompt", content_format: "markdown" } })}>プロンプトを追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "artifact", content_format: "markdown" } })}>Markdown文書</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button>
       </PageHeader>
       <div className="filter-bar panel">
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" />
+        <div className="segmented" aria-label="種別フィルタ">
+          {(Object.entries(NOTE_TYPE_FILTER_LABELS) as [NoteTypeFilter, string][]).map(([key, label]) => (
+            <button key={key} className={typeFilter === key ? "is-active" : ""} onClick={() => setTypeFilter(key)}>{label}</button>
+          ))}
+        </div>
+        <label className="toggle compact">
+          <input type="checkbox" checked={exportOnly} onChange={(event) => setExportOnly(event.target.checked)} />
+          エクスポート対象のみ
+        </label>
         <span>{visible.length}件</span>
       </div>
       <div className="notes-workbench">
@@ -433,6 +479,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                 >
                   <span className="note-row-head">
                     <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
+                    {hasExportTarget(record) && <span className="export-indicator" aria-label="エクスポート対象" title="エクスポート対象">Export</span>}
                     <strong className="note-row-title">{str(record.title)}</strong>
                     {record.recordType === "note" && comments && comments.length > 0 && <span className="comment-count" aria-label={`${comments.length}件のコメント`}>{comments.length}</span>}
                   </span>
@@ -460,6 +507,22 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   </button>
                 )}
                 {url && <a className="secondary-button compact note-row-open" href={url} target="_blank" rel="noreferrer">開く</a>}
+                <button
+                  className="icon-action-button"
+                  onClick={() => openDrawer({ type: record.recordType, mode: "edit", entity: record })}
+                  aria-label={`${str(record.title)}を編集`}
+                  title="編集する"
+                >
+                  <IconPencil size={16} />
+                </button>
+                <button
+                  className="icon-action-button"
+                  onClick={() => removeEntity(record.recordType, record)}
+                  aria-label={`${str(record.title)}を削除`}
+                  title="削除する"
+                >
+                  <IconTrash size={16} />
+                </button>
               </div>
             );
           })}
@@ -481,7 +544,46 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
               </div>
               <div className="note-preview-actions">
                 {draftState && <span className={`note-draft-state ${draftDirty ? "is-dirty" : ""}`}>{draftState}</span>}
-                <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
+                {str(selected.note_type) === "report_prompt" ? (
+                  <button className="primary-button compact" onClick={copySelectedRaw}>プロンプトをコピー</button>
+                ) : (
+                  <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
+                )}
+                {str(selected.note_type) === "report" && (
+                  <>
+                    <button
+                      className="secondary-button compact"
+                      onClick={() => {
+                        const subject = formatReportSubject(selected as unknown as Note, selectedTheme?.name || "");
+                        workspaceApi.copyText(subject);
+                        setToast("件名をコピーしました。");
+                      }}
+                    >
+                      件名をコピー
+                    </button>
+                    <button
+                      className="secondary-button compact"
+                      onClick={() => {
+                        const emailBody = formatReportEmailBody(selected as unknown as Note);
+                        workspaceApi.copyText(emailBody);
+                        setToast("メール本文をコピーしました。");
+                      }}
+                    >
+                      メール本文をコピー
+                    </button>
+                    <button
+                      className="primary-button compact"
+                      onClick={() => {
+                        const subject = formatReportSubject(selected as unknown as Note, selectedTheme?.name || "");
+                        const emailBody = formatReportEmailBody(selected as unknown as Note);
+                        workspaceApi.copyText(`${subject}\n\n${emailBody}`);
+                        setToast("件名+本文をコピーしました。");
+                      }}
+                    >
+                      件名+本文をコピー
+                    </button>
+                  </>
+                )}
                 <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
                   setDraftBody(selectedBody);
                   setDraftState("変更を戻しました。");

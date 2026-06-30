@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  IconArrowDown,
+  IconArrowUp,
   IconBrandGoogle,
   IconBrandOpenai,
   IconBrandWindows,
+  IconBulb,
   IconChevronDown,
   IconChevronRight,
   IconCopy,
@@ -10,6 +13,7 @@ import {
   IconFoldDown,
   IconFoldUp,
   IconLinkPlus,
+  IconPencil,
   IconSortAscending,
   IconSortDescending,
   IconSparkles,
@@ -17,6 +21,7 @@ import {
   IconStarFilled,
   IconMessageCircleQuestion,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -96,6 +101,8 @@ export function ChatRefsPage({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [editingGroup, setEditingGroup] = useState<{ key: string; value: string } | null>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
@@ -154,6 +161,50 @@ export function ChatRefsPage({
 
   function copyGroupUrls(groupResources: Resource[]) {
     workspaceApi.copyText(groupResources.map((r) => r.url || "").join("\n")).then(() => setToast(`${groupResources.length}件のURLをコピーしました。`));
+  }
+
+  function startEditingGroup(groupKey: string) {
+    if (groupKey === UNGROUPED) return;
+    setEditingGroup({ key: groupKey, value: groupKey });
+    requestAnimationFrame(() => editInputRef.current?.select());
+  }
+
+  function commitGroupRename() {
+    if (!editingGroup) return;
+    const newName = editingGroup.value.trim();
+    const oldName = editingGroup.key;
+    setEditingGroup(null);
+    if (!newName || newName === oldName) return;
+    const group = groups.find((g) => g.key === oldName);
+    if (!group) return;
+    const ops = group.resources.flatMap((r) => buildSaveResourceOperations({ ...r, chat_group: newName }));
+    void saveEntities(ops, `グループ名を「${newName}」に変更しました。`);
+  }
+
+  function deleteGroup(groupKey: string, groupResources: Resource[]) {
+    if (groupKey === UNGROUPED) return;
+    const ops = groupResources.flatMap((r) => buildSaveResourceOperations({ ...r, chat_group: null }));
+    void saveEntities(ops, `グループ「${groupKey}」を解除しました（${groupResources.length}件を未分類に移動）。`);
+  }
+
+  function moveResourceInGroup(groupKey: string, groupResources: Resource[], index: number, direction: -1 | 1) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= groupResources.length) return;
+    const reordered = [...groupResources];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const now = new Date();
+    const ops = reordered.flatMap((r, i) => {
+      const newDate = new Date(now.getTime() - (sortOrder === "newest" ? i : reordered.length - 1 - i) * 1000);
+      return buildSaveResourceOperations({ ...r, captured_at: newDate.toISOString().slice(0, 19) });
+    });
+    void saveEntities(ops, "並び順を変更しました。");
+  }
+
+  function copyKnowledgePrompt(groupLabel: string, groupResources: Resource[]) {
+    const urls = groupResources.map((r) => `- ${r.title || "無題"}: ${r.url || "(URLなし)"}`).join("\n");
+    const prompt = `以下の「${groupLabel}」に関するチャット履歴から、重要な知見・決定事項・学びをKnowledge（構造化されたナレッジノード）として抽出してください。\n\n## 対象チャット\n${urls}\n\n## 抽出してほしい内容\n- 事実・根拠（evidence）: データや検証結果に基づく発見\n- 主張・結論（claim）: 議論の結果得られた結論\n- 問い（question）: 未解決の疑問や今後の検討課題\n- 決定（decision）: 意思決定とその理由\n- 洞察（insight）: 気づきや教訓\n\nそれぞれのノードについて、タイトル、本文（根拠・文脈を含む）、種別を明記してください。`;
+    workspaceApi.copyText(prompt).then(() => setToast(`「${groupLabel}」のKnowledge抽出プロンプトをコピーしました。`));
   }
 
   function copyList() {
@@ -267,9 +318,53 @@ export function ChatRefsPage({
                 <div className="chat-group-header">
                   <button className="chat-group-toggle" onClick={() => toggleGroup(group.key)}>
                     {collapsed.has(group.key) ? <IconChevronRight size={16} /> : <IconChevronDown size={16} />}
-                    <strong>{group.label}</strong>
+                    {editingGroup?.key === group.key ? (
+                      <input
+                        ref={editInputRef}
+                        className="chat-group-name-input"
+                        value={editingGroup.value}
+                        onChange={(e) => setEditingGroup({ ...editingGroup, value: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitGroupRename();
+                          if (e.key === "Escape") setEditingGroup(null);
+                        }}
+                        onBlur={commitGroupRename}
+                        onClick={(e) => e.stopPropagation()}
+                        autoFocus
+                      />
+                    ) : (
+                      <strong>{group.label}</strong>
+                    )}
                     <span className="count">{group.resources.length}</span>
                   </button>
+                  {group.key !== UNGROUPED && (
+                    <>
+                      <button
+                        className="chat-group-action"
+                        onClick={() => startEditingGroup(group.key)}
+                        aria-label={`${group.label}のグループ名を編集`}
+                        title="グループ名を編集"
+                      >
+                        <IconPencil size={14} />
+                      </button>
+                      <button
+                        className="chat-group-action"
+                        onClick={() => copyKnowledgePrompt(group.label, group.resources)}
+                        aria-label={`${group.label}のKnowledge抽出プロンプトをコピー`}
+                        title="Knowledge抽出プロンプトをコピー"
+                      >
+                        <IconBulb size={14} />
+                      </button>
+                      <button
+                        className="chat-group-action danger"
+                        onClick={() => deleteGroup(group.key, group.resources)}
+                        aria-label={`${group.label}グループを解除`}
+                        title="グループを解除（リンクは未分類に移動）"
+                      >
+                        <IconX size={14} />
+                      </button>
+                    </>
+                  )}
                   <button
                     className="chat-group-add"
                     onClick={() => addChatLink(group.key === UNGROUPED ? "" : group.key)}
@@ -287,7 +382,7 @@ export function ChatRefsPage({
                     <IconCopy size={14} />
                   </button>
                 </div>
-                {!collapsed.has(group.key) && group.resources.map((r) => {
+                {!collapsed.has(group.key) && group.resources.map((r, rIndex) => {
                   const service = resolveChatService(r);
                   return (
                     <div className="chat-link-row" key={r.id}>
@@ -304,6 +399,26 @@ export function ChatRefsPage({
                       <button className="chat-link-title" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
                         {r.title || "無題"}
                       </button>
+                      <span className="chat-link-reorder">
+                        <button
+                          className="chat-link-move"
+                          onClick={() => moveResourceInGroup(group.key, group.resources, rIndex, -1)}
+                          disabled={rIndex === 0}
+                          aria-label="上に移動"
+                          title="上に移動"
+                        >
+                          <IconArrowUp size={14} />
+                        </button>
+                        <button
+                          className="chat-link-move"
+                          onClick={() => moveResourceInGroup(group.key, group.resources, rIndex, 1)}
+                          disabled={rIndex === group.resources.length - 1}
+                          aria-label="下に移動"
+                          title="下に移動"
+                        >
+                          <IconArrowDown size={14} />
+                        </button>
+                      </span>
                       <a className="chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" aria-label="リンクを開く">
                         <IconExternalLink size={16} />
                       </a>

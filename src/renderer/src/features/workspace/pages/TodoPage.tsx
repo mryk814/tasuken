@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { IconCalendarPlus, IconCalendarCheck, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
+import { IconCalendarPlus, IconCalendarCheck, IconCopy, IconFlag, IconFlagFilled, IconPlus, IconTrash } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
-import { addDays, formatDate } from "../lib/format";
+import { addDays, formatDate, uuid } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { EmptyState, PageHeader } from "../components/common";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -42,7 +42,7 @@ function compareTodoRows(today: string) {
   };
 }
 
-export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities, setToast }: PageProps) {
+export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities, removeEntity, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -248,7 +248,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
       )}
       <section className="panel list-page">
         <div className="data-table todo-table">
-          <div className="table-head"><span /><span /><span>タスク</span><span>繰り返し</span><span>Theme</span><span>予定終了</span></div>
+          <div className="table-head"><span /><span /><span>タスク</span><span>繰り返し</span><span>Theme</span><span>予定終了</span><span /></div>
           {visible.map(({ task, schedule }) => {
             const theme = (data.themes || []).find((entry) => entry.id === task.project_id);
             const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
@@ -293,6 +293,41 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
                 {theme?.name || "個人業務"}
               </span>
               <span className="num">{formatDate(scheduledDate(schedule))}</span>
+              <span className="row-actions">
+                <button
+                  className="icon-action-button"
+                  onClick={() => {
+                    const duplicated = {
+                      title: task.title,
+                      description: task.description || null,
+                      project_id: task.project_id || null,
+                      priority: task.priority,
+                      state: "todo" as const,
+                      checklist_items: (task.checklist_items || []).map(item => ({
+                        ...item,
+                        id: uuid(),
+                        done: false,
+                        completed_at: null,
+                      })),
+                      repeat_rule: task.repeat_rule || null,
+                      _schedule: schedule ? { ...schedule, id: undefined, owner_id: undefined } : undefined,
+                    };
+                    openDrawer({ type: "task", mode: "edit", entity: duplicated as Record<string, unknown> });
+                  }}
+                  aria-label={`${task.title}を複製`}
+                  title="複製する"
+                >
+                  <IconCopy size={16} />
+                </button>
+                <button
+                  className="icon-action-button"
+                  onClick={() => removeEntity("task", task as unknown as Record<string, unknown>)}
+                  aria-label={`${task.title}を削除`}
+                  title="削除する"
+                >
+                  <IconTrash size={16} />
+                </button>
+              </span>
             </div>
             );
           })}

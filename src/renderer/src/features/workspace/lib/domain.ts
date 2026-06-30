@@ -42,6 +42,7 @@ export const NOTE_TYPE_LABELS: Record<string, string> = {
   artifact: "文章成果物",
   learning: "学習",
   reflection: "振り返り",
+  report_prompt: "プロンプト",
 };
 
 export const KNOWLEDGE_NODE_LABELS: Record<string, string> = {

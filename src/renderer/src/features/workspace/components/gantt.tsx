@@ -300,6 +300,91 @@ export function TimeAxis({ start, end, dayWidth }: { start: string; end: string;
   );
 }
 
+interface GridLine {
+  position: number; // percentage
+  weight: "light" | "medium" | "heavy";
+}
+
+export function GanttGrid({ start, end, dayWidth }: { start: string; end: string; dayWidth: number }) {
+  const total = Math.max(1, daysBetween(start, end));
+  const lines: GridLine[] = [];
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+
+  if (dayWidth >= 36) {
+    // Close zoom (week view): day boundaries light, week boundaries medium, month boundaries heavy
+    const cursor = new Date(startDate);
+    cursor.setTime(cursor.getTime() + DAY);
+    while (cursor < endDate && lines.length < 600) {
+      const iso = localDateIso(cursor);
+      const position = (daysBetween(start, iso) / total) * 100;
+      const isMonthBoundary = cursor.getDate() === 1;
+      const isWeekBoundary = cursor.getDay() === 1; // Monday
+      if (isMonthBoundary) {
+        lines.push({ position, weight: "heavy" });
+      } else if (isWeekBoundary) {
+        lines.push({ position, weight: "medium" });
+      } else {
+        lines.push({ position, weight: "light" });
+      }
+      cursor.setTime(cursor.getTime() + DAY);
+    }
+  } else if (dayWidth >= 16) {
+    // Medium zoom (month view): week boundaries light, month boundaries medium
+    const cursor = new Date(startDate);
+    cursor.setTime(cursor.getTime() + DAY);
+    while (cursor < endDate && lines.length < 600) {
+      const iso = localDateIso(cursor);
+      const position = (daysBetween(start, iso) / total) * 100;
+      const isMonthBoundary = cursor.getDate() === 1;
+      const isWeekBoundary = cursor.getDay() === 1;
+      if (isMonthBoundary) {
+        lines.push({ position, weight: "medium" });
+      } else if (isWeekBoundary) {
+        lines.push({ position, weight: "light" });
+      }
+      cursor.setTime(cursor.getTime() + DAY);
+    }
+  } else if (dayWidth >= 6) {
+    // Quarter view: month boundaries medium, quarter boundaries heavy
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
+    while (cursor < endDate && lines.length < 200) {
+      const iso = localDateIso(cursor);
+      const position = (daysBetween(start, iso) / total) * 100;
+      const month = cursor.getMonth() + 1;
+      const isQuarterBoundary = month === 1 || month === 4 || month === 7 || month === 10;
+      lines.push({ position, weight: isQuarterBoundary ? "heavy" : "medium" });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  } else {
+    // Wide zoom (year/half-year): month boundaries light, quarter boundaries medium, year/half-year boundaries heavy
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
+    while (cursor < endDate && lines.length < 200) {
+      const iso = localDateIso(cursor);
+      const position = (daysBetween(start, iso) / total) * 100;
+      const month = cursor.getMonth() + 1;
+      const isYearBoundary = month === 1 || month === 4; // calendar year or fiscal year start
+      const isQuarterBoundary = month === 7 || month === 10;
+      if (isYearBoundary) {
+        lines.push({ position, weight: "heavy" });
+      } else if (isQuarterBoundary) {
+        lines.push({ position, weight: "medium" });
+      } else {
+        lines.push({ position, weight: "light" });
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  }
+
+  return (
+    <div className="gantt-grid-lines" aria-hidden="true">
+      {lines.map((line, i) => (
+        <i key={i} className={`gantt-grid-line gantt-grid-${line.weight}`} style={{ left: `${line.position}%` }} />
+      ))}
+    </div>
+  );
+}
+
 function milestoneDate(item: Item): string {
   return String(item.planned_end || item.due_date || item.planned_start || "");
 }

@@ -150,6 +150,7 @@ export function WorkspaceApp() {
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
   const toast = useUiStore((state) => state.toast);
+  const toastType = useUiStore((state) => state.toastType);
   const setToast = useUiStore((state) => state.setToast);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
@@ -204,12 +205,12 @@ export function WorkspaceApp() {
     return window.api.app.onWorkspaceChanged((change) => {
       if (change?.entities?.length) {
         applyExternalSaves(change.entities);
-        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`));
+        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`, "error"));
         return;
       }
       if (change?.type && change.entity) {
         applyExternalSave(change.type, change.entity);
-        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`));
+        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`, "error"));
         return;
       }
       void refreshWorkspace();
@@ -226,7 +227,7 @@ export function WorkspaceApp() {
     document.documentElement.dataset.theme = themeMode;
     if (loadState === "success") {
       workspaceApi.setPreference("themeMode", themeMode).catch((error) => {
-        setToast(`表示設定を保存できませんでした。${errorMessage(error)}`);
+        setToast(`表示設定を保存できませんでした。${errorMessage(error)}`, "error");
       });
     }
   }, [themeMode, loadState, setToast]);
@@ -379,10 +380,10 @@ export function WorkspaceApp() {
   const saveEntity: SaveEntity = async (type, entity, options = {}) => {
     try {
       const saved = await saveWorkspaceEntity(type, entity as Entity, options);
-      setToast(entity.id ? "変更を保存しました。" : "追加しました。");
+      setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
       return saved;
     } catch (error) {
-      setToast(`保存できませんでした。${errorMessage(error)}`);
+      setToast(`保存できませんでした。${errorMessage(error)}`, "error");
       throw error;
     }
   };
@@ -390,10 +391,10 @@ export function WorkspaceApp() {
   const saveEntities: SaveEntities = async (operations, successMessage = "変更を保存しました。") => {
     try {
       const saved = await saveWorkspaceEntities(operations);
-      setToast(successMessage);
+      setToast(successMessage, "success");
       return saved;
     } catch (error) {
-      setToast(`保存できませんでした。${errorMessage(error)}`);
+      setToast(`保存できませんでした。${errorMessage(error)}`, "error");
       throw error;
     }
   };
@@ -421,9 +422,9 @@ export function WorkspaceApp() {
       drawerFormInitialSignature.current = "";
       setDrawer(null);
       requestAnimationFrame(() => drawerTrigger.current?.focus?.());
-      setToast(`${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`);
+      setToast(`${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`, "warning");
     } catch (error) {
-      setToast(`削除できませんでした。${errorMessage(error)}`);
+      setToast(`削除できませんでした。${errorMessage(error)}`, "error");
     }
   }
 
@@ -431,7 +432,7 @@ export function WorkspaceApp() {
     if (!lastDeleted.current) return;
     await restoreWorkspaceEntity(lastDeleted.current.type, lastDeleted.current.id);
     lastDeleted.current = null;
-    setToast("削除を元に戻しました。");
+    setToast("削除を元に戻しました。", "success");
   }
 
   async function removeEntityQuiet(type: EntityType, id: string) {
@@ -459,7 +460,7 @@ export function WorkspaceApp() {
     // --- v2 entity types: full save cycle, then return ---
     if (type === "task") {
       const title = formText(values, "title");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。", "warning"); return false; }
       const taskId = (base.id as string) || uuid();
       const task: Task = {
         id: taskId,
@@ -499,8 +500,8 @@ export function WorkspaceApp() {
     if (type === "waiting") {
       const title = formText(values, "title");
       const waitingFor = formText(values, "waiting_for");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
-      if (!waitingFor) { (named("waiting_for") as HTMLInputElement | null)?.focus(); setToast("相手を入力してください。"); return false; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。", "warning"); return false; }
+      if (!waitingFor) { (named("waiting_for") as HTMLInputElement | null)?.focus(); setToast("相手を入力してください。", "warning"); return false; }
       const waitingId = (base.id as string) || uuid();
       const waiting: Waiting = {
         id: waitingId,
@@ -534,7 +535,7 @@ export function WorkspaceApp() {
     }
     if (type === "plan_node") {
       const title = formText(values, "title");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。", "warning"); return false; }
       const nodeId = (base.id as string) || uuid();
       let parentPlanNodeId = (base.parent_plan_node_id as string | null) ?? null;
       if (!parentPlanNodeId && base._parent_plan_node_item_id) {
@@ -582,7 +583,7 @@ export function WorkspaceApp() {
     }
     if (type === "capture_entry") {
       const text = formText(values, "text") || formText(values, "title");
-      if (!text) { (named("title") as HTMLInputElement | null)?.focus(); setToast("内容を入力してください。"); return false; }
+      if (!text) { (named("title") as HTMLInputElement | null)?.focus(); setToast("内容を入力してください。", "warning"); return false; }
       const entry: CaptureEntry = {
         id: (base.id as string) || uuid(),
         text,
@@ -600,8 +601,8 @@ export function WorkspaceApp() {
     if (type === "resource") {
       const title = formText(values, "title");
       const url = formText(values, "url");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
-      if (!url) { (named("url") as HTMLInputElement | null)?.focus(); setToast("URLを入力してください。"); return false; }
+      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。", "warning"); return false; }
+      if (!url) { (named("url") as HTMLInputElement | null)?.focus(); setToast("URLを入力してください。", "warning"); return false; }
       const hasLinkTypeField = Boolean(named("link_type"));
       const submittedLinkType = formText(values, "link_type");
       const inferredLinkType = inferChatServiceFromUrl(url);
@@ -627,13 +628,13 @@ export function WorkspaceApp() {
 
     if (type === "theme") {
       const name = formText(values, "name");
-      if (!name) { setToast("テーマ名を入力してください。"); return false; }
+      if (!name) { setToast("テーマ名を入力してください。", "warning"); return false; }
       const { status: _status, ...rest } = base;
       entity = { ...rest, name, code: formText(values, "code") || null, description: formText(values, "description"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
     } else if (type === "note") {
       const title = formText(values, "title");
       const body = formText(values, "body_markdown");
-      if (!title || !body) { setToast("タイトルと本文を入力してください。"); return false; }
+      if (!title || !body) { setToast("タイトルと本文を入力してください。", "warning"); return false; }
       const noteType = formText(values, "note_type", "memo");
       const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
         report_type: formText(values, "report_type", "weekly"),
@@ -654,7 +655,7 @@ export function WorkspaceApp() {
         item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
         source_url: noteType === "report" || noteType === "report_prompt" ? "" : formText(values, "source_url"),
         source_record_id: formText(values, "source_record_id") || null,
-        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), ...reportProperties },
+        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), ...reportProperties, export_target: values.has("export_target") },
         comments: (base.comments as Note["comments"]) || [],
       };
     } else if (type === "status_update") {
@@ -668,7 +669,7 @@ export function WorkspaceApp() {
         risks: formText(values, "risks"),
         next_actions: formText(values, "next_actions"),
       };
-      if (!entity.summary) { setToast("現在地の概要を入力してください。"); return false; }
+      if (!entity.summary) { setToast("現在地の概要を入力してください。", "warning"); return false; }
     } else if (type === "source_record") {
       entity = {
         ...base,
@@ -679,7 +680,7 @@ export function WorkspaceApp() {
         raw_text: formText(values, "raw_text"),
         summary: formText(values, "summary"),
       };
-      if (!entity.source_title) { setToast("情報源のタイトルを入力してください。"); return false; }
+      if (!entity.source_title) { setToast("情報源のタイトルを入力してください。", "warning"); return false; }
     } else if (type === "field_definition") {
       entity = {
         ...base,
@@ -691,7 +692,7 @@ export function WorkspaceApp() {
         sort_order: Number(values.get("sort_order") || 0),
         is_required: values.get("is_required") === "on",
       };
-      if (!entity.name) { setToast("項目名を入力してください。"); return false; }
+      if (!entity.name) { setToast("項目名を入力してください。", "warning"); return false; }
     } else if (type === "reference") {
       entity = {
         ...base,
@@ -702,7 +703,7 @@ export function WorkspaceApp() {
         relation_type: formText(values, "relation_type", "related_to"),
         note: formText(values, "note"),
       };
-      if (!entity.source_id || !entity.target_id) { setToast("参照元と参照先を選択してください。"); return false; }
+      if (!entity.source_id || !entity.target_id) { setToast("参照元と参照先を選択してください。", "warning"); return false; }
     } else if (type === "knowledge_node") {
       const autoTarget = str(base._auto_edge_target_id);
       const autoRelation = str(base._auto_edge_relation_type);
@@ -724,7 +725,7 @@ export function WorkspaceApp() {
         confidence: formText(values, "confidence", "medium"),
         status: formText(values, "status", "active"),
       };
-      if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return false; }
+      if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。", "warning"); return false; }
       delete entity._auto_edge_target_id;
       delete entity._auto_edge_relation_type;
       if (autoTarget && autoRelation) {
@@ -753,7 +754,7 @@ export function WorkspaceApp() {
         description: formText(values, "description"),
       };
       if (!entity.source_node_id || !entity.target_node_id || entity.source_node_id === entity.target_node_id) {
-        setToast("異なる2つのKnowledgeを選択してください。");
+        setToast("異なる2つのKnowledgeを選択してください。", "warning");
         return false;
       }
     } else if (type === "task_dependency") {
@@ -763,7 +764,7 @@ export function WorkspaceApp() {
         depends_on_task_id: formText(values, "depends_on_task_id"),
       };
       if (!entity.task_id || !entity.depends_on_task_id || entity.task_id === entity.depends_on_task_id) {
-        setToast("異なる2つのタスクを選択してください。");
+        setToast("異なる2つのタスクを選択してください。", "warning");
         return false;
       }
     }
@@ -856,7 +857,7 @@ export function WorkspaceApp() {
         />
       )}
       {toast && (
-        <div className="toast" role="status" aria-live="polite">
+        <div className={`toast toast-${lastDeleted.current ? "warning" : toastType}`} role="status" aria-live="polite">
           <span>{toast}</span>
           {lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>}
           <button onClick={() => setToast("")}>閉じる</button>
