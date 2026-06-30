@@ -488,11 +488,6 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   <span className="note-preview-theme">{selectedTheme?.name || "Theme未設定"}</span>
                   <h2>{str(selected.title)}</h2>
                 </div>
-                <div className="segmented" aria-label="Markdown表示">
-                  <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => setPreviewMode("edit")}>編集</button>
-                  <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => setPreviewMode("preview")}>Preview</button>
-                  <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => setPreviewMode("raw")}>Raw</button>
-                </div>
               </div>
               <div className="note-preview-actions">
                 {draftState && <span className={`note-draft-state ${draftDirty ? "is-dirty" : ""}`}>{draftState}</span>}
@@ -564,6 +559,13 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   {hasWordExportDirectory && (
                     <button className="secondary-button compact" disabled={wordExporting} onClick={() => exportSelectedWord(true)}>出力先を変更</button>
                   )}
+                </div>
+              </div>
+              <div className="note-editor-mode-bar">
+                <div className="segmented" aria-label="Markdown表示">
+                  <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => setPreviewMode("edit")}>編集</button>
+                  <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => setPreviewMode("preview")}>Preview</button>
+                  <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => setPreviewMode("raw")}>Raw</button>
                 </div>
               </div>
               {previewMode === "edit" ? (
