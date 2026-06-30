@@ -4,16 +4,22 @@ import {
   addImportVisitor$,
   addLexicalNode$,
   addMdastExtension$,
+  addComposerChild$,
   addSyntaxExtension$,
   addToMarkdownExtension$,
   realmPlugin,
   type LexicalExportVisitor,
   type MdastImportVisitor,
 } from "@mdxeditor/editor";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
   $applyNodeReplacement,
+  $createParagraphNode,
+  $createTextNode,
+  $getRoot,
   $getNodeByKey,
   $isElementNode,
+  $isParagraphNode,
   DecoratorNode,
   type EditorConfig,
   type LexicalEditor,
@@ -35,6 +41,10 @@ type SerializedMarkdownMathNode = Spread<{
 }, SerializedLexicalNode>;
 
 type MarkdownMathMdastNode = MathMdastNode | InlineMathMdastNode;
+type ParagraphNode = ReturnType<typeof import("lexical").$createParagraphNode>;
+
+const INLINE_MATH_PATTERN = /\$([^$\n]+)\$/g;
+const BLOCK_MATH_PATTERN = /\$\$([\s\S]+?)\$\$/;
 
 function $isMarkdownMathNode(node: LexicalNode | null | undefined): node is MarkdownMathNode {
   return node instanceof MarkdownMathNode;
@@ -227,7 +237,188 @@ export class MarkdownMathNode extends DecoratorNode<JSX.Element> {
 }
 
 function $createMarkdownMathNode(expression: string, displayMode: boolean): MarkdownMathNode {
-  return $applyNodeReplacement(new MarkdownMathNode(expression, displayMode));
+  return $applyNodeReplacement(new MarkdownMathNode(normalizeMathExpression(expression), displayMode));
+}
+
+function isPlainTextParagraph(node: LexicalNode): node is ParagraphNode {
+  return $isParagraphNode(node) && node.getChildren().every((child) => {
+    const type = child.getType();
+    return type === "text" || type === "linebreak";
+  });
+}
+
+function hasInlineMathDelimiter(text: string): boolean {
+  INLINE_MATH_PATTERN.lastIndex = 0;
+  return INLINE_MATH_PATTERN.test(text);
+}
+
+function hasTransformableMarkdownMath(): boolean {
+  const children = $getRoot().getChildren();
+  let openBlockIndex = -1;
+  for (let index = 0; index < children.length; index += 1) {
+    const node = children[index];
+    if (!isPlainTextParagraph(node)) continue;
+    const text = node.getTextContent();
+    const trimmed = text.trim();
+    if (BLOCK_MATH_PATTERN.test(text)) return true;
+    if (trimmed === "$$") {
+      if (openBlockIndex >= 0) return true;
+      openBlockIndex = index;
+      continue;
+    }
+    if (hasInlineMathDelimiter(text)) return true;
+  }
+  return false;
+}
+
+function createPlainParagraphs(text: string): ParagraphNode[] {
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const paragraph = $createParagraphNode();
+      paragraph.append($createTextNode(line));
+      return paragraph;
+    });
+}
+
+function transformBlockMathInParagraph(paragraph: ParagraphNode): boolean {
+  const text = paragraph.getTextContent();
+  const match = text.match(BLOCK_MATH_PATTERN);
+  if (!match) return false;
+
+  const full = match[0] || "";
+  const expression = (match[1] || "").trim();
+  const start = match.index ?? 0;
+  if (!expression) return false;
+
+  const before = text.slice(0, start);
+  const after = text.slice(start + full.length);
+  const nextNodes: LexicalNode[] = [
+    ...createPlainParagraphs(before),
+    $createMarkdownMathNode(expression, true),
+    ...createPlainParagraphs(after),
+  ];
+  for (const nextNode of nextNodes) {
+    paragraph.insertBefore(nextNode);
+  }
+  paragraph.remove();
+  return true;
+}
+
+function transformInlineMath(paragraph: ParagraphNode): boolean {
+  const text = paragraph.getTextContent();
+  INLINE_MATH_PATTERN.lastIndex = 0;
+  const matches = [...text.matchAll(INLINE_MATH_PATTERN)];
+  if (!matches.length) return false;
+
+  const nextNodes: LexicalNode[] = [];
+  let cursor = 0;
+  for (const match of matches) {
+    const start = match.index ?? 0;
+    const full = match[0] || "";
+    const expression = (match[1] || "").trim();
+    if (start > cursor) {
+      nextNodes.push($createTextNode(text.slice(cursor, start)));
+    }
+    if (expression) {
+      nextNodes.push($createMarkdownMathNode(expression, false));
+    } else {
+      nextNodes.push($createTextNode(full));
+    }
+    cursor = start + full.length;
+  }
+  if (cursor < text.length) {
+    nextNodes.push($createTextNode(text.slice(cursor)));
+  }
+  paragraph.clear();
+  paragraph.append(...nextNodes);
+  return true;
+}
+
+function transformMarkdownMathDelimiters(): boolean {
+  const children = $getRoot().getChildren();
+  let changed = false;
+
+  for (let index = 0; index < children.length; index += 1) {
+    const node = children[index];
+    if (!isPlainTextParagraph(node)) continue;
+
+    if (transformBlockMathInParagraph(node)) {
+      changed = true;
+      continue;
+    }
+
+    if (node.getTextContent().trim() === "$$") {
+      let endIndex = -1;
+      const expressionLines: string[] = [];
+      for (let cursor = index + 1; cursor < children.length; cursor += 1) {
+        const candidate = children[cursor];
+        if (!isPlainTextParagraph(candidate)) break;
+        const text = candidate.getTextContent();
+        if (text.trim() === "$$") {
+          endIndex = cursor;
+          break;
+        }
+        expressionLines.push(text);
+      }
+      const expression = expressionLines.join("\n").trim();
+      if (endIndex > index && expression) {
+        node.insertBefore($createMarkdownMathNode(expression, true));
+        for (let removeIndex = index; removeIndex <= endIndex; removeIndex += 1) {
+          children[removeIndex].remove();
+        }
+        changed = true;
+        index = endIndex;
+      }
+      continue;
+    }
+
+    if (transformInlineMath(node)) changed = true;
+  }
+
+  return changed;
+}
+
+function MarkdownMathComposerPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    let transforming = false;
+    let pendingFrame: number | null = null;
+
+    function transformIfNeeded() {
+      pendingFrame = null;
+      if (transforming) return;
+      let shouldTransform = false;
+      editor.getEditorState().read(() => {
+        shouldTransform = hasTransformableMarkdownMath();
+      });
+      if (!shouldTransform) return;
+      transforming = true;
+      editor.update(() => {
+        transformMarkdownMathDelimiters();
+      });
+      transforming = false;
+    }
+
+    function scheduleTransform() {
+      if (pendingFrame !== null) return;
+      pendingFrame = window.requestAnimationFrame(transformIfNeeded);
+    }
+
+    scheduleTransform();
+    const unregister = editor.registerUpdateListener(scheduleTransform);
+    return () => {
+      unregister();
+      if (pendingFrame !== null) {
+        window.cancelAnimationFrame(pendingFrame);
+      }
+    };
+  }, [editor]);
+
+  return null;
 }
 
 const MarkdownMathImportVisitor: MdastImportVisitor<MarkdownMathMdastNode> = {
@@ -257,6 +448,7 @@ export const markdownMathPlugin = realmPlugin({
       [addMdastExtension$]: mathFromMarkdown(),
       [addToMarkdownExtension$]: mathToMarkdown({ singleDollarTextMath: true }),
       [addLexicalNode$]: MarkdownMathNode,
+      [addComposerChild$]: MarkdownMathComposerPlugin,
       [addImportVisitor$]: MarkdownMathImportVisitor,
       [addExportVisitor$]: MarkdownMathExportVisitor,
     });
