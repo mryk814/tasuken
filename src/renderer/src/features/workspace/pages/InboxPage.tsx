@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconRefresh } from "@tabler/icons-react";
+import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconRefresh, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
@@ -65,7 +65,7 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
   };
 }
 
-export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, saveEntities, refreshWorkspace, removeEntityQuiet, setToast }: PageProps) {
+export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refreshWorkspace, removeEntity, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
   const inboxRows = useMemo(() => {
     return buildInboxView(v2).entries.map((entry) => ({ entry }));
@@ -221,6 +221,11 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
         return next;
       });
     }
+  }
+
+  async function deleteEntry(row: InboxRow) {
+    setSelected((current) => current.filter((id) => id !== row.entry.id));
+    await removeEntity("capture_entry", row.entry as unknown as Record<string, unknown>);
   }
 
   function bulkPatch(patch: Partial<InboxDraft>) {
@@ -429,6 +434,14 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, saveEntity, sa
                     </label>
                     <div className="form-actions">
                       <button className="secondary-button compact" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: row.entry as unknown as Record<string, unknown> })}>編集</button>
+                      <button
+                        className="danger-button compact icon-only"
+                        onClick={() => void deleteEntry(row)}
+                        aria-label={`${draft.title || "記録"}を削除`}
+                        title="削除"
+                      >
+                        <IconTrash size={15} />
+                      </button>
                       <button className="primary-button compact" disabled={isOrganizing} onClick={() => organize(row)}>
                         {isOrganizing ? "整理中..." : "整理する"}
                       </button>
