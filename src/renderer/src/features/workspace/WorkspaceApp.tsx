@@ -657,10 +657,8 @@ export function WorkspaceApp() {
       const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
         report_type: formText(values, "report_type", "weekly"),
         ...(noteType === "report" ? {
-          report_status: formText(values, "report_status", "draft"),
           period_start: formText(values, "period_start") || null,
           period_end: formText(values, "period_end") || null,
-          sent_at: formText(values, "sent_at") || null,
         } : {}),
       } : {};
       entity = {

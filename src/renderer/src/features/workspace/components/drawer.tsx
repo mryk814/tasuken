@@ -77,11 +77,6 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
   milestone: "節目報告",
   ad_hoc: "その他",
 };
-const REPORT_STATUS_LABELS: Record<string, string> = {
-  draft: "下書き",
-  sent: "送付済み",
-  archived: "アーカイブ",
-};
 
 function ThemeColorPicker({ value }: { value?: string }) {
   const [selected, setSelected] = useState(value || CHART_COLORS[0]);
@@ -521,20 +516,12 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
               {Object.entries(REPORT_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
-          {isReport && (
-            <Field label="状態">
-              <select name="report_status" defaultValue={str(properties.report_status) || "draft"}>
-                {Object.entries(REPORT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </Field>
-          )}
         </div>
       )}
       {isReport && (
         <div className="form-grid">
           <Field label="対象開始"><input name="period_start" type="date" defaultValue={str(properties.period_start)} /></Field>
           <Field label="対象終了"><input name="period_end" type="date" defaultValue={str(properties.period_end)} /></Field>
-          <Field label="送付日"><input name="sent_at" type="date" defaultValue={str(properties.sent_at)} /></Field>
         </div>
       )}
       <Field label="形式">
@@ -858,6 +845,12 @@ function NoteDetailDrawer({
   const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
   const body = note.body_markdown || "";
   const properties = note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
+  const isReport = note.note_type === "report";
+  const reportType = str(properties.report_type) || "weekly";
+  const reportTypeLabel = REPORT_TYPE_LABELS[reportType] || "報告";
+  const periodStart = str(properties.period_start);
+  const periodEnd = str(properties.period_end);
+  const periodLabel = [periodStart, periodEnd].filter(Boolean).join(" - ");
   const wordExport = properties.word_export && typeof properties.word_export === "object" && !Array.isArray(properties.word_export)
     ? properties.word_export as Record<string, unknown>
     : null;
@@ -866,6 +859,24 @@ function NoteDetailDrawer({
   const hasWordExportDirectory = Boolean(str(wordExport?.directory));
   const wordExportStale = Boolean(exportedSignature && exportedSignature !== currentWordSignature);
   const canExportWord = contentFormat === "markdown" && Boolean(body.trim());
+  const emailSubject = `${theme?.name ? `[${theme.name}] ` : ""}${note.title || reportTypeLabel}${periodLabel ? `（${periodLabel}）` : ""}`;
+  const emailBody = [
+    theme?.name ? `Theme: ${theme.name}` : "",
+    `報告種別: ${reportTypeLabel}`,
+    periodLabel ? `対象期間: ${periodLabel}` : "",
+    "",
+    renderedText(body, contentFormat),
+  ].filter((line, index, lines) => line || lines[index - 1]).join("\n").trim();
+
+  async function copyReportEmail(kind: "subject" | "body" | "combined") {
+    const text = kind === "subject"
+      ? emailSubject
+      : kind === "body"
+        ? emailBody
+        : `件名: ${emailSubject}\n\n${emailBody}`;
+    await workspaceApi.copyText(text);
+    setToast(kind === "subject" ? "件名候補をコピーしました。" : kind === "combined" ? "件名とメール本文をコピーしました。" : "Outlook貼り付け用本文をコピーしました。");
+  }
 
   async function addComment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -998,6 +1009,22 @@ function NoteDetailDrawer({
           </section>
         ) : (
           <p className="note-body">{note.body_markdown}</p>
+        )}
+        {isReport && (
+          <section className="word-export-panel">
+            <div className="section-heading">
+              <h3>メール本文</h3>
+            </div>
+            <dl className="word-export-meta">
+              <dt>件名候補</dt><dd>{emailSubject}</dd>
+              {periodLabel && <><dt>対象期間</dt><dd>{periodLabel}</dd></>}
+            </dl>
+            <div className="word-export-actions">
+              <button className="secondary-button compact" onClick={() => copyReportEmail("subject")}>件名をコピー</button>
+              <button className="secondary-button compact" onClick={() => copyReportEmail("body")}>Outlook本文をコピー</button>
+              <button className="primary-button compact" onClick={() => copyReportEmail("combined")}>件名+本文をコピー</button>
+            </div>
+          </section>
         )}
         {canExportWord && (
           <section className={`word-export-panel ${wordExportStale ? "needs-export" : ""}`}>
