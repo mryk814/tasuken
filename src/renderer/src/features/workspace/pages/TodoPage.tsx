@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconCalendarPlus, IconCalendarCheck, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
+import { IconCalendarPlus, IconCalendarCheck, IconCopy, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -13,6 +13,7 @@ import { ChecklistProgressBadge } from "../components/taskChecklist";
 import { TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
+import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { Schedule, Task } from "../domain-model/types";
 
@@ -134,6 +135,16 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
     } else {
       await saveEntities(buildSaveScheduleOperations({ ...schedule, end_date: today }), "今日の予定に追加しました。");
     }
+  }
+
+  async function copyTask(task: Task, schedule?: Schedule) {
+    const duplicated = duplicateTask(task, schedule);
+    const ops = buildSaveTaskOperations(duplicated.task, { reason: "duplicated" });
+    if (duplicated.schedule) {
+      ops.push(...buildSaveScheduleOperations(duplicated.schedule, { reason: "duplicated" }));
+    }
+    await saveEntities(ops, "タスクを複製しました。");
+    openTaskDetail(duplicated.task, duplicated.schedule);
   }
 
   function previewPaste() {
@@ -281,6 +292,14 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
                   title={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
                 >
                   {isTodayRow({ task, schedule }, today) ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
+                </button>
+                <button
+                  className="todo-copy-button"
+                  onClick={() => copyTask(task, schedule)}
+                  aria-label={`${task.title}を複製`}
+                  title="複製"
+                >
+                  <IconCopy size={16} />
                 </button>
                 <button className={`row-title ${done ? "is-done" : ""}`} onClick={() => openTaskDetail(task, schedule)}>
                   <span>{task.title}</span>
