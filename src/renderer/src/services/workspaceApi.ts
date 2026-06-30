@@ -5,6 +5,8 @@ import type {
   SaveOptions,
   Workspace,
 } from "../../../shared/types/workspace";
+import type { MarkdownImageAttachmentRequest } from "../../../shared/attachments";
+import type { WordExportRequest } from "../../../shared/wordExport";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
@@ -42,6 +44,12 @@ export const workspaceApi = {
   copyText(text: string) {
     return desktopApi().clipboard.writeText(text);
   },
+  openPath(filePath: string) {
+    return desktopApi().files.openPath(filePath);
+  },
+  saveMarkdownImageAttachment(request: MarkdownImageAttachmentRequest) {
+    return desktopApi().attachments.saveMarkdownImage(request);
+  },
   reload() {
     return desktopApi().app.reload();
   },
@@ -53,5 +61,8 @@ export const workspaceApi = {
   },
   applySnapshot(token: string, decisions: Record<string, string>) {
     return desktopApi().snapshots.applyImport(token, decisions);
+  },
+  exportMarkdownNoteToWord(request: WordExportRequest) {
+    return desktopApi().exports.markdownNoteToWord(request);
   },
 };

@@ -17,6 +17,12 @@ const api: ResearchDeskApi = {
   clipboard: {
     writeText: (text) => ipcRenderer.invoke(IPC.clipboardWriteText, text),
   },
+  files: {
+    openPath: (filePath) => ipcRenderer.invoke(IPC.fileOpen, filePath),
+  },
+  attachments: {
+    saveMarkdownImage: (request) => ipcRenderer.invoke(IPC.markdownImageSave, request),
+  },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),
     onWorkspaceChanged: (callback): Unsubscribe => {
@@ -39,6 +45,9 @@ const api: ResearchDeskApi = {
     exportFile: () => ipcRenderer.invoke(IPC.snapshotExport),
     inspectFile: () => ipcRenderer.invoke(IPC.snapshotInspect),
     applyImport: (token, decisions) => ipcRenderer.invoke(IPC.snapshotApply, token, decisions),
+  },
+  exports: {
+    markdownNoteToWord: (request) => ipcRenderer.invoke(IPC.noteWordExport, request),
   },
 };
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { noteWordExportSignature } from "../../../../../shared/wordExport";
 import type {
   BaseRecord,
   DrawerConfig,
@@ -176,6 +177,7 @@ interface EntityDrawerProps {
   removeEntity: RemoveEntity;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  setToast: (message: string) => void;
 }
 
 function findSchedule(data: WorkspaceData, ownerType: string, ownerId: string, passedSchedule?: unknown): Schedule | undefined {
@@ -194,11 +196,11 @@ function normalizeChecklistItems(entity: DrawerConfig["entity"]) {
   })).sort((a, b) => a.sort_order - b.sort_order);
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities }: EntityDrawerProps) {
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} registerEditForm={registerEditForm} removeEntity={removeEntity} saveEntities={saveEntities} />;
   const type = drawer.type;
-  if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} />;
+  if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} setToast={setToast} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
   if (type === "resource") {
     const isChatRef = isChatReferenceEntity(entity);
@@ -822,6 +824,7 @@ function NoteDetailDrawer({
   removeEntity,
   saveEntity,
   saveEntities,
+  setToast,
 }: {
   note: Note;
   data: WorkspaceData;
@@ -829,17 +832,28 @@ function NoteDetailDrawer({
   removeEntity: RemoveEntity;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  setToast: (message: string) => void;
 }) {
   const [comment, setComment] = useState("");
   const [knowledgeText, setKnowledgeText] = useState("");
   const [knowledgePreview, setKnowledgePreview] = useState<{ candidates: ImportCandidate[]; payloadIssues: string[] } | null>(null);
   const [artifactMode, setArtifactMode] = useState<"preview" | "raw">("preview");
+  const [wordExporting, setWordExporting] = useState(false);
   const comments = note.comments || [];
   const theme = data.themes.find((entry) => entry.id === note.theme_id);
   const extractionPrompt = buildNoteKnowledgePrompt(note, theme?.name || "", AI_IMPORT_SCHEMA);
   const contentFormat = str(note.content_format) || (note.note_type === "artifact" ? "markdown" : "plain");
   const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
   const body = note.body_markdown || "";
+  const properties = note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
+  const wordExport = properties.word_export && typeof properties.word_export === "object" && !Array.isArray(properties.word_export)
+    ? properties.word_export as Record<string, unknown>
+    : null;
+  const currentWordSignature = noteWordExportSignature(body);
+  const exportedSignature = str(wordExport?.bodySignature);
+  const hasWordExportDirectory = Boolean(str(wordExport?.directory));
+  const wordExportStale = Boolean(exportedSignature && exportedSignature !== currentWordSignature);
+  const canExportWord = contentFormat === "markdown" && Boolean(body.trim());
 
   async function addComment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -906,6 +920,42 @@ function NoteDetailDrawer({
     }
   }
 
+  async function exportWord(chooseDirectory: boolean) {
+    if (!canExportWord) return;
+    setWordExporting(true);
+    try {
+      const result = await workspaceApi.exportMarkdownNoteToWord({
+        title: note.title,
+        bodyMarkdown: body,
+        themeName: theme?.name || null,
+        directory: str(wordExport?.directory) || null,
+        chooseDirectory,
+      });
+      if (result.canceled) {
+        setToast("Word出力をキャンセルしました。");
+        return;
+      }
+      const saved = await saveEntity("note", {
+        ...note,
+        properties_json: {
+          ...properties,
+          word_export: {
+            directory: result.directory,
+            filePath: result.filePath,
+            exportedAt: result.exportedAt,
+            bodySignature: result.bodySignature,
+          },
+        },
+      });
+      setToast(`Wordを出力しました。${result.filePath || ""}`);
+      close({ type: "note", entity: saved });
+    } catch (error) {
+      setToast(`Word出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setWordExporting(false);
+    }
+  }
+
   return (
     <aside className="drawer">
       <DrawerHeader title="メモ詳細" close={close} />
@@ -936,6 +986,31 @@ function NoteDetailDrawer({
           </section>
         ) : (
           <p className="note-body">{note.body_markdown}</p>
+        )}
+        {canExportWord && (
+          <section className={`word-export-panel ${wordExportStale ? "needs-export" : ""}`}>
+            <div className="section-heading">
+              <h3>Word出力</h3>
+              {wordExportStale && <span className="save-status save-status-error">本文変更あり</span>}
+            </div>
+            {wordExport ? (
+              <dl className="word-export-meta">
+                <dt>出力先</dt><dd>{str(wordExport.filePath) || str(wordExport.directory)}</dd>
+                <dt>出力日</dt><dd>{str(wordExport.exportedAt) ? new Date(str(wordExport.exportedAt)).toLocaleString("ja-JP") : "未出力"}</dd>
+              </dl>
+            ) : (
+              <p className="field-help">Markdown本文をWordファイルとして出力します。出力先フォルダはこのNoteに保存されます。</p>
+            )}
+            {wordExportStale && <p className="field-help">Word出力後に本文が変更されています。必要なら再出力してください。</p>}
+            <div className="word-export-actions">
+              <button className="primary-button compact" disabled={wordExporting} onClick={() => exportWord(!hasWordExportDirectory)}>
+                {hasWordExportDirectory ? "Wordを再出力" : "出力先を選ぶ"}
+              </button>
+              {hasWordExportDirectory && (
+                <button className="secondary-button compact" disabled={wordExporting} onClick={() => exportWord(true)}>出力先を変更</button>
+              )}
+            </div>
+          </section>
         )}
         <section className="comment-thread">
           <h3>コメント {comments.length > 0 && `(${comments.length})`}</h3>

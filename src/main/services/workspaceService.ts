@@ -1,9 +1,24 @@
-import { clipboard, dialog, type WebContents } from "electron";
+import { clipboard, dialog, shell, type WebContents } from "electron";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
+import type { MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { Workspace } from "../../shared/types/workspace";
+import type { WordExportRequest, WordExportResult } from "../../shared/wordExport";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
+import { exportMarkdownNoteToWord } from "./wordExportService";
 
 type SnapshotDecisions = Record<string, string>;
+
+const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
+const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+};
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -18,14 +33,71 @@ function localDateIso(date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+function normalizeWordExportRequest(value: unknown): WordExportRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Word出力の内容が不正です。画面を再読み込みして、もう一度試してください。");
+  }
+  const record = value as Record<string, unknown>;
+  const title = typeof record.title === "string" ? record.title : "";
+  const bodyMarkdown = typeof record.bodyMarkdown === "string" ? record.bodyMarkdown : "";
+  if (!title.trim()) throw new Error("Word出力するNoteのタイトルがありません。");
+  return {
+    title,
+    bodyMarkdown,
+    themeName: typeof record.themeName === "string" ? record.themeName : null,
+    directory: typeof record.directory === "string" ? record.directory : null,
+    chooseDirectory: Boolean(record.chooseDirectory),
+  };
+}
+
+function safeAttachmentName(value: string): string {
+  const cleaned = value
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (cleaned || "image").slice(0, 80);
+}
+
+function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachmentRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("画像の形式が不正です。画像をコピーし直して、もう一度貼り付けてください。");
+  }
+  const record = value as Record<string, unknown>;
+  const fileName = typeof record.fileName === "string" ? record.fileName : "image";
+  const mimeType = typeof record.mimeType === "string" ? record.mimeType.toLowerCase() : "";
+  const dataUrl = typeof record.dataUrl === "string" ? record.dataUrl : "";
+  if (!IMAGE_MIME_EXTENSIONS[mimeType]) {
+    throw new Error("対応していない画像形式です。PNG、JPEG、GIF、WebP、BMPを貼り付けてください。");
+  }
+  if (!dataUrl.startsWith(`data:${mimeType};base64,`)) {
+    throw new Error("画像データを読み取れませんでした。コピーし直して、もう一度貼り付けてください。");
+  }
+  return { fileName, mimeType, dataUrl };
+}
+
 export class WorkspaceService {
   private readonly pendingSnapshots = new Map<string, Workspace>();
 
-  constructor(private readonly repository: WorkspaceRepository) {}
+  constructor(
+    private readonly repository: WorkspaceRepository,
+    private readonly userDataPath: string,
+  ) {}
 
   writeClipboard(text: unknown): boolean {
     clipboard.writeText(String(text));
     return true;
+  }
+
+  async openPath(filePathValue: unknown): Promise<{ ok: boolean; error?: string }> {
+    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+      throw new Error("開くファイルの場所がありません。");
+    }
+    const filePath = path.resolve(filePathValue);
+    if (!fs.existsSync(filePath)) {
+      return { ok: false, error: "ファイルが見つかりません。出力し直すか、出力先を変更してください。" };
+    }
+    const error = await shell.openPath(filePath);
+    return error ? { ok: false, error } : { ok: true };
   }
 
   reload(sender: WebContents): boolean {
@@ -63,6 +135,45 @@ export class WorkspaceService {
       token,
       manifest: parsed.manifest,
       changes: this.repository.previewSnapshot(parsed.workspace),
+    };
+  }
+
+  async exportMarkdownNoteToWord(requestValue: unknown): Promise<WordExportResult> {
+    const request = normalizeWordExportRequest(requestValue);
+    let directory = request.directory?.trim() || "";
+    if (request.chooseDirectory || !directory) {
+      const result = await dialog.showOpenDialog({
+        title: "Word出力先フォルダを選択",
+        defaultPath: directory || undefined,
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (result.canceled || !result.filePaths[0]) return { canceled: true };
+      directory = result.filePaths[0];
+    }
+    return exportMarkdownNoteToWord(request, directory);
+  }
+
+  saveMarkdownImageAttachment(requestValue: unknown): MarkdownImageAttachmentResult {
+    const request = normalizeMarkdownImageAttachment(requestValue);
+    const encoded = request.dataUrl.slice(`data:${request.mimeType};base64,`.length);
+    const buffer = Buffer.from(encoded, "base64");
+    if (!buffer.length || buffer.length > MARKDOWN_IMAGE_MAX_BYTES) {
+      throw new Error("画像サイズが大きすぎます。12MB以下の画像を貼り付けてください。");
+    }
+
+    const id = randomUUID();
+    const extension = IMAGE_MIME_EXTENSIONS[request.mimeType];
+    const storageFileName = `${id}.${extension}`;
+    const displayName = safeAttachmentName(request.fileName).replace(/\.[^.]+$/, "") || "image";
+    const attachmentDirectory = path.join(this.userDataPath, "attachments", "markdown-images");
+    fs.mkdirSync(attachmentDirectory, { recursive: true });
+    fs.writeFileSync(path.join(attachmentDirectory, storageFileName), buffer);
+
+    return {
+      id,
+      fileName: `${displayName}.${extension}`,
+      mimeType: request.mimeType,
+      url: `tasken-attachment://local/${encodeURIComponent(storageFileName)}/${encodeURIComponent(displayName)}`,
     };
   }
 
