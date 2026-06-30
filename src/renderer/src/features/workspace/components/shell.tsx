@@ -3,6 +3,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { themeColor } from "../lib/domain";
+import { isPromptNote } from "../lib/prompts";
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
   return (
@@ -52,7 +53,8 @@ export function Sidebar({
   }).length;
   const waiting = domain.waitings.filter((w) => w.state === "waiting").length;
   const openTasks = domain.tasks.filter((t) => t.state !== "done" && t.state !== "cancelled").length;
-  const notesCount = domain.notes.length + domain.resources.length;
+  const promptCount = domain.notes.filter(isPromptNote).length;
+  const notesCount = domain.notes.filter((note) => !isPromptNote(note)).length + domain.resources.length;
   const knowledgeCount = domain.knowledge_nodes.length;
   const chatRefCount = domain.resources.filter((resource) => {
     const type = String(resource.link_type || "");
@@ -67,6 +69,7 @@ export function Sidebar({
     "micro-memos": microMemos,
     knowledge: knowledgeCount,
     notes: notesCount,
+    prompts: promptCount,
     "chat-refs": chatRefCount,
     "proposal-inbox": proposalCount,
   };

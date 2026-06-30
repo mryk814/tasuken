@@ -19,6 +19,7 @@ import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TY
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { noteExportEnabled } from "../lib/io";
 import { previewDocument, renderedText } from "../lib/markdown";
+import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
@@ -490,11 +491,12 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
   const properties = entity.properties_json && typeof entity.properties_json === "object" ? entity.properties_json as Record<string, unknown> : {};
   const isReport = noteType === "report";
   const isReportPrompt = noteType === "report_prompt";
-  const initialFormat = str(entity.content_format) || ((isReport || isReportPrompt || initialType === "artifact") ? "markdown" : "plain");
+  const isPrompt = noteType === "prompt" || isReportPrompt;
+  const initialFormat = str(entity.content_format) || ((isReport || isReportPrompt || initialType === "artifact" || initialType === "prompt") ? "markdown" : "plain");
   const [contentFormat, setContentFormat] = useState(initialFormat);
   function chooseNoteType(next: string) {
     setNoteType(next);
-    if ((next === "artifact" || next === "report" || next === "report_prompt") && contentFormat === "plain") {
+    if ((next === "artifact" || next === "report" || next === "report_prompt" || next === "prompt") && contentFormat === "plain") {
       setContentFormat("markdown");
     }
   }
@@ -508,6 +510,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           {Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           <option value="report">報告書</option>
           <option value="report_prompt">報告書プロンプト</option>
+          <option value="prompt">プロンプト</option>
         </select>
       </Field>
       {(isReport || isReportPrompt) && (
@@ -523,6 +526,25 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
         <div className="form-grid">
           <Field label="対象開始"><input name="period_start" type="date" defaultValue={str(properties.period_start)} /></Field>
           <Field label="対象終了"><input name="period_end" type="date" defaultValue={str(properties.period_end)} /></Field>
+        </div>
+      )}
+      {isPrompt && (
+        <div className="form-grid">
+          <Field label="用途">
+            <select name="prompt_purpose" defaultValue={promptPurpose({ note_type: noteType, properties_json: properties })}>
+              {Object.entries(PROMPT_PURPOSE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="変数">
+            <input name="prompt_variables" defaultValue={promptVariables({ properties_json: properties }) || "themeName, periodStart, periodEnd"} />
+          </Field>
+          <Field label="既定">
+            <input type="hidden" name="prompt_is_default" value="false" />
+            <label className="toggle">
+              <input type="checkbox" name="prompt_is_default" value="true" defaultChecked={isDefaultPrompt({ properties_json: properties })} />
+              この用途の既定にする
+            </label>
+          </Field>
         </div>
       )}
       <Field label="形式">
