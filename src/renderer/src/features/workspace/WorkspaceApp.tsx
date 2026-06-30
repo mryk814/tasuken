@@ -624,6 +624,7 @@ export function WorkspaceApp() {
       const hasLinkTypeField = Boolean(named("link_type"));
       const submittedLinkType = formText(values, "link_type");
       const inferredLinkType = inferChatServiceFromUrl(url);
+      const sortOrder = Number(formText(values, "sort_order") || base.sort_order || 0);
       const resource: Resource = {
         id: (base.id as string) || uuid(),
         title,
@@ -638,6 +639,7 @@ export function WorkspaceApp() {
         importance: formText(values, "importance") || null,
         captured_at: formText(values, "captured_at") || ((base.captured_at as string | null) ?? null),
         chat_group: formText(values, "chat_group") || null,
+        sort_order: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : null,
       };
       await saveEntities(buildSaveResourceOperations(resource), base.id ? "変更を保存しました。" : "リソースを追加しました。");
       finishSave();

@@ -981,12 +981,16 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .chat-group-toggle:hover { background: var(--color-surface-subtle); }
 .chat-group-toggle strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-group-toggle .count { color: var(--color-text-secondary); font-size: var(--text-xs); font-family: var(--font-mono); }
-.chat-group-add, .chat-group-copy { display: flex; align-items: center; padding: var(--space-1); border: 0; background: transparent; color: var(--color-text-secondary); border-radius: var(--radius-sm); }
+.chat-group-add, .chat-group-copy, .chat-group-knowledge, .chat-group-edit, .chat-group-clear { display: flex; align-items: center; padding: var(--space-1); border: 0; background: transparent; color: var(--color-text-secondary); border-radius: var(--radius-sm); }
 .chat-group-add { color: var(--color-accent-strong); }
-.chat-group-add:hover, .chat-group-copy:hover { color: var(--color-accent-strong); background: var(--color-accent-subtle-bg); }
+.chat-group-add:hover, .chat-group-copy:hover, .chat-group-knowledge:hover, .chat-group-edit:hover { color: var(--color-accent-strong); background: var(--color-accent-subtle-bg); }
+.chat-group-clear:hover { color: var(--color-danger-strong); background: var(--color-danger-bg); }
 .chat-link-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2) var(--space-1) var(--space-5); border-bottom: 1px solid var(--color-border-subtle); }
 .chat-link-row:last-child { border-bottom: 0; }
 .chat-link-row:hover { background: var(--color-surface-subtle); }
+.chat-row-order-actions { display: flex; flex-shrink: 0; gap: 1px; }
+.chat-row-order-actions .row-action-button { width: 22px; height: 22px; border-radius: var(--radius-sm); }
+.chat-row-order-actions .row-action-button:disabled { opacity: 0.36; cursor: not-allowed; }
 .chat-star { flex-shrink: 0; padding: 2px; border: 0; background: transparent; color: var(--color-text-secondary); cursor: pointer; border-radius: var(--radius-sm); }
 .chat-star:hover { color: var(--color-warning); }
 .chat-star.is-adopted { color: var(--color-warning); }

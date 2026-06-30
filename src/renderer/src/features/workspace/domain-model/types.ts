@@ -148,6 +148,7 @@ export interface Resource {
   importance?: string | null;
   captured_at?: string | null;
   chat_group?: string | null;
+  sort_order?: number | null;
 }
 
 export type KnowledgeNodeType =
