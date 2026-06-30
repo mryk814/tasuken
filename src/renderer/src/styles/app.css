@@ -833,9 +833,11 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-table-row.is-row-drop-target .gantt-drop-label { border-color: var(--color-accent); background: var(--color-surface); }
 .gantt-scroll { min-width: 0; overflow-x: auto; overflow-y: clip; }
 .gantt-canvas { position: relative; min-width: 100%; }
-.gantt-axis { position: sticky; z-index: 3; top: 0; height: 44px; display: grid; background: var(--color-surface-subtle); border-bottom: 1px solid var(--color-border); }
-.gantt-axis span { display: grid; place-items: center; border-right: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
-.gantt-item-row { position: relative; height: 44px; border-bottom: 1px solid var(--color-border-subtle); background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(8.333% - 1px), var(--color-border-subtle) calc(8.333% - 1px), var(--color-border-subtle) 8.333%); }
+.gantt-axis { position: sticky; z-index: 3; top: 0; height: 44px; background: var(--color-surface-subtle); border-bottom: 1px solid var(--color-border); }
+.gantt-axis-mark { position: absolute; top: 0; bottom: 0; min-width: 58px; display: flex; align-items: center; justify-content: flex-start; padding-left: var(--space-1); border-left: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
+.gantt-axis-mark.month { border-left-color: var(--color-border); color: var(--color-text); }
+.gantt-axis-mark.quarter { border-left-color: var(--color-border-strong); color: var(--color-accent-strong); font-weight: var(--weight-medium); }
+.gantt-item-row { position: relative; height: 44px; border-bottom: 1px solid var(--color-border-subtle); background-image: var(--gantt-grid-image); }
 .gantt-range-draft { position: absolute; z-index: 1; top: 8px; height: 28px; border: 1px dashed var(--color-accent); border-radius: var(--radius-sm); background: var(--color-accent-subtle-bg); pointer-events: none; }
 .gantt-item-bar { --bar-color: var(--color-chart-1); position: absolute; z-index: 2; top: 8px; height: 28px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-1); overflow: hidden; padding: 0 var(--space-2); border: 1px solid color-mix(in srgb, var(--bar-color) 48%, var(--color-surface)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bar-color) 16%, var(--color-surface)); color: var(--color-text); font-size: var(--text-xs); white-space: nowrap; cursor: grab; }
 .gantt-item-bar:active { cursor: grabbing; }
@@ -871,8 +873,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .gantt-milestone-mark { flex: 0 0 auto; color: var(--color-accent-strong); }
 /* task-levelは大きな線に対して後退させる（淡色・細バー）。 */
 .gantt-table-row.level-task .gantt-name { color: var(--color-text-secondary); }
-.gantt-canvas-theme-row { position: relative; height: 44px; background: var(--color-surface-muted); border-bottom: 1px solid var(--color-border); }
-.gantt-milestone-lane { --bar-color: var(--color-chart-1); position: relative; height: 44px; border-bottom: 1px solid var(--color-border-subtle); background: color-mix(in srgb, var(--color-accent-subtle-bg) 38%, var(--color-surface)); background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(8.333% - 1px), var(--color-border-subtle) calc(8.333% - 1px), var(--color-border-subtle) 8.333%); }
+.gantt-canvas-theme-row { position: relative; height: 44px; background-color: var(--color-surface-muted); background-image: var(--gantt-grid-image); border-bottom: 1px solid var(--color-border); }
+.gantt-milestone-lane { --bar-color: var(--color-chart-1); position: relative; height: 44px; border-bottom: 1px solid var(--color-border-subtle); background-color: color-mix(in srgb, var(--color-accent-subtle-bg) 38%, var(--color-surface)); background-image: var(--gantt-grid-image); }
 .milestone-lane-mark { position: absolute; z-index: 4; top: 5px; width: 84px; min-height: 34px; display: grid; justify-items: center; align-content: center; gap: 1px; transform: translateX(-50%); padding: 0 var(--space-1); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--color-accent-strong); font-size: var(--text-xs); }
 .milestone-lane-mark span { font-family: var(--font-mono); line-height: var(--lh-tight); }
 .milestone-lane-mark small { max-width: 76px; overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }

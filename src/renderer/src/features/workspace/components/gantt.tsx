@@ -266,38 +266,78 @@ export function GanttItemRow({
 }
 
 export function TimeAxis({ start, end, dayWidth }: { start: string; end: string; dayWidth: number }) {
-  if (dayWidth >= 16) {
-    const blocks: string[] = [];
-    const cursor = new Date(`${start}T00:00:00`);
-    const last = new Date(`${end}T00:00:00`);
-    const step = dayWidth >= 36 ? 7 : 14;
-    const dow = cursor.getDay();
-    cursor.setTime(cursor.getTime() + ((dow === 0 ? 1 : 8 - dow) % 7) * DAY);
-    while (cursor <= last && blocks.length < 400) {
-      blocks.push(localDateIso(cursor));
-      cursor.setTime(cursor.getTime() + step * DAY);
-    }
-    return (
-      <div className="gantt-axis" style={{ gridTemplateColumns: `repeat(${blocks.length}, 1fr)` }}>
-        {blocks.map((value) => <span key={value}>{value.slice(5)}</span>)}
-      </div>
-    );
-  }
-  const blocks: { label: string; days: number }[] = [];
-  let cursor = new Date(`${start}T00:00:00`);
-  const endDate = new Date(`${end}T00:00:00`);
-  while (cursor < endDate && blocks.length < 200) {
-    const nextMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
-    const segmentEnd = nextMonth <= endDate ? nextMonth : endDate;
-    const days = Math.round((segmentEnd.getTime() - cursor.getTime()) / DAY);
-    if (days > 0) blocks.push({ label: localDateIso(cursor).slice(0, 7), days });
-    cursor = nextMonth;
-  }
+  const marks = ganttTimeMarks(start, end, dayWidth);
   return (
-    <div className="gantt-axis" style={{ gridTemplateColumns: blocks.map((b) => `${b.days}fr`).join(" ") }}>
-      {blocks.map((b) => <span key={b.label}>{b.label}</span>)}
+    <div className="gantt-axis">
+      {marks.map((mark) => (
+        <span className={`gantt-axis-mark ${mark.kind}`} key={mark.date} style={{ left: `${mark.left}%` }}>
+          {mark.label}
+        </span>
+      ))}
     </div>
   );
+}
+
+type GanttTimeMark = {
+  date: string;
+  label: string;
+  left: number;
+  kind: "day" | "week" | "month" | "quarter";
+};
+
+function markLeft(start: string, end: string, date: string): number {
+  const total = Math.max(1, daysBetween(start, end));
+  return Math.max(0, Math.min(100, (daysBetween(start, date) / total) * 100));
+}
+
+function pushMark(marks: GanttTimeMark[], start: string, end: string, date: string, kind: GanttTimeMark["kind"], label: string) {
+  if (date < start || date > end) return;
+  marks.push({ date, kind, label, left: markLeft(start, end, date) });
+}
+
+function ganttTimeMarks(start: string, end: string, dayWidth: number): GanttTimeMark[] {
+  const marks: GanttTimeMark[] = [];
+  const endDate = new Date(`${end}T00:00:00`);
+  if (dayWidth >= 16) {
+    const step = dayWidth >= 56 ? 1 : dayWidth >= 36 ? 7 : 14;
+    const cursor = new Date(`${start}T00:00:00`);
+    if (step > 1) {
+      const dow = cursor.getDay();
+      cursor.setTime(cursor.getTime() + ((dow === 0 ? 1 : 8 - dow) % 7) * DAY);
+    }
+    while (cursor <= endDate && marks.length < 500) {
+      const date = localDateIso(cursor);
+      const isMonth = cursor.getDate() === 1;
+      const kind = isMonth ? (cursor.getMonth() % 3 === 0 ? "quarter" : "month") : step === 1 ? "day" : "week";
+      const label = isMonth ? date.slice(0, 7) : date.slice(5);
+      pushMark(marks, start, end, date, kind, label);
+      cursor.setTime(cursor.getTime() + step * DAY);
+    }
+    return marks;
+  }
+  const cursor = new Date(`${start}T00:00:00`);
+  cursor.setDate(1);
+  while (cursor <= endDate && marks.length < 240) {
+    const date = localDateIso(cursor);
+    const kind = cursor.getMonth() % 3 === 0 ? "quarter" : "month";
+    pushMark(marks, start, end, date, kind, date.slice(0, 7));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return marks;
+}
+
+export function ganttGridBackground(start: string, end: string, dayWidth: number): string {
+  const marks = ganttTimeMarks(start, end, dayWidth);
+  if (!marks.length) return "none";
+  return marks.map((mark) => {
+    const color = mark.kind === "quarter"
+      ? "var(--color-border-strong)"
+      : mark.kind === "month"
+        ? "var(--color-border)"
+        : "var(--color-border-subtle)";
+    const width = mark.kind === "day" ? "0.5px" : "1px";
+    return `linear-gradient(to right, transparent calc(${mark.left}% - ${width}), ${color} calc(${mark.left}% - ${width}), ${color} calc(${mark.left}% + ${width}), transparent calc(${mark.left}% + ${width}))`;
+  }).join(", ");
 }
 
 function milestoneDate(item: Item): string {

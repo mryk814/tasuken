@@ -7,7 +7,7 @@ import type { Item, PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
 import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
 import { buildTimelineRows, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
-import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttRowHeight } from "../components/gantt";
+import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttGridBackground, ganttRowHeight } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
 import {
   isTimelineCompleted,
@@ -287,6 +287,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const groupKeys = rows.filter((row) => row.rowType === "theme").map((row) => (row as Extract<typeof row, { rowType: "theme" }>).groupKey);
   const days = Math.max(1, daysBetween(range.start, range.end));
   const canvasWidth = Math.round(days * dayWidth);
+  const gridBackground = ganttGridBackground(range.start, range.end, dayWidth);
   const todayLeft = (daysBetween(range.start, today) / days) * 100;
   const outsideCount = visibleTimelineItems.filter((item) => {
     const span = timelineItemDateSpan(item);
@@ -735,7 +736,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
           })}
         </div>
         <div className="gantt-scroll" ref={scrollRef}>
-          <div className="gantt-canvas" ref={canvasRef} style={{ width: canvasWidth }} onClick={() => selectedDep && setSelectedDep(null)}>
+          <div className="gantt-canvas" ref={canvasRef} style={{ width: canvasWidth, "--gantt-grid-image": gridBackground } as React.CSSProperties} onClick={() => selectedDep && setSelectedDep(null)}>
             <TimeAxis start={range.start} end={range.end} dayWidth={dayWidth} />
             <div className="gantt-today" style={{ left: `${todayLeft}%` }}><span>今日</span></div>
             {rows.map((row) => {
