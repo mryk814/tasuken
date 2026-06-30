@@ -370,6 +370,31 @@ test("post-migration smoke: legacy items=[] still produces meaningful views and 
   assert.match(report, /試薬待ち/);
 });
 
+test("export data excludes notes explicitly removed from export target", () => {
+  const data = workspace({
+    themes: [{ id: "theme-1", name: "材料A評価" }],
+    notes: [
+      { id: "note-1", title: "公開文書", theme_id: "theme-1", body_markdown: "共有する", properties_json: { export_enabled: true } },
+      { id: "note-2", title: "下書き文書", theme_id: "theme-1", body_markdown: "まだ出さない", properties_json: { export_enabled: false } },
+      { id: "note-3", title: "従来メモ", theme_id: "theme-1", body_markdown: "未設定は対象" },
+    ],
+  });
+  const exportData = io.buildExportData({
+    data,
+    domain: { resources: [], tasks: [], waitings: [], plan_nodes: [], schedules: [], task_dependencies: [], knowledge_edges: [] },
+    themes: data.themes,
+    items: [],
+    activeTheme: null,
+    scope: "all",
+  });
+
+  assert.deepEqual(exportData.notes.map((note) => note.title), ["公開文書", "従来メモ"]);
+  const markdown = io.exportMarkdown(exportData);
+  assert.match(markdown, /公開文書/);
+  assert.match(markdown, /従来メモ/);
+  assert.doesNotMatch(markdown, /下書き文書/);
+});
+
 test("post-migration smoke: MCP mergedItems includes plan_nodes", async () => {
   const { ReadOnlyTaskenContext } = await import("../src/main/mcp/readOnlyContext.mjs");
   const ctx = new ReadOnlyTaskenContext("in-memory.sqlite", {

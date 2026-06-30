@@ -654,6 +654,7 @@ export function WorkspaceApp() {
       if (!title || !body) { setToast("タイトルと本文を入力してください。"); return false; }
       const noteType = formText(values, "note_type", "memo");
       const hasSourceUrlField = Boolean(named("source_url"));
+      const exportEnabled = values.getAll("export_enabled").map(String).includes("true");
       const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
         report_type: formText(values, "report_type", "weekly"),
         ...(noteType === "report" ? {
@@ -671,7 +672,7 @@ export function WorkspaceApp() {
         item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
         source_url: noteType === "report" || noteType === "report_prompt" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
-        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), ...reportProperties },
+        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), export_enabled: exportEnabled, ...reportProperties },
         comments: (base.comments as Note["comments"]) || [],
       };
     } else if (type === "status_update") {
