@@ -4,6 +4,12 @@ import type { BaseRecord, DrawerConfig, Item, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
+export type ContextMenuItem = {
+  label: string;
+  onSelect: () => void;
+  tone?: "danger";
+  disabled?: boolean;
+};
 
 export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: string; children?: ReactNode }) {
   return (
@@ -35,6 +41,59 @@ export function EmptyState({ title, action, onAction }: { title: string; action?
     <div className="empty-state">
       <strong>{title}</strong>
       {action && onAction && <button className="secondary-button compact" onClick={onAction}>{action}</button>}
+    </div>
+  );
+}
+
+export function ContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  items: ContextMenuItem[];
+  onClose: () => void;
+}) {
+  const left = Math.max(8, Math.min(x, window.innerWidth - 280));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 280));
+
+  useEffect(() => {
+    const close = () => onClose();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="context-menu" style={{ left, top }} role="menu" onContextMenu={(event) => event.preventDefault()}>
+      {items.map((item) => (
+        <button
+          key={item.label}
+          className={item.tone === "danger" ? "is-danger" : ""}
+          disabled={item.disabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (item.disabled) return;
+            item.onSelect();
+            onClose();
+          }}
+          role="menuitem"
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }

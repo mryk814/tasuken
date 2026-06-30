@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from "react";
 import {
   IconBrandGoogle,
   IconBrandOpenai,
@@ -39,7 +39,7 @@ import {
 import { themeColor } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
-import { EmptyState, PageHeader } from "../components/common";
+import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 
 type StatusFilter = "all" | "inbox" | "adopted";
 type DragPlacement = "before" | "after";
@@ -80,6 +80,7 @@ export function ChatRefsPage({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
 
   useEffect(() => {
     if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
@@ -207,6 +208,28 @@ export function ChatRefsPage({
     setDraggingId(null);
     setDraggingGroupKey(null);
     setDragTarget(null);
+  }
+
+  function showChatLinkMenu(event: MouseEvent, resource: Resource) {
+    event.preventDefault();
+    const url = str(resource.url);
+    const items: ContextMenuItem[] = [
+      { label: "編集する", onSelect: () => openDrawer({ type: "resource", mode: "edit", entity: resource as unknown as Record<string, unknown> }) },
+      { label: isAdopted(resource) ? "採用を解除" : "採用にする", onSelect: () => toggleAdopted(resource) },
+      { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(resource.title)) },
+    ];
+    if (url) {
+      items.push(
+        { label: "リンクを開く", onSelect: () => window.open(url, "_blank", "noreferrer") },
+        { label: "URLをコピー", onSelect: () => workspaceApi.copyText(url) },
+      );
+    }
+    items.push({
+      label: "削除する",
+      tone: "danger",
+      onSelect: () => removeEntity("resource", resource as unknown as Record<string, unknown>),
+    });
+    setContextMenu({ x: event.clientX, y: event.clientY, items });
   }
 
   function dragPlacement(event: DragEvent<HTMLElement>): DragPlacement {
@@ -386,6 +409,7 @@ export function ChatRefsPage({
                     <div
                       className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""}`}
                       key={r.id}
+                      onContextMenu={(event) => showChatLinkMenu(event, r)}
                       onDragOver={canDrag && isSameDragGroup ? (event) => {
                         event.preventDefault();
                         event.dataTransfer.dropEffect = "move";
@@ -481,6 +505,7 @@ export function ChatRefsPage({
           </div>
         </section>
       )}
+      {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
     </div>
   );
 }

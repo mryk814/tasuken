@@ -1,4 +1,4 @@
-import { Component, memo, type ClipboardEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Component, memo, type ClipboardEvent, type ErrorInfo, type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
@@ -33,7 +33,7 @@ import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { previewHtml } from "../lib/markdown";
 import { isChatReference } from "../lib/chatRefs";
-import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { ContextMenu, EmptyState, PageHeader, StatusBadge, type ContextMenuItem } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
@@ -229,6 +229,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
   const [draftBody, setDraftBody] = useState("");
   const [draftState, setDraftState] = useState("");
   const [wordExporting, setWordExporting] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const records: Combined[] = [
@@ -292,6 +293,49 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
     if (!selected) return;
     await workspaceApi.copyText(effectiveBody);
     setToast("本文をコピーしました。");
+  }
+
+  function openRecord(record: Combined, isMarkdown: boolean) {
+    if (isMarkdown) {
+      setSelectedId(record.id);
+      setPreviewMode("edit");
+      return;
+    }
+    openDrawer({ type: record.recordType, entity: record });
+  }
+
+  function knowledgeFromNote(record: Combined) {
+    openDrawer({
+      type: "knowledge_node",
+      mode: "edit",
+      entity: {
+        node_type: "claim",
+        title: record.title,
+        body: record.body_markdown,
+        theme_id: record.theme_id || null,
+        source_type: "note",
+        source_id: record.id,
+        confidence: "medium",
+        status: "active",
+      },
+    });
+  }
+
+  function showRecordMenu(event: MouseEvent, record: Combined, isMarkdown: boolean, url: string) {
+    event.preventDefault();
+    const items: ContextMenuItem[] = [
+      { label: isMarkdown ? "本文を開く" : "詳細を開く", onSelect: () => openRecord(record, isMarkdown) },
+      { label: "編集する", onSelect: () => openDrawer({ type: record.recordType, mode: "edit", entity: record }) },
+      { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(record.title)) },
+    ];
+    if (record.recordType === "note") items.push({ label: "Knowledge化", onSelect: () => knowledgeFromNote(record) });
+    if (url) {
+      items.push(
+        { label: "リンクを開く", onSelect: () => window.open(url, "_blank", "noreferrer") },
+        { label: "URLをコピー", onSelect: () => workspaceApi.copyText(url) },
+      );
+    }
+    setContextMenu({ x: event.clientX, y: event.clientY, items });
   }
 
   async function openWordExportPath(filePath: string) {
@@ -419,20 +463,17 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
           {visible.map((record) => {
             const comments = record.comments as NoteComment[] | undefined;
             const url = str(record.source_url || record.url);
-            const isMarkdown = record.recordType === "note" && noteFormat(record) === "markdown" && str(record.body_markdown).trim();
+            const isMarkdown = record.recordType === "note" && noteFormat(record) === "markdown" && Boolean(str(record.body_markdown).trim());
             const isSelected = selected?.id === record.id;
             return (
-              <div className={`note-row ${isSelected ? "is-selected" : ""}`} key={`${record.recordType}-${record.id}`}>
+              <div
+                className={`note-row ${isSelected ? "is-selected" : ""}`}
+                key={`${record.recordType}-${record.id}`}
+                onContextMenu={(event) => showRecordMenu(event, record, isMarkdown, url)}
+              >
                 <button
                   className="note-row-main"
-                  onClick={() => {
-                    if (isMarkdown) {
-                      setSelectedId(record.id);
-                      setPreviewMode("edit");
-                      return;
-                    }
-                    openDrawer({ type: record.recordType, entity: record });
-                  }}
+                  onClick={() => openRecord(record, isMarkdown)}
                 >
                   <span className="note-row-head">
                     <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
@@ -444,20 +485,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                 {record.recordType === "note" && (
                   <button
                     className="row-action-button note-row-open"
-                    onClick={() => openDrawer({
-                      type: "knowledge_node",
-                      mode: "edit",
-                      entity: {
-                        node_type: "claim",
-                        title: record.title,
-                        body: record.body_markdown,
-                        theme_id: record.theme_id || null,
-                        source_type: "note",
-                        source_id: record.id,
-                        confidence: "medium",
-                        status: "active",
-                      },
-                    })}
+                    onClick={() => knowledgeFromNote(record)}
                     aria-label={`${str(record.title) || "メモ"}をKnowledge化`}
                     title="Knowledge化"
                   >
@@ -481,6 +509,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
           })}
           {!visible.length && <EmptyState title="一致するメモはありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}
         </section>
+        {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
         <section className="panel note-preview-panel">
           {selected ? (
             <>
