@@ -18,7 +18,7 @@ import type {
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { noteExportEnabled } from "../lib/io";
-import { previewDocument, renderedText } from "../lib/markdown";
+import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
@@ -898,14 +898,24 @@ function NoteDetailDrawer({
     "",
     renderedText(body, contentFormat),
   ].filter((line, index, lines) => line || lines[index - 1]).join("\n").trim();
+  const emailBodyHtml = [
+    theme?.name ? `<p style="margin:0 0 4px;color:#666;">Theme: ${escapeHtml(theme.name)}</p>` : "",
+    `<p style="margin:0 0 4px;color:#666;">報告種別: ${escapeHtml(reportTypeLabel)}</p>`,
+    periodLabel ? `<p style="margin:0 0 12px;color:#666;">対象期間: ${escapeHtml(periodLabel)}</p>` : "",
+    outlookHtml(body, contentFormat),
+  ].filter(Boolean).join("");
 
   async function copyReportEmail(kind: "subject" | "body" | "combined") {
-    const text = kind === "subject"
-      ? emailSubject
-      : kind === "body"
-        ? emailBody
-        : `件名: ${emailSubject}\n\n${emailBody}`;
-    await workspaceApi.copyText(text);
+    if (kind === "subject") {
+      await workspaceApi.copyText(emailSubject);
+    } else if (kind === "body") {
+      await workspaceApi.copyHtml(emailBodyHtml, emailBody);
+    } else {
+      await workspaceApi.copyHtml(
+        `<p style="margin:0 0 12px;"><strong>件名:</strong> ${escapeHtml(emailSubject)}</p>${emailBodyHtml}`,
+        `件名: ${emailSubject}\n\n${emailBody}`,
+      );
+    }
     setToast(kind === "subject" ? "件名候補をコピーしました。" : kind === "combined" ? "件名とメール本文をコピーしました。" : "Outlook貼り付け用本文をコピーしました。");
   }
 

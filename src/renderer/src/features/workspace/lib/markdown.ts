@@ -262,3 +262,45 @@ export function renderedText(body: string, format: string): string {
     .trim();
   return [frontmatter ? `Frontmatter\n${frontmatter.trim()}` : "", renderedBody].filter(Boolean).join("\n\n");
 }
+
+function htmlAttribute(value: string, name: string): string {
+  const match = value.match(new RegExp(`${name}=(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+  return match ? String(match[1] || match[2] || match[3] || "") : "";
+}
+
+function outlookInlineStyles(html: string): string {
+  return html
+    .replace(/<figure\b[^>]*>\s*<img\b([^>]*)>\s*(?:<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>)?\s*<\/figure>/gi, (_match, attrs: string, caption: string) => {
+      const alt = htmlAttribute(attrs, "alt").trim();
+      const text = caption?.replace(/<[^>]+>/g, "").trim() || alt || "貼り付け画像";
+      return `<p style="margin:8px 0;color:#666;">[画像: ${escapeHtml(text)}]</p>`;
+    })
+    .replace(/<img\b([^>]*)>/gi, (_match, attrs: string) => {
+      const alt = htmlAttribute(attrs, "alt").trim() || "貼り付け画像";
+      return `<span style="color:#666;">[画像: ${escapeHtml(alt)}]</span>`;
+    })
+    .replace(/\sclass="[^"]*"/gi, "")
+    .replace(/\sclass='[^']*'/gi, "")
+    .replace(/<h1\b/gi, '<h1 style="margin:16px 0 8px;font-size:18pt;line-height:1.25;font-weight:700;"')
+    .replace(/<h2\b/gi, '<h2 style="margin:14px 0 7px;font-size:15pt;line-height:1.3;font-weight:700;"')
+    .replace(/<h3\b/gi, '<h3 style="margin:12px 0 6px;font-size:12.5pt;line-height:1.35;font-weight:700;"')
+    .replace(/<p\b/gi, '<p style="margin:8px 0;"')
+    .replace(/<ul\b/gi, '<ul style="margin:8px 0 8px 22px;padding:0;"')
+    .replace(/<ol\b/gi, '<ol style="margin:8px 0 8px 22px;padding:0;"')
+    .replace(/<li\b/gi, '<li style="margin:3px 0;"')
+    .replace(/<blockquote\b/gi, '<blockquote style="margin:10px 0;padding-left:12px;border-left:3px solid #ccc;color:#444;"')
+    .replace(/<pre\b/gi, '<pre style="margin:10px 0;padding:10px;border:1px solid #ddd;background:#f7f7f7;font-family:Consolas,monospace;font-size:10pt;white-space:pre-wrap;"')
+    .replace(/<code\b/gi, '<code style="font-family:Consolas,monospace;font-size:10pt;"')
+    .replace(/<table\b/gi, '<table style="border-collapse:collapse;margin:10px 0;width:100%;"')
+    .replace(/<th\b/gi, '<th style="border:1px solid #ccc;padding:5px 7px;background:#f2f2f2;text-align:left;font-weight:700;"')
+    .replace(/<td\b/gi, '<td style="border:1px solid #ccc;padding:5px 7px;vertical-align:top;"')
+    .replace(/<a\b/gi, '<a style="color:#0563c1;text-decoration:underline;"');
+}
+
+export function outlookHtml(body: string, format: string): string {
+  const rendered = format === "markdown"
+    ? previewHtml(splitFrontmatter(body).body, "markdown")
+    : previewHtml(body, format);
+  const styled = outlookInlineStyles(sanitizePreviewHtml(rendered));
+  return `<div style="font-family:'Yu Gothic','Meiryo','Segoe UI',Arial,sans-serif;font-size:11pt;line-height:1.55;color:#1f1f1f;">${styled}</div>`;
+}

@@ -88,6 +88,20 @@ export class WorkspaceService {
     return true;
   }
 
+  writeClipboardHtml(payload: unknown): boolean {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new Error("コピーするHTMLの形式が不正です。画面を再読み込みして、もう一度試してください。");
+    }
+    const record = payload as Record<string, unknown>;
+    const html = typeof record.html === "string" ? record.html : "";
+    const text = typeof record.text === "string" ? record.text : "";
+    if (!html.trim() || !text.trim()) {
+      throw new Error("コピーする本文がありません。");
+    }
+    clipboard.write({ html, text });
+    return true;
+  }
+
   async openPath(filePathValue: unknown): Promise<{ ok: boolean; error?: string }> {
     if (typeof filePathValue !== "string" || !filePathValue.trim()) {
       throw new Error("開くファイルの場所がありません。");

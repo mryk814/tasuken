@@ -17,6 +17,7 @@ export const IPC = {
   preferenceGet: "preference:get",
   preferenceSet: "preference:set",
   clipboardWriteText: "clipboard:write-text",
+  clipboardWriteHtml: "clipboard:write-html",
   fileOpen: "file:open",
   markdownImageSave: "markdown-image:save",
   appReload: "app:reload",
@@ -50,6 +51,7 @@ export interface ResearchDeskApi {
   };
   clipboard: {
     writeText(text: string): Promise<boolean>;
+    writeHtml(payload: { html: string; text: string }): Promise<boolean>;
   };
   files: {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;

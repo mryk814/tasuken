@@ -46,6 +46,7 @@ export function registerIpc(repository: WorkspaceRepository, service: WorkspaceS
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => repository.setPreference(requireId(key), value));
   ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
+  ipcMain.handle(IPC.clipboardWriteHtml, (_event, payload) => service.writeClipboardHtml(payload));
   ipcMain.handle(IPC.fileOpen, (_event, filePath) => service.openPath(requireText(filePath, "開くファイル")));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));

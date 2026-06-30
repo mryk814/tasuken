@@ -44,6 +44,9 @@ export const workspaceApi = {
   copyText(text: string) {
     return desktopApi().clipboard.writeText(text);
   },
+  copyHtml(html: string, text: string) {
+    return desktopApi().clipboard.writeHtml({ html, text });
+  },
   openPath(filePath: string) {
     return desktopApi().files.openPath(filePath);
   },

@@ -16,6 +16,7 @@ const api: ResearchDeskApi = {
   },
   clipboard: {
     writeText: (text) => ipcRenderer.invoke(IPC.clipboardWriteText, text),
+    writeHtml: (payload) => ipcRenderer.invoke(IPC.clipboardWriteHtml, payload),
   },
   files: {
     openPath: (filePath) => ipcRenderer.invoke(IPC.fileOpen, filePath),

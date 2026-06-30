@@ -71,3 +71,22 @@ $$
   assert.doesNotMatch(text, /#/);
   assert.doesNotMatch(text, /\$\$/);
 });
+
+test("outlookHtml creates simple styled HTML without tasken image references", () => {
+  const html = markdown.outlookHtml(`---
+type: report
+---
+# 週報
+
+- 試作条件を整理
+- CAE結果を確認
+
+![Chart](tasken-attachment://local/image.png/chart)`, "markdown");
+
+  assert.match(html, /font-family/);
+  assert.match(html, /<h1 style=/);
+  assert.match(html, /<li style=/);
+  assert.match(html, /\[画像: Chart\]/);
+  assert.doesNotMatch(html, /tasken-attachment:/);
+  assert.doesNotMatch(html, /Frontmatter/);
+});
