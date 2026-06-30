@@ -19,6 +19,7 @@ async function importBundled(relativePath) {
 
 const adapter = await importBundled("src/renderer/src/features/workspace/domain-model/compat/legacyAdapter.ts");
 const selectors = await importBundled("src/renderer/src/features/workspace/domain-model/selectors.ts");
+const taskDuplication = await importBundled("src/renderer/src/features/workspace/domain-model/taskDuplication.ts");
 const timelineProjection = await importBundled("src/renderer/src/features/workspace/domain-model/compat/timelineProjection.ts");
 const io = await importBundled("src/renderer/src/features/workspace/lib/io.ts");
 
@@ -132,6 +133,71 @@ test("domain view models keep task, waiting, capture, and timeline concerns sepa
   assert.equal(timeline.rows.length, 1);
   assert.equal(timeline.rows[0].planNode.id, "plan-1");
   assert.equal(timeline.rows[0].children[0].planNode.id, "milestone-1");
+});
+
+test("task duplication creates an editable new todo without completion state", () => {
+  const task = {
+    id: "task-done",
+    project_id: "theme-1",
+    title: "測定条件を確認",
+    description: "条件表と照合する",
+    state: "done",
+    priority: "high",
+    completed_at: "2026-06-29T10:00:00.000Z",
+    repeat_rule: { frequency: "weekly", interval: 1, weekdays: [1, 3], next_from: "scheduled" },
+    repeat_series_id: "series-1",
+    repeat_parent_task_id: "parent-1",
+    checklist_items: [
+      { id: "check-1", title: "表を開く", done: true, completed_at: "2026-06-29T09:00:00.000Z", sort_order: 0 },
+      { id: "check-2", title: "結果を確認", done: false, completed_at: null, sort_order: 1 },
+    ],
+    legacy_item_id: "legacy-task",
+    created_at: "2026-06-01T00:00:00.000Z",
+    updated_at: "2026-06-29T10:00:00.000Z",
+  };
+  const schedule = {
+    id: "schedule-done",
+    owner_type: "task",
+    owner_id: "task-done",
+    start_date: "2026-07-01",
+    end_date: "2026-07-03",
+    date_kind: "range",
+    confidence: "fixed",
+    granularity: "day",
+    legacy_item_id: "legacy-schedule",
+  };
+
+  const duplicated = taskDuplication.duplicateTask(task, schedule, "2026-06-30T12:00:00.000Z");
+
+  assert.notEqual(duplicated.task.id, task.id);
+  assert.equal(duplicated.task.title, task.title);
+  assert.equal(duplicated.task.description, task.description);
+  assert.equal(duplicated.task.project_id, task.project_id);
+  assert.equal(duplicated.task.priority, "high");
+  assert.equal(duplicated.task.state, "todo");
+  assert.equal(duplicated.task.completed_at, null);
+  assert.equal(duplicated.task.created_at, "2026-06-30T12:00:00.000Z");
+  assert.equal(duplicated.task.updated_at, undefined);
+  assert.equal(duplicated.task.repeat_series_id, null);
+  assert.equal(duplicated.task.repeat_parent_task_id, null);
+  assert.equal(duplicated.task.legacy_item_id, null);
+  assert.deepEqual(duplicated.task.repeat_rule, task.repeat_rule);
+  assert.deepEqual(duplicated.task.checklist_items.map((item) => ({
+    title: item.title,
+    done: item.done,
+    completed_at: item.completed_at,
+    sort_order: item.sort_order,
+  })), [
+    { title: "表を開く", done: false, completed_at: null, sort_order: 0 },
+    { title: "結果を確認", done: false, completed_at: null, sort_order: 1 },
+  ]);
+  assert.notEqual(duplicated.task.checklist_items[0].id, task.checklist_items[0].id);
+  assert.notEqual(duplicated.schedule.id, schedule.id);
+  assert.equal(duplicated.schedule.owner_id, duplicated.task.id);
+  assert.equal(duplicated.schedule.owner_type, "task");
+  assert.equal(duplicated.schedule.start_date, schedule.start_date);
+  assert.equal(duplicated.schedule.end_date, schedule.end_date);
+  assert.equal(duplicated.schedule.legacy_item_id, null);
 });
 
 test("inbox view sorts untriaged captures by newest timestamp", () => {

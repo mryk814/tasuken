@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconCopy } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -31,9 +32,11 @@ import {
 } from "../domain-model/labels";
 import {
   buildSaveTaskOperations,
+  buildSaveScheduleOperations,
   buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
 } from "../domain-model/persistence";
+import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 
@@ -232,6 +235,15 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
     const task = entity as unknown as Task;
     const schedule = findSchedule(data, "task", task.id, entity._schedule);
     const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
+    const copyTask = async () => {
+      const duplicated = duplicateTask(task, schedule);
+      const ops = buildSaveTaskOperations(duplicated.task, { reason: "duplicated" });
+      if (duplicated.schedule) {
+        ops.push(...buildSaveScheduleOperations(duplicated.schedule, { reason: "duplicated" }));
+      }
+      await saveEntities(ops, "タスクを複製しました。");
+      close({ type: "task", mode: "edit", entity: { ...duplicated.task, _schedule: duplicated.schedule } as Record<string, unknown> });
+    };
     return (
       <aside className="drawer">
         <DrawerHeader title="タスク詳細" close={close} />
@@ -276,6 +288,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           </dl>
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}>編集する</button>
+            <button className="secondary-button" onClick={copyTask}><IconCopy size={16} />複製する</button>
             <button className="primary-button" onClick={async () => {
               const nextState = task.state === "done" ? "todo" : "done";
               const message = nextState === "done" && task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
