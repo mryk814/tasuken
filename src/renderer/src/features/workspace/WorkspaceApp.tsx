@@ -844,6 +844,7 @@ export function WorkspaceApp() {
           removeEntity={removeEntity}
           saveEntity={saveEntity}
           saveEntities={saveEntities}
+          setToast={setToast}
         />
       ) : (
         <ContextPane

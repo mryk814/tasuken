@@ -7,6 +7,8 @@ import type {
   Workspace,
   WorkspaceMeta,
 } from "../types/workspace";
+import type { MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
+import type { WordExportRequest, WordExportResult } from "../wordExport";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -15,6 +17,8 @@ export const IPC = {
   preferenceGet: "preference:get",
   preferenceSet: "preference:set",
   clipboardWriteText: "clipboard:write-text",
+  fileOpen: "file:open",
+  markdownImageSave: "markdown-image:save",
   appReload: "app:reload",
   entityList: "entity:list",
   entityGet: "entity:get",
@@ -25,6 +29,7 @@ export const IPC = {
   snapshotExport: "snapshot:export",
   snapshotInspect: "snapshot:inspect",
   snapshotApply: "snapshot:apply",
+  noteWordExport: "note:word-export",
 } as const;
 
 export interface WorkspaceChangePayload {
@@ -46,6 +51,12 @@ export interface ResearchDeskApi {
   clipboard: {
     writeText(text: string): Promise<boolean>;
   };
+  files: {
+    openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
+  };
+  attachments: {
+    saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
+  };
   app: {
     reload(): Promise<boolean>;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
@@ -63,5 +74,8 @@ export interface ResearchDeskApi {
     inspectFile(): Promise<SnapshotInspectResult>;
     // decisionsは「change.key -> action」の対応表。配列ではなくオブジェクトで渡す。
     applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
+  };
+  exports: {
+    markdownNoteToWord(request: WordExportRequest): Promise<WordExportResult>;
   };
 }

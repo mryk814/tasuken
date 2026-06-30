@@ -95,6 +95,16 @@ function themeLabel(theme: { name?: string } | null | undefined, fallback = "個
   return theme?.name || fallback;
 }
 
+function sameTimelineItemShape(a: Item, b: Item): boolean {
+  const aSpan = timelineItemDateSpan(a);
+  const bSpan = timelineItemDateSpan(b);
+  return aSpan.start === bSpan.start
+    && aSpan.end === bSpan.end
+    && a.due_date === b.due_date
+    && a.parent_item_id === b.parent_item_id
+    && timelineThemeId(a) === timelineThemeId(b);
+}
+
 export function TimelinePage({ data, domain: v2, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v6", DEFAULT_PREFS);
   const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning, rangeBufferMonths = 0 } = prefs;
@@ -115,12 +125,30 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
   const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
   const [dropSortTargetId, setDropSortTargetId] = useState<string | null>(null);
+  const [optimisticTimelineItems, setOptimisticTimelineItems] = useState<Record<string, Item>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<TimelineUndo[]>([]);
   const timelineWorkspace = legacyTimelineWorkspace(data, v2);
-  const timelineItems = timelineWorkspace.items || [];
+  const persistedTimelineItems = timelineWorkspace.items || [];
+  const timelineItems = persistedTimelineItems.map((item) => optimisticTimelineItems[item.id] || item);
   const timelineDependencies = timelineWorkspace.dependencies || [];
+
+  useEffect(() => {
+    if (!Object.keys(optimisticTimelineItems).length) return;
+    setOptimisticTimelineItems((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [id, optimistic] of Object.entries(current)) {
+        const persisted = persistedTimelineItems.find((item) => item.id === id);
+        if (!persisted || sameTimelineItemShape(persisted, optimistic)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [optimisticTimelineItems, persistedTimelineItems]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -367,8 +395,17 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     }
     const ops = timelineSaveItemOperations(next, v2);
     if (!ops.length) return;
-    await saveEntities(ops, dateChanged ? "日程を移動しました。Ctrl+Zで戻せます。" : undefined);
-    pushUndo({ label: "計画変更", run: async () => { await saveEntities(timelineSaveItemOperations(item, v2)); } });
+    setOptimisticTimelineItems((current) => ({ ...current, [next.id]: next }));
+    try {
+      await saveEntities(ops, dateChanged ? "日程を移動しました。Ctrl+Zで戻せます。" : undefined);
+      pushUndo({ label: "計画変更", run: async () => { await saveEntities(timelineSaveItemOperations(item, v2)); } });
+    } catch (error) {
+      setOptimisticTimelineItems((current) => {
+        const { [next.id]: _removed, ...rest } = current;
+        return rest;
+      });
+      throw error;
+    }
   }
 
   function planNodeFor(item: Item) {

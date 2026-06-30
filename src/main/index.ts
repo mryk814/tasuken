@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, protocol, shell, Tray } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,10 +14,23 @@ const userDataArgument = process.argv.find((argument) => argument.startsWith("--
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
 const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json");
 const APP_NAME = "Tasken";
+const ATTACHMENT_PROTOCOL = "tasken-attachment";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
 type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: ATTACHMENT_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
   try {
@@ -32,6 +45,47 @@ function openAllowedExternalUrl(rawUrl: string): boolean {
 
 function getAppIconPath(): string {
   return path.join(__dirname, "../../resources/icon.ico");
+}
+
+function markdownAttachmentDirectory(): string {
+  return path.join(app.getPath("userData"), "attachments", "markdown-images");
+}
+
+function attachmentMimeType(fileName: string): string {
+  const extension = path.extname(fileName).toLowerCase();
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".bmp") return "image/bmp";
+  return "image/png";
+}
+
+function registerAttachmentProtocol(): void {
+  protocol.handle(ATTACHMENT_PROTOCOL, (request) => {
+    try {
+      const parsed = new URL(request.url);
+      if (parsed.hostname !== "local") return new Response("Not found", { status: 404 });
+      const fileName = decodeURIComponent(parsed.pathname.split("/").filter(Boolean)[0] || "");
+      if (!/^[a-f0-9-]+\.(png|jpg|gif|webp|bmp)$/i.test(fileName)) {
+        return new Response("Not found", { status: 404 });
+      }
+      const root = path.resolve(markdownAttachmentDirectory());
+      const filePath = path.resolve(root, fileName);
+      if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath)) {
+        return new Response("Not found", { status: 404 });
+      }
+      const bytes = fs.readFileSync(filePath);
+      return new Response(new Uint8Array(bytes), {
+        status: 200,
+        headers: {
+          "content-type": attachmentMimeType(fileName),
+          "cache-control": "no-store",
+        },
+      });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  });
 }
 
 function migrateLegacyUserDataIfNeeded(): void {
@@ -260,8 +314,12 @@ interface SmokeCreatedResult {
   markdownSaved: boolean;
   markdownPreviewRendered: boolean;
   markdownFrontmatterRendered: boolean;
+  markdownMathRendered: boolean;
+  markdownImageRendered: boolean;
+  notesPanePreviewRendered: boolean;
+  notesPaneMathRendered: boolean;
+  notesLiveEditSaved: boolean;
   rawCopyNotified: boolean;
-  renderedCopyNotified: boolean;
   themeMode: string;
   clipboardWritten: boolean;
 }
@@ -271,6 +329,7 @@ interface SmokeReloadResult {
   markdownPersisted: boolean;
   markdownThemeLinked: boolean;
   markdownFrontmatterPersisted: boolean;
+  markdownLiveEditPersisted: boolean;
   themeMode: string;
 }
 
@@ -288,7 +347,9 @@ app.commandLine.appendSwitch("in-process-gpu");
 if (requestedUserDataPath) {
   app.setPath("userData", path.resolve(requestedUserDataPath));
 } else if (isSmokeTest) {
-  app.setPath("userData", path.join(app.getPath("temp"), "research-desk-smoke-test"));
+  const smokeUserDataPath = path.join(app.getPath("temp"), "research-desk-smoke-test");
+  fs.rmSync(smokeUserDataPath, { recursive: true, force: true });
+  app.setPath("userData", smokeUserDataPath);
   recordSmoke("main-started");
   setTimeout(() => {
     recordSmoke("timeout");
@@ -307,6 +368,13 @@ type: report
 ---
 # Markdown Preview
 - 箇条書き
+本文中の式 $a^2 + b^2 = c^2$ を確認します。
+
+$$
+E = mc^2
+$$
+
+![Smoke Image](__SMOKE_IMAGE_URL__)
 
 \`\`\`
 code block
@@ -348,6 +416,11 @@ code block
       await delay(120);
 
       await window.api.entities.save("theme", { id: ${JSON.stringify(smokeThemeId)}, name: "Smoke Theme", code: "SMOKE", status: "active" });
+      const smokeImage = await window.api.attachments.saveMarkdownImage({
+        fileName: "smoke.png",
+        mimeType: "image/png",
+        dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+      });
       (await waitForButton("Markdown文書")).click();
       await delay(80);
       const markdownForm = document.querySelector(".drawer-form");
@@ -355,27 +428,80 @@ code block
       const markdownBody = markdownForm?.querySelector('textarea[name="body_markdown"]');
       const markdownTheme = markdownForm?.querySelector('input[name="theme_id"]');
       if (!markdownForm || !markdownTitle || !markdownBody || !markdownTheme) throw new Error("Markdown入力フォームが見つかりません");
+      const clickMarkdownFormButton = (label) => {
+        const button = [...markdownForm.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label);
+        if (!button) throw new Error(label + " ボタンがMarkdown入力フォーム内に見つかりません。");
+        button.click();
+      };
       setInputValue(markdownTitle, ${JSON.stringify(markdownTitle)});
       markdownTheme.value = ${JSON.stringify(smokeThemeId)};
       markdownTheme.dispatchEvent(new Event("input", { bubbles: true }));
-      setInputValue(markdownBody, ${JSON.stringify(markdownBody)});
-      (await waitForButton("Preview")).click();
+      setInputValue(markdownBody, ${JSON.stringify(markdownBody)}.replace("__SMOKE_IMAGE_URL__", smokeImage.url));
+      clickMarkdownFormButton("Preview");
       await delay(80);
-      const preview = document.querySelector(".markdown-preview");
+      const preview = markdownForm.querySelector(".markdown-preview");
       const markdownPreviewRendered = Boolean(
         preview?.querySelector("h1")?.textContent?.includes("Markdown Preview")
         && preview?.querySelector("li")?.textContent?.includes("箇条書き")
-        && preview?.querySelector("code")?.textContent?.includes("code block")
+        && [...(preview?.querySelectorAll("code") || [])].some((code) => code.textContent?.includes("code block"))
       );
       const markdownFrontmatterRendered = Boolean(preview?.querySelector(".md-frontmatter")?.textContent?.includes("type: report"));
-      (await waitForButton("Copy Raw")).click();
-      await delay(60);
-      const rawCopyNotified = document.body.innerText.includes("Rawをコピーしました。");
-      (await waitForButton("Copy Rendered text")).click();
-      await delay(60);
-      const renderedCopyNotified = document.body.innerText.includes("Previewをコピーしました。");
+      const markdownMathRendered = Boolean(preview?.querySelector(".md-math-inline")?.textContent?.includes("a^2") && preview?.querySelector(".md-math-block")?.textContent?.includes("E = mc^2"));
+      const smokePreviewImage = preview?.querySelector('.md-image img[alt="Smoke Image"]');
+      if (smokePreviewImage && !smokePreviewImage.complete) {
+        await new Promise((resolve) => {
+          smokePreviewImage.addEventListener("load", resolve, { once: true });
+          smokePreviewImage.addEventListener("error", resolve, { once: true });
+          setTimeout(resolve, 700);
+        });
+      }
+      const markdownImageRendered = Boolean(smokePreviewImage?.getAttribute("src")?.startsWith("tasken-attachment://") && smokePreviewImage?.naturalWidth > 0);
+      clickMarkdownFormButton("本文をコピー");
+      await delay(140);
+      const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
       markdownForm.requestSubmit();
       await delay(160);
+      const notesPane = document.querySelector(".note-preview-panel");
+      const notesPanePreviewRendered = Boolean(
+        notesPane?.querySelector("h2")?.textContent?.includes(${JSON.stringify(markdownTitle)})
+        && notesPane?.querySelector(".note-live-editor h1")?.textContent?.includes("Markdown Preview")
+        && notesPane?.querySelector(".word-export-panel")
+      );
+      const notesPaneMathRendered = Boolean(
+        notesPane?.querySelector(".note-editor-math-inline")
+        && notesPane?.querySelector(".note-editor-math-block")
+      );
+      const liveEditable = notesPane?.querySelector(".note-mdx-content[contenteditable='true']");
+      if (!liveEditable) throw new Error("Live Preview編集面が見つかりません");
+      liveEditable.focus();
+      let liveTextNode = null;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const walker = document.createTreeWalker(liveEditable, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+          if (node.nodeValue?.includes("本文中")) {
+            liveTextNode = node;
+            break;
+          }
+          node = walker.nextNode();
+        }
+        if (liveTextNode) break;
+        await delay(100);
+      }
+      if (!liveTextNode) throw new Error("Live Preview編集対象の本文が見つかりません。表示: " + liveEditable.textContent?.slice(0, 500));
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.setStart(liveTextNode, liveTextNode.nodeValue?.length || 0);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.execCommand("insertText", false, " Live edit smoke");
+      await delay(80);
+      const notesLiveEditRendered = Boolean(notesPane?.querySelector(".note-live-editor")?.textContent?.includes("Live edit smoke"));
+      const saveDraftButton = [...(notesPane?.querySelectorAll(".note-preview-actions button") || [])].find((button) => button.textContent.trim() === "保存");
+      saveDraftButton?.click();
+      await delay(180);
+      const notesLiveEditSaved = notesLiveEditRendered && document.body.innerText.includes("保存しました。");
       await window.api.preferences.set("themeMode", "dark");
       const themeMode = await window.api.preferences.get("themeMode");
       const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
@@ -387,8 +513,12 @@ code block
         markdownSaved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)})),
         markdownPreviewRendered,
         markdownFrontmatterRendered,
+        markdownMathRendered,
+        markdownImageRendered,
+        notesPanePreviewRendered,
+        notesPaneMathRendered,
+        notesLiveEditSaved,
         rawCopyNotified,
-        renderedCopyNotified,
         themeMode,
         clipboardWritten,
       };
@@ -408,6 +538,7 @@ code block
           markdownPersisted: Boolean(markdown?.body_markdown?.includes("Markdown Preview")),
           markdownThemeLinked: markdown?.theme_id === ${JSON.stringify(smokeThemeId)},
           markdownFrontmatterPersisted: Boolean(markdown?.body_markdown?.includes("type: report")),
+          markdownLiveEditPersisted: Boolean(markdown?.body_markdown?.includes("Live edit smoke")),
           themeMode,
         });
         })
@@ -418,6 +549,7 @@ code block
         markdownPersistedAfterReload: afterReload.markdownPersisted,
         markdownThemeLinkedAfterReload: afterReload.markdownThemeLinked,
         markdownFrontmatterPersistedAfterReload: afterReload.markdownFrontmatterPersisted,
+        markdownLiveEditPersistedAfterReload: afterReload.markdownLiveEditPersisted,
         themeModeAfterReload: afterReload.themeMode,
       };
       console.log(JSON.stringify(result));
@@ -427,12 +559,17 @@ code block
         && result.markdownPersistedAfterReload
         && result.markdownThemeLinkedAfterReload
         && result.markdownFrontmatterPersistedAfterReload
+        && result.markdownLiveEditPersistedAfterReload
         && result.saved
         && result.markdownSaved
         && result.markdownPreviewRendered
         && result.markdownFrontmatterRendered
+        && result.markdownMathRendered
+        && result.markdownImageRendered
+        && result.notesPanePreviewRendered
+        && result.notesPaneMathRendered
+        && result.notesLiveEditSaved
         && result.rawCopyNotified
-        && result.renderedCopyNotified
         && result.rootReady
         && result.clipboardWritten
         && result.themeMode === "dark"
@@ -512,8 +649,9 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   migrateLegacyUserDataIfNeeded();
+  registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
-  registerIpc(workspaceRepository, new WorkspaceService(workspaceRepository));
+  registerIpc(workspaceRepository, new WorkspaceService(workspaceRepository, app.getPath("userData")));
   registerCaptureIpc();
   recordSmoke("app-ready");
   createWindow();
