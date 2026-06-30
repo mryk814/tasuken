@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  IconArrowDown,
+  IconArrowUp,
   IconBrandGoogle,
   IconBrandOpenai,
   IconBrandWindows,
@@ -11,8 +13,6 @@ import {
   IconFoldUp,
   IconLinkPlus,
   IconPencil,
-  IconSortAscending,
-  IconSortDescending,
   IconSparkles,
   IconStar,
   IconStarFilled,
@@ -25,13 +25,22 @@ import type { PageProps, Theme } from "../types";
 import type { Resource } from "../domain-model/types";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
 import { CHAT_SERVICE_LABELS, type ChatServiceType, isKnownChatService, resolveChatService } from "../lib/chatServices";
+import {
+  buildChatGroupKnowledgePrompt,
+  chatResourceDate,
+  clearChatGroupResources,
+  groupChatResources,
+  renameChatGroupResources,
+  reorderChatGroupResources,
+  UNGROUPED_CHAT_GROUP,
+  type ChatRefGroup,
+  type ChatRefSortOrder,
+} from "../lib/chatRefs";
 import { themeColor } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
+import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
 import { EmptyState, PageHeader } from "../components/common";
 
-const UNGROUPED = "__ungrouped__";
-
-type SortOrder = "newest" | "oldest";
 type StatusFilter = "all" | "inbox" | "adopted";
 
 function isChatReference(r: Resource): boolean {
@@ -40,10 +49,6 @@ function isChatReference(r: Resource): boolean {
 
 function isAdopted(r: Resource): boolean {
   return str(r.reference_status) === "adopted";
-}
-
-function resourceDate(r: Resource): string {
-  return str(r.captured_at || (r as unknown as Record<string, unknown>).created_at || (r as unknown as Record<string, unknown>).updated_at);
 }
 
 function themeTitle(themes: Theme[], id?: string | null): string {
@@ -56,29 +61,6 @@ function ChatServiceIcon({ service }: { service: ChatServiceType }) {
   if (service === "gemini") return <IconBrandGoogle size={16} />;
   if (service === "copilot") return <IconBrandWindows size={16} />;
   return <IconMessageCircleQuestion size={16} />;
-}
-
-function sortResources(resources: Resource[], order: SortOrder): Resource[] {
-  const sorted = [...resources].sort((a, b) => resourceDate(a).localeCompare(resourceDate(b)));
-  return order === "newest" ? sorted.reverse() : sorted;
-}
-
-function groupResources(resources: Resource[], order: SortOrder): { key: string; label: string; resources: Resource[] }[] {
-  const map = new Map<string, Resource[]>();
-  for (const r of resources) {
-    const key = str(r.chat_group).trim() || UNGROUPED;
-    const list = map.get(key);
-    if (list) list.push(r);
-    else map.set(key, [r]);
-  }
-  const groups: { key: string; label: string; resources: Resource[] }[] = [];
-  for (const [key, list] of map) {
-    if (key !== UNGROUPED) groups.push({ key, label: key, resources: sortResources(list, order) });
-  }
-  groups.sort((a, b) => a.label.localeCompare(b.label, "ja-JP"));
-  const ungrouped = map.get(UNGROUPED);
-  if (ungrouped) groups.push({ key: UNGROUPED, label: "未分類", resources: sortResources(ungrouped, order) });
-  return groups;
 }
 
 export function ChatRefsPage({
@@ -95,7 +77,7 @@ export function ChatRefsPage({
   const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || themes[0]?.id || "");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [sortOrder, setSortOrder] = useState<ChatRefSortOrder>("manual");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -120,9 +102,10 @@ export function ChatRefsPage({
     return haystack.includes(query.toLowerCase());
   });
 
-  const groups = useMemo(() => groupResources(visibleResources, sortOrder), [visibleResources, sortOrder]);
+  const groups = useMemo(() => groupChatResources(visibleResources, sortOrder), [visibleResources, sortOrder]);
   const allGroupKeys = useMemo(() => groups.map((g) => g.key), [groups]);
   const allCollapsed = allGroupKeys.length > 0 && allGroupKeys.every((key) => collapsed.has(key));
+  const currentThemeName = themeTitle(themes, selectedThemeId);
 
   function toggleGroup(key: string) {
     setCollapsed((prev) => {
@@ -157,6 +140,68 @@ export function ChatRefsPage({
     workspaceApi.copyText(groupResources.map((r) => r.url || "").join("\n")).then(() => setToast(`${groupResources.length}件のURLをコピーしました。`));
   }
 
+  function saveGroupResources(resources: Resource[], message: string) {
+    void saveEntities(resources.flatMap((resource) => buildSaveResourceOperations(resource)), message);
+  }
+
+  function renameGroup(group: ChatRefGroup) {
+    if (group.key === UNGROUPED_CHAT_GROUP) {
+      setToast("未分類グループは名前を変更できません。");
+      return;
+    }
+    const nextName = window.prompt("新しいグループ名", group.label)?.trim();
+    if (!nextName || nextName === group.label) return;
+    const targetExists = groups.some((candidate) => candidate.key !== group.key && candidate.key === nextName);
+    if (targetExists && !window.confirm(`「${nextName}」に統合します。リンクは削除されません。続けますか？`)) return;
+    saveGroupResources(
+      renameChatGroupResources(group.resources, nextName),
+      targetExists ? "グループを統合しました。" : "グループ名を変更しました。",
+    );
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.delete(group.key);
+      return next;
+    });
+  }
+
+  function clearGroup(group: ChatRefGroup) {
+    if (group.key === UNGROUPED_CHAT_GROUP) {
+      setToast("未分類グループは解除できません。");
+      return;
+    }
+    if (!window.confirm(`「${group.label}」のグループだけ解除し、${group.resources.length}件のリンクは未分類へ移します。続けますか？`)) return;
+    saveGroupResources(
+      clearChatGroupResources(group.resources),
+      "グループを解除し、リンクを未分類へ移しました。",
+    );
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.delete(group.key);
+      return next;
+    });
+  }
+
+  function copyGroupKnowledgePrompt(group: ChatRefGroup) {
+    const candidates = domain.notes
+      .filter((note) => isPromptNote(note) && promptPurpose(note) === "knowledge")
+      .sort((a, b) => Number(isDefaultPrompt(b)) - Number(isDefaultPrompt(a)));
+    const scoped = candidates.find((note) => str((note as unknown as Record<string, unknown>).theme_id || note.project_id) === selectedThemeId);
+    const basePrompt = str((scoped || candidates[0])?.body_markdown);
+    const prompt = buildChatGroupKnowledgePrompt({
+      groupLabel: group.label,
+      themeName: currentThemeName,
+      resources: group.resources,
+      basePrompt,
+    });
+    workspaceApi.copyText(prompt).then(() => setToast(`${group.label}のKnowledge化プロンプトをコピーしました。`));
+  }
+
+  function moveChatLink(group: ChatRefGroup, resource: Resource, direction: "up" | "down") {
+    const reordered = reorderChatGroupResources(group.resources, resource.id, direction);
+    if (!reordered.length) return;
+    saveGroupResources(reordered, "並び替えを保存しました。");
+  }
+
   function copyList() {
     const header = "タイトル\tグループ\tTheme\t採用\tURL\t要約";
     const rows = visibleResources.map((r) => [
@@ -175,6 +220,12 @@ export function ChatRefsPage({
   }
 
   function addChatLink(chatGroup = "") {
+    const nextSortOrder = Math.max(
+      0,
+      ...scopedResources
+        .filter((resource) => str(resource.chat_group).trim() === chatGroup.trim())
+        .map((resource) => Number(resource.sort_order) || 0),
+    ) + 10;
     openDrawer({
       type: "resource",
       mode: "edit",
@@ -184,6 +235,7 @@ export function ChatRefsPage({
         chat_group: chatGroup,
         importance: "normal",
         captured_at: new Date().toISOString().slice(0, 10),
+        sort_order: nextSortOrder,
       },
     });
   }
@@ -211,14 +263,11 @@ export function ChatRefsPage({
           <option value="adopted">採用のみ</option>
           <option value="inbox">未整理のみ</option>
         </select>
-        <button
-          className="secondary-button compact icon-only"
-          onClick={() => setSortOrder((prev) => prev === "newest" ? "oldest" : "newest")}
-          aria-label={sortOrder === "newest" ? "古い順にする" : "新しい順にする"}
-          title={sortOrder === "newest" ? "新しい順" : "古い順"}
-        >
-          {sortOrder === "newest" ? <IconSortDescending size={16} /> : <IconSortAscending size={16} />}
-        </button>
+        <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as ChatRefSortOrder)} aria-label="並び順">
+          <option value="manual">任意順</option>
+          <option value="newest">新しい順</option>
+          <option value="oldest">古い順</option>
+        </select>
         {groups.length > 1 && (
           <button
             className="secondary-button compact icon-only"
@@ -273,7 +322,7 @@ export function ChatRefsPage({
                   </button>
                   <button
                     className="chat-group-add"
-                    onClick={() => addChatLink(group.key === UNGROUPED ? "" : group.key)}
+                    onClick={() => addChatLink(group.key === UNGROUPED_CHAT_GROUP ? "" : group.key)}
                     aria-label={`${group.label}にチャットリンクを追加`}
                     title="このグループに追加"
                   >
@@ -287,11 +336,61 @@ export function ChatRefsPage({
                   >
                     <IconCopy size={14} />
                   </button>
+                  <button
+                    className="chat-group-knowledge"
+                    onClick={() => copyGroupKnowledgePrompt(group)}
+                    aria-label={`${group.label}をKnowledge化するプロンプトをコピー`}
+                    title="Knowledge化プロンプト"
+                  >
+                    <IconSparkles size={14} />
+                  </button>
+                  {group.key !== UNGROUPED_CHAT_GROUP && (
+                    <>
+                      <button
+                        className="chat-group-edit"
+                        onClick={() => renameGroup(group)}
+                        aria-label={`${group.label}のグループ名を変更`}
+                        title="グループ名を変更"
+                      >
+                        <IconPencil size={14} />
+                      </button>
+                      <button
+                        className="chat-group-clear"
+                        onClick={() => clearGroup(group)}
+                        aria-label={`${group.label}のグループを解除`}
+                        title="グループ解除"
+                      >
+                        <IconTrash size={14} />
+                      </button>
+                    </>
+                  )}
                 </div>
-                {!collapsed.has(group.key) && group.resources.map((r) => {
+                {!collapsed.has(group.key) && group.resources.map((r, index) => {
                   const service = resolveChatService(r);
                   return (
                     <div className="chat-link-row" key={r.id}>
+                      {sortOrder === "manual" && (
+                        <span className="chat-row-order-actions">
+                          <button
+                            className="row-action-button"
+                            onClick={() => moveChatLink(group, r, "up")}
+                            disabled={index === 0}
+                            aria-label={`${r.title || "チャットリンク"}を上へ移動`}
+                            title="上へ"
+                          >
+                            <IconArrowUp size={14} />
+                          </button>
+                          <button
+                            className="row-action-button"
+                            onClick={() => moveChatLink(group, r, "down")}
+                            disabled={index === group.resources.length - 1}
+                            aria-label={`${r.title || "チャットリンク"}を下へ移動`}
+                            title="下へ"
+                          >
+                            <IconArrowDown size={14} />
+                          </button>
+                        </span>
+                      )}
                       <button
                         className={`chat-star ${isAdopted(r) ? "is-adopted" : ""}`}
                         onClick={() => toggleAdopted(r)}
@@ -324,7 +423,7 @@ export function ChatRefsPage({
                       >
                         <IconTrash size={15} />
                       </button>
-                      <span className="chat-link-date">{formatDate(resourceDate(r))}</span>
+                      <span className="chat-link-date">{formatDate(chatResourceDate(r))}</span>
                     </div>
                   );
                 })}
