@@ -653,6 +653,7 @@ export function WorkspaceApp() {
       const body = formText(values, "body_markdown");
       if (!title || !body) { setToast("タイトルと本文を入力してください。"); return false; }
       const noteType = formText(values, "note_type", "memo");
+      const hasSourceUrlField = Boolean(named("source_url"));
       const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
         report_type: formText(values, "report_type", "weekly"),
         ...(noteType === "report" ? {
@@ -670,7 +671,7 @@ export function WorkspaceApp() {
         content_format: formText(values, "content_format") || (noteType === "artifact" || noteType === "report" || noteType === "report_prompt" ? "markdown" : null),
         theme_id: formText(values, "theme_id") || null,
         item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
-        source_url: noteType === "report" || noteType === "report_prompt" ? "" : formText(values, "source_url"),
+        source_url: noteType === "report" || noteType === "report_prompt" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
         properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), ...reportProperties },
         comments: (base.comments as Note["comments"]) || [],

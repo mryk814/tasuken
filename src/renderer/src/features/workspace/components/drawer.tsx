@@ -544,7 +544,6 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           <option value="plain">Plain text</option>
         </select>
       </Field>
-      {!isReport && !isReportPrompt && <Field label="参照URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>}
       <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
     </>
   );
