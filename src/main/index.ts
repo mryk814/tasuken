@@ -199,10 +199,7 @@ function setupTray(): void {
   tray = new Tray(createTrayIcon());
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => showCaptureWindow("inbox") },
-    { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => showCaptureWindow("today-task") },
-    { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+L", click: () => showCaptureWindow("done-task") },
-    { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => showCaptureWindow("micro-memo") },
+    ...quickCaptureMenuItems(),
     { type: "separator" },
     { label: `${APP_NAME} を開く`, click: () => {
       const windows = BrowserWindow.getAllWindows().filter((w) => w !== captureWindow);
@@ -215,6 +212,37 @@ function setupTray(): void {
   tray.setToolTip(APP_NAME);
   tray.setContextMenu(contextMenu);
   tray.on("click", () => showCaptureWindow("inbox"));
+}
+
+function quickCaptureMenuItems(): Electron.MenuItemConstructorOptions[] {
+  return [
+    { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => showCaptureWindow("inbox") },
+    { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => showCaptureWindow("today-task") },
+    { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+L", click: () => showCaptureWindow("done-task") },
+    { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => showCaptureWindow("micro-memo") },
+  ];
+}
+
+function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenuParams): void {
+  const template: Electron.MenuItemConstructorOptions[] = [...quickCaptureMenuItems()];
+  if (params.isEditable) {
+    template.push(
+      { type: "separator" },
+      { role: "undo" },
+      { role: "redo" },
+      { type: "separator" },
+      { role: "cut" },
+      { role: "copy" },
+      { role: "paste" },
+      { role: "selectAll" },
+    );
+  } else if (params.selectionText) {
+    template.push(
+      { type: "separator" },
+      { role: "copy" },
+    );
+  }
+  Menu.buildFromTemplate(template).popup({ window });
 }
 
 function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
@@ -623,6 +651,9 @@ function createWindow(): void {
   window.webContents.on("render-process-gone", (_event, details) => {
     recordSmoke("renderer-gone", { ...details });
     if (isSmokeTest) app.exit(1);
+  });
+  window.webContents.on("context-menu", (_event, params) => {
+    showMainContextMenu(window, params);
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
