@@ -197,7 +197,8 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
       markdown={markdown}
       onChange={(value) => {
         lastInternalMarkdown.current = value;
-        if (mountedRef.current) onChange(value);
+        if (!mountedRef.current && value === markdown) return;
+        onChange(value);
       }}
       onError={({ error }) => {
         setEditorFailed(true);
