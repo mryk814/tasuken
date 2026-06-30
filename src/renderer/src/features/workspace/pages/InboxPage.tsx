@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconRefresh, IconTrash } from "@tabler/icons-react";
+import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconPencil, IconRefresh, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
@@ -433,9 +433,16 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
                       <textarea value={draft.description} onChange={(event) => patchDraft(row.entry.id, { description: event.target.value })} />
                     </label>
                     <div className="form-actions">
-                      <button className="secondary-button compact" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: row.entry as unknown as Record<string, unknown> })}>編集</button>
                       <button
-                        className="danger-button compact icon-only"
+                        className="row-action-button"
+                        onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: row.entry as unknown as Record<string, unknown> })}
+                        aria-label={`${draft.title || "記録"}を編集`}
+                        title="編集"
+                      >
+                        <IconPencil size={15} />
+                      </button>
+                      <button
+                        className="row-action-button danger"
                         onClick={() => void deleteEntry(row)}
                         aria-label={`${draft.title || "記録"}を削除`}
                         title="削除"

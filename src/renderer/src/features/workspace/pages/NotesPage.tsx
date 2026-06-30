@@ -24,6 +24,7 @@ import {
   toolbarPlugin,
   UndoRedo,
 } from "@mdxeditor/editor";
+import { IconExternalLink, IconSparkles } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { noteWordExportSignature } from "../../../../../shared/wordExport";
@@ -440,7 +441,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                 </button>
                 {record.recordType === "note" && (
                   <button
-                    className="secondary-button compact note-row-open"
+                    className="row-action-button note-row-open"
                     onClick={() => openDrawer({
                       type: "knowledge_node",
                       mode: "edit",
@@ -455,11 +456,24 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                         status: "active",
                       },
                     })}
+                    aria-label={`${str(record.title) || "メモ"}をKnowledge化`}
+                    title="Knowledge化"
                   >
-                    Knowledge化
+                    <IconSparkles size={15} />
                   </button>
                 )}
-                {url && <a className="secondary-button compact note-row-open" href={url} target="_blank" rel="noreferrer">開く</a>}
+                {url && (
+                  <a
+                    className="row-action-button note-row-open"
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`${str(record.title) || "リンク"}を開く`}
+                    title="開く"
+                  >
+                    <IconExternalLink size={15} />
+                  </a>
+                )}
               </div>
             );
           })}

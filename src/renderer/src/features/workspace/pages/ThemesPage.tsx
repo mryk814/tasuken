@@ -1,3 +1,5 @@
+import { IconPencil, IconTrash } from "@tabler/icons-react";
+
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { PageHeader } from "../components/common";
@@ -26,12 +28,23 @@ export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveT
             >
               <div className="theme-card-top">
                 <span className="theme-code">{theme.code || "識別子なし"}</span>
-                <div className="inline-actions" style={{ gap: "var(--space-xs)" }}>
-                  <button className="secondary-button compact" onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}>編集</button>
+                <div className="inline-actions">
                   <button
-                    className="danger-button compact"
+                    className="row-action-button"
+                    onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}
+                    aria-label={`${theme.name}を編集`}
+                    title="編集"
+                  >
+                    <IconPencil size={15} />
+                  </button>
+                  <button
+                    className="row-action-button danger"
                     onClick={() => removeEntity("theme", theme)}
-                  >削除</button>
+                    aria-label={`${theme.name}を削除`}
+                    title="削除"
+                  >
+                    <IconTrash size={15} />
+                  </button>
                 </div>
               </div>
               <h2>{theme.name}</h2>

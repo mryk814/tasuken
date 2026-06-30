@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { IconCopy, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconCopy, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps } from "../types";
@@ -57,8 +57,22 @@ export function MicroMemoPage({ domain, saveEntities, removeEntity, setToast, op
             <div>
               <time>{formatDate(memo.captured_at)}</time>
               <div className="inline-actions">
-                <button className="secondary-button compact" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })}>編集</button>
-                <button className="danger-button compact" onClick={() => removeEntity("capture_entry", memo as unknown as Record<string, unknown>)}><IconTrash size={14} />削除</button>
+                <button
+                  className="row-action-button"
+                  onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })}
+                  aria-label="付箋メモを編集"
+                  title="編集"
+                >
+                  <IconPencil size={15} />
+                </button>
+                <button
+                  className="row-action-button danger"
+                  onClick={() => removeEntity("capture_entry", memo as unknown as Record<string, unknown>)}
+                  aria-label="付箋メモを削除"
+                  title="削除"
+                >
+                  <IconTrash size={15} />
+                </button>
               </div>
             </div>
           </article>
