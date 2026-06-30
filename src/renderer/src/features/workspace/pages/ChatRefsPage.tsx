@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import {
   IconBrandGoogle,
   IconBrandOpenai,
@@ -41,6 +41,8 @@ import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
 import { EmptyState, PageHeader } from "../components/common";
 
 type StatusFilter = "all" | "inbox" | "adopted";
+type DragPlacement = "before" | "after";
+type DragTarget = { id: string; placement: DragPlacement } | null;
 
 function isChatReference(r: Resource): boolean {
   return isKnownChatService(r.link_type) || resolveChatService(r) !== "other" || Boolean(r.reference_status);
@@ -79,7 +81,8 @@ export function ChatRefsPage({
   const [sortOrder, setSortOrder] = useState<ChatRefSortOrder>("manual");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
+  const [dragTarget, setDragTarget] = useState<DragTarget>(null);
 
   useEffect(() => {
     if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
@@ -197,7 +200,7 @@ export function ChatRefsPage({
     workspaceApi.copyText(prompt).then(() => setToast(`${group.label}のKnowledge化プロンプトをコピーしました。`));
   }
 
-  function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: "before" | "after") {
+  function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
     const reordered = reorderChatGroupResources(group.resources, draggedId, targetId, placement);
     if (!reordered.length) return;
     saveGroupResources(reordered, "並び替えを保存しました。");
@@ -205,7 +208,13 @@ export function ChatRefsPage({
 
   function clearDragState() {
     setDraggingId(null);
-    setDragOverId(null);
+    setDraggingGroupKey(null);
+    setDragTarget(null);
+  }
+
+  function dragPlacement(event: DragEvent<HTMLElement>): DragPlacement {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return event.clientY > rect.top + rect.height / 2 ? "after" : "before";
   }
 
   function copyList() {
@@ -374,21 +383,25 @@ export function ChatRefsPage({
                 {!collapsed.has(group.key) && group.resources.map((r) => {
                   const service = resolveChatService(r);
                   const canDrag = sortOrder === "manual" && group.resources.length > 1;
+                  const isSameDragGroup = draggingGroupKey === null || draggingGroupKey === group.key;
+                  const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
                   return (
                     <div
-                      className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${dragOverId === r.id && draggingId !== r.id ? "is-drag-over" : ""}`}
+                      className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""}`}
                       key={r.id}
-                      onDragOver={canDrag ? (event) => {
+                      onDragOver={canDrag && isSameDragGroup ? (event) => {
                         event.preventDefault();
                         event.dataTransfer.dropEffect = "move";
-                        setDragOverId(r.id);
+                        const placement = dragPlacement(event);
+                        setDragTarget((current) => (
+                          current?.id === r.id && current.placement === placement ? current : { id: r.id, placement }
+                        ));
                       } : undefined}
-                      onDragLeave={canDrag ? () => setDragOverId((current) => current === r.id ? null : current) : undefined}
-                      onDrop={canDrag ? (event) => {
+                      onDragLeave={canDrag ? () => setDragTarget((current) => current?.id === r.id ? null : current) : undefined}
+                      onDrop={canDrag && isSameDragGroup ? (event) => {
                         event.preventDefault();
                         const draggedId = event.dataTransfer.getData("application/x-tasken-chat-ref") || draggingId;
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        const placement = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+                        const placement = dragPlacement(event);
                         if (draggedId) moveChatLink(group, draggedId, r.id, placement);
                         clearDragState();
                       } : undefined}
@@ -402,7 +415,8 @@ export function ChatRefsPage({
                             event.dataTransfer.effectAllowed = "move";
                             event.dataTransfer.setData("application/x-tasken-chat-ref", r.id);
                             setDraggingId(r.id);
-                            setDragOverId(null);
+                            setDraggingGroupKey(group.key);
+                            setDragTarget(null);
                           }}
                           onDragEnd={clearDragState}
                           aria-label={`${r.title || "チャットリンク"}をドラッグして並び替え`}
