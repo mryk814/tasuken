@@ -35,7 +35,7 @@ export function PromptsPage({ notes, themes, activeTheme, openDrawer, removeEnti
           prompt_purpose: purpose,
           prompt_variables: "themeName, periodStart, periodEnd",
           is_default: false,
-          export_enabled: true,
+          ai_export_enabled: true,
         },
         body_markdown: "",
       },

@@ -38,6 +38,7 @@ import { markdownMathPlugin } from "../components/markdownMathPlugin";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
+type NoteScope = "all" | "memo" | "document" | "resource" | "report" | "prompt" | "learning";
 type MarkdownRichEditorProps = {
   markdown: string;
   onChange: (value: string) => void;
@@ -222,10 +223,26 @@ function noteProperties(record: BaseRecord): Record<string, unknown> {
     : {};
 }
 
+function noteScope(record: Combined): NoteScope {
+  if (record.recordType === "resource") return "resource";
+  const type = str(record.note_type) || "memo";
+  if (type === "artifact") return "document";
+  if (type === "report") return "report";
+  if (type === "prompt" || type === "report_prompt") return "prompt";
+  if (type === "learning" || type === "reflection") return "learning";
+  return "memo";
+}
+
+function canCreateKnowledge(record: Combined): boolean {
+  const scope = noteScope(record);
+  return record.recordType === "note" && (scope === "memo" || scope === "learning");
+}
+
 export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
+  const [scope, setScope] = useState<NoteScope>("all");
   const [draftBody, setDraftBody] = useState("");
   const [draftState, setDraftState] = useState("");
   const [wordExporting, setWordExporting] = useState(false);
@@ -236,10 +253,12 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
     ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
     ...domain.resources.filter((resource) => !isChatReference(resource)).map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
-  const visible = records.filter((record) =>
-    `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`
+  const visible = records.filter((record) => {
+    if (scope !== "all" && noteScope(record) !== scope) return false;
+    return `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`
       .toLowerCase()
-      .includes(query.toLowerCase()));
+      .includes(query.toLowerCase());
+  });
   const markdownNotes = visible.filter((record) => record.recordType === "note" && noteFormat(record) === "markdown" && str(record.body_markdown).trim());
   const selected = markdownNotes.find((record) => record.id === selectedId) || markdownNotes[0] || null;
   const selectedTheme = selected ? themes.find((theme) => theme.id === selected.theme_id) : null;
@@ -328,7 +347,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
       { label: "編集する", onSelect: () => openDrawer({ type: record.recordType, mode: "edit", entity: record }) },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(record.title)) },
     ];
-    if (record.recordType === "note") items.push({ label: "Knowledge化", onSelect: () => knowledgeFromNote(record) });
+    if (canCreateKnowledge(record)) items.push({ label: "学びとしてKnowledge化", onSelect: () => knowledgeFromNote(record) });
     if (url) {
       items.push(
         { label: "リンクを開く", onSelect: () => window.open(url, "_blank", "noreferrer") },
@@ -456,6 +475,21 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
       </PageHeader>
       <div className="filter-bar panel">
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" />
+        <div className="segmented" aria-label="表示する種類">
+          {[
+            ["all", "すべて"],
+            ["memo", "メモ"],
+            ["document", "文書"],
+            ["resource", "リソース"],
+            ["report", "報告書"],
+            ["prompt", "プロンプト"],
+            ["learning", "学び"],
+          ].map(([value, label]) => (
+            <button key={value} className={scope === value ? "is-active" : ""} onClick={() => setScope(value as NoteScope)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <span>{visible.length}件</span>
       </div>
       <div className="notes-workbench">
@@ -482,7 +516,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   </span>
                   <span className="note-row-body">{str(record.body_markdown || record.description || record.url) || "本文なし"}</span>
                 </button>
-                {record.recordType === "note" && (
+                {canCreateKnowledge(record) && (
                   <button
                     className="row-action-button note-row-open"
                     onClick={() => knowledgeFromNote(record)}

@@ -395,6 +395,13 @@ test("export data excludes notes explicitly removed from export target", () => {
   assert.doesNotMatch(markdown, /下書き文書/);
 });
 
+test("document publish flag is separate from AI export inclusion", () => {
+  assert.equal(io.notePublishEnabled({ properties_json: { publish_enabled: true, ai_export_enabled: false } }), true);
+  assert.equal(io.notePublishEnabled({ properties_json: { ai_export_enabled: true } }), false);
+  assert.equal(io.noteAiExportEnabled({ properties_json: { publish_enabled: false, ai_export_enabled: true } }), true);
+  assert.equal(io.noteAiExportEnabled({ properties_json: { publish_enabled: true, ai_export_enabled: false } }), false);
+});
+
 test("post-migration smoke: MCP mergedItems includes plan_nodes", async () => {
   const { ReadOnlyTaskenContext } = await import("../src/main/mcp/readOnlyContext.mjs");
   const ctx = new ReadOnlyTaskenContext("in-memory.sqlite", {
