@@ -181,6 +181,7 @@ export function WorkspaceApp() {
   const drawerFormRef = useRef<HTMLFormElement | null>(null);
   const drawerFormInitialSignature = useRef("");
   const drawerAutosaving = useRef(false);
+  const updateCheckStarted = useRef(false);
 
   async function loadWorkspace() {
     try {
@@ -255,6 +256,25 @@ export function WorkspaceApp() {
       workspaceApi.setPreference("activeGroups", activeGroups).catch(() => {});
     }
   }, [activeGroups, loadState]);
+
+  useEffect(() => {
+    if (loadState !== "success" || updateCheckStarted.current) return undefined;
+    updateCheckStarted.current = true;
+    let canceled = false;
+    const timer = window.setTimeout(() => {
+      workspaceApi.checkForUpdates()
+        .then((result) => {
+          if (!canceled && result.status === "available") {
+            setToast(`Tasken ${result.latestVersion} が公開されています。Settingsで更新できます。`);
+          }
+        })
+        .catch(() => {});
+    }, 1200);
+    return () => {
+      canceled = true;
+      window.clearTimeout(timer);
+    };
+  }, [loadState, setToast]);
 
   useEffect(() => {
     if (!toast) return undefined;

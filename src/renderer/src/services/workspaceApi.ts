@@ -6,6 +6,7 @@ import type {
   Workspace,
 } from "../../../shared/types/workspace";
 import type { MarkdownImageAttachmentRequest } from "../../../shared/attachments";
+import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
 import type { WordExportRequest } from "../../../shared/wordExport";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
@@ -55,6 +56,12 @@ export const workspaceApi = {
   },
   reload() {
     return desktopApi().app.reload();
+  },
+  checkForUpdates(): Promise<AppUpdateCheckResult> {
+    return desktopApi().app.checkForUpdates();
+  },
+  openReleasePage(url?: string) {
+    return desktopApi().app.openReleasePage(url);
   },
   exportSnapshot() {
     return desktopApi().snapshots.exportFile();

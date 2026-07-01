@@ -26,6 +26,8 @@ const api: ResearchDeskApi = {
   },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),
+    checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),
+    openReleasePage: (url) => ipcRenderer.invoke(IPC.appReleasePageOpen, url),
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {
         callback(change as Parameters<typeof callback>[0]);

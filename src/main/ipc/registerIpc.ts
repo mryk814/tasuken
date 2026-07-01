@@ -50,6 +50,8 @@ export function registerIpc(repository: WorkspaceRepository, service: WorkspaceS
   ipcMain.handle(IPC.fileOpen, (_event, filePath) => service.openPath(requireText(filePath, "開くファイル")));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
+  ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());
+  ipcMain.handle(IPC.appReleasePageOpen, (_event, url) => service.openReleasePage(typeof url === "string" ? url : undefined));
   ipcMain.handle(IPC.entityList, (_event, type, includeDeleted) =>
     repository.list(requireEntityType(type), Boolean(includeDeleted)));
   ipcMain.handle(IPC.entityGet, (_event, type, id) =>

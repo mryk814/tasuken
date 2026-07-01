@@ -1,9 +1,10 @@
-import { clipboard, dialog, shell, type WebContents } from "electron";
+import { app, clipboard, dialog, shell, type WebContents } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 import type { MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
+import type { AppUpdateCheckResult } from "../../shared/ipc/contracts";
 import type { Workspace } from "../../shared/types/workspace";
 import type { WordExportRequest, WordExportResult } from "../../shared/wordExport";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
@@ -12,6 +13,8 @@ import { exportMarkdownNoteToWord } from "./wordExportService";
 type SnapshotDecisions = Record<string, string>;
 
 const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
+const RELEASES_API_URL = "https://api.github.com/repos/mryk814/tasuken/releases/latest";
+const RELEASES_PAGE_URL = "https://github.com/mryk814/tasuken/releases/latest";
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -19,6 +22,13 @@ const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/bmp": "bmp",
 };
+
+interface GitHubLatestRelease {
+  tag_name?: string;
+  name?: string;
+  html_url?: string;
+  published_at?: string;
+}
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -48,6 +58,38 @@ function normalizeWordExportRequest(value: unknown): WordExportRequest {
     directory: typeof record.directory === "string" ? record.directory : null,
     chooseDirectory: Boolean(record.chooseDirectory),
   };
+}
+
+function parseVersion(value: string): number[] {
+  const normalized = value.trim().replace(/^v/i, "");
+  const [core] = normalized.split("-");
+  return core
+    .split(".")
+    .map((part) => Number.parseInt(part, 10))
+    .map((part) => (Number.isFinite(part) ? part : 0));
+}
+
+function compareVersions(a: string, b: string): number {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  const length = Math.max(left.length, right.length, 3);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left[index] || 0) - (right[index] || 0);
+    if (diff !== 0) return diff > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+function safeReleaseUrl(value: unknown): string {
+  if (typeof value !== "string") return RELEASES_PAGE_URL;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") return RELEASES_PAGE_URL;
+    if (!parsed.pathname.startsWith("/mryk814/tasuken/releases")) return RELEASES_PAGE_URL;
+    return parsed.toString();
+  } catch {
+    return RELEASES_PAGE_URL;
+  }
 }
 
 function safeAttachmentName(value: string): string {
@@ -116,6 +158,47 @@ export class WorkspaceService {
 
   reload(sender: WebContents): boolean {
     sender.reload();
+    return true;
+  }
+
+  async checkForUpdates(): Promise<AppUpdateCheckResult> {
+    const currentVersion = app.getVersion();
+    try {
+      const response = await fetch(RELEASES_API_URL, {
+        headers: {
+          accept: "application/vnd.github+json",
+          "user-agent": `Tasken/${currentVersion}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`GitHub Releaseを確認できませんでした。HTTP ${response.status}`);
+      }
+
+      const release = await response.json() as GitHubLatestRelease;
+      const latestVersion = String(release.tag_name || "").replace(/^v/i, "");
+      if (!latestVersion) throw new Error("最新バージョンを読み取れませんでした。");
+
+      const releaseUrl = safeReleaseUrl(release.html_url);
+      return {
+        status: compareVersions(latestVersion, currentVersion) > 0 ? "available" : "current",
+        currentVersion,
+        latestVersion,
+        releaseName: release.name,
+        releaseUrl,
+        publishedAt: release.published_at,
+      };
+    } catch (error) {
+      return {
+        status: "error",
+        currentVersion,
+        releaseUrl: RELEASES_PAGE_URL,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async openReleasePage(url?: string): Promise<boolean> {
+    await shell.openExternal(safeReleaseUrl(url));
     return true;
   }
 

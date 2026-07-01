@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import type { AppUpdateCheckResult } from "../../../../../shared/ipc/contracts";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
@@ -15,6 +16,8 @@ interface SettingsPageProps extends PageProps {
 
 export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroups, setActiveGroups, allThemes, setSnapshotPreview, snapshotPreview, setToast }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
 
   async function exportSnapshot() {
     setBusy(true);
@@ -61,6 +64,37 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
     }
   }
 
+  async function checkForUpdates() {
+    setCheckingUpdate(true);
+    try {
+      const result = await workspaceApi.checkForUpdates();
+      setUpdateInfo(result);
+      if (result.status === "available") {
+        setToast(`Tasken ${result.latestVersion} が公開されています。`);
+      } else if (result.status === "current") {
+        setToast("Taskenは最新です。");
+      } else {
+        setToast(`更新を確認できませんでした。${result.error || ""}`);
+      }
+    } catch (error) {
+      setToast(`更新を確認できませんでした。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function openReleasePage() {
+    await workspaceApi.openReleasePage(updateInfo?.releaseUrl);
+  }
+
+  const updateStatusLabel = updateInfo
+    ? updateInfo.status === "available"
+      ? `Tasken ${updateInfo.latestVersion} が公開されています。`
+      : updateInfo.status === "current"
+        ? `最新です。現在のバージョンは ${updateInfo.currentVersion} です。`
+        : `確認できませんでした。${updateInfo.error || ""}`
+    : "未確認";
+
   return (
     <div className="page">
       <PageHeader title="Settings" />
@@ -106,6 +140,33 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           <p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p>
           <button className="secondary-button" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</button>
           <button className="secondary-button" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</button>
+        </section>
+        <section className="panel settings-form update-panel">
+          <h2>更新</h2>
+          <dl className="settings-meta-list">
+            <div>
+              <dt>現在</dt>
+              <dd>{updateInfo?.currentVersion || "確認後に表示"}</dd>
+            </div>
+            <div>
+              <dt>状態</dt>
+              <dd>{updateStatusLabel}</dd>
+            </div>
+            {updateInfo?.publishedAt && (
+              <div>
+                <dt>公開日</dt>
+                <dd>{new Date(updateInfo.publishedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}</dd>
+              </div>
+            )}
+          </dl>
+          <div className="settings-action-row">
+            <button className="secondary-button" disabled={checkingUpdate} onClick={checkForUpdates}>
+              {checkingUpdate ? "確認中" : "更新を確認"}
+            </button>
+            <button className="primary-button" onClick={openReleasePage}>
+              Releaseを開く
+            </button>
+          </div>
         </section>
       </div>
       {snapshotPreview && (

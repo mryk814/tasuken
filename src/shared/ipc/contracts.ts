@@ -21,6 +21,8 @@ export const IPC = {
   fileOpen: "file:open",
   markdownImageSave: "markdown-image:save",
   appReload: "app:reload",
+  appUpdateCheck: "app:update-check",
+  appReleasePageOpen: "app:release-page-open",
   entityList: "entity:list",
   entityGet: "entity:get",
   entitySave: "entity:save",
@@ -37,6 +39,16 @@ export interface WorkspaceChangePayload {
   type?: EntityType;
   entity?: Entity;
   entities?: Array<{ type: EntityType; entity: Entity }>;
+}
+
+export interface AppUpdateCheckResult {
+  status: "available" | "current" | "error";
+  currentVersion: string;
+  latestVersion?: string;
+  releaseName?: string;
+  releaseUrl: string;
+  publishedAt?: string;
+  error?: string;
 }
 
 export interface ResearchDeskApi {
@@ -61,6 +73,8 @@ export interface ResearchDeskApi {
   };
   app: {
     reload(): Promise<boolean>;
+    checkForUpdates(): Promise<AppUpdateCheckResult>;
+    openReleasePage(url?: string): Promise<boolean>;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
   };
   entities: {
