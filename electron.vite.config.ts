@@ -20,6 +20,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/preload/index.ts"),
           capture: resolve(__dirname, "src/preload/capture.ts"),
+          todayMini: resolve(__dirname, "src/preload/todayMini.ts"),
         },
       },
     },
@@ -32,6 +33,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
           capture: resolve(__dirname, "src/renderer/capture.html"),
+          todayMini: resolve(__dirname, "src/renderer/today-mini.html"),
         },
       },
     },

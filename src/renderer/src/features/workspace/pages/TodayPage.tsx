@@ -191,12 +191,17 @@ function TodayRows({
         const isToday = row.date?.slice(0, 10) === today;
         const done = row.status === "done" || row.status === "cancelled" || row.status === "received";
         return (
-          <div className="today-task-row" key={row.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
+          <div
+            className="today-task-row is-clickable-row"
+            key={row.id}
+            style={{ "--chip-color": chipColor } as React.CSSProperties}
+            onClick={() => onOpenDetail(row)}
+          >
             <span className="todo-theme-bar" />
             <button
               className={`todo-check-circle ${done ? "is-done" : ""}`}
               aria-label={`${row.title}を完了`}
-              onClick={() => onToggleComplete(row)}
+              onClick={(event) => { event.stopPropagation(); onToggleComplete(row); }}
               disabled={!canComplete(row)}
             >
               {done && <IconCheck size={13} stroke={2.4} />}
@@ -205,7 +210,7 @@ function TodayRows({
               {row.v2?.type === "task" ? (
                 <button
                   className={`priority-flag-button ${row.priority === "high" ? "is-active" : ""}`}
-                  onClick={() => onTogglePriority(row)}
+                  onClick={(event) => { event.stopPropagation(); onTogglePriority(row); }}
                   aria-label={row.priority === "high" ? "旗を外す" : "旗を付ける"}
                   title={row.priority === "high" ? "旗を外す" : "旗を付ける"}
                 >
@@ -216,14 +221,14 @@ function TodayRows({
               )}
               <button
                 className={`today-plan-button ${isToday ? "is-active" : ""}`}
-                onClick={() => onToggleToday(row)}
+                onClick={(event) => { event.stopPropagation(); onToggleToday(row); }}
                 aria-label={isToday ? "今日の予定から外す" : "今日の予定に追加"}
                 title={isToday ? "今日の予定から外す" : "今日の予定に追加"}
                 disabled={!canToggleToday(row)}
               >
                 {isToday ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
               </button>
-              <button className="today-task-title" onClick={() => onOpenDetail(row)}>
+              <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
                 <strong>{row.title}</strong>
                 <span>
                   {theme?.name || "個人業務"} / {row.kindLabel}
@@ -236,8 +241,8 @@ function TodayRows({
             <span className="today-postpone-actions">
               {hasSchedule(row) && (
                 <>
-                  <button className="postpone-button" onClick={() => onPostpone(row, 1)} title="+1日" aria-label={`${row.title}を1日延期`}>+1d</button>
-                  <button className="postpone-button" onClick={() => onPostpone(row, 7)} title="+7日" aria-label={`${row.title}を7日延期`}>+7d</button>
+                  <button className="postpone-button" onClick={(event) => { event.stopPropagation(); onPostpone(row, 1); }} title="+1日" aria-label={`${row.title}を1日延期`}>+1d</button>
+                  <button className="postpone-button" onClick={(event) => { event.stopPropagation(); onPostpone(row, 7); }} title="+7日" aria-label={`${row.title}を7日延期`}>+7d</button>
                 </>
               )}
             </span>
@@ -266,7 +271,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     ...planNodeRows.filter((row) => row.status !== "done" && row.status !== "cancelled" && row.date && row.date < today),
   ].sort(compareRows);
   const inbox = v2.capture_entries
-    .filter((entry) => entry.state === "untriaged")
+    .filter((entry) => entry.state === "untriaged" && entry.kind !== "micro_memo")
     .sort(compareCapturesNewestFirst)
     .map((entry) => captureToRow(entry));
   const noSchedule = taskRows
@@ -446,6 +451,12 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   return (
     <div className="page today-page">
       <PageHeader title="Today" subtitle="今日見るものを一か所に集めます。">
+        <button
+          className="secondary-button"
+          onClick={() => workspaceApi.showTodayMiniWindow().catch((error) => setToast(`ミニ表示を開けませんでした。${error instanceof Error ? error.message : String(error)}`))}
+        >
+          ミニ表示
+        </button>
         <button className="secondary-button" onClick={handleRefresh} disabled={refreshing}>
           <IconRefresh size={16} /> {refreshing ? "更新中" : "更新"}
         </button>

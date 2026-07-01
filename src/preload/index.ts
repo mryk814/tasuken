@@ -28,12 +28,20 @@ const api: ResearchDeskApi = {
     reload: () => ipcRenderer.invoke(IPC.appReload),
     checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),
     openReleasePage: (url) => ipcRenderer.invoke(IPC.appReleasePageOpen, url),
+    showTodayMiniWindow: () => ipcRenderer.invoke("today-mini:show"),
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {
         callback(change as Parameters<typeof callback>[0]);
       };
       ipcRenderer.on("workspace:changed", handler);
       return () => { ipcRenderer.removeListener("workspace:changed", handler); };
+    },
+    onOpenTaskDetail: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, taskId: string): void => {
+        callback(taskId);
+      };
+      ipcRenderer.on("workspace:open-task-detail", handler);
+      return () => { ipcRenderer.removeListener("workspace:open-task-detail", handler); };
     },
   },
   entities: {

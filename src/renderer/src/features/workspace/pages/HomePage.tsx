@@ -131,7 +131,7 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
         </section>
       </div>
       <section className="panel">
-        <div className="section-heading"><h2>最近やったこと</h2><button className="text-button compact" onClick={() => navigate("todo")}>完了一覧へ</button></div>
+        <div className="section-heading"><h2>最近やったこと</h2><button className="text-button compact" onClick={() => navigate("todo-done")}>完了一覧へ</button></div>
         <SimpleRows
           records={doneTasks as unknown as BaseRecord[]}
           onOpen={(task) => openDrawer({ type: "task", entity: task })}

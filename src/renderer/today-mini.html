@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>今日やること</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --color-bg: #f4eeec;
+        --color-surface: #fffaf8;
+        --color-surface-muted: #f1e7e4;
+        --color-border: #dfd0cc;
+        --color-border-subtle: #eadfdb;
+        --color-text: #2f2927;
+        --color-text-secondary: #6f625f;
+        --color-accent: #8a2f3b;
+        --color-accent-bg: #f3dfe3;
+        --color-success: #3f7d5a;
+        --color-danger: #ce3b3b;
+        --radius-md: 7px;
+        --radius-sm: 5px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --font-base: "Nunito", "Yu Gothic UI", "Meiryo", sans-serif;
+        --font-mono: "Cascadia Mono", "Consolas", monospace;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        min-width: 300px;
+        margin: 0;
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-family: var(--font-base);
+        font-size: 13px;
+      }
+      button {
+        min-height: 30px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface);
+        color: var(--color-text);
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover { background: var(--color-surface-muted); }
+      button:active { transform: translateY(1px); }
+      button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-surface);
+      }
+      h1 {
+        margin: 0;
+        color: var(--color-accent);
+        font-size: 16px;
+        line-height: 1.2;
+      }
+      .count {
+        font-family: var(--font-mono);
+        color: var(--color-text-secondary);
+        font-variant-numeric: tabular-nums;
+      }
+      main {
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--space-2);
+      }
+      .state {
+        display: grid;
+        gap: var(--space-2);
+        align-content: center;
+        min-height: 180px;
+        padding: var(--space-4);
+        border: 1px dashed var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface);
+        color: var(--color-text-secondary);
+        text-align: center;
+      }
+      .state strong { color: var(--color-text); }
+      .state.is-error { border-color: var(--color-danger); color: var(--color-danger); }
+      .task-list {
+        display: grid;
+        gap: var(--space-2);
+      }
+      .task-row {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) 34px;
+        gap: var(--space-2);
+        align-items: center;
+        min-height: 58px;
+        padding: var(--space-2);
+        border: 1px solid var(--color-border-subtle);
+        border-left: 4px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface);
+      }
+      .task-row.is-high { border-left-color: var(--color-accent); background: linear-gradient(90deg, var(--color-accent-bg), var(--color-surface) 42%); }
+      .check-button {
+        width: 26px;
+        height: 26px;
+        min-height: 26px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 2px solid var(--color-border);
+        border-radius: 999px;
+        color: transparent;
+      }
+      .check-button:hover { border-color: var(--color-success); color: var(--color-success); }
+      .task-main {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        text-align: left;
+      }
+      .task-main:hover { background: transparent; color: var(--color-accent); }
+      .task-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 700;
+      }
+      .task-meta {
+        display: flex;
+        gap: var(--space-2);
+        min-width: 0;
+        overflow: hidden;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .task-meta span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .num {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+      .open-button {
+        width: 32px;
+        min-height: 30px;
+        padding: 0;
+        color: var(--color-accent);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div>
+          <h1>今日やること</h1>
+          <div class="count" id="count">--</div>
+        </div>
+        <button id="refresh" type="button">更新</button>
+      </header>
+      <main id="content">
+        <div class="state"><strong>読み込み中</strong><span>今日のタスクを確認しています。</span></div>
+      </main>
+    </div>
+    <script type="module">
+      const content = document.querySelector("#content");
+      const count = document.querySelector("#count");
+      const refreshButton = document.querySelector("#refresh");
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function stateHtml(title, body, tone = "") {
+        return `<div class="state ${tone}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(body)}</span></div>`;
+      }
+
+      function rowHtml(task) {
+        const checklist = task.checklistTotal > 0
+          ? `<span class="num">${task.checklistDone}/${task.checklistTotal}</span>`
+          : "";
+        return `
+          <article class="task-row ${task.priority === "high" ? "is-high" : ""}" data-task-id="${escapeHtml(task.id)}">
+            <button class="check-button" type="button" data-action="toggle" aria-label="${escapeHtml(task.title)}を完了">✓</button>
+            <button class="task-main" type="button" data-action="open" title="Taskenで開く">
+              <span class="task-title">${escapeHtml(task.title)}</span>
+              <span class="task-meta">
+                <span>${escapeHtml(task.themeName)}</span>
+                <span class="num">${escapeHtml(task.scheduleLabel)}</span>
+                ${checklist}
+              </span>
+            </button>
+            <button class="open-button" type="button" data-action="open" aria-label="${escapeHtml(task.title)}をTaskenで開く">›</button>
+          </article>
+        `;
+      }
+
+      async function render(loader = window.todayMiniApi.list) {
+        refreshButton.disabled = true;
+        try {
+          const tasks = await loader();
+          count.textContent = `${tasks.length}件`;
+          content.innerHTML = tasks.length
+            ? `<div class="task-list">${tasks.map(rowHtml).join("")}</div>`
+            : stateHtml("今日のタスクはありません", "本体で追加するとここに表示されます。");
+        } catch (error) {
+          count.textContent = "--";
+          content.innerHTML = stateHtml("読み込めませんでした", error instanceof Error ? error.message : String(error), "is-error");
+        } finally {
+          refreshButton.disabled = false;
+        }
+      }
+
+      refreshButton.addEventListener("click", () => render(window.todayMiniApi.refresh));
+      content.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-action]");
+        const row = button?.closest("[data-task-id]");
+        if (!button || !row) return;
+        const taskId = row.dataset.taskId;
+        if (!taskId) return;
+        if (button.dataset.action === "toggle") {
+          await render(() => window.todayMiniApi.toggle(taskId));
+          return;
+        }
+        await window.todayMiniApi.openTask(taskId);
+      });
+      window.todayMiniApi.onRefresh(() => render(window.todayMiniApi.refresh));
+      render();
+    </script>
+  </body>
+</html>

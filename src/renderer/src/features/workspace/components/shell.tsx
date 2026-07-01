@@ -59,6 +59,7 @@ export function Sidebar({
   const knowledgeCount = domain.knowledge_nodes.length;
   const chatRefCount = domain.resources.filter(isChatReference).length;
   const proposalCount = domain.ai_proposals.filter((proposal) => proposal.status === "pending").length;
+  const activeRoute = route === "todo-done" ? "todo" : route;
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: openTasks,
@@ -74,7 +75,7 @@ export function Sidebar({
   const renderNavButton = ([id, label]: readonly [string, string]) => {
     const count = countByRoute[id] || 0;
     return (
-      <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
+      <button key={id} className={activeRoute === id ? "is-active" : ""} aria-current={activeRoute === id ? "page" : undefined} onClick={() => navigate(id)}>
         <span>{label}</span>
         {count > 0 && <span className="count">{count}</span>}
       </button>
