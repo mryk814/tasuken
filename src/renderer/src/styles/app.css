@@ -308,6 +308,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-preview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-1); border-bottom: 1px solid var(--color-border-subtle); }
 .note-preview-header h2 { margin: 0; font-size: var(--text-xl); line-height: var(--lh-tight); }
 .note-preview-theme { display: block; margin-bottom: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.note-preview-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-1); }
 .note-draft-state { min-height: 14px; margin-top: calc(var(--space-1) * -1); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .note-draft-state.is-dirty { color: var(--color-accent-strong); }
 .note-editor-mode-tabs { flex-shrink: 0; margin-right: var(--space-1); }
@@ -1083,6 +1084,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .notes-workbench { grid-template-columns: 1fr; }
   .notes-list-panel, .note-preview-panel { max-height: none; min-height: auto; }
   .note-preview-header { flex-direction: column; }
+  .note-preview-actions { justify-content: flex-start; }
   .word-export-strip { grid-template-columns: 1fr; }
   .word-export-strip .word-export-title, .word-export-strip .word-export-inline-meta, .word-export-strip .word-export-actions { grid-column: auto; grid-row: auto; }
   .word-export-inline-item strong, .word-export-inline-item time { max-width: 74vw; }
