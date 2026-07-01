@@ -1167,6 +1167,14 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .micro-memo-card > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .micro-memo-card time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 
+.activity-log-strip { display: grid; gap: var(--space-2); }
+.activity-log-strip > span, .chat-thread-meta { display: block; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.4; }
+.theme-related-strip { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.task-learning-section { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.task-learning-list { display: grid; gap: var(--space-2); }
+.task-learning-item { display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); }
+.task-learning-item p { margin: 0; color: var(--color-text); white-space: pre-wrap; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

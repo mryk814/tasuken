@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   IconCalendarCheck,
   IconCalendarPlus,
@@ -258,6 +258,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [activityDate, setActivityDate] = useState(todayIso());
+  const [activityDirectory, setActivityDirectory] = useState("");
+  const [exportingActivity, setExportingActivity] = useState(false);
   const today = todayIso();
   const soon = addDays(today, 14);
   const schedules = schedulesByOwner(v2);
@@ -288,6 +291,14 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const latestUpdates = [...(data.status_updates || [])]
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
     .slice(0, 5);
+
+  useEffect(() => {
+    workspaceApi.getPreference("activityLogDirectory")
+      .then((value) => {
+        if (typeof value === "string") setActivityDirectory(value);
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleToggleComplete(row: TodayRow) {
     if (row.v2?.type === "task") {
@@ -372,7 +383,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   function handleOpenDetail(row: TodayRow) {
     if (row.v2) {
       if (row.v2.type === "task") {
-        openDrawer({ type: "task", mode: "edit", entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown> });
+        openDrawer({ type: "task", entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown> });
         return;
       }
       if (row.v2.type === "waiting") {
@@ -428,6 +439,88 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     ...(waitingSoon.length ? waitingSoon.map((row) => `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`) : ["- なし"]),
   ].join("\n");
 
+  function themeName(projectId?: string | null): string {
+    return themes.find((theme) => theme.id === projectId)?.name || "個人業務";
+  }
+
+  function recordDate(value: unknown): string {
+    return String(value || "").slice(0, 10);
+  }
+
+  function buildActivityLog(date: string): string {
+    const completedTasks = v2.tasks
+      .filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === date)
+      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
+    const receivedWaitings = v2.waitings
+      .filter((waiting) => waiting.state === "received" && recordDate(waiting.updated_at) === date)
+      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
+    const notes = v2.notes
+      .filter((note) => recordDate((note as unknown as Record<string, unknown>).updated_at || (note as unknown as Record<string, unknown>).created_at) === date)
+      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
+    const resources = v2.resources
+      .filter((resource) => recordDate(resource.captured_at || (resource as unknown as Record<string, unknown>).updated_at || (resource as unknown as Record<string, unknown>).created_at) === date)
+      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
+    const knowledge = v2.knowledge_nodes
+      .filter((node) => recordDate((node as unknown as Record<string, unknown>).updated_at || (node as unknown as Record<string, unknown>).created_at) === date)
+      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
+    const updates = (data.status_updates || [])
+      .filter((entry) => recordDate(entry.date || entry.updated_at || entry.created_at) === date)
+      .sort((a, b) => String(a.summary).localeCompare(String(b.summary), "ja"));
+    const captures = v2.capture_entries
+      .filter((entry) => recordDate(entry.captured_at) === date)
+      .sort(compareCapturesNewestFirst);
+    return [
+      `# Activity Log ${date}`,
+      "",
+      "## 完了したタスク",
+      ...(completedTasks.length ? completedTasks.map((task) => `- [x] ${themeName(task.project_id)} / ${task.title}`) : ["- なし"]),
+      "",
+      "## 受け取ったWaiting",
+      ...(receivedWaitings.length ? receivedWaitings.map((waiting) => `- ${themeName(waiting.project_id)} / ${waiting.title} / ${waiting.waiting_for}`) : ["- なし"]),
+      "",
+      "## 作成・更新したNotes",
+      ...(notes.length ? notes.map((note) => `- ${themeName(note.project_id)} / ${note.title}`) : ["- なし"]),
+      "",
+      "## 追加・更新したリンク/資料",
+      ...(resources.length ? resources.map((resource) => `- ${themeName(resource.project_id)} / ${resource.title}${resource.url ? ` (${resource.url})` : ""}`) : ["- なし"]),
+      "",
+      "## Knowledge",
+      ...(knowledge.length ? knowledge.map((node) => `- ${themeName(node.project_id)} / ${node.node_type}: ${node.title}`) : ["- なし"]),
+      "",
+      "## 現在地更新",
+      ...(updates.length ? updates.map((entry) => `- ${themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.summary || entry.next_actions || entry.risks}`) : ["- なし"]),
+      "",
+      "## Capture / やったこと記録",
+      ...(captures.length ? captures.map((entry) => `- ${entry.title || entry.text}`) : ["- なし"]),
+    ].join("\n");
+  }
+
+  async function exportActivityLog(chooseDirectory: boolean) {
+    setExportingActivity(true);
+    try {
+      const result = await workspaceApi.exportMarkdownFile({
+        title: `Tasken Activity Log ${activityDate}`,
+        fileName: `tasken-activity-${activityDate}.md`,
+        content: buildActivityLog(activityDate),
+        directory: activityDirectory || null,
+        chooseDirectory,
+      });
+      if (result.canceled) {
+        setToast("Activity Log出力をキャンセルしました。");
+        return;
+      }
+      if (result.directory) {
+        setActivityDirectory(result.directory);
+        await workspaceApi.setPreference("activityLogDirectory", result.directory);
+      }
+      setToast(`Activity Logを出力しました。${result.filePath || ""}`);
+    } catch (error) {
+      setToast(`Activity Logを出力できませんでした。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setExportingActivity(false);
+    }
+  }
+
   const rowHandlers = {
     onToggleComplete: handleToggleComplete,
     onTogglePriority: handleTogglePriority,
@@ -463,8 +556,23 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         <button className="secondary-button" onClick={() => workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。"))}>
           <IconClipboard size={16} /> コピー
         </button>
+        <button className="secondary-button" onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>
+          <IconClipboard size={16} /> 活動ログ出力
+        </button>
         <button className="primary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
       </PageHeader>
+
+      <section className="panel activity-log-strip">
+        <div className="section-heading">
+          <h2>Activity Log</h2>
+          <div className="inline-actions">
+            <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity Log対象日" />
+            <button className="secondary-button compact" onClick={() => workspaceApi.copyText(buildActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。"))}>コピー</button>
+            <button className="secondary-button compact" disabled={exportingActivity} onClick={() => exportActivityLog(true)}>出力先を変更</button>
+          </div>
+        </div>
+        <span>{activityDirectory ? `出力先: ${activityDirectory}` : "出力先は初回出力時に選択します。"}</span>
+      </section>
 
       {showAdd && (
         <section className="panel">

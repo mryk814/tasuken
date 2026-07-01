@@ -12,7 +12,6 @@ import {
   IconGripVertical,
   IconLinkPlus,
   IconPencil,
-  IconSparkles,
   IconStar,
   IconStarFilled,
   IconMessageCircleQuestion,
@@ -25,7 +24,6 @@ import type { Resource } from "../domain-model/types";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
 import { CHAT_SERVICE_LABELS, type ChatServiceType, resolveChatService } from "../lib/chatServices";
 import {
-  buildChatGroupKnowledgePrompt,
   chatResourceDate,
   clearChatGroupResources,
   groupChatResources,
@@ -38,7 +36,6 @@ import {
 } from "../lib/chatRefs";
 import { themeColor } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
-import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 
 type StatusFilter = "all" | "inbox" | "adopted";
@@ -55,7 +52,7 @@ function themeTitle(themes: Theme[], id?: string | null): string {
 
 function ChatServiceIcon({ service }: { service: ChatServiceType }) {
   if (service === "chatgpt") return <IconBrandOpenai size={16} />;
-  if (service === "claude") return <IconSparkles size={16} />;
+  if (service === "claude") return <IconMessageCircleQuestion size={16} />;
   if (service === "gemini") return <IconBrandGoogle size={16} />;
   if (service === "copilot") return <IconBrandWindows size={16} />;
   return <IconMessageCircleQuestion size={16} />;
@@ -105,9 +102,18 @@ export function ChatRefsPage({
   });
 
   const groups = useMemo(() => groupChatResources(visibleResources, sortOrder), [visibleResources, sortOrder]);
+  const resourceById = useMemo(() => new Map(chatResources.map((resource) => [resource.id, resource])), [chatResources]);
+  const childrenByParentId = useMemo(() => {
+    const map = new Map<string, Resource[]>();
+    for (const resource of chatResources) {
+      const parentId = str(resource.parent_resource_id);
+      if (!parentId) continue;
+      map.set(parentId, [...(map.get(parentId) || []), resource]);
+    }
+    return map;
+  }, [chatResources]);
   const allGroupKeys = useMemo(() => groups.map((g) => g.key), [groups]);
   const allCollapsed = allGroupKeys.length > 0 && allGroupKeys.every((key) => collapsed.has(key));
-  const currentThemeName = themeTitle(themes, selectedThemeId);
 
   function toggleGroup(key: string) {
     setCollapsed((prev) => {
@@ -183,21 +189,6 @@ export function ChatRefsPage({
     });
   }
 
-  function copyGroupKnowledgePrompt(group: ChatRefGroup) {
-    const candidates = domain.notes
-      .filter((note) => isPromptNote(note) && promptPurpose(note) === "knowledge")
-      .sort((a, b) => Number(isDefaultPrompt(b)) - Number(isDefaultPrompt(a)));
-    const scoped = candidates.find((note) => str((note as unknown as Record<string, unknown>).theme_id || note.project_id) === selectedThemeId);
-    const basePrompt = str((scoped || candidates[0])?.body_markdown);
-    const prompt = buildChatGroupKnowledgePrompt({
-      groupLabel: group.label,
-      themeName: currentThemeName,
-      resources: group.resources,
-      basePrompt,
-    });
-    workspaceApi.copyText(prompt).then(() => setToast(`${group.label}のKnowledge化プロンプトをコピーしました。`));
-  }
-
   function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
     const reordered = reorderChatGroupResources(group.resources, draggedId, targetId, placement);
     if (!reordered.length) return;
@@ -268,6 +259,28 @@ export function ChatRefsPage({
         reference_status: "inbox",
         project_id: selectedThemeId || null,
         chat_group: chatGroup,
+        importance: "normal",
+        captured_at: new Date().toISOString().slice(0, 10),
+        sort_order: nextSortOrder,
+      },
+    });
+  }
+
+  function addContinuation(parent: Resource) {
+    const nextSortOrder = Math.max(
+      0,
+      ...scopedResources
+        .filter((resource) => str(resource.chat_group).trim() === str(parent.chat_group).trim())
+        .map((resource) => Number(resource.sort_order) || 0),
+    ) + 10;
+    openDrawer({
+      type: "resource",
+      mode: "edit",
+      entity: {
+        reference_status: "inbox",
+        project_id: parent.project_id || selectedThemeId || null,
+        chat_group: parent.chat_group || "",
+        parent_resource_id: parent.id,
         importance: "normal",
         captured_at: new Date().toISOString().slice(0, 10),
         sort_order: nextSortOrder,
@@ -371,14 +384,6 @@ export function ChatRefsPage({
                   >
                     <IconCopy size={14} />
                   </button>
-                  <button
-                    className="chat-group-knowledge"
-                    onClick={() => copyGroupKnowledgePrompt(group)}
-                    aria-label={`${group.label}をKnowledge化するプロンプトをコピー`}
-                    title="Knowledge化プロンプト"
-                  >
-                    <IconSparkles size={14} />
-                  </button>
                   {group.key !== UNGROUPED_CHAT_GROUP && (
                     <>
                       <button
@@ -405,6 +410,8 @@ export function ChatRefsPage({
                   const canDrag = sortOrder === "manual" && group.resources.length > 1;
                   const isSameDragGroup = draggingGroupKey === null || draggingGroupKey === group.key;
                   const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
+                  const parent = resourceById.get(str(r.parent_resource_id));
+                  const childCount = childrenByParentId.get(r.id)?.length || 0;
                   return (
                     <div
                       className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""}`}
@@ -458,6 +465,31 @@ export function ChatRefsPage({
                       </span>
                       <button className="chat-link-title" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
                         {r.title || "無題"}
+                        {(parent || childCount > 0) && (
+                          <small className="chat-thread-meta">
+                            {parent ? `続き: ${parent.title || parent.url}` : ""}
+                            {parent && childCount > 0 ? " / " : ""}
+                            {childCount > 0 ? `続き${childCount}件` : ""}
+                          </small>
+                        )}
+                      </button>
+                      {parent && (
+                        <button
+                          className="row-action-button"
+                          onClick={() => openDrawer({ type: "resource", mode: "edit", entity: parent as unknown as Record<string, unknown> })}
+                          aria-label={`${r.title || "チャットリンク"}の元チャットを開く`}
+                          title="元チャットを開く"
+                        >
+                          <IconChevronRight size={15} />
+                        </button>
+                      )}
+                      <button
+                        className="row-action-button"
+                        onClick={() => addContinuation(r)}
+                        aria-label={`${r.title || "チャットリンク"}の続きチャットを追加`}
+                        title="続きとして追加"
+                      >
+                        <IconLinkPlus size={15} />
                       </button>
                       <button
                         className="row-action-button"

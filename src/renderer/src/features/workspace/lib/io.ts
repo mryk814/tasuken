@@ -80,8 +80,16 @@ export function noteProperties(note: object): Record<string, unknown> {
     : {};
 }
 
-export function noteExportEnabled(note: object): boolean {
-  return noteProperties(note).export_enabled !== false;
+export function noteAiExportEnabled(note: object): boolean {
+  const properties = noteProperties(note);
+  if (typeof properties.ai_export_enabled === "boolean") return properties.ai_export_enabled;
+  return properties.export_enabled !== false;
+}
+
+export function notePublishEnabled(note: object): boolean {
+  const properties = noteProperties(note);
+  if (typeof properties.publish_enabled === "boolean") return properties.publish_enabled;
+  return properties.export_enabled === true;
 }
 
 interface BuildExportArgs {
@@ -140,7 +148,7 @@ export function buildExportData({ data, domain, themes, items, activeTheme, scop
   } else if (scope === "milestones") {
     scopedItems = mergedItems.filter((item) => item.kind === "milestone");
   }
-  scopedNotes = scopedNotes.filter(noteExportEnabled);
+  scopedNotes = scopedNotes.filter(noteAiExportEnabled);
   const themeIds = new Set(
     [
       ...scopedItems.map((item) => item.theme_id),

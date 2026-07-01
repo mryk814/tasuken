@@ -674,6 +674,7 @@ export function WorkspaceApp() {
         importance: formText(values, "importance") || null,
         captured_at: formText(values, "captured_at") || ((base.captured_at as string | null) ?? null),
         chat_group: formText(values, "chat_group") || null,
+        parent_resource_id: formText(values, "parent_resource_id") || null,
         sort_order: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : null,
       };
       await saveEntities(buildSaveResourceOperations(resource), base.id ? "変更を保存しました。" : "リソースを追加しました。");
@@ -692,7 +693,7 @@ export function WorkspaceApp() {
       if (!title || !body) { setToast("タイトルと本文を入力してください。"); return false; }
       const noteType = formText(values, "note_type", "memo");
       const hasSourceUrlField = Boolean(named("source_url"));
-      const exportEnabled = values.getAll("export_enabled").map(String).includes("true");
+      const publishEnabled = values.getAll("publish_enabled").map(String).includes("true");
       const promptProperties = noteType === "prompt" || noteType === "report_prompt" ? {
         prompt_purpose: formText(values, "prompt_purpose", noteType === "report_prompt" ? "report" : "other"),
         prompt_variables: formText(values, "prompt_variables"),
@@ -715,7 +716,7 @@ export function WorkspaceApp() {
         item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
         source_url: noteType === "report" || noteType === "report_prompt" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
-        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), export_enabled: exportEnabled, ...reportProperties, ...promptProperties },
+        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), publish_enabled: publishEnabled, ...reportProperties, ...promptProperties },
         comments: (base.comments as Note["comments"]) || [],
       };
     } else if (type === "status_update") {

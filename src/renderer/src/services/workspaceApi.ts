@@ -7,6 +7,7 @@ import type {
 } from "../../../shared/types/workspace";
 import type { MarkdownImageAttachmentRequest } from "../../../shared/attachments";
 import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
+import type { MarkdownFileExportRequest } from "../../../shared/fileExport";
 import type { WordExportRequest } from "../../../shared/wordExport";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
@@ -41,6 +42,9 @@ export const workspaceApi = {
   },
   setPreference(key: string, value: unknown) {
     return desktopApi().preferences.set(key, value);
+  },
+  getPreference(key: string) {
+    return desktopApi().preferences.get(key);
   },
   copyText(text: string) {
     return desktopApi().clipboard.writeText(text);
@@ -77,5 +81,8 @@ export const workspaceApi = {
   },
   exportMarkdownNoteToWord(request: WordExportRequest) {
     return desktopApi().exports.markdownNoteToWord(request);
+  },
+  exportMarkdownFile(request: MarkdownFileExportRequest) {
+    return desktopApi().exports.markdownFile(request);
   },
 };

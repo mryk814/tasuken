@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconCalendarPlus, IconCalendarCheck, IconCopy, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
+import { IconCalendarPlus, IconCalendarCheck, IconCopyPlus, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -206,7 +206,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   }
 
   function openTaskDetail(task: Task, schedule?: Schedule) {
-    openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+    openDrawer({ type: "task", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
   }
 
   return (
@@ -310,7 +310,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
                   aria-label={`${task.title}を複製`}
                   title="複製"
                 >
-                  <IconCopy size={16} />
+                  <IconCopyPlus size={16} />
                 </button>
                 <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
                   <span>{task.title}</span>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconCopy, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconCopyPlus, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -17,7 +17,7 @@ import type {
 } from "../types";
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
-import { noteExportEnabled } from "../lib/io";
+import { notePublishEnabled } from "../lib/io";
 import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
@@ -232,6 +232,9 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
     const task = entity as unknown as Task;
     const schedule = findSchedule(data, "task", task.id, entity._schedule);
     const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
+    const learningNotes = (data.notes || [])
+      .filter((note) => note.item_id === task.id && note.note_type === "learning")
+      .sort((a, b) => str(b.created_at || b.updated_at).localeCompare(str(a.created_at || a.updated_at)));
     const copyTask = async () => {
       const duplicated = duplicateTask(task, schedule);
       const ops = buildSaveTaskOperations(duplicated.task, { reason: "duplicated" });
@@ -240,6 +243,31 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
       }
       await saveEntities(ops, "タスクを複製しました。");
       close({ type: "task", mode: "edit", entity: { ...duplicated.task, _schedule: duplicated.schedule } as Record<string, unknown> });
+    };
+    const addLearningNote = async (completeTask = false) => {
+      const learning = window.prompt("この作業で気づいたこと・学んだこと", "");
+      const operations: SaveOperation[] = [];
+      if (completeTask) operations.push(...buildCompleteTaskOperations(task, schedule));
+      if (learning?.trim()) {
+        operations.push({
+          action: "save",
+          type: "note",
+          entity: {
+            id: uuid(),
+            title: `学び: ${task.title}`,
+            body_markdown: learning.trim(),
+            note_type: "learning",
+            content_format: "markdown",
+            theme_id: task.project_id || null,
+            item_id: task.id,
+            properties_json: { activity_date: todayIso(), source_task_id: task.id },
+            created_at: new Date().toISOString(),
+          },
+        });
+      }
+      if (!operations.length) return;
+      await saveEntities(operations, completeTask ? "完了と学びを保存しました。" : "学びを保存しました。");
+      if (completeTask) close();
     };
     return (
       <aside className="drawer">
@@ -283,15 +311,53 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>Theme</dt><dd>{themeName}</dd>
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
+          <section className="task-learning-section">
+            <div className="section-heading">
+              <h3>気づき・学び</h3>
+              <button className="text-button compact" onClick={() => addLearningNote(false)}>追加</button>
+            </div>
+            {learningNotes.length ? (
+              <div className="task-learning-list">
+                {learningNotes.map((note) => (
+                  <div className="task-learning-item" key={note.id}>
+                    <strong>{note.title}</strong>
+                    <p>{str(note.body_markdown)}</p>
+                    <button
+                      className="text-button compact"
+                      onClick={() => close({
+                        type: "knowledge_node",
+                        mode: "edit",
+                        entity: {
+                          node_type: "insight",
+                          title: note.title,
+                          body: note.body_markdown,
+                          theme_id: note.theme_id || null,
+                          source_type: "note",
+                          source_id: note.id,
+                          confidence: "medium",
+                          status: "active",
+                        },
+                      })}
+                    >
+                      Knowledge化
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="field-help">完了時や作業後の気づきを、このタスクに紐づけて残せます。</p>
+            )}
+          </section>
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
-            <button className="secondary-button" onClick={copyTask}><IconCopy size={16} />複製する</button>
+            <button className="secondary-button" onClick={copyTask}><IconCopyPlus size={16} />複製する</button>
             <button className="primary-button" onClick={async () => {
               const nextState = task.state === "done" ? "todo" : "done";
               const message = nextState === "done" && task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
               await saveEntities(buildCompleteTaskOperations(task, schedule), message);
               close();
             }}>{task.state === "done" ? "未完了に戻す" : "完了にする"}</button>
+            {task.state !== "done" && <button className="secondary-button" onClick={() => addLearningNote(true)}>完了して学びを書く</button>}
             <button className="danger-button" onClick={() => removeEntity("task", entity)}><IconTrash size={16} />削除する</button>
           </div>
         </div>
@@ -554,11 +620,11 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           <option value="plain">Plain text</option>
         </select>
       </Field>
-      <Field label="書き出し">
-        <input type="hidden" name="export_enabled" value="false" />
+      <Field label="Document Publish">
+        <input type="hidden" name="publish_enabled" value="false" />
         <label className="toggle">
-          <input type="checkbox" name="export_enabled" value="true" defaultChecked={properties.export_enabled !== false} />
-          Export対象にする
+          <input type="checkbox" name="publish_enabled" value="true" defaultChecked={properties.publish_enabled === true || properties.export_enabled === true} />
+          一括Word出力の対象にする
         </label>
       </Field>
       <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
@@ -580,6 +646,20 @@ function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data
       {isChatRef && (
         <>
           <ChatGroupPicker value={str(entity.chat_group)} resources={allResources as { chat_group?: string | null; project_id?: string | null; theme_id?: string | null }[]} projectId={projectId} />
+          <Field label="元チャット">
+            <select name="parent_resource_id" defaultValue={str(entity.parent_resource_id)}>
+              <option value="">なし</option>
+              {(allResources as Record<string, unknown>[])
+                .filter((resource) => resource.id !== entity.id)
+                .filter((resource) => str(resource.project_id || resource.theme_id) === projectId)
+                .filter(isChatReferenceEntity)
+                .map((resource) => (
+                  <option key={str(resource.id)} value={str(resource.id)}>
+                    {str(resource.title) || str(resource.url)}
+                  </option>
+                ))}
+            </select>
+          </Field>
           <div className="form-grid">
             <Field label="サービス">
               <select name="link_type" value={linkType} onChange={(event) => setLinkType(event.target.value)}>
@@ -875,7 +955,7 @@ function NoteDetailDrawer({
   const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
   const body = note.body_markdown || "";
   const properties = note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
-  const exportEnabled = noteExportEnabled(note);
+  const publishEnabled = notePublishEnabled(note);
   const isReport = note.note_type === "report";
   const reportType = str(properties.report_type) || "weekly";
   const reportTypeLabel = REPORT_TYPE_LABELS[reportType] || "報告";
@@ -919,15 +999,15 @@ function NoteDetailDrawer({
     setToast(kind === "subject" ? "件名候補をコピーしました。" : kind === "combined" ? "件名とメール本文をコピーしました。" : "Outlook貼り付け用本文をコピーしました。");
   }
 
-  async function setExportEnabled(next: boolean) {
+  async function setPublishEnabled(next: boolean) {
     const saved = await saveEntity("note", {
       ...note,
       properties_json: {
         ...properties,
-        export_enabled: next,
+        publish_enabled: next,
       },
     });
-    setToast(next ? "Export対象にしました。" : "Export対象から外しました。");
+    setToast(next ? "Document Publish対象にしました。" : "Document Publish対象から外しました。");
     close({ type: "note", entity: saved });
   }
 
@@ -1038,13 +1118,13 @@ function NoteDetailDrawer({
       <div className="drawer-content">
         <StatusBadge value="neutral" label={NOTE_TYPE_LABELS[note.note_type ?? ""] || note.note_type} />
         <h2>{note.title}</h2>
-        <section className={`document-rule-strip ${exportEnabled ? "is-export-target" : "is-export-muted"}`}>
+        <section className={`document-rule-strip ${publishEnabled ? "is-export-target" : "is-export-muted"}`}>
           <div>
-            <strong>{exportEnabled ? "Export対象" : "Export対象外"}</strong>
-            <span>{exportEnabled ? "AI Context / Report Exportに含めます。" : "Exportでは本文を除外します。"}</span>
+            <strong>{publishEnabled ? "Publish対象" : "Publish対象外"}</strong>
+            <span>{publishEnabled ? "一括Word出力と配置更新の対象です。" : "AI Exportとは別に、文書出力の対象から外れています。"}</span>
           </div>
           <label className="toggle">
-            <input type="checkbox" checked={exportEnabled} onChange={(event) => setExportEnabled(event.target.checked)} />
+            <input type="checkbox" checked={publishEnabled} onChange={(event) => setPublishEnabled(event.target.checked)} />
             対象
           </label>
         </section>

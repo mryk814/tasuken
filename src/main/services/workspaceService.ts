@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
+import type { MarkdownFileExportRequest, MarkdownFileExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult } from "../../shared/ipc/contracts";
 import type { Workspace } from "../../shared/types/workspace";
 import type { WordExportRequest, WordExportResult } from "../../shared/wordExport";
@@ -57,6 +58,32 @@ function normalizeWordExportRequest(value: unknown): WordExportRequest {
     themeName: typeof record.themeName === "string" ? record.themeName : null,
     directory: typeof record.directory === "string" ? record.directory : null,
     chooseDirectory: Boolean(record.chooseDirectory),
+  };
+}
+
+function safeMarkdownFileName(value: string): string {
+  const cleaned = value
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  const fileName = (cleaned || "tasken-log").slice(0, 120);
+  return fileName.toLowerCase().endsWith(".md") ? fileName : `${fileName}.md`;
+}
+
+function normalizeMarkdownFileExportRequest(value: unknown): MarkdownFileExportRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Markdown出力の内容が不正です。画面を再読み込みして、もう一度試してください。");
+  }
+  const record = value as Record<string, unknown>;
+  const title = typeof record.title === "string" ? record.title : "";
+  const content = typeof record.content === "string" ? record.content : "";
+  if (!content.trim()) throw new Error("書き出す内容がありません。");
+  return {
+    title,
+    content,
+    directory: typeof record.directory === "string" ? record.directory : null,
+    chooseDirectory: Boolean(record.chooseDirectory),
+    fileName: typeof record.fileName === "string" ? record.fileName : null,
   };
 }
 
@@ -248,6 +275,29 @@ export class WorkspaceService {
       directory = result.filePaths[0];
     }
     return exportMarkdownNoteToWord(request, directory);
+  }
+
+  async exportMarkdownFile(requestValue: unknown): Promise<MarkdownFileExportResult> {
+    const request = normalizeMarkdownFileExportRequest(requestValue);
+    let directory = request.directory?.trim() || "";
+    if (request.chooseDirectory || !directory) {
+      const result = await dialog.showOpenDialog({
+        title: "Markdown出力先フォルダを選択",
+        defaultPath: directory || undefined,
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (result.canceled || !result.filePaths[0]) return { canceled: true };
+      directory = result.filePaths[0];
+    }
+    fs.mkdirSync(directory, { recursive: true });
+    const filePath = path.join(directory, safeMarkdownFileName(request.fileName || request.title));
+    fs.writeFileSync(filePath, request.content, "utf8");
+    return {
+      canceled: false,
+      filePath,
+      directory,
+      exportedAt: new Date().toISOString(),
+    };
   }
 
   saveMarkdownImageAttachment(requestValue: unknown): MarkdownImageAttachmentResult {

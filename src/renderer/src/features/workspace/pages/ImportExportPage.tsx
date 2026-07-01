@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { noteWordExportSignature } from "../../../../../shared/wordExport";
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import { str, uuid } from "../lib/format";
 import { buildSaveTaskOperations, buildSaveWaitingOperations, buildSavePlanNodeOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../domain-model/types";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, buildAiImportPrompt, buildAiOrganizePrompt, parseAiImportPayload } from "../lib/aiImport.js";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
-import { buildExportData, exportMarkdown, exportProgressReport, noteExportEnabled, noteProperties, toYaml } from "../lib/io";
+import { buildExportData, exportMarkdown, exportProgressReport, noteProperties, notePublishEnabled, toYaml } from "../lib/io";
 import { PageHeader } from "../components/common";
 
 type ImportEntry = Record<string, unknown>;
@@ -122,6 +123,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [showSchema, setShowSchema] = useState(false);
   const [showOrganizeContext, setShowOrganizeContext] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const exportData = useMemo(() => buildExportData({ data, domain, themes, items, activeTheme, scope }), [data, domain, themes, items, activeTheme, scope]);
   const exported = format === "json"
     ? JSON.stringify({ version: 2, exported_at: new Date().toISOString(), ...exportData }, null, 2)
@@ -134,15 +136,18 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
   const conversionPromptText = useMemo(() => buildAiImportPrompt(themeNames, exported), [themeNames, exported]);
   const organizeContext = useMemo(() => buildOrganizeContext({ data, domain, themes, activeTheme }), [data, domain, themes, activeTheme]);
   const externalContextPromptText = useMemo(() => buildAiOrganizePrompt(organizeContext), [organizeContext]);
-  const exportTargetNotes = useMemo(() => {
+  const publishTargetNotes = useMemo(() => {
     const notes = scope === "theme" && activeTheme
       ? (data.notes || []).filter((note) => note.theme_id === activeTheme.id)
       : data.notes || [];
-    return [...notes].sort((a, b) => str(b.updated_at || b.created_at).localeCompare(str(a.updated_at || a.created_at)));
+    return [...notes]
+      .filter((note) => (str(note.content_format) || (str(note.note_type) === "artifact" ? "markdown" : "")) === "markdown")
+      .filter((note) => str(note.body_markdown).trim())
+      .sort((a, b) => str(b.updated_at || b.created_at).localeCompare(str(a.updated_at || a.created_at)));
   }, [activeTheme, data.notes, scope]);
-  const exportEnabledCount = exportTargetNotes.filter(noteExportEnabled).length;
+  const publishEnabledCount = publishTargetNotes.filter(notePublishEnabled).length;
 
-  async function setNoteExportEnabled(note: BaseRecord, enabled: boolean) {
+  async function setNotePublishEnabled(note: BaseRecord, enabled: boolean) {
     const properties = noteProperties(note);
     await saveEntities([{
       action: "save",
@@ -151,10 +156,65 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
         ...note,
         properties_json: {
           ...properties,
-          export_enabled: enabled,
+          publish_enabled: enabled,
         },
       },
-    }], enabled ? "Export対象にしました。" : "Export対象から外しました。");
+    }], enabled ? "Publish対象にしました。" : "Publish対象から外しました。");
+  }
+
+  async function publishWordTargets() {
+    const targets = publishTargetNotes.filter(notePublishEnabled);
+    if (!targets.length) {
+      setToast("Publish対象のMarkdown文書がありません。");
+      return;
+    }
+    setPublishing(true);
+    try {
+      const operations: SaveOperation[] = [];
+      let directory = "";
+      let exportedCount = 0;
+      for (const note of targets) {
+        const properties = noteProperties(note);
+        const wordExport = properties.word_export && typeof properties.word_export === "object" && !Array.isArray(properties.word_export)
+          ? properties.word_export as Record<string, unknown>
+          : {};
+        const result = await workspaceApi.exportMarkdownNoteToWord({
+          title: str(note.title),
+          bodyMarkdown: str(note.body_markdown),
+          themeName: themes.find((theme) => theme.id === note.theme_id)?.name || null,
+          directory: str(wordExport.directory) || directory || null,
+          chooseDirectory: !str(wordExport.directory) && !directory,
+        });
+        if (result.canceled) {
+          if (!exportedCount) setToast("Word出力をキャンセルしました。");
+          break;
+        }
+        directory = result.directory || directory;
+        exportedCount += 1;
+        operations.push({
+          action: "save",
+          type: "note",
+          entity: {
+            ...note,
+            properties_json: {
+              ...properties,
+              publish_enabled: true,
+              word_export: {
+                directory: result.directory,
+                filePath: result.filePath,
+                exportedAt: result.exportedAt,
+                bodySignature: result.bodySignature,
+              },
+            },
+          },
+        });
+      }
+      if (operations.length) await saveEntities(operations, `${exportedCount}件のWord出力を更新しました。`);
+    } catch (error) {
+      setToast(`Word出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setPublishing(false);
+    }
   }
 
   function parseImport() {
@@ -448,26 +508,37 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
           </div>
           <div className="export-target-panel">
             <div className="section-heading">
-              <h2>Export対象文書</h2>
-              <span>{exportEnabledCount}/{exportTargetNotes.length}件</span>
+              <h2>Document Publish</h2>
+              <div className="inline-actions">
+                <span>{publishEnabledCount}/{publishTargetNotes.length}件</span>
+                <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishWordTargets}>Publish対象をWord出力</button>
+              </div>
             </div>
             <div className="export-target-list">
-              {exportTargetNotes.length ? exportTargetNotes.slice(0, 12).map((note) => {
-                const enabled = noteExportEnabled(note);
+              {publishTargetNotes.length ? publishTargetNotes.slice(0, 12).map((note) => {
+                const enabled = notePublishEnabled(note);
                 const noteType = str(note.note_type) || "memo";
+                const properties = noteProperties(note);
+                const wordExport = properties.word_export && typeof properties.word_export === "object" && !Array.isArray(properties.word_export)
+                  ? properties.word_export as Record<string, unknown>
+                  : {};
+                const stale = Boolean(str(wordExport.bodySignature) && str(wordExport.bodySignature) !== noteWordExportSignature(str(note.body_markdown)));
                 return (
                   <label className={`export-target-row ${enabled ? "" : "is-muted"}`} key={note.id}>
-                    <input type="checkbox" checked={enabled} onChange={(event) => setNoteExportEnabled(note, event.target.checked)} />
+                    <input type="checkbox" checked={enabled} onChange={(event) => setNotePublishEnabled(note, event.target.checked)} />
                     <span>
                       <strong>{note.title}</strong>
-                      <small>{NOTE_TYPE_LABELS[noteType] || noteType} / {themes.find((theme) => theme.id === note.theme_id)?.name || "Themeなし"}</small>
+                      <small>
+                        {NOTE_TYPE_LABELS[noteType] || noteType} / {themes.find((theme) => theme.id === note.theme_id)?.name || "Themeなし"}
+                        {str(wordExport.filePath) ? ` / ${stale ? "再出力が必要" : "出力済み"}` : " / 未出力"}
+                      </small>
                     </span>
                   </label>
                 );
               }) : (
-                <p className="field-help">Export対象を切り替えられる文書はまだありません。</p>
+                <p className="field-help">Publish対象にできるMarkdown文書はまだありません。</p>
               )}
-              {exportTargetNotes.length > 12 && <p className="field-help">ほか {exportTargetNotes.length - 12} 件はNotes側から切り替えできます。</p>}
+              {publishTargetNotes.length > 12 && <p className="field-help">ほか {publishTargetNotes.length - 12} 件はNotes側から切り替えできます。</p>}
             </div>
           </div>
           <textarea readOnly value={exported} />
