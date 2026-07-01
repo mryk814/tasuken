@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { registerIpc } from "./ipc/registerIpc";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
+import type { TodayMiniTask } from "../shared/ipc/contracts";
 import type { Entity, EntityType } from "../shared/types/workspace";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -18,6 +19,7 @@ const ATTACHMENT_PROTOCOL = "tasken-attachment";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
+let todayMiniWindow: BrowserWindow | null = null;
 type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
 protocol.registerSchemesAsPrivileged([
@@ -108,6 +110,10 @@ function getCapturePreloadPath(): string {
   return path.join(__dirname, "../preload/capture.mjs");
 }
 
+function getTodayMiniPreloadPath(): string {
+  return path.join(__dirname, "../preload/todayMini.mjs");
+}
+
 function createCaptureWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 420,
@@ -174,6 +180,52 @@ function showCaptureWindow(mode: QuickCaptureMode = "inbox"): void {
   }
 }
 
+function createTodayMiniWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 380,
+    height: 520,
+    minWidth: 320,
+    minHeight: 360,
+    show: false,
+    resizable: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    title: "今日やること",
+    icon: getAppIconPath(),
+    backgroundColor: "#F4EEEC",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      preload: getTodayMiniPreloadPath(),
+    },
+  });
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/today-mini.html`);
+  } else {
+    void win.loadFile(path.join(__dirname, "../renderer/today-mini.html"));
+  }
+
+  win.on("closed", () => {
+    if (todayMiniWindow === win) todayMiniWindow = null;
+  });
+
+  return win;
+}
+
+function showTodayMiniWindow(): void {
+  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) {
+    todayMiniWindow = createTodayMiniWindow();
+  }
+  todayMiniWindow.show();
+  todayMiniWindow.focus();
+  todayMiniWindow.setAlwaysOnTop(true, "floating");
+  if (!todayMiniWindow.webContents.isLoading()) {
+    todayMiniWindow.webContents.send("today-mini:refresh");
+  }
+}
+
 function createTrayIcon(): Electron.NativeImage {
   const icon = nativeImage.createFromPath(getAppIconPath());
   if (!icon.isEmpty()) return icon.resize({ width: 16, height: 16 });
@@ -199,6 +251,8 @@ function setupTray(): void {
   tray = new Tray(createTrayIcon());
 
   const contextMenu = Menu.buildFromTemplate([
+    { label: "今日やることを表示", click: () => showTodayMiniWindow() },
+    { type: "separator" },
     ...quickCaptureMenuItems(),
     { type: "separator" },
     { label: `${APP_NAME} を開く`, click: () => {
@@ -247,9 +301,12 @@ function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenu
 
 function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win !== captureWindow && !win.isDestroyed()) {
+    if (win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) {
       win.webContents.send("workspace:changed", change);
     }
+  }
+  if (todayMiniWindow && !todayMiniWindow.isDestroyed()) {
+    todayMiniWindow.webContents.send("today-mini:refresh");
   }
 }
 
@@ -335,9 +392,106 @@ function registerCaptureIpc(): void {
   });
 }
 
+function checklistCounts(task: Entity): { done: number; total: number } {
+  const items = Array.isArray(task.checklist_items) ? task.checklist_items : [];
+  const valid = items.filter((item) => item && typeof item === "object" && "title" in item);
+  return {
+    done: valid.filter((item) => Boolean((item as Record<string, unknown>).done)).length,
+    total: valid.length,
+  };
+}
+
+function listTodayMiniTasks(): TodayMiniTask[] {
+  const today = localDateString();
+  const tasks = (workspaceRepository.list("task") as Entity[])
+    .filter((task) => task.state !== "done" && task.state !== "cancelled");
+  const schedules = (workspaceRepository.list("schedule") as Entity[])
+    .filter((schedule) => schedule.owner_type === "task" && (schedule.start_date === today || schedule.end_date === today));
+  const scheduleByTask = new Map(schedules.map((schedule) => [String(schedule.owner_id), schedule]));
+  const themeNames = new Map([
+    ...(workspaceRepository.list("theme") as Entity[]).map((theme) => [String(theme.id), String(theme.name || theme.title || "個人業務")] as const),
+    ...(workspaceRepository.list("project") as Entity[]).map((project) => [String(project.id), String(project.name || project.title || "個人業務")] as const),
+  ]);
+
+  return tasks
+    .filter((task) => scheduleByTask.has(String(task.id)))
+    .map((task): TodayMiniTask => {
+      const schedule = scheduleByTask.get(String(task.id));
+      const counts = checklistCounts(task);
+      return {
+        id: String(task.id),
+        title: String(task.title || "無題のタスク"),
+        themeName: typeof task.project_id === "string" ? themeNames.get(task.project_id) || "個人業務" : "個人業務",
+        scheduleLabel: String(schedule?.end_date || schedule?.start_date || today),
+        priority: task.priority === "high" ? "high" : "normal",
+        checklistDone: counts.done,
+        checklistTotal: counts.total,
+      };
+    })
+    .sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high") || a.title.localeCompare(b.title, "ja-JP"));
+}
+
+function findMainWindow(): BrowserWindow | null {
+  return BrowserWindow.getAllWindows()
+    .find((win) => win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) || null;
+}
+
+function showMainWindow(): BrowserWindow {
+  const win = findMainWindow() || createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  return win;
+}
+
+function openTaskInMainWindow(taskId: string): boolean {
+  const task = workspaceRepository.get("task", taskId);
+  if (!task) return false;
+  const win = showMainWindow();
+  const send = () => {
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.webContents.send("workspace:open-task-detail", taskId);
+    }, 150);
+  };
+  if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
+  else send();
+  return true;
+}
+
+function registerTodayMiniIpc(): void {
+  ipcMain.handle("today-mini:show", () => {
+    showTodayMiniWindow();
+    return true;
+  });
+  ipcMain.handle("today-mini:list", () => listTodayMiniTasks());
+  ipcMain.handle("today-mini:refresh", () => listTodayMiniTasks());
+  ipcMain.handle("today-mini:toggle", (_event, taskId: unknown) => {
+    if (typeof taskId !== "string" || !taskId.trim()) {
+      throw new Error("対象タスクがありません。");
+    }
+    const task = workspaceRepository.get("task", taskId) as Entity | null;
+    if (!task) throw new Error("タスクが見つかりません。");
+    const nextState = task.state === "done" ? "todo" : "done";
+    const saved = workspaceRepository.save("task", {
+      ...task,
+      state: nextState,
+      completed_at: nextState === "done" ? new Date().toISOString() : null,
+    }, { source: "today-mini" }) as Entity;
+    notifyMainWindowRefresh({ type: "task", entity: saved });
+    return listTodayMiniTasks();
+  });
+  ipcMain.handle("today-mini:open-task", (_event, taskId: unknown) => {
+    if (typeof taskId !== "string" || !taskId.trim()) return false;
+    return openTaskInMainWindow(taskId);
+  });
+}
+
 interface SmokeCreatedResult {
   title: string;
   rootReady: boolean;
+  smokeTaskId: string;
+  smokeTaskTitle: string;
+  todayMiniWindowOpened: boolean;
   saved: boolean;
   markdownSaved: boolean;
   markdownPreviewRendered: boolean;
@@ -361,6 +515,14 @@ interface SmokeReloadResult {
   themeMode: string;
 }
 
+interface SmokeMiniResult {
+  todayMiniOpened: boolean;
+  todayMiniAlwaysOnTop: boolean;
+  todayMiniTaskVisible: boolean;
+  todayMiniCompletionSaved: boolean;
+  todayMiniOpenDetail: boolean;
+}
+
 function recordSmoke(stage: string, details: Record<string, unknown> = {}): void {
   if (!isSmokeTest) return;
   fs.writeFileSync(smokeResultPath, JSON.stringify({ stage, argv: process.argv, ...details }, null, 2));
@@ -382,13 +544,15 @@ if (requestedUserDataPath) {
   setTimeout(() => {
     recordSmoke("timeout");
     app.exit(1);
-  }, 15000);
+  }, 25000);
 }
 
 async function runSmokeTest(window: BrowserWindow): Promise<void> {
   recordSmoke("renderer-loaded");
   const testTitle = `デスクトップ動作確認 ${Date.now()}`;
   const markdownTitle = `Markdown動作確認 ${Date.now()}`;
+  const smokeTaskTitle = `Todayミニ動作確認 ${Date.now()}`;
+  const smokeTaskId = randomUUID();
   const smokeThemeId = `smoke-theme-${Date.now()}`;
   const markdownBody = `---
 theme: smoke
@@ -531,12 +695,41 @@ code block
       await delay(180);
       const notesLiveEditSaved = notesLiveEditRendered && document.body.innerText.includes("保存しました。");
       await window.api.preferences.set("themeMode", "dark");
+      const now = new Date();
+      const today = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, "0"),
+        String(now.getDate()).padStart(2, "0"),
+      ].join("-");
+      await window.api.entities.save("task", {
+        id: ${JSON.stringify(smokeTaskId)},
+        title: ${JSON.stringify(smokeTaskTitle)},
+        project_id: ${JSON.stringify(smokeThemeId)},
+        state: "todo",
+        priority: "high",
+        checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
+        created_at: new Date().toISOString()
+      }, { source: "smoke" });
+      await window.api.entities.save("schedule", {
+        id: crypto.randomUUID(),
+        owner_type: "task",
+        owner_id: ${JSON.stringify(smokeTaskId)},
+        start_date: today,
+        end_date: today,
+        date_kind: "point",
+        confidence: "fixed",
+        granularity: "day"
+      }, { source: "smoke" });
+      const todayMiniWindowOpened = await window.api.app.showTodayMiniWindow();
       const themeMode = await window.api.preferences.get("themeMode");
       const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
 
       return {
         title: document.title,
         rootReady: Boolean(document.querySelector("#root > *")),
+        smokeTaskId: ${JSON.stringify(smokeTaskId)},
+        smokeTaskTitle: ${JSON.stringify(smokeTaskTitle)},
+        todayMiniWindowOpened,
         saved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)})),
         markdownSaved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)})),
         markdownPreviewRendered,
@@ -552,6 +745,55 @@ code block
       };
     })()
   `) as SmokeCreatedResult;
+
+  let mini: SmokeMiniResult = {
+    todayMiniOpened: false,
+    todayMiniAlwaysOnTop: false,
+    todayMiniTaskVisible: false,
+    todayMiniCompletionSaved: false,
+    todayMiniOpenDetail: false,
+  };
+  const todayMini = todayMiniWindow && !todayMiniWindow.isDestroyed() ? todayMiniWindow : null;
+  if (todayMini) {
+    if (todayMini.webContents.isLoading()) {
+      await new Promise<void>((resolve) => {
+        todayMini.webContents.once("did-finish-load", () => resolve());
+        setTimeout(resolve, 1200);
+      });
+    }
+    mini.todayMiniOpened = created.todayMiniWindowOpened && todayMini.isVisible();
+    mini.todayMiniAlwaysOnTop = todayMini.isAlwaysOnTop();
+    const miniInteraction = await todayMini.webContents.executeJavaScript(`
+      (async () => {
+        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          if (document.body.innerText.includes(${JSON.stringify(smokeTaskTitle)})) break;
+          await delay(100);
+        }
+        const todayMiniTaskVisible = document.body.innerText.includes(${JSON.stringify(smokeTaskTitle)});
+        await window.todayMiniApi.toggle(${JSON.stringify(smokeTaskId)});
+        await delay(140);
+        const afterToggle = await window.todayMiniApi.list();
+        const todayMiniCompletionSaved = !afterToggle.some((task) => task.id === ${JSON.stringify(smokeTaskId)});
+        const todayMiniOpenDetail = await window.todayMiniApi.openTask(${JSON.stringify(smokeTaskId)});
+        return { todayMiniTaskVisible, todayMiniCompletionSaved, todayMiniOpenDetail };
+      })()
+    `) as Pick<SmokeMiniResult, "todayMiniTaskVisible" | "todayMiniCompletionSaved" | "todayMiniOpenDetail">;
+    mini = { ...mini, ...miniInteraction };
+  }
+  const detailOpened = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const drawer = document.querySelector(".drawer-form");
+        const title = drawer?.querySelector('input[name="title"]');
+        if (title?.value === ${JSON.stringify(smokeTaskTitle)}) return true;
+        await delay(100);
+      }
+      return false;
+    })()
+  `) as boolean;
+  mini.todayMiniOpenDetail = mini.todayMiniOpenDetail && detailOpened;
 
   window.webContents.once("did-finish-load", async () => {
     try {
@@ -579,6 +821,7 @@ code block
         markdownFrontmatterPersistedAfterReload: afterReload.markdownFrontmatterPersisted,
         markdownLiveEditPersistedAfterReload: afterReload.markdownLiveEditPersisted,
         themeModeAfterReload: afterReload.themeMode,
+        ...mini,
       };
       console.log(JSON.stringify(result));
       recordSmoke("passed", result);
@@ -599,6 +842,11 @@ code block
         && result.notesLiveEditSaved
         && result.rawCopyNotified
         && result.rootReady
+        && result.todayMiniOpened
+        && result.todayMiniAlwaysOnTop
+        && result.todayMiniTaskVisible
+        && result.todayMiniCompletionSaved
+        && result.todayMiniOpenDetail
         && result.clipboardWritten
         && result.themeMode === "dark"
         && result.themeModeAfterReload === "dark"
@@ -614,7 +862,7 @@ code block
   window.reload();
 }
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1480,
     height: 980,
@@ -676,6 +924,7 @@ function createWindow(): void {
       }
     }
   });
+  return window;
 }
 
 void app.whenReady().then(() => {
@@ -684,6 +933,7 @@ void app.whenReady().then(() => {
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
   registerIpc(workspaceRepository, new WorkspaceService(workspaceRepository, app.getPath("userData")));
   registerCaptureIpc();
+  registerTodayMiniIpc();
   recordSmoke("app-ready");
   createWindow();
 

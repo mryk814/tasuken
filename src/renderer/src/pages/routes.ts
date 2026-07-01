@@ -12,6 +12,7 @@ export const toolNavigation = [
 
 export const routeParent: Record<string, string> = {
   todo: "today",
+  "todo-done": "today",
   waiting: "today",
   notes: "knowledge",
   prompts: "knowledge",
@@ -38,6 +39,7 @@ export type RouteId =
   | "chat-refs"
   | "home"
   | "todo"
+  | "todo-done"
   | "timeline"
   | "themes"
   | "notes"

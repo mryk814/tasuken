@@ -415,6 +415,21 @@ export function WorkspaceApp() {
     })();
   }
 
+  useEffect(() => {
+    if (!window.api?.app?.onOpenTaskDetail || loadState !== "success") return undefined;
+    return window.api.app.onOpenTaskDetail((taskId) => {
+      const task = fullDomain.tasks.find((entry) => entry.id === taskId);
+      if (!task) {
+        setToast("タスクを開けませんでした。画面を更新してもう一度試してください。");
+        return;
+      }
+      const schedule = fullDomain.schedules.find((entry) => entry.owner_type === "task" && entry.owner_id === task.id);
+      location.hash = "todo";
+      setRoute("todo");
+      openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+    });
+  }, [fullDomain, loadState, setRoute, setToast]);
+
   const saveEntity: SaveEntity = async (type, entity, options = {}) => {
     try {
       const saved = await saveWorkspaceEntity(type, entity as Entity, options);
@@ -858,6 +873,7 @@ export function WorkspaceApp() {
     "chat-refs": <ChatRefsPage {...common} />,
     home: <HomePage {...common} />,
     todo: <TodoPage {...common} />,
+    "todo-done": <TodoPage {...common} />,
     timeline: <TimelinePage {...common} />,
     themes: <ThemesPage {...common} />,
     notes: <NotesPage {...common} />,

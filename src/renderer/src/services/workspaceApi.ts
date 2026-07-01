@@ -63,6 +63,9 @@ export const workspaceApi = {
   openReleasePage(url?: string) {
     return desktopApi().app.openReleasePage(url);
   },
+  showTodayMiniWindow() {
+    return desktopApi().app.showTodayMiniWindow();
+  },
   exportSnapshot() {
     return desktopApi().snapshots.exportFile();
   },

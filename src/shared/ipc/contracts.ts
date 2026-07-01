@@ -41,6 +41,16 @@ export interface WorkspaceChangePayload {
   entities?: Array<{ type: EntityType; entity: Entity }>;
 }
 
+export interface TodayMiniTask {
+  id: string;
+  title: string;
+  themeName: string;
+  scheduleLabel: string;
+  priority: "normal" | "high";
+  checklistDone: number;
+  checklistTotal: number;
+}
+
 export interface AppUpdateCheckResult {
   status: "available" | "current" | "error";
   currentVersion: string;
@@ -75,7 +85,9 @@ export interface ResearchDeskApi {
     reload(): Promise<boolean>;
     checkForUpdates(): Promise<AppUpdateCheckResult>;
     openReleasePage(url?: string): Promise<boolean>;
+    showTodayMiniWindow(): Promise<boolean>;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
+    onOpenTaskDetail(callback: (taskId: string) => void): () => void;
   };
   entities: {
     list(type: EntityType, includeDeleted?: boolean): Promise<Entity[]>;

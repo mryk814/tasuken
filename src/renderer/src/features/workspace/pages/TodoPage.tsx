@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { IconCalendarPlus, IconCalendarCheck, IconCopy, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -43,7 +43,7 @@ function compareTodoRows(today: string) {
   };
 }
 
-export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities, setToast }: PageProps) {
+export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -53,6 +53,12 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
   const [addTheme, setAddTheme] = useState("");
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
+
+  useEffect(() => {
+    const requestedFilter = route === "todo-done" ? "done" : route === "todo" ? "open" : null;
+    if (requestedFilter) setFilter(requestedFilter);
+  }, [route]);
+
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
   const counters = {
     today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
@@ -266,11 +272,16 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
             const done = task.state === "done" || task.state === "cancelled";
             return (
-            <div className="table-row" key={task.id} style={{ "--chip-color": chipColor } as React.CSSProperties}>
+            <div
+              className="table-row is-clickable-row"
+              key={task.id}
+              style={{ "--chip-color": chipColor } as React.CSSProperties}
+              onClick={() => openTaskDetail(task, schedule)}
+            >
               <span className="todo-theme-bar" />
               <button
                 className={`todo-check-circle ${done ? "is-done" : ""}`}
-                onClick={() => toggleTask(task)}
+                onClick={(event) => { event.stopPropagation(); toggleTask(task); }}
                 aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了`}
                 title={done ? "未完了に戻す" : "完了にする"}
               >
@@ -279,7 +290,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
               <div className="row-title-wrap">
                 <button
                   className={`priority-flag-button ${task.priority === "high" ? "is-active" : ""}`}
-                  onClick={() => togglePriority(task)}
+                  onClick={(event) => { event.stopPropagation(); togglePriority(task); }}
                   aria-label={task.priority === "high" ? "旗を外す" : "旗を付ける"}
                   title={task.priority === "high" ? "旗を外す" : "旗を付ける"}
                 >
@@ -287,7 +298,7 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
                 </button>
                 <button
                   className={`today-plan-button ${isTodayRow({ task, schedule }, today) ? "is-active" : ""}`}
-                  onClick={() => toggleToday(task, schedule)}
+                  onClick={(event) => { event.stopPropagation(); toggleToday(task, schedule); }}
                   aria-label={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
                   title={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
                 >
@@ -295,13 +306,13 @@ export function TodoPage({ data, domain, themes, items, openDrawer, saveEntities
                 </button>
                 <button
                   className="todo-copy-button"
-                  onClick={() => copyTask(task, schedule)}
+                  onClick={(event) => { event.stopPropagation(); copyTask(task, schedule); }}
                   aria-label={`${task.title}を複製`}
                   title="複製"
                 >
                   <IconCopy size={16} />
                 </button>
-                <button className={`row-title ${done ? "is-done" : ""}`} onClick={() => openTaskDetail(task, schedule)}>
+                <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
                   <span>{task.title}</span>
                   <ChecklistProgressBadge items={task.checklist_items} />
                 </button>
