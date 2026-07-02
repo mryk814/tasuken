@@ -2,11 +2,14 @@ import type { Resource } from "../domain-model/types";
 import { isKnownChatService, resolveChatService } from "./chatServices";
 
 export const UNGROUPED_CHAT_GROUP = "__ungrouped__";
+const CHAT_DISPLAY_TIME_ZONE = "Asia/Tokyo";
 
 export type ChatRefSortOrder = "manual" | "newest" | "oldest";
 export type ChatRefGroup = { key: string; label: string; resources: Resource[] };
 
 export function isChatReference(resource: Resource): boolean {
+  if (resource.resource_scope === "note") return false;
+  if (resource.resource_scope === "chat_ref") return true;
   return isKnownChatService(resource.link_type) || resolveChatService(resource) !== "other" || Boolean(resource.reference_status);
 }
 
@@ -23,20 +26,49 @@ function hasMinuteTime(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value);
 }
 
+function hasExplicitTimeZone(value: string): boolean {
+  return /(Z|[+-]\d{2}:?\d{2})$/.test(value);
+}
+
+function localDateTimeKey(value: string): string {
+  if (!hasMinuteTime(value)) return datePart(value);
+  if (!hasExplicitTimeZone(value)) return `${datePart(value)}T${value.slice(11, 16)}`;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return `${datePart(value)}T${value.slice(11, 16)}`;
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CHAT_DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
+
+function localDatePart(value: string): string {
+  return localDateTimeKey(value).slice(0, 10);
+}
+
 function timestampFallback(resource: Resource, capturedDate: string): string {
   for (const key of ["created_at", "updated_at"]) {
     const value = textField(resource, key);
     if (!hasMinuteTime(value)) continue;
-    if (!capturedDate || datePart(value) === capturedDate) return value;
+    if (!capturedDate || localDatePart(value) === capturedDate) return value;
   }
   return "";
 }
 
 export function chatResourceDate(resource: Resource): string {
   const captured = String(resource.captured_at || "");
-  if (hasMinuteTime(captured)) return captured;
+  if (hasMinuteTime(captured)) return localDateTimeKey(captured);
   const capturedDate = datePart(captured);
-  return timestampFallback(resource, capturedDate) || captured || textField(resource, "created_at") || textField(resource, "updated_at");
+  const fallback = timestampFallback(resource, capturedDate) || captured || textField(resource, "created_at") || textField(resource, "updated_at");
+  return hasMinuteTime(fallback) ? localDateTimeKey(fallback) : fallback;
 }
 
 export function formatChatResourceDate(resource: Resource): string {
@@ -51,7 +83,7 @@ export function resolveSubmittedChatCapturedAt(submittedDate: string, initialVal
   const submitted = submittedDate.trim();
   const initial = String(initialValue || "");
   if (!submitted) return initial || null;
-  if (hasMinuteTime(initial) && datePart(initial) === submitted) return initial;
+  if (hasMinuteTime(initial) && localDatePart(initial) === submitted) return initial;
   return submitted;
 }
 

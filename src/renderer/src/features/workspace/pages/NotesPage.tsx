@@ -24,13 +24,14 @@ import {
   toolbarPlugin,
   UndoRedo,
 } from "@mdxeditor/editor";
-import { IconExternalLink, IconSparkles } from "@tabler/icons-react";
+import { IconExternalLink, IconMessageCircle, IconSparkles } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { noteWordExportSignature } from "../../../../../shared/wordExport";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
+import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { insertStructuredMarkdownPaste, isStructuredMarkdownPaste, previewDocument, previewHtml } from "../lib/markdown";
 import { isChatReference } from "../lib/chatRefs";
@@ -257,7 +258,7 @@ function canCreateKnowledge(record: Combined): boolean {
   return record.recordType === "note" && (scope === "memo" || scope === "learning");
 }
 
-export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: PageProps) {
+export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
@@ -326,6 +327,36 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
     workspaceApi
       .copyText(visible.map((record) => `${str(record.title)}\t${record.recordType === "resource" ? "リソース" : str(record.note_type)}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
       .then(() => setToast("Notes一覧をコピーしました。"));
+  }
+
+  function addPrompt(purpose = "report") {
+    openDrawer({
+      type: "note",
+      mode: "edit",
+      entity: {
+        theme_id: activeTheme?.id || null,
+        note_type: "prompt",
+        content_format: "markdown",
+        title: `${PROMPT_PURPOSE_LABELS[purpose] || "汎用"}プロンプト`,
+        properties_json: {
+          prompt_purpose: purpose,
+          prompt_variables: "themeName, periodStart, periodEnd",
+          is_default: false,
+          ai_export_enabled: true,
+        },
+        body_markdown: "",
+      },
+    });
+  }
+
+  async function moveResourceToChatRefs(record: Combined) {
+    if (record.recordType !== "resource") return;
+    await saveEntity("resource", {
+      ...record,
+      resource_scope: "chat_ref",
+      reference_status: str(record.reference_status) || "inbox",
+    });
+    setToast("チャット参照へ移しました。");
   }
 
   async function copySelectedRaw() {
@@ -509,6 +540,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: {} })}>リソースを追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "artifact", content_format: "markdown" } })}>Markdown文書</button>
+        <button className="secondary-button" onClick={() => addPrompt()}>プロンプトを追加</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button>
       </PageHeader>
       <div className="filter-bar panel">
@@ -575,6 +607,16 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   >
                     <IconExternalLink size={15} />
                   </a>
+                )}
+                {record.recordType === "resource" && (
+                  <button
+                    className="row-action-button note-row-open"
+                    onClick={() => moveResourceToChatRefs(record)}
+                    aria-label={`${str(record.title) || "リソース"}をチャット参照へ移す`}
+                    title="チャット参照へ移す"
+                  >
+                    <IconMessageCircle size={15} />
+                  </button>
                 )}
               </div>
             );

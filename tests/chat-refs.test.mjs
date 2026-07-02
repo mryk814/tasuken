@@ -37,6 +37,17 @@ test("chat reference detection separates chat links from ordinary resources", ()
   assert.equal(chatRefs.isChatReference(resource("paper", "論文", { link_type: "paper", url: "https://example.test/paper" })), false);
 });
 
+test("manual resource scope overrides chat reference inference", () => {
+  assert.equal(chatRefs.isChatReference(resource("chat-note", "Chat note", {
+    url: "https://claude.ai/chat/abc",
+    resource_scope: "note",
+  })), false);
+  assert.equal(chatRefs.isChatReference(resource("ordinary-chat-ref", "Ordinary", {
+    url: "https://example.test/paper",
+    resource_scope: "chat_ref",
+  })), true);
+});
+
 test("chat references keep manual order before date fallback", () => {
   const grouped = chatRefs.groupChatResources([
     resource("b", "B", { sort_order: 20, captured_at: "2026-06-29" }),
@@ -83,10 +94,28 @@ test("chat reference date labels include minutes when a usable timestamp is pres
   );
 });
 
+test("chat reference date labels convert stored UTC timestamps to local time", () => {
+  assert.equal(
+    chatRefs.formatChatResourceDate(resource("utc", "UTC", { captured_at: "2026-07-02T01:15:00.000Z" })),
+    "2026/07/02 10:15",
+  );
+  assert.equal(
+    chatRefs.formatChatResourceDate(resource("utc-created", "UTC created", {
+      captured_at: "2026-07-03",
+      created_at: "2026-07-02T15:15:00.000Z",
+    })),
+    "2026/07/03 00:15",
+  );
+});
+
 test("submitted chat captured dates preserve the initial timestamp when the day is unchanged", () => {
   assert.equal(
     chatRefs.resolveSubmittedChatCapturedAt("2026-07-02", "2026-07-02T10:15:30.000"),
     "2026-07-02T10:15:30.000",
+  );
+  assert.equal(
+    chatRefs.resolveSubmittedChatCapturedAt("2026-07-02", "2026-07-02T01:15:30.000Z"),
+    "2026-07-02T01:15:30.000Z",
   );
   assert.equal(
     chatRefs.resolveSubmittedChatCapturedAt("2026-07-03", "2026-07-02T10:15:30.000"),
