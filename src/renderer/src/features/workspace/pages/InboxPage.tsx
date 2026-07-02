@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconCalendarCheck, IconCheck, IconFlag, IconFlagFilled, IconPencil, IconRefresh, IconTrash } from "@tabler/icons-react";
+import {
+  IconArrowRight,
+  IconCalendarCheck,
+  IconCheck,
+  IconCopy,
+  IconExternalLink,
+  IconFlag,
+  IconFlagFilled,
+  IconPencil,
+  IconRefresh,
+  IconTrash,
+} from "@tabler/icons-react";
 
+import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { inferChatServiceFromUrl } from "../lib/chatServices";
@@ -48,6 +60,20 @@ interface InboxRow {
   entry: CaptureEntry;
 }
 
+type OrganizedTargetType = "task" | "waiting" | "note" | "resource";
+type OrganizedEntity = Task | Waiting | DomainNote | Resource;
+
+interface OrganizedResult {
+  id: string;
+  targetType: OrganizedTargetType;
+  targetId: string;
+  title: string;
+  label: string;
+  route: string;
+  entity: OrganizedEntity;
+  schedule?: Schedule;
+}
+
 function draftFromEntry(entry: CaptureEntry): InboxDraft {
   return {
     output: "task",
@@ -65,7 +91,34 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
   };
 }
 
-export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refreshWorkspace, removeEntity, setToast }: PageProps) {
+function routeForTarget(type: OrganizedTargetType): string {
+  if (type === "task") return "todo";
+  if (type === "waiting") return "waiting";
+  if (type === "note") return "notes";
+  return "chat-refs";
+}
+
+function labelForTarget(type: OrganizedTargetType): string {
+  if (type === "task") return "タスク";
+  if (type === "waiting") return "待ち";
+  if (type === "note") return "メモ";
+  return "リンク";
+}
+
+function copyTextForTarget(result: OrganizedResult): string {
+  if (result.targetType === "resource") {
+    const resource = result.entity as Resource;
+    return [resource.title, resource.url, resource.description].filter(Boolean).join("\n");
+  }
+  if (result.targetType === "note") {
+    const note = result.entity as DomainNote;
+    return [`# ${note.title}`, note.body_markdown || ""].filter(Boolean).join("\n\n");
+  }
+  const description = "description" in result.entity ? result.entity.description : "";
+  return [result.title, description].filter(Boolean).join("\n");
+}
+
+export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntities, refreshWorkspace, removeEntity, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
   const inboxRows = useMemo(() => {
     return buildInboxView(v2).entries.map((entry) => ({ entry }));
@@ -75,6 +128,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
   const [refreshing, setRefreshing] = useState(false);
   const [organizing, setOrganizing] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState("");
+  const [recentOrganized, setRecentOrganized] = useState<OrganizedResult[]>([]);
   const today = todayIso();
 
   useEffect(() => {
@@ -92,6 +146,37 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
 
   function patchDraft(id: string, patch: Partial<InboxDraft>) {
     setDrafts((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
+  }
+
+  function rememberOrganized(targetType: OrganizedTargetType, targetId: string, title: string, entity: OrganizedEntity, schedule?: Schedule) {
+    const result: OrganizedResult = {
+      id: `${targetType}:${targetId}`,
+      targetType,
+      targetId,
+      title,
+      label: labelForTarget(targetType),
+      route: routeForTarget(targetType),
+      entity,
+      schedule,
+    };
+    setFeedback(`${result.label}「${title}」に整理しました。`);
+    setRecentOrganized((current) => [
+      result,
+      ...current.filter((entry) => entry.id !== result.id),
+    ].slice(0, 5));
+  }
+
+  function openOrganized(result: OrganizedResult) {
+    const entity = result.targetType === "task" || result.targetType === "waiting"
+      ? { ...result.entity, _schedule: result.schedule }
+      : result.entity;
+    openDrawer({ type: result.targetType, mode: "edit", entity: entity as unknown as Record<string, unknown> });
+  }
+
+  function copyOrganized(result: OrganizedResult) {
+    workspaceApi.copyText(copyTextForTarget(result))
+      .then(() => setToast(`${result.label}をコピーしました。`))
+      .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
   }
 
   async function organize(row: InboxRow) {
@@ -117,6 +202,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
       setOrganizing((current) => ({ ...current, [row.entry.id]: true }));
       if (draft.output === "task" || draft.output === "idea") {
         const taskId = crypto.randomUUID();
+        let schedule: Schedule | undefined;
         const task: Task = {
           id: taskId,
           project_id: themeId,
@@ -129,7 +215,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
         };
         const ops: SaveOperation[] = [...buildSaveTaskOperations(task)];
         if (draft.planned_end || draft.today_flag) {
-          const schedule: Schedule = {
+          schedule = {
             id: crypto.randomUUID(),
             owner_type: "task",
             owner_id: taskId,
@@ -141,11 +227,12 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
           ops.push(...buildSaveScheduleOperations(schedule));
         }
         ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "task", id: taskId }));
-        await saveEntities(ops, "タスクに整理しました。");
-        setFeedback("タスクに整理しました。");
+        await saveEntities(ops, `タスク「${title}」に整理しました。`);
+        rememberOrganized("task", taskId, title, task, schedule);
 
       } else if (draft.output === "waiting") {
         const waitingId = crypto.randomUUID();
+        let schedule: Schedule | undefined;
         const waiting: Waiting = {
           id: waitingId,
           project_id: themeId,
@@ -158,7 +245,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
         };
         const ops: SaveOperation[] = [...buildSaveWaitingOperations(waiting)];
         if (draft.planned_end) {
-          const schedule: Schedule = {
+          schedule = {
             id: crypto.randomUUID(),
             owner_type: "waiting",
             owner_id: waitingId,
@@ -170,8 +257,8 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
           ops.push(...buildSaveScheduleOperations(schedule));
         }
         ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "waiting", id: waitingId }));
-        await saveEntities(ops, "待ちに整理しました。");
-        setFeedback("待ちに整理しました。");
+        await saveEntities(ops, `待ち「${title}」に整理しました。`);
+        rememberOrganized("waiting", waitingId, title, waiting, schedule);
 
       } else if (draft.output === "memo") {
         const noteId = uuid();
@@ -186,8 +273,8 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
           ...buildSaveNoteOperations(note),
           ...buildTriageCaptureEntryOperations(row.entry, { type: "note", id: noteId }),
         ];
-        await saveEntities(ops, "メモに整理しました。");
-        setFeedback("メモに整理しました。");
+        await saveEntities(ops, `メモ「${title}」に整理しました。`);
+        rememberOrganized("note", noteId, title, note);
 
       } else if (draft.output === "link") {
         const resourceId = uuid();
@@ -207,8 +294,22 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
           ...buildSaveResourceOperations(resource),
           ...buildTriageCaptureEntryOperations(row.entry, { type: "resource", id: resourceId }),
         ];
-        await saveEntities(ops, "リンクに整理しました。");
-        setFeedback("リンクに整理しました。");
+        if (draft.item_id) {
+          ops.push({
+            action: "save",
+            type: "reference",
+            entity: {
+              id: uuid(),
+              source_type: "resource",
+              source_id: resourceId,
+              target_type: "task",
+              target_id: draft.item_id,
+              relation_type: "related_to",
+            },
+          });
+        }
+        await saveEntities(ops, `リンク「${title}」に整理しました。`);
+        rememberOrganized("resource", resourceId, title, resource);
 
       }
       setSelected((current) => current.filter((id) => id !== row.entry.id));
@@ -315,6 +416,27 @@ export function InboxPage({ domain: v2, themes, openDrawer, saveEntities, refres
           <div className="inbox-feedback" role="status" aria-live="polite">
             <IconCheck size={16} />
             {feedback}
+          </div>
+        )}
+        {recentOrganized.length > 0 && (
+          <div className="inbox-organized-history" aria-label="最近整理した項目">
+            {recentOrganized.map((result) => (
+              <div className="inbox-organized-item" key={result.id}>
+                <span className="inbox-organized-kind">{result.label}</span>
+                <strong>{result.title}</strong>
+                <div className="inbox-organized-actions">
+                  <button className="text-button compact" onClick={() => openOrganized(result)}>
+                    <IconExternalLink size={14} />開く
+                  </button>
+                  <button className="text-button compact" onClick={() => navigate(result.route)}>
+                    <IconArrowRight size={14} />一覧へ
+                  </button>
+                  <button className="row-action-button" onClick={() => copyOrganized(result)} aria-label={`${result.title}をコピー`} title="コピー">
+                    <IconCopy size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
         {inboxRows.length ? (

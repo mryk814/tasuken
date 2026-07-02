@@ -40,7 +40,7 @@ import {
 } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
-import type { CaptureEntry, PlanNode, Resource, Schedule, Task, Waiting } from "../domain-model/types";
+import type { CaptureEntry, PlanNode, Reference, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 
 const CHAT_REFERENCE_STATUSES = ["inbox", "adopted"];
 const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
@@ -206,6 +206,20 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
     const isChatRef = isChatReferenceEntity(entity);
     const service = resolveChatService({ link_type: entity.link_type, url: entity.url });
     const themeName = (data.themes || []).find((t) => t.id === (entity.project_id || entity.theme_id))?.name || "未設定";
+    const resourceId = str(entity.id);
+    const relatedTasks = ((data.references || []) as unknown as Reference[])
+      .filter((reference) => (
+        reference.source_type === "resource" &&
+        reference.source_id === resourceId &&
+        reference.target_type === "task"
+      ) || (
+        reference.target_type === "resource" &&
+        reference.target_id === resourceId &&
+        reference.source_type === "task"
+      ))
+      .map((reference) => reference.source_type === "task" ? reference.source_id : reference.target_id)
+      .map((taskId) => ((data.tasks || []) as unknown as Task[]).find((task) => task.id === taskId))
+      .filter((task): task is Task => Boolean(task));
     return (
       <DetailDrawer
         title={isChatRef ? "リンク詳細" : "リソース詳細"}
@@ -223,6 +237,24 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         {Boolean(entity.url) && <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>}
         <dl>
           <dt>Theme</dt><dd>{themeName}</dd>
+          {relatedTasks.length > 0 && (
+            <>
+              <dt>関連タスク</dt>
+              <dd>
+                <div className="drawer-related-list">
+                  {relatedTasks.map((task) => (
+                    <button
+                      key={task.id}
+                      className="text-button compact"
+                      onClick={() => close({ type: "task", entity: { ...task, _schedule: findSchedule(data, "task", task.id) } as Record<string, unknown> })}
+                    >
+                      {task.title}
+                    </button>
+                  ))}
+                </div>
+              </dd>
+            </>
+          )}
         </dl>
         {Boolean(entity.description) && <p>{str(entity.description)}</p>}
       </DetailDrawer>
