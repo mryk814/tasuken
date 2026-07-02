@@ -148,16 +148,69 @@ function renderInlineMarkdown(value: string): string {
   return text.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => tokens[Number(index)] || "");
 }
 
+function markdownTableCells(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = markdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
+}
+
+function renderMarkdownTableRow(cells: string[], tagName: "th" | "td"): string {
+  return `<tr>${cells.map((cell) => `<${tagName}>${renderInlineMarkdown(cell)}</${tagName}>`).join("")}</tr>`;
+}
+
+function renderMarkdownTable(header: string[], rows: string[][]): string {
+  const body = rows.map((row) => renderMarkdownTableRow(row, "td")).join("");
+  return `<table><thead>${renderMarkdownTableRow(header, "th")}</thead><tbody>${body}</tbody></table>`;
+}
+
+const MARKDOWN_DOCUMENT_CSS = `
+@page{size:A4;margin:18mm}
+body{margin:0;background:#fff;color:#26211f;font-family:"Yu Gothic","Hiragino Maru Gothic ProN","Segoe UI",system-ui,sans-serif}
+.markdown-document{box-sizing:border-box;max-width:840px;margin:0 auto;padding:26px 30px 34px;background:#fff;color:#26211f;font-size:15px;line-height:1.72}
+.markdown-document h1,.markdown-document h2,.markdown-document h3{line-height:1.28;color:#1C557D;break-after:avoid}
+.markdown-document h1{margin:0 0 18px;padding-bottom:10px;border-bottom:2px solid #C3DCEE;font-size:28px}
+.markdown-document h2{margin:28px 0 12px;padding-left:10px;border-left:4px solid #2D7FB8;font-size:21px}
+.markdown-document h3{margin:22px 0 10px;font-size:17px}
+.markdown-document p{margin:9px 0}.markdown-document ul,.markdown-document ol{margin:10px 0 12px;padding-left:1.55em}
+.markdown-document li{margin:4px 0}.markdown-document li::marker{color:#2D7FB8;font-weight:700}
+.markdown-document blockquote{margin:16px 0;padding:10px 14px;border-left:4px solid #2D7FB8;border-radius:6px;background:#E8F1F8;color:#1C557D}
+.markdown-document blockquote p{margin:5px 0}
+.markdown-document pre{overflow:auto;margin:14px 0;padding:12px 14px;border:1px solid #D9E5ED;border-radius:7px;background:#F5F9FC;color:#26211f;font:12px/1.62 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}
+.markdown-document code{padding:1px 4px;border-radius:4px;background:#F0F6FA;color:#1C557D;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em}
+.markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
+.markdown-document table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+.markdown-document th,.markdown-document td{padding:7px 9px;border:1px solid #CFE0EA;text-align:left;vertical-align:top}
+.markdown-document th{background:#E8F1F8;color:#1C557D;font-weight:700}
+.markdown-document tr:nth-child(even) td{background:#F7FBFD}
+.markdown-document a{color:#1C557D;text-decoration:underline;text-underline-offset:2px}
+.markdown-document .md-image{margin:16px 0}.markdown-document .md-image img{display:block;max-width:100%;max-height:70vh;object-fit:contain;border:1px solid #CFE0EA;border-radius:7px;background:#fff}.markdown-document .md-image figcaption{margin-top:6px;color:#6b625f;font-size:12px}
+.markdown-document .md-math-inline{display:inline-block;max-width:100%;overflow-x:auto;padding:0 .24em;color:#1C557D;font-family:Georgia,"Times New Roman",serif;font-size:1.04em;white-space:nowrap}
+.markdown-document .md-math-block{overflow-x:auto;margin:16px 0;padding:12px;border:1px solid #CFE0EA;border-radius:7px;background:#F7FBFD;color:#1C557D;font-family:Georgia,"Times New Roman",serif;font-size:1.12em;text-align:center;white-space:nowrap}
+.markdown-document .md-math-operator{margin-right:.18em;font-style:normal}.markdown-document .md-math-inline sub,.markdown-document .md-math-block sub{font-size:.68em;vertical-align:-.35em}.markdown-document .md-math-inline sup,.markdown-document .md-math-block sup{font-size:.68em;vertical-align:.55em}
+.markdown-document .md-frontmatter{margin:0 0 16px;padding:10px 12px;border:1px solid #CFE0EA;border-radius:7px;background:#F7FBFD}.markdown-document .md-frontmatter summary{cursor:pointer;color:#1C557D;font-weight:700}.markdown-document .md-frontmatter pre{margin:8px 0 0;background:#fff}
+`;
+
 export function renderMarkdownPreview(value: string): string {
   const { frontmatter, body } = splitFrontmatter(value);
   const lines = body.split(/\r?\n/);
   const html: string[] = [];
   let inCode = false;
-  let inList = false;
+  let listTag: "ul" | "ol" | null = null;
   const closeList = () => {
-    if (inList) {
-      html.push("</ul>");
-      inList = false;
+    if (listTag) {
+      html.push(`</${listTag}>`);
+      listTag = null;
+    }
+  };
+  const openList = (tagName: "ul" | "ol") => {
+    if (listTag !== tagName) {
+      closeList();
+      html.push(`<${tagName}>`);
+      listTag = tagName;
     }
   };
   if (frontmatter) {
@@ -205,13 +258,38 @@ export function renderMarkdownPreview(value: string): string {
       html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
       continue;
     }
-    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
-    if (bullet) {
-      if (!inList) {
-        html.push("<ul>");
-        inList = true;
+    if (line.includes("|") && index + 1 < lines.length && isMarkdownTableSeparator(lines[index + 1])) {
+      closeList();
+      const header = markdownTableCells(line);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+        rows.push(markdownTableCells(lines[index]));
+        index += 1;
       }
-      html.push(`<li>${renderInlineMarkdown(bullet[1])}</li>`);
+      index -= 1;
+      html.push(renderMarkdownTable(header, rows));
+      continue;
+    }
+    const quote = line.match(/^\s*>\s?(.*)$/);
+    if (quote) {
+      closeList();
+      const chunks = [quote[1]];
+      while (index + 1 < lines.length) {
+        const next = lines[index + 1].match(/^\s*>\s?(.*)$/);
+        if (!next) break;
+        chunks.push(next[1]);
+        index += 1;
+      }
+      const content = chunks.map((chunk) => chunk.trim() ? `<p>${renderInlineMarkdown(chunk)}</p>` : "<br />").join("");
+      html.push(`<blockquote>${content}</blockquote>`);
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (bullet || ordered) {
+      openList(ordered ? "ol" : "ul");
+      html.push(`<li>${renderInlineMarkdown((bullet || ordered)?.[1] || "")}</li>`);
       continue;
     }
     closeList();
@@ -233,18 +311,7 @@ export function previewHtml(body: string, format: string): string {
 }
 
 export function previewDocument(body: string, format: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6;margin:16px;color:#26211f;background:#fff}
-h1,h2,h3{line-height:1.25;margin:1.2em 0 .5em}
-p{margin:.5em 0}ul{padding-left:1.4em}pre{overflow:auto;padding:12px;border:1px solid #ddd;border-radius:6px;background:#f7f4f2}
-code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
-.md-image{margin:1em 0}.md-image img{display:block;max-width:100%;max-height:70vh;object-fit:contain;border:1px solid #ddd;border-radius:6px}.md-image figcaption{margin-top:.35em;color:#6b625f;font-size:.85em}
-.md-math-inline{display:inline-block;max-width:100%;overflow-x:auto;padding:0 .24em;color:#8A2F3B;font-family:Georgia,"Times New Roman",serif;font-size:1.04em;white-space:nowrap}
-.md-math-block{overflow-x:auto;margin:1em 0;padding:12px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#8A2F3B;font-family:Georgia,"Times New Roman",serif;font-size:1.12em;text-align:center;white-space:nowrap}.md-math-operator{margin-right:.18em;font-style:normal}.md-math-inline sub,.md-math-block sub{font-size:.68em;vertical-align:-.35em}.md-math-inline sup,.md-math-block sup{font-size:.68em;vertical-align:.55em}
-.md-frontmatter{margin:0 0 1em;padding:10px 12px;border:1px solid #ddd;border-radius:6px;background:#fbf8f6}
-.md-frontmatter summary{cursor:pointer;font-weight:600}
-.md-frontmatter pre{margin:.6em 0 0;background:#fff}
-</style></head><body>${previewHtml(body, format)}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format)}</main></body></html>`;
 }
 
 export function renderedText(body: string, format: string): string {

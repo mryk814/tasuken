@@ -1,10 +1,10 @@
-import { app, clipboard, dialog, shell, type WebContents } from "electron";
+import { app, BrowserWindow, clipboard, dialog, shell, type WebContents } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 import type { MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
-import type { MarkdownFileExportRequest, MarkdownFileExportResult } from "../../shared/fileExport";
+import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult } from "../../shared/ipc/contracts";
 import type { Workspace } from "../../shared/types/workspace";
 import type { WordExportRequest, WordExportResult } from "../../shared/wordExport";
@@ -61,13 +61,21 @@ function normalizeWordExportRequest(value: unknown): WordExportRequest {
   };
 }
 
-function safeMarkdownFileName(value: string): string {
+function safeExportFileName(value: string, extension: "md" | "pdf"): string {
   const cleaned = value
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, " ")
     .trim();
   const fileName = (cleaned || "tasken-log").slice(0, 120);
-  return fileName.toLowerCase().endsWith(".md") ? fileName : `${fileName}.md`;
+  return fileName.toLowerCase().endsWith(`.${extension}`) ? fileName : `${fileName}.${extension}`;
+}
+
+function safeMarkdownFileName(value: string): string {
+  return safeExportFileName(value, "md");
+}
+
+function safePdfFileName(value: string): string {
+  return safeExportFileName(value, "pdf");
 }
 
 function normalizeMarkdownFileExportRequest(value: unknown): MarkdownFileExportRequest {
@@ -81,6 +89,23 @@ function normalizeMarkdownFileExportRequest(value: unknown): MarkdownFileExportR
   return {
     title,
     content,
+    directory: typeof record.directory === "string" ? record.directory : null,
+    chooseDirectory: Boolean(record.chooseDirectory),
+    fileName: typeof record.fileName === "string" ? record.fileName : null,
+  };
+}
+
+function normalizeMarkdownPdfExportRequest(value: unknown): MarkdownPdfExportRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("PDF出力の内容が不正です。画面を再読み込みして、もう一度試してください。");
+  }
+  const record = value as Record<string, unknown>;
+  const title = typeof record.title === "string" ? record.title : "";
+  const html = typeof record.html === "string" ? record.html : "";
+  if (!html.trim()) throw new Error("PDFに出力する内容がありません。");
+  return {
+    title,
+    html,
     directory: typeof record.directory === "string" ? record.directory : null,
     chooseDirectory: Boolean(record.chooseDirectory),
     fileName: typeof record.fileName === "string" ? record.fileName : null,
@@ -292,6 +317,52 @@ export class WorkspaceService {
     fs.mkdirSync(directory, { recursive: true });
     const filePath = path.join(directory, safeMarkdownFileName(request.fileName || request.title));
     fs.writeFileSync(filePath, request.content, "utf8");
+    return {
+      canceled: false,
+      filePath,
+      directory,
+      exportedAt: new Date().toISOString(),
+    };
+  }
+
+  async exportMarkdownPdf(requestValue: unknown): Promise<MarkdownPdfExportResult> {
+    const request = normalizeMarkdownPdfExportRequest(requestValue);
+    let directory = request.directory?.trim() || "";
+    if (request.chooseDirectory || !directory) {
+      const result = await dialog.showOpenDialog({
+        title: "PDF出力先フォルダを選択",
+        defaultPath: directory || undefined,
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (result.canceled || !result.filePaths[0]) return { canceled: true };
+      directory = result.filePaths[0];
+    }
+    fs.mkdirSync(directory, { recursive: true });
+    const filePath = path.join(directory, safePdfFileName(request.fileName || request.title || "markdown-document"));
+    const pdfWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        javascript: false,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+      },
+    });
+
+    try {
+      await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(request.html)}`);
+      const pdf = await pdfWindow.webContents.printToPDF({
+        pageSize: "A4",
+        printBackground: true,
+      });
+      fs.writeFileSync(filePath, pdf);
+    } finally {
+      if (!pdfWindow.isDestroyed()) {
+        pdfWindow.close();
+      }
+    }
+
     return {
       canceled: false,
       filePath,
