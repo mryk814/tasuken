@@ -61,7 +61,7 @@ export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveT
                 <button className="text-button compact" onClick={() => { setActiveThemeId(theme.id); navigate("notes"); }}>Notes {relatedNotes}</button>
                 <button className="text-button compact" onClick={() => { setActiveThemeId(theme.id); navigate("chat-refs"); }}>チャット {chatRefs}</button>
               </div>
-              <button className="text-button compact" onClick={() => { setActiveThemeId(theme.id); navigate("home"); }}>開く</button>
+              <button className="text-button compact" onClick={() => { setActiveThemeId(theme.id); navigate("theme"); }}>開く</button>
             </article>
           );
         })}

@@ -18,7 +18,7 @@ function noteProps(note: BaseRecord): Record<string, unknown> {
   return note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
 }
 
-export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, navigate, setToast }: PageProps) {
+export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, navigate, setToast }: PageProps) {
   if (!activeTheme) {
     return <EmptyState title="テーマがありません" action="テーマを追加" onAction={() => openDrawer({ type: "theme", mode: "edit", entity: {} })} />;
   }
@@ -131,7 +131,7 @@ export function HomePage({ data, domain: v2, activeTheme, notes, openDrawer, nav
         </section>
       </div>
       <section className="panel">
-        <div className="section-heading"><h2>最近やったこと</h2><button className="text-button compact" onClick={() => navigate("todo-done")}>完了一覧へ</button></div>
+        <div className="section-heading"><h2>最近やったこと</h2><button className="text-button compact" onClick={() => navigate("todo")}>完了一覧へ</button></div>
         <SimpleRows
           records={doneTasks as unknown as BaseRecord[]}
           onOpen={(task) => openDrawer({ type: "task", entity: task })}

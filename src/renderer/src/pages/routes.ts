@@ -1,22 +1,28 @@
 export const crossNavigation = [
   ["inbox", "Inbox整理"],
-  ["micro-memos", "付箋メモ"],
   ["timeline", "Timeline"],
 ] as const;
 
 export const toolNavigation = [
-  ["proposal-inbox", "Proposal Inbox"],
-  ["ai-io", "AI Import / Export"],
+  ["ai-io", "AI連携"],
   ["settings", "Settings"],
 ] as const;
 
 export const routeParent: Record<string, string> = {
   todo: "today",
-  "todo-done": "today",
   waiting: "today",
+  "micro-memos": "inbox",
   notes: "knowledge",
-  prompts: "knowledge",
+  prompts: "notes",
   "chat-refs": "knowledge",
+  "proposal-inbox": "ai-io",
+};
+
+// 旧hashとの互換用リダイレクト表。ルートIDを変更・廃止した際にここへ追記し、
+// 旧リンク・履歴からの遷移先を保つ。
+export const routeAliases: Record<string, string> = {
+  home: "theme",
+  "todo-done": "todo",
 };
 
 export const todayHubTabs = [
@@ -28,7 +34,6 @@ export const todayHubTabs = [
 export const knowledgeHubTabs = [
   ["knowledge", "Knowledge"],
   ["notes", "Notes"],
-  ["prompts", "Prompts"],
   ["chat-refs", "チャット参照"],
 ] as const;
 
@@ -37,9 +42,8 @@ export type RouteId =
   | "inbox"
   | "micro-memos"
   | "chat-refs"
-  | "home"
+  | "theme"
   | "todo"
-  | "todo-done"
   | "timeline"
   | "themes"
   | "notes"

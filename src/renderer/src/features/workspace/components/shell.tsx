@@ -3,8 +3,6 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { themeColor } from "../lib/domain";
-import { isChatReference } from "../lib/chatRefs";
-import { isPromptNote } from "../lib/prompts";
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
   return (
@@ -44,7 +42,6 @@ export function Sidebar({
   openDrawer,
 }: SidebarProps) {
   const inbox = domain.capture_entries.filter((e) => e.state === "untriaged" && e.kind !== "micro_memo").length;
-  const microMemos = domain.capture_entries.filter((e) => e.kind === "micro_memo" && e.state !== "archived").length;
   const today = todayIso();
   const schedulesByOwner = new Map(domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const todayCount = domain.tasks.filter((t) => {
@@ -52,30 +49,30 @@ export function Sidebar({
     const s = schedulesByOwner.get(`task:${t.id}`);
     return s && (s.start_date === today || s.end_date === today || (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today));
   }).length;
-  const waiting = domain.waitings.filter((w) => w.state === "waiting").length;
-  const openTasks = domain.tasks.filter((t) => t.state !== "done" && t.state !== "cancelled").length;
-  const promptCount = domain.notes.filter(isPromptNote).length;
-  const notesCount = domain.notes.filter((note) => !isPromptNote(note)).length + domain.resources.filter((resource) => !isChatReference(resource)).length;
-  const knowledgeCount = domain.knowledge_nodes.length;
-  const chatRefCount = domain.resources.filter(isChatReference).length;
+  const overdueTasks = domain.tasks.filter((t) => {
+    if (t.state === "done" || t.state === "cancelled") return false;
+    const s = schedulesByOwner.get(`task:${t.id}`);
+    const due = String(s?.end_date || "");
+    return Boolean(due && due < today);
+  }).length;
+  const dueWaitings = domain.waitings.filter((w) => {
+    if (w.state !== "waiting") return false;
+    const s = schedulesByOwner.get(`waiting:${w.id}`);
+    const due = String(s?.end_date || s?.start_date || "");
+    return Boolean(due && due <= today);
+  }).length;
   const proposalCount = domain.ai_proposals.filter((proposal) => proposal.status === "pending").length;
-  const activeRoute = route === "todo-done" ? "todo" : route;
   const countByRoute: Record<string, number> = {
     today: todayCount,
-    todo: openTasks,
-    waiting,
+    todo: overdueTasks,
+    waiting: dueWaitings,
     inbox,
-    "micro-memos": microMemos,
-    knowledge: knowledgeCount,
-    notes: notesCount,
-    prompts: promptCount,
-    "chat-refs": chatRefCount,
-    "proposal-inbox": proposalCount,
+    "ai-io": proposalCount,
   };
   const renderNavButton = ([id, label]: readonly [string, string]) => {
     const count = countByRoute[id] || 0;
     return (
-      <button key={id} className={activeRoute === id ? "is-active" : ""} aria-current={activeRoute === id ? "page" : undefined} onClick={() => navigate(id)}>
+      <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
         <span>{label}</span>
         {count > 0 && <span className="count">{count}</span>}
       </button>
@@ -100,12 +97,12 @@ export function Sidebar({
       <div className="theme-nav">
         <div className="nav-heading"><span>テーマ別</span><button onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>＋ 追加</button></div>
         <button className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`} aria-current={route === "themes" ? "page" : undefined} onClick={() => navigate("themes")}>
-          <span>すべてのテーマ</span><span className="count">{themes.length}</span>
+          <span>すべてのテーマ</span>
         </button>
         {themes.map((theme, index) => {
-          const current = route === "home" && theme.id === activeThemeId;
+          const current = route === "theme" && theme.id === activeThemeId;
           return (
-            <button key={theme.id} className={current ? "is-active" : ""} aria-current={current ? "page" : undefined} onClick={() => { setActiveThemeId(theme.id); navigate("home"); }}>
+            <button key={theme.id} className={current ? "is-active" : ""} aria-current={current ? "page" : undefined} onClick={() => { setActiveThemeId(theme.id); navigate("theme"); }}>
               <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} /><span>{theme.name}</span>
             </button>
           );
@@ -127,7 +124,9 @@ export function ShortcutDialog({ close }: { close: () => void }) {
         <dl className="shortcut-list">
           <dt><kbd>?</kbd></dt><dd>この一覧を表示</dd>
           <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>クイック記録</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd></dt><dd>Inbox記録</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd></dt><dd>付箋メモ</dd>
+          <dt>トレイ</dt><dd>今日のタスク / やったこと / 付箋メモ</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>検索へ移動</dd>
           <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる</dd>
         </dl>

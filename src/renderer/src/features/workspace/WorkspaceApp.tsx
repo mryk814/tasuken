@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertTriangle, IconCheck, IconInfoCircle, IconTrash } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../services/workspaceApi";
-import { useUiStore } from "../../stores/uiStore";
+import { routeAliases } from "../../pages/routes";
+import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import type {
@@ -38,21 +39,18 @@ import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
-import { HomePage } from "./pages/HomePage";
+import { ThemePage } from "./pages/ThemePage";
 import { TodoPage } from "./pages/TodoPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { ThemesPage } from "./pages/ThemesPage";
 import { NotesPage } from "./pages/NotesPage";
-import { PromptsPage } from "./pages/PromptsPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 import { WaitingPage } from "./pages/WaitingPage";
 import { ImportExportPage } from "./pages/ImportExportPage";
-import { ProposalInboxPage } from "./pages/ProposalInboxPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TodayPage } from "./pages/TodayPage";
 import { InboxPage } from "./pages/InboxPage";
 import { ChatRefsPage } from "./pages/ChatRefsPage";
-import { MicroMemoPage } from "./pages/MicroMemoPage";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -63,6 +61,10 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "schedules", "references", "task_dependencies", "plan_dependencies",
   "knowledge_edges", "change_events",
 ];
+
+function normalizeRoute(route: string): string {
+  return route === "micro-memos" ? "inbox" : route === "prompts" ? "notes" : route === "proposal-inbox" ? "ai-io" : routeAliases[route] || route;
+}
 
 function taskRepeatRuleFromForm(values: FormData, fallbackDay: number): TaskRepeatRule | null {
   const frequency = formText(values, "repeat_frequency");
@@ -134,16 +136,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-type ToastTone = "info" | "success" | "warning" | "danger";
-
-function toastTone(message: string, hasUndo: boolean): ToastTone {
-  if (/できません|失敗|エラー|読み込めません|書き出せません|反映できません/.test(message)) return "danger";
-  if (hasUndo || /削除しました/.test(message)) return "warning";
-  if (/注意|警告|期限切れ/.test(message)) return "warning";
-  if (/保存しました|追加しました|更新しました|コピーしました|元に戻しました|完了しました|整理しました/.test(message)) return "success";
-  return "info";
-}
-
 function toastIcon(tone: ToastTone) {
   if (tone === "danger") return <IconAlertTriangle size={18} />;
   if (tone === "warning") return <IconTrash size={18} />;
@@ -164,12 +156,13 @@ export function WorkspaceApp() {
   const saveWorkspaceEntities = useWorkspaceStore((state) => state.saveMany);
   const removeWorkspaceEntity = useWorkspaceStore((state) => state.remove);
   const restoreWorkspaceEntity = useWorkspaceStore((state) => state.restore);
-  const route = useUiStore((state) => state.route);
+  const route = useUiStore((state) => normalizeRoute(state.route));
   const setRoute = useUiStore((state) => state.setRoute);
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
   const toast = useUiStore((state) => state.toast);
+  const toastToneValue = useUiStore((state) => state.toastTone);
   const setToast = useUiStore((state) => state.setToast);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
@@ -225,12 +218,12 @@ export function WorkspaceApp() {
     return window.api.app.onWorkspaceChanged((change) => {
       if (change?.entities?.length) {
         applyExternalSaves(change.entities);
-        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`));
+        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`, "danger"));
         return;
       }
       if (change?.type && change.entity) {
         applyExternalSave(change.type, change.entity);
-        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`));
+        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`, "danger"));
         return;
       }
       void refreshWorkspace();
@@ -238,7 +231,7 @@ export function WorkspaceApp() {
   }, [applyExternalSave, applyExternalSaves, refreshWorkspace, setToast]);
 
   useEffect(() => {
-    const onHash = () => setRoute(location.hash.slice(1) || "today");
+    const onHash = () => setRoute(normalizeRoute(location.hash.slice(1) || "today"));
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [setRoute]);
@@ -247,7 +240,7 @@ export function WorkspaceApp() {
     document.documentElement.dataset.theme = themeMode;
     if (loadState === "success") {
       workspaceApi.setPreference("themeMode", themeMode).catch((error) => {
-        setToast(`表示設定を保存できませんでした。${errorMessage(error)}`);
+        setToast(`表示設定を保存できませんでした。${errorMessage(error)}`, "danger");
       });
     }
   }, [themeMode, loadState, setToast]);
@@ -266,7 +259,7 @@ export function WorkspaceApp() {
       workspaceApi.checkForUpdates()
         .then((result) => {
           if (!canceled && result.status === "available") {
-            setToast(`Tasken ${result.latestVersion} が公開されています。Settingsで更新できます。`);
+            setToast(`Tasken ${result.latestVersion} が公開されています。Settingsで更新できます。`, "info");
           }
         })
         .catch(() => {});
@@ -395,8 +388,9 @@ export function WorkspaceApp() {
   function navigate(next: string) {
     void (async () => {
       if (!(await saveDirtyDrawerForm())) return;
-      location.hash = next;
-      setRoute(next);
+      const normalized = normalizeRoute(next);
+      location.hash = normalized;
+      setRoute(normalized);
     })();
   }
 
@@ -421,7 +415,7 @@ export function WorkspaceApp() {
     return window.api.app.onOpenTaskDetail((taskId) => {
       const task = fullDomain.tasks.find((entry) => entry.id === taskId);
       if (!task) {
-        setToast("タスクを開けませんでした。画面を更新してもう一度試してください。");
+        setToast("タスクを開けませんでした。画面を更新してもう一度試してください。", "danger");
         return;
       }
       const schedule = fullDomain.schedules.find((entry) => entry.owner_type === "task" && entry.owner_id === task.id);
@@ -434,10 +428,10 @@ export function WorkspaceApp() {
   const saveEntity: SaveEntity = async (type, entity, options = {}) => {
     try {
       const saved = await saveWorkspaceEntity(type, entity as Entity, options);
-      setToast(entity.id ? "変更を保存しました。" : "追加しました。");
+      setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
       return saved;
     } catch (error) {
-      setToast(`保存できませんでした。${errorMessage(error)}`);
+      setToast(`保存できませんでした。${errorMessage(error)}`, "danger");
       throw error;
     }
   };
@@ -445,10 +439,10 @@ export function WorkspaceApp() {
   const saveEntities: SaveEntities = async (operations, successMessage = "変更を保存しました。") => {
     try {
       const saved = await saveWorkspaceEntities(operations);
-      setToast(successMessage);
+      setToast(successMessage, "success");
       return saved;
     } catch (error) {
-      setToast(`保存できませんでした。${errorMessage(error)}`);
+      setToast(`保存できませんでした。${errorMessage(error)}`, "danger");
       throw error;
     }
   };
@@ -476,9 +470,9 @@ export function WorkspaceApp() {
       drawerFormInitialSignature.current = "";
       setDrawer(null);
       requestAnimationFrame(() => drawerTrigger.current?.focus?.());
-      setToast(`${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`);
+      setToast(`${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`, "warning");
     } catch (error) {
-      setToast(`削除できませんでした。${errorMessage(error)}`);
+      setToast(`削除できませんでした。${errorMessage(error)}`, "danger");
     }
   }
 
@@ -486,7 +480,7 @@ export function WorkspaceApp() {
     if (!lastDeleted.current) return;
     await restoreWorkspaceEntity(lastDeleted.current.type, lastDeleted.current.id);
     lastDeleted.current = null;
-    setToast("削除を元に戻しました。");
+    setToast("削除を元に戻しました。", "success");
   }
 
   async function removeEntityQuiet(type: EntityType, id: string) {
@@ -732,40 +726,6 @@ export function WorkspaceApp() {
         next_actions: formText(values, "next_actions"),
       };
       if (!entity.summary) { setToast("現在地の概要を入力してください。"); return false; }
-    } else if (type === "source_record") {
-      entity = {
-        ...base,
-        source_type: formText(values, "source_type", "manual"),
-        source_title: formText(values, "source_title"),
-        source_url: formText(values, "source_url"),
-        captured_at: formText(values, "captured_at") || new Date().toISOString(),
-        raw_text: formText(values, "raw_text"),
-        summary: formText(values, "summary"),
-      };
-      if (!entity.source_title) { setToast("情報源のタイトルを入力してください。"); return false; }
-    } else if (type === "field_definition") {
-      entity = {
-        ...base,
-        name: formText(values, "name"),
-        field_type: formText(values, "field_type", "text"),
-        applies_to: formText(values, "applies_to", "item"),
-        theme_id: formText(values, "theme_id") || null,
-        options_json: formText(values, "options").split(",").map((value) => value.trim()).filter(Boolean),
-        sort_order: Number(values.get("sort_order") || 0),
-        is_required: values.get("is_required") === "on",
-      };
-      if (!entity.name) { setToast("項目名を入力してください。"); return false; }
-    } else if (type === "reference") {
-      entity = {
-        ...base,
-        source_type: formText(values, "source_type", "task"),
-        source_id: formText(values, "source_id"),
-        target_type: formText(values, "target_type", "task"),
-        target_id: formText(values, "target_id"),
-        relation_type: formText(values, "relation_type", "related_to"),
-        note: formText(values, "note"),
-      };
-      if (!entity.source_id || !entity.target_id) { setToast("参照元と参照先を選択してください。"); return false; }
     } else if (type === "knowledge_node") {
       const autoTarget = str(base._auto_edge_target_id);
       const autoRelation = str(base._auto_edge_relation_type);
@@ -819,16 +779,6 @@ export function WorkspaceApp() {
         setToast("異なる2つのKnowledgeを選択してください。");
         return false;
       }
-    } else if (type === "task_dependency") {
-      entity = {
-        ...base,
-        task_id: formText(values, "task_id"),
-        depends_on_task_id: formText(values, "depends_on_task_id"),
-      };
-      if (!entity.task_id || !entity.depends_on_task_id || entity.task_id === entity.depends_on_task_id) {
-        setToast("異なる2つのタスクを選択してください。");
-        return false;
-      }
     }
 
     if (!entity) return false;
@@ -871,23 +821,17 @@ export function WorkspaceApp() {
   const pages: Record<string, React.ReactNode> = {
     today: <TodayPage {...common} />,
     inbox: <InboxPage {...common} />,
-    "micro-memos": <MicroMemoPage {...common} />,
     "chat-refs": <ChatRefsPage {...common} />,
-    home: <HomePage {...common} />,
+    theme: <ThemePage {...common} />,
     todo: <TodoPage {...common} />,
-    "todo-done": <TodoPage {...common} />,
     timeline: <TimelinePage {...common} />,
     themes: <ThemesPage {...common} />,
     notes: <NotesPage {...common} />,
-    prompts: <PromptsPage {...common} />,
     knowledge: <KnowledgePage {...common} />,
     waiting: <WaitingPage {...common} />,
-    "proposal-inbox": <ProposalInboxPage {...common} />,
     "ai-io": <ImportExportPage {...common} />,
     settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroups={activeGroups} setActiveGroups={setActiveGroups} allThemes={allThemes} />,
   };
-  const toastToneValue = toast ? toastTone(toast, Boolean(lastDeleted.current)) : "info";
-
   return (
     <div className={`app-shell ${drawer ? "has-drawer" : ""}`}>
       <Sidebar
@@ -917,6 +861,7 @@ export function WorkspaceApp() {
           data={data}
           domain={domain}
           activeTheme={activeTheme}
+          route={route}
           openDrawer={openDrawer}
           navigate={navigate}
         />

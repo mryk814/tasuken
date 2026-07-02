@@ -12,6 +12,7 @@ interface ContextPaneProps {
   data: WorkspaceData;
   domain: WorkspaceDomain;
   activeTheme: Theme | null;
+  route: string;
   openDrawer: OpenDrawer;
   navigate(next: string): void;
 }
@@ -44,8 +45,9 @@ function pickRediscovery<T extends { id: string; updated_at?: string; created_at
     .slice(0, count);
 }
 
-export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigate }: ContextPaneProps) {
+export function ContextPane({ data, domain: v2, activeTheme, route, openDrawer, navigate }: ContextPaneProps) {
   const today = dateOnly(new Date().toISOString());
+  const isTodayRoute = route === "today";
   const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const themeTasks = activeTheme ? v2.tasks.filter((t) => t.project_id === activeTheme.id) : v2.tasks;
   const openTasks = themeTasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
@@ -78,16 +80,18 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
             <button className="text-button compact" onClick={() => navigate("today")}>今日へ</button>
           </div>
           <div className="context-metrics">
-            <button onClick={() => navigate("todo")}>
-              <span>期限切れ</span>
-              <strong>{overdue.length}</strong>
-            </button>
+            {!isTodayRoute && (
+              <button onClick={() => navigate("todo")}>
+                <span>期限切れ</span>
+                <strong>{overdue.length}</strong>
+              </button>
+            )}
             <button onClick={() => navigate("waiting")}>
               <span>待ち</span>
               <strong>{waitingRows.length}</strong>
             </button>
           </div>
-          {overdue.slice(0, 3).map(({ task, date }) => (
+          {!isTodayRoute && overdue.slice(0, 3).map(({ task, date }) => (
             <button className="context-row" key={task.id} onClick={() => openDrawer({ type: "task", entity: { ...task, _schedule: schedulesMap.get(`task:${task.id}`) } as Record<string, unknown> })}>
               <IconPointFilled size={14} />
               <span>
@@ -96,7 +100,7 @@ export function ContextPane({ data, domain: v2, activeTheme, openDrawer, navigat
               </span>
             </button>
           ))}
-          {!overdue.length && <EmptyState title="急ぎの期限切れはありません" action="タスクを見る" onAction={() => navigate("todo")} />}
+          {!isTodayRoute && !overdue.length && <EmptyState title="急ぎの期限切れはありません" action="タスクを見る" onAction={() => navigate("todo")} />}
         </section>
 
         <section className="context-section">
