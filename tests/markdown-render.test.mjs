@@ -84,6 +84,30 @@ test("structured markdown paste detection keeps plain text paste native", () => 
   assert.equal(markdown.isStructuredMarkdownPaste("> quote"), true);
 });
 
+test("structured markdown paste inserts near the current rendered text selection", () => {
+  const current = "Intro\n\n本文中の式 Live edit smoke$a^2$ を確認します。";
+  const next = markdown.insertStructuredMarkdownPaste(
+    current,
+    "## Pasted Heading\n\n**Pasted Bold**",
+    "本文中の式 Live edit smoke",
+    "本文中の式 Live edit smoke".length,
+  );
+
+  assert.match(next, /Live edit smoke\n\n## Pasted Heading\n\n\*\*Pasted Bold\*\*\n\n\$a\^2\$/);
+});
+
+test("structured markdown paste falls back to appending when selection cannot be mapped", () => {
+  const next = markdown.insertStructuredMarkdownPaste("Intro", "## Pasted", "", 0);
+
+  assert.equal(next, "Intro\n\n## Pasted\n");
+});
+
+test("structured markdown paste fills an empty note without leading blank lines", () => {
+  const next = markdown.insertStructuredMarkdownPaste("", "## Pasted", "", 0);
+
+  assert.equal(next, "## Pasted\n");
+});
+
 test("markdown preview does not render unsafe image urls", () => {
   const html = markdown.renderMarkdownPreview("![bad](javascript:alert(1))");
 

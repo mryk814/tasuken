@@ -164,6 +164,35 @@ export function isStructuredMarkdownPaste(value: string): boolean {
   ].some((pattern) => pattern.test(text));
 }
 
+export function insertStructuredMarkdownPaste(
+  current: string,
+  pasted: string,
+  anchorText = "",
+  anchorOffset = 0,
+): string {
+  const content = pasted.trim();
+  if (!content) return current;
+  const append = () => (current.trim() ? `${current.trimEnd()}\n\n${content}\n` : `${content}\n`);
+  const anchor = anchorText.trimEnd();
+  if (!anchor) return append();
+
+  const safeOffset = Math.max(0, Math.min(anchorOffset, anchorText.length));
+  const directIndex = current.indexOf(anchorText);
+  let insertionIndex = directIndex >= 0 ? directIndex + safeOffset : -1;
+  if (insertionIndex < 0) {
+    const beforeSelection = anchorText.slice(0, safeOffset).trimEnd();
+    if (beforeSelection) {
+      const beforeIndex = current.indexOf(beforeSelection);
+      if (beforeIndex >= 0) insertionIndex = beforeIndex + beforeSelection.length;
+    }
+  }
+  if (insertionIndex < 0) return append();
+
+  const before = current.slice(0, insertionIndex).trimEnd();
+  const after = current.slice(insertionIndex).replace(/^\s+/, "");
+  return `${before}\n\n${content}\n${after ? `\n${after}` : ""}`;
+}
+
 function markdownTableCells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
   return trimmed.split("|").map((cell) => cell.trim());
