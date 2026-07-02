@@ -10,8 +10,57 @@ export function isChatReference(resource: Resource): boolean {
   return isKnownChatService(resource.link_type) || resolveChatService(resource) !== "other" || Boolean(resource.reference_status);
 }
 
+function textField(resource: Resource, key: string): string {
+  return String((resource as unknown as Record<string, unknown>)[key] || "");
+}
+
+function datePart(value: string): string {
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] || "";
+}
+
+function hasMinuteTime(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value);
+}
+
+function timestampFallback(resource: Resource, capturedDate: string): string {
+  for (const key of ["created_at", "updated_at"]) {
+    const value = textField(resource, key);
+    if (!hasMinuteTime(value)) continue;
+    if (!capturedDate || datePart(value) === capturedDate) return value;
+  }
+  return "";
+}
+
 export function chatResourceDate(resource: Resource): string {
-  return String(resource.captured_at || (resource as unknown as Record<string, unknown>).created_at || (resource as unknown as Record<string, unknown>).updated_at || "");
+  const captured = String(resource.captured_at || "");
+  if (hasMinuteTime(captured)) return captured;
+  const capturedDate = datePart(captured);
+  return timestampFallback(resource, capturedDate) || captured || textField(resource, "created_at") || textField(resource, "updated_at");
+}
+
+export function formatChatResourceDate(resource: Resource): string {
+  const value = chatResourceDate(resource);
+  const date = datePart(value);
+  if (!date) return "—";
+  const formattedDate = date.replaceAll("-", "/");
+  return hasMinuteTime(value) ? `${formattedDate} ${value.slice(11, 16)}` : formattedDate;
+}
+
+export function resolveSubmittedChatCapturedAt(submittedDate: string, initialValue?: string | null): string | null {
+  const submitted = submittedDate.trim();
+  const initial = String(initialValue || "");
+  if (!submitted) return initial || null;
+  if (hasMinuteTime(initial) && datePart(initial) === submitted) return initial;
+  return submitted;
+}
+
+export function chatThreadMetaLabels({ parentTitle, childCount }: { parentTitle?: string; childCount: number }): string[] {
+  const labels: string[] = [];
+  const parent = String(parentTitle || "").trim();
+  if (parent) labels.push(`元チャット：${parent}`);
+  if (childCount > 0) labels.push(`続き${childCount}件`);
+  return labels;
 }
 
 function titleValue(resource: Resource): string {

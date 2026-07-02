@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import {
   IconBrandGoogle,
   IconBrandOpenai,
@@ -24,8 +24,9 @@ import type { Resource } from "../domain-model/types";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
 import { CHAT_SERVICE_LABELS, type ChatServiceType, resolveChatService } from "../lib/chatServices";
 import {
-  chatResourceDate,
+  chatThreadMetaLabels,
   clearChatGroupResources,
+  formatChatResourceDate,
   groupChatResources,
   isChatReference,
   renameChatGroupResources,
@@ -35,7 +36,7 @@ import {
   type ChatRefSortOrder,
 } from "../lib/chatRefs";
 import { themeColor } from "../lib/domain";
-import { formatDate, str } from "../lib/format";
+import { str } from "../lib/format";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 
 type StatusFilter = "all" | "inbox" | "adopted";
@@ -205,7 +206,7 @@ export function ChatRefsPage({
     event.preventDefault();
     const url = str(resource.url);
     const items: ContextMenuItem[] = [
-      { label: "編集する", onSelect: () => openDrawer({ type: "resource", mode: "edit", entity: resource as unknown as Record<string, unknown> }) },
+      { label: "編集する", onSelect: () => openChatResource(resource) },
       { label: isAdopted(resource) ? "採用を解除" : "採用にする", onSelect: () => toggleAdopted(resource) },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(resource.title)) },
     ];
@@ -221,6 +222,20 @@ export function ChatRefsPage({
       onSelect: () => removeEntity("resource", resource as unknown as Record<string, unknown>),
     });
     setContextMenu({ x: event.clientX, y: event.clientY, items });
+  }
+
+  function openChatResource(resource: Resource) {
+    openDrawer({ type: "resource", mode: "edit", entity: resource as unknown as Record<string, unknown> });
+  }
+
+  function stopRowClick(event: MouseEvent<HTMLElement>) {
+    event.stopPropagation();
+  }
+
+  function openRowFromKeyboard(event: KeyboardEvent<HTMLElement>, resource: Resource) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openChatResource(resource);
   }
 
   function dragPlacement(event: DragEvent<HTMLElement>): DragPlacement {
@@ -260,7 +275,7 @@ export function ChatRefsPage({
         project_id: selectedThemeId || null,
         chat_group: chatGroup,
         importance: "normal",
-        captured_at: new Date().toISOString().slice(0, 10),
+        captured_at: new Date().toISOString(),
         sort_order: nextSortOrder,
       },
     });
@@ -282,7 +297,7 @@ export function ChatRefsPage({
         chat_group: parent.chat_group || "",
         parent_resource_id: parent.id,
         importance: "normal",
-        captured_at: new Date().toISOString().slice(0, 10),
+        captured_at: new Date().toISOString(),
         sort_order: nextSortOrder,
       },
     });
@@ -412,11 +427,16 @@ export function ChatRefsPage({
                   const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
                   const parent = resourceById.get(str(r.parent_resource_id));
                   const childCount = childrenByParentId.get(r.id)?.length || 0;
+                  const threadLabels = chatThreadMetaLabels({ parentTitle: parent ? str(parent.title || parent.url) : "", childCount });
                   return (
                     <div
                       className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""}`}
                       key={r.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openChatResource(r)}
                       onContextMenu={(event) => showChatLinkMenu(event, r)}
+                      onKeyDown={(event) => openRowFromKeyboard(event, r)}
                       onDragOver={canDrag && isSameDragGroup ? (event) => {
                         event.preventDefault();
                         event.dataTransfer.dropEffect = "move";
@@ -438,6 +458,7 @@ export function ChatRefsPage({
                         <span
                           className={`chat-row-drag-handle ${canDrag ? "" : "is-disabled"}`}
                           draggable={canDrag}
+                          onClick={stopRowClick}
                           onDragStart={(event) => {
                             if (!canDrag) return;
                             event.dataTransfer.effectAllowed = "move";
@@ -455,7 +476,10 @@ export function ChatRefsPage({
                       )}
                       <button
                         className={`chat-star ${isAdopted(r) ? "is-adopted" : ""}`}
-                        onClick={() => toggleAdopted(r)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleAdopted(r);
+                        }}
                         aria-label={isAdopted(r) ? "採用を解除" : "採用にする"}
                       >
                         {isAdopted(r) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
@@ -463,20 +487,17 @@ export function ChatRefsPage({
                       <span className={`chat-service-chip chat-service-${service}`} title={CHAT_SERVICE_LABELS[service]} aria-label={CHAT_SERVICE_LABELS[service]}>
                         <ChatServiceIcon service={service} />
                       </span>
-                      <button className="chat-link-title" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
+                      <span className="chat-link-title">
                         {r.title || "無題"}
-                        {(parent || childCount > 0) && (
-                          <small className="chat-thread-meta">
-                            {parent ? `続き: ${parent.title || parent.url}` : ""}
-                            {parent && childCount > 0 ? " / " : ""}
-                            {childCount > 0 ? `続き${childCount}件` : ""}
-                          </small>
-                        )}
-                      </button>
+                        {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
+                      </span>
                       {parent && (
                         <button
                           className="row-action-button"
-                          onClick={() => openDrawer({ type: "resource", mode: "edit", entity: parent as unknown as Record<string, unknown> })}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openChatResource(parent);
+                          }}
                           aria-label={`${r.title || "チャットリンク"}の元チャットを開く`}
                           title="元チャットを開く"
                         >
@@ -485,32 +506,30 @@ export function ChatRefsPage({
                       )}
                       <button
                         className="row-action-button"
-                        onClick={() => addContinuation(r)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          addContinuation(r);
+                        }}
                         aria-label={`${r.title || "チャットリンク"}の続きチャットを追加`}
                         title="続きとして追加"
                       >
                         <IconLinkPlus size={15} />
                       </button>
-                      <button
-                        className="row-action-button"
-                        onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}
-                        aria-label={`${r.title || "チャットリンク"}を編集`}
-                        title="編集"
-                      >
-                        <IconPencil size={15} />
-                      </button>
-                      <a className="row-action-button chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" aria-label={`${r.title || "リンク"}を開く`} title="開く">
+                      <a className="row-action-button chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" onClick={stopRowClick} aria-label={`${r.title || "リンク"}を開く`} title="開く">
                         <IconExternalLink size={16} />
                       </a>
                       <button
                         className="row-action-button danger chat-link-delete"
-                        onClick={() => removeEntity("resource", r as unknown as Record<string, unknown>)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeEntity("resource", r as unknown as Record<string, unknown>);
+                        }}
                         aria-label={`${r.title || "チャットリンク"}を削除`}
                         title="削除"
                       >
                         <IconTrash size={15} />
                       </button>
-                      <span className="chat-link-date">{formatDate(chatResourceDate(r))}</span>
+                      <span className="chat-link-date">{formatChatResourceDate(r)}</span>
                     </div>
                   );
                 })}

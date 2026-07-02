@@ -22,6 +22,7 @@ import type {
 } from "./types";
 import { entityTitle } from "./lib/domain";
 import { inferChatServiceFromUrl } from "./lib/chatServices";
+import { resolveSubmittedChatCapturedAt } from "./lib/chatRefs";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import type { SaveOperation } from "./types";
 import {
@@ -672,7 +673,7 @@ export function WorkspaceApp() {
           : ((base.link_type as string | null) ?? null),
         reference_status: formText(values, "reference_status") ? normalizeChatReferenceStatus(formText(values, "reference_status")) : (base.reference_status ? normalizeChatReferenceStatus(String(base.reference_status)) : null),
         importance: formText(values, "importance") || null,
-        captured_at: formText(values, "captured_at") || ((base.captured_at as string | null) ?? null),
+        captured_at: resolveSubmittedChatCapturedAt(formText(values, "captured_at"), (base.captured_at as string | null) ?? null),
         chat_group: formText(values, "chat_group") || null,
         parent_resource_id: formText(values, "parent_resource_id") || null,
         sort_order: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : null,

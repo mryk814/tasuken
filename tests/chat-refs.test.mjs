@@ -49,6 +49,58 @@ test("chat references keep manual order before date fallback", () => {
   assert.equal(grouped[1].key, chatRefs.UNGROUPED_CHAT_GROUP);
 });
 
+test("chat references use timestamp fallbacks when sorting same-day links by newest", () => {
+  const grouped = chatRefs.groupChatResources([
+    resource("alpha", "A", {
+      captured_at: "2026-07-02",
+      created_at: "2026-07-02T09:30:00.000",
+    }),
+    resource("bravo", "B", {
+      captured_at: "2026-07-02",
+      created_at: "2026-07-02T10:15:00.000",
+    }),
+    resource("charlie", "C", {
+      captured_at: "2026-07-01T23:00:00.000",
+      created_at: "2026-07-02T12:00:00.000",
+    }),
+  ], "newest");
+
+  assert.deepEqual(grouped[0].resources.map((r) => r.id), ["bravo", "alpha", "charlie"]);
+});
+
+test("chat reference date labels include minutes when a usable timestamp is present", () => {
+  assert.equal(chatRefs.formatChatResourceDate(resource("date", "日付のみ", { captured_at: "2026-07-02" })), "2026/07/02");
+  assert.equal(
+    chatRefs.formatChatResourceDate(resource("created", "作成時刻", {
+      captured_at: "2026-07-02",
+      created_at: "2026-07-02T10:15:00.000",
+    })),
+    "2026/07/02 10:15",
+  );
+  assert.equal(
+    chatRefs.formatChatResourceDate(resource("captured", "保存時刻", { captured_at: "2026-07-02T11:05:00.000" })),
+    "2026/07/02 11:05",
+  );
+});
+
+test("submitted chat captured dates preserve the initial timestamp when the day is unchanged", () => {
+  assert.equal(
+    chatRefs.resolveSubmittedChatCapturedAt("2026-07-02", "2026-07-02T10:15:30.000"),
+    "2026-07-02T10:15:30.000",
+  );
+  assert.equal(
+    chatRefs.resolveSubmittedChatCapturedAt("2026-07-03", "2026-07-02T10:15:30.000"),
+    "2026-07-03",
+  );
+  assert.equal(chatRefs.resolveSubmittedChatCapturedAt("", "2026-07-02T10:15:30.000"), "2026-07-02T10:15:30.000");
+});
+
+test("chat thread labels describe parent links as original chat", () => {
+  assert.deepEqual(chatRefs.chatThreadMetaLabels({ parentTitle: "初回相談", childCount: 2 }), ["元チャット：初回相談", "続き2件"]);
+  assert.deepEqual(chatRefs.chatThreadMetaLabels({ parentTitle: "初回相談", childCount: 0 }), ["元チャット：初回相談"]);
+  assert.deepEqual(chatRefs.chatThreadMetaLabels({ parentTitle: "", childCount: 1 }), ["続き1件"]);
+});
+
 test("drag reordering a chat group rewrites stable sort_order values", () => {
   const current = [
     resource("a", "A", { sort_order: 10 }),
