@@ -220,7 +220,7 @@ function showTodayMiniWindow(): void {
   }
   todayMiniWindow.show();
   todayMiniWindow.focus();
-  todayMiniWindow.setAlwaysOnTop(true, "floating");
+  todayMiniWindow.setAlwaysOnTop(true);
   if (!todayMiniWindow.webContents.isLoading()) {
     todayMiniWindow.webContents.send("today-mini:refresh");
   }

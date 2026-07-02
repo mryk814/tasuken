@@ -35,6 +35,24 @@ function fakeGraphRepository(records = {}) {
   return repo;
 }
 
+function fakePreferenceRepository() {
+  const meta = new Map();
+  const repo = Object.create(WorkspaceDatabase.prototype);
+  repo.ensureMeta = (key, fallback) => {
+    if (!meta.has(key)) meta.set(key, fallback);
+    return meta.get(key);
+  };
+  repo.db = {
+    prepare: (sql) => ({
+      run: (value) => {
+        const match = sql.match(/VALUES\('([^']+)', \?\)/);
+        if (match) meta.set(match[1], value);
+      },
+    }),
+  };
+  return repo;
+}
+
 test("workspace entity types and snapshots exclude person records", () => {
   assert.equal(workspaceEntityTypes.includes("person"), false);
   assert.equal(workspaceEntityTypes.includes("item"), true);
@@ -46,6 +64,16 @@ test("workspace entity types and snapshots exclude person records", () => {
   });
   assert.equal(zip.getEntry("people.json"), null);
   assert.ok(zip.getEntry("items.json"));
+});
+
+test("activity log export directory preference round-trips", () => {
+  const repo = fakePreferenceRepository();
+  const exportDir = "C:\\Users\\ootan\\Documents\\Tasken";
+
+  assert.equal(repo.setPreference("activityLogDirectory", exportDir), exportDir);
+  assert.equal(repo.getPreference("activityLogDirectory"), exportDir);
+  assert.equal(repo.setPreference("activityLogDirectory", ""), "");
+  assert.equal(repo.getPreference("activityLogDirectory"), "");
 });
 
 test("link URL validation allows web and mailto but rejects file", () => {

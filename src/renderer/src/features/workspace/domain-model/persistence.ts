@@ -116,6 +116,23 @@ export function buildTriageCaptureEntryOperations(
   ];
 }
 
+export function buildSendMicroMemoToInboxOperations(
+  entry: CaptureEntry,
+  context: SaveContext = {},
+): SaveOperation[] {
+  const next: CaptureEntry = {
+    ...entry,
+    kind: null,
+    state: "untriaged",
+    triaged_to_type: null,
+    triaged_to_id: null,
+  };
+  return [
+    saveOperation("capture_entry", next as unknown as Entity, { source: context.source || "manual", reason: context.reason || undefined }),
+    buildChangeEventOperation("capture_entry", entry.id, "updated", context, entry, next),
+  ];
+}
+
 export async function saveTask(saveEntities: (operations: SaveOperation[], message?: string) => Promise<Entity[]>, task: Task, context?: SaveContext): Promise<Entity[]> {
   return saveEntities(buildSaveTaskOperations(task, context), "Taskを保存しました。");
 }

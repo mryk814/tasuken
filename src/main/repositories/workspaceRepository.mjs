@@ -164,6 +164,7 @@ export class WorkspaceDatabase {
       }
     }
     if (key === "activeGroup") return this.ensureMeta("active_group", "");
+    if (key === "activityLogDirectory") return this.ensureMeta("activity_log_directory", "");
     throw new Error(`未対応の設定です: ${key}`);
   }
 
@@ -185,6 +186,14 @@ export class WorkspaceDatabase {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `).run(JSON.stringify(value));
       return value;
+    }
+    if (key === "activityLogDirectory") {
+      const directory = typeof value === "string" ? value : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('activity_log_directory', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(directory);
+      return directory;
     }
     if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);
     this.db.prepare(`

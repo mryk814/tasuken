@@ -146,6 +146,7 @@ export interface Resource {
   link_type?: string | null;
   reference_status?: string | null;
   importance?: string | null;
+  resource_scope?: "note" | "chat_ref" | null;
   captured_at?: string | null;
   chat_group?: string | null;
   parent_resource_id?: string | null;

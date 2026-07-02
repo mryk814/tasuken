@@ -18,6 +18,7 @@ async function importBundled(relativePath) {
 }
 
 const adapter = await importBundled("src/renderer/src/features/workspace/domain-model/compat/legacyAdapter.ts");
+const persistence = await importBundled("src/renderer/src/features/workspace/domain-model/persistence.ts");
 const selectors = await importBundled("src/renderer/src/features/workspace/domain-model/selectors.ts");
 const taskDuplication = await importBundled("src/renderer/src/features/workspace/domain-model/taskDuplication.ts");
 const timelineProjection = await importBundled("src/renderer/src/features/workspace/domain-model/compat/timelineProjection.ts");
@@ -232,6 +233,31 @@ test("inbox view sorts untriaged captures by newest timestamp", () => {
     "cap-date-a",
   ]);
   assert.deepEqual(selectors.buildMicroMemoView(domain).entries.map((entry) => entry.id), ["cap-memo"]);
+});
+
+test("micro memo can be sent back to the untriaged inbox lane", () => {
+  const memo = {
+    id: "cap-memo",
+    text: "scratch",
+    title: null,
+    kind: "micro_memo",
+    captured_at: "2026-06-23T12:00:00.000",
+    state: "untriaged",
+  };
+
+  const ops = persistence.buildSendMicroMemoToInboxOperations(memo, { now: "2026-06-23T12:05:00.000Z" });
+
+  assert.equal(ops.length, 2);
+  assert.equal(ops[0].type, "capture_entry");
+  assert.equal(ops[0].entity.id, "cap-memo");
+  assert.equal(ops[0].entity.kind, null);
+  assert.equal(ops[0].entity.state, "untriaged");
+  assert.equal(ops[1].type, "change_event");
+  assert.equal(ops[1].entity.entity_type, "capture_entry");
+  assert.equal(ops[1].entity.entity_id, "cap-memo");
+  assert.equal(ops[1].entity.change_type, "updated");
+  assert.equal(ops[1].entity.before_json.kind, "micro_memo");
+  assert.equal(ops[1].entity.after_json.kind, null);
 });
 
 test("compat timeline projection: plan nodes into legacy-compatible gantt items", () => {
