@@ -60,6 +60,7 @@ const api: ResearchDeskApi = {
   exports: {
     markdownNoteToWord: (request) => ipcRenderer.invoke(IPC.noteWordExport, request),
     markdownFile: (request) => ipcRenderer.invoke(IPC.markdownFileExport, request),
+    markdownPdf: (request) => ipcRenderer.invoke(IPC.markdownPdfExport, request),
   },
 };
 

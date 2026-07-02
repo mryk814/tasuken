@@ -32,7 +32,7 @@ import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
-import { previewHtml } from "../lib/markdown";
+import { previewDocument, previewHtml } from "../lib/markdown";
 import { isChatReference } from "../lib/chatRefs";
 import { ContextMenu, EmptyState, PageHeader, StatusBadge, type ContextMenuItem } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
@@ -247,6 +247,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
   const [draftBody, setDraftBody] = useState("");
   const [draftState, setDraftState] = useState("");
   const [wordExporting, setWordExporting] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
@@ -462,6 +463,28 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
     }
   }
 
+  async function exportSelectedPdf() {
+    if (!selected) return;
+    setPdfExporting(true);
+    try {
+      const result = await workspaceApi.exportMarkdownPdf({
+        title: str(selected.title),
+        html: previewDocument(draftBody, "markdown"),
+        chooseDirectory: true,
+        fileName: `${str(selected.title) || "markdown-document"}.pdf`,
+      });
+      if (result.canceled) {
+        setToast("PDF出力をキャンセルしました。");
+        return;
+      }
+      setToast(`PDFを出力しました。${result.filePath || ""}`);
+    } catch (error) {
+      setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setPdfExporting(false);
+    }
+  }
+
   return (
     <div className="page notes-page">
       <PageHeader title="Notes & Resources" subtitle="作業ログや素材はここへ入れ、判断に使う部品だけKnowledge化します">
@@ -606,6 +629,9 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => setPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => setPreviewMode("raw")}>Raw</button>
                   </div>
+                  <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf}>
+                    {pdfExporting ? "PDF出力中" : "PDF出力"}
+                  </button>
                   <button className="primary-button compact" disabled={wordExporting} onClick={() => exportSelectedWord(!hasWordExportDirectory)}>
                     {hasWordExportDirectory ? "Wordを再出力" : "出力先を選ぶ"}
                   </button>

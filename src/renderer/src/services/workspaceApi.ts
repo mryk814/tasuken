@@ -7,7 +7,7 @@ import type {
 } from "../../../shared/types/workspace";
 import type { MarkdownImageAttachmentRequest } from "../../../shared/attachments";
 import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
-import type { MarkdownFileExportRequest } from "../../../shared/fileExport";
+import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
 import type { WordExportRequest } from "../../../shared/wordExport";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
@@ -84,5 +84,8 @@ export const workspaceApi = {
   },
   exportMarkdownFile(request: MarkdownFileExportRequest) {
     return desktopApi().exports.markdownFile(request);
+  },
+  exportMarkdownPdf(request: MarkdownPdfExportRequest) {
+    return desktopApi().exports.markdownPdf(request);
   },
 };

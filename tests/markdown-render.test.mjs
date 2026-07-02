@@ -38,6 +38,44 @@ $$
   assert.match(html, /<img src="tasken-attachment:\/\/local\/00000000-0000-0000-0000-000000000000.png\/chart" alt="Chart"/);
 });
 
+test("markdown preview renders document blocks for decorated output", () => {
+  const html = markdown.renderMarkdownPreview(`# Title
+
+## Section
+
+> Important note
+
+1. First
+2. Second
+
+| Metric | Value |
+| --- | ---: |
+| Lead time | 3 days |
+
+\`\`\`
+code line
+\`\`\``);
+
+  assert.match(html, /<h1>Title<\/h1>/);
+  assert.match(html, /<h2>Section<\/h2>/);
+  assert.match(html, /<blockquote><p>Important note<\/p><\/blockquote>/);
+  assert.match(html, /<ol><li>First<\/li><li>Second<\/li><\/ol>/);
+  assert.match(html, /<table>/);
+  assert.match(html, /<th>Metric<\/th>/);
+  assert.match(html, /<td>3 days<\/td>/);
+  assert.match(html, /<pre><code>code line\n<\/code><\/pre>/);
+});
+
+test("previewDocument includes readable markdown document styling", () => {
+  const html = markdown.previewDocument("# Title\n\n| A | B |\n| --- | --- |\n| 1 | 2 |", "markdown");
+
+  assert.match(html, /class="markdown-document"/);
+  assert.match(html, /#2D7FB8/);
+  assert.match(html, /blockquote/);
+  assert.match(html, /border-collapse:collapse/);
+  assert.match(html, /<table>/);
+});
+
 test("markdown preview does not render unsafe image urls", () => {
   const html = markdown.renderMarkdownPreview("![bad](javascript:alert(1))");
 
