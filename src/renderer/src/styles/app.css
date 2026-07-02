@@ -1023,6 +1023,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .chat-group-add:hover, .chat-group-copy:hover, .chat-group-knowledge:hover, .chat-group-edit:hover { color: var(--color-accent-strong); background: var(--color-accent-subtle-bg); }
 .chat-group-clear:hover { color: var(--color-danger-strong); background: var(--color-danger-bg); }
 .chat-link-row { position: relative; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2) var(--space-1) var(--space-5); border-bottom: 1px solid var(--color-border-subtle); }
+.chat-link-row[role="button"] { cursor: pointer; }
+.chat-link-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
 .chat-link-row:last-child { border-bottom: 0; }
 .chat-link-row:hover { background: var(--color-surface-subtle); }
 .chat-link-row.is-dragging { opacity: .52; background: var(--color-surface-muted); }
