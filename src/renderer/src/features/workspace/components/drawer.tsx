@@ -178,7 +178,7 @@ interface EntityDrawerProps {
   removeEntity: RemoveEntity;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
-  setToast: (message: string) => void;
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
 }
 
 function findSchedule(data: WorkspaceData, ownerType: string, ownerId: string, passedSchedule?: unknown): Schedule | undefined {
@@ -500,10 +500,6 @@ function EditDrawer({ drawer, data, close, saveForm, registerEditForm, removeEnt
     note: "メモ",
     resource: "リソース",
     status_update: "現在地",
-    source_record: "情報源",
-    field_definition: "追加項目",
-    reference: "参照",
-    task_dependency: "タスク依存",
     knowledge_node: "Knowledge",
     knowledge_edge: "Knowledge Edge",
     task: "タスク",
@@ -539,32 +535,6 @@ function EditDrawer({ drawer, data, close, saveForm, registerEditForm, removeEnt
             <Field label="次アクション"><textarea name="next_actions" defaultValue={str(entity.next_actions)} /></Field>
           </>
         )}
-        {type === "source_record" && (
-          <>
-            <Field label="種類"><select name="source_type" defaultValue={str(entity.source_type) || "manual"}>{["manual", "chatgpt", "copilot", "outlook", "teams", "email", "calendar", "meeting", "document", "sharepoint", "onedrive", "imported_yaml", "imported_json", "snapshot", "other"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-            <Field label="タイトル"><input name="source_title" autoFocus defaultValue={str(entity.source_title)} /></Field>
-            <Field label="URL"><input name="source_url" type="url" defaultValue={str(entity.source_url)} /></Field>
-            <Field label="要約"><textarea name="summary" defaultValue={str(entity.summary)} /></Field>
-            <Field label="原文"><textarea className="large-textarea" name="raw_text" defaultValue={str(entity.raw_text)} /></Field>
-          </>
-        )}
-        {type === "field_definition" && (
-          <>
-            <Field label="項目名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
-            <Field label="型"><select name="field_type" defaultValue={str(entity.field_type) || "text"}>{["text", "long_text", "number", "date", "select", "multi_select", "checkbox", "url", "relation"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-            <Field label="対象"><select name="applies_to" defaultValue={str(entity.applies_to) || "item"}><option value="theme">Theme</option><option value="item">タスク</option><option value="note">メモ</option><option value="link">リンク</option></select></Field>
-            <ThemeSelect themes={data.themes} value={str(entity.theme_id)} allowAll />
-            <Field label="選択肢（カンマ区切り）"><input name="options" defaultValue={((entity.options_json as string[] | undefined) || []).join(", ")} /></Field>
-            <label className="toggle"><input name="is_required" type="checkbox" defaultChecked={Boolean(entity.is_required)} />必須</label>
-          </>
-        )}
-        {type === "task_dependency" && (
-          <>
-            <Field label="タスク"><select name="task_id" defaultValue={str(entity.task_id)}><option value="">選択</option>{(data.tasks || []).map((t) => <option key={t.id} value={t.id}>{str(t.title)}</option>)}</select></Field>
-            <Field label="依存先タスク"><select name="depends_on_task_id" defaultValue={str(entity.depends_on_task_id)}><option value="">選択</option>{(data.tasks || []).map((t) => <option key={t.id} value={t.id}>{str(t.title)}</option>)}</select></Field>
-          </>
-        )}
-        {type === "reference" && <ReferenceFields entity={entity} data={data} />}
         {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
         {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
         {type === "task" && <TaskFields entity={entity} data={data} saveEntities={saveEntities} />}
@@ -715,32 +685,6 @@ function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data
   );
 }
 
-
-function ReferenceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
-  const [sourceType, setSourceType] = useState(str(entity.source_type) || "task");
-  const [targetType, setTargetType] = useState(str(entity.target_type) || "task");
-  const resourceIds = new Set((data.resources || []).map((r) => r.id));
-  const REF_TYPES: Record<string, { id: string; title?: string; name?: string }[]> = {
-    task: data.tasks || [],
-    project: data.projects || [],
-    note: data.notes || [],
-    resource: [...(data.resources || []), ...(data.links || []).filter((l) => !resourceIds.has(l.id))],
-    knowledge_node: data.knowledge_nodes || [],
-  };
-  const sourceOptions = REF_TYPES[sourceType] || [];
-  const targetOptions = REF_TYPES[targetType] || [];
-  const RELATION_TYPES = ["related_to", "derived_from", "mentions", "blocks", "supports"];
-  return (
-    <>
-      <Field label="参照元の種類"><select name="source_type" value={sourceType} onChange={(e) => setSourceType(e.target.value)}>{Object.keys(REF_TYPES).map((k) => <option key={k} value={k}>{k}</option>)}</select></Field>
-      <Field label="参照元"><select name="source_id" defaultValue={str(entity.source_id)} key={sourceType}><option value="">選択</option>{sourceOptions.map((o) => <option key={o.id} value={o.id}>{o.title || o.name}</option>)}</select></Field>
-      <Field label="関係種別"><select name="relation_type" defaultValue={str(entity.relation_type) || "related_to"}>{RELATION_TYPES.map((v) => <option key={v}>{v}</option>)}</select></Field>
-      <Field label="参照先の種類"><select name="target_type" value={targetType} onChange={(e) => setTargetType(e.target.value)}>{Object.keys(REF_TYPES).map((k) => <option key={k} value={k}>{k}</option>)}</select></Field>
-      <Field label="参照先"><select name="target_id" defaultValue={str(entity.target_id)} key={targetType}><option value="">選択</option>{targetOptions.map((o) => <option key={o.id} value={o.id}>{o.title || o.name}</option>)}</select></Field>
-      <Field label="メモ"><textarea name="note" defaultValue={str(entity.note)} /></Field>
-    </>
-  );
-}
 
 function KnowledgeNodeFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const selectedNodeType = str(entity.node_type) || "question";
@@ -974,7 +918,7 @@ function NoteDetailDrawer({
   removeEntity: RemoveEntity;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
-  setToast: (message: string) => void;
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
 }) {
   const [comment, setComment] = useState("");
   const [knowledgeText, setKnowledgeText] = useState("");
@@ -1031,7 +975,7 @@ function NoteDetailDrawer({
         `件名: ${emailSubject}\n\n${emailBody}`,
       );
     }
-    setToast(kind === "subject" ? "件名候補をコピーしました。" : kind === "combined" ? "件名とメール本文をコピーしました。" : "Outlook貼り付け用本文をコピーしました。");
+    setToast(kind === "subject" ? "件名候補をコピーしました。" : kind === "combined" ? "件名とメール本文をコピーしました。" : "Outlook貼り付け用本文をコピーしました。", "success");
   }
 
   async function setPublishEnabled(next: boolean) {
@@ -1042,7 +986,7 @@ function NoteDetailDrawer({
         publish_enabled: next,
       },
     });
-    setToast(next ? "Document Publish対象にしました。" : "Document Publish対象から外しました。");
+    setToast(next ? "Document Publish対象にしました。" : "Document Publish対象から外しました。", "success");
     close({ type: "note", entity: saved });
   }
 
@@ -1068,7 +1012,7 @@ function NoteDetailDrawer({
 
   async function startKnowledgeExtraction() {
     await workspaceApi.copyText(extractionPrompt);
-    setToast("要点抽出プロンプトをコピーしました。AIのJSONを貼り付けて候補を確認してください。");
+    setToast("要点抽出プロンプトをコピーしました。AIのJSONを貼り付けて候補を確認してください。", "success");
     knowledgeTextareaRef.current?.focus();
   }
 
@@ -1137,7 +1081,7 @@ function NoteDetailDrawer({
         chooseDirectory,
       });
       if (result.canceled) {
-        setToast("Word出力をキャンセルしました。");
+        setToast("Word出力をキャンセルしました。", "info");
         return;
       }
       const saved = await saveEntity("note", {
@@ -1152,10 +1096,10 @@ function NoteDetailDrawer({
           },
         },
       });
-      setToast(`Wordを出力しました。${result.filePath || ""}`);
+      setToast(`Wordを出力しました。${result.filePath || ""}`, "success");
       close({ type: "note", entity: saved });
     } catch (error) {
-      setToast(`Word出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+      setToast(`Word出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
       setWordExporting(false);
     }
