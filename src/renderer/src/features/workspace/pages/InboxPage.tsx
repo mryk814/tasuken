@@ -7,8 +7,8 @@ import {
   IconExternalLink,
   IconFlag,
   IconFlagFilled,
+  IconInbox,
   IconPencil,
-  IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
 
@@ -17,9 +17,9 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { inferChatServiceFromUrl } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
-import { uuid } from "../lib/format";
+import { formatDate, uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
-import { buildInboxView } from "../domain-model/selectors";
+import { buildInboxView, buildMicroMemoView } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
@@ -27,6 +27,7 @@ import {
   buildSaveResourceOperations,
   buildSaveNoteOperations,
   buildTriageCaptureEntryOperations,
+  buildSendMicroMemoToInboxOperations,
 } from "../domain-model/persistence";
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 import type { SaveOperation } from "../types";
@@ -59,6 +60,8 @@ interface InboxDraft {
 interface InboxRow {
   entry: CaptureEntry;
 }
+
+type InboxLane = "untriaged" | "micro";
 
 type OrganizedTargetType = "task" | "waiting" | "note" | "resource";
 type OrganizedEntity = Task | Waiting | DomainNote | Resource;
@@ -118,14 +121,15 @@ function copyTextForTarget(result: OrganizedResult): string {
   return [result.title, description].filter(Boolean).join("\n");
 }
 
-export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntities, refreshWorkspace, removeEntity, setToast }: PageProps) {
+export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntities, removeEntity, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
   const inboxRows = useMemo(() => {
     return buildInboxView(v2).entries.map((entry) => ({ entry }));
   }, [v2]);
+  const microMemoRows = useMemo(() => buildMicroMemoView(v2).entries, [v2]);
+  const [lane, setLane] = useState<InboxLane>("untriaged");
   const [drafts, setDrafts] = useState<Record<string, InboxDraft>>({});
   const [selected, setSelected] = useState<string[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
   const [organizing, setOrganizing] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState("");
   const [recentOrganized, setRecentOrganized] = useState<OrganizedResult[]>([]);
@@ -177,6 +181,18 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
     workspaceApi.copyText(copyTextForTarget(result))
       .then(() => setToast(`${result.label}をコピーしました。`))
       .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  function copyMicroMemo(memo: CaptureEntry) {
+    const body = [memo.title, memo.text].filter(Boolean).join("\n");
+    workspaceApi.copyText(body)
+      .then(() => setToast("付箋メモをコピーしました。"))
+      .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  async function sendMicroMemoToInbox(memo: CaptureEntry) {
+    await saveEntities(buildSendMicroMemoToInboxOperations(memo), "Inboxへ送りました。Inboxで整理できます。");
+    setLane("untriaged");
   }
 
   async function organize(row: InboxRow) {
@@ -354,29 +370,22 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
     }
   }
 
-  async function handleRefresh() {
-    setRefreshing(true);
-    try {
-      await refreshWorkspace();
-      setToast("Inboxを更新しました。");
-    } catch (error) {
-      setToast(`Inboxを更新できませんでした。${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
   return (
     <div className="page inbox-page">
       <PageHeader title="Inbox整理" subtitle="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
-        <button className="secondary-button" onClick={handleRefresh} disabled={refreshing}>
-          <IconRefresh size={16} /> {refreshing ? "更新中" : "更新"}
-        </button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
         <button className="primary-button" disabled={!selected.length} onClick={organizeSelected}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
       </PageHeader>
-      {selected.length > 0 && (
+      <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
+        <button className={lane === "untriaged" ? "is-active" : ""} aria-current={lane === "untriaged" ? "page" : undefined} onClick={() => setLane("untriaged")}>
+          未整理 <span>{inboxRows.length}</span>
+        </button>
+        <button className={lane === "micro" ? "is-active" : ""} aria-current={lane === "micro" ? "page" : undefined} onClick={() => setLane("micro")}>
+          付箋メモ <span>{microMemoRows.length}</span>
+        </button>
+      </div>
+      {lane === "untriaged" && selected.length > 0 && (
         <section className="panel inbox-bulk-toolbar">
           <label className="inbox-bulk-check">
             <input type="checkbox" checked={selected.length === inboxRows.length} onChange={toggleSelectAll} />
@@ -407,7 +416,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
           <button className="primary-button compact" onClick={organizeSelected}>一括整理</button>
         </section>
       )}
-      <section className="panel inbox-panel">
+      {lane === "untriaged" ? <section className="panel inbox-panel">
         <div className="section-heading">
           <h2>未整理</h2>
           <span>{inboxRows.length}件</span>
@@ -583,7 +592,33 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
         ) : (
           <EmptyState title="未整理の記録はありません" action="記録を追加" onAction={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })} />
         )}
-      </section>
+      </section> : <section className="panel inbox-panel">
+        <div className="section-heading">
+          <h2>付箋メモ</h2>
+          <span>{microMemoRows.length}件</span>
+        </div>
+        {microMemoRows.length ? (
+          <div className="micro-memo-grid">
+            {microMemoRows.map((memo) => (
+              <article className="micro-memo-card" key={memo.id}>
+                <div>
+                  <strong>{memo.title || memo.text}</strong>
+                  <span>{formatDate(memo.captured_at)}</span>
+                </div>
+                {memo.title && <p>{memo.text}</p>}
+                <div className="micro-memo-actions">
+                  <button className="row-action-button" onClick={() => copyMicroMemo(memo)} aria-label="付箋メモをコピー" title="コピー"><IconCopy size={15} /></button>
+                  <button className="row-action-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })} aria-label="付箋メモを編集" title="編集"><IconPencil size={15} /></button>
+                  <button className="row-action-button" onClick={() => void sendMicroMemoToInbox(memo)} aria-label="付箋メモをInboxへ送る" title="Inboxへ送る"><IconInbox size={15} /></button>
+                  <button className="row-action-button danger" onClick={() => removeEntity("capture_entry", memo as unknown as Record<string, unknown>)} aria-label="付箋メモを削除" title="削除"><IconTrash size={15} /></button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="付箋メモはありません" />
+        )}
+      </section>}
     </div>
   );
 }
