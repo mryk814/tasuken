@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { IconCopyPlus, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -18,6 +18,7 @@ import type {
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
+import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
@@ -980,6 +981,7 @@ function NoteDetailDrawer({
   const [knowledgePreview, setKnowledgePreview] = useState<{ candidates: ImportCandidate[]; payloadIssues: string[] } | null>(null);
   const [artifactMode, setArtifactMode] = useState<"preview" | "raw">("preview");
   const [wordExporting, setWordExporting] = useState(false);
+  const knowledgeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const comments = note.comments || [];
   const theme = data.themes.find((entry) => entry.id === note.theme_id);
   const extractionPrompt = buildNoteKnowledgePrompt(note, theme?.name || "", AI_IMPORT_SCHEMA);
@@ -989,6 +991,7 @@ function NoteDetailDrawer({
   const properties = note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
   const publishEnabled = notePublishEnabled(note);
   const isReport = note.note_type === "report";
+  const isLongKnowledgeBody = isLongKnowledgeSource(body);
   const reportType = str(properties.report_type) || "weekly";
   const reportTypeLabel = REPORT_TYPE_LABELS[reportType] || "報告";
   const periodStart = str(properties.period_start);
@@ -1061,6 +1064,20 @@ function NoteDetailDrawer({
       comments: comments.filter((entry) => entry.id !== commentId),
     });
     close({ type: "note", entity: saved });
+  }
+
+  async function startKnowledgeExtraction() {
+    await workspaceApi.copyText(extractionPrompt);
+    setToast("要点抽出プロンプトをコピーしました。AIのJSONを貼り付けて候補を確認してください。");
+    knowledgeTextareaRef.current?.focus();
+  }
+
+  function openManualKnowledgeDraft() {
+    close({
+      type: "knowledge_node",
+      mode: "edit",
+      entity: buildKnowledgeNodeDraftFromNote(note, { bodyMode: isLongKnowledgeBody ? "empty" : "source" }),
+    });
   }
 
   function previewKnowledgeCandidates() {
@@ -1251,7 +1268,20 @@ function NoteDetailDrawer({
             <h3>Knowledge候補</h3>
             <button className="secondary-button compact" onClick={() => workspaceApi.copyText(extractionPrompt)}>プロンプトをコピー</button>
           </div>
+          {isLongKnowledgeBody && (
+            <div className="long-knowledge-source">
+              <div>
+                <strong>本文が長いため、このまま1つのKnowledgeにはしません。</strong>
+                <span>要点を抽出して候補にするか、短い本文を自分で作成します。元Noteへの参照は残ります。</span>
+              </div>
+              <div className="word-export-actions">
+                <button className="primary-button compact" onClick={startKnowledgeExtraction}>要点抽出する</button>
+                <button className="secondary-button compact" onClick={openManualKnowledgeDraft}>自分で短くして作成</button>
+              </div>
+            </div>
+          )}
           <textarea
+            ref={knowledgeTextareaRef}
             value={knowledgeText}
             onChange={(event) => { setKnowledgeText(event.target.value); setKnowledgePreview(null); }}
             placeholder="AIが返したknowledge_nodes / knowledge_edges JSONを貼り付ける"
@@ -1280,22 +1310,9 @@ function NoteDetailDrawer({
         <div className="drawer-actions">
           <button
             className="secondary-button"
-            onClick={() => close({
-              type: "knowledge_node",
-              mode: "edit",
-              entity: {
-                node_type: "claim",
-                title: note.title,
-                body: note.body_markdown,
-                theme_id: note.theme_id || null,
-                source_type: "note",
-                source_id: note.id,
-                confidence: "medium",
-                status: "active",
-              },
-            })}
+            onClick={openManualKnowledgeDraft}
           >
-            Knowledge化する
+            {isLongKnowledgeBody ? "短くしてKnowledge化" : "Knowledge化する"}
           </button>
           <button className="primary-button" onClick={() => close({ type: "note", mode: "edit", entity: note })}><IconPencil size={16} />編集する</button>
           <button className="danger-button" onClick={() => removeEntity("note", note)}><IconTrash size={16} />削除する</button>
