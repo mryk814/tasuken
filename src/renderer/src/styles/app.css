@@ -321,6 +321,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-edit-preview-grid { flex: 1; min-height: 520px; display: grid; grid-template-columns: minmax(300px, 0.92fr) minmax(320px, 1fr); gap: var(--space-2); align-items: stretch; }
 .note-main-editor { min-height: 520px; resize: vertical; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: var(--text-sm) var(--font-mono); line-height: var(--lh-relaxed); }
 .note-main-editor-raw { flex: 1; }
+.note-live-editor-paste-scope { flex: 1 1 auto; min-height: 0; display: flex; }
 .note-live-editor {
   flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
   border: 1px solid var(--color-border); border-radius: var(--radius-md);
