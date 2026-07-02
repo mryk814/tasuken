@@ -31,6 +31,7 @@ import { noteWordExportSignature } from "../../../../../shared/wordExport";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
+import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { previewHtml } from "../lib/markdown";
 import { isChatReference } from "../lib/chatRefs";
 import { ContextMenu, EmptyState, PageHeader, StatusBadge, type ContextMenuItem } from "../components/common";
@@ -324,19 +325,15 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
   }
 
   function knowledgeFromNote(record: Combined) {
+    if (isLongKnowledgeSource(record.body_markdown)) {
+      openDrawer({ type: "note", entity: record });
+      setToast("本文が長いため、Knowledge候補の抽出導線を開きました。");
+      return;
+    }
     openDrawer({
       type: "knowledge_node",
       mode: "edit",
-      entity: {
-        node_type: "claim",
-        title: record.title,
-        body: record.body_markdown,
-        theme_id: record.theme_id || null,
-        source_type: "note",
-        source_id: record.id,
-        confidence: "medium",
-        status: "active",
-      },
+      entity: buildKnowledgeNodeDraftFromNote(record),
     });
   }
 
@@ -561,20 +558,7 @@ export function NotesPage({ themes, domain, openDrawer, saveEntity, setToast }: 
                   <button className="primary-button compact" disabled={!draftDirty} onClick={saveSelectedDraft} title="Ctrl+S">保存</button>
                   <button
                     className="secondary-button compact"
-                    onClick={() => openDrawer({
-                      type: "knowledge_node",
-                      mode: "edit",
-                      entity: {
-                        node_type: "claim",
-                        title: selected.title,
-                        body: selected.body_markdown,
-                        theme_id: selected.theme_id || null,
-                        source_type: "note",
-                        source_id: selected.id,
-                        confidence: "medium",
-                        status: "active",
-                      },
-                    })}
+                    onClick={() => knowledgeFromNote(selected)}
                   >
                     Knowledge化
                   </button>
