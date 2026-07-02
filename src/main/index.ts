@@ -501,6 +501,7 @@ interface SmokeCreatedResult {
   notesPanePreviewRendered: boolean;
   notesPaneMathRendered: boolean;
   notesLiveEditSaved: boolean;
+  notesMarkdownPasteRendered: boolean;
   rawCopyNotified: boolean;
   themeMode: string;
   clipboardWritten: boolean;
@@ -512,6 +513,7 @@ interface SmokeReloadResult {
   markdownThemeLinked: boolean;
   markdownFrontmatterPersisted: boolean;
   markdownLiveEditPersisted: boolean;
+  markdownPastePersisted: boolean;
   themeMode: string;
 }
 
@@ -689,7 +691,17 @@ code block
       selection?.addRange(range);
       document.execCommand("insertText", false, " Live edit smoke");
       await delay(80);
+      const pasteData = new DataTransfer();
+      pasteData.setData("text/plain", "\\n\\n## Pasted Markdown Heading\\n\\n**Pasted Bold Text**\\n");
+      const pasteEvent = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(pasteEvent, "clipboardData", { value: pasteData });
+      liveEditable.dispatchEvent(pasteEvent);
+      await delay(160);
       const notesLiveEditRendered = Boolean(notesPane?.querySelector(".note-live-editor")?.textContent?.includes("Live edit smoke"));
+      const notesMarkdownPasteRendered = Boolean(
+        notesPane?.querySelector(".note-live-editor h2")?.textContent?.includes("Pasted Markdown Heading")
+        && notesPane?.querySelector(".note-live-editor strong")?.textContent?.includes("Pasted Bold Text")
+      );
       const saveDraftButton = [...(notesPane?.querySelectorAll(".note-preview-actions button") || [])].find((button) => button.textContent.trim() === "保存");
       saveDraftButton?.click();
       await delay(180);
@@ -739,6 +751,7 @@ code block
         notesPanePreviewRendered,
         notesPaneMathRendered,
         notesLiveEditSaved,
+        notesMarkdownPasteRendered,
         rawCopyNotified,
         themeMode,
         clipboardWritten,
@@ -809,6 +822,7 @@ code block
           markdownThemeLinked: markdown?.theme_id === ${JSON.stringify(smokeThemeId)},
           markdownFrontmatterPersisted: Boolean(markdown?.body_markdown?.includes("type: report")),
           markdownLiveEditPersisted: Boolean(markdown?.body_markdown?.includes("Live edit smoke")),
+          markdownPastePersisted: Boolean(markdown?.body_markdown?.includes("## Pasted Markdown Heading") && markdown?.body_markdown?.includes("**Pasted Bold Text**")),
           themeMode,
         });
         })
@@ -820,6 +834,7 @@ code block
         markdownThemeLinkedAfterReload: afterReload.markdownThemeLinked,
         markdownFrontmatterPersistedAfterReload: afterReload.markdownFrontmatterPersisted,
         markdownLiveEditPersistedAfterReload: afterReload.markdownLiveEditPersisted,
+        markdownPastePersistedAfterReload: afterReload.markdownPastePersisted,
         themeModeAfterReload: afterReload.themeMode,
         ...mini,
       };
@@ -831,6 +846,7 @@ code block
         && result.markdownThemeLinkedAfterReload
         && result.markdownFrontmatterPersistedAfterReload
         && result.markdownLiveEditPersistedAfterReload
+        && result.markdownPastePersistedAfterReload
         && result.saved
         && result.markdownSaved
         && result.markdownPreviewRendered
@@ -840,6 +856,7 @@ code block
         && result.notesPanePreviewRendered
         && result.notesPaneMathRendered
         && result.notesLiveEditSaved
+        && result.notesMarkdownPasteRendered
         && result.rawCopyNotified
         && result.rootReady
         && result.todayMiniOpened

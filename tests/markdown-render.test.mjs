@@ -76,6 +76,14 @@ test("previewDocument includes readable markdown document styling", () => {
   assert.match(html, /<table>/);
 });
 
+test("structured markdown paste detection keeps plain text paste native", () => {
+  assert.equal(markdown.isStructuredMarkdownPaste("plain meeting note"), false);
+  assert.equal(markdown.isStructuredMarkdownPaste("# Heading\n\nBody"), true);
+  assert.equal(markdown.isStructuredMarkdownPaste("This has **bold** text"), true);
+  assert.equal(markdown.isStructuredMarkdownPaste("| A | B |\n| --- | --- |\n| 1 | 2 |"), true);
+  assert.equal(markdown.isStructuredMarkdownPaste("> quote"), true);
+});
+
 test("markdown preview does not render unsafe image urls", () => {
   const html = markdown.renderMarkdownPreview("![bad](javascript:alert(1))");
 

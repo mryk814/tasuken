@@ -32,7 +32,7 @@ import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
-import { previewDocument, previewHtml } from "../lib/markdown";
+import { isStructuredMarkdownPaste, previewDocument, previewHtml } from "../lib/markdown";
 import { isChatReference } from "../lib/chatRefs";
 import { ContextMenu, EmptyState, PageHeader, StatusBadge, type ContextMenuItem } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
@@ -183,6 +183,19 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     setEditorFailed(false);
   }, [markdown]);
 
+  function handleRichEditorPaste(event: ClipboardEvent<HTMLDivElement>) {
+    if (clipboardImageFile(event.clipboardData)) return;
+    const text = event.clipboardData.getData("text/plain");
+    if (!isStructuredMarkdownPaste(text)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = editorRef.current?.getMarkdown() || markdown;
+    const next = `${current.trimEnd()}\n\n${text.trim()}\n`;
+    lastInternalMarkdown.current = next;
+    editorRef.current?.setMarkdown(next);
+    onChange(next);
+  }
+
   if (editorFailed) {
     return (
       <textarea
@@ -194,23 +207,25 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   }
 
   return (
-    <MDXEditor
-      ref={editorRef}
-      className="note-live-editor note-mdx-editor"
-      contentEditableClassName="note-mdx-content markdown-preview"
-      markdown={markdown}
-      onChange={(value) => {
-        lastInternalMarkdown.current = value;
-        if (!mountedRef.current && value === markdown) return;
-        onChange(value);
-      }}
-      onError={({ error }) => {
-        setEditorFailed(true);
-        onError(error);
-      }}
-      plugins={plugins}
-      spellCheck
-    />
+    <div className="note-live-editor-paste-scope" onPasteCapture={handleRichEditorPaste}>
+      <MDXEditor
+        ref={editorRef}
+        className="note-live-editor note-mdx-editor"
+        contentEditableClassName="note-mdx-content markdown-preview"
+        markdown={markdown}
+        onChange={(value) => {
+          lastInternalMarkdown.current = value;
+          if (!mountedRef.current && value === markdown) return;
+          onChange(value);
+        }}
+        onError={({ error }) => {
+          setEditorFailed(true);
+          onError(error);
+        }}
+        plugins={plugins}
+        spellCheck
+      />
+    </div>
   );
 });
 

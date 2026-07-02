@@ -148,6 +148,22 @@ function renderInlineMarkdown(value: string): string {
   return text.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => tokens[Number(index)] || "");
 }
 
+export function isStructuredMarkdownPaste(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  return [
+    /(^|\n)#{1,6}\s+\S/,
+    /(^|\n)\s*[-*+]\s+\S/,
+    /(^|\n)\s*\d+[.)]\s+\S/,
+    /(^|\n)\s*>\s?\S/,
+    /(^|\n)\s*```/,
+    /\|.+\|\s*\n\s*\|[\s:|-]+\|/,
+    /\[[^\]\n]+\]\([^)]+\)/,
+    /(^|[^\\])(\*\*|__)\S[\s\S]*?\S\2/,
+    /(^|[^\\])`[^`\n]+`/,
+  ].some((pattern) => pattern.test(text));
+}
+
 function markdownTableCells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
   return trimmed.split("|").map((cell) => cell.trim());
