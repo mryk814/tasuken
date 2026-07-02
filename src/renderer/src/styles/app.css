@@ -151,6 +151,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .hub-tabs button.is-active { border-color: var(--color-border); background: var(--color-surface); color: var(--color-accent-strong); box-shadow: var(--shadow-sm); }
 .today-page .page-header, .inbox-page .page-header { margin-bottom: var(--space-2); }
 .today-metrics { grid-template-columns: repeat(4, 1fr); }
+.metric-button { width: 100%; text-align: left; cursor: pointer; }
+.metric-button:hover { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
 .today-focus-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); padding: var(--space-2) var(--pad-card); border-left: 5px solid var(--color-accent); cursor: pointer; transition: background var(--duration-fast) var(--ease); }
 .today-focus-hero:hover { background: var(--color-surface-muted); }
 .focus-hero-content { display: grid; gap: var(--space-1); min-width: 0; }
@@ -166,7 +168,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .today-focus-panel { margin-bottom: var(--space-2); overflow: hidden; }
 .today-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-2); }
 .today-task-list, .today-update-list { display: grid; }
-.today-task-row { min-height: 40px; display: grid; grid-template-columns: 8px 24px minmax(0, 1fr) 94px 106px; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
+.today-task-row { min-height: 40px; display: grid; grid-template-columns: 8px 24px minmax(0, 1fr) 94px 52px; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
 .today-task-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%, var(--color-surface-muted) 46%); }
 .today-task-row:last-child { border-bottom: 0; }
 .today-task-title { min-width: 0; display: grid; flex: 1 1 auto; gap: 1px; padding: 0; overflow: hidden; border: 0; background: transparent; text-align: left; }
@@ -264,6 +266,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .wide-row:hover, .waiting-row:hover { background: var(--color-surface-muted); }
 .wide-row span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 .inline-actions, .form-actions { display: flex; align-items: center; gap: var(--space-2); }
+.inline-add-panel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--pad-card); }
+.inline-add-panel input, .inline-add-panel select { min-width: 0; }
+.inline-add-title { flex: 1 1 220px; }
+.inline-add-panel select, .inline-add-panel input[type="date"] { flex: 0 1 160px; }
 .inbox-row, .link-row { padding-right: var(--space-3); }
 .row-main { min-width: 0; flex: 1; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 0; border: 0; background: transparent; text-align: left; }
 .row-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

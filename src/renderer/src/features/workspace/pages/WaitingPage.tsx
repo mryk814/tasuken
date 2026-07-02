@@ -7,6 +7,7 @@ import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
 import { themeColor } from "../lib/domain";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { InlineAddPanel } from "../components/InlineAddPanel";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Schedule, Waiting } from "../domain-model/types";
@@ -93,31 +94,26 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
         <button className="primary-button" onClick={() => setShowAdd((c) => !c)}><IconPlus size={16} /> 待ちを追加</button>
       </PageHeader>
       {showAdd && (
-        <section className="panel">
-          <div className="section-heading"><h2>待ちを追加</h2></div>
-          <div className="inline-actions" style={{ gap: "var(--space-sm)" }}>
+        <InlineAddPanel
+          heading="待ちを追加"
+          title={addTitle}
+          titlePlaceholder="何を待っているか"
+          theme={addTheme}
+          themes={themes}
+          onTitleChange={setAddTitle}
+          onThemeChange={setAddTheme}
+          onSubmit={addWaiting}
+          extraFields={[
             <input
-              style={{ flex: 1 }}
-              value={addTitle}
-              onChange={(e) => setAddTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addWaiting()}
-              placeholder="何を待っているか"
-              autoFocus
-            />
-            <input
+              key="waiting-for"
               value={addWaitingFor}
-              onChange={(e) => setAddWaitingFor(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addWaiting()}
+              onChange={(event) => setAddWaitingFor(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && addWaiting()}
               placeholder="相手（必須）"
-            />
-            <select value={addTheme} onChange={(e) => setAddTheme(e.target.value)}>
-              <option value="">個人業務</option>
-              {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-            <input type="date" value={addDate} onChange={(e) => setAddDate(e.target.value)} />
-            <button className="primary-button compact" onClick={addWaiting}>追加</button>
-          </div>
-        </section>
+            />,
+            <input key="waiting-date" type="date" value={addDate} onChange={(event) => setAddDate(event.target.value)} />,
+          ]}
+        />
       )}
       <div className="todo-filter-tabs">
         {([["waiting", "待ち中", counters.waiting], ["received", "受領", counters.received], ["cancelled", "中止", counters.cancelled]] as const).map(([id, label, count]) => (

@@ -9,6 +9,7 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { EmptyState, PageHeader } from "../components/common";
+import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
 import { TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
@@ -55,8 +56,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   const today = todayIso();
 
   useEffect(() => {
-    const requestedFilter = route === "todo-done" ? "done" : route === "todo" ? "open" : null;
-    if (requestedFilter) setFilter(requestedFilter);
+    if (route === "todo") setFilter("open");
   }, [route]);
 
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
@@ -217,25 +217,17 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
         <button className="primary-button" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</button>
       </PageHeader>
       {showAdd && (
-        <section className="panel">
-          <div className="section-heading"><h2>タスクを追加</h2></div>
-          <div className="inline-actions" style={{ gap: "var(--space-sm)" }}>
-            <input
-              style={{ flex: 1 }}
-              value={addTitle}
-              onChange={(e) => setAddTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addTask()}
-              placeholder="タスク名"
-              autoFocus
-            />
-            <select value={addTheme} onChange={(e) => setAddTheme(e.target.value)}>
-              <option value="">個人業務</option>
-              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-            </select>
-            <input type="date" value={addDate} onChange={(e) => setAddDate(e.target.value)} />
-            <button className="primary-button compact" onClick={addTask}>追加</button>
-          </div>
-        </section>
+        <InlineAddPanel
+          heading="タスクを追加"
+          title={addTitle}
+          titlePlaceholder="タスク名"
+          theme={addTheme}
+          themes={themes}
+          onTitleChange={setAddTitle}
+          onThemeChange={setAddTheme}
+          onSubmit={addTask}
+          extraFields={<input type="date" value={addDate} onChange={(event) => setAddDate(event.target.value)} />}
+        />
       )}
       <div className="todo-filter-tabs">
         {([["today", "今日", counters.today], ["open", "未完了", counters.open], ["overdue", "予定超過", counters.overdue], ["no-schedule", "予定なし", counters.noSchedule], ["done", "完了", counters.done]] as const).map(([id, label, count]) => (

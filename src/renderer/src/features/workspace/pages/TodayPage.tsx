@@ -6,10 +6,7 @@ import {
   IconChevronRight,
   IconClipboard,
   IconClock,
-  IconFlag,
-  IconFlagFilled,
   IconPlus,
-  IconRefresh,
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -18,7 +15,9 @@ import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
+import { buildActivityLog } from "../lib/activityLog";
 import { EmptyState, Metric, PageHeader } from "../components/common";
+import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
@@ -164,7 +163,6 @@ function TodayRows({
   empty,
   today,
   onToggleComplete,
-  onTogglePriority,
   onToggleToday,
   onPostpone,
   onOpenDetail,
@@ -175,7 +173,6 @@ function TodayRows({
   empty: string;
   today: string;
   onToggleComplete: (row: TodayRow) => void;
-  onTogglePriority: (row: TodayRow) => void;
   onToggleToday: (row: TodayRow) => void;
   onPostpone: (row: TodayRow, days: number) => void;
   onOpenDetail: (row: TodayRow) => void;
@@ -207,18 +204,6 @@ function TodayRows({
               {done && <IconCheck size={13} stroke={2.4} />}
             </button>
             <div className="row-title-wrap">
-              {row.v2?.type === "task" ? (
-                <button
-                  className={`priority-flag-button ${row.priority === "high" ? "is-active" : ""}`}
-                  onClick={(event) => { event.stopPropagation(); onTogglePriority(row); }}
-                  aria-label={row.priority === "high" ? "旗を外す" : "旗を付ける"}
-                  title={row.priority === "high" ? "旗を外す" : "旗を付ける"}
-                >
-                  {row.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
-                </button>
-              ) : (
-                <span className="today-row-spacer" />
-              )}
               <button
                 className={`today-plan-button ${isToday ? "is-active" : ""}`}
                 onClick={(event) => { event.stopPropagation(); onToggleToday(row); }}
@@ -240,10 +225,7 @@ function TodayRows({
             <time>{formatDate(row.date)}</time>
             <span className="today-postpone-actions">
               {hasSchedule(row) && (
-                <>
-                  <button className="postpone-button" onClick={(event) => { event.stopPropagation(); onPostpone(row, 1); }} title="+1日" aria-label={`${row.title}を1日延期`}>+1d</button>
-                  <button className="postpone-button" onClick={(event) => { event.stopPropagation(); onPostpone(row, 7); }} title="+7日" aria-label={`${row.title}を7日延期`}>+7d</button>
-                </>
+                <button className="postpone-button" onClick={(event) => { event.stopPropagation(); onPostpone(row, 1); }} title="+1日" aria-label={`${row.title}を1日延期`}>+1d</button>
               )}
             </span>
           </div>
@@ -253,13 +235,14 @@ function TodayRows({
   );
 }
 
-export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, refreshWorkspace, setToast }: PageProps) {
+export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
+  const [showActivityLog, setShowActivityLog] = useState(false);
   const [activityDate, setActivityDate] = useState(todayIso());
   const [activityDirectory, setActivityDirectory] = useState("");
+  const [activityFilePath, setActivityFilePath] = useState("");
   const [exportingActivity, setExportingActivity] = useState(false);
   const today = todayIso();
   const soon = addDays(today, 14);
@@ -322,12 +305,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       await saveEntities(buildSavePlanNodeOperations(next), nextState === "done" ? "完了しました。" : "未完了に戻しました。");
       return;
     }
-  }
-
-  async function handleTogglePriority(row: TodayRow) {
-    if (row.v2?.type !== "task") return;
-    const next: Task = { ...row.v2.task, priority: row.v2.task.priority === "high" ? "normal" : "high" };
-    await saveEntities(buildSaveTaskOperations(next));
   }
 
   const focusItem: TodayRow | null =
@@ -439,60 +416,13 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     ...(waitingSoon.length ? waitingSoon.map((row) => `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`) : ["- なし"]),
   ].join("\n");
 
-  function themeName(projectId?: string | null): string {
-    return themes.find((theme) => theme.id === projectId)?.name || "個人業務";
-  }
-
-  function recordDate(value: unknown): string {
-    return String(value || "").slice(0, 10);
-  }
-
-  function buildActivityLog(date: string): string {
-    const completedTasks = v2.tasks
-      .filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === date)
-      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
-    const receivedWaitings = v2.waitings
-      .filter((waiting) => waiting.state === "received" && recordDate(waiting.updated_at) === date)
-      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
-    const notes = v2.notes
-      .filter((note) => recordDate((note as unknown as Record<string, unknown>).updated_at || (note as unknown as Record<string, unknown>).created_at) === date)
-      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
-    const resources = v2.resources
-      .filter((resource) => recordDate(resource.captured_at || (resource as unknown as Record<string, unknown>).updated_at || (resource as unknown as Record<string, unknown>).created_at) === date)
-      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
-    const knowledge = v2.knowledge_nodes
-      .filter((node) => recordDate((node as unknown as Record<string, unknown>).updated_at || (node as unknown as Record<string, unknown>).created_at) === date)
-      .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
-    const updates = (data.status_updates || [])
-      .filter((entry) => recordDate(entry.date || entry.updated_at || entry.created_at) === date)
-      .sort((a, b) => String(a.summary).localeCompare(String(b.summary), "ja"));
-    const captures = v2.capture_entries
-      .filter((entry) => recordDate(entry.captured_at) === date)
-      .sort(compareCapturesNewestFirst);
-    return [
-      `# Activity Log ${date}`,
-      "",
-      "## 完了したタスク",
-      ...(completedTasks.length ? completedTasks.map((task) => `- [x] ${themeName(task.project_id)} / ${task.title}`) : ["- なし"]),
-      "",
-      "## 受け取ったWaiting",
-      ...(receivedWaitings.length ? receivedWaitings.map((waiting) => `- ${themeName(waiting.project_id)} / ${waiting.title} / ${waiting.waiting_for}`) : ["- なし"]),
-      "",
-      "## 作成・更新したNotes",
-      ...(notes.length ? notes.map((note) => `- ${themeName(note.project_id)} / ${note.title}`) : ["- なし"]),
-      "",
-      "## 追加・更新したリンク/資料",
-      ...(resources.length ? resources.map((resource) => `- ${themeName(resource.project_id)} / ${resource.title}${resource.url ? ` (${resource.url})` : ""}`) : ["- なし"]),
-      "",
-      "## Knowledge",
-      ...(knowledge.length ? knowledge.map((node) => `- ${themeName(node.project_id)} / ${node.node_type}: ${node.title}`) : ["- なし"]),
-      "",
-      "## 現在地更新",
-      ...(updates.length ? updates.map((entry) => `- ${themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.summary || entry.next_actions || entry.risks}`) : ["- なし"]),
-      "",
-      "## Capture / やったこと記録",
-      ...(captures.length ? captures.map((entry) => `- ${entry.title || entry.text}`) : ["- なし"]),
-    ].join("\n");
+  function buildCurrentActivityLog(date: string): string {
+    return buildActivityLog({
+      date,
+      domain: v2,
+      statusUpdates: data.status_updates || [],
+      themes,
+    });
   }
 
   async function exportActivityLog(chooseDirectory: boolean) {
@@ -501,7 +431,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       const result = await workspaceApi.exportMarkdownFile({
         title: `Tasken Activity Log ${activityDate}`,
         fileName: `tasken-activity-${activityDate}.md`,
-        content: buildActivityLog(activityDate),
+        content: buildCurrentActivityLog(activityDate),
         directory: activityDirectory || null,
         chooseDirectory,
       });
@@ -511,8 +441,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       }
       if (result.directory) {
         setActivityDirectory(result.directory);
-        await workspaceApi.setPreference("activityLogDirectory", result.directory);
+        workspaceApi.setPreference("activityLogDirectory", result.directory).catch(() => {});
       }
+      if (result.filePath) setActivityFilePath(result.filePath);
       setToast(`Activity Logを出力しました。${result.filePath || ""}`);
     } catch (error) {
       setToast(`Activity Logを出力できませんでした。${error instanceof Error ? error.message : String(error)}`);
@@ -523,76 +454,47 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
 
   const rowHandlers = {
     onToggleComplete: handleToggleComplete,
-    onTogglePriority: handleTogglePriority,
     onToggleToday: handleToggleToday,
     onPostpone: handlePostpone,
     onOpenDetail: handleOpenDetail,
   };
 
-  async function handleRefresh() {
-    setRefreshing(true);
-    try {
-      await refreshWorkspace();
-      setToast("Todayを更新しました。");
-    } catch (error) {
-      setToast(`Todayを更新できませんでした。${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
   return (
     <div className="page today-page">
       <PageHeader title="Today" subtitle="今日見るものを一か所に集めます。">
-        <button
-          className="secondary-button"
-          onClick={() => workspaceApi.showTodayMiniWindow().catch((error) => setToast(`ミニ表示を開けませんでした。${error instanceof Error ? error.message : String(error)}`))}
-        >
-          ミニ表示
-        </button>
-        <button className="secondary-button" onClick={handleRefresh} disabled={refreshing}>
-          <IconRefresh size={16} /> {refreshing ? "更新中" : "更新"}
-        </button>
         <button className="secondary-button" onClick={() => workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。"))}>
           <IconClipboard size={16} /> コピー
         </button>
-        <button className="secondary-button" onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>
-          <IconClipboard size={16} /> 活動ログ出力
+        <button className="secondary-button" onClick={() => setShowActivityLog((value) => !value)}>
+          <IconClipboard size={16} /> 活動ログ
         </button>
         <button className="primary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
       </PageHeader>
 
-      <section className="panel activity-log-strip">
+      {showActivityLog && <section className="panel activity-log-strip">
         <div className="section-heading">
           <h2>Activity Log</h2>
           <div className="inline-actions">
             <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity Log対象日" />
-            <button className="secondary-button compact" onClick={() => workspaceApi.copyText(buildActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。"))}>コピー</button>
+            <button className="secondary-button compact" onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。"))}>コピー</button>
+            <button className="secondary-button compact" onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</button>
             <button className="secondary-button compact" disabled={exportingActivity} onClick={() => exportActivityLog(true)}>出力先を変更</button>
           </div>
         </div>
-        <span>{activityDirectory ? `出力先: ${activityDirectory}` : "出力先は初回出力時に選択します。"}</span>
-      </section>
+        <span>{activityFilePath ? `出力したファイル: ${activityFilePath}` : activityDirectory ? `出力先: ${activityDirectory}` : "出力先は初回出力時に選択します。"}</span>
+      </section>}
 
       {showAdd && (
-        <section className="panel">
-          <div className="section-heading"><h2>今日のタスクを追加</h2></div>
-          <div className="inline-actions" style={{ gap: "var(--space-sm)" }}>
-            <input
-              style={{ flex: 1 }}
-              value={addTitle}
-              onChange={(e) => setAddTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addTask()}
-              placeholder="タスク名"
-              autoFocus
-            />
-            <select value={addTheme} onChange={(e) => setAddTheme(e.target.value)}>
-              <option value="">個人業務</option>
-              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-            </select>
-            <button className="primary-button compact" onClick={addTask}>追加</button>
-          </div>
-        </section>
+        <InlineAddPanel
+          heading="今日のタスクを追加"
+          title={addTitle}
+          titlePlaceholder="タスク名"
+          theme={addTheme}
+          themes={themes}
+          onTitleChange={setAddTitle}
+          onThemeChange={setAddTheme}
+          onSubmit={addTask}
+        />
       )}
 
       {focusItem && (
@@ -613,8 +515,14 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       <div className="metric-grid today-metrics">
         <Metric label="今日" value={todayRows.length} tone="primary" />
         <Metric label="期限切れ" value={overdue.length} tone={overdue.length ? "danger" : ""} />
-        <Metric label="Inbox" value={inbox.length} tone={inbox.length ? "warning" : ""} />
-        <Metric label="予定なし" value={noSchedule.length} />
+        <button className={`metric-card panel metric-button ${inbox.length ? "warning" : ""}`} onClick={() => navigate("inbox")}>
+          <span>Inbox</span>
+          <strong className="metric-value">{inbox.length}</strong>
+        </button>
+        <button className="metric-card panel metric-button" onClick={() => navigate("todo")}>
+          <span>予定なし</span>
+          <strong className="metric-value">{noSchedule.length}</strong>
+        </button>
       </div>
 
       <section className="panel today-focus-panel">
@@ -629,17 +537,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         <section className="panel">
           <div className="section-heading"><h2>期限切れ</h2><span>{overdue.length}件</span></div>
           <TodayRows rows={overdue.slice(0, 8)} themes={themes} empty="期限切れはありません" today={today} {...rowHandlers} />
-        </section>
-        <section className="panel">
-          <div className="section-heading"><h2>Inbox未整理</h2><button className="text-button compact" onClick={() => navigate("inbox")}>整理へ</button></div>
-          <TodayRows rows={inbox.slice(0, 8)} themes={themes} empty="未整理の記録はありません" today={today} {...rowHandlers} />
-        </section>
-      </div>
-
-      <div className="today-grid">
-        <section className="panel">
-          <div className="section-heading"><h2>予定なし</h2><span>{noSchedule.length}件</span></div>
-          <TodayRows rows={noSchedule.slice(0, 8)} themes={themes} empty="予定なしのタスクはありません" today={today} {...rowHandlers} onAdd={() => setShowAdd(true)} />
         </section>
         <section className="panel">
           <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
