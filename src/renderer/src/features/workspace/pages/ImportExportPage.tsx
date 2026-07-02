@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { noteWordExportSignature } from "../../../../../shared/wordExport";
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import { str, uuid } from "../lib/format";
 import { buildSaveTaskOperations, buildSaveWaitingOperations, buildSavePlanNodeOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../domain-model/types";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, buildAiImportPrompt, buildAiOrganizePrompt, parseAiImportPayload } from "../lib/aiImport.js";
-import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { buildExportData, exportMarkdown, exportProgressReport, noteProperties, notePublishEnabled, toYaml } from "../lib/io";
 import { PageHeader } from "../components/common";
+import { AiProposalPanel } from "../components/AiProposalPanel";
 
 type ImportEntry = Record<string, unknown>;
 
@@ -116,7 +115,8 @@ function buildOrganizeContext({ data, domain, themes, activeTheme }: Pick<PagePr
   return lines.join("\n");
 }
 
-export function ImportExportPage({ data, domain, themes, items, activeTheme, saveEntities, setToast }: PageProps) {
+export function ImportExportPage(props: PageProps) {
+  const { data, domain, themes, items, activeTheme, saveEntities, setToast } = props;
   const [format, setFormat] = useState("markdown");
   const [scope, setScope] = useState("all");
   const [text, setText] = useState("");
@@ -146,21 +146,6 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
       .sort((a, b) => str(b.updated_at || b.created_at).localeCompare(str(a.updated_at || a.created_at)));
   }, [activeTheme, data.notes, scope]);
   const publishEnabledCount = publishTargetNotes.filter(notePublishEnabled).length;
-
-  async function setNotePublishEnabled(note: BaseRecord, enabled: boolean) {
-    const properties = noteProperties(note);
-    await saveEntities([{
-      action: "save",
-      type: "note",
-      entity: {
-        ...note,
-        properties_json: {
-          ...properties,
-          publish_enabled: enabled,
-        },
-      },
-    }], enabled ? "Publish対象にしました。" : "Publish対象から外しました。");
-  }
 
   async function publishWordTargets() {
     const targets = publishTargetNotes.filter(notePublishEnabled);
@@ -410,7 +395,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
 
   return (
     <div className="page">
-      <PageHeader title="AI Import / Export" subtitle="他のAIサービスで整理した情報をTaskenに取り込めます。" />
+      <PageHeader title="AI連携" subtitle="外部AIへ渡し、戻ってきた候補を確認してTaskenに取り込みます。" />
       <section className="panel ai-handoff-panel">
         <div className="section-heading"><h2>AIに整理を頼む</h2></div>
         <div className="prompt-mode-grid">
@@ -510,36 +495,13 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
             <div className="section-heading">
               <h2>Document Publish</h2>
               <div className="inline-actions">
-                <span>{publishEnabledCount}/{publishTargetNotes.length}件</span>
+                <span>Publish対象 {publishEnabledCount}件</span>
                 <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishWordTargets}>Publish対象をWord出力</button>
               </div>
             </div>
-            <div className="export-target-list">
-              {publishTargetNotes.length ? publishTargetNotes.slice(0, 12).map((note) => {
-                const enabled = notePublishEnabled(note);
-                const noteType = str(note.note_type) || "memo";
-                const properties = noteProperties(note);
-                const wordExport = properties.word_export && typeof properties.word_export === "object" && !Array.isArray(properties.word_export)
-                  ? properties.word_export as Record<string, unknown>
-                  : {};
-                const stale = Boolean(str(wordExport.bodySignature) && str(wordExport.bodySignature) !== noteWordExportSignature(str(note.body_markdown)));
-                return (
-                  <label className={`export-target-row ${enabled ? "" : "is-muted"}`} key={note.id}>
-                    <input type="checkbox" checked={enabled} onChange={(event) => setNotePublishEnabled(note, event.target.checked)} />
-                    <span>
-                      <strong>{note.title}</strong>
-                      <small>
-                        {NOTE_TYPE_LABELS[noteType] || noteType} / {themes.find((theme) => theme.id === note.theme_id)?.name || "Themeなし"}
-                        {str(wordExport.filePath) ? ` / ${stale ? "再出力が必要" : "出力済み"}` : " / 未出力"}
-                      </small>
-                    </span>
-                  </label>
-                );
-              }) : (
-                <p className="field-help">Publish対象にできるMarkdown文書はまだありません。</p>
-              )}
-              {publishTargetNotes.length > 12 && <p className="field-help">ほか {publishTargetNotes.length - 12} 件はNotes側から切り替えできます。</p>}
-            </div>
+            <p className="field-help">
+              対象の切り替えと出力先の確認は Notes または Note 詳細で行います。AI IO では、Publish対象になっているMarkdown文書だけをまとめてWord出力します。
+            </p>
           </div>
           <textarea readOnly value={exported} />
           <div className="form-actions">
@@ -572,6 +534,7 @@ export function ImportExportPage({ data, domain, themes, items, activeTheme, sav
           </div>
         </section>
       )}
+      <AiProposalPanel {...props} />
     </div>
   );
 }

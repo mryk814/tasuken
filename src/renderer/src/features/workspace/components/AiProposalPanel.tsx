@@ -5,7 +5,6 @@ import { str, uuid } from "../lib/format";
 import { assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTaskOperations, buildSaveWaitingOperations } from "../domain-model/persistence";
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
-import { PageHeader } from "../components/common";
 
 type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "status_update";
 type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge";
@@ -194,7 +193,7 @@ function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperatio
   return operations;
 }
 
-export function ProposalInboxPage(props: PageProps) {
+export function AiProposalPanel(props: PageProps) {
   const { data, themes, items, saveEntities, setToast } = props;
   const [payloadType, setPayloadType] = useState<ProposalPayloadType>("knowledge_nodes");
   const [sourceApp, setSourceApp] = useState("manual");
@@ -264,8 +263,7 @@ export function ProposalInboxPage(props: PageProps) {
   }
 
   return (
-    <div className="page">
-      <PageHeader title="AI Proposal Inbox" subtitle="AIからの提案を保存前に確認します。" />
+    <div className="ai-proposal-panel">
       <section className="panel io-panel">
         <div className="section-heading"><h2>Proposalを追加</h2></div>
         <div className="inline-actions">
