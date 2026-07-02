@@ -43,7 +43,13 @@ test("markdown preview renders document blocks for decorated output", () => {
 
 ## Section
 
+### Finding
+
+#### Detail
+
 > Important note
+
+***
 
 1. First
 2. Second
@@ -58,7 +64,12 @@ code line
 
   assert.match(html, /<h1>Title<\/h1>/);
   assert.match(html, /<h2>Section<\/h2>/);
+  assert.match(html, /<h3>Finding<\/h3>/);
+  assert.match(html, /<h4>Detail<\/h4>/);
   assert.match(html, /<blockquote><p>Important note<\/p><\/blockquote>/);
+  assert.match(html, /<hr \/>/);
+  assert.doesNotMatch(html, /<p>\*\*\*<\/p>/);
+  assert.doesNotMatch(html, /<br \/>/);
   assert.match(html, /<ol><li>First<\/li><li>Second<\/li><\/ol>/);
   assert.match(html, /<table>/);
   assert.match(html, /<th>Metric<\/th>/);
@@ -67,12 +78,18 @@ code line
 });
 
 test("previewDocument includes readable markdown document styling", () => {
-  const html = markdown.previewDocument("# Title\n\n| A | B |\n| --- | --- |\n| 1 | 2 |", "markdown");
+  const html = markdown.previewDocument("# Title\n\n#### Detail\n\n***\n\n| A | B |\n| --- | --- |\n| 1 | 2 |", "markdown");
 
   assert.match(html, /class="markdown-document"/);
   assert.match(html, /#2D7FB8/);
+  assert.match(html, /\.markdown-document h4/);
+  assert.match(html, /<h4>Detail<\/h4>/);
+  assert.match(html, /\.markdown-document p\{margin:5px 0\}/);
+  assert.match(html, /\.markdown-document hr/);
+  assert.match(html, /<hr \/>/);
   assert.match(html, /blockquote/);
   assert.match(html, /border-collapse:collapse/);
+  assert.match(html, /padding:5px 7px/);
   assert.match(html, /<table>/);
 });
 
