@@ -43,6 +43,7 @@
 
 ## 継続改善
 
+0. UX/IAの導線整理は[`ia-ux-improvement-plan.md`](./ia-ux-improvement-plan.md)の6フェーズ計画に従う。
 1. [`desktop-app-standard.md`](./desktop-app-standard.md)を個人用Electronアプリの既定作法とする。
 2. 互換維持のためfeature単位に残したJSXは、機能変更時にpage/component単位でTypeScript化する。
 3. Critical Path、Workload / Capacity、グラフビューは実データで必要性を確認して設計する。
