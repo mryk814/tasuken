@@ -169,8 +169,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .today-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-2); }
 .today-task-list, .today-update-list { display: grid; }
 .today-task-row { min-height: 40px; display: grid; grid-template-columns: 8px 24px minmax(0, 1fr) 94px 52px; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
+.period-task-row { grid-template-columns: 8px 48px minmax(0, 1fr) 158px 52px; }
 .today-task-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%, var(--color-surface-muted) 46%); }
 .today-task-row:last-child { border-bottom: 0; }
+.period-progress-badge { display: inline-flex; justify-content: center; min-width: 44px; padding: 1px var(--space-1); border: 1px solid var(--color-status-active-bd); border-radius: var(--radius-sm); background: var(--color-status-active-bg); color: var(--color-status-active-fg); font: var(--text-xs) var(--font-mono); }
+.period-action-button { display: inline-flex; align-items: center; justify-content: center; opacity: 1; }
 .today-task-title { min-width: 0; display: grid; flex: 1 1 auto; gap: 1px; padding: 0; overflow: hidden; border: 0; background: transparent; text-align: left; }
 .today-task-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-task-title span { overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }

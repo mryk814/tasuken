@@ -136,6 +136,45 @@ test("domain view models keep task, waiting, capture, and timeline concerns sepa
   assert.equal(timeline.rows[0].children[0].planNode.id, "milestone-1");
 });
 
+test("today view separates ongoing period tasks from explicit daily tasks", () => {
+  const domain = {
+    projects: [],
+    capture_entries: [],
+    tasks: [
+      { id: "task-start", title: "starts today", state: "todo", priority: "normal" },
+      { id: "task-end", title: "ends today", state: "todo", priority: "normal" },
+      { id: "task-period", title: "ongoing period", state: "todo", priority: "normal" },
+      { id: "task-done", title: "done period", state: "done", priority: "normal" },
+      { id: "task-overdue-period", title: "overdue period", state: "todo", priority: "normal" },
+    ],
+    waitings: [],
+    plan_nodes: [],
+    schedules: [
+      { id: "schedule-start", owner_type: "task", owner_id: "task-start", start_date: "2026-06-20", end_date: "2026-06-25", date_kind: "range", confidence: "fixed", granularity: "day" },
+      { id: "schedule-end", owner_type: "task", owner_id: "task-end", start_date: "2026-06-10", end_date: "2026-06-20", date_kind: "range", confidence: "fixed", granularity: "day" },
+      { id: "schedule-period", owner_type: "task", owner_id: "task-period", start_date: "2026-06-10", end_date: "2026-06-25", date_kind: "range", confidence: "fixed", granularity: "day" },
+      { id: "schedule-done", owner_type: "task", owner_id: "task-done", start_date: "2026-06-10", end_date: "2026-06-25", date_kind: "range", confidence: "fixed", granularity: "day" },
+      { id: "schedule-overdue-period", owner_type: "task", owner_id: "task-overdue-period", start_date: "2026-06-01", end_date: "2026-06-19", date_kind: "range", confidence: "fixed", granularity: "day" },
+    ],
+    notes: [],
+    resources: [],
+    knowledge_nodes: [],
+    references: [],
+    task_dependencies: [],
+    plan_dependencies: [],
+    knowledge_edges: [],
+    change_events: [],
+  };
+
+  assert.deepEqual(selectors.buildTodayView(domain, "2026-06-20").map((entry) => entry.task.id), ["task-end", "task-start"]);
+
+  const periods = selectors.buildOngoingPeriodTaskView(domain, "2026-06-20");
+  assert.deepEqual(periods.map((row) => row.task.id), ["task-period"]);
+  assert.equal(periods[0].dayIndex, 11);
+  assert.equal(periods[0].totalDays, 16);
+  assert.equal(periods[0].daysRemaining, 5);
+});
+
 test("task duplication creates an editable new todo without completion state", () => {
   const task = {
     id: "task-done",

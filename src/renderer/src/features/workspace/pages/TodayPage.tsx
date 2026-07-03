@@ -26,7 +26,7 @@ import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
-import { buildTodayView, compareCapturesNewestFirst } from "../domain-model/selectors";
+import { buildOngoingPeriodTaskView, buildTodayView, compareCapturesNewestFirst } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
@@ -35,7 +35,7 @@ import {
 } from "../domain-model/persistence";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Schedule, Task, Waiting, WorkspaceDomain } from "../domain-model/types";
-import type { TodayEntry } from "../domain-model/viewModels";
+import type { OngoingPeriodTaskRow, TodayEntry } from "../domain-model/viewModels";
 
 type DomainRow =
   | { type: "task"; task: Task; schedule?: Schedule }
@@ -63,6 +63,10 @@ function scheduleDate(schedule?: Schedule): string {
 function scheduleTouchesRange(schedule: Schedule | undefined, start: string, end: string): boolean {
   const date = scheduleDate(schedule);
   return Boolean(date && date >= start && date <= end);
+}
+
+function scheduleRangeLabel(schedule: Schedule): string {
+  return `${formatDate(schedule.start_date)}-${formatDate(schedule.end_date)}`;
 }
 
 function isActiveTask(task: Task): boolean {
@@ -235,6 +239,57 @@ function TodayRows({
   );
 }
 
+function PeriodTaskRows({
+  rows,
+  themes,
+  onOpenDetail,
+  onCreateTodayTask,
+}: {
+  rows: OngoingPeriodTaskRow[];
+  themes: PageProps["themes"];
+  onOpenDetail: (row: OngoingPeriodTaskRow) => void;
+  onCreateTodayTask: (row: OngoingPeriodTaskRow) => void;
+}) {
+  if (!rows.length) return <EmptyState title="期間中タスクはありません" />;
+  return (
+    <div className="today-task-list">
+      {rows.map((row) => {
+        const themeIndex = themes.findIndex((entry) => entry.id === row.task.project_id);
+        const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
+        const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
+        return (
+          <div
+            className="today-task-row period-task-row is-clickable-row"
+            key={row.task.id}
+            style={{ "--chip-color": chipColor } as React.CSSProperties}
+            onClick={() => onOpenDetail(row)}
+          >
+            <span className="todo-theme-bar" />
+            <span className="period-progress-badge">{row.dayIndex}/{row.totalDays}</span>
+            <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
+              <strong>{row.task.title}</strong>
+              <span>
+                {theme?.name || "個人業務"} / 期間中 {row.dayIndex}日目 / 終了まであと{row.daysRemaining}日
+              </span>
+            </button>
+            <time>{scheduleRangeLabel(row.schedule)}</time>
+            <span className="today-postpone-actions">
+              <button
+                className="postpone-button period-action-button"
+                onClick={(event) => { event.stopPropagation(); onCreateTodayTask(row); }}
+                title="今日の作業を作成"
+                aria-label={`${row.task.title}の今日の作業を作成`}
+              >
+                <IconCalendarPlus size={14} />
+              </button>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
@@ -248,6 +303,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const soon = addDays(today, 14);
   const schedules = schedulesByOwner(v2);
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
+  const periodRows = buildOngoingPeriodTaskView(v2, today);
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
   const waitingRows = v2.waitings.map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)));
   const planNodeRows = v2.plan_nodes.map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)));
@@ -357,6 +413,30 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     }
   }
 
+  async function handleCreateTodayTask(row: OngoingPeriodTaskRow) {
+    const taskId = crypto.randomUUID();
+    const task: Task = {
+      id: taskId,
+      project_id: row.task.project_id || null,
+      plan_node_id: row.task.plan_node_id || null,
+      parent_task_id: row.task.id,
+      title: `${row.task.title}の今日の作業`,
+      state: "todo",
+      priority: row.task.priority,
+      created_at: new Date().toISOString(),
+    };
+    const schedule: Schedule = {
+      id: crypto.randomUUID(),
+      owner_type: "task",
+      owner_id: taskId,
+      end_date: today,
+      date_kind: "deadline",
+      confidence: "fixed",
+      granularity: "day",
+    };
+    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日の作業を作成しました。");
+  }
+
   function handleOpenDetail(row: TodayRow) {
     if (row.v2) {
       if (row.v2.type === "task") {
@@ -376,6 +456,10 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         return;
       }
     }
+  }
+
+  function handleOpenPeriodTask(row: OngoingPeriodTaskRow) {
+    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
   async function addTask() {
@@ -411,6 +495,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     "",
     "## 期限切れ",
     ...(overdue.length ? overdue.map((row) => `- ${row.date || "予定なし"} ${row.title}`) : ["- なし"]),
+    "",
+    "## 進行中の期間タスク",
+    ...(periodRows.length ? periodRows.map((row) => `- ${scheduleRangeLabel(row.schedule)} ${row.task.title} (${row.dayIndex}/${row.totalDays}日目、終了まであと${row.daysRemaining}日)`) : ["- なし"]),
     "",
     "## Waiting",
     ...(waitingSoon.length ? waitingSoon.map((row) => `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`) : ["- なし"]),
@@ -531,6 +618,14 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
         <TodayRows rows={todayRows} themes={themes} empty="今日のタスクはありません" today={today} {...rowHandlers} onAdd={() => setShowAdd(true)} />
+      </section>
+
+      <section className="panel today-focus-panel">
+        <div className="section-heading">
+          <h2>進行中の期間タスク</h2>
+          <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
+        </div>
+        <PeriodTaskRows rows={periodRows} themes={themes} onOpenDetail={handleOpenPeriodTask} onCreateTodayTask={handleCreateTodayTask} />
       </section>
 
       <div className="today-grid">

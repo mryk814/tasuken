@@ -22,6 +22,14 @@ export interface WaitingView {
   waitings: Array<{ waiting: Waiting; schedule?: Schedule }>;
 }
 
+export interface OngoingPeriodTaskRow {
+  task: Task;
+  schedule: Schedule;
+  dayIndex: number;
+  totalDays: number;
+  daysRemaining: number;
+}
+
 export interface TimelineRow {
   planNode: PlanNode;
   schedule?: Schedule;

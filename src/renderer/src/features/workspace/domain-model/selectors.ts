@@ -1,5 +1,5 @@
 import type { CaptureEntry, PlanNode, Schedule, WorkspaceDomain } from "./types";
-import type { InboxView, MicroMemoView, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
+import type { InboxView, MicroMemoView, OngoingPeriodTaskRow, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
 
 function todayString(): string {
   return new Date().toISOString().slice(0, 10);
@@ -21,11 +21,21 @@ function isActiveTask(state: string): boolean {
   return !["done", "cancelled"].includes(state);
 }
 
-function scheduleTouchesDate(schedule: Schedule | undefined, date: string): boolean {
+function scheduleHasExplicitDate(schedule: Schedule | undefined, date: string): boolean {
   if (!schedule) return false;
-  if (schedule.start_date === date || schedule.end_date === date) return true;
-  if (schedule.start_date && schedule.end_date) return schedule.start_date <= date && schedule.end_date >= date;
-  return false;
+  return schedule.start_date === date || schedule.end_date === date;
+}
+
+function isOngoingPeriod(schedule: Schedule | undefined, date: string): schedule is Schedule & { start_date: string; end_date: string } {
+  if (!schedule?.start_date || !schedule.end_date) return false;
+  if (schedule.start_date >= schedule.end_date) return false;
+  return schedule.start_date < date && date < schedule.end_date;
+}
+
+function inclusiveDays(start: string, end: string): number {
+  const startTime = Date.parse(`${start}T00:00:00.000Z`);
+  const endTime = Date.parse(`${end}T00:00:00.000Z`);
+  return Math.floor((endTime - startTime) / 86400000) + 1;
 }
 
 function compareScheduledRows<T extends { schedule?: Schedule }>(a: T, b: T): number {
@@ -95,22 +105,39 @@ export function buildTodayView(domain: WorkspaceDomain, date = todayString()): T
 
   for (const task of domain.tasks) {
     const schedule = schedules.get(scheduleKey("task", task.id));
-    if (isActiveTask(task.state) && scheduleTouchesDate(schedule, date)) entries.push({ type: "task", task, schedule });
+    if (isActiveTask(task.state) && scheduleHasExplicitDate(schedule, date)) entries.push({ type: "task", task, schedule });
   }
 
   for (const waiting of domain.waitings) {
     const schedule = schedules.get(scheduleKey("waiting", waiting.id));
-    if (waiting.state === "waiting" && scheduleTouchesDate(schedule, date)) entries.push({ type: "waiting", waiting, schedule });
+    if (waiting.state === "waiting" && scheduleHasExplicitDate(schedule, date)) entries.push({ type: "waiting", waiting, schedule });
   }
 
   for (const planNode of domain.plan_nodes) {
     const schedule = schedules.get(scheduleKey("plan_node", planNode.id));
-    if (planNode.type === "milestone" && planNode.state !== "done" && scheduleTouchesDate(schedule, date)) {
+    if (planNode.type === "milestone" && planNode.state !== "done" && scheduleHasExplicitDate(schedule, date)) {
       entries.push({ type: "milestone", planNode, schedule });
     }
   }
 
   return entries.sort((a, b) => todayEntryDate(a).localeCompare(todayEntryDate(b)));
+}
+
+export function buildOngoingPeriodTaskView(domain: WorkspaceDomain, date = todayString()): OngoingPeriodTaskRow[] {
+  const schedules = schedulesByOwner(domain);
+  return domain.tasks
+    .map((task) => ({ task, schedule: schedules.get(scheduleKey("task", task.id)) }))
+    .filter((row): row is { task: typeof row.task; schedule: Schedule & { start_date: string; end_date: string } } => (
+      isActiveTask(row.task.state) && isOngoingPeriod(row.schedule, date)
+    ))
+    .map(({ task, schedule }) => ({
+      task,
+      schedule,
+      dayIndex: inclusiveDays(schedule.start_date, date),
+      totalDays: inclusiveDays(schedule.start_date, schedule.end_date),
+      daysRemaining: Math.max(0, inclusiveDays(date, schedule.end_date) - 1),
+    }))
+    .sort((a, b) => a.schedule.end_date.localeCompare(b.schedule.end_date) || a.task.title.localeCompare(b.task.title, "ja"));
 }
 
 function comparePlanNodes(schedules: Map<string, Schedule>, a: PlanNode, b: PlanNode): number {

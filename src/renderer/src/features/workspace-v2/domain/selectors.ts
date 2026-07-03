@@ -5,5 +5,6 @@ export {
   buildMicroMemoView,
   buildWaitingView,
   buildTodayView,
+  buildOngoingPeriodTaskView,
   buildTimelineView,
 } from "../../workspace/domain-model/selectors";
