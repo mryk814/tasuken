@@ -50,6 +50,7 @@ React Page / Component
 6. RepositoryはDB操作だけを担当し、UI文言や画面状態を持たない。
 7. 複数更新はRepositoryまたはServiceのtransaction内で完結させる。
 8. DB、ファイル、更新、外部URL、クリップボードはMain Process側の権限として扱う。
+9. 複数ウィンドウ（メイン・クイックキャプチャ・ミニ表示等）からの書き込みはMainの単一経路に集約し、変更通知イベントで全ウィンドウへ反映する。各ウィンドウが直接ファイル・DBへ書かない。
 
 `contextIsolation: true`と`nodeIntegration: false`は必須とする。
 Chromium sandboxは対象Windows環境で配布版検証が通る場合に有効化する。
@@ -97,6 +98,10 @@ src/
 - `main/services/`: 複数RepositoryやOS機能をまたぐユースケース。
 - `main/repositories/`: SQLiteのquery、transaction、row変換。
 - `shared/`: Main、Preload、Rendererで共有する型と契約。環境依存APIを置かない。
+
+### ウィンドウ状態の復元
+
+メインウィンドウのサイズ・位置・最大化状態を保存し、再起動時に復元する。復元時はディスプレイ構成の変化で画面外に出ないようガードする。
 
 ## 4. TypeScriptの作法
 
@@ -154,6 +159,7 @@ export const IPC = {
 - エラーはMain側でログを残し、Rendererへは原因と直し方を含む安全な文言を返す。
 - 長時間処理は進捗イベントとキャンセルを設計する。
 - 新機能は`型 -> Repository -> Service -> IPC -> Preload -> Store -> UI`の順に接続する。
+- Mainは userData 配下へファイルログ（info/warn/error）を書く。規約は AGENTS.md の「エラーハンドリングとログ」に従う。
 
 ## 8. DBとRepository
 
@@ -194,6 +200,8 @@ export const IPC = {
 7. packaged executableの起動。
 8. installerとportableの生成。
 9. 自動更新を使う場合はテスト用更新先で一往復。
+10. 自動バックアップの世代ローテーションが動作する（実装しているアプリ）。
+11. ウィンドウ状態が再起動後に復元される。
 
 ## 11. 採用判断
 
