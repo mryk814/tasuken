@@ -7,13 +7,13 @@
     <style>
       :root {
         color-scheme: light;
-        --color-bg-top: #2f6f73;
-        --color-bg-mid: #6f8f91;
-        --color-bg-bottom: #e0cbc4;
+        --color-bg-top: #8a2f3b;
+        --color-bg-mid: #b98289;
+        --color-bg-bottom: #f4eeec;
         --color-panel: rgba(255, 250, 248, .88);
         --color-panel-strong: rgba(255, 250, 248, .96);
-        --color-glass: rgba(47, 41, 39, .58);
-        --color-glass-hover: rgba(47, 41, 39, .70);
+        --color-glass: rgba(47, 41, 39, .46);
+        --color-glass-hover: rgba(47, 41, 39, .58);
         --color-text: #2f2927;
         --color-text-light: #fffaf8;
         --color-text-muted: rgba(255, 250, 248, .82);
@@ -22,6 +22,16 @@
         --color-row-border: rgba(91, 68, 63, .14);
         --color-accent: #8a2f3b;
         --color-success: #3f7d5a;
+        --color-chart-1: #8A2F3B;
+        --color-chart-2: #2D7FB8;
+        --color-chart-3: #2E8B57;
+        --color-chart-4: #C77D29;
+        --color-chart-5: #6D5BC7;
+        --color-chart-6: #7C746E;
+        --color-theme-extra-1: color-mix(in srgb, var(--color-chart-1) 70%, var(--color-chart-2));
+        --color-theme-extra-2: color-mix(in srgb, var(--color-chart-2) 70%, var(--color-chart-3));
+        --color-theme-extra-3: color-mix(in srgb, var(--color-chart-3) 70%, var(--color-chart-4));
+        --color-theme-extra-4: color-mix(in srgb, var(--color-chart-5) 65%, var(--color-chart-6));
         --radius-md: 7px;
         --radius-sm: 5px;
         --space-1: 4px;
@@ -55,7 +65,9 @@
         display: grid;
         grid-template-rows: auto 1fr auto;
         padding: 22px 18px 14px;
+        -webkit-app-region: drag;
       }
+      button, input, main, .add-task-bar { -webkit-app-region: no-drag; }
       .mini-hero {
         display: flex;
         align-items: start;
@@ -130,18 +142,26 @@
         gap: var(--space-2);
       }
       .task-row {
+        --theme-color: var(--color-chart-6);
         display: grid;
-        grid-template-columns: 30px minmax(0, 1fr) 30px;
+        grid-template-columns: 5px 30px minmax(0, 1fr) 30px;
         gap: var(--space-2);
         align-items: center;
         min-height: 56px;
-        padding: 9px 10px;
+        padding: 9px 10px 9px 0;
         border: 1px solid var(--color-row-border);
         border-radius: var(--radius-md);
         background: var(--color-panel);
         backdrop-filter: blur(10px);
+        overflow: hidden;
       }
       .task-row.is-high { background: var(--color-panel-strong); }
+      .theme-dot {
+        align-self: stretch;
+        width: 5px;
+        border-radius: var(--radius-md) 0 0 var(--radius-md);
+        background: var(--theme-color);
+      }
       .check-button {
         width: 24px;
         height: 24px;
@@ -174,6 +194,7 @@
       }
       .task-meta {
         display: flex;
+        align-items: center;
         gap: var(--space-2);
         min-width: 0;
         overflow: hidden;
@@ -185,6 +206,22 @@
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      .reminder-clock {
+        display: inline-grid;
+        place-items: center;
+        width: 14px;
+        min-width: 14px;
+        color: var(--color-accent);
+      }
+      .reminder-clock svg {
+        width: 13px;
+        height: 13px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       .num {
         font-family: var(--font-mono);
@@ -247,6 +284,9 @@
           <button class="icon-button" id="refresh" type="button" title="更新" aria-label="更新">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 5v6h-6" /></svg>
           </button>
+          <button class="icon-button" id="close-window" type="button" title="閉じる" aria-label="閉じる">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+          </button>
         </div>
       </header>
       <main id="content">
@@ -263,11 +303,20 @@
       const todayDate = document.querySelector("#today-date");
       const refreshButton = document.querySelector("#refresh");
       const pinTopRightButton = document.querySelector("#pin-top-right");
+      const closeWindowButton = document.querySelector("#close-window");
       const addTaskForm = document.querySelector("#add-task-form");
       const addTaskInput = document.querySelector("#add-task-input");
 
       const now = new Date();
+      const todayKey = localDateKey(now);
       todayDate.textContent = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" }).format(now);
+
+      function localDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
 
       function escapeHtml(value) {
         return String(value)
@@ -282,18 +331,29 @@
         return `<div class="state ${tone}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(body)}</span></div>`;
       }
 
+      function scheduleHint(task) {
+        return task.scheduleLabel && task.scheduleLabel !== todayKey ? task.scheduleLabel : "";
+      }
+
       function rowHtml(task) {
+        const schedule = scheduleHint(task);
+        const scheduleMeta = schedule ? `<span class="num">${escapeHtml(schedule)}</span>` : "";
+        const reminder = task.hasReminder
+          ? `<span class="reminder-clock" title="リマインダーあり" aria-label="リマインダーあり"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2" /><path d="M20 12a8 8 0 1 1-2.3-5.7" /><path d="M18 2v5h-5" /></svg></span>`
+          : "";
         const checklist = task.checklistTotal > 0
           ? `<span class="num">${task.checklistDone}/${task.checklistTotal}</span>`
           : "";
         return `
-          <article class="task-row ${task.priority === "high" ? "is-high" : ""}" data-task-id="${escapeHtml(task.id)}">
+          <article class="task-row ${task.priority === "high" ? "is-high" : ""}" data-task-id="${escapeHtml(task.id)}" style="--theme-color: ${escapeHtml(task.themeColor || "var(--color-chart-6)")}">
+            <span class="theme-dot" aria-hidden="true"></span>
             <button class="check-button" type="button" data-action="toggle" aria-label="${escapeHtml(task.title)}を完了">✓</button>
             <button class="task-main" type="button" data-action="open" title="Taskenで開く">
               <span class="task-title">${escapeHtml(task.title)}</span>
               <span class="task-meta">
                 <span>${escapeHtml(task.themeName)}</span>
-                <span class="num">${escapeHtml(task.scheduleLabel)}</span>
+                ${scheduleMeta}
+                ${reminder}
                 ${checklist}
               </span>
             </button>
@@ -320,6 +380,7 @@
 
       refreshButton.addEventListener("click", () => render(window.todayMiniApi.refresh));
       pinTopRightButton.addEventListener("click", () => window.todayMiniApi.pinTopRight());
+      closeWindowButton.addEventListener("click", () => window.todayMiniApi.hide());
       addTaskForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const title = addTaskInput.value.trim();

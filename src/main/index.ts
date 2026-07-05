@@ -21,9 +21,23 @@ let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
 let todayMiniWindow: BrowserWindow | null = null;
 let todayMiniFadeTimer: ReturnType<typeof setTimeout> | null = null;
-const TODAY_MINI_INACTIVE_OPACITY = 0.68;
+const TODAY_MINI_INACTIVE_OPACITY = 0.5;
 const TODAY_MINI_FADE_DELAY_MS = 30000;
 const TODAY_MINI_SCREEN_MARGIN = 16;
+const TODAY_MINI_PINNED_WIDTH = 360;
+const TODAY_MINI_PINNED_HEIGHT = 560;
+const TODAY_MINI_THEME_COLOR_KEYS = [
+  "chart-1",
+  "chart-2",
+  "chart-3",
+  "chart-4",
+  "chart-5",
+  "chart-6",
+  "theme-extra-1",
+  "theme-extra-2",
+  "theme-extra-3",
+  "theme-extra-4",
+] as const;
 type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
 protocol.registerSchemesAsPrivileged([
@@ -211,9 +225,11 @@ function pinTodayMiniTopRight(): boolean {
   }
   const bounds = todayMiniWindow.getBounds();
   const { workArea } = screen.getDisplayMatching(bounds);
-  const x = workArea.x + workArea.width - bounds.width - TODAY_MINI_SCREEN_MARGIN;
+  const width = Math.min(TODAY_MINI_PINNED_WIDTH, Math.max(320, workArea.width - TODAY_MINI_SCREEN_MARGIN * 2));
+  const height = Math.min(TODAY_MINI_PINNED_HEIGHT, Math.max(360, workArea.height - TODAY_MINI_SCREEN_MARGIN * 2));
+  const x = workArea.x + workArea.width - width - TODAY_MINI_SCREEN_MARGIN;
   const y = workArea.y + TODAY_MINI_SCREEN_MARGIN;
-  todayMiniWindow.setPosition(Math.max(workArea.x, x), Math.max(workArea.y, y), false);
+  todayMiniWindow.setBounds({ x: Math.max(workArea.x, x), y: Math.max(workArea.y, y), width, height }, false);
   restoreTodayMiniOpacity(todayMiniWindow);
   return true;
 }
@@ -225,9 +241,11 @@ function createTodayMiniWindow(): BrowserWindow {
     minWidth: 320,
     minHeight: 360,
     show: false,
+    frame: false,
     resizable: true,
     skipTaskbar: true,
     alwaysOnTop: true,
+    autoHideMenuBar: true,
     title: "今日やること",
     icon: getAppIconPath(),
     backgroundColor: "#F4EEEC",
@@ -266,6 +284,13 @@ function showTodayMiniWindow(): void {
   if (!todayMiniWindow.webContents.isLoading()) {
     todayMiniWindow.webContents.send("today-mini:refresh");
   }
+}
+
+function hideTodayMiniWindow(): boolean {
+  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) return false;
+  todayMiniWindow.hide();
+  restoreTodayMiniOpacity(todayMiniWindow);
+  return true;
 }
 
 function createTrayIcon(): Electron.NativeImage {
@@ -443,6 +468,28 @@ function checklistCounts(task: Entity): { done: number; total: number } {
   };
 }
 
+function todayMiniThemeColor(theme: Entity | undefined, index: number): string {
+  const rawColor = typeof theme?.color === "string" ? theme.color.trim() : "";
+  const colorKey = TODAY_MINI_THEME_COLOR_KEYS.includes(rawColor as typeof TODAY_MINI_THEME_COLOR_KEYS[number])
+    ? rawColor
+    : TODAY_MINI_THEME_COLOR_KEYS[((index % TODAY_MINI_THEME_COLOR_KEYS.length) + TODAY_MINI_THEME_COLOR_KEYS.length) % TODAY_MINI_THEME_COLOR_KEYS.length];
+  return `var(--color-${colorKey})`;
+}
+
+function todayMiniThemeMap(): Map<string, { name: string; color: string }> {
+  const entries = [
+    ...(workspaceRepository.list("theme") as Entity[]),
+    ...(workspaceRepository.list("project") as Entity[]),
+  ];
+  return new Map(entries.map((entry, index) => [
+    String(entry.id),
+    {
+      name: String(entry.name || entry.title || "個人業務"),
+      color: todayMiniThemeColor(entry, index),
+    },
+  ] as const));
+}
+
 function listTodayMiniTasks(): TodayMiniTask[] {
   const today = localDateString();
   const tasks = (workspaceRepository.list("task") as Entity[])
@@ -450,21 +497,21 @@ function listTodayMiniTasks(): TodayMiniTask[] {
   const schedules = (workspaceRepository.list("schedule") as Entity[])
     .filter((schedule) => schedule.owner_type === "task" && (schedule.start_date === today || schedule.end_date === today));
   const scheduleByTask = new Map(schedules.map((schedule) => [String(schedule.owner_id), schedule]));
-  const themeNames = new Map([
-    ...(workspaceRepository.list("theme") as Entity[]).map((theme) => [String(theme.id), String(theme.name || theme.title || "個人業務")] as const),
-    ...(workspaceRepository.list("project") as Entity[]).map((project) => [String(project.id), String(project.name || project.title || "個人業務")] as const),
-  ]);
+  const themes = todayMiniThemeMap();
 
   return tasks
     .filter((task) => scheduleByTask.has(String(task.id)))
     .map((task): TodayMiniTask => {
       const schedule = scheduleByTask.get(String(task.id));
       const counts = checklistCounts(task);
+      const theme = typeof task.project_id === "string" ? themes.get(task.project_id) : null;
       return {
         id: String(task.id),
         title: String(task.title || "無題のタスク"),
-        themeName: typeof task.project_id === "string" ? themeNames.get(task.project_id) || "個人業務" : "個人業務",
+        themeName: theme?.name || "個人業務",
+        themeColor: theme?.color || "var(--color-chart-6)",
         scheduleLabel: String(schedule?.end_date || schedule?.start_date || today),
+        hasReminder: typeof task.reminder_at === "string" && task.reminder_at.trim().length > 0,
         priority: task.priority === "high" ? "high" : "normal",
         checklistDone: counts.done,
         checklistTotal: counts.total,
@@ -550,6 +597,7 @@ function registerTodayMiniIpc(): void {
     return true;
   });
   ipcMain.handle("today-mini:pin-top-right", () => pinTodayMiniTopRight());
+  ipcMain.handle("today-mini:hide", () => hideTodayMiniWindow());
   ipcMain.handle("today-mini:list", () => listTodayMiniTasks());
   ipcMain.handle("today-mini:refresh", () => listTodayMiniTasks());
   ipcMain.handle("today-mini:add-task", (_event, title: unknown) => {

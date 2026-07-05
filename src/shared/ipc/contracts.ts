@@ -48,7 +48,9 @@ export interface TodayMiniTask {
   id: string;
   title: string;
   themeName: string;
+  themeColor: string;
   scheduleLabel: string;
+  hasReminder: boolean;
   priority: "normal" | "high";
   checklistDone: number;
   checklistTotal: number;
