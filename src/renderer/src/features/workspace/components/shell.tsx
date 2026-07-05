@@ -1,8 +1,9 @@
 import { crossNavigation, knowledgeHubTabs, todayHubTabs, toolNavigation } from "../../../pages/routes";
 import { todayIso } from "../../../utils/dataFormat.js";
-import type { OpenDrawer, Theme } from "../types";
-import type { WorkspaceDomain } from "../domain-model/types";
+import type { KnowledgeNode as WorkspaceKnowledgeNode, OpenDrawer, Theme } from "../types";
+import type { KnowledgeEdge, WorkspaceDomain } from "../domain-model/types";
 import { themeColor } from "../lib/domain";
+import { buildKnowledgeHealth } from "../lib/knowledgeHealth";
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
   return (
@@ -61,12 +62,23 @@ export function Sidebar({
     const due = String(s?.end_date || s?.start_date || "");
     return Boolean(due && due <= today);
   }).length;
+  const knowledgeHealthEntities = [
+    ...domain.tasks.map((task) => ({ id: task.id, status: task.state, title: task.title })),
+    ...domain.waitings.map((waiting) => ({ id: waiting.id, status: waiting.state, title: waiting.title })),
+    ...domain.plan_nodes.map((plan) => ({ id: plan.id, status: plan.state, title: plan.title })),
+  ];
+  const knowledgeHealthIssueCount = buildKnowledgeHealth(
+    domain.knowledge_nodes as unknown as WorkspaceKnowledgeNode[],
+    domain.knowledge_edges as unknown as KnowledgeEdge[],
+    knowledgeHealthEntities,
+  ).length;
   const proposalCount = domain.ai_proposals.filter((proposal) => proposal.status === "pending").length;
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: overdueTasks,
     waiting: dueWaitings,
     inbox,
+    knowledge: knowledgeHealthIssueCount,
     "ai-io": proposalCount,
   };
   const renderNavButton = ([id, label]: readonly [string, string]) => {
