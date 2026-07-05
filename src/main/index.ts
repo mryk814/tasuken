@@ -473,6 +473,50 @@ function listTodayMiniTasks(): TodayMiniTask[] {
     .sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high") || a.title.localeCompare(b.title, "ja-JP"));
 }
 
+function addTodayMiniTask(title: string): TodayMiniTask[] {
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("タスク名を入力してください。");
+  const today = localDateString();
+  const taskId = randomUUID();
+  const saved = workspaceRepository.saveMany([
+    {
+      action: "save",
+      type: "task",
+      entity: {
+        id: taskId,
+        title: trimmed,
+        state: "todo",
+        priority: "normal",
+        project_id: null,
+        source: "today-mini",
+      },
+      options: { source: "today-mini" },
+    },
+    {
+      action: "save",
+      type: "schedule",
+      entity: {
+        id: randomUUID(),
+        owner_type: "task",
+        owner_id: taskId,
+        start_date: today,
+        end_date: today,
+        date_kind: "point",
+        confidence: "fixed",
+        granularity: "day",
+      },
+      options: { source: "today-mini" },
+    },
+  ]) as Entity[];
+  notifyMainWindowRefresh({
+    entities: [
+      { type: "task", entity: saved[0] },
+      { type: "schedule", entity: saved[1] },
+    ],
+  });
+  return listTodayMiniTasks();
+}
+
 function findMainWindow(): BrowserWindow | null {
   return BrowserWindow.getAllWindows()
     .find((win) => win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) || null;
@@ -508,6 +552,10 @@ function registerTodayMiniIpc(): void {
   ipcMain.handle("today-mini:pin-top-right", () => pinTodayMiniTopRight());
   ipcMain.handle("today-mini:list", () => listTodayMiniTasks());
   ipcMain.handle("today-mini:refresh", () => listTodayMiniTasks());
+  ipcMain.handle("today-mini:add-task", (_event, title: unknown) => {
+    if (typeof title !== "string") throw new Error("タスク名を入力してください。");
+    return addTodayMiniTask(title);
+  });
   ipcMain.handle("today-mini:toggle", (_event, taskId: unknown) => {
     if (typeof taskId !== "string" || !taskId.trim()) {
       throw new Error("対象タスクがありません。");

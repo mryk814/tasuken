@@ -29,3 +29,18 @@ test("Today mini can snap to the top right and fades only while inactive", () =>
   assert.match(htmlSource, /id="pin-top-right"/);
   assert.match(htmlSource, /window\.todayMiniApi\.pinTopRight/);
 });
+
+test("Today mini uses a clean To Do style surface with compact icon actions and an add bar", () => {
+  assert.match(htmlSource, /class="app-shell"/);
+  assert.match(htmlSource, /class="mini-hero"/);
+  assert.match(htmlSource, /id="today-date"/);
+  assert.match(htmlSource, /aria-label="画面右上へ移動"/);
+  assert.match(htmlSource, /aria-label="更新"/);
+  assert.doesNotMatch(htmlSource, />右上へ<\/button>/);
+  assert.doesNotMatch(htmlSource, />更新<\/button>/);
+  assert.match(htmlSource, /class="add-task-bar"/);
+  assert.match(htmlSource, /window\.todayMiniApi\.addTask/);
+  assert.match(preloadSource, /addTask/);
+  assert.match(contractsSource, /addTask/);
+  assert.match(mainSource, /today-mini:add-task/);
+});

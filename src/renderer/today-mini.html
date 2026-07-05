@@ -7,17 +7,21 @@
     <style>
       :root {
         color-scheme: light;
-        --color-bg: #f4eeec;
-        --color-surface: #fffaf8;
-        --color-surface-muted: #f1e7e4;
-        --color-border: #dfd0cc;
-        --color-border-subtle: #eadfdb;
+        --color-bg-top: #2f6f73;
+        --color-bg-mid: #6f8f91;
+        --color-bg-bottom: #e0cbc4;
+        --color-panel: rgba(255, 250, 248, .88);
+        --color-panel-strong: rgba(255, 250, 248, .96);
+        --color-glass: rgba(47, 41, 39, .58);
+        --color-glass-hover: rgba(47, 41, 39, .70);
         --color-text: #2f2927;
-        --color-text-secondary: #6f625f;
+        --color-text-light: #fffaf8;
+        --color-text-muted: rgba(255, 250, 248, .82);
+        --color-text-secondary: #70615d;
+        --color-border: rgba(255, 250, 248, .34);
+        --color-row-border: rgba(91, 68, 63, .14);
         --color-accent: #8a2f3b;
-        --color-accent-bg: #f3dfe3;
         --color-success: #3f7d5a;
-        --color-danger: #ce3b3b;
         --radius-md: 7px;
         --radius-sm: 5px;
         --space-1: 4px;
@@ -31,58 +35,81 @@
       * { box-sizing: border-box; }
       body {
         min-width: 300px;
+        min-height: 100vh;
         margin: 0;
-        background: var(--color-bg);
+        background: linear-gradient(180deg, var(--color-bg-top) 0%, var(--color-bg-mid) 58%, var(--color-bg-bottom) 100%);
         color: var(--color-text);
         font-family: var(--font-base);
         font-size: 13px;
       }
-      button {
-        min-height: 30px;
-        border: 1px solid var(--color-border);
-        border-radius: var(--radius-md);
-        background: var(--color-surface);
-        color: var(--color-text);
+      button, input {
         font: inherit;
+      }
+      button {
         cursor: pointer;
       }
-      button:hover { background: var(--color-surface-muted); }
       button:active { transform: translateY(1px); }
-      button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-      .app {
+      button:focus-visible, input:focus-visible { outline: 2px solid rgba(255, 250, 248, .86); outline-offset: 2px; }
+      .app-shell {
         min-height: 100vh;
         display: grid;
-        grid-template-rows: auto 1fr;
+        grid-template-rows: auto 1fr auto;
+        padding: 22px 18px 14px;
       }
-      header {
+      .mini-hero {
         display: flex;
-        align-items: center;
+        align-items: start;
         justify-content: space-between;
-        gap: var(--space-2);
-        padding: var(--space-3);
-        border-bottom: 1px solid var(--color-border);
-        background: var(--color-surface);
+        gap: var(--space-3);
+        color: var(--color-text-light);
       }
       h1 {
-        margin: 0;
-        color: var(--color-accent);
-        font-size: 16px;
-        line-height: 1.2;
+        margin: 0 0 var(--space-1);
+        font-size: 24px;
+        font-weight: 800;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+      .today-date {
+        color: var(--color-text-muted);
+        font-size: 14px;
+        font-weight: 700;
       }
       .count {
-        font-family: var(--font-mono);
-        color: var(--color-text-secondary);
+        margin-top: var(--space-1);
+        color: var(--color-text-muted);
+        font: 12px var(--font-mono);
         font-variant-numeric: tabular-nums;
       }
-      .header-actions {
+      .hero-actions {
         display: flex;
-        align-items: center;
-        gap: var(--space-1);
+        gap: var(--space-2);
+      }
+      .icon-button {
+        width: 32px;
+        min-height: 32px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        background: var(--color-glass);
+        color: var(--color-text-light);
+        padding: 0;
+      }
+      .icon-button:hover { background: var(--color-glass-hover); }
+      .icon-button svg {
+        width: 17px;
+        height: 17px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       main {
         min-height: 0;
         overflow-y: auto;
-        padding: var(--space-2);
+        padding: 28px 0 var(--space-3);
       }
       .state {
         display: grid;
@@ -90,40 +117,41 @@
         align-content: center;
         min-height: 180px;
         padding: var(--space-4);
-        border: 1px dashed var(--color-border);
+        border: 1px dashed rgba(255, 250, 248, .52);
         border-radius: var(--radius-md);
-        background: var(--color-surface);
-        color: var(--color-text-secondary);
+        background: rgba(255, 250, 248, .18);
+        color: var(--color-text-muted);
         text-align: center;
       }
-      .state strong { color: var(--color-text); }
-      .state.is-error { border-color: var(--color-danger); color: var(--color-danger); }
+      .state strong { color: var(--color-text-light); }
+      .state.is-error { border-color: rgba(206, 59, 59, .8); color: #ffe4e4; }
       .task-list {
         display: grid;
         gap: var(--space-2);
       }
       .task-row {
         display: grid;
-        grid-template-columns: 28px minmax(0, 1fr) 34px;
+        grid-template-columns: 30px minmax(0, 1fr) 30px;
         gap: var(--space-2);
         align-items: center;
-        min-height: 58px;
-        padding: var(--space-2);
-        border: 1px solid var(--color-border-subtle);
-        border-left: 4px solid var(--color-border);
+        min-height: 56px;
+        padding: 9px 10px;
+        border: 1px solid var(--color-row-border);
         border-radius: var(--radius-md);
-        background: var(--color-surface);
+        background: var(--color-panel);
+        backdrop-filter: blur(10px);
       }
-      .task-row.is-high { border-left-color: var(--color-accent); background: linear-gradient(90deg, var(--color-accent-bg), var(--color-surface) 42%); }
+      .task-row.is-high { background: var(--color-panel-strong); }
       .check-button {
-        width: 26px;
-        height: 26px;
-        min-height: 26px;
+        width: 24px;
+        height: 24px;
+        min-height: 24px;
         display: grid;
         place-items: center;
         padding: 0;
-        border: 2px solid var(--color-border);
+        border: 2px solid rgba(91, 68, 63, .30);
         border-radius: 999px;
+        background: transparent;
         color: transparent;
       }
       .check-button:hover { border-color: var(--color-success); color: var(--color-success); }
@@ -134,14 +162,15 @@
         padding: 0;
         border: 0;
         background: transparent;
+        color: var(--color-text);
         text-align: left;
       }
-      .task-main:hover { background: transparent; color: var(--color-accent); }
+      .task-main:hover .task-title { color: var(--color-accent); }
       .task-title {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-weight: 700;
+        font-weight: 800;
       }
       .task-meta {
         display: flex;
@@ -162,35 +191,83 @@
         font-variant-numeric: tabular-nums;
       }
       .open-button {
-        width: 32px;
-        min-height: 30px;
+        width: 28px;
+        min-height: 28px;
         padding: 0;
+        border: 1px solid rgba(91, 68, 63, .14);
+        border-radius: var(--radius-md);
+        background: rgba(255, 250, 248, .72);
         color: var(--color-accent);
-        font-weight: 700;
+        font-weight: 800;
       }
+      .open-button:hover { background: var(--color-panel-strong); }
+      .add-task-bar {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: center;
+        gap: var(--space-2);
+        min-height: 48px;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 250, 248, .20);
+        border-radius: var(--radius-sm);
+        background: var(--color-glass);
+        color: var(--color-text-light);
+      }
+      .add-task-bar:hover { background: var(--color-glass-hover); }
+      .add-icon {
+        width: 22px;
+        height: 22px;
+        border: 2px solid rgba(255, 250, 248, .88);
+        border-radius: 999px;
+      }
+      .add-input {
+        width: 100%;
+        min-height: 30px;
+        border: 0;
+        background: transparent;
+        color: var(--color-text-light);
+        outline: none;
+      }
+      .add-input::placeholder { color: rgba(255, 250, 248, .88); }
+      .add-input:disabled { opacity: .62; }
     </style>
   </head>
   <body>
-    <div class="app">
-      <header>
+    <div class="app-shell">
+      <header class="mini-hero">
         <div>
           <h1>今日やること</h1>
+          <div class="today-date" id="today-date"></div>
           <div class="count" id="count">--</div>
         </div>
-        <div class="header-actions">
-          <button id="pin-top-right" type="button" title="画面右上へ移動">右上へ</button>
-          <button id="refresh" type="button">更新</button>
+        <div class="hero-actions">
+          <button class="icon-button" id="pin-top-right" type="button" title="画面右上へ移動" aria-label="画面右上へ移動">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h10v10" /><path d="M19 5l-9 9" /><path d="M5 9v10h10" /></svg>
+          </button>
+          <button class="icon-button" id="refresh" type="button" title="更新" aria-label="更新">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 5v6h-6" /></svg>
+          </button>
         </div>
       </header>
       <main id="content">
         <div class="state"><strong>読み込み中</strong><span>今日のタスクを確認しています。</span></div>
       </main>
+      <form class="add-task-bar" id="add-task-form">
+        <span class="add-icon" aria-hidden="true"></span>
+        <input class="add-input" id="add-task-input" autocomplete="off" placeholder="タスクの追加" aria-label="タスクの追加" />
+      </form>
     </div>
     <script type="module">
       const content = document.querySelector("#content");
       const count = document.querySelector("#count");
+      const todayDate = document.querySelector("#today-date");
       const refreshButton = document.querySelector("#refresh");
       const pinTopRightButton = document.querySelector("#pin-top-right");
+      const addTaskForm = document.querySelector("#add-task-form");
+      const addTaskInput = document.querySelector("#add-task-input");
+
+      const now = new Date();
+      todayDate.textContent = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" }).format(now);
 
       function escapeHtml(value) {
         return String(value)
@@ -232,7 +309,7 @@
           count.textContent = `${tasks.length}件`;
           content.innerHTML = tasks.length
             ? `<div class="task-list">${tasks.map(rowHtml).join("")}</div>`
-            : stateHtml("今日のタスクはありません", "本体で追加するとここに表示されます。");
+            : stateHtml("今日のタスクはありません", "下のバーから追加できます。");
         } catch (error) {
           count.textContent = "--";
           content.innerHTML = stateHtml("読み込めませんでした", error instanceof Error ? error.message : String(error), "is-error");
@@ -243,6 +320,19 @@
 
       refreshButton.addEventListener("click", () => render(window.todayMiniApi.refresh));
       pinTopRightButton.addEventListener("click", () => window.todayMiniApi.pinTopRight());
+      addTaskForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const title = addTaskInput.value.trim();
+        if (!title) return;
+        addTaskInput.disabled = true;
+        try {
+          await render(() => window.todayMiniApi.addTask(title));
+          addTaskInput.value = "";
+        } finally {
+          addTaskInput.disabled = false;
+          addTaskInput.focus();
+        }
+      });
       content.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-action]");
         const row = button?.closest("[data-task-id]");
