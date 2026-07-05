@@ -230,10 +230,6 @@ export type DrawerEntityType =
   | "note"
   | "resource"
   | "status_update"
-  | "source_record"
-  | "field_definition"
-  | "reference"
-  | "task_dependency"
   | "knowledge_node"
   | "knowledge_edge"
   | "task"
@@ -294,7 +290,6 @@ export interface PageProps {
   openDrawer: OpenDrawer;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
-  refreshWorkspace(): Promise<void>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
   setToast(message: string, tone?: "info" | "success" | "warning" | "danger"): void;
