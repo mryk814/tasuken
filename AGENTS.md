@@ -17,6 +17,7 @@ standard-version: 2026-07.2
 | `design-standard/design-guide.md` | UI・UX・IA（画面構成・導線・文章規定）の詳細規約の正本 |
 | `design-standard/tokens.css` / `design-standard/tokens.json` | 色・余白・角丸・文字サイズ等、見た目の実値の正本 |
 | `docs/desktop-app-standard.md` | Electronアプリ固有の既定構成・境界・完成条件の正本 |
+| `docs/glossary.md`（このプロジェクト固有） | 画面・エンティティ・UI部品の呼称対応表。ユーザーの短い指示はまずここで解釈する |
 | `docs/`（その他） | 個々のプロジェクト固有の仕様・移行計画・監査表 |
 
 この標準を改訂したら standard-version を上げる（形式: YYYY-MM.連番）。各プロジェクトへコピーした AGENTS.md はこの版数で新旧を判定する。
