@@ -26,6 +26,7 @@ import { inferChatServiceFromUrl } from "./lib/chatServices";
 import { resolveSubmittedChatCapturedAt } from "./lib/chatRefs";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import { normalizeTaskShelf } from "./lib/taskShelves";
+import { normalizeDurationMinutes, normalizeStartTime } from "./lib/timeboxing";
 import type { SaveOperation } from "./types";
 import {
   buildSaveTaskOperations,
@@ -518,6 +519,8 @@ export function WorkspaceApp() {
         state: (formText(values, "state") || "todo") as Task["state"],
         priority: values.has("priority_flag") ? "high" : "normal",
         planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
+        planned_start_time: normalizeStartTime(formText(values, "planned_start_time")) || null,
+        planned_duration_minutes: normalizeDurationMinutes(formText(values, "planned_duration_minutes")),
         description: formText(values, "description") || null,
         repeat_rule: taskRepeatRuleFromForm(values, Number((formText(values, "end_date") || todayIso()).slice(-2))),
         repeat_series_id: formText(values, "repeat_frequency") ? String(base.repeat_series_id || base.id || taskId) : null,
