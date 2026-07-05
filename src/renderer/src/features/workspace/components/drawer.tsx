@@ -46,6 +46,7 @@ import type { CaptureEntry, PlanNode, Reference, Resource, Schedule, Task, Waiti
 import { normalizeTaskShelf } from "../lib/taskShelves";
 import { normalizeDurationMinutes, normalizeStartTime } from "../lib/timeboxing";
 import { normalizeReminderDateTime } from "../lib/reminders";
+import { listTaskSections, normalizeTaskSectionId } from "../lib/taskSections";
 
 const CHAT_REFERENCE_STATUSES = ["inbox", "adopted"];
 const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
@@ -1337,6 +1338,7 @@ function KnowledgeNodeDetailDrawer({
 
 function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["entity"]; data: WorkspaceData; saveEntities?: SaveEntities }) {
   const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
+  const taskSections = listTaskSections(data.views || [], str(entity.project_id));
   const repeatRule = entity.repeat_rule && typeof entity.repeat_rule === "object" ? entity.repeat_rule as Record<string, unknown> : null;
   const [repeatFrequency, setRepeatFrequency] = useState(str(repeatRule?.frequency));
   const [checklist, setChecklist] = useState(normalizeChecklistItems(entity));
@@ -1354,6 +1356,7 @@ function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["enti
       id: str(entity.id),
       title: str(entity.title),
       project_id: (entity.project_id as string | null) ?? null,
+      section_id: normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)),
       plan_node_id: (entity.plan_node_id as string | null) ?? null,
       parent_task_id: (entity.parent_task_id as string | null) ?? null,
       state: (str(entity.state) || "todo") as Task["state"],
@@ -1382,6 +1385,12 @@ function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["enti
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
+      <Field label="セクション">
+        <select name="section_id" defaultValue={normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || ""}>
+          <option value="">未設定</option>
+          {taskSections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
+        </select>
+      </Field>
       <Field label="状態">
         <select name="state" defaultValue={str(entity.state) || "todo"}>
           {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
