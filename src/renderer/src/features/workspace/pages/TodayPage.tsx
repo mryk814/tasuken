@@ -20,6 +20,7 @@ import { buildActivityLog } from "../lib/activityLog";
 import { buildDailyPlanningCandidates, defaultDailyPlanSelection, type DailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { TASK_SHELF_OPTIONS, normalizeTaskShelf, taskShelfStatus, type TaskShelfRow } from "../lib/taskShelves";
 import { buildTimeboxView, type TimedTimeboxRow, type TimeboxView } from "../lib/timeboxing";
+import { buildDailyLoopSummary, openTodayMini, type DailyLoopStep, type DailyLoopSummary } from "../lib/dailyLoop";
 import {
   buildReminderAlerts,
   buildReminderSettingsView,
@@ -69,6 +70,15 @@ type TodayRow = {
   waitingFor?: string | null;
   v2?: DomainRow;
 };
+
+function recordDate(value: unknown): string {
+  return String(value || "").slice(0, 10);
+}
+
+function recordTimestamp(record: unknown): unknown {
+  const row = record && typeof record === "object" ? record as Record<string, unknown> : {};
+  return row.updated_at || row.created_at || row.captured_at || row.date;
+}
 
 function scheduleDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
@@ -507,6 +517,31 @@ function ReminderPanel({
   );
 }
 
+function DailyLoopPanel({
+  summary,
+  onStep,
+}: {
+  summary: DailyLoopSummary;
+  onStep: (step: DailyLoopStep) => void;
+}) {
+  return (
+    <section className="panel daily-loop-panel">
+      <div className="section-heading">
+        <h2>日次ループ</h2>
+        <span>{summary.steps.filter((step) => step.state === "active" || step.state === "attention").length}件進行中</span>
+      </div>
+      <div className="daily-loop-steps">
+        {summary.steps.map((step) => (
+          <button key={step.id} className={`daily-loop-step is-${step.state}`} onClick={() => onStep(step)}>
+            <strong>{step.label}</strong>
+            <span>{step.metric}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [showDailyPlan, setShowDailyPlan] = useState(false);
@@ -572,6 +607,39 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     settings: reminderSettings,
     now: currentReminderTime,
     today,
+  });
+  const completedTodayCount = v2.tasks.filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === today).length;
+  const receivedTodayCount = v2.waitings.filter((waiting) => waiting.state === "received" && recordDate(waiting.updated_at) === today).length;
+  const notesTodayCount = (data.notes || []).filter((note) => recordDate(recordTimestamp(note)) === today).length;
+  const resourcesTodayCount = v2.resources.filter((resource) => recordDate(resource.captured_at || recordTimestamp(resource)) === today).length;
+  const knowledgeTodayCount = v2.knowledge_nodes.filter((node) => recordDate(recordTimestamp(node)) === today).length;
+  const capturesTodayCount = v2.capture_entries.filter((entry) => recordDate(entry.captured_at) === today).length;
+  const statusUpdatesTodayCount = (data.status_updates || []).filter((entry) => recordDate(entry.date || entry.updated_at || entry.created_at) === today).length;
+  const learningTodayCount = (data.notes || []).filter((note) => note.note_type === "learning" && recordDate(recordTimestamp(note)) === today).length;
+  const activityLogItemCount = completedTodayCount + receivedTodayCount + notesTodayCount + resourcesTodayCount + knowledgeTodayCount + capturesTodayCount + statusUpdatesTodayCount;
+  const weekStart = addDays(today, -6);
+  const weeklyThemeIds = new Set<string>();
+  v2.tasks.forEach((task) => {
+    if (task.project_id && recordDate(task.completed_at || task.updated_at || task.created_at) >= weekStart) weeklyThemeIds.add(task.project_id);
+  });
+  (data.notes || []).forEach((note) => {
+    if (note.theme_id && recordDate(recordTimestamp(note)) >= weekStart) weeklyThemeIds.add(String(note.theme_id));
+  });
+  v2.knowledge_nodes.forEach((node) => {
+    if (node.project_id && recordDate(recordTimestamp(node)) >= weekStart) weeklyThemeIds.add(node.project_id);
+  });
+  (data.status_updates || []).forEach((entry) => {
+    if (entry.theme_id && recordDate(entry.date || entry.updated_at || entry.created_at) >= weekStart) weeklyThemeIds.add(String(entry.theme_id));
+  });
+  const dailyLoopSummary = buildDailyLoopSummary({
+    todayTaskCount: todayRows.length,
+    timedTaskCount: timeboxView.timed.length,
+    timeboxConflictCount: timeboxView.conflicts.length,
+    reminderCount: reminderAlerts.length,
+    completedTodayCount,
+    learningTodayCount,
+    activityLogItemCount,
+    weeklyThemeCount: weeklyThemeIds.size,
   });
 
   useEffect(() => {
@@ -752,6 +820,26 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       return;
     }
     setShowActivityLog(true);
+  }
+
+  async function handleDailyLoopStep(step: DailyLoopStep) {
+    if (step.id === "morning") {
+      openDailyPlan();
+      return;
+    }
+    if (step.id === "daytime") {
+      await openTodayMini(workspaceApi, setToast);
+      return;
+    }
+    if (step.id === "learning") {
+      navigate("todo");
+      return;
+    }
+    if (step.id === "evening") {
+      setShowActivityLog(true);
+      return;
+    }
+    navigate("themes");
   }
 
   function toggleDailyPlanTask(taskId: string) {
@@ -993,6 +1081,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           onConfirm={confirmDailyPlan}
         />
       )}
+
+      <DailyLoopPanel summary={dailyLoopSummary} onStep={handleDailyLoopStep} />
 
       <ReminderPanel
         settings={reminderSettings}
