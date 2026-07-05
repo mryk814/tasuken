@@ -27,6 +27,7 @@ import { resolveSubmittedChatCapturedAt } from "./lib/chatRefs";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import { normalizeTaskShelf } from "./lib/taskShelves";
 import { normalizeDurationMinutes, normalizeStartTime } from "./lib/timeboxing";
+import { normalizeReminderDateTime } from "./lib/reminders";
 import type { SaveOperation } from "./types";
 import {
   buildSaveTaskOperations,
@@ -521,6 +522,7 @@ export function WorkspaceApp() {
         planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
         planned_start_time: normalizeStartTime(formText(values, "planned_start_time")) || null,
         planned_duration_minutes: normalizeDurationMinutes(formText(values, "planned_duration_minutes")),
+        reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
         description: formText(values, "description") || null,
         repeat_rule: taskRepeatRuleFromForm(values, Number((formText(values, "end_date") || todayIso()).slice(-2))),
         repeat_series_id: formText(values, "repeat_frequency") ? String(base.repeat_series_id || base.id || taskId) : null,
@@ -562,6 +564,7 @@ export function WorkspaceApp() {
         waiting_for: waitingFor,
         project_id: formText(values, "theme_id") || null,
         state: (formText(values, "state") || "waiting") as Waiting["state"],
+        check_reminder_at: normalizeReminderDateTime(formText(values, "check_reminder_at")),
         next_action: formText(values, "next_action") || null,
         description: formText(values, "description") || null,
         legacy_item_id: (base.legacy_item_id as string | null) ?? null,
