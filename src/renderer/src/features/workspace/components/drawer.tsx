@@ -19,6 +19,7 @@ import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TY
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
+import { buildKnowledgeLinkContext, type KnowledgeLinkEntry } from "../lib/knowledgeLinks";
 import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
@@ -207,7 +208,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
   if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} registerEditForm={registerEditForm} removeEntity={removeEntity} saveEntities={saveEntities} />;
   const type = drawer.type;
   if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} setToast={setToast} />;
-  if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} />;
+  if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} saveEntities={saveEntities} />;
   if (type === "resource") {
     const isChatRef = isChatReferenceEntity(entity);
     const service = resolveChatService({ link_type: entity.link_type, url: entity.url });
@@ -1276,13 +1277,19 @@ function KnowledgeNodeDetailDrawer({
   data,
   close,
   removeEntity,
+  saveEntities,
 }: {
   node: KnowledgeNode;
   data: WorkspaceData;
   close: CloseDrawer;
   removeEntity: RemoveEntity;
+  saveEntities: SaveEntities;
 }) {
   const relations = ((data.knowledge_edges || []) as unknown as import("../domain-model/types").KnowledgeEdge[]).filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id);
+  const linkContext = buildKnowledgeLinkContext(node as unknown as BaseRecord, {
+    notes: data.notes as unknown as BaseRecord[],
+    knowledge_nodes: data.knowledge_nodes as unknown as BaseRecord[],
+  });
   const resourceIds = new Set((data.resources || []).map((r) => r.id));
   const allResources = [...(data.resources || []), ...(data.links || []).filter((l) => !resourceIds.has(l.id))];
   const allTasks = [...(data.tasks || []), ...(data.waitings || []), ...(data.plan_nodes || [])];
@@ -1298,6 +1305,47 @@ function KnowledgeNodeDetailDrawer({
     if (node.source_item_id) return `タスク: ${allTasks.find((t) => t.id === node.source_item_id)?.title || "不明"}`;
     return "未設定";
   })();
+
+  async function adoptMention(entry: KnowledgeLinkEntry) {
+    const operations: SaveOperation[] = [
+      {
+        action: "save",
+        type: "reference",
+        entity: {
+          id: uuid(),
+          source_type: entry.type,
+          source_id: entry.id,
+          target_type: "knowledge_node",
+          target_id: node.id,
+          relation_type: "mentions",
+          note: `[[${node.title}]]`,
+        } as SaveOperation["entity"],
+      },
+    ];
+    if (entry.type === "knowledge_node") {
+      operations.push({
+        action: "save",
+        type: "knowledge_edge",
+        entity: {
+          id: uuid(),
+          source_node_id: entry.id,
+          target_node_id: node.id,
+          relation_type: "similar_to",
+          description: `未リンク候補から採用: ${entry.title}`,
+        },
+      });
+    }
+    await saveEntities(operations, "Knowledgeリンク候補を採用しました。");
+  }
+
+  function openLinkEntry(entry: KnowledgeLinkEntry) {
+    if (entry.type === "note") {
+      close({ type: "note", mode: "edit", entity: entry.record });
+      return;
+    }
+    close({ type: "knowledge_node", mode: "edit", entity: entry.record });
+  }
+
   return (
     <aside className="drawer">
       <DrawerHeader title="Knowledge詳細" close={close} />
@@ -1324,6 +1372,33 @@ function KnowledgeNodeDetailDrawer({
                 </div>
               );
             })}
+          </div>
+        )}
+        {linkContext.backlinks.length > 0 && (
+          <div className="revision-list">
+            <h3>Backlinks</h3>
+            {linkContext.backlinks.map((entry) => (
+              <div key={`${entry.type}-${entry.id}`}>
+                <button className="knowledge-link-row" onClick={() => openLinkEntry(entry)}>
+                  <strong>{entry.title}</strong>
+                  <span>{entry.type === "note" ? "Note" : "Knowledge"} / {entry.body.slice(0, 80) || "本文なし"}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {linkContext.unlinkedMentions.length > 0 && (
+          <div className="revision-list">
+            <h3>未リンク候補</h3>
+            {linkContext.unlinkedMentions.map((entry) => (
+              <div className="knowledge-link-candidate" key={`${entry.type}-${entry.id}`}>
+                <button className="knowledge-link-row" onClick={() => openLinkEntry(entry)}>
+                  <strong>{entry.title}</strong>
+                  <span>{entry.type === "note" ? "Note" : "Knowledge"} / {entry.body.slice(0, 80) || "本文なし"}</span>
+                </button>
+                <button className="secondary-button compact" onClick={() => adoptMention(entry)}>リンク化</button>
+              </div>
+            ))}
           </div>
         )}
         <div className="drawer-actions">
