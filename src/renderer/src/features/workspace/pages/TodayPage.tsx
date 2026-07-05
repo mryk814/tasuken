@@ -12,10 +12,11 @@ import {
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
-import type { PageProps } from "../types";
+import type { PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildActivityLog } from "../lib/activityLog";
+import { buildDailyPlanningCandidates, defaultDailyPlanSelection, type DailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { TASK_SHELF_OPTIONS, normalizeTaskShelf, taskShelfStatus, type TaskShelfRow } from "../lib/taskShelves";
 import { EmptyState, Metric, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
@@ -325,8 +326,87 @@ function TaskShelfRows({
   );
 }
 
+function DailyPlanSection({
+  title,
+  rows,
+  themes,
+  selectedIds,
+  onToggle,
+  onOpen,
+}: {
+  title: string;
+  rows: DailyPlanningRow[];
+  themes: PageProps["themes"];
+  selectedIds: Set<string>;
+  onToggle: (taskId: string) => void;
+  onOpen: (row: DailyPlanningRow) => void;
+}) {
+  return (
+    <section className="daily-plan-section">
+      <div className="shelf-lane-heading"><h3>{title}</h3><span>{rows.length}件</span></div>
+      {rows.length ? rows.slice(0, 8).map((row) => {
+        const theme = themes.find((entry) => entry.id === row.task.project_id);
+        return (
+          <label key={row.task.id} className="daily-plan-row">
+            <input type="checkbox" checked={selectedIds.has(row.task.id)} onChange={() => onToggle(row.task.id)} />
+            <button type="button" onClick={() => onOpen(row)}>
+              <strong>{row.task.title}</strong>
+              <span>{theme?.name || "個人業務"} / {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
+            </button>
+          </label>
+        );
+      }) : <EmptyState title="候補はありません" />}
+    </section>
+  );
+}
+
+function DailyPlanWizard({
+  candidates,
+  themes,
+  selectedIds,
+  note,
+  onToggle,
+  onNoteChange,
+  onOpen,
+  onCancel,
+  onConfirm,
+}: {
+  candidates: DailyPlanningCandidates;
+  themes: PageProps["themes"];
+  selectedIds: Set<string>;
+  note: string;
+  onToggle: (taskId: string) => void;
+  onNoteChange: (value: string) => void;
+  onOpen: (row: DailyPlanningRow) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <section className="panel daily-plan-panel">
+      <div className="section-heading"><h2>今日の計画</h2><span>{selectedIds.size}件選択中</span></div>
+      <div className="daily-plan-grid">
+        <DailyPlanSection title="期限切れ" rows={candidates.overdue} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
+        <DailyPlanSection title="昨日以前からの未完了" rows={candidates.carryover} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
+        <DailyPlanSection title="今日期限" rows={candidates.dueToday} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
+        <DailyPlanSection title="予定なし候補" rows={candidates.unscheduled} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
+      </div>
+      <label className="daily-plan-note">
+        <span>今日の方針メモ</span>
+        <textarea value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="今日の優先順位や気をつけること" />
+      </label>
+      <div className="form-actions">
+        <button className="secondary-button" onClick={onCancel}>キャンセル</button>
+        <button className="primary-button" onClick={onConfirm}>今日へ反映</button>
+      </div>
+    </section>
+  );
+}
+
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
+  const [showDailyPlan, setShowDailyPlan] = useState(false);
+  const [dailyPlanNote, setDailyPlanNote] = useState("");
+  const [dailyPlanSelection, setDailyPlanSelection] = useState<Set<string>>(new Set());
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const [showActivityLog, setShowActivityLog] = useState(false);
@@ -339,6 +419,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const schedules = schedulesByOwner(v2);
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   const periodRows = buildOngoingPeriodTaskView(v2, today);
+  const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }));
+  const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
   const shelfTaskRows: TaskShelfRow[] = v2.tasks
     .map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }))
     .filter((row) => row.task.state !== "done" && row.task.state !== "cancelled" && normalizeTaskShelf(row.task.planning_shelf));
@@ -506,6 +588,79 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
+  function openDailyPlan() {
+    setDailyPlanSelection(defaultDailyPlanSelection(dailyCandidates));
+    setShowDailyPlan(true);
+  }
+
+  function toggleDailyPlanTask(taskId: string) {
+    setDailyPlanSelection((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  function handleOpenDailyPlanTask(row: DailyPlanningRow) {
+    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
+  }
+
+  async function confirmDailyPlan() {
+    const selectedRows = dailyTaskRows.filter((row) => dailyPlanSelection.has(row.task.id));
+    const operations: SaveOperation[] = [];
+    for (const row of selectedRows) {
+      const isToday = row.schedule?.start_date === today || row.schedule?.end_date === today;
+      if (row.task.planning_shelf) {
+        operations.push(...buildSaveTaskOperations({ ...row.task, planning_shelf: null }) as SaveOperation[]);
+      }
+      if (isToday) continue;
+      if (!row.schedule) {
+        operations.push(...buildSaveScheduleOperations({
+          id: crypto.randomUUID(),
+          owner_type: "task",
+          owner_id: row.task.id,
+          end_date: today,
+          date_kind: "deadline",
+          confidence: "fixed",
+          granularity: "day",
+        }) as SaveOperation[]);
+      } else {
+        const keepsFutureDeadline = Boolean(row.schedule.end_date && row.schedule.end_date > today);
+        operations.push(...buildSaveScheduleOperations({
+          ...row.schedule,
+          start_date: keepsFutureDeadline || (row.schedule.start_date && row.schedule.start_date > today) ? today : row.schedule.start_date,
+          end_date: keepsFutureDeadline ? row.schedule.end_date : today,
+          date_kind: keepsFutureDeadline || (row.schedule.start_date && row.schedule.start_date < today) ? "range" : "deadline",
+        }) as SaveOperation[]);
+      }
+    }
+    const note = dailyPlanNote.trim();
+    if (note) {
+      operations.push({
+        action: "save",
+        type: "status_update",
+        entity: {
+          id: crypto.randomUUID(),
+          theme_id: null,
+          date: today,
+          status: "daily_plan",
+          summary: note,
+          created_at: new Date().toISOString(),
+        },
+      } as SaveOperation);
+    }
+    if (!operations.length) {
+      setShowDailyPlan(false);
+      setToast("今日の計画を閉じました。", "info");
+      return;
+    }
+    await saveEntities(operations, "今日の計画を反映しました。");
+    setDailyPlanNote("");
+    setDailyPlanSelection(new Set());
+    setShowDailyPlan(false);
+  }
+
   function handleOpenShelfTask(row: TaskShelfRow) {
     openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
@@ -628,6 +783,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         <button className="secondary-button" onClick={() => setShowActivityLog((value) => !value)}>
           <IconClipboard size={16} /> 活動ログ
         </button>
+        <button className="secondary-button" onClick={openDailyPlan}>
+          <IconCalendarPlus size={16} /> 今日の計画
+        </button>
         <button className="primary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
       </PageHeader>
 
@@ -654,6 +812,20 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           onTitleChange={setAddTitle}
           onThemeChange={setAddTheme}
           onSubmit={addTask}
+        />
+      )}
+
+      {showDailyPlan && (
+        <DailyPlanWizard
+          candidates={dailyCandidates}
+          themes={themes}
+          selectedIds={dailyPlanSelection}
+          note={dailyPlanNote}
+          onToggle={toggleDailyPlanTask}
+          onNoteChange={setDailyPlanNote}
+          onOpen={handleOpenDailyPlanTask}
+          onCancel={() => setShowDailyPlan(false)}
+          onConfirm={confirmDailyPlan}
         />
       )}
 
