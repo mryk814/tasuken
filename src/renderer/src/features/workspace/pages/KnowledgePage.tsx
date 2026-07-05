@@ -14,8 +14,9 @@ import {
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { KnowledgeNode, PageProps } from "../types";
 import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS } from "../lib/domain";
-import { str } from "../lib/format";
+import { str, uuid } from "../lib/format";
 import { buildKnowledgeHealth, type KnowledgeHealthIssue } from "../lib/knowledgeHealth";
+import { parseWikiLinks } from "../lib/knowledgeLinks";
 import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
 import { EmptyState, PageHeader, StatusBadge } from "../components/common";
 import type { KnowledgeEdge } from "../domain-model/types";
@@ -411,7 +412,7 @@ function buildKnowledgeGraphLayout(
   return { nodes: [...positioned.values()], edges: graphEdges, hidden };
 }
 
-export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: PageProps) {
+export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [themeId, setThemeId] = useState(ALL);
   const [nodeType, setNodeType] = useState(ALL);
@@ -419,8 +420,25 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   const [viewMode, setViewMode] = useState<"graph" | "list">("graph");
   const [graphScope, setGraphScope] = useState<GraphScope>("selected");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [quickKnowledgeTitle, setQuickKnowledgeTitle] = useState("");
   const nodes = data.knowledge_nodes || [];
-  const relations = (data.knowledge_edges || []) as unknown as KnowledgeEdge[];
+  const explicitRelations = useMemo(() => (data.knowledge_edges || []) as unknown as KnowledgeEdge[], [data.knowledge_edges]);
+  const wikiRelations = useMemo(() => {
+    const byTitle = new Map(nodes.map((node) => [node.title.toLocaleLowerCase("ja-JP"), node]));
+    const existing = new Set(explicitRelations.map((relation) => `${relation.source_node_id}:${relation.target_node_id}`));
+    return nodes.flatMap((source) => parseWikiLinks(source.body || "").flatMap((link, index) => {
+      const target = byTitle.get(link.target.toLocaleLowerCase("ja-JP"));
+      if (!target || target.id === source.id || existing.has(`${source.id}:${target.id}`)) return [];
+      return [{
+        id: `wiki-${source.id}-${target.id}-${index}`,
+        source_node_id: source.id,
+        target_node_id: target.id,
+        relation_type: "similar_to",
+        description: `[[${link.target}]]`,
+      } satisfies KnowledgeEdge];
+    }));
+  }, [explicitRelations, nodes]);
+  const relations = useMemo(() => [...explicitRelations, ...wikiRelations], [explicitRelations, wikiRelations]);
 
   const visible = useMemo(() => nodes.filter((node) => {
     const text = `${node.title} ${node.body ?? ""}`.toLowerCase();
@@ -495,6 +513,28 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
   function copyKnowledgePrompt() {
     if (!knowledgePrompt) return;
     workspaceApi.copyText(str(knowledgePrompt.body_markdown)).then(() => setToast("Knowledge用プロンプトをコピーしました。"));
+  }
+
+  async function createQuickKnowledge() {
+    const title = quickKnowledgeTitle.trim();
+    if (!title) {
+      setToast("Knowledgeのタイトルを入力してください。", "warning");
+      return;
+    }
+    await saveEntities([{
+      action: "save",
+      type: "knowledge_node",
+      entity: {
+        id: uuid(),
+        node_type: "insight",
+        title,
+        body: "",
+        theme_id: themeId === ALL ? null : themeId,
+        confidence: "medium",
+        status: "active",
+      },
+    }], "Knowledgeを追加しました。");
+    setQuickKnowledgeTitle("");
   }
 
   function openIssueAction(issue: KnowledgeHealthIssue) {
@@ -576,9 +616,24 @@ export function KnowledgePage({ data, domain, themes, openDrawer, setToast }: Pa
         </div>
         <span>{visible.length}件</span>
       </div>
+      <section className="quick-knowledge-panel panel">
+        <input
+          value={quickKnowledgeTitle}
+          onChange={(event) => setQuickKnowledgeTitle(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void createQuickKnowledge();
+            }
+          }}
+          placeholder="短いKnowledgeを追加"
+          aria-label="短いKnowledge"
+        />
+        <button className="primary-button" onClick={createQuickKnowledge}>追加する</button>
+      </section>
       <section className="knowledge-explorer panel">
         <div className="section-heading">
-          <h2>つながり</h2>
+          <h2>Knowledge Graph</h2>
           <span>{viewMode === "graph" ? `${graph.nodes.length} node / ${graph.edges.length} relation` : `${relationPreview.length}件`}</span>
         </div>
         {viewMode === "graph" && selectedNode && (

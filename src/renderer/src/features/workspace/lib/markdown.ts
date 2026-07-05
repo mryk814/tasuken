@@ -1,4 +1,5 @@
 import katex from "katex";
+import { parseWikiLinks } from "./knowledgeLinks";
 
 export function escapeHtml(value: string): string {
   return value
@@ -137,6 +138,11 @@ function renderInlineMarkdown(value: string): string {
       const label = alt.trim() || "貼り付け画像";
       if (!url) return escapeHtml(`[画像: ${label}]`);
       return stash(`<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`);
+    })
+    .replace(/\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, (match: string) => {
+      const link = parseWikiLinks(match)[0];
+      if (!link) return escapeHtml(match);
+      return stash(`<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`);
     })
     .replace(/`([^`]+)`/g, (_match, code: string) => stash(`<code>${escapeHtml(code)}</code>`))
     .replace(/\$([^$\n]+)\$/g, (_match, expression: string) => stash(`<span class="md-math-inline">${renderMathExpression(expression.trim(), false)}</span>`));

@@ -485,6 +485,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .knowledge-page .filter-bar { margin-bottom: 0; }
 .knowledge-focus, .knowledge-map, .knowledge-lane { overflow: hidden; }
 .knowledge-explorer { overflow: hidden; }
+.quick-knowledge-panel { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
 .knowledge-explorer-body { padding: var(--space-2); }
 .knowledge-focus-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border-subtle); }
 .knowledge-focus-bar > .status-badge { flex-shrink: 0; }
@@ -774,6 +775,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview .md-math-operator { margin-right: 0.18em; font-style: normal; }
 .markdown-preview .md-math-inline sub, .markdown-preview .md-math-block sub { font-size: 0.68em; vertical-align: -0.35em; }
 .markdown-preview .md-math-inline sup, .markdown-preview .md-math-block sup { font-size: 0.68em; vertical-align: 0.55em; }
+.markdown-preview .md-wiki-link { display: inline-flex; align-items: center; max-width: 100%; padding: 0 .42em; border: 1px solid var(--color-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-accent-bg) 72%, var(--color-surface)); color: var(--color-accent-strong); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
 .markdown-preview .md-frontmatter { margin-bottom: var(--space-3); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
 .markdown-preview .md-frontmatter summary { cursor: pointer; color: var(--color-text-secondary); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .note-preview-panel .note-live-editor,
@@ -1107,6 +1109,9 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .revision-list h3 { font-size: var(--text-sm); }
 .revision-list > div { display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .revision-list time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
+.knowledge-link-row { width: 100%; display: grid; gap: var(--space-1); padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.knowledge-link-row span { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.knowledge-link-candidate { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .stats-row.extended { grid-template-columns: minmax(160px, 1fr) repeat(4, 90px); }
 
 .chat-refs-page .page-header { margin-bottom: var(--space-3); }
@@ -1189,6 +1194,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .split-gantt { grid-template-columns: 260px minmax(0, 1fr); }
   .gantt-table-head, .gantt-table-row { grid-template-columns: minmax(110px, 1fr) 120px; }
   .timeline-quick-add { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quick-knowledge-panel { grid-template-columns: 1fr; }
   .note-edit-preview-grid { grid-template-columns: 1fr; }
   .note-main-editor { min-height: 320px; }
   .word-export-panel { grid-template-columns: 1fr; align-items: stretch; }
