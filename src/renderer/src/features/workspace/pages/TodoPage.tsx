@@ -4,19 +4,15 @@ import { IconCalendarPlus, IconCalendarCheck, IconClock, IconCopyPlus, IconFlag,
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
-import type { PageProps, SaveOperation } from "../types";
+import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
-import { addDays, formatDate } from "../lib/format";
+import { formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
 import {
   DEFAULT_TASK_VIEW_FILTERS,
-  countTodoRowsForView,
   filterTodoRows,
-  isTaskSavedView,
-  normalizeSavedTaskView,
   normalizeTaskViewFilters,
-  type SavedTaskView,
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/savedTaskViews";
@@ -35,6 +31,14 @@ type TodoRow = {
   schedule?: Schedule;
 };
 
+type TodoSortMode = "default" | "priority" | "theme" | "title";
+type TodoGroupMode = "none" | "schedule" | "theme";
+type TodoRowGroup = {
+  id: string;
+  title: string;
+  rows: TodoRow[];
+};
+
 function isDoneRow(row: TodoRow): boolean {
   return row.task.state === "done" || row.task.state === "cancelled";
 }
@@ -48,12 +52,53 @@ function reminderTimeLabel(value: unknown, today: string): string {
   return date && date !== today ? `${formatDate(date)} ${time}` : time;
 }
 
-export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, removeEntity, setToast }: PageProps) {
+function sortTodoRows(rows: TodoRow[], sortMode: TodoSortMode, today: string, themes: PageProps["themes"]): TodoRow[] {
+  const themeName = (row: TodoRow) => themes.find((theme) => theme.id === row.task.project_id)?.name || "個人業務";
+  const priorityRank = (row: TodoRow) => row.task.priority === "high" ? 0 : 1;
+  const baseCompare = compareTodoRows(today);
+  return [...rows].sort((left, right) => {
+    if (sortMode === "priority") {
+      const priorityDiff = priorityRank(left) - priorityRank(right);
+      if (priorityDiff) return priorityDiff;
+    }
+    if (sortMode === "theme") {
+      const themeDiff = themeName(left).localeCompare(themeName(right), "ja");
+      if (themeDiff) return themeDiff;
+    }
+    if (sortMode === "title") {
+      const titleDiff = left.task.title.localeCompare(right.task.title, "ja");
+      if (titleDiff) return titleDiff;
+    }
+    return baseCompare(left, right);
+  });
+}
+
+function scheduleGroupLabel(row: TodoRow, today: string): string {
+  const date = scheduledDate(row.schedule);
+  if (!date) return "予定なし";
+  if (date < today) return "予定超過";
+  if (date === today) return "今日";
+  return "今後";
+}
+
+function groupTodoRows(rows: TodoRow[], groupMode: TodoGroupMode, today: string, themes: PageProps["themes"]): TodoRowGroup[] {
+  if (groupMode === "none") return [{ id: "all", title: "すべて", rows }];
+  const groups = new Map<string, TodoRowGroup>();
+  rows.forEach((row) => {
+    const theme = themes.find((entry) => entry.id === row.task.project_id);
+    const title = groupMode === "theme" ? theme?.name || "個人業務" : scheduleGroupLabel(row, today);
+    const id = groupMode === "theme" ? row.task.project_id || "personal" : title;
+    if (!groups.has(id)) groups.set(id, { id, title, rows: [] });
+    groups.get(id)?.rows.push(row);
+  });
+  return [...groups.values()];
+}
+
+export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
   const [taskFilters, setTaskFilters] = useState<TaskViewFilters>(DEFAULT_TASK_VIEW_FILTERS);
-  const [savedViewName, setSavedViewName] = useState("");
-  const [activeSavedViewId, setActiveSavedViewId] = useState("");
-  const [renameTitle, setRenameTitle] = useState("");
+  const [sortMode, setSortMode] = useState<TodoSortMode>("default");
+  const [groupMode, setGroupMode] = useState<TodoGroupMode>("none");
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pastePreview, setPastePreview] = useState<ParsedTaskRow[]>([]);
@@ -67,17 +112,12 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     if (route === "todo") {
       setFilter("open");
       setTaskFilters(DEFAULT_TASK_VIEW_FILTERS);
-      setActiveSavedViewId("");
-      setRenameTitle("");
+      setSortMode("default");
+      setGroupMode("none");
     }
   }, [route]);
 
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
-  const savedTaskViews = (data.views || [])
-    .filter((view) => isTaskSavedView(view as Record<string, unknown>))
-    .map((view) => normalizeSavedTaskView(view as Record<string, unknown>))
-    .filter((view) => view.id);
-  const activeSavedView = savedTaskViews.find((view) => view.id === activeSavedViewId) || null;
   const currentFilters: TaskViewFilters = normalizeTaskViewFilters({ ...taskFilters, tab: filter });
   const counters = {
     today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
@@ -86,61 +126,15 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     noSchedule: taskRows.filter((row) => !isDoneRow(row) && !scheduledDate(row.schedule)).length,
     done: taskRows.filter(isDoneRow).length,
   };
-  const visible = filterTodoRows(taskRows, currentFilters, today).sort(compareTodoRows(today));
+  const visible = sortTodoRows(filterTodoRows(taskRows, currentFilters, today), sortMode, today, themes);
+  const groupedVisible = groupTodoRows(visible, groupMode, today, themes);
 
   function patchTaskFilters(patch: Partial<TaskViewFilters>) {
     setTaskFilters((current) => normalizeTaskViewFilters({ ...current, ...patch }));
-    setActiveSavedViewId("");
-    setRenameTitle("");
   }
 
   function selectFilterTab(nextFilter: TaskViewTab) {
     setFilter(nextFilter);
-    setActiveSavedViewId("");
-    setRenameTitle("");
-  }
-
-  async function saveCurrentView() {
-    const title = savedViewName.trim();
-    if (!title) { setToast("保存済みビュー名を入力してください。", "warning"); return; }
-    const now = new Date().toISOString();
-    const id = crypto.randomUUID();
-    const view = {
-      id,
-      title,
-      view_type: "task",
-      filters: currentFilters,
-      sort_order: savedTaskViews.length,
-      created_at: now,
-    };
-    await saveEntities([{ action: "save", type: "view", entity: view as SaveOperation["entity"] }], "保存済みビューを追加しました。");
-    setSavedViewName("");
-    setActiveSavedViewId(id);
-    setRenameTitle(title);
-  }
-
-  function openSavedView(view: SavedTaskView) {
-    setFilter(view.filters.tab);
-    setTaskFilters(view.filters);
-    setActiveSavedViewId(view.id);
-    setRenameTitle(view.title);
-  }
-
-  async function renameSavedView(view: SavedTaskView) {
-    const title = renameTitle.trim();
-    if (!title) { setToast("保存済みビュー名を入力してください。", "warning"); return; }
-    const source = (data.views || []).find((entry) => entry.id === view.id) || view;
-    await saveEntities([{
-      action: "save",
-      type: "view",
-      entity: { ...source, title, view_type: "task", filters: view.filters } as SaveOperation["entity"],
-    }], "保存済みビュー名を更新しました。");
-  }
-
-  async function deleteSavedView(view: SavedTaskView) {
-    await removeEntity("view", { ...view });
-    setActiveSavedViewId("");
-    setRenameTitle("");
   }
 
   async function addTask() {
@@ -277,6 +271,69 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
   }
 
+  function renderTodoRow({ task, schedule }: TodoRow) {
+    const theme = (data.themes || []).find((entry) => entry.id === task.project_id);
+    const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
+    const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
+    const done = task.state === "done" || task.state === "cancelled";
+    const reminder = reminderTimeLabel(task.reminder_at, today);
+    return (
+      <div
+        className="table-row is-clickable-row"
+        key={task.id}
+        style={{ "--chip-color": chipColor } as React.CSSProperties}
+        onClick={() => openTaskDetail(task, schedule)}
+      >
+        <span className="todo-theme-bar" />
+        <button
+          className={`todo-check-circle ${done ? "is-done" : ""}`}
+          onClick={(event) => { event.stopPropagation(); toggleTask(task); }}
+          aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了`}
+          title={done ? "未完了に戻す" : "完了にする"}
+        >
+          {done && <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+        </button>
+        <div className="row-title-wrap">
+          <button
+            className={`priority-flag-button ${task.priority === "high" ? "is-active" : ""}`}
+            onClick={(event) => { event.stopPropagation(); togglePriority(task); }}
+            aria-label={task.priority === "high" ? "旗を外す" : "旗を付ける"}
+            title={task.priority === "high" ? "旗を外す" : "旗を付ける"}
+          >
+            {task.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
+          </button>
+          <button
+            className={`today-plan-button ${isTodayRow({ task, schedule }, today) ? "is-active" : ""}`}
+            onClick={(event) => { event.stopPropagation(); toggleToday(task, schedule); }}
+            aria-label={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
+            title={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
+          >
+            {isTodayRow({ task, schedule }, today) ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
+          </button>
+          <button
+            className="todo-copy-button"
+            onClick={(event) => { event.stopPropagation(); copyTask(task, schedule); }}
+            aria-label={`${task.title}を複製`}
+            title="複製"
+          >
+            <IconCopyPlus size={16} />
+          </button>
+          <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
+            <span>{task.title}</span>
+            <ChecklistProgressBadge items={task.checklist_items} />
+          </button>
+          {reminder && <span className="row-reminder-meta"><IconClock size={13} />{reminder}</span>}
+        </div>
+        <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
+        <span className="theme-inline">
+          <span className="chip-dot" />
+          {theme?.name || "個人業務"}
+        </span>
+        <span className="num">{formatDate(scheduledDate(schedule))}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <PageHeader title="ToDo" subtitle="今日の作業と予定なしの仕事を整理します。">
@@ -302,53 +359,6 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           <button key={id} className={filter === id ? "is-active" : ""} onClick={() => selectFilterTab(id)}>{label}<span className="tab-count">{count}</span></button>
         ))}
       </div>
-      <section className="panel saved-view-panel">
-        <div className="section-heading"><h2>保存済みビュー</h2><span>{savedTaskViews.length}件</span></div>
-        <div className="filter-bar">
-          <select value={taskFilters.themeId} onChange={(event) => patchTaskFilters({ themeId: event.target.value })} aria-label="Themeで絞り込み">
-            <option value="">すべてのTheme</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-          </select>
-          <select value={taskFilters.state} onChange={(event) => patchTaskFilters({ state: event.target.value })} aria-label="状態で絞り込み">
-            <option value="">すべての状態</option>
-            {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-          <select value={taskFilters.schedule} onChange={(event) => patchTaskFilters({ schedule: event.target.value as TaskViewFilters["schedule"] })} aria-label="予定で絞り込み">
-            <option value="">予定条件なし</option>
-            <option value="scheduled">予定あり</option>
-            <option value="no-schedule">予定なし</option>
-            <option value="overdue">予定超過</option>
-            <option value="this-week">今週中</option>
-            <option value="today">今日</option>
-          </select>
-          <select value={taskFilters.priority} onChange={(event) => patchTaskFilters({ priority: event.target.value as TaskViewFilters["priority"] })} aria-label="旗で絞り込み">
-            <option value="">旗条件なし</option>
-            <option value="high">旗あり</option>
-            <option value="normal">旗なし</option>
-          </select>
-        </div>
-        <div className="saved-view-actions">
-          <input value={savedViewName} onChange={(event) => setSavedViewName(event.target.value)} placeholder="ビュー名" />
-          <button className="secondary-button compact" onClick={saveCurrentView}>現在の条件を保存</button>
-        </div>
-        {savedTaskViews.length > 0 && (
-          <div className="saved-view-list">
-            {savedTaskViews.map((view) => (
-              <button key={view.id} className={activeSavedViewId === view.id ? "is-active" : ""} onClick={() => openSavedView(view)}>
-                <span>{view.title}</span>
-                <span className="tab-count">{countTodoRowsForView(view, taskRows, today)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {activeSavedView && (
-          <div className="saved-view-actions">
-            <input value={renameTitle} onChange={(event) => setRenameTitle(event.target.value)} aria-label="保存済みビュー名" />
-            <button className="secondary-button compact" onClick={() => renameSavedView(activeSavedView)}>名前を更新</button>
-            <button className="danger-button compact" onClick={() => deleteSavedView(activeSavedView)}>削除</button>
-          </div>
-        )}
-      </section>
       {showPaste && (
         <section className="panel paste-panel">
           <div className="section-heading"><h2>表から追加</h2><span>タイトル / Theme / 予定終了 / 状態 / 説明</span></div>
@@ -371,70 +381,48 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
         </section>
       )}
       <section className="panel list-page">
+        <div className="todo-table-toolbar">
+          <select value={taskFilters.themeId} onChange={(event) => patchTaskFilters({ themeId: event.target.value })} aria-label="Themeで絞り込み">
+            <option value="">すべてのTheme</option>
+            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+          </select>
+          <select value={taskFilters.state} onChange={(event) => patchTaskFilters({ state: event.target.value })} aria-label="状態で絞り込み">
+            <option value="">すべての状態</option>
+            {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select value={taskFilters.schedule} onChange={(event) => patchTaskFilters({ schedule: event.target.value as TaskViewFilters["schedule"] })} aria-label="予定で絞り込み">
+            <option value="">予定条件なし</option>
+            <option value="scheduled">予定あり</option>
+            <option value="no-schedule">予定なし</option>
+            <option value="overdue">予定超過</option>
+            <option value="this-week">今週中</option>
+            <option value="today">今日</option>
+          </select>
+          <select value={taskFilters.priority} onChange={(event) => patchTaskFilters({ priority: event.target.value as TaskViewFilters["priority"] })} aria-label="旗で絞り込み">
+            <option value="">旗条件なし</option>
+            <option value="high">旗あり</option>
+            <option value="normal">旗なし</option>
+          </select>
+          <select value={sortMode} onChange={(event) => setSortMode(event.target.value as TodoSortMode)} aria-label="並び替え">
+            <option value="default">並び替え: 期限順</option>
+            <option value="priority">並び替え: 旗優先</option>
+            <option value="theme">並び替え: Theme順</option>
+            <option value="title">並び替え: 名前順</option>
+          </select>
+          <select value={groupMode} onChange={(event) => setGroupMode(event.target.value as TodoGroupMode)} aria-label="グループ">
+            <option value="none">グループなし</option>
+            <option value="schedule">予定でグループ</option>
+            <option value="theme">Themeでグループ</option>
+          </select>
+        </div>
         <div className="data-table todo-table">
           <div className="table-head"><span /><span /><span>タスク</span><span>繰り返し</span><span>Theme</span><span>予定終了</span></div>
-          {visible.map(({ task, schedule }) => {
-            const theme = (data.themes || []).find((entry) => entry.id === task.project_id);
-            const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
-            const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
-            const done = task.state === "done" || task.state === "cancelled";
-            const reminder = reminderTimeLabel(task.reminder_at, today);
-            return (
-            <div
-              className="table-row is-clickable-row"
-              key={task.id}
-              style={{ "--chip-color": chipColor } as React.CSSProperties}
-              onClick={() => openTaskDetail(task, schedule)}
-            >
-              <span className="todo-theme-bar" />
-              <button
-                className={`todo-check-circle ${done ? "is-done" : ""}`}
-                onClick={(event) => { event.stopPropagation(); toggleTask(task); }}
-                aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了`}
-                title={done ? "未完了に戻す" : "完了にする"}
-              >
-                {done && <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-              </button>
-              <div className="row-title-wrap">
-                <button
-                  className={`priority-flag-button ${task.priority === "high" ? "is-active" : ""}`}
-                  onClick={(event) => { event.stopPropagation(); togglePriority(task); }}
-                  aria-label={task.priority === "high" ? "旗を外す" : "旗を付ける"}
-                  title={task.priority === "high" ? "旗を外す" : "旗を付ける"}
-                >
-                  {task.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
-                </button>
-                <button
-                  className={`today-plan-button ${isTodayRow({ task, schedule }, today) ? "is-active" : ""}`}
-                  onClick={(event) => { event.stopPropagation(); toggleToday(task, schedule); }}
-                  aria-label={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
-                  title={isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"}
-                >
-                  {isTodayRow({ task, schedule }, today) ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
-                </button>
-                <button
-                  className="todo-copy-button"
-                  onClick={(event) => { event.stopPropagation(); copyTask(task, schedule); }}
-                  aria-label={`${task.title}を複製`}
-                  title="複製"
-                >
-                  <IconCopyPlus size={16} />
-                </button>
-                <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
-                  <span>{task.title}</span>
-                  <ChecklistProgressBadge items={task.checklist_items} />
-                </button>
-                {reminder && <span className="row-reminder-meta"><IconClock size={13} />{reminder}</span>}
-              </div>
-              <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
-              <span className="theme-inline">
-                <span className="chip-dot" />
-                {theme?.name || "個人業務"}
-              </span>
-              <span className="num">{formatDate(scheduledDate(schedule))}</span>
+          {groupedVisible.map((group) => (
+            <div key={group.id} className="todo-row-group">
+              {groupMode !== "none" && <div className="todo-group-heading"><span>{group.title}</span><strong>{group.rows.length}件</strong></div>}
+              {group.rows.map(renderTodoRow)}
             </div>
-            );
-          })}
+          ))}
         </div>
         {!visible.length && <EmptyState title="該当するタスクはありません" action="タスクを追加" onAction={() => setShowAdd(true)} />}
       </section>

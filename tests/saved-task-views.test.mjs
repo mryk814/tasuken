@@ -65,14 +65,22 @@ test("saved task views ignore malformed filters and tolerate deleted themes", ()
   assert.equal(savedViews.countTodoRowsForView(view, [row("personal")], "2026-07-05"), 0);
 });
 
-test("ToDo page wires saved task view create, rename, open, and delete actions", () => {
+test("ToDo page keeps table controls lightweight and removes saved view management", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
-  assert.match(source, /保存済みビュー/);
-  assert.match(source, /view_type: "task"/);
+  assert.doesNotMatch(source, /保存済みビュー/);
+  assert.doesNotMatch(source, /view_type: "task"/);
+  assert.doesNotMatch(source, /saveCurrentView/);
+  assert.doesNotMatch(source, /openSavedView/);
+  assert.doesNotMatch(source, /renameSavedView/);
+  assert.doesNotMatch(source, /deleteSavedView/);
   assert.match(source, /filterTodoRows/);
-  assert.match(source, /countTodoRowsForView/);
-  assert.match(source, /openSavedView/);
-  assert.match(source, /renameSavedView/);
-  assert.match(source, /deleteSavedView/);
+  assert.match(source, /todo-table-toolbar/);
+  assert.match(source, /sortMode/);
+  assert.match(source, /groupMode/);
+  assert.match(source, /並び替え/);
+  assert.match(source, /グループ/);
+  assert.match(styles, /\.todo-table \.table-head, \.todo-table \.table-row \{[^}]*min-width: 0;/);
+  assert.match(styles, /\.todo-row-group \{[^}]*min-width: 0;/);
 });
