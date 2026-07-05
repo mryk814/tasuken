@@ -66,6 +66,8 @@ export interface Task {
   state: TaskState;
   priority: "normal" | "high";
   planning_shelf?: TaskShelf | null;
+  planned_start_time?: string | null;
+  planned_duration_minutes?: number | null;
   completed_at?: string | null;
   repeat_rule?: TaskRepeatRule | null;
   repeat_series_id?: string | null;

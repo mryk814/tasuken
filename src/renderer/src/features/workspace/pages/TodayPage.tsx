@@ -18,6 +18,7 @@ import { addDays, formatDate } from "../lib/format";
 import { buildActivityLog } from "../lib/activityLog";
 import { buildDailyPlanningCandidates, defaultDailyPlanSelection, type DailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { TASK_SHELF_OPTIONS, normalizeTaskShelf, taskShelfStatus, type TaskShelfRow } from "../lib/taskShelves";
+import { buildTimeboxView, type TimedTimeboxRow, type TimeboxView } from "../lib/timeboxing";
 import { EmptyState, Metric, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -402,6 +403,51 @@ function DailyPlanWizard({
   );
 }
 
+function TimeboxPanel({
+  view,
+  themes,
+  onOpen,
+}: {
+  view: TimeboxView;
+  themes: PageProps["themes"];
+  onOpen: (row: TimedTimeboxRow | { task: Task; schedule?: Schedule }) => void;
+}) {
+  return (
+    <section className="panel timebox-panel">
+      <div className="section-heading">
+        <h2>時間割</h2>
+        <span>{view.timed.length}件 / 未設定{view.untimed.length}件</span>
+      </div>
+      {view.timed.length ? (
+        <div className="timebox-list">
+          {view.timed.map((row) => {
+            const theme = themes.find((entry) => entry.id === row.task.project_id);
+            return (
+              <button key={row.task.id} className={`timebox-row ${row.overlaps ? "timebox-conflict" : ""}`} onClick={() => onOpen(row)}>
+                <time>{row.startTime}-{row.endTime}</time>
+                <span>
+                  <strong>{row.task.title}</strong>
+                  <small>{theme?.name || "個人業務"} / {row.durationMinutes}分{row.overlaps ? " / 重複あり" : ""}</small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : <EmptyState title="時刻を設定した今日のタスクはありません" />}
+      {view.untimed.length > 0 && (
+        <div className="timebox-untimed">
+          <div className="shelf-lane-heading"><h3>時刻未設定</h3><span>{view.untimed.length}件</span></div>
+          {view.untimed.slice(0, 6).map((row) => (
+            <button key={row.task.id} onClick={() => onOpen(row)}>
+              <strong>{row.task.title}</strong>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [showDailyPlan, setShowDailyPlan] = useState(false);
@@ -420,6 +466,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   const periodRows = buildOngoingPeriodTaskView(v2, today);
   const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }));
+  const timeboxView = buildTimeboxView(dailyTaskRows, today);
   const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
   const shelfTaskRows: TaskShelfRow[] = v2.tasks
     .map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }))
@@ -603,6 +650,10 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   }
 
   function handleOpenDailyPlanTask(row: DailyPlanningRow) {
+    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
+  }
+
+  function handleOpenTimeboxTask(row: TimedTimeboxRow | { task: Task; schedule?: Schedule }) {
     openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
@@ -843,6 +894,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           </div>
         </section>
       )}
+
+      <TimeboxPanel view={timeboxView} themes={themes} onOpen={handleOpenTimeboxTask} />
 
       <div className="metric-grid today-metrics">
         <Metric label="今日" value={todayRows.length} tone="primary" />
