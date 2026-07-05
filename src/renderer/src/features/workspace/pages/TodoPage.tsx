@@ -8,6 +8,7 @@ import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
+import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
 import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -23,25 +24,8 @@ type TodoRow = {
   schedule?: Schedule;
 };
 
-function scheduledDate(schedule?: Schedule): string {
-  return String(schedule?.end_date || schedule?.start_date || "");
-}
-
-function isTodayRow(row: TodoRow, today: string): boolean {
-  return row.schedule?.start_date === today || row.schedule?.end_date === today;
-}
-
 function isDoneRow(row: TodoRow): boolean {
   return row.task.state === "done" || row.task.state === "cancelled";
-}
-
-function compareTodoRows(today: string) {
-  return (a: TodoRow, b: TodoRow): number => {
-    const aToday = isTodayRow(a, today) ? 0 : 1;
-    const bToday = isTodayRow(b, today) ? 0 : 1;
-    if (aToday !== bToday) return aToday - bToday;
-    return String(scheduledDate(a.schedule) || "9999-12-31").localeCompare(String(scheduledDate(b.schedule) || "9999-12-31"));
-  };
 }
 
 export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, setToast }: PageProps) {
