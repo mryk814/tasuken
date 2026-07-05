@@ -17,7 +17,7 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildActivityLog } from "../lib/activityLog";
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
-import { EmptyState, Metric, PageHeader } from "../components/common";
+import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
 import {
@@ -27,7 +27,7 @@ import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
-import { buildOngoingPeriodTaskView, buildTodayView, compareCapturesNewestFirst } from "../domain-model/selectors";
+import { buildOngoingPeriodTaskView, buildTodayView } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
@@ -360,13 +360,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     ...waitingRows.filter((row) => row.status === "waiting" && row.date && row.date < today),
     ...planNodeRows.filter((row) => row.status !== "done" && row.status !== "cancelled" && row.date && row.date < today),
   ].sort(compareRows);
-  const inbox = v2.capture_entries
-    .filter((entry) => entry.state === "untriaged" && entry.kind !== "micro_memo")
-    .sort(compareCapturesNewestFirst)
-    .map((entry) => captureToRow(entry));
-  const noSchedule = taskRows
-    .filter((row) => row.status !== "done" && row.status !== "cancelled" && !row.date)
-    .sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high") || a.title.localeCompare(b.title, "ja"));
   const milestones = v2.plan_nodes
     .filter((planNode) => planNode.type === "milestone" && isActivePlanNode(planNode) && scheduleTouchesRange(schedules.get(`plan_node:${planNode.id}`), today, soon))
     .map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)))
@@ -682,19 +675,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           </div>
         </section>
       )}
-
-      <div className="metric-grid today-metrics">
-        <Metric label="今日" value={todayRows.length} tone="primary" />
-        <Metric label="期限切れ" value={overdue.length} tone={overdue.length ? "danger" : ""} />
-        <button className={`metric-card panel metric-button ${inbox.length ? "warning" : ""}`} onClick={() => navigate("inbox")}>
-          <span>Inbox</span>
-          <strong className="metric-value">{inbox.length}</strong>
-        </button>
-        <button className="metric-card panel metric-button" onClick={() => navigate("todo")}>
-          <span>予定なし</span>
-          <strong className="metric-value">{noSchedule.length}</strong>
-        </button>
-      </div>
 
       <section className="panel today-focus-panel">
         <div className="section-heading">

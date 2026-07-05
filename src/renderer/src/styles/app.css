@@ -150,7 +150,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .hub-tabs button:hover:not(.is-active) { background: var(--color-surface-muted); color: var(--color-text); }
 .hub-tabs button.is-active { border-color: var(--color-border); background: var(--color-surface); color: var(--color-accent-strong); box-shadow: var(--shadow-sm); }
 .today-page .page-header, .inbox-page .page-header { margin-bottom: var(--space-2); }
-.today-metrics { grid-template-columns: repeat(4, 1fr); }
 .metric-button { width: 100%; text-align: left; cursor: pointer; }
 .metric-button:hover { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
 .today-focus-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); padding: var(--space-2) var(--pad-card); border-left: 5px solid var(--color-accent); cursor: pointer; transition: background var(--duration-fast) var(--ease); }
@@ -1203,7 +1202,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .note-main-preview, .note-main-raw, .note-main-editor { min-height: 360px; }
   .note-edit-preview-grid { grid-template-columns: 1fr; min-height: auto; }
   .home-metrics { grid-template-columns: 1fr; }
-  .today-metrics { grid-template-columns: 1fr; }
   .today-task-row { grid-template-columns: 8px 24px minmax(0, 1fr); }
   .today-task-row time, .today-task-row .today-postpone-actions { grid-column: 3; justify-self: start; text-align: left; }
   .timebox-row { grid-template-columns: 1fr; }
