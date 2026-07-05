@@ -61,6 +61,7 @@ export interface Task {
   project_id?: string | null;
   plan_node_id?: string | null;
   parent_task_id?: string | null;
+  section_id?: string | null;
   title: string;
   description?: string | null;
   state: TaskState;

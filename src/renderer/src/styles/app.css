@@ -948,6 +948,15 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .daily-loop-step.is-active { border-left-color: var(--color-accent); }
 .daily-loop-step.is-done { border-left-color: var(--color-success); }
 .daily-loop-step.is-attention { border-left-color: var(--color-warning); background: color-mix(in srgb, var(--color-warning-bg) 45%, var(--color-surface)); }
+.task-sections-panel { display: grid; gap: var(--space-2); }
+.section-create-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: var(--space-2); padding: 0 var(--pad-card); }
+.task-section-board { display: grid; gap: var(--space-2); padding: 0 var(--pad-card) var(--space-2); }
+.task-section-group { border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; }
+.task-section-heading { min-height: 42px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); background: var(--color-surface-subtle); border-bottom: 1px solid var(--color-border-subtle); }
+.task-section-heading strong, .task-section-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-section-heading span { color: var(--color-text-secondary); font-size: var(--text-xs); }
+.task-section-list { display: grid; }
+.danger-text { color: var(--color-danger); }
 .waiting-table .table-head, .waiting-table .table-row { grid-template-columns: 8px 24px minmax(200px, 1fr) 120px 112px 130px 100px; }
 .waiting-table .table-row.is-cancelled { border-left: 3px solid var(--color-danger); background: linear-gradient(90deg, var(--color-danger-bg) 0%, var(--color-surface) 48%); }
 .waiting-table .table-row.is-cancelled:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--color-danger-bg) 78%, var(--color-danger)) 0%, var(--color-surface-muted) 48%); }
@@ -1207,6 +1216,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .daily-plan-grid { grid-template-columns: 1fr; }
   .daily-loop-steps { grid-template-columns: 1fr; }
   .reminder-settings-row { grid-template-columns: 1fr; align-items: stretch; }
+  .section-create-row, .task-section-heading { grid-template-columns: 1fr; align-items: stretch; }
   .notes-workbench { grid-template-columns: 1fr; }
   .notes-list-panel, .note-preview-panel { max-height: none; min-height: auto; }
   .note-preview-header { flex-direction: column; }

@@ -28,6 +28,7 @@ import { activeRecords, formText, str, uuid } from "./lib/format";
 import { normalizeTaskShelf } from "./lib/taskShelves";
 import { normalizeDurationMinutes, normalizeStartTime } from "./lib/timeboxing";
 import { normalizeReminderDateTime } from "./lib/reminders";
+import { listTaskSections, normalizeTaskSectionId } from "./lib/taskSections";
 import type { SaveOperation } from "./types";
 import {
   buildSaveTaskOperations,
@@ -513,10 +514,13 @@ export function WorkspaceApp() {
       const title = formText(values, "title");
       if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
       const taskId = (base.id as string) || uuid();
+      const projectId = formText(values, "theme_id") || null;
+      const taskSections = projectId ? listTaskSections(data.views || [], projectId) : [];
       const task: Task = {
         id: taskId,
         title,
-        project_id: formText(values, "theme_id") || null,
+        project_id: projectId,
+        section_id: normalizeTaskSectionId(formText(values, "section_id"), taskSections, projectId),
         state: (formText(values, "state") || "todo") as Task["state"],
         priority: values.has("priority_flag") ? "high" : "normal",
         planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
