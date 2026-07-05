@@ -3,6 +3,7 @@ import type {
   PlanNodeState,
   PlanNodeType,
   ProjectState,
+  TaskShelf,
   TaskState,
   WaitingState,
 } from "./types";
@@ -27,6 +28,14 @@ export const TASK_STATE_LABELS: Record<TaskState, string> = {
   review: "確認待ち",
   done: "完了",
   cancelled: "中止",
+};
+
+export const TASK_SHELF_LABELS: Record<TaskShelf, string> = {
+  maybe_today: "今日できたら",
+  this_evening: "夜/後で",
+  this_week: "今週",
+  someday: "いつか",
+  backlog: "Backlog",
 };
 
 export const WAITING_STATE_LABELS: Record<WaitingState, string> = {

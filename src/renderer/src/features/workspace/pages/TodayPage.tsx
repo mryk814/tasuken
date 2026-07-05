@@ -16,6 +16,7 @@ import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildActivityLog } from "../lib/activityLog";
+import { TASK_SHELF_OPTIONS, normalizeTaskShelf, taskShelfStatus, type TaskShelfRow } from "../lib/taskShelves";
 import { EmptyState, Metric, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -290,6 +291,40 @@ function PeriodTaskRows({
   );
 }
 
+function TaskShelfRows({
+  rows,
+  themes,
+  today,
+  onOpenDetail,
+  onMoveToday,
+}: {
+  rows: TaskShelfRow[];
+  themes: PageProps["themes"];
+  today: string;
+  onOpenDetail: (row: TaskShelfRow) => void;
+  onMoveToday: (row: TaskShelfRow) => void;
+}) {
+  if (!rows.length) return <EmptyState title="この棚のタスクはありません" />;
+  return (
+    <div className="shelf-task-list">
+      {rows.map((row) => {
+        const theme = themes.find((entry) => entry.id === row.task.project_id);
+        const status = taskShelfStatus(row, today);
+        return (
+          <div key={row.task.id} className={`shelf-task-row ${status ? `is-${status}` : ""}`}>
+            <button className="shelf-task-title" onClick={() => onOpenDetail(row)}>
+              <strong>{row.task.title}</strong>
+              <span>{theme?.name || "個人業務"} / {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
+            </button>
+            {status && <span className={`shelf-due-badge ${status}`}>{status === "overdue" ? "期限切れ" : "今日期限"}</span>}
+            <button className="secondary-button compact" onClick={() => onMoveToday(row)}>今日へ</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
@@ -304,6 +339,15 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const schedules = schedulesByOwner(v2);
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   const periodRows = buildOngoingPeriodTaskView(v2, today);
+  const shelfTaskRows: TaskShelfRow[] = v2.tasks
+    .map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }))
+    .filter((row) => row.task.state !== "done" && row.task.state !== "cancelled" && normalizeTaskShelf(row.task.planning_shelf));
+  const shelfGroups = TASK_SHELF_OPTIONS.map((option) => ({
+    ...option,
+    rows: shelfTaskRows
+      .filter((row) => normalizeTaskShelf(row.task.planning_shelf) === option.id)
+      .sort((a, b) => scheduleDate(a.schedule).localeCompare(scheduleDate(b.schedule)) || a.task.title.localeCompare(b.task.title, "ja")),
+  }));
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
   const waitingRows = v2.waitings.map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)));
   const planNodeRows = v2.plan_nodes.map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)));
@@ -462,6 +506,35 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
+  function handleOpenShelfTask(row: TaskShelfRow) {
+    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
+  }
+
+  async function handleMoveShelfTaskToday(row: TaskShelfRow) {
+    const nextTask: Task = { ...row.task, planning_shelf: null };
+    const schedule = row.schedule;
+    const keepsFutureDeadline = Boolean(schedule?.end_date && schedule.end_date > today);
+    const nextSchedule: Schedule = schedule
+      ? {
+          ...schedule,
+          start_date: keepsFutureDeadline || (schedule.start_date && schedule.start_date > today) ? today : schedule.start_date,
+          end_date: keepsFutureDeadline ? schedule.end_date : today,
+          date_kind: keepsFutureDeadline || (schedule.start_date && schedule.start_date < today) ? "range" : "deadline",
+          confidence: schedule.confidence || "fixed",
+          granularity: schedule.granularity || "day",
+        }
+      : {
+          id: crypto.randomUUID(),
+          owner_type: "task",
+          owner_id: row.task.id,
+          end_date: today,
+          date_kind: "deadline",
+          confidence: "fixed",
+          granularity: "day",
+        };
+    await saveEntities([...buildSaveTaskOperations(nextTask), ...buildSaveScheduleOperations(nextSchedule)], "今日やることへ移しました。");
+  }
+
   async function addTask() {
     const title = addTitle.trim();
     if (!title) { setToast("タイトルを入力してください。"); return; }
@@ -618,6 +691,21 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
         <TodayRows rows={todayRows} themes={themes} empty="今日のタスクはありません" today={today} {...rowHandlers} onAdd={() => setShowAdd(true)} />
+      </section>
+
+      <section className="panel task-shelf-panel">
+        <div className="section-heading">
+          <h2>今日の候補棚</h2>
+          <button className="text-button compact" onClick={() => navigate("todo")}>棚を整理</button>
+        </div>
+        <div className="task-shelf-board">
+          {shelfGroups.map((group) => (
+            <section key={group.id} className="task-shelf-lane">
+              <div className="shelf-lane-heading"><h3>{group.label}</h3><span>{group.rows.length}件</span></div>
+              <TaskShelfRows rows={group.rows.slice(0, 4)} themes={themes} today={today} onOpenDetail={handleOpenShelfTask} onMoveToday={handleMoveShelfTaskToday} />
+            </section>
+          ))}
+        </div>
       </section>
 
       <section className="panel today-focus-panel">
