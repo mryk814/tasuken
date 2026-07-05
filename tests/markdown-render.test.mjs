@@ -85,13 +85,26 @@ test("previewDocument includes readable markdown document styling", () => {
   assert.match(html, /#2D7FB8/);
   assert.match(html, /\.markdown-document h4/);
   assert.match(html, /<h4>Detail<\/h4>/);
+  assert.match(html, /border-bottom:1px solid #C3DCEE/);
   assert.match(html, /\.markdown-document p\{margin:5px 0\}/);
   assert.match(html, /\.markdown-document hr/);
   assert.match(html, /<hr \/>/);
   assert.match(html, /blockquote/);
-  assert.match(html, /border-collapse:collapse/);
-  assert.match(html, /padding:5px 7px/);
+  assert.match(html, /border-collapse:separate/);
+  assert.match(html, /border-spacing:0/);
+  assert.match(html, /padding:4px 7px/);
   assert.match(html, /<table>/);
+});
+
+test("markdown preview css separates heading levels and keeps tables compact", () => {
+  const source = readFileSync("src/renderer/src/styles/app.css", "utf8");
+
+  assert.match(source, /\.markdown-preview h2 \{[^}]*border-bottom: 1px solid/s);
+  assert.match(source, /\.markdown-preview h3 \{[^}]*border-left: 4px solid/s);
+  assert.match(source, /\.markdown-preview h4 \{[^}]*font-size: var\(--text-sm\)/s);
+  assert.match(source, /\.markdown-preview table \{[^}]*border-collapse: separate/s);
+  assert.match(source, /\.markdown-preview th:last-child, \.markdown-preview td:last-child/s);
+  assert.match(source, /\[class\*="_tableColumnEditorTrigger_"\][^}]*opacity: \.28/s);
 });
 
 test("structured markdown paste detection keeps plain text paste native", () => {

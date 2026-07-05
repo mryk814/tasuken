@@ -273,9 +273,9 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Yu Gothic","Hiragino Ma
 .markdown-document{box-sizing:border-box;max-width:840px;margin:0 auto;padding:26px 30px 34px;background:#fff;color:#26211f;font-size:15px;line-height:1.64}
 .markdown-document h1,.markdown-document h2,.markdown-document h3,.markdown-document h4{line-height:1.28;color:#1C557D;break-after:avoid}
 .markdown-document h1{margin:0 0 18px;padding-bottom:10px;border-bottom:2px solid #C3DCEE;font-size:28px}
-.markdown-document h2{margin:28px 0 12px;padding:5px 10px;border-left:4px solid #2D7FB8;background:#F0F6FA;font-size:21px}
-.markdown-document h3{margin:22px 0 10px;padding-left:9px;border-left:3px solid #8DBFE0;font-size:17px}
-.markdown-document h4{margin:18px 0 8px;padding:4px 8px;border-left:3px solid #C3DCEE;background:#F7FBFD;color:#245F86;font-size:15px}
+.markdown-document h2{margin:28px 0 12px;padding:7px 10px;border-left:5px solid #2D7FB8;border-bottom:1px solid #C3DCEE;background:#E8F1F8;font-size:21px}
+.markdown-document h3{margin:22px 0 10px;padding:2px 0 2px 9px;border-left:4px solid #8DBFE0;font-size:17px}
+.markdown-document h4{width:fit-content;max-width:100%;margin:18px 0 8px;padding:3px 8px;border-left:2px solid #C3DCEE;border-radius:5px;background:#F7FBFD;color:#245F86;font-size:14px}
 .markdown-document p{margin:5px 0}.markdown-document ul,.markdown-document ol{margin:7px 0 8px;padding-left:1.55em}
 .markdown-document li{margin:2px 0}.markdown-document li::marker{color:#2D7FB8;font-weight:700}
 .markdown-document blockquote{margin:10px 0;padding:8px 12px;border-left:4px solid #2D7FB8;border-radius:6px;background:#E8F1F8;color:#1C557D}
@@ -284,8 +284,10 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Yu Gothic","Hiragino Ma
 .markdown-document pre{overflow:auto;margin:10px 0;padding:10px 12px;border:1px solid #D9E5ED;border-radius:7px;background:#F5F9FC;color:#26211f;font:12px/1.58 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}
 .markdown-document code{padding:1px 4px;border-radius:4px;background:#F0F6FA;color:#1C557D;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em}
 .markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
-.markdown-document table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
-.markdown-document th,.markdown-document td{padding:5px 7px;border:1px solid #D8E6EE;text-align:left;vertical-align:top}
+.markdown-document table{width:100%;border-collapse:separate;border-spacing:0;margin:12px 0 14px;border:1px solid #D8E6EE;border-radius:5px;overflow:hidden;font-size:13px}
+.markdown-document th,.markdown-document td{padding:4px 7px;border-right:1px solid #D8E6EE;border-bottom:1px solid #D8E6EE;text-align:left;vertical-align:top}
+.markdown-document th:last-child,.markdown-document td:last-child{border-right:0}
+.markdown-document tbody tr:last-child td{border-bottom:0}
 .markdown-document th{background:#F0F6FA;color:#1C557D;font-weight:700}
 .markdown-document tr:nth-child(even) td{background:#F7FBFD}
 .markdown-document a{color:#1C557D;text-decoration:underline;text-underline-offset:2px}

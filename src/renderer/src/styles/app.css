@@ -378,14 +378,16 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mdx-content ol { margin: var(--space-2) 0; padding-left: 1.55rem; list-style-type: decimal; }
 .note-mdx-content li { padding-left: var(--space-1); }
 .note-mdx-content li::marker { color: var(--color-accent-strong); font-weight: var(--weight-bold); }
-.note-mdx-content table { width: 100%; margin: var(--space-2) 0; border-collapse: collapse; border: 1px solid var(--color-border-subtle); background: var(--color-surface); font-size: var(--text-sm); }
-.note-mdx-content th, .note-mdx-content td { padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-subtle); }
+.note-mdx-content table { width: 100%; margin: var(--space-2) 0; border-collapse: separate; border-spacing: 0; border: 1px solid var(--color-border-subtle); background: var(--color-surface); font-size: var(--text-sm); }
+.note-mdx-content th, .note-mdx-content td { padding: 4px var(--space-2); border-right: 1px solid var(--color-border-subtle); border-bottom: 1px solid var(--color-border-subtle); }
+.note-mdx-content th:last-child, .note-mdx-content td:last-child { border-right: 0; }
+.note-mdx-content tr:last-child td { border-bottom: 0; }
 .note-mdx-content th { background: color-mix(in srgb, var(--color-accent-subtle-bg) 44%, var(--color-surface)); color: var(--color-text); font-weight: var(--weight-semibold); }
 .note-mdx-content td { background: color-mix(in srgb, var(--color-surface) 88%, var(--color-surface-subtle)); }
 .note-mdx-content [class*="_tableEditor_"],
-.note-mdx-content [class*="_tableWrapper_"] { margin: var(--space-2) 0; }
+.note-mdx-content [class*="_tableWrapper_"] { margin: var(--space-1) 0; }
 .note-mdx-content [class*="_tableColumnEditorTrigger_"],
-.note-mdx-content [class*="_tableRowEditorTrigger_"] { opacity: .42; transform: scale(.86); transform-origin: center; }
+.note-mdx-content [class*="_tableRowEditorTrigger_"] { opacity: .28; transform: scale(.72); transform-origin: center; }
 .note-mdx-content pre { background: var(--color-surface-subtle); }
 .note-editor-math-inline { display: inline; padding: 0 .12em; color: var(--color-text); vertical-align: baseline; }
 .note-editor-math-block { overflow-x: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text); text-align: center; }
@@ -743,9 +745,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview h1, .markdown-preview h2, .markdown-preview h3, .markdown-preview h4 { margin: var(--space-4) 0 var(--space-2); color: var(--markdown-accent-strong); line-height: var(--lh-tight); letter-spacing: 0; }
 .markdown-preview h1:first-child, .markdown-preview h2:first-child, .markdown-preview h3:first-child, .markdown-preview h4:first-child { margin-top: 0; }
 .markdown-preview h1 { padding-bottom: var(--space-2); border-bottom: 2px solid var(--markdown-accent-bd); font-size: var(--text-2xl); }
-.markdown-preview h2 { padding: var(--space-1) var(--space-2); border-left: 4px solid var(--markdown-accent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 56%, var(--color-surface)); font-size: var(--text-xl); }
-.markdown-preview h3 { padding-left: var(--space-2); border-left: 3px solid color-mix(in srgb, var(--markdown-accent) 62%, var(--color-surface)); font-size: var(--text-lg); }
-.markdown-preview h4 { width: fit-content; max-width: 100%; padding: 3px var(--space-2); border-left: 3px solid var(--markdown-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 36%, var(--color-surface)); color: color-mix(in srgb, var(--markdown-accent-strong) 88%, var(--color-text)); font-size: var(--text-base); font-weight: var(--weight-semibold); }
+.markdown-preview h2 { padding: var(--space-2) var(--space-3); border-left: 5px solid var(--markdown-accent); border-bottom: 1px solid var(--markdown-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 70%, var(--color-surface)); font-size: var(--text-xl); }
+.markdown-preview h3 { padding: 2px 0 2px var(--space-2); border-left: 4px solid color-mix(in srgb, var(--markdown-accent) 72%, var(--color-surface)); color: var(--markdown-accent-strong); font-size: var(--text-lg); font-weight: var(--weight-bold); }
+.markdown-preview h4 { width: fit-content; max-width: 100%; padding: 2px var(--space-2); border-left: 2px solid var(--markdown-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 42%, var(--color-surface)); color: color-mix(in srgb, var(--markdown-accent-strong) 88%, var(--color-text)); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
 .markdown-preview p { margin: var(--space-2) 0; }
 .markdown-preview ul, .markdown-preview ol { margin: var(--space-2) 0 var(--space-3); padding-left: var(--space-5); }
 .markdown-preview li { margin: 3px 0; }
@@ -756,9 +758,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview pre { overflow: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-accent-bd); border-radius: var(--radius-md); background: color-mix(in srgb, var(--markdown-accent-bg) 42%, var(--color-surface)); font: var(--text-xs)/1.62 var(--font-mono); white-space: pre-wrap; }
 .markdown-preview code { padding: 1px var(--space-1); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 55%, var(--color-surface)); color: var(--markdown-accent-strong); font-family: var(--font-mono); font-size: .92em; }
 .markdown-preview pre code { padding: 0; background: transparent; color: inherit; font-size: inherit; }
-.markdown-preview table { width: 100%; margin: var(--space-3) 0; border-collapse: collapse; font-size: var(--text-sm); }
-.markdown-preview th, .markdown-preview td { padding: var(--space-1) var(--space-2); border: 1px solid color-mix(in srgb, var(--markdown-accent-bd) 72%, var(--color-border-subtle)); text-align: left; vertical-align: top; }
-.markdown-preview th { background: color-mix(in srgb, var(--markdown-accent-bg) 54%, var(--color-surface)); color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
+.markdown-preview table { width: 100%; margin: var(--space-2) 0 var(--space-3); border-collapse: separate; border-spacing: 0; border: 1px solid color-mix(in srgb, var(--markdown-accent-bd) 72%, var(--color-border-subtle)); border-radius: var(--radius-sm); overflow: hidden; font-size: var(--text-sm); }
+.markdown-preview th, .markdown-preview td { padding: 4px var(--space-2); border-right: 1px solid color-mix(in srgb, var(--markdown-accent-bd) 56%, var(--color-border-subtle)); border-bottom: 1px solid color-mix(in srgb, var(--markdown-accent-bd) 56%, var(--color-border-subtle)); text-align: left; vertical-align: top; }
+.markdown-preview th:last-child, .markdown-preview td:last-child { border-right: 0; }
+.markdown-preview tbody tr:last-child td { border-bottom: 0; }
+.markdown-preview th { background: color-mix(in srgb, var(--markdown-accent-bg) 64%, var(--color-surface)); color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
 .markdown-preview tr:nth-child(even) td { background: color-mix(in srgb, var(--markdown-accent-bg) 16%, var(--color-surface)); }
 .markdown-preview .md-image { margin: var(--space-3) 0; }
 .markdown-preview .md-image img { display: block; max-width: 100%; max-height: 520px; object-fit: contain; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
