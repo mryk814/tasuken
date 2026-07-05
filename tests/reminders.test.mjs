@@ -118,3 +118,17 @@ test("task reminders stay on tasks and surface as lightweight row metadata", () 
   assert.match(appSource, /reminder_at: normalizeReminderDateTime\(formText\(values, "reminder_at"\)\)/);
   assert.match(appSource, /check_reminder_at: normalizeReminderDateTime\(formText\(values, "check_reminder_at"\)\)/);
 });
+
+test("due reminders are connected to native desktop notifications", () => {
+  const mainSource = readFileSync("src/main/index.ts", "utf8");
+
+  assert.match(mainSource, /Notification/);
+  assert.match(mainSource, /REMINDER_CHECK_INTERVAL_MS/);
+  assert.match(mainSource, /startReminderNotifications/);
+  assert.match(mainSource, /showReminderNotification/);
+  assert.match(mainSource, /workspaceRepository\.list\("task"\)/);
+  assert.match(mainSource, /workspaceRepository\.list\("waiting"\)/);
+  assert.match(mainSource, /new Notification\(/);
+  assert.match(mainSource, /notification\.show\(\)/);
+  assert.match(mainSource, /notifiedReminderIds/);
+});

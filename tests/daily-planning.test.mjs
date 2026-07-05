@@ -31,6 +31,7 @@ test("daily planning candidates classify open work without completed tasks", () 
     row("overdue", "todo", { end_date: "2026-07-04" }),
     row("due-today", "todo", { end_date: "2026-07-05" }),
     row("range-started-today", "todo", { start_date: "2026-07-05", end_date: "2026-07-10" }),
+    row("ongoing-period-this-week", "todo", { start_date: "2026-07-03", end_date: "2026-07-10", date_kind: "range" }),
     row("this-week", "todo", { end_date: "2026-07-12" }),
     row("later", "todo", { end_date: "2026-07-13" }),
     row("unscheduled", "todo"),
@@ -38,7 +39,7 @@ test("daily planning candidates classify open work without completed tasks", () 
   ], "2026-07-05");
 
   assert.deepEqual(candidates.overdue.map((entry) => entry.task.id), ["overdue"]);
-  assert.deepEqual(candidates.thisWeek.map((entry) => entry.task.id), ["this-week"]);
+  assert.deepEqual(candidates.thisWeek.map((entry) => entry.task.id), ["ongoing-period-this-week", "this-week"]);
   assert.deepEqual(candidates.someday.map((entry) => entry.task.id), ["unscheduled"]);
 });
 

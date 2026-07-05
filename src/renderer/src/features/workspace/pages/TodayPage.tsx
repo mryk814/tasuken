@@ -260,11 +260,13 @@ function PeriodTaskRows({
   themes,
   onOpenDetail,
   onCreateTodayTask,
+  onTogglePeriodComplete,
 }: {
   rows: OngoingPeriodTaskRow[];
   themes: PageProps["themes"];
   onOpenDetail: (row: OngoingPeriodTaskRow) => void;
   onCreateTodayTask: (row: OngoingPeriodTaskRow) => void;
+  onTogglePeriodComplete: (row: OngoingPeriodTaskRow) => void;
 }) {
   if (!rows.length) return <EmptyState title="期間中タスクはありません" />;
   return (
@@ -281,6 +283,11 @@ function PeriodTaskRows({
             onClick={() => onOpenDetail(row)}
           >
             <span className="todo-theme-bar" />
+            <button
+              className="todo-check-circle"
+              aria-label={`${row.task.title}を完了`}
+              onClick={(event) => { event.stopPropagation(); onTogglePeriodComplete(row); }}
+            />
             <span className="period-progress-badge">{row.dayIndex}/{row.totalDays}</span>
             <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
               <strong>{row.task.title}</strong>
@@ -461,7 +468,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       project_id: row.task.project_id || null,
       plan_node_id: row.task.plan_node_id || null,
       parent_task_id: row.task.id,
-      title: `${row.task.title}の今日の作業`,
+      title: `${row.task.title}：${formatDate(today)}`,
       state: "todo",
       priority: row.task.priority,
       created_at: new Date().toISOString(),
@@ -476,6 +483,13 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       granularity: "day",
     };
     await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日の作業を作成しました。");
+  }
+
+  async function handleTogglePeriodComplete(row: OngoingPeriodTaskRow) {
+    const nextState = row.task.state === "done" ? "todo" : "done";
+    if (nextState === "done") playCompleteSound();
+    const nextMessage = nextState === "done" && row.task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "期間タスクを完了しました。" : "未完了に戻しました。";
+    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), nextMessage);
   }
 
   function handleOpenDetail(row: TodayRow) {
@@ -710,7 +724,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <h2>進行中の期間タスク</h2>
           <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
-        <PeriodTaskRows rows={periodRows} themes={themes} onOpenDetail={handleOpenPeriodTask} onCreateTodayTask={handleCreateTodayTask} />
+        <PeriodTaskRows rows={periodRows} themes={themes} onOpenDetail={handleOpenPeriodTask} onCreateTodayTask={handleCreateTodayTask} onTogglePeriodComplete={handleTogglePeriodComplete} />
       </section>
 
       <div className="today-grid">

@@ -34,3 +34,11 @@ test("Today opens task rows directly in edit mode and shows lightweight reminder
   assert.match(todayPageSource, /IconClock/);
   assert.match(todayPageSource, /type: "task", mode: "edit"/);
 });
+
+test("Today period tasks can be completed and spawn dated daily work", () => {
+  assert.match(todayPageSource, /onTogglePeriodComplete/);
+  assert.match(todayPageSource, /handleTogglePeriodComplete/);
+  assert.match(todayPageSource, /todo-check-circle/);
+  assert.match(todayPageSource, /buildCompleteTaskOperations\(row\.task, row\.schedule\)/);
+  assert.match(todayPageSource, /title: `\$\{row\.task\.title\}：\$\{formatDate\(today\)\}`/);
+});

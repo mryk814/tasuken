@@ -28,6 +28,11 @@ function touchesToday(schedule: Schedule | undefined, today: string): boolean {
   return Boolean(start && end && start <= today && today <= end);
 }
 
+function isOngoingPeriodThisWeek(schedule: Schedule | undefined, today: string, weekEnd: string): boolean {
+  if (!schedule?.start_date || !schedule.end_date) return false;
+  return schedule.start_date < today && today < schedule.end_date && schedule.end_date <= weekEnd;
+}
+
 export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: string): DailyPlanningCandidates {
   const openRows = rows.filter((row) => isOpenTask(row.task));
   const weekEnd = addDays(today, 7);
@@ -41,7 +46,7 @@ export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: st
     thisWeek: openRows
       .filter((row) => {
         const date = scheduledDate(row.schedule);
-        return Boolean(date && date > today && date <= weekEnd && !touchesToday(row.schedule, today));
+        return Boolean(date && date > today && date <= weekEnd && (!touchesToday(row.schedule, today) || isOngoingPeriodThisWeek(row.schedule, today, weekEnd)));
       })
       .sort(byDateThenTitle),
     someday: openRows

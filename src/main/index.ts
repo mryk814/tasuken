@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, Notification, protocol, screen, shell, Tray } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,11 +21,14 @@ let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
 let todayMiniWindow: BrowserWindow | null = null;
 let todayMiniFadeTimer: ReturnType<typeof setTimeout> | null = null;
+let reminderCheckTimer: ReturnType<typeof setInterval> | null = null;
+const notifiedReminderIds = new Set<string>();
 const TODAY_MINI_INACTIVE_OPACITY = 0.5;
 const TODAY_MINI_FADE_DELAY_MS = 30000;
 const TODAY_MINI_SCREEN_MARGIN = 16;
 const TODAY_MINI_PINNED_WIDTH = 360;
 const TODAY_MINI_PINNED_HEIGHT = 560;
+const REMINDER_CHECK_INTERVAL_MS = 60000;
 const TODAY_MINI_THEME_COLOR_KEYS = [
   "chart-1",
   "chart-2",
@@ -394,6 +397,80 @@ function localDateTimeString(date = new Date()): string {
   return `${localDateString(date)}T${time}.${ms}`;
 }
 
+function localDateTimeMinute(date = new Date()): string {
+  return localDateTimeString(date).slice(0, 16);
+}
+
+function normalizeReminderDateTime(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/);
+  if (!match) return "";
+  const [hour, minute] = match[2].split(":");
+  const normalizedHour = String(Number(hour)).padStart(2, "0");
+  const normalizedMinute = String(Number(minute)).padStart(2, "0");
+  if (!/^(?:[01]\d|2[0-3])$/.test(normalizedHour)) return "";
+  if (!/^[0-5]\d$/.test(normalizedMinute)) return "";
+  return `${match[1]}T${normalizedHour}:${normalizedMinute}`;
+}
+
+function reminderIsDueToday(value: unknown, nowMinute = localDateTimeMinute(), today = localDateString()): string {
+  const at = normalizeReminderDateTime(value);
+  if (!at || at.slice(0, 10) !== today || at > nowMinute) return "";
+  return at;
+}
+
+function showReminderNotification(alert: { id: string; title: string; body: string; onClick?: () => void }): void {
+  if (!Notification.isSupported()) return;
+  if (notifiedReminderIds.has(alert.id)) return;
+  notifiedReminderIds.add(alert.id);
+  const notification = new Notification({
+    title: alert.title,
+    body: alert.body,
+    icon: getAppIconPath(),
+  });
+  if (alert.onClick) notification.on("click", alert.onClick);
+  notification.show();
+}
+
+function checkReminderNotifications(): void {
+  if (!workspaceRepository) return;
+  for (const task of workspaceRepository.list("task") as Entity[]) {
+    const at = reminderIsDueToday(task.reminder_at);
+    if (!at || task.state === "done" || task.state === "cancelled") continue;
+    const taskId = String(task.id);
+    showReminderNotification({
+      id: `task:${taskId}:${at}`,
+      title: "Tasken リマインダー",
+      body: String(task.title || "無題のタスク"),
+      onClick: () => openTaskInMainWindow(taskId),
+    });
+  }
+  for (const waiting of workspaceRepository.list("waiting") as Entity[]) {
+    const at = reminderIsDueToday(waiting.check_reminder_at);
+    if (!at || waiting.state === "received" || waiting.state === "cancelled") continue;
+    showReminderNotification({
+      id: `waiting:${String(waiting.id)}:${at}`,
+      title: "Tasken 確認リマインダー",
+      body: String(waiting.title || "無題の待ち"),
+      onClick: () => showMainWindow(),
+    });
+  }
+}
+
+function startReminderNotifications(): void {
+  if (reminderCheckTimer) return;
+  checkReminderNotifications();
+  reminderCheckTimer = setInterval(checkReminderNotifications, REMINDER_CHECK_INTERVAL_MS);
+}
+
+function stopReminderNotifications(): void {
+  if (!reminderCheckTimer) return;
+  clearInterval(reminderCheckTimer);
+  reminderCheckTimer = null;
+}
+
 function registerCaptureIpc(): void {
   ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string) => {
     const trimmed = (text || "").trim();
@@ -670,6 +747,7 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
 }
 
 app.disableHardwareAcceleration();
+if (process.platform === "win32") app.setAppUserModelId("jp.personal.tasken");
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
@@ -1095,6 +1173,7 @@ void app.whenReady().then(() => {
 
   if (!isSmokeTest) {
     setupTray();
+    startReminderNotifications();
     globalShortcut.register("CmdOrCtrl+Shift+N", () => showCaptureWindow("inbox"));
     globalShortcut.register("CmdOrCtrl+Shift+M", () => showCaptureWindow("today-task"));
     globalShortcut.register("CmdOrCtrl+Shift+L", () => showCaptureWindow("done-task"));
@@ -1114,5 +1193,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  stopReminderNotifications();
   globalShortcut.unregisterAll();
 });

@@ -44,7 +44,9 @@ test("Today mini keeps the clean surface but uses Tasken tone and compact task m
   assert.match(htmlSource, /class="mini-hero"/);
   assert.match(htmlSource, /id="today-date"/);
   assert.match(htmlSource, /--color-accent:\s*#8a2f3b/i);
-  assert.match(htmlSource, /--color-bg-top:\s*#8a2f3b/i);
+  assert.match(htmlSource, /--color-bg-top:\s*#a65f69/i);
+  assert.match(htmlSource, /--color-bg-mid:\s*#d2b3b6/i);
+  assert.doesNotMatch(htmlSource, /--color-bg-top:\s*#8a2f3b/i);
   assert.doesNotMatch(htmlSource, /--color-bg-top:\s*#2f6f73/i);
   assert.match(htmlSource, /aria-label="画面右上へ移動"/);
   assert.match(htmlSource, /aria-label="更新"/);
