@@ -4,11 +4,22 @@ import { IconCalendarPlus, IconCalendarCheck, IconCopyPlus, IconFlag, IconFlagFi
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
-import type { PageProps } from "../types";
+import type { PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
+import {
+  DEFAULT_TASK_VIEW_FILTERS,
+  countTodoRowsForView,
+  filterTodoRows,
+  isTaskSavedView,
+  normalizeSavedTaskView,
+  normalizeTaskViewFilters,
+  type SavedTaskView,
+  type TaskViewFilters,
+  type TaskViewTab,
+} from "../lib/savedTaskViews";
 import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -28,8 +39,12 @@ function isDoneRow(row: TodoRow): boolean {
   return row.task.state === "done" || row.task.state === "cancelled";
 }
 
-export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, setToast }: PageProps) {
+export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, removeEntity, setToast }: PageProps) {
   const [filter, setFilter] = useState("open");
+  const [taskFilters, setTaskFilters] = useState<TaskViewFilters>(DEFAULT_TASK_VIEW_FILTERS);
+  const [savedViewName, setSavedViewName] = useState("");
+  const [activeSavedViewId, setActiveSavedViewId] = useState("");
+  const [renameTitle, setRenameTitle] = useState("");
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pastePreview, setPastePreview] = useState<ParsedTaskRow[]>([]);
@@ -40,10 +55,21 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   const today = todayIso();
 
   useEffect(() => {
-    if (route === "todo") setFilter("open");
+    if (route === "todo") {
+      setFilter("open");
+      setTaskFilters(DEFAULT_TASK_VIEW_FILTERS);
+      setActiveSavedViewId("");
+      setRenameTitle("");
+    }
   }, [route]);
 
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
+  const savedTaskViews = (data.views || [])
+    .filter((view) => isTaskSavedView(view as Record<string, unknown>))
+    .map((view) => normalizeSavedTaskView(view as Record<string, unknown>))
+    .filter((view) => view.id);
+  const activeSavedView = savedTaskViews.find((view) => view.id === activeSavedViewId) || null;
+  const currentFilters: TaskViewFilters = normalizeTaskViewFilters({ ...taskFilters, tab: filter });
   const counters = {
     today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
     open: taskRows.filter((row) => !isDoneRow(row)).length,
@@ -51,13 +77,62 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     noSchedule: taskRows.filter((row) => !isDoneRow(row) && !scheduledDate(row.schedule)).length,
     done: taskRows.filter(isDoneRow).length,
   };
-  const visible = taskRows.filter((row) => {
-    if (filter === "today") return !isDoneRow(row) && isTodayRow(row, today);
-    if (filter === "done") return isDoneRow(row);
-    if (filter === "no-schedule") return !isDoneRow(row) && !scheduledDate(row.schedule);
-    if (filter === "overdue") return !isDoneRow(row) && scheduledDate(row.schedule) && scheduledDate(row.schedule) < today;
-    return !isDoneRow(row);
-  }).sort(compareTodoRows(today));
+  const visible = filterTodoRows(taskRows, currentFilters, today).sort(compareTodoRows(today));
+
+  function patchTaskFilters(patch: Partial<TaskViewFilters>) {
+    setTaskFilters((current) => normalizeTaskViewFilters({ ...current, ...patch }));
+    setActiveSavedViewId("");
+    setRenameTitle("");
+  }
+
+  function selectFilterTab(nextFilter: TaskViewTab) {
+    setFilter(nextFilter);
+    setActiveSavedViewId("");
+    setRenameTitle("");
+  }
+
+  async function saveCurrentView() {
+    const title = savedViewName.trim();
+    if (!title) { setToast("保存済みビュー名を入力してください。", "warning"); return; }
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const view = {
+      id,
+      title,
+      view_type: "task",
+      filters: currentFilters,
+      sort_order: savedTaskViews.length,
+      created_at: now,
+    };
+    await saveEntities([{ action: "save", type: "view", entity: view as SaveOperation["entity"] }], "保存済みビューを追加しました。");
+    setSavedViewName("");
+    setActiveSavedViewId(id);
+    setRenameTitle(title);
+  }
+
+  function openSavedView(view: SavedTaskView) {
+    setFilter(view.filters.tab);
+    setTaskFilters(view.filters);
+    setActiveSavedViewId(view.id);
+    setRenameTitle(view.title);
+  }
+
+  async function renameSavedView(view: SavedTaskView) {
+    const title = renameTitle.trim();
+    if (!title) { setToast("保存済みビュー名を入力してください。", "warning"); return; }
+    const source = (data.views || []).find((entry) => entry.id === view.id) || view;
+    await saveEntities([{
+      action: "save",
+      type: "view",
+      entity: { ...source, title, view_type: "task", filters: view.filters } as SaveOperation["entity"],
+    }], "保存済みビュー名を更新しました。");
+  }
+
+  async function deleteSavedView(view: SavedTaskView) {
+    await removeEntity("view", { ...view });
+    setActiveSavedViewId("");
+    setRenameTitle("");
+  }
 
   async function addTask() {
     const title = addTitle.trim();
@@ -215,9 +290,56 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
       )}
       <div className="todo-filter-tabs">
         {([["today", "今日", counters.today], ["open", "未完了", counters.open], ["overdue", "予定超過", counters.overdue], ["no-schedule", "予定なし", counters.noSchedule], ["done", "完了", counters.done]] as const).map(([id, label, count]) => (
-          <button key={id} className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)}>{label}<span className="tab-count">{count}</span></button>
+          <button key={id} className={filter === id ? "is-active" : ""} onClick={() => selectFilterTab(id)}>{label}<span className="tab-count">{count}</span></button>
         ))}
       </div>
+      <section className="panel saved-view-panel">
+        <div className="section-heading"><h2>保存済みビュー</h2><span>{savedTaskViews.length}件</span></div>
+        <div className="filter-bar">
+          <select value={taskFilters.themeId} onChange={(event) => patchTaskFilters({ themeId: event.target.value })} aria-label="Themeで絞り込み">
+            <option value="">すべてのTheme</option>
+            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+          </select>
+          <select value={taskFilters.state} onChange={(event) => patchTaskFilters({ state: event.target.value })} aria-label="状態で絞り込み">
+            <option value="">すべての状態</option>
+            {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select value={taskFilters.schedule} onChange={(event) => patchTaskFilters({ schedule: event.target.value as TaskViewFilters["schedule"] })} aria-label="予定で絞り込み">
+            <option value="">予定条件なし</option>
+            <option value="scheduled">予定あり</option>
+            <option value="no-schedule">予定なし</option>
+            <option value="overdue">予定超過</option>
+            <option value="this-week">今週中</option>
+            <option value="today">今日</option>
+          </select>
+          <select value={taskFilters.priority} onChange={(event) => patchTaskFilters({ priority: event.target.value as TaskViewFilters["priority"] })} aria-label="旗で絞り込み">
+            <option value="">旗条件なし</option>
+            <option value="high">旗あり</option>
+            <option value="normal">旗なし</option>
+          </select>
+        </div>
+        <div className="saved-view-actions">
+          <input value={savedViewName} onChange={(event) => setSavedViewName(event.target.value)} placeholder="ビュー名" />
+          <button className="secondary-button compact" onClick={saveCurrentView}>現在の条件を保存</button>
+        </div>
+        {savedTaskViews.length > 0 && (
+          <div className="saved-view-list">
+            {savedTaskViews.map((view) => (
+              <button key={view.id} className={activeSavedViewId === view.id ? "is-active" : ""} onClick={() => openSavedView(view)}>
+                <span>{view.title}</span>
+                <span className="tab-count">{countTodoRowsForView(view, taskRows, today)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {activeSavedView && (
+          <div className="saved-view-actions">
+            <input value={renameTitle} onChange={(event) => setRenameTitle(event.target.value)} aria-label="保存済みビュー名" />
+            <button className="secondary-button compact" onClick={() => renameSavedView(activeSavedView)}>名前を更新</button>
+            <button className="danger-button compact" onClick={() => deleteSavedView(activeSavedView)}>削除</button>
+          </div>
+        )}
+      </section>
       {showPaste && (
         <section className="panel paste-panel">
           <div className="section-heading"><h2>表から追加</h2><span>タイトル / Theme / 予定終了 / 状態 / 説明</span></div>
