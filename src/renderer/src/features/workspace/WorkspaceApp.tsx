@@ -808,9 +808,6 @@ export function WorkspaceApp() {
     openDrawer,
     saveEntity,
     saveEntities,
-    refreshWorkspace: async () => {
-      await refreshWorkspace();
-    },
     removeEntity,
     removeEntityQuiet,
     setToast,
