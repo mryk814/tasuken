@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
@@ -123,6 +124,32 @@ test("structured markdown paste fills an empty note without leading blank lines"
   const next = markdown.insertStructuredMarkdownPaste("", "## Pasted", "", 0);
 
   assert.equal(next, "## Pasted\n");
+});
+
+test("rich browser paste converts html links to plain markdown", () => {
+  const converted = markdown.htmlToMarkdownPaste(`
+    <p>Read <a href="https://example.com/docs?x=1">the docs</a><br>and
+    <a href="mailto:team@example.com">mail us</a>.</p>
+    <ul><li><a href="javascript:alert(1)">bad link</a></li><li>plain item</li></ul>
+  `);
+
+  assert.equal(converted, "Read [the docs](https://example.com/docs?x=1)\nand [mail us](mailto:team@example.com).\n\n- bad link\n- plain item");
+  assert.doesNotMatch(converted, /style|script|javascript/);
+});
+
+test("markdown editor wires rich paste after image paste and preserves mode scroll", () => {
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownEditorPanel.tsx",
+    "utf8",
+  );
+
+  assert.match(source, /clipboardImageFile\(event\.clipboardData\)/);
+  assert.match(source, /getData\("text\/html"\)/);
+  assert.match(source, /htmlToMarkdownPaste/);
+  assert.match(source, /standalonePreviewRef/);
+  assert.match(source, /function switchMode/);
+  assert.match(source, /requestAnimationFrame/);
+  assert.match(source, /switchMode\("preview"\)/);
 });
 
 test("markdown preview does not render unsafe image urls", () => {

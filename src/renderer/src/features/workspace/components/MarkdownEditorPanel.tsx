@@ -1,7 +1,7 @@
 import { type ClipboardEvent, useRef, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { previewHtml, splitFrontmatter } from "../lib/markdown";
+import { htmlToMarkdownPaste, previewHtml, splitFrontmatter } from "../lib/markdown";
 
 type MarkdownEditorMode = "raw" | "preview";
 
@@ -41,6 +41,7 @@ export function MarkdownEditorPanel({
   const [pasteState, setPasteState] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const standalonePreviewRef = useRef<HTMLDivElement | null>(null);
   const syncingScroll = useRef(false);
   const dirty = body !== value;
   const frontmatter = format === "markdown" ? splitFrontmatter(body).frontmatter : "";
@@ -63,7 +64,16 @@ export function MarkdownEditorPanel({
   async function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     if (format !== "markdown") return;
     const image = clipboardImageFile(event.clipboardData);
-    if (!image) return;
+    if (!image) {
+      const markdown = htmlToMarkdownPaste(event.clipboardData.getData("text/html"));
+      if (!/\[[^\]\n]+\]\([^)]+\)/.test(markdown)) return;
+
+      event.preventDefault();
+      insertMarkdown(markdown, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+      if (pasteState) setPasteState("");
+      setCopyState("");
+      return;
+    }
 
     event.preventDefault();
     const target = event.currentTarget;
@@ -86,6 +96,29 @@ export function MarkdownEditorPanel({
     }
   }
 
+  function scrollRatio(element: HTMLElement | null): number {
+    if (!element) return 0;
+    const scrollable = element.scrollHeight - element.clientHeight;
+    return scrollable > 0 ? element.scrollTop / scrollable : 0;
+  }
+
+  function restoreScroll(element: HTMLElement | null, ratio: number) {
+    if (!element) return;
+    const scrollable = element.scrollHeight - element.clientHeight;
+    element.scrollTop = scrollable > 0 ? ratio * scrollable : 0;
+  }
+
+  function switchMode(nextMode: MarkdownEditorMode) {
+    if (nextMode === mode) return;
+    const source = mode === "raw" ? textareaRef.current : standalonePreviewRef.current;
+    const ratio = scrollRatio(source);
+    setMode(nextMode);
+    window.requestAnimationFrame(() => {
+      const target = nextMode === "raw" ? textareaRef.current : standalonePreviewRef.current;
+      restoreScroll(target, ratio);
+    });
+  }
+
   function syncScroll(source: HTMLElement, target: HTMLElement | null) {
     if (!target || syncingScroll.current) return;
     const sourceScrollable = source.scrollHeight - source.clientHeight;
@@ -106,8 +139,8 @@ export function MarkdownEditorPanel({
       </div>
       <div className="markdown-editor-toolbar">
         <div className="segmented" aria-label={`${label}表示`}>
-          <button type="button" className={mode === "raw" ? "is-active" : ""} onClick={() => setMode("raw")}>編集</button>
-          <button type="button" className={mode === "preview" ? "is-active" : ""} onClick={() => setMode("preview")}>Preview</button>
+          <button type="button" className={mode === "raw" ? "is-active" : ""} onClick={() => switchMode("raw")}>編集</button>
+          <button type="button" className={mode === "preview" ? "is-active" : ""} onClick={() => switchMode("preview")}>Preview</button>
         </div>
         <div className="markdown-editor-actions">
           <button type="button" className="secondary-button compact" onClick={copyRaw}>本文をコピー</button>
@@ -142,7 +175,7 @@ export function MarkdownEditorPanel({
       ) : (
         <>
           <input type="hidden" name={name} value={body} />
-          <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+          <div ref={standalonePreviewRef} className="markdown-preview" dangerouslySetInnerHTML={{ __html: preview }} />
         </>
       )}
     </section>

@@ -193,6 +193,61 @@ export function insertStructuredMarkdownPaste(
   return `${before}\n\n${content}\n${after ? `\n${after}` : ""}`;
 }
 
+function attributeValue(tag: string, name: string): string {
+  const match = tag.match(new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+  return match ? decodeHtmlEntities(match[2] || match[3] || match[4] || "") : "";
+}
+
+function stripHtmlTags(value: string): string {
+  return decodeHtmlEntities(value.replace(/<[^>]+>/g, ""));
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function normalizeMarkdownPaste(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function htmlToMarkdownPaste(html: string): string {
+  let text = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+    .replace(/\s+/g, " ");
+
+  text = text.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (tag) => {
+    const href = safeMarkdownUrl(attributeValue(tag, "href"), "link");
+    const label = stripHtmlTags(tag.replace(/^<a\b[^>]*>/i, "").replace(/<\/a>$/i, "")).replace(/\s+/g, " ").trim();
+    if (!label) return "";
+    return href ? `[${label}](${href})` : label;
+  });
+
+  text = text
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|section|article|h[1-6])>/gi, "\n\n")
+    .replace(/<li\b[^>]*>/gi, "\n- ")
+    .replace(/<\/li>/gi, "")
+    .replace(/<\/?(ul|ol|p|div|section|article|h[1-6])\b[^>]*>/gi, "")
+    .replace(/<[^>]+>/g, "");
+
+  return normalizeMarkdownPaste(decodeHtmlEntities(text));
+}
+
 function markdownTableCells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
   return trimmed.split("|").map((cell) => cell.trim());
