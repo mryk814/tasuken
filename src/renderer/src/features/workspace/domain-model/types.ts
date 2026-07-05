@@ -68,6 +68,7 @@ export interface Task {
   planning_shelf?: TaskShelf | null;
   planned_start_time?: string | null;
   planned_duration_minutes?: number | null;
+  reminder_at?: string | null;
   completed_at?: string | null;
   repeat_rule?: TaskRepeatRule | null;
   repeat_series_id?: string | null;
@@ -89,6 +90,7 @@ export interface Waiting {
   description?: string | null;
   waiting_for: string;
   next_action?: string | null;
+  check_reminder_at?: string | null;
   state: WaitingState;
   source_record_id?: string | null;
   legacy_item_id?: string | null;
