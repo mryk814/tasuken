@@ -33,13 +33,13 @@ test("daily loop summary connects planning, execution, learning, log, and weekly
 
   assert.deepEqual(summary.steps.map((step) => step.id), ["morning", "daytime", "learning", "evening", "weekly"]);
   assert.equal(summary.steps.find((step) => step.id === "morning")?.state, "active");
-  assert.equal(summary.steps.find((step) => step.id === "daytime")?.metric, "2/3 時刻あり");
+  assert.equal(summary.steps.find((step) => step.id === "daytime")?.metric, "3件を進める");
   assert.equal(summary.steps.find((step) => step.id === "learning")?.metric, "学び1件");
   assert.equal(summary.steps.find((step) => step.id === "evening")?.metric, "5件をログ化");
   assert.equal(summary.steps.find((step) => step.id === "weekly")?.metric, "2 Theme");
 });
 
-test("daily loop summary stays usable when reminders and timeboxing are empty", () => {
+test("daily loop summary stays usable when optional counts are empty", () => {
   const summary = dailyLoop.buildDailyLoopSummary({
     todayTaskCount: 0,
     timedTaskCount: 0,
@@ -52,7 +52,7 @@ test("daily loop summary stays usable when reminders and timeboxing are empty", 
   });
 
   assert.equal(summary.steps.find((step) => step.id === "morning")?.state, "ready");
-  assert.equal(summary.steps.find((step) => step.id === "daytime")?.metric, "miniで進める");
+  assert.equal(summary.steps.find((step) => step.id === "daytime")?.metric, "未計画");
   assert.equal(summary.steps.find((step) => step.id === "evening")?.state, "ready");
 });
 

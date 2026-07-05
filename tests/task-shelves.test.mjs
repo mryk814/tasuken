@@ -34,16 +34,14 @@ test("task shelf status keeps due and overdue shelf tasks visible", () => {
   assert.equal(shelves.taskShelfStatus({ task, schedule: { end_date: "2026-07-08" } }, "2026-07-05"), "");
 });
 
-test("task shelves are wired through ToDo, Today, drawer, and main save form", () => {
+test("task shelves are not part of the daily ToDo operation UI", () => {
   const todoSource = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
   const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
-  const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
-  assert.match(todoSource, /moveTaskToShelf/);
-  assert.match(todoSource, /planning_shelf/);
-  assert.match(todaySource, /今日の候補棚/);
-  assert.match(todaySource, /handleMoveShelfTaskToday/);
-  assert.match(drawerSource, /name="planning_shelf"/);
-  assert.match(appSource, /normalizeTaskShelf\(formText\(values, "planning_shelf"\)\)/);
+  assert.doesNotMatch(todoSource, /moveTaskToShelf/);
+  assert.doesNotMatch(todoSource, /planning_shelf/);
+  assert.doesNotMatch(todaySource, /TASK_SHELF_OPTIONS/);
+  assert.doesNotMatch(todaySource, /handleMoveShelfTaskToday/);
+  assert.doesNotMatch(drawerSource, /name="planning_shelf"/);
 });

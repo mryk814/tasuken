@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconCalendarPlus, IconCalendarCheck, IconCopyPlus, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
+import { IconCalendarPlus, IconCalendarCheck, IconClock, IconCopyPlus, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -20,7 +20,6 @@ import {
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/savedTaskViews";
-import { TASK_SHELF_OPTIONS, normalizeTaskShelf, taskShelfLabel, type TaskShelf } from "../lib/taskShelves";
 import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -38,6 +37,15 @@ type TodoRow = {
 
 function isDoneRow(row: TodoRow): boolean {
   return row.task.state === "done" || row.task.state === "cancelled";
+}
+
+function reminderTimeLabel(value: unknown, today: string): string {
+  const raw = String(value || "");
+  if (!raw) return "";
+  const date = raw.slice(0, 10);
+  const time = raw.includes("T") ? raw.slice(11, 16) : "";
+  if (!time) return "";
+  return date && date !== today ? `${formatDate(date)} ${time}` : time;
 }
 
 export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, removeEntity, setToast }: PageProps) {
@@ -178,10 +186,6 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     await saveEntities(buildSaveTaskOperations(nextTask));
   }
 
-  async function moveTaskToShelf(task: Task, shelf: TaskShelf | null) {
-    await saveEntities(buildSaveTaskOperations({ ...task, planning_shelf: shelf }), shelf ? `${taskShelfLabel(shelf)}へ移動しました。` : "棚から外しました。");
-  }
-
   async function toggleToday(task: Task, schedule: Schedule | undefined) {
     const isToday = schedule?.start_date === today || schedule?.end_date === today;
     if (!schedule) {
@@ -194,7 +198,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
         confidence: "fixed",
         granularity: "day",
       };
-      await saveEntities([...buildSaveTaskOperations({ ...task, planning_shelf: null }), ...buildSaveScheduleOperations(newSchedule)], "今日の予定に追加しました。");
+      await saveEntities(buildSaveScheduleOperations(newSchedule), "今日の予定に追加しました。");
     } else if (isToday) {
       const next: Schedule = {
         ...schedule,
@@ -203,7 +207,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
       };
       await saveEntities(buildSaveScheduleOperations(next), "今日の予定から外しました。");
     } else {
-      await saveEntities([...buildSaveTaskOperations({ ...task, planning_shelf: null }), ...buildSaveScheduleOperations({ ...schedule, end_date: today })], "今日の予定に追加しました。");
+      await saveEntities(buildSaveScheduleOperations({ ...schedule, end_date: today }), "今日の予定に追加しました。");
     }
   }
 
@@ -264,13 +268,13 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   }
 
   function copyRows() {
-    const header = "タスク\t状態\tテーマ\t棚\t今日\t予定終了\t旗\t繰り返し";
-    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${taskShelfLabel(task.planning_shelf)}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
+    const header = "タスク\t状態\tテーマ\t今日\t予定終了\tリマインダー\t旗\t繰り返し";
+    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${reminderTimeLabel(task.reminder_at, today)}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
   function openTaskDetail(task: Task, schedule?: Schedule) {
-    openDrawer({ type: "task", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+    openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
   }
 
   return (
@@ -368,12 +372,13 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
       )}
       <section className="panel list-page">
         <div className="data-table todo-table">
-          <div className="table-head"><span /><span /><span>タスク</span><span>棚</span><span>繰り返し</span><span>Theme</span><span>予定終了</span></div>
+          <div className="table-head"><span /><span /><span>タスク</span><span>繰り返し</span><span>Theme</span><span>予定終了</span></div>
           {visible.map(({ task, schedule }) => {
             const theme = (data.themes || []).find((entry) => entry.id === task.project_id);
             const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
             const done = task.state === "done" || task.state === "cancelled";
+            const reminder = reminderTimeLabel(task.reminder_at, today);
             return (
             <div
               className="table-row is-clickable-row"
@@ -419,17 +424,8 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
                   <span>{task.title}</span>
                   <ChecklistProgressBadge items={task.checklist_items} />
                 </button>
+                {reminder && <span className="row-reminder-meta"><IconClock size={13} />{reminder}</span>}
               </div>
-              <select
-                className="task-shelf-select"
-                value={normalizeTaskShelf(task.planning_shelf) || ""}
-                aria-label={`${task.title}の運用棚`}
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) => moveTaskToShelf(task, normalizeTaskShelf(event.target.value))}
-              >
-                <option value="">棚なし</option>
-                {TASK_SHELF_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-              </select>
               <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
               <span className="theme-inline">
                 <span className="chip-dot" />

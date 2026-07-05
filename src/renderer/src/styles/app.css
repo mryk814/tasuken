@@ -177,6 +177,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .today-task-title { min-width: 0; display: grid; flex: 1 1 auto; gap: 1px; padding: 0; overflow: hidden; border: 0; background: transparent; text-align: left; }
 .today-task-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-task-title span { overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.row-reminder-meta { display: inline-flex; align-items: center; gap: 3px; color: var(--color-text-tertiary); font: var(--text-xs) var(--font-mono); white-space: nowrap; }
 .today-task-row time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-align: right; white-space: nowrap; }
 .today-row-spacer { width: 26px; height: 26px; flex: 0 0 auto; }
 .inline-icon.accent { color: var(--color-accent-strong); }
@@ -888,12 +889,12 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .is-clickable-row:focus-within { box-shadow: inset 0 0 0 1px var(--color-accent-subtle-bd); }
 .todo-table .table-row, .waiting-table .table-row { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
 .todo-table .table-row:hover, .waiting-table .table-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%, var(--color-surface-muted) 46%); }
-.todo-table .table-head, .todo-table .table-row { grid-template-columns: 8px 24px minmax(250px, 1fr) 116px 90px 150px 110px; }
+.todo-table .table-head, .todo-table .table-row { grid-template-columns: 8px 24px minmax(250px, 1fr) 90px 150px 110px; }
 .task-shelf-select { min-width: 0; height: 30px; padding: 0 var(--space-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .task-shelf-select:hover, .task-shelf-select:focus { border-color: var(--color-accent-subtle-bd); color: var(--color-text); }
 .todo-repeat-label { color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-shelf-panel { display: grid; gap: var(--space-2); margin-bottom: var(--space-2); }
-.task-shelf-board { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: var(--space-2); padding: 0 var(--pad-card) var(--space-2); }
+.task-shelf-board { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: var(--space-2); padding: 0 var(--pad-card) var(--space-2); }
 .task-shelf-lane { min-width: 0; display: grid; align-content: start; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .shelf-lane-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 28px; }
 .shelf-lane-heading h3 { font-size: var(--text-sm); }
@@ -911,7 +912,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .shelf-due-badge.overdue { background: var(--color-danger-bg); color: var(--color-danger-strong); }
 .shelf-due-badge.due-today { background: var(--color-warning-bg); color: var(--color-warning-strong); }
 .daily-plan-panel { display: grid; gap: var(--space-2); margin-bottom: var(--space-2); }
-.daily-plan-grid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: var(--space-2); padding: 0 var(--pad-card); }
+.daily-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: var(--space-2); padding: 0 var(--pad-card); }
 .daily-plan-section { min-width: 0; display: grid; align-content: start; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .daily-plan-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--space-2); padding: var(--space-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
 .daily-plan-row:hover { border-color: var(--color-border-strong); background: var(--color-surface-muted); }

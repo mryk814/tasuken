@@ -25,8 +25,6 @@ import { entityTitle } from "./lib/domain";
 import { inferChatServiceFromUrl } from "./lib/chatServices";
 import { resolveSubmittedChatCapturedAt } from "./lib/chatRefs";
 import { activeRecords, formText, str, uuid } from "./lib/format";
-import { normalizeTaskShelf } from "./lib/taskShelves";
-import { normalizeDurationMinutes, normalizeStartTime } from "./lib/timeboxing";
 import { normalizeReminderDateTime } from "./lib/reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./lib/taskSections";
 import type { SaveOperation } from "./types";
@@ -523,9 +521,6 @@ export function WorkspaceApp() {
         section_id: normalizeTaskSectionId(formText(values, "section_id"), taskSections, projectId),
         state: (formText(values, "state") || "todo") as Task["state"],
         priority: values.has("priority_flag") ? "high" : "normal",
-        planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
-        planned_start_time: normalizeStartTime(formText(values, "planned_start_time")) || null,
-        planned_duration_minutes: normalizeDurationMinutes(formText(values, "planned_duration_minutes")),
         reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
         description: formText(values, "description") || null,
         repeat_rule: taskRepeatRuleFromForm(values, Number((formText(values, "end_date") || todayIso()).slice(-2))),

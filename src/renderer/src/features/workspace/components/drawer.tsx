@@ -28,7 +28,6 @@ import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDr
 import { ChecklistProgressBadge } from "./taskChecklist";
 import { MarkdownEditorPanel } from "./MarkdownEditorPanel";
 import {
-  TASK_SHELF_LABELS,
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
@@ -44,8 +43,6 @@ import {
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Reference, Resource, Schedule, Task, Waiting } from "../domain-model/types";
-import { normalizeTaskShelf } from "../lib/taskShelves";
-import { normalizeDurationMinutes, normalizeStartTime } from "../lib/timeboxing";
 import { normalizeReminderDateTime } from "../lib/reminders";
 import { listTaskSections, normalizeTaskSectionId } from "../lib/taskSections";
 
@@ -1436,9 +1433,6 @@ function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["enti
       parent_task_id: (entity.parent_task_id as string | null) ?? null,
       state: (str(entity.state) || "todo") as Task["state"],
       priority: str(entity.priority) === "high" ? "high" : "normal",
-      planning_shelf: normalizeTaskShelf(entity.planning_shelf),
-      planned_start_time: normalizeStartTime(entity.planned_start_time) || null,
-      planned_duration_minutes: normalizeDurationMinutes(entity.planned_duration_minutes),
       reminder_at: normalizeReminderDateTime(entity.reminder_at),
       description: (entity.description as string | null) ?? null,
       repeat_rule: repeatRule as Task["repeat_rule"],
@@ -1472,16 +1466,6 @@ function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["enti
         </select>
       </Field>
       <label className="toggle priority-toggle"><input name="priority_flag" type="checkbox" defaultChecked={str(entity.priority) === "high"} />旗を付ける</label>
-      <Field label="運用棚">
-        <select name="planning_shelf" defaultValue={normalizeTaskShelf(entity.planning_shelf) || ""}>
-          <option value="">棚なし</option>
-          {Object.entries(TASK_SHELF_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-      </Field>
-      <div className="form-grid">
-        <Field label="予定開始時刻"><input name="planned_start_time" type="time" defaultValue={normalizeStartTime(entity.planned_start_time)} /></Field>
-        <Field label="予定所要分"><input name="planned_duration_minutes" type="number" min="1" max="1440" step="5" defaultValue={str(normalizeDurationMinutes(entity.planned_duration_minutes) || "")} /></Field>
-      </div>
       <Field label="リマインダー"><input name="reminder_at" type="datetime-local" defaultValue={normalizeReminderDateTime(entity.reminder_at) || ""} /></Field>
       <div className="form-grid">
         <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>

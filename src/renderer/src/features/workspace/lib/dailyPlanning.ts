@@ -1,4 +1,5 @@
 import { scheduledDate } from "./todoRows.js";
+import { addDays } from "./format";
 import type { Schedule, Task } from "../domain-model/types";
 
 export interface DailyPlanningRow {
@@ -8,9 +9,8 @@ export interface DailyPlanningRow {
 
 export interface DailyPlanningCandidates {
   overdue: DailyPlanningRow[];
-  carryover: DailyPlanningRow[];
-  dueToday: DailyPlanningRow[];
-  unscheduled: DailyPlanningRow[];
+  thisWeek: DailyPlanningRow[];
+  someday: DailyPlanningRow[];
 }
 
 function isOpenTask(task: Task): boolean {
@@ -24,6 +24,7 @@ function byDateThenTitle(a: DailyPlanningRow, b: DailyPlanningRow): number {
 
 export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: string): DailyPlanningCandidates {
   const openRows = rows.filter((row) => isOpenTask(row.task));
+  const weekEnd = addDays(today, 7);
   return {
     overdue: openRows
       .filter((row) => {
@@ -31,13 +32,13 @@ export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: st
         return Boolean(date && date < today);
       })
       .sort(byDateThenTitle),
-    carryover: openRows
-      .filter((row) => Boolean(row.schedule?.start_date && row.schedule.start_date < today && scheduledDate(row.schedule) >= today))
+    thisWeek: openRows
+      .filter((row) => {
+        const date = scheduledDate(row.schedule);
+        return Boolean(date && date >= today && date <= weekEnd);
+      })
       .sort(byDateThenTitle),
-    dueToday: openRows
-      .filter((row) => scheduledDate(row.schedule) === today)
-      .sort(byDateThenTitle),
-    unscheduled: openRows
+    someday: openRows
       .filter((row) => !scheduledDate(row.schedule))
       .sort((a, b) => Number(b.task.priority === "high") - Number(a.task.priority === "high") || a.task.title.localeCompare(b.task.title, "ja")),
   };
@@ -46,6 +47,6 @@ export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: st
 export function defaultDailyPlanSelection(candidates: DailyPlanningCandidates): Set<string> {
   return new Set([
     ...candidates.overdue.map((row) => row.task.id),
-    ...candidates.dueToday.map((row) => row.task.id),
+    ...candidates.thisWeek.map((row) => row.task.id),
   ]);
 }

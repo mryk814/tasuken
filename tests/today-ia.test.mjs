@@ -9,6 +9,10 @@ test("Today page stays focused on daily decisions instead of utility controls", 
   assert.doesNotMatch(todayPageSource, /IconFlag/);
   assert.doesNotMatch(todayPageSource, /onTogglePriority/);
   assert.doesNotMatch(todayPageSource, />\+7d</);
+  assert.doesNotMatch(todayPageSource, /ReminderPanel/);
+  assert.doesNotMatch(todayPageSource, /TimeboxPanel/);
+  assert.doesNotMatch(todayPageSource, /時間割/);
+  assert.doesNotMatch(todayPageSource, /TASK_SHELF_OPTIONS/);
 });
 
 test("Today page demotes inbox and unscheduled work to metric links instead of row sections", () => {
@@ -16,4 +20,10 @@ test("Today page demotes inbox and unscheduled work to metric links instead of r
   assert.doesNotMatch(todayPageSource, /<h2>予定なし<\/h2>/);
   assert.match(todayPageSource, /navigate\("inbox"\)/);
   assert.match(todayPageSource, /navigate\("todo"\)/);
+});
+
+test("Today opens task rows directly in edit mode and shows lightweight reminder time", () => {
+  assert.match(todayPageSource, /reminderMeta/);
+  assert.match(todayPageSource, /IconClock/);
+  assert.match(todayPageSource, /type: "task", mode: "edit"/);
 });

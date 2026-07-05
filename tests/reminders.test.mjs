@@ -107,15 +107,16 @@ test("reminder settings normalize persisted view data", () => {
   });
 });
 
-test("reminders are wired through Today, task drawer, waiting drawer, and save form", () => {
+test("task reminders stay on tasks and surface as lightweight row metadata", () => {
   const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
   const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   const reminderSource = readFileSync("src/renderer/src/features/workspace/lib/reminders.ts", "utf8");
 
-  assert.match(todaySource, /buildReminderAlerts/);
+  assert.doesNotMatch(todaySource, /buildReminderAlerts/);
+  assert.match(todaySource, /reminderMeta/);
   assert.match(reminderSource, /daily-reminder-settings/);
-  assert.match(todaySource, /リマインダー/);
+  assert.doesNotMatch(todaySource, /リマインダー/);
   assert.match(drawerSource, /name="reminder_at"/);
   assert.match(drawerSource, /name="check_reminder_at"/);
   assert.match(appSource, /reminder_at: normalizeReminderDateTime\(formText\(values, "reminder_at"\)\)/);

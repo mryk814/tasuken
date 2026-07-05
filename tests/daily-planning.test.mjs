@@ -29,26 +29,27 @@ function row(id, state = "todo", schedule = undefined) {
 test("daily planning candidates classify open work without completed tasks", () => {
   const candidates = planning.buildDailyPlanningCandidates([
     row("overdue", "todo", { end_date: "2026-07-04" }),
-    row("carryover", "doing", { start_date: "2026-07-03", end_date: "2026-07-08" }),
     row("due-today", "todo", { end_date: "2026-07-05" }),
+    row("this-week", "todo", { end_date: "2026-07-12" }),
+    row("later", "todo", { end_date: "2026-07-13" }),
     row("unscheduled", "todo"),
     row("done", "done", { end_date: "2026-07-04" }),
   ], "2026-07-05");
 
   assert.deepEqual(candidates.overdue.map((entry) => entry.task.id), ["overdue"]);
-  assert.deepEqual(candidates.carryover.map((entry) => entry.task.id), ["carryover"]);
-  assert.deepEqual(candidates.dueToday.map((entry) => entry.task.id), ["due-today"]);
-  assert.deepEqual(candidates.unscheduled.map((entry) => entry.task.id), ["unscheduled"]);
+  assert.deepEqual(candidates.thisWeek.map((entry) => entry.task.id), ["due-today", "this-week"]);
+  assert.deepEqual(candidates.someday.map((entry) => entry.task.id), ["unscheduled"]);
 });
 
-test("daily planning defaults select overdue and due-today work only", () => {
+test("daily planning defaults select overdue and this-week work only", () => {
   const candidates = planning.buildDailyPlanningCandidates([
     row("overdue", "todo", { end_date: "2026-07-04" }),
-    row("carryover", "doing", { start_date: "2026-07-03", end_date: "2026-07-08" }),
     row("due-today", "todo", { end_date: "2026-07-05" }),
+    row("this-week", "todo", { end_date: "2026-07-12" }),
+    row("later", "todo", { end_date: "2026-07-13" }),
     row("unscheduled", "todo"),
   ], "2026-07-05");
-  assert.deepEqual([...planning.defaultDailyPlanSelection(candidates)].sort(), ["due-today", "overdue"]);
+  assert.deepEqual([...planning.defaultDailyPlanSelection(candidates)].sort(), ["due-today", "overdue", "this-week"]);
 });
 
 test("Today page wires daily planning wizard, memo save, and schedule application", () => {
@@ -59,5 +60,7 @@ test("Today page wires daily planning wizard, memo save, and schedule applicatio
   assert.match(source, /confirmDailyPlan/);
   assert.match(source, /type: "status_update"/);
   assert.match(source, /status: "daily_plan"/);
-  assert.match(source, /planning_shelf: null/);
+  assert.match(source, /今週/);
+  assert.match(source, /いつか/);
+  assert.doesNotMatch(source, /planning_shelf: null/);
 });

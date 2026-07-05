@@ -37,7 +37,7 @@ function countLabel(count: number, unit: string): string {
 
 export function buildDailyLoopSummary(input: DailyLoopInput): DailyLoopSummary {
   const morningState: DailyLoopStepState = input.todayTaskCount > 0 ? "active" : "ready";
-  const daytimeState: DailyLoopStepState = input.timeboxConflictCount > 0 ? "attention" : input.todayTaskCount > 0 ? "active" : "ready";
+  const daytimeState: DailyLoopStepState = input.todayTaskCount > 0 ? "active" : "ready";
   const learningState: DailyLoopStepState = input.learningTodayCount > 0 ? "done" : input.completedTodayCount > 0 ? "active" : "ready";
   const eveningState: DailyLoopStepState = input.activityLogItemCount > 0 || input.reminderCount > 0 ? "active" : "ready";
   const weeklyState: DailyLoopStepState = input.weeklyThemeCount > 0 ? "active" : "ready";
@@ -53,7 +53,7 @@ export function buildDailyLoopSummary(input: DailyLoopInput): DailyLoopSummary {
       {
         id: "daytime",
         label: "日中の実行",
-        metric: input.todayTaskCount > 0 ? `${input.timedTaskCount}/${input.todayTaskCount} 時刻あり` : "miniで進める",
+        metric: input.todayTaskCount > 0 ? countLabel(input.todayTaskCount, "件を進める") : "未計画",
         state: daytimeState,
       },
       {

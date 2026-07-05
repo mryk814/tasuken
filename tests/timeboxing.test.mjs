@@ -63,16 +63,13 @@ test("timebox inputs normalize invalid values without breaking Today", () => {
   assert.equal(timeboxing.normalizeDurationMinutes("-1"), null);
 });
 
-test("Timeboxing is wired through Today, task drawer, and save form", () => {
+test("timeboxing is not exposed in Today or the task edit drawer", () => {
   const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
-  const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
-  assert.match(todaySource, /buildTimeboxView/);
-  assert.match(todaySource, /時間割/);
-  assert.match(todaySource, /timebox-conflict/);
-  assert.match(drawerSource, /name="planned_start_time"/);
-  assert.match(drawerSource, /name="planned_duration_minutes"/);
-  assert.match(appSource, /normalizeStartTime\(formText\(values, "planned_start_time"\)\)/);
-  assert.match(appSource, /normalizeDurationMinutes\(formText\(values, "planned_duration_minutes"\)\)/);
+  assert.doesNotMatch(todaySource, /buildTimeboxView/);
+  assert.doesNotMatch(todaySource, /時間割/);
+  assert.doesNotMatch(todaySource, /timebox-conflict/);
+  assert.doesNotMatch(drawerSource, /name="planned_start_time"/);
+  assert.doesNotMatch(drawerSource, /name="planned_duration_minutes"/);
 });

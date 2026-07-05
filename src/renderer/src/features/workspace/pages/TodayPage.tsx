@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  IconBell,
   IconCalendarCheck,
   IconCalendarPlus,
   IconCheck,
@@ -18,19 +17,7 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildActivityLog } from "../lib/activityLog";
 import { buildDailyPlanningCandidates, defaultDailyPlanSelection, type DailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
-import { TASK_SHELF_OPTIONS, normalizeTaskShelf, taskShelfStatus, type TaskShelfRow } from "../lib/taskShelves";
-import { buildTimeboxView, type TimedTimeboxRow, type TimeboxView } from "../lib/timeboxing";
 import { buildDailyLoopSummary, openTodayMini, type DailyLoopStep, type DailyLoopSummary } from "../lib/dailyLoop";
-import {
-  buildReminderAlerts,
-  buildReminderSettingsView,
-  DEFAULT_REMINDER_SETTINGS,
-  findReminderSettingsView,
-  localDateTimeMinute,
-  normalizeReminderSettings,
-  type ReminderAlert,
-  type ReminderSettings,
-} from "../lib/reminders";
 import { EmptyState, Metric, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -185,6 +172,19 @@ function hasSchedule(row: TodayRow): boolean {
   return row.v2 != null && row.v2.type !== "capture" && row.v2.schedule != null;
 }
 
+function reminderTimeLabel(value: unknown, today: string): string {
+  const raw = String(value || "");
+  if (!raw) return "";
+  const date = raw.slice(0, 10);
+  const time = raw.includes("T") ? raw.slice(11, 16) : "";
+  if (!time) return "";
+  return date && date !== today ? `${formatDate(date)} ${time}` : time;
+}
+
+function reminderMeta(row: TodayRow, today: string): string {
+  return row.v2?.type === "task" ? reminderTimeLabel(row.v2.task.reminder_at, today) : "";
+}
+
 function TodayRows({
   rows,
   themes,
@@ -215,6 +215,7 @@ function TodayRows({
         const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
         const isToday = row.date?.slice(0, 10) === today;
         const done = row.status === "done" || row.status === "cancelled" || row.status === "received";
+        const reminder = reminderMeta(row, today);
         return (
           <div
             className="today-task-row is-clickable-row"
@@ -248,6 +249,7 @@ function TodayRows({
                   {row.v2?.type === "task" && <ChecklistProgressBadge items={row.v2.task.checklist_items} />}
                 </span>
                 {row.v2?.type === "task" && row.v2.task.repeat_rule && <small>{repeatRuleLabel(row.v2.task.repeat_rule)}</small>}
+                {reminder && <small className="row-reminder-meta"><IconClock size={13} />{reminder}</small>}
               </button>
             </div>
             <time>{formatDate(row.date)}</time>
@@ -314,32 +316,28 @@ function PeriodTaskRows({
   );
 }
 
-function TaskShelfRows({
+function CandidateTaskRows({
   rows,
   themes,
-  today,
   onOpenDetail,
   onMoveToday,
 }: {
-  rows: TaskShelfRow[];
+  rows: DailyPlanningRow[];
   themes: PageProps["themes"];
-  today: string;
-  onOpenDetail: (row: TaskShelfRow) => void;
-  onMoveToday: (row: TaskShelfRow) => void;
+  onOpenDetail: (row: DailyPlanningRow) => void;
+  onMoveToday: (row: DailyPlanningRow) => void;
 }) {
-  if (!rows.length) return <EmptyState title="この棚のタスクはありません" />;
+  if (!rows.length) return <EmptyState title="この候補はありません" />;
   return (
     <div className="shelf-task-list">
       {rows.map((row) => {
         const theme = themes.find((entry) => entry.id === row.task.project_id);
-        const status = taskShelfStatus(row, today);
         return (
-          <div key={row.task.id} className={`shelf-task-row ${status ? `is-${status}` : ""}`}>
+          <div key={row.task.id} className="shelf-task-row">
             <button className="shelf-task-title" onClick={() => onOpenDetail(row)}>
               <strong>{row.task.title}</strong>
               <span>{theme?.name || "個人業務"} / {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
             </button>
-            {status && <span className={`shelf-due-badge ${status}`}>{status === "overdue" ? "期限切れ" : "今日期限"}</span>}
             <button className="secondary-button compact" onClick={() => onMoveToday(row)}>今日へ</button>
           </div>
         );
@@ -408,9 +406,8 @@ function DailyPlanWizard({
       <div className="section-heading"><h2>今日の計画</h2><span>{selectedIds.size}件選択中</span></div>
       <div className="daily-plan-grid">
         <DailyPlanSection title="期限切れ" rows={candidates.overdue} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
-        <DailyPlanSection title="昨日以前からの未完了" rows={candidates.carryover} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
-        <DailyPlanSection title="今日期限" rows={candidates.dueToday} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
-        <DailyPlanSection title="予定なし候補" rows={candidates.unscheduled} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
+        <DailyPlanSection title="今週" rows={candidates.thisWeek} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
+        <DailyPlanSection title="いつか" rows={candidates.someday} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
       </div>
       <label className="daily-plan-note">
         <span>今日の方針メモ</span>
@@ -420,99 +417,6 @@ function DailyPlanWizard({
         <button className="secondary-button" onClick={onCancel}>キャンセル</button>
         <button className="primary-button" onClick={onConfirm}>今日へ反映</button>
       </div>
-    </section>
-  );
-}
-
-function TimeboxPanel({
-  view,
-  themes,
-  onOpen,
-}: {
-  view: TimeboxView;
-  themes: PageProps["themes"];
-  onOpen: (row: TimedTimeboxRow | { task: Task; schedule?: Schedule }) => void;
-}) {
-  return (
-    <section className="panel timebox-panel">
-      <div className="section-heading">
-        <h2>時間割</h2>
-        <span>{view.timed.length}件 / 未設定{view.untimed.length}件</span>
-      </div>
-      {view.timed.length ? (
-        <div className="timebox-list">
-          {view.timed.map((row) => {
-            const theme = themes.find((entry) => entry.id === row.task.project_id);
-            return (
-              <button key={row.task.id} className={`timebox-row ${row.overlaps ? "timebox-conflict" : ""}`} onClick={() => onOpen(row)}>
-                <time>{row.startTime}-{row.endTime}</time>
-                <span>
-                  <strong>{row.task.title}</strong>
-                  <small>{theme?.name || "個人業務"} / {row.durationMinutes}分{row.overlaps ? " / 重複あり" : ""}</small>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ) : <EmptyState title="時刻を設定した今日のタスクはありません" />}
-      {view.untimed.length > 0 && (
-        <div className="timebox-untimed">
-          <div className="shelf-lane-heading"><h3>時刻未設定</h3><span>{view.untimed.length}件</span></div>
-          {view.untimed.slice(0, 6).map((row) => (
-            <button key={row.task.id} onClick={() => onOpen(row)}>
-              <strong>{row.task.title}</strong>
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ReminderPanel({
-  settings,
-  alerts,
-  onChange,
-  onSave,
-  onOpenAlert,
-}: {
-  settings: ReminderSettings;
-  alerts: ReminderAlert[];
-  onChange: (settings: ReminderSettings) => void;
-  onSave: () => void;
-  onOpenAlert: (alert: ReminderAlert) => void;
-}) {
-  return (
-    <section className="panel reminder-panel">
-      <div className="section-heading">
-        <h2><IconBell size={16} /> リマインダー</h2>
-        <span>{settings.enabled ? `${alerts.length}件` : "オフ"}</span>
-      </div>
-      <div className="reminder-settings-row">
-        <label className="toggle">
-          <input type="checkbox" checked={settings.enabled} onChange={(event) => onChange({ ...settings, enabled: event.target.checked })} />
-          通知をオン
-        </label>
-        <label>日次計画
-          <input type="time" value={settings.daily_plan_time} onChange={(event) => onChange({ ...settings, daily_plan_time: event.target.value })} disabled={!settings.enabled} />
-        </label>
-        <label>Activity Log
-          <input type="time" value={settings.activity_log_time} onChange={(event) => onChange({ ...settings, activity_log_time: event.target.value })} disabled={!settings.enabled} />
-        </label>
-        <button className="secondary-button compact" onClick={onSave}>保存</button>
-      </div>
-      {settings.enabled && alerts.length > 0 ? (
-        <div className="reminder-alert-list">
-          {alerts.slice(0, 5).map((alert) => (
-            <button key={alert.id} className="wide-row reminder-alert-row" onClick={() => onOpenAlert(alert)}>
-              <strong>{alert.title}</strong>
-              <span>{alert.type === "task" ? "Task" : alert.type === "waiting" ? "Waiting確認" : alert.type === "daily_plan" ? "日次計画" : "Activity Log"} / {alert.at.slice(11, 16)}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="field-help">{settings.enabled ? "いま通知する項目はありません。" : "リマインダー通知は停止中です。"}</p>
-      )}
     </section>
   );
 }
@@ -554,27 +458,13 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const [activityDirectory, setActivityDirectory] = useState("");
   const [activityFilePath, setActivityFilePath] = useState("");
   const [exportingActivity, setExportingActivity] = useState(false);
-  const reminderSettingsSource = findReminderSettingsView(data.views || []);
-  const [reminderSettings, setReminderSettings] = useState(() => normalizeReminderSettings(reminderSettingsSource || DEFAULT_REMINDER_SETTINGS));
-  const [currentReminderTime, setCurrentReminderTime] = useState(localDateTimeMinute());
-  const reminderToastKey = useRef("");
   const today = todayIso();
   const soon = addDays(today, 14);
   const schedules = schedulesByOwner(v2);
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   const periodRows = buildOngoingPeriodTaskView(v2, today);
   const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }));
-  const timeboxView = buildTimeboxView(dailyTaskRows, today);
   const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
-  const shelfTaskRows: TaskShelfRow[] = v2.tasks
-    .map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }))
-    .filter((row) => row.task.state !== "done" && row.task.state !== "cancelled" && normalizeTaskShelf(row.task.planning_shelf));
-  const shelfGroups = TASK_SHELF_OPTIONS.map((option) => ({
-    ...option,
-    rows: shelfTaskRows
-      .filter((row) => normalizeTaskShelf(row.task.planning_shelf) === option.id)
-      .sort((a, b) => scheduleDate(a.schedule).localeCompare(scheduleDate(b.schedule)) || a.task.title.localeCompare(b.task.title, "ja")),
-  }));
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
   const waitingRows = v2.waitings.map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)));
   const planNodeRows = v2.plan_nodes.map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)));
@@ -601,13 +491,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const latestUpdates = [...(data.status_updates || [])]
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
     .slice(0, 5);
-  const reminderAlerts = buildReminderAlerts({
-    tasks: v2.tasks,
-    waitings: v2.waitings,
-    settings: reminderSettings,
-    now: currentReminderTime,
-    today,
-  });
   const completedTodayCount = v2.tasks.filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === today).length;
   const receivedTodayCount = v2.waitings.filter((waiting) => waiting.state === "received" && recordDate(waiting.updated_at) === today).length;
   const notesTodayCount = (data.notes || []).filter((note) => recordDate(recordTimestamp(note)) === today).length;
@@ -633,9 +516,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   });
   const dailyLoopSummary = buildDailyLoopSummary({
     todayTaskCount: todayRows.length,
-    timedTaskCount: timeboxView.timed.length,
-    timeboxConflictCount: timeboxView.conflicts.length,
-    reminderCount: reminderAlerts.length,
+    timedTaskCount: 0,
+    timeboxConflictCount: 0,
+    reminderCount: 0,
     completedTodayCount,
     learningTodayCount,
     activityLogItemCount,
@@ -649,22 +532,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    setReminderSettings(normalizeReminderSettings(reminderSettingsSource || DEFAULT_REMINDER_SETTINGS));
-  }, [reminderSettingsSource?.id, reminderSettingsSource?.enabled, reminderSettingsSource?.daily_plan_time, reminderSettingsSource?.activity_log_time]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setCurrentReminderTime(localDateTimeMinute()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const key = reminderAlerts.map((alert) => alert.id).join("|");
-    if (!key || key === reminderToastKey.current) return;
-    reminderToastKey.current = key;
-    setToast("リマインダーがあります。Todayで確認してください。", "info");
-  }, [reminderAlerts, setToast]);
 
   async function handleToggleComplete(row: TodayRow) {
     if (row.v2?.type === "task") {
@@ -767,7 +634,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   function handleOpenDetail(row: TodayRow) {
     if (row.v2) {
       if (row.v2.type === "task") {
-        openDrawer({ type: "task", entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown> });
+        openDrawer({ type: "task", mode: "edit", entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown> });
         return;
       }
       if (row.v2.type === "waiting") {
@@ -786,40 +653,12 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   }
 
   function handleOpenPeriodTask(row: OngoingPeriodTaskRow) {
-    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
+    openDrawer({ type: "task", mode: "edit", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
   function openDailyPlan() {
     setDailyPlanSelection(defaultDailyPlanSelection(dailyCandidates));
     setShowDailyPlan(true);
-  }
-
-  async function saveReminderSettings() {
-    const normalized = normalizeReminderSettings(reminderSettings);
-    setReminderSettings(normalized);
-    await saveEntities([{
-      action: "save",
-      type: "view",
-      entity: buildReminderSettingsView(normalized) as SaveOperation["entity"],
-    }], "リマインダー設定を保存しました。");
-  }
-
-  function handleOpenReminder(alert: ReminderAlert) {
-    if (alert.type === "task") {
-      const schedule = schedules.get(`task:${alert.task.id}`);
-      openDrawer({ type: "task", entity: { ...alert.task, _schedule: schedule } as Record<string, unknown> });
-      return;
-    }
-    if (alert.type === "waiting") {
-      const schedule = schedules.get(`waiting:${alert.waiting.id}`);
-      openDrawer({ type: "waiting", mode: "edit", entity: { ...alert.waiting, _schedule: schedule } as Record<string, unknown> });
-      return;
-    }
-    if (alert.type === "daily_plan") {
-      openDailyPlan();
-      return;
-    }
-    setShowActivityLog(true);
   }
 
   async function handleDailyLoopStep(step: DailyLoopStep) {
@@ -852,11 +691,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   }
 
   function handleOpenDailyPlanTask(row: DailyPlanningRow) {
-    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
-  }
-
-  function handleOpenTimeboxTask(row: TimedTimeboxRow | { task: Task; schedule?: Schedule }) {
-    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
+    openDrawer({ type: "task", mode: "edit", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
   async function confirmDailyPlan() {
@@ -864,9 +699,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     const operations: SaveOperation[] = [];
     for (const row of selectedRows) {
       const isToday = row.schedule?.start_date === today || row.schedule?.end_date === today;
-      if (row.task.planning_shelf) {
-        operations.push(...buildSaveTaskOperations({ ...row.task, planning_shelf: null }) as SaveOperation[]);
-      }
       if (isToday) continue;
       if (!row.schedule) {
         operations.push(...buildSaveScheduleOperations({
@@ -914,12 +746,11 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     setShowDailyPlan(false);
   }
 
-  function handleOpenShelfTask(row: TaskShelfRow) {
-    openDrawer({ type: "task", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
+  function handleOpenCandidateTask(row: DailyPlanningRow) {
+    openDrawer({ type: "task", mode: "edit", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
-  async function handleMoveShelfTaskToday(row: TaskShelfRow) {
-    const nextTask: Task = { ...row.task, planning_shelf: null };
+  async function handleMoveCandidateTaskToday(row: DailyPlanningRow) {
     const schedule = row.schedule;
     const keepsFutureDeadline = Boolean(schedule?.end_date && schedule.end_date > today);
     const nextSchedule: Schedule = schedule
@@ -940,7 +771,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           confidence: "fixed",
           granularity: "day",
         };
-    await saveEntities([...buildSaveTaskOperations(nextTask), ...buildSaveScheduleOperations(nextSchedule)], "今日やることへ移しました。");
+    await saveEntities(buildSaveScheduleOperations(nextSchedule), "今日やることへ移しました。");
   }
 
   async function addTask() {
@@ -1084,14 +915,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
 
       <DailyLoopPanel summary={dailyLoopSummary} onStep={handleDailyLoopStep} />
 
-      <ReminderPanel
-        settings={reminderSettings}
-        alerts={reminderAlerts}
-        onChange={setReminderSettings}
-        onSave={saveReminderSettings}
-        onOpenAlert={handleOpenReminder}
-      />
-
       {focusItem && (
         <section className="today-focus-hero panel" onClick={() => handleOpenDetail(focusItem)}>
           <div className="focus-hero-content">
@@ -1106,8 +929,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           </div>
         </section>
       )}
-
-      <TimeboxPanel view={timeboxView} themes={themes} onOpen={handleOpenTimeboxTask} />
 
       <div className="metric-grid today-metrics">
         <Metric label="今日" value={todayRows.length} tone="primary" />
@@ -1133,15 +954,21 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       <section className="panel task-shelf-panel">
         <div className="section-heading">
           <h2>今日の候補棚</h2>
-          <button className="text-button compact" onClick={() => navigate("todo")}>棚を整理</button>
+          <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
         <div className="task-shelf-board">
-          {shelfGroups.map((group) => (
-            <section key={group.id} className="task-shelf-lane">
-              <div className="shelf-lane-heading"><h3>{group.label}</h3><span>{group.rows.length}件</span></div>
-              <TaskShelfRows rows={group.rows.slice(0, 4)} themes={themes} today={today} onOpenDetail={handleOpenShelfTask} onMoveToday={handleMoveShelfTaskToday} />
-            </section>
-          ))}
+          <section className="task-shelf-lane">
+            <div className="shelf-lane-heading"><h3>期限切れ</h3><span>{dailyCandidates.overdue.length}件</span></div>
+            <CandidateTaskRows rows={dailyCandidates.overdue.slice(0, 4)} themes={themes} onOpenDetail={handleOpenCandidateTask} onMoveToday={handleMoveCandidateTaskToday} />
+          </section>
+          <section className="task-shelf-lane">
+            <div className="shelf-lane-heading"><h3>今週</h3><span>{dailyCandidates.thisWeek.length}件</span></div>
+            <CandidateTaskRows rows={dailyCandidates.thisWeek.slice(0, 4)} themes={themes} onOpenDetail={handleOpenCandidateTask} onMoveToday={handleMoveCandidateTaskToday} />
+          </section>
+          <section className="task-shelf-lane">
+            <div className="shelf-lane-heading"><h3>いつか</h3><span>{dailyCandidates.someday.length}件</span></div>
+            <CandidateTaskRows rows={dailyCandidates.someday.slice(0, 4)} themes={themes} onOpenDetail={handleOpenCandidateTask} onMoveToday={handleMoveCandidateTaskToday} />
+          </section>
         </div>
       </section>
 
