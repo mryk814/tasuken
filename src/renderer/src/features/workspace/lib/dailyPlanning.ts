@@ -21,6 +21,12 @@ function byDateThenTitle(a: DailyPlanningRow, b: DailyPlanningRow): number {
   return String(scheduledDate(a.schedule) || "9999-12-31").localeCompare(String(scheduledDate(b.schedule) || "9999-12-31"))
     || a.task.title.localeCompare(b.task.title, "ja");
 }
+function touchesToday(schedule: Schedule | undefined, today: string): boolean {
+  if (!schedule) return false;
+  const start = schedule.start_date || schedule.end_date || "";
+  const end = schedule.end_date || schedule.start_date || "";
+  return Boolean(start && end && start <= today && today <= end);
+}
 
 export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: string): DailyPlanningCandidates {
   const openRows = rows.filter((row) => isOpenTask(row.task));
@@ -35,18 +41,11 @@ export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: st
     thisWeek: openRows
       .filter((row) => {
         const date = scheduledDate(row.schedule);
-        return Boolean(date && date >= today && date <= weekEnd);
+        return Boolean(date && date > today && date <= weekEnd && !touchesToday(row.schedule, today));
       })
       .sort(byDateThenTitle),
     someday: openRows
       .filter((row) => !scheduledDate(row.schedule))
       .sort((a, b) => Number(b.task.priority === "high") - Number(a.task.priority === "high") || a.task.title.localeCompare(b.task.title, "ja")),
   };
-}
-
-export function defaultDailyPlanSelection(candidates: DailyPlanningCandidates): Set<string> {
-  return new Set([
-    ...candidates.overdue.map((row) => row.task.id),
-    ...candidates.thisWeek.map((row) => row.task.id),
-  ]);
 }

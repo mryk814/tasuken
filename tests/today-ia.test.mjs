@@ -4,8 +4,10 @@ import test from "node:test";
 
 const todayPageSource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
 
-test("Today page stays focused on daily decisions instead of utility controls", () => {
-  assert.doesNotMatch(todayPageSource, /showTodayMiniWindow/);
+test("Today page stays focused on daily tasks instead of utility controls", () => {
+  assert.match(todayPageSource, /openTodayTasksWindow/);
+  assert.match(todayPageSource, /showTodayMiniWindow/);
+  assert.match(todayPageSource, /今日やること/);
   assert.doesNotMatch(todayPageSource, /IconFlag/);
   assert.doesNotMatch(todayPageSource, /onTogglePriority/);
   assert.doesNotMatch(todayPageSource, />\+7d</);

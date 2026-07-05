@@ -74,6 +74,11 @@
         color: var(--color-text-secondary);
         font-variant-numeric: tabular-nums;
       }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+      }
       main {
         min-height: 0;
         overflow-y: auto;
@@ -172,7 +177,10 @@
           <h1>今日やること</h1>
           <div class="count" id="count">--</div>
         </div>
-        <button id="refresh" type="button">更新</button>
+        <div class="header-actions">
+          <button id="pin-top-right" type="button" title="画面右上へ移動">右上へ</button>
+          <button id="refresh" type="button">更新</button>
+        </div>
       </header>
       <main id="content">
         <div class="state"><strong>読み込み中</strong><span>今日のタスクを確認しています。</span></div>
@@ -182,6 +190,7 @@
       const content = document.querySelector("#content");
       const count = document.querySelector("#count");
       const refreshButton = document.querySelector("#refresh");
+      const pinTopRightButton = document.querySelector("#pin-top-right");
 
       function escapeHtml(value) {
         return String(value)
@@ -233,6 +242,7 @@
       }
 
       refreshButton.addEventListener("click", () => render(window.todayMiniApi.refresh));
+      pinTopRightButton.addEventListener("click", () => window.todayMiniApi.pinTopRight());
       content.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-action]");
         const row = button?.closest("[data-task-id]");

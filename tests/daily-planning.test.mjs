@@ -30,6 +30,7 @@ test("daily planning candidates classify open work without completed tasks", () 
   const candidates = planning.buildDailyPlanningCandidates([
     row("overdue", "todo", { end_date: "2026-07-04" }),
     row("due-today", "todo", { end_date: "2026-07-05" }),
+    row("range-started-today", "todo", { start_date: "2026-07-05", end_date: "2026-07-10" }),
     row("this-week", "todo", { end_date: "2026-07-12" }),
     row("later", "todo", { end_date: "2026-07-13" }),
     row("unscheduled", "todo"),
@@ -37,29 +38,20 @@ test("daily planning candidates classify open work without completed tasks", () 
   ], "2026-07-05");
 
   assert.deepEqual(candidates.overdue.map((entry) => entry.task.id), ["overdue"]);
-  assert.deepEqual(candidates.thisWeek.map((entry) => entry.task.id), ["due-today", "this-week"]);
+  assert.deepEqual(candidates.thisWeek.map((entry) => entry.task.id), ["this-week"]);
   assert.deepEqual(candidates.someday.map((entry) => entry.task.id), ["unscheduled"]);
 });
 
-test("daily planning defaults select overdue and this-week work only", () => {
-  const candidates = planning.buildDailyPlanningCandidates([
-    row("overdue", "todo", { end_date: "2026-07-04" }),
-    row("due-today", "todo", { end_date: "2026-07-05" }),
-    row("this-week", "todo", { end_date: "2026-07-12" }),
-    row("later", "todo", { end_date: "2026-07-13" }),
-    row("unscheduled", "todo"),
-  ], "2026-07-05");
-  assert.deepEqual([...planning.defaultDailyPlanSelection(candidates)].sort(), ["due-today", "overdue", "this-week"]);
-});
-
-test("Today page wires daily planning wizard, memo save, and schedule application", () => {
+test("Today page uses the Today mini window instead of the daily planning wizard", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
 
-  assert.match(source, /今日の計画/);
   assert.match(source, /buildDailyPlanningCandidates/);
-  assert.match(source, /confirmDailyPlan/);
-  assert.match(source, /type: "status_update"/);
-  assert.match(source, /status: "daily_plan"/);
+  assert.match(source, /workspaceApi\.showTodayMiniWindow/);
+  assert.match(source, /今日やること/);
+  assert.doesNotMatch(source, /今日の計画/);
+  assert.doesNotMatch(source, /DailyPlanWizard/);
+  assert.doesNotMatch(source, /confirmDailyPlan/);
+  assert.doesNotMatch(source, /status: "daily_plan"/);
   assert.match(source, /今週/);
   assert.match(source, /いつか/);
   assert.doesNotMatch(source, /planning_shelf: null/);

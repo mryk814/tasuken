@@ -63,27 +63,25 @@ test("reminder alerts include due tasks and waitings but skip completed states",
   assert.deepEqual(alerts.map((alert) => alert.id), ["task:due-task", "waiting:due-waiting"]);
 });
 
-test("daily operation reminders follow settings and can be switched off", () => {
+test("daily operation reminders only include Activity Log and can be switched off", () => {
   const enabled = reminders.buildReminderAlerts({
     tasks: [],
     waitings: [],
     settings: {
       enabled: true,
-      daily_plan_time: "08:00",
       activity_log_time: "17:30",
     },
     now: "2026-07-05T18:00",
     today: "2026-07-05",
   });
 
-  assert.deepEqual(enabled.map((alert) => alert.id), ["daily-plan:2026-07-05", "activity-log:2026-07-05"]);
+  assert.deepEqual(enabled.map((alert) => alert.id), ["activity-log:2026-07-05"]);
 
   const disabled = reminders.buildReminderAlerts({
     tasks: [task("due-task")],
     waitings: [waiting("due-waiting")],
     settings: {
       enabled: false,
-      daily_plan_time: "08:00",
       activity_log_time: "17:30",
     },
     now: "2026-07-05T18:00",
@@ -96,13 +94,11 @@ test("daily operation reminders follow settings and can be switched off", () => 
 test("reminder settings normalize persisted view data", () => {
   const record = {
     enabled: false,
-    daily_plan_time: "8:05",
     activity_log_time: "25:00",
   };
 
   assert.deepEqual(reminders.normalizeReminderSettings(record), {
     enabled: false,
-    daily_plan_time: "08:05",
     activity_log_time: "",
   });
 });

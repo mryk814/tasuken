@@ -12,12 +12,11 @@ import {
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
-import type { PageProps, SaveOperation } from "../types";
+import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildActivityLog } from "../lib/activityLog";
-import { buildDailyPlanningCandidates, defaultDailyPlanSelection, type DailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
-import { buildDailyLoopSummary, openTodayMini, type DailyLoopStep, type DailyLoopSummary } from "../lib/dailyLoop";
+import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { EmptyState, Metric, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -57,15 +56,6 @@ type TodayRow = {
   waitingFor?: string | null;
   v2?: DomainRow;
 };
-
-function recordDate(value: unknown): string {
-  return String(value || "").slice(0, 10);
-}
-
-function recordTimestamp(record: unknown): unknown {
-  const row = record && typeof record === "object" ? record as Record<string, unknown> : {};
-  return row.updated_at || row.created_at || row.captured_at || row.date;
-}
 
 function scheduleDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
@@ -346,111 +336,8 @@ function CandidateTaskRows({
   );
 }
 
-function DailyPlanSection({
-  title,
-  rows,
-  themes,
-  selectedIds,
-  onToggle,
-  onOpen,
-}: {
-  title: string;
-  rows: DailyPlanningRow[];
-  themes: PageProps["themes"];
-  selectedIds: Set<string>;
-  onToggle: (taskId: string) => void;
-  onOpen: (row: DailyPlanningRow) => void;
-}) {
-  return (
-    <section className="daily-plan-section">
-      <div className="shelf-lane-heading"><h3>{title}</h3><span>{rows.length}件</span></div>
-      {rows.length ? rows.slice(0, 8).map((row) => {
-        const theme = themes.find((entry) => entry.id === row.task.project_id);
-        return (
-          <label key={row.task.id} className="daily-plan-row">
-            <input type="checkbox" checked={selectedIds.has(row.task.id)} onChange={() => onToggle(row.task.id)} />
-            <button type="button" onClick={() => onOpen(row)}>
-              <strong>{row.task.title}</strong>
-              <span>{theme?.name || "個人業務"} / {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
-            </button>
-          </label>
-        );
-      }) : <EmptyState title="候補はありません" />}
-    </section>
-  );
-}
-
-function DailyPlanWizard({
-  candidates,
-  themes,
-  selectedIds,
-  note,
-  onToggle,
-  onNoteChange,
-  onOpen,
-  onCancel,
-  onConfirm,
-}: {
-  candidates: DailyPlanningCandidates;
-  themes: PageProps["themes"];
-  selectedIds: Set<string>;
-  note: string;
-  onToggle: (taskId: string) => void;
-  onNoteChange: (value: string) => void;
-  onOpen: (row: DailyPlanningRow) => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <section className="panel daily-plan-panel">
-      <div className="section-heading"><h2>今日の計画</h2><span>{selectedIds.size}件選択中</span></div>
-      <div className="daily-plan-grid">
-        <DailyPlanSection title="期限切れ" rows={candidates.overdue} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
-        <DailyPlanSection title="今週" rows={candidates.thisWeek} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
-        <DailyPlanSection title="いつか" rows={candidates.someday} themes={themes} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} />
-      </div>
-      <label className="daily-plan-note">
-        <span>今日の方針メモ</span>
-        <textarea value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="今日の優先順位や気をつけること" />
-      </label>
-      <div className="form-actions">
-        <button className="secondary-button" onClick={onCancel}>キャンセル</button>
-        <button className="primary-button" onClick={onConfirm}>今日へ反映</button>
-      </div>
-    </section>
-  );
-}
-
-function DailyLoopPanel({
-  summary,
-  onStep,
-}: {
-  summary: DailyLoopSummary;
-  onStep: (step: DailyLoopStep) => void;
-}) {
-  return (
-    <section className="panel daily-loop-panel">
-      <div className="section-heading">
-        <h2>日次ループ</h2>
-        <span>{summary.steps.filter((step) => step.state === "active" || step.state === "attention").length}件進行中</span>
-      </div>
-      <div className="daily-loop-steps">
-        {summary.steps.map((step) => (
-          <button key={step.id} className={`daily-loop-step is-${step.state}`} onClick={() => onStep(step)}>
-            <strong>{step.label}</strong>
-            <span>{step.metric}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
-  const [showDailyPlan, setShowDailyPlan] = useState(false);
-  const [dailyPlanNote, setDailyPlanNote] = useState("");
-  const [dailyPlanSelection, setDailyPlanSelection] = useState<Set<string>>(new Set());
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const [showActivityLog, setShowActivityLog] = useState(false);
@@ -491,39 +378,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const latestUpdates = [...(data.status_updates || [])]
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
     .slice(0, 5);
-  const completedTodayCount = v2.tasks.filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === today).length;
-  const receivedTodayCount = v2.waitings.filter((waiting) => waiting.state === "received" && recordDate(waiting.updated_at) === today).length;
-  const notesTodayCount = (data.notes || []).filter((note) => recordDate(recordTimestamp(note)) === today).length;
-  const resourcesTodayCount = v2.resources.filter((resource) => recordDate(resource.captured_at || recordTimestamp(resource)) === today).length;
-  const knowledgeTodayCount = v2.knowledge_nodes.filter((node) => recordDate(recordTimestamp(node)) === today).length;
-  const capturesTodayCount = v2.capture_entries.filter((entry) => recordDate(entry.captured_at) === today).length;
-  const statusUpdatesTodayCount = (data.status_updates || []).filter((entry) => recordDate(entry.date || entry.updated_at || entry.created_at) === today).length;
-  const learningTodayCount = (data.notes || []).filter((note) => note.note_type === "learning" && recordDate(recordTimestamp(note)) === today).length;
-  const activityLogItemCount = completedTodayCount + receivedTodayCount + notesTodayCount + resourcesTodayCount + knowledgeTodayCount + capturesTodayCount + statusUpdatesTodayCount;
-  const weekStart = addDays(today, -6);
-  const weeklyThemeIds = new Set<string>();
-  v2.tasks.forEach((task) => {
-    if (task.project_id && recordDate(task.completed_at || task.updated_at || task.created_at) >= weekStart) weeklyThemeIds.add(task.project_id);
-  });
-  (data.notes || []).forEach((note) => {
-    if (note.theme_id && recordDate(recordTimestamp(note)) >= weekStart) weeklyThemeIds.add(String(note.theme_id));
-  });
-  v2.knowledge_nodes.forEach((node) => {
-    if (node.project_id && recordDate(recordTimestamp(node)) >= weekStart) weeklyThemeIds.add(node.project_id);
-  });
-  (data.status_updates || []).forEach((entry) => {
-    if (entry.theme_id && recordDate(entry.date || entry.updated_at || entry.created_at) >= weekStart) weeklyThemeIds.add(String(entry.theme_id));
-  });
-  const dailyLoopSummary = buildDailyLoopSummary({
-    todayTaskCount: todayRows.length,
-    timedTaskCount: 0,
-    timeboxConflictCount: 0,
-    reminderCount: 0,
-    completedTodayCount,
-    learningTodayCount,
-    activityLogItemCount,
-    weeklyThemeCount: weeklyThemeIds.size,
-  });
 
   useEffect(() => {
     workspaceApi.getPreference("activityLogDirectory")
@@ -656,94 +510,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     openDrawer({ type: "task", mode: "edit", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
-  function openDailyPlan() {
-    setDailyPlanSelection(defaultDailyPlanSelection(dailyCandidates));
-    setShowDailyPlan(true);
-  }
-
-  async function handleDailyLoopStep(step: DailyLoopStep) {
-    if (step.id === "morning") {
-      openDailyPlan();
-      return;
-    }
-    if (step.id === "daytime") {
-      await openTodayMini(workspaceApi, setToast);
-      return;
-    }
-    if (step.id === "learning") {
-      navigate("todo");
-      return;
-    }
-    if (step.id === "evening") {
-      setShowActivityLog(true);
-      return;
-    }
-    navigate("themes");
-  }
-
-  function toggleDailyPlanTask(taskId: string) {
-    setDailyPlanSelection((current) => {
-      const next = new Set(current);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
-  }
-
-  function handleOpenDailyPlanTask(row: DailyPlanningRow) {
-    openDrawer({ type: "task", mode: "edit", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
-  }
-
-  async function confirmDailyPlan() {
-    const selectedRows = dailyTaskRows.filter((row) => dailyPlanSelection.has(row.task.id));
-    const operations: SaveOperation[] = [];
-    for (const row of selectedRows) {
-      const isToday = row.schedule?.start_date === today || row.schedule?.end_date === today;
-      if (isToday) continue;
-      if (!row.schedule) {
-        operations.push(...buildSaveScheduleOperations({
-          id: crypto.randomUUID(),
-          owner_type: "task",
-          owner_id: row.task.id,
-          end_date: today,
-          date_kind: "deadline",
-          confidence: "fixed",
-          granularity: "day",
-        }) as SaveOperation[]);
-      } else {
-        const keepsFutureDeadline = Boolean(row.schedule.end_date && row.schedule.end_date > today);
-        operations.push(...buildSaveScheduleOperations({
-          ...row.schedule,
-          start_date: keepsFutureDeadline || (row.schedule.start_date && row.schedule.start_date > today) ? today : row.schedule.start_date,
-          end_date: keepsFutureDeadline ? row.schedule.end_date : today,
-          date_kind: keepsFutureDeadline || (row.schedule.start_date && row.schedule.start_date < today) ? "range" : "deadline",
-        }) as SaveOperation[]);
-      }
-    }
-    const note = dailyPlanNote.trim();
-    if (note) {
-      operations.push({
-        action: "save",
-        type: "status_update",
-        entity: {
-          id: crypto.randomUUID(),
-          theme_id: null,
-          date: today,
-          status: "daily_plan",
-          summary: note,
-          created_at: new Date().toISOString(),
-        },
-      } as SaveOperation);
-    }
-    if (!operations.length) {
-      setShowDailyPlan(false);
-      setToast("今日の計画を閉じました。", "info");
-      return;
-    }
-    await saveEntities(operations, "今日の計画を反映しました。");
-    setDailyPlanNote("");
-    setDailyPlanSelection(new Set());
-    setShowDailyPlan(false);
+  async function openTodayTasksWindow() {
+    const opened = await workspaceApi.showTodayMiniWindow();
+    setToast(opened ? "今日やることを開きました。" : "今日やることを開けませんでした。", opened ? "success" : "danger");
   }
 
   function handleOpenCandidateTask(row: DailyPlanningRow) {
@@ -867,8 +636,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         <button className="secondary-button" onClick={() => setShowActivityLog((value) => !value)}>
           <IconClipboard size={16} /> 活動ログ
         </button>
-        <button className="secondary-button" onClick={openDailyPlan}>
-          <IconCalendarPlus size={16} /> 今日の計画
+        <button className="secondary-button" onClick={openTodayTasksWindow}>
+          <IconCalendarCheck size={16} /> 今日やること
         </button>
         <button className="primary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
       </PageHeader>
@@ -898,22 +667,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           onSubmit={addTask}
         />
       )}
-
-      {showDailyPlan && (
-        <DailyPlanWizard
-          candidates={dailyCandidates}
-          themes={themes}
-          selectedIds={dailyPlanSelection}
-          note={dailyPlanNote}
-          onToggle={toggleDailyPlanTask}
-          onNoteChange={setDailyPlanNote}
-          onOpen={handleOpenDailyPlanTask}
-          onCancel={() => setShowDailyPlan(false)}
-          onConfirm={confirmDailyPlan}
-        />
-      )}
-
-      <DailyLoopPanel summary={dailyLoopSummary} onStep={handleDailyLoopStep} />
 
       {focusItem && (
         <section className="today-focus-hero panel" onClick={() => handleOpenDetail(focusItem)}>

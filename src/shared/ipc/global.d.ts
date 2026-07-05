@@ -4,6 +4,7 @@ interface TodayMiniApi {
   list(): Promise<TodayMiniTask[]>;
   toggle(taskId: string): Promise<TodayMiniTask[]>;
   openTask(taskId: string): Promise<boolean>;
+  pinTopRight(): Promise<boolean>;
   refresh(): Promise<TodayMiniTask[]>;
   onRefresh(callback: () => void): () => void;
 }

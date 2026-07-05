@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, protocol, shell, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, shell, Tray } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -20,6 +20,10 @@ let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
 let captureWindow: BrowserWindow | null = null;
 let todayMiniWindow: BrowserWindow | null = null;
+let todayMiniFadeTimer: ReturnType<typeof setTimeout> | null = null;
+const TODAY_MINI_INACTIVE_OPACITY = 0.68;
+const TODAY_MINI_FADE_DELAY_MS = 30000;
+const TODAY_MINI_SCREEN_MARGIN = 16;
 type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
 protocol.registerSchemesAsPrivileged([
@@ -180,6 +184,40 @@ function showCaptureWindow(mode: QuickCaptureMode = "inbox"): void {
   }
 }
 
+function clearTodayMiniFadeTimer(): void {
+  if (todayMiniFadeTimer) {
+    clearTimeout(todayMiniFadeTimer);
+    todayMiniFadeTimer = null;
+  }
+}
+
+function restoreTodayMiniOpacity(win: BrowserWindow | null = todayMiniWindow): void {
+  clearTodayMiniFadeTimer();
+  if (win && !win.isDestroyed()) win.setOpacity(1);
+}
+
+function scheduleTodayMiniFade(win: BrowserWindow): void {
+  clearTodayMiniFadeTimer();
+  todayMiniFadeTimer = setTimeout(() => {
+    if (!win.isDestroyed() && win.isVisible() && !win.isFocused()) {
+      win.setOpacity(TODAY_MINI_INACTIVE_OPACITY);
+    }
+  }, TODAY_MINI_FADE_DELAY_MS);
+}
+
+function pinTodayMiniTopRight(): boolean {
+  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) {
+    todayMiniWindow = createTodayMiniWindow();
+  }
+  const bounds = todayMiniWindow.getBounds();
+  const { workArea } = screen.getDisplayMatching(bounds);
+  const x = workArea.x + workArea.width - bounds.width - TODAY_MINI_SCREEN_MARGIN;
+  const y = workArea.y + TODAY_MINI_SCREEN_MARGIN;
+  todayMiniWindow.setPosition(Math.max(workArea.x, x), Math.max(workArea.y, y), false);
+  restoreTodayMiniOpacity(todayMiniWindow);
+  return true;
+}
+
 function createTodayMiniWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 380,
@@ -208,8 +246,11 @@ function createTodayMiniWindow(): BrowserWindow {
   }
 
   win.on("closed", () => {
+    clearTodayMiniFadeTimer();
     if (todayMiniWindow === win) todayMiniWindow = null;
   });
+  win.on("focus", () => restoreTodayMiniOpacity(win));
+  win.on("blur", () => scheduleTodayMiniFade(win));
 
   return win;
 }
@@ -218,6 +259,7 @@ function showTodayMiniWindow(): void {
   if (!todayMiniWindow || todayMiniWindow.isDestroyed()) {
     todayMiniWindow = createTodayMiniWindow();
   }
+  restoreTodayMiniOpacity(todayMiniWindow);
   todayMiniWindow.show();
   todayMiniWindow.focus();
   todayMiniWindow.setAlwaysOnTop(true);
@@ -463,6 +505,7 @@ function registerTodayMiniIpc(): void {
     showTodayMiniWindow();
     return true;
   });
+  ipcMain.handle("today-mini:pin-top-right", () => pinTodayMiniTopRight());
   ipcMain.handle("today-mini:list", () => listTodayMiniTasks());
   ipcMain.handle("today-mini:refresh", () => listTodayMiniTasks());
   ipcMain.handle("today-mini:toggle", (_event, taskId: unknown) => {

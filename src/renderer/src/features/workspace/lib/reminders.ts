@@ -6,19 +6,16 @@ export const REMINDER_SETTINGS_VIEW_ID = "daily-reminder-settings";
 
 export interface ReminderSettings {
   enabled: boolean;
-  daily_plan_time: string;
   activity_log_time: string;
 }
 
 export type ReminderAlert =
   | { id: string; type: "task"; title: string; at: string; task: Task }
   | { id: string; type: "waiting"; title: string; at: string; waiting: Waiting }
-  | { id: string; type: "daily_plan"; title: string; at: string }
   | { id: string; type: "activity_log"; title: string; at: string };
 
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   enabled: true,
-  daily_plan_time: "",
   activity_log_time: "",
 };
 
@@ -44,7 +41,6 @@ export function normalizeReminderSettings(record: unknown): ReminderSettings {
   const source = record && typeof record === "object" ? record as Record<string, unknown> : {};
   return {
     enabled: source.enabled !== false,
-    daily_plan_time: normalizeStartTime(source.daily_plan_time),
     activity_log_time: normalizeStartTime(source.activity_log_time),
   };
 }
@@ -59,7 +55,6 @@ export function buildReminderSettingsView(settings: ReminderSettings): BaseRecor
     title: "Daily reminder settings",
     view_type: "daily_reminder_settings",
     enabled: settings.enabled,
-    daily_plan_time: normalizeStartTime(settings.daily_plan_time),
     activity_log_time: normalizeStartTime(settings.activity_log_time),
   };
 }
@@ -97,10 +92,6 @@ export function buildReminderAlerts({
     alerts.push({ id: `waiting:${waiting.id}`, type: "waiting", title: waiting.title, at, waiting });
   }
 
-  const dailyPlanAt = dailyReminderAt(today, normalizedSettings.daily_plan_time);
-  if (dailyPlanAt && dailyPlanAt <= now) {
-    alerts.push({ id: `daily-plan:${today}`, type: "daily_plan", title: "今日の計画", at: dailyPlanAt });
-  }
   const activityLogAt = dailyReminderAt(today, normalizedSettings.activity_log_time);
   if (activityLogAt && activityLogAt <= now) {
     alerts.push({ id: `activity-log:${today}`, type: "activity_log", title: "Activity Log", at: activityLogAt });
