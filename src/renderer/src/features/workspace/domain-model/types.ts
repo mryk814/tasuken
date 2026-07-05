@@ -37,6 +37,8 @@ export type TaskState =
 
 export type TaskRepeatFrequency = "daily" | "weekly" | "monthly";
 
+export type TaskShelf = "maybe_today" | "this_evening" | "this_week" | "someday" | "backlog";
+
 export interface TaskRepeatRule {
   frequency: TaskRepeatFrequency;
   interval: number;
@@ -63,6 +65,7 @@ export interface Task {
   description?: string | null;
   state: TaskState;
   priority: "normal" | "high";
+  planning_shelf?: TaskShelf | null;
   completed_at?: string | null;
   repeat_rule?: TaskRepeatRule | null;
   repeat_series_id?: string | null;
