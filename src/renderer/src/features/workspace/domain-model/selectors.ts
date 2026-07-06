@@ -23,13 +23,14 @@ function isActiveTask(state: string): boolean {
 
 function scheduleHasExplicitDate(schedule: Schedule | undefined, date: string): boolean {
   if (!schedule) return false;
+  if (schedule.start_date === date && schedule.end_date && schedule.end_date > date) return false;
   return schedule.start_date === date || schedule.end_date === date;
 }
 
 function isOngoingPeriod(schedule: Schedule | undefined, date: string): schedule is Schedule & { start_date: string; end_date: string } {
   if (!schedule?.start_date || !schedule.end_date) return false;
   if (schedule.start_date >= schedule.end_date) return false;
-  return schedule.start_date < date && date < schedule.end_date;
+  return schedule.start_date <= date && date < schedule.end_date;
 }
 
 function inclusiveDays(start: string, end: string): number {
@@ -137,7 +138,7 @@ export function buildOngoingPeriodTaskView(domain: WorkspaceDomain, date = today
       totalDays: inclusiveDays(schedule.start_date, schedule.end_date),
       daysRemaining: Math.max(0, inclusiveDays(date, schedule.end_date) - 1),
     }))
-    .sort((a, b) => a.schedule.end_date.localeCompare(b.schedule.end_date) || a.task.title.localeCompare(b.task.title, "ja"));
+    .sort((a, b) => a.dayIndex - b.dayIndex || a.schedule.end_date.localeCompare(b.schedule.end_date) || a.task.title.localeCompare(b.task.title, "ja"));
 }
 
 function comparePlanNodes(schedules: Map<string, Schedule>, a: PlanNode, b: PlanNode): number {

@@ -27,6 +27,7 @@ import { resolveSubmittedChatCapturedAt } from "./lib/chatRefs";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import { normalizeReminderDateTime } from "./lib/reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./lib/taskSections";
+import { normalizeTaskShelf } from "./lib/taskShelves";
 import type { SaveOperation } from "./types";
 import {
   buildSaveTaskOperations,
@@ -521,6 +522,7 @@ export function WorkspaceApp() {
         section_id: normalizeTaskSectionId(formText(values, "section_id"), taskSections, projectId),
         state: (formText(values, "state") || "todo") as Task["state"],
         priority: values.has("priority_flag") ? "high" : "normal",
+        planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
         reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
         description: formText(values, "description") || null,
         repeat_rule: taskRepeatRuleFromForm(values, Number((formText(values, "end_date") || todayIso()).slice(-2))),

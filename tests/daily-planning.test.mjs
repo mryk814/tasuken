@@ -55,5 +55,6 @@ test("Today page uses the Today mini window instead of the daily planning wizard
   assert.doesNotMatch(source, /status: "daily_plan"/);
   assert.match(source, /今週/);
   assert.match(source, /いつか/);
-  assert.doesNotMatch(source, /planning_shelf: null/);
+  assert.match(source, /TASK_SHELF_OPTIONS/);
+  assert.match(source, /planning_shelf: null/);
 });

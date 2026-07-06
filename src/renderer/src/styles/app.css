@@ -895,10 +895,12 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .shelf-lane-heading h3 { font-size: var(--text-sm); }
 .shelf-lane-heading span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 .shelf-task-list { display: grid; gap: var(--space-1); }
-.shelf-task-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); padding: var(--space-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
+.shelf-task-row { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); padding: var(--space-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
 .shelf-task-row:hover { border-color: var(--color-border-strong); background: var(--color-surface-muted); }
 .shelf-task-row.is-overdue { border-color: var(--color-danger-bd); background: color-mix(in srgb, var(--color-danger-bg) 42%, var(--color-surface)); }
 .shelf-task-row.is-due-today { border-color: var(--color-warning-bd); background: color-mix(in srgb, var(--color-warning-bg) 42%, var(--color-surface)); }
+.shelf-theme-bar { align-self: stretch; border-radius: var(--radius-pill); background: var(--chip-color); }
+.shelf-theme-chip { display: inline-flex; max-width: 120px; margin-right: var(--space-1); padding: 0 var(--space-1); border: 1px solid color-mix(in srgb, var(--chip-color) 54%, var(--color-border-subtle)); border-radius: var(--radius-sm); color: var(--color-text); vertical-align: baseline; }
 .shelf-task-title { min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; }
 .shelf-task-title strong, .shelf-task-title span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shelf-task-title strong { color: var(--color-text); font-size: var(--text-sm); }

@@ -14,7 +14,7 @@ test("Today page stays focused on daily tasks instead of utility controls", () =
   assert.doesNotMatch(todayPageSource, /ReminderPanel/);
   assert.doesNotMatch(todayPageSource, /TimeboxPanel/);
   assert.doesNotMatch(todayPageSource, /時間割/);
-  assert.doesNotMatch(todayPageSource, /TASK_SHELF_OPTIONS/);
+  assert.match(todayPageSource, /TASK_SHELF_OPTIONS/);
 });
 
 test("Today page removes low-read metric cards from the main scan path", () => {

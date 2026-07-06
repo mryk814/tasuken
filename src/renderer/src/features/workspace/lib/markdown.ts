@@ -144,6 +144,12 @@ function renderInlineMarkdown(value: string): string {
       if (!link) return escapeHtml(match);
       return stash(`<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`);
     })
+    .replace(/(?<!!)\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_match, label: string, rawUrl: string) => {
+      const url = safeMarkdownUrl(rawUrl, "link");
+      const renderedLabel = escapeHtml(label.trim() || rawUrl);
+      if (!url) return renderedLabel;
+      return stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${renderedLabel}</a>`);
+    })
     .replace(/`([^`]+)`/g, (_match, code: string) => stash(`<code>${escapeHtml(code)}</code>`))
     .replace(/\$([^$\n]+)\$/g, (_match, expression: string) => stash(`<span class="md-math-inline">${renderMathExpression(expression.trim(), false)}</span>`));
 
