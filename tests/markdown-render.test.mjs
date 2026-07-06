@@ -118,6 +118,21 @@ test("markdown preview css separates heading levels and keeps tables compact", (
   assert.match(source, /\[class\*="_tableColumnEditorTrigger_"\][^}]*opacity: \.28/s);
 });
 
+test("markdown editing surfaces use a white paper background", () => {
+  const source = readFileSync("src/renderer/src/styles/app.css", "utf8");
+
+  assert.match(source, /--markdown-paper: #fff;/);
+  assert.match(source, /--markdown-paper-text: #26211f;/);
+  assert.match(source, /\.note-main-editor \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(source, /\.note-live-editor \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(source, /\.note-mdx-content \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(source, /\.note-main-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(source, /\.note-main-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(source, /\.markdown-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(source, /\.artifact-preview-frame \{[^}]*background: var\(--markdown-paper\)/s);
+  assert.match(source, /\.artifact-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+});
+
 test("structured markdown paste detection keeps plain text paste native", () => {
   assert.equal(markdown.isStructuredMarkdownPaste("plain meeting note"), false);
   assert.equal(markdown.isStructuredMarkdownPaste("# Heading\n\nBody"), true);
