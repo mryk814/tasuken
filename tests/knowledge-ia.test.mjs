@@ -32,9 +32,9 @@ test("AI IO runs document publish export without owning target selection", () =>
   assert.match(notesPageSource, /Word出力/);
 });
 
-test("resources can move between Notes and Chat References without changing data type", () => {
+test("resources can still move from Notes to Chat References without changing data type", () => {
   assert.match(notesPageSource, /moveResourceToChatRefs/);
-  assert.match(chatRefsPageSource, /moveResourceToNotes/);
   assert.match(notesPageSource, /resource_scope:\s*"chat_ref"/);
-  assert.match(chatRefsPageSource, /resource_scope:\s*"note"/);
+  assert.doesNotMatch(chatRefsPageSource, /moveResourceToNotes/);
+  assert.doesNotMatch(chatRefsPageSource, /resource_scope:\s*"note"/);
 });

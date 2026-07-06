@@ -78,6 +78,17 @@ code line
   assert.match(html, /<pre><code>code line\n<\/code><\/pre>/);
 });
 
+test("markdown preview renders safe ordinary links and rejects unsafe link urls", () => {
+  const html = markdown.renderMarkdownPreview("[OpenAI](https://openai.com) [mail](mailto:test@example.com) [bad](javascript:alert(1)) ![Chart](https://example.com/chart.png) [[Knowledge]]");
+
+  assert.match(html, /<a href="https:\/\/openai\.com\/" target="_blank" rel="noreferrer">OpenAI<\/a>/);
+  assert.match(html, /<a href="mailto:test@example.com" target="_blank" rel="noreferrer">mail<\/a>/);
+  assert.doesNotMatch(html, /href="javascript:/);
+  assert.match(html, /bad/);
+  assert.match(html, /<img src="https:\/\/example\.com\/chart\.png" alt="Chart"/);
+  assert.match(html, /class="md-wiki-link"/);
+});
+
 test("previewDocument includes readable markdown document styling", () => {
   const html = markdown.previewDocument("# Title\n\n#### Detail\n\n***\n\n| A | B |\n| --- | --- |\n| 1 | 2 |", "markdown");
 

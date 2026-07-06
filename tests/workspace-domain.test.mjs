@@ -166,13 +166,16 @@ test("today view separates ongoing period tasks from explicit daily tasks", () =
     change_events: [],
   };
 
-  assert.deepEqual(selectors.buildTodayView(domain, "2026-06-20").map((entry) => entry.task.id), ["task-end", "task-start"]);
+  assert.deepEqual(selectors.buildTodayView(domain, "2026-06-20").map((entry) => entry.task.id), ["task-end"]);
 
   const periods = selectors.buildOngoingPeriodTaskView(domain, "2026-06-20");
-  assert.deepEqual(periods.map((row) => row.task.id), ["task-period"]);
-  assert.equal(periods[0].dayIndex, 11);
-  assert.equal(periods[0].totalDays, 16);
+  assert.deepEqual(periods.map((row) => row.task.id), ["task-start", "task-period"]);
+  assert.equal(periods[0].dayIndex, 1);
+  assert.equal(periods[0].totalDays, 6);
   assert.equal(periods[0].daysRemaining, 5);
+  assert.equal(periods[1].dayIndex, 11);
+  assert.equal(periods[1].totalDays, 16);
+  assert.equal(periods[1].daysRemaining, 5);
 });
 
 test("task duplication creates an editable new todo without completion state", () => {

@@ -15,7 +15,6 @@ import {
   IconStar,
   IconStarFilled,
   IconMessageCircleQuestion,
-  IconNotes,
   IconTrash,
 } from "@tabler/icons-react";
 
@@ -141,19 +140,6 @@ export function ChatRefsPage({
     );
   }
 
-  function moveResourceToNotes(resource: Resource) {
-    void saveEntities(
-      buildSaveResourceOperations({
-        ...resource,
-        resource_scope: "note",
-        reference_status: null,
-        chat_group: null,
-        sort_order: null,
-      }),
-      "Notesへ移しました。",
-    );
-  }
-
   function selectTheme(themeId: string) {
     setSelectedThemeId(themeId);
     setActiveThemeId(themeId);
@@ -222,7 +208,6 @@ export function ChatRefsPage({
     const items: ContextMenuItem[] = [
       { label: "編集する", onSelect: () => openChatResource(resource) },
       { label: isAdopted(resource) ? "採用を解除" : "採用にする", onSelect: () => toggleAdopted(resource) },
-      { label: "Notesへ移す", onSelect: () => moveResourceToNotes(resource) },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(resource.title)) },
     ];
     if (url) {
@@ -529,17 +514,6 @@ export function ChatRefsPage({
                         title="続きとして追加"
                       >
                         <IconLinkPlus size={15} />
-                      </button>
-                      <button
-                        className="row-action-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          moveResourceToNotes(r);
-                        }}
-                        aria-label={`${r.title || "チャット参照"}をNotesへ移す`}
-                        title="Notesへ移す"
-                      >
-                        <IconNotes size={15} />
                       </button>
                       <a className="row-action-button chat-link-open" href={r.url || ""} target="_blank" rel="noreferrer" onClick={stopRowClick} aria-label={`${r.title || "リンク"}を開く`} title="開く">
                         <IconExternalLink size={16} />

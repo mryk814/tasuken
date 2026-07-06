@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
@@ -53,4 +54,18 @@ test("word export signature changes when markdown body changes", () => {
   const after = wordExport.noteWordExportSignature("# A\nbody changed");
   assert.notEqual(before, after);
   assert.equal(before, wordExport.noteWordExportSignature("# A\nbody"));
+});
+
+test("document publish presents Markdown and PDF as primary outputs and keeps Word optional", () => {
+  const importExportSource = readFileSync("src/renderer/src/features/workspace/pages/ImportExportPage.tsx", "utf8");
+  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+
+  assert.match(importExportSource, /publishMarkdownTargets/);
+  assert.match(importExportSource, /publishPdfTargets/);
+  assert.match(importExportSource, /Publish対象をMarkdown出力/);
+  assert.match(importExportSource, /Publish対象をPDF出力/);
+  assert.doesNotMatch(importExportSource, /<button className="secondary-button compact" disabled=\{publishing \|\| !publishEnabledCount\} onClick=\{publishWordTargets\}>Publish対象をWord出力<\/button>/);
+  assert.match(drawerSource, /Markdown出力/);
+  assert.match(drawerSource, /PDF出力/);
+  assert.match(drawerSource, /Word出力オプション/);
 });

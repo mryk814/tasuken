@@ -18,6 +18,7 @@ import type {
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
+import { normalizeTaskShelf, TASK_SHELF_OPTIONS } from "../lib/taskShelves";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { buildKnowledgeLinkContext, type KnowledgeLinkEntry } from "../lib/knowledgeLinks";
 import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/markdown";
@@ -927,6 +928,8 @@ function NoteDetailDrawer({
   const [knowledgeText, setKnowledgeText] = useState("");
   const [knowledgePreview, setKnowledgePreview] = useState<{ candidates: ImportCandidate[]; payloadIssues: string[] } | null>(null);
   const [artifactMode, setArtifactMode] = useState<"preview" | "raw">("preview");
+  const [markdownExporting, setMarkdownExporting] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
   const [wordExporting, setWordExporting] = useState(false);
   const knowledgeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const comments = note.comments || [];
@@ -952,6 +955,17 @@ function NoteDetailDrawer({
   const hasWordExportDirectory = Boolean(str(wordExport?.directory));
   const wordExportStale = Boolean(exportedSignature && exportedSignature !== currentWordSignature);
   const canExportWord = contentFormat === "markdown" && Boolean(body.trim());
+  const canExportDocument = contentFormat === "markdown" && Boolean(body.trim());
+  const publishMarkdownBody = [
+    "---",
+    `title: ${JSON.stringify(note.title)}`,
+    theme?.name ? `theme: ${JSON.stringify(theme.name)}` : "",
+    str(note.updated_at || note.created_at) ? `updated_at: ${JSON.stringify(str(note.updated_at || note.created_at))}` : "",
+    "---",
+    "",
+    body.trim(),
+    "",
+  ].filter((line) => line !== "").join("\n");
   const emailSubject = `${theme?.name ? `[${theme.name}] ` : ""}${note.title || reportTypeLabel}${periodLabel ? `（${periodLabel}）` : ""}`;
   const emailBody = [
     theme?.name ? `Theme: ${theme.name}` : "",
@@ -1108,6 +1122,42 @@ function NoteDetailDrawer({
     }
   }
 
+  async function exportMarkdown() {
+    if (!canExportDocument) return;
+    setMarkdownExporting(true);
+    try {
+      const result = await workspaceApi.exportMarkdownFile({
+        title: note.title,
+        content: publishMarkdownBody,
+        chooseDirectory: true,
+        fileName: `${note.title || "markdown-document"}.md`,
+      });
+      setToast(result.canceled ? "Markdown出力をキャンセルしました。" : `Markdownを出力しました。${result.filePath || ""}`, result.canceled ? "info" : "success");
+    } catch (error) {
+      setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setMarkdownExporting(false);
+    }
+  }
+
+  async function exportPdf() {
+    if (!canExportDocument) return;
+    setPdfExporting(true);
+    try {
+      const result = await workspaceApi.exportMarkdownPdf({
+        title: note.title,
+        html: previewDocument(publishMarkdownBody, "markdown"),
+        chooseDirectory: true,
+        fileName: `${note.title || "markdown-document"}.pdf`,
+      });
+      setToast(result.canceled ? "PDF出力をキャンセルしました。" : `PDFを出力しました。${result.filePath || ""}`, result.canceled ? "info" : "success");
+    } catch (error) {
+      setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setPdfExporting(false);
+    }
+  }
+
   return (
     <aside className="drawer">
       <DrawerHeader title="メモ詳細" close={close} />
@@ -1168,7 +1218,7 @@ function NoteDetailDrawer({
         {canExportWord && (
           <section className={`word-export-panel ${wordExportStale ? "needs-export" : ""}`}>
             <div className="section-heading">
-              <h3>Word出力</h3>
+              <h3>Document Publish</h3>
               {wordExportStale && <span className="save-status save-status-error">本文変更あり</span>}
             </div>
             {wordExport ? (
@@ -1177,11 +1227,14 @@ function NoteDetailDrawer({
                 <dt>出力日</dt><dd>{str(wordExport.exportedAt) ? new Date(str(wordExport.exportedAt)).toLocaleString("ja-JP") : "未出力"}</dd>
               </dl>
             ) : (
-              <p className="field-help">Markdown本文をWordファイルとして出力します。出力先フォルダはこのNoteに保存されます。</p>
+              <p className="field-help">MarkdownはAI向け、PDFは固定表示向けです。Wordは必要なときだけ使います。</p>
             )}
             {wordExportStale && <p className="field-help">Word出力後に本文が変更されています。必要なら再出力してください。</p>}
             <div className="word-export-actions">
-              <button className="primary-button compact" disabled={wordExporting} onClick={() => exportWord(!hasWordExportDirectory)}>
+              <button className="primary-button compact" disabled={markdownExporting} onClick={exportMarkdown}>Markdown出力</button>
+              <button className="secondary-button compact" disabled={pdfExporting} onClick={exportPdf}>PDF出力</button>
+              <button className="secondary-button compact" disabled={wordExporting} onClick={() => exportWord(!hasWordExportDirectory)}>
+                Word出力オプション:{" "}
                 {hasWordExportDirectory ? "Wordを再出力" : "出力先を選ぶ"}
               </button>
               {hasWordExportDirectory && (
@@ -1433,6 +1486,7 @@ function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["enti
       parent_task_id: (entity.parent_task_id as string | null) ?? null,
       state: (str(entity.state) || "todo") as Task["state"],
       priority: str(entity.priority) === "high" ? "high" : "normal",
+      planning_shelf: normalizeTaskShelf(entity.planning_shelf),
       reminder_at: normalizeReminderDateTime(entity.reminder_at),
       description: (entity.description as string | null) ?? null,
       repeat_rule: repeatRule as Task["repeat_rule"],
@@ -1466,6 +1520,12 @@ function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["enti
         </select>
       </Field>
       <label className="toggle priority-toggle"><input name="priority_flag" type="checkbox" defaultChecked={str(entity.priority) === "high"} />旗を付ける</label>
+      <Field label="候補棚">
+        <select name="planning_shelf" defaultValue={normalizeTaskShelf(entity.planning_shelf) || ""}>
+          <option value="">今日/通常</option>
+          {TASK_SHELF_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+        </select>
+      </Field>
       <Field label="リマインダー"><input name="reminder_at" type="datetime-local" defaultValue={normalizeReminderDateTime(entity.reminder_at) || ""} /></Field>
       <div className="form-grid">
         <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>

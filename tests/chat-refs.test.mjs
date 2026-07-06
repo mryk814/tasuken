@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
@@ -178,4 +179,11 @@ test("knowledge prompt includes group context and all chat links", () => {
   assert.match(prompt, /https:\/\/claude\.ai\/chat\/1/);
   assert.match(prompt, /ChatGPT相談/);
   assert.match(prompt, /https:\/\/chatgpt\.com\/c\/2/);
+});
+
+test("chat reference page no longer offers moving chat links to Notes", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/ChatRefsPage.tsx", "utf8");
+
+  assert.doesNotMatch(source, /Notesへ移す/);
+  assert.doesNotMatch(source, /moveResourceToNotes/);
 });

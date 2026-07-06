@@ -7,6 +7,7 @@ import { buildSaveTaskOperations, buildSaveWaitingOperations, buildSavePlanNodeO
 import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../domain-model/types";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, buildAiImportPrompt, buildAiOrganizePrompt, parseAiImportPayload } from "../lib/aiImport.js";
 import { buildExportData, exportMarkdown, exportProgressReport, noteProperties, notePublishEnabled, toYaml } from "../lib/io";
+import { previewDocument } from "../lib/markdown";
 import { PageHeader } from "../components/common";
 import { AiProposalPanel } from "../components/AiProposalPanel";
 
@@ -115,6 +116,18 @@ function buildOrganizeContext({ data, domain, themes, activeTheme }: Pick<PagePr
   return lines.join("\n");
 }
 
+function publishMarkdownContent(note: Record<string, unknown>, themeName: string): string {
+  const metadata = [
+    "---",
+    `title: ${JSON.stringify(str(note.title))}`,
+    themeName ? `theme: ${JSON.stringify(themeName)}` : "",
+    str(note.updated_at || note.created_at) ? `updated_at: ${JSON.stringify(str(note.updated_at || note.created_at))}` : "",
+    "---",
+    "",
+  ].filter((line) => line !== "").join("\n");
+  return `${metadata}${str(note.body_markdown).trim()}\n`;
+}
+
 export function ImportExportPage(props: PageProps) {
   const { data, domain, themes, items, activeTheme, saveEntities, setToast } = props;
   const [format, setFormat] = useState("markdown");
@@ -146,6 +159,74 @@ export function ImportExportPage(props: PageProps) {
       .sort((a, b) => str(b.updated_at || b.created_at).localeCompare(str(a.updated_at || a.created_at)));
   }, [activeTheme, data.notes, scope]);
   const publishEnabledCount = publishTargetNotes.filter(notePublishEnabled).length;
+
+  async function publishMarkdownTargets() {
+    const targets = publishTargetNotes.filter(notePublishEnabled);
+    if (!targets.length) {
+      setToast("Publish対象のMarkdown文書がありません。");
+      return;
+    }
+    setPublishing(true);
+    try {
+      let directory = "";
+      let exportedCount = 0;
+      for (const note of targets) {
+        const themeName = themes.find((theme) => theme.id === note.theme_id)?.name || "";
+        const result = await workspaceApi.exportMarkdownFile({
+          title: str(note.title),
+          content: publishMarkdownContent(note, themeName),
+          directory: directory || null,
+          chooseDirectory: !directory,
+          fileName: `${str(note.title) || "markdown-document"}.md`,
+        });
+        if (result.canceled) {
+          if (!exportedCount) setToast("Markdown出力をキャンセルしました。");
+          break;
+        }
+        directory = result.directory || directory;
+        exportedCount += 1;
+      }
+      if (exportedCount) setToast(`${exportedCount}件のMarkdownを出力しました。`, "success");
+    } catch (error) {
+      setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function publishPdfTargets() {
+    const targets = publishTargetNotes.filter(notePublishEnabled);
+    if (!targets.length) {
+      setToast("Publish対象のMarkdown文書がありません。");
+      return;
+    }
+    setPublishing(true);
+    try {
+      let directory = "";
+      let exportedCount = 0;
+      for (const note of targets) {
+        const themeName = themes.find((theme) => theme.id === note.theme_id)?.name || "";
+        const result = await workspaceApi.exportMarkdownPdf({
+          title: str(note.title),
+          html: previewDocument(publishMarkdownContent(note, themeName), "markdown"),
+          directory: directory || null,
+          chooseDirectory: !directory,
+          fileName: `${str(note.title) || "markdown-document"}.pdf`,
+        });
+        if (result.canceled) {
+          if (!exportedCount) setToast("PDF出力をキャンセルしました。");
+          break;
+        }
+        directory = result.directory || directory;
+        exportedCount += 1;
+      }
+      if (exportedCount) setToast(`${exportedCount}件のPDFを出力しました。`, "success");
+    } catch (error) {
+      setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   async function publishWordTargets() {
     const targets = publishTargetNotes.filter(notePublishEnabled);
@@ -496,11 +577,13 @@ export function ImportExportPage(props: PageProps) {
               <h2>Document Publish</h2>
               <div className="inline-actions">
                 <span>Publish対象 {publishEnabledCount}件</span>
-                <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishWordTargets}>Publish対象をWord出力</button>
+                <button className="primary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishMarkdownTargets}>Publish対象をMarkdown出力</button>
+                <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishPdfTargets}>Publish対象をPDF出力</button>
+                <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishWordTargets}>Word出力オプション</button>
               </div>
             </div>
             <p className="field-help">
-              対象の切り替えと出力先の確認は Notes または Note 詳細で行います。AI IO では、Publish対象になっているMarkdown文書だけをまとめてWord出力します。
+              MarkdownはAI向け、PDFは固定表示向けです。Wordは編集可能なOffice文書が必要なときだけ使います。
             </p>
           </div>
           <textarea readOnly value={exported} />
