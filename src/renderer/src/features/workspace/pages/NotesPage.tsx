@@ -317,6 +317,8 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     return () => {
       const { selected: previous, draftBody: body, draftDirty: dirty } = autosaveRef.current;
       if (!previous || !dirty) return;
+      // 本文が空だとnote.body_markdownの必須項目バリデーションに失敗するため、自動保存では既存内容を残して何もしない。
+      if (!body.trim()) return;
       saveEntity("note", { ...previous, body_markdown: body })
         .catch((error: unknown) => setToast(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`));
     };
@@ -328,6 +330,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         event.preventDefault();
         const { selected: s, draftBody: body, draftDirty: dirty } = ctxRef.current;
         if (dirty && s) {
+          if (!body.trim()) {
+            setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
+            return;
+          }
           setDraftState("保存しています。");
           saveEntity("note", { ...s, body_markdown: body })
             .then(() => setDraftState("保存しました。"))
@@ -520,6 +526,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   async function saveSelectedDraft() {
     if (!selected || !draftDirty) return;
+    if (!draftBody.trim()) {
+      setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
+      return;
+    }
     setDraftState("保存しています。");
     try {
       await saveEntity("note", {
