@@ -178,6 +178,8 @@ export function WorkspaceApp() {
   const drawerFormRef = useRef<HTMLFormElement | null>(null);
   const drawerFormInitialSignature = useRef("");
   const drawerAutosaving = useRef(false);
+  const noteAutoSaveTimer = useRef<number | null>(null);
+  const noteAutoSaveTriggerRef = useRef<() => void>(() => {});
   const updateCheckStarted = useRef(false);
 
   async function loadWorkspace() {
@@ -363,19 +365,60 @@ export function WorkspaceApp() {
   const links = data.links;
   const activeTheme = themes.find((theme) => theme.id === activeThemeId) || themes[0] || null;
 
+  const handleDrawerFormInput = useCallback(() => {
+    noteAutoSaveTriggerRef.current();
+  }, []);
+
   const registerEditForm = useCallback((form: HTMLFormElement | null) => {
+    const previous = drawerFormRef.current;
+    if (previous && previous !== form) previous.removeEventListener("input", handleDrawerFormInput);
+    if (noteAutoSaveTimer.current) { window.clearTimeout(noteAutoSaveTimer.current); noteAutoSaveTimer.current = null; }
     drawerFormRef.current = form;
     drawerFormInitialSignature.current = form ? formSignature(form) : "";
-  }, []);
+    if (form) form.addEventListener("input", handleDrawerFormInput);
+  }, [handleDrawerFormInput]);
 
   function isDrawerFormDirty(): boolean {
     const form = drawerFormRef.current;
     return Boolean(form && drawer && formSignature(form) !== drawerFormInitialSignature.current);
   }
 
+  // 既存メモの本文・タイトルは入力が止まって1.5秒後に静かに自動保存する（未保存の作業喪失を防ぐ）。
+  // 新規作成中（entity.id未確定）やタイトル/本文が空の間は、フォーム送信前の警告トーストを誘発しないよう対象外にする。
+  async function autoSaveNoteDrawerForm(): Promise<void> {
+    const form = drawerFormRef.current;
+    if (!form || !drawer || drawer.type !== "note" || !drawer.entity?.id) return;
+    if (drawerAutosaving.current || !isDrawerFormDirty()) return;
+    const values = new FormData(form);
+    if (!formText(values, "title") || !formText(values, "body_markdown")) return;
+    try {
+      drawerAutosaving.current = true;
+      await saveFormElement(form, { closeAfterSave: false, quiet: true });
+    } catch {
+      // 失敗時はsaveEntity側で既にエラートーストを出しているため、ここでは自動保存を諦めるだけでよい。
+    } finally {
+      drawerAutosaving.current = false;
+    }
+  }
+
+  useEffect(() => {
+    noteAutoSaveTriggerRef.current = () => {
+      if (!drawer || drawer.type !== "note" || !drawer.entity?.id) return;
+      if (noteAutoSaveTimer.current) window.clearTimeout(noteAutoSaveTimer.current);
+      noteAutoSaveTimer.current = window.setTimeout(() => {
+        void autoSaveNoteDrawerForm();
+      }, 1500);
+    };
+  });
+
+  useEffect(() => () => {
+    if (noteAutoSaveTimer.current) window.clearTimeout(noteAutoSaveTimer.current);
+  }, []);
+
   async function saveDirtyDrawerForm(): Promise<boolean> {
     const form = drawerFormRef.current;
     if (!form || !drawer || !isDrawerFormDirty() || drawerAutosaving.current) return true;
+    if (noteAutoSaveTimer.current) { window.clearTimeout(noteAutoSaveTimer.current); noteAutoSaveTimer.current = null; }
     try {
       drawerAutosaving.current = true;
       const saved = await saveFormElement(form, { closeAfterSave: false });
@@ -431,7 +474,7 @@ export function WorkspaceApp() {
   const saveEntity: SaveEntity = async (type, entity, options = {}) => {
     try {
       const saved = await saveWorkspaceEntity(type, entity as Entity, options);
-      setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
+      if (!options.quiet) setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
       return saved;
     } catch (error) {
       setToast(`保存できませんでした。${errorMessage(error)}`, "danger");
@@ -495,11 +538,13 @@ export function WorkspaceApp() {
     await saveFormElement(event.currentTarget);
   }
 
-  async function saveFormElement(form: HTMLFormElement, options: { closeAfterSave?: boolean } = {}): Promise<boolean> {
+  async function saveFormElement(form: HTMLFormElement, options: { closeAfterSave?: boolean; quiet?: boolean } = {}): Promise<boolean> {
     const closeAfterSave = options.closeAfterSave ?? true;
-    const finishSave = () => {
+    const finishSave = (saved?: Entity) => {
       drawerFormInitialSignature.current = formSignature(form);
-      if (closeAfterSave) closeDrawer();
+      if (closeAfterSave) { closeDrawer(); return; }
+      // 開いたままの自動保存: 保存後の値でdrawer.entityを更新し、フォーム内の保存状態表示を実データと一致させる。
+      if (saved) setDrawer((current) => (current ? { ...current, entity: saved as unknown as Record<string, unknown> } : current));
     };
     const values = new FormData(form);
     const type = form.dataset.entityType as DrawerEntityType | undefined;
@@ -792,9 +837,9 @@ export function WorkspaceApp() {
 
     if (!entity) return false;
 
-    const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason") });
+    const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason"), quiet: options.quiet });
     if (type === "theme" && !activeThemeId && saved) setActiveThemeId(saved.id);
-    finishSave();
+    finishSave(saved);
     return true;
   }
 

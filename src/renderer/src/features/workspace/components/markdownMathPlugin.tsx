@@ -18,8 +18,11 @@ import {
   $createTextNode,
   $getRoot,
   $getNodeByKey,
+  $getSelection,
   $isElementNode,
   $isParagraphNode,
+  $isRangeSelection,
+  $isTextNode,
   DecoratorNode,
   type EditorConfig,
   type LexicalEditor,
@@ -27,6 +30,7 @@ import {
   type NodeKey,
   type SerializedLexicalNode,
   type Spread,
+  type TextNode,
 } from "lexical";
 import { mathFromMarkdown, mathToMarkdown, type InlineMath as InlineMathMdastNode, type Math as MathMdastNode } from "mdast-util-math";
 import { math } from "micromark-extension-math";
@@ -43,7 +47,8 @@ type SerializedMarkdownMathNode = Spread<{
 type MarkdownMathMdastNode = MathMdastNode | InlineMathMdastNode;
 type ParagraphNode = ReturnType<typeof import("lexical").$createParagraphNode>;
 
-const INLINE_MATH_PATTERN = /\$([^$\n]+)\$/g;
+// renderMarkdownPreview のインライン数式規約と揃える（開き$直後・閉じ$直前は空白不可、閉じ$直後に数字を続けない）。
+const INLINE_MATH_PATTERN = /\$([^\s$](?:[^$\n]*[^\s$])?)\$(?!\d)/g;
 const BLOCK_MATH_PATTERN = /\$\$([\s\S]+?)\$\$/;
 
 function $isMarkdownMathNode(node: LexicalNode | null | undefined): node is MarkdownMathNode {
@@ -252,6 +257,23 @@ function hasInlineMathDelimiter(text: string): boolean {
   return INLINE_MATH_PATTERN.test(text);
 }
 
+// リスト項目・引用など、通常段落以外のテキストも対象にするため、ツリー全体からインライン数式候補を集める。
+// $$を含むテキストはブロック数式の変換に任せる。インラインコードは数式に変換しない。
+function $collectInlineMathTextNodes(node: LexicalNode, out: TextNode[]): void {
+  if ($isTextNode(node)) {
+    const text = node.getTextContent();
+    if (!node.hasFormat("code") && !text.includes("$$") && hasInlineMathDelimiter(text)) {
+      out.push(node);
+    }
+    return;
+  }
+  if ($isElementNode(node)) {
+    for (const child of node.getChildren()) {
+      $collectInlineMathTextNodes(child, out);
+    }
+  }
+}
+
 function hasTransformableMarkdownMath(): boolean {
   const children = $getRoot().getChildren();
   let openBlockIndex = -1;
@@ -266,9 +288,10 @@ function hasTransformableMarkdownMath(): boolean {
       openBlockIndex = index;
       continue;
     }
-    if (hasInlineMathDelimiter(text)) return true;
   }
-  return false;
+  const inlineTargets: TextNode[] = [];
+  $collectInlineMathTextNodes($getRoot(), inlineTargets);
+  return inlineTargets.length > 0;
 }
 
 function createPlainParagraphs(text: string): ParagraphNode[] {
@@ -307,12 +330,18 @@ function transformBlockMathInParagraph(paragraph: ParagraphNode): boolean {
   return true;
 }
 
-function transformInlineMath(paragraph: ParagraphNode): boolean {
-  const text = paragraph.getTextContent();
+function transformInlineMathInTextNode(textNode: TextNode): boolean {
+  const text = textNode.getTextContent();
   INLINE_MATH_PATTERN.lastIndex = 0;
   const matches = [...text.matchAll(INLINE_MATH_PATTERN)];
   if (!matches.length) return false;
 
+  const format = textNode.getFormat();
+  const plainText = (value: string) => {
+    const node = $createTextNode(value);
+    node.setFormat(format);
+    return node;
+  };
   const nextNodes: LexicalNode[] = [];
   let cursor = 0;
   for (const match of matches) {
@@ -320,20 +349,34 @@ function transformInlineMath(paragraph: ParagraphNode): boolean {
     const full = match[0] || "";
     const expression = (match[1] || "").trim();
     if (start > cursor) {
-      nextNodes.push($createTextNode(text.slice(cursor, start)));
+      nextNodes.push(plainText(text.slice(cursor, start)));
     }
     if (expression) {
       nextNodes.push($createMarkdownMathNode(expression, false));
     } else {
-      nextNodes.push($createTextNode(full));
+      nextNodes.push(plainText(full));
     }
     cursor = start + full.length;
   }
   if (cursor < text.length) {
-    nextNodes.push($createTextNode(text.slice(cursor)));
+    nextNodes.push(plainText(text.slice(cursor)));
   }
-  paragraph.clear();
-  paragraph.append(...nextNodes);
+
+  const selection = $getSelection();
+  const hadCaretInNode = $isRangeSelection(selection)
+    && (selection.anchor.getNode().getKey() === textNode.getKey() || selection.focus.getNode().getKey() === textNode.getKey());
+  let caretTarget = nextNodes[nextNodes.length - 1];
+  if (hadCaretInNode && !$isTextNode(caretTarget)) {
+    caretTarget = plainText("");
+    nextNodes.push(caretTarget);
+  }
+  for (const nextNode of nextNodes) {
+    textNode.insertBefore(nextNode);
+  }
+  textNode.remove();
+  if (hadCaretInNode && $isTextNode(caretTarget)) {
+    caretTarget.select();
+  }
   return true;
 }
 
@@ -374,8 +417,12 @@ function transformMarkdownMathDelimiters(): boolean {
       }
       continue;
     }
+  }
 
-    if (transformInlineMath(node)) changed = true;
+  const inlineTargets: TextNode[] = [];
+  $collectInlineMathTextNodes($getRoot(), inlineTargets);
+  for (const target of inlineTargets) {
+    if (transformInlineMathInTextNode(target)) changed = true;
   }
 
   return changed;

@@ -269,6 +269,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const [pdfExporting, setPdfExporting] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const previewPanelRef = useRef<HTMLElement | null>(null);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const records: Combined[] = [
     ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
@@ -305,6 +306,21 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   }, [selected?.id, selectedBody]);
 
   ctxRef.current = { selected, draftBody, draftDirty };
+
+  // 未保存の変更を、別ノートへの切り替え時・Notesページからの離脱時に自動保存する。
+  // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
+  const autosaveRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
+  useEffect(() => {
+    autosaveRef.current = { selected, draftBody, draftDirty };
+  });
+  useEffect(() => {
+    return () => {
+      const { selected: previous, draftBody: body, draftDirty: dirty } = autosaveRef.current;
+      if (!previous || !dirty) return;
+      saveEntity("note", { ...previous, body_markdown: body })
+        .catch((error: unknown) => setToast(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`));
+    };
+  }, [selected?.id, saveEntity, setToast]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -411,6 +427,45 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       return;
     }
     setToast(result.error || "Wordファイルを開けませんでした。");
+  }
+
+  function modeScroller(mode: PreviewMode): HTMLElement | null {
+    const panel = previewPanelRef.current;
+    if (!panel) return null;
+    if (mode === "raw") return panel.querySelector<HTMLElement>("textarea.note-main-editor-raw");
+    if (mode === "preview") return panel.querySelector<HTMLElement>(".note-main-preview");
+    return panel.querySelector<HTMLElement>('[class*="_rootContentEditableWrapper_"]');
+  }
+
+  function scrollRatio(element: HTMLElement | null): number {
+    if (!element) return 0;
+    const scrollable = element.scrollHeight - element.clientHeight;
+    return scrollable > 0 ? element.scrollTop / scrollable : 0;
+  }
+
+  // MDXEditorはマウント直後に本文の高さが伸びていくため、高さが安定するまで数フレーム復元を続ける。
+  function restoreModeScroll(mode: PreviewMode, ratio: number) {
+    let frames = 0;
+    let lastHeight = -1;
+    const apply = () => {
+      frames += 1;
+      const target = modeScroller(mode);
+      if (target) {
+        const scrollable = target.scrollHeight - target.clientHeight;
+        if (scrollable > 0) target.scrollTop = ratio * scrollable;
+        if (scrollable > 0 && target.scrollHeight === lastHeight) return;
+        lastHeight = target.scrollHeight;
+      }
+      if (frames < 20) window.requestAnimationFrame(apply);
+    };
+    window.requestAnimationFrame(apply);
+  }
+
+  function switchPreviewMode(nextMode: PreviewMode) {
+    if (nextMode === previewMode) return;
+    const ratio = scrollRatio(modeScroller(previewMode));
+    setPreviewMode(nextMode);
+    restoreModeScroll(nextMode, ratio);
   }
 
   function insertDraftMarkdown(markdown: string, selectionStart: number, selectionEnd: number) {
@@ -624,7 +679,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
           {!visible.length && <EmptyState title="一致するメモはありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}
         </section>
         {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
-        <section className="panel note-preview-panel">
+        <section className="panel note-preview-panel" ref={previewPanelRef}>
           {selected ? (
             <>
               <div className="note-preview-header">
@@ -685,9 +740,9 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                 </div>
                 <div className="word-export-actions">
                   <div className="segmented note-editor-mode-tabs" aria-label="Markdown表示">
-                    <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => setPreviewMode("edit")}>編集</button>
-                    <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => setPreviewMode("preview")}>Preview</button>
-                    <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => setPreviewMode("raw")}>Raw</button>
+                    <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => switchPreviewMode("edit")}>編集</button>
+                    <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
+                    <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
                   <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf}>
                     {pdfExporting ? "PDF出力中" : "PDF出力"}

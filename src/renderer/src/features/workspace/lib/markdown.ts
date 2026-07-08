@@ -150,8 +150,14 @@ function renderInlineMarkdown(value: string): string {
       if (!url) return renderedLabel;
       return stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${renderedLabel}</a>`);
     })
-    .replace(/`([^`]+)`/g, (_match, code: string) => stash(`<code>${escapeHtml(code)}</code>`))
-    .replace(/\$([^$\n]+)\$/g, (_match, expression: string) => stash(`<span class="md-math-inline">${renderMathExpression(expression.trim(), false)}</span>`));
+    .replace(/(?<!\\)`([^`]+)`/g, (_match, code: string) => stash(`<code>${escapeHtml(code)}</code>`))
+    // 開き$の直後・閉じ$の直前は空白不可、閉じ$の直後に数字を続けない（Pandoc等と同じ規約）。
+    // これがないと「予算は$100で、残りは$50です」のような金額表記が丸ごと数式扱いされてしまう。
+    // \$ はMDXEditorがドル記号をエスケープした形なので数式にしない。
+    .replace(/(?<!\\)\$([^\s$](?:[^$\n]*[^\s$])?)\$(?!\d)/g, (_match, expression: string) => stash(`<span class="md-math-inline">${renderMathExpression(expression.trim(), false)}</span>`))
+    // MDXEditorはMarkdown書き出し時に - * _ | $ などをバックスラッシュでエスケープする。
+    // 記号を文字どおり表示し、強調・数式などの記法として再解釈されないよう先に退避する。
+    .replace(/\\([\\`*_{}[\]()#+\-.!|$~<>])/g, (_match, char: string) => stash(escapeHtml(char)));
 
   text = escapeHtml(text)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -262,7 +268,8 @@ export function htmlToMarkdownPaste(html: string): string {
 
 function markdownTableCells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((cell) => cell.trim());
+  // \| はセル内のパイプ表記なので区切りとして扱わない。
+  return trimmed.split(/(?<!\\)\|/).map((cell) => cell.trim());
 }
 
 function isMarkdownTableSeparator(line: string): boolean {
@@ -315,20 +322,33 @@ export function renderMarkdownPreview(value: string): string {
   const lines = body.split(/\r?\n/);
   const html: string[] = [];
   let inCode = false;
-  let listTag: "ul" | "ol" | null = null;
+  // インデント量で入れ子リストを表現する。各フレームは開いた<li>を持ったまま積まれ、
+  // 同レベルの次項目・レベル終了時に</li>を閉じる。
+  const listStack: { tag: "ul" | "ol"; indent: number }[] = [];
+  const closeOneList = () => {
+    const frame = listStack.pop();
+    if (frame) html.push(`</li></${frame.tag}>`);
+  };
   const closeList = () => {
-    if (listTag) {
-      html.push(`</${listTag}>`);
-      listTag = null;
-    }
+    while (listStack.length) closeOneList();
   };
-  const openList = (tagName: "ul" | "ol") => {
-    if (listTag !== tagName) {
-      closeList();
-      html.push(`<${tagName}>`);
-      listTag = tagName;
+  const appendListItem = (tag: "ul" | "ol", indent: number, content: string) => {
+    while (listStack.length && indent < listStack[listStack.length - 1].indent) closeOneList();
+    const top = listStack[listStack.length - 1];
+    if (!top || indent > top.indent) {
+      html.push(`<${tag}><li>${content}`);
+      listStack.push({ tag, indent });
+      return;
     }
+    if (top.tag !== tag) {
+      closeOneList();
+      html.push(`<${tag}><li>${content}`);
+      listStack.push({ tag, indent });
+      return;
+    }
+    html.push(`</li><li>${content}`);
   };
+  const listIndent = (line: string): number => (line.match(/^\s*/)?.[0] || "").replace(/\t/g, "    ").length;
   if (frontmatter) {
     html.push(`<details class="md-frontmatter"><summary>Frontmatter</summary><pre>${escapeHtml(frontmatter)}</pre></details>`);
   }
@@ -406,17 +426,24 @@ export function renderMarkdownPreview(value: string): string {
       html.push(`<blockquote>${content}</blockquote>`);
       continue;
     }
-    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
     const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
     if (bullet || ordered) {
-      openList(ordered ? "ol" : "ul");
-      html.push(`<li>${renderInlineMarkdown((bullet || ordered)?.[1] || "")}</li>`);
+      appendListItem(ordered ? "ol" : "ul", listIndent(line), renderInlineMarkdown((bullet || ordered)?.[1] || ""));
+      continue;
+    }
+    if (!line.trim()) {
+      // 項目間に空行があるリスト（loose list）を分断しないよう、次の非空行がリスト項目なら閉じない。
+      if (listStack.length) {
+        let lookahead = index + 1;
+        while (lookahead < lines.length && !lines[lookahead].trim()) lookahead += 1;
+        const nextLine = lines[lookahead];
+        if (nextLine && /^\s*(?:[-*+]|\d+[.)])\s+\S/.test(nextLine)) continue;
+      }
+      closeList();
       continue;
     }
     closeList();
-    if (!line.trim()) {
-      continue;
-    }
     html.push(`<p>${renderInlineMarkdown(line)}</p>`);
   }
   closeList();

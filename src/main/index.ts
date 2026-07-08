@@ -342,7 +342,7 @@ function quickCaptureMenuItems(): Electron.MenuItemConstructorOptions[] {
   return [
     { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => showCaptureWindow("inbox") },
     { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => showCaptureWindow("today-task") },
-    { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+L", click: () => showCaptureWindow("done-task") },
+    { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+,", click: () => showCaptureWindow("done-task") },
     { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => showCaptureWindow("micro-memo") },
   ];
 }
@@ -1176,7 +1176,7 @@ void app.whenReady().then(() => {
     startReminderNotifications();
     globalShortcut.register("CmdOrCtrl+Shift+N", () => showCaptureWindow("inbox"));
     globalShortcut.register("CmdOrCtrl+Shift+M", () => showCaptureWindow("today-task"));
-    globalShortcut.register("CmdOrCtrl+Shift+L", () => showCaptureWindow("done-task"));
+    globalShortcut.register("CmdOrCtrl+Shift+,", () => showCaptureWindow("done-task"));
     globalShortcut.register("CmdOrCtrl+Shift+.", () => showCaptureWindow("micro-memo"));
   }
 

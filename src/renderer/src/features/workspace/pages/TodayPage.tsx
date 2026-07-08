@@ -17,7 +17,7 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildActivityLog } from "../lib/activityLog";
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
-import { isOpenShelfTask, TASK_SHELF_OPTIONS, taskShelfStatus, type TaskShelfRow } from "../lib/taskShelves";
+import { taskShelfStatus } from "../lib/taskShelves";
 import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -340,10 +340,9 @@ function CandidateTaskRows({
             <span className="shelf-theme-bar" />
             <button className="shelf-task-title" onClick={() => onOpenDetail(row)}>
               <strong>{row.task.title}</strong>
-              <span><span className="shelf-theme-chip">{theme?.name || "個人業務"}</span> {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
+              <span>{theme?.name || "個人業務"} / {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
             </button>
             <button className="secondary-button compact" onClick={() => onMoveToday(row)}>今日へ</button>
-            {status && <span className={`shelf-due-badge ${status}`}>{status === "overdue" ? "期限切れ" : "今日が期限"}</span>}
           </div>
         );
       })}
@@ -367,7 +366,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const periodRows = buildOngoingPeriodTaskView(v2, today);
   const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }));
   const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
-  const shelfTaskRows = dailyTaskRows.filter(isOpenShelfTask);
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
   const waitingRows = v2.waitings.map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)));
   const planNodeRows = v2.plan_nodes.map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)));
@@ -384,10 +382,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     .filter((waiting) => waiting.state === "waiting" && scheduleTouchesRange(schedules.get(`waiting:${waiting.id}`), "", soon))
     .map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)))
     .sort(compareRows);
-  const latestUpdates = [...(data.status_updates || [])]
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
-    .slice(0, 5);
-
   useEffect(() => {
     workspaceApi.getPreference("activityLogDirectory")
       .then((value) => {
@@ -556,30 +550,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           confidence: "fixed",
           granularity: "day",
         };
-    await saveEntities(buildSaveScheduleOperations(nextSchedule), "今日やることへ移しました。");
-  }
-
-  async function handleMoveShelfTaskToday(row: TaskShelfRow) {
     const task: Task = { ...row.task, planning_shelf: null };
-    const schedule = row.schedule;
-    const nextSchedule: Schedule = schedule
-      ? {
-          ...schedule,
-          start_date: schedule.start_date && schedule.start_date < today ? schedule.start_date : today,
-          end_date: schedule.end_date && schedule.end_date > today ? schedule.end_date : today,
-          date_kind: schedule.end_date && schedule.end_date > today ? "range" : "deadline",
-          confidence: schedule.confidence || "fixed",
-          granularity: schedule.granularity || "day",
-        }
-      : {
-          id: crypto.randomUUID(),
-          owner_type: "task",
-          owner_id: row.task.id,
-          end_date: today,
-          date_kind: "deadline",
-          confidence: "fixed",
-          granularity: "day",
-        };
     await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(nextSchedule)], "今日やることへ移しました。");
   }
 
@@ -737,15 +708,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
         <div className="task-shelf-board">
-          {TASK_SHELF_OPTIONS.map((option) => {
-            const rows = shelfTaskRows.filter((row) => row.task.planning_shelf === option.id);
-            return (
-              <section className="task-shelf-lane" key={option.id}>
-                <div className="shelf-lane-heading"><h3>{option.label}</h3><span>{rows.length}件</span></div>
-                <CandidateTaskRows rows={rows.slice(0, 4)} themes={themes} today={today} onOpenDetail={handleOpenCandidateTask} onMoveToday={handleMoveShelfTaskToday} />
-              </section>
-            );
-          })}
           <section className="task-shelf-lane">
             <div className="shelf-lane-heading"><h3>期限切れ</h3><span>{dailyCandidates.overdue.length}件</span></div>
             <CandidateTaskRows rows={dailyCandidates.overdue.slice(0, 4)} themes={themes} today={today} onOpenDetail={handleOpenCandidateTask} onMoveToday={handleMoveCandidateTaskToday} />
@@ -771,30 +733,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
 
       <div className="today-grid">
         <section className="panel">
-          <div className="section-heading"><h2>期限切れ</h2><span>{overdue.length}件</span></div>
-          <TodayRows rows={overdue.slice(0, 8)} themes={themes} empty="期限切れはありません" today={today} {...rowHandlers} />
-        </section>
-        <section className="panel">
           <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
           <TodayRows rows={milestones.slice(0, 8)} themes={themes} empty="近いマイルストーンはありません" today={today} {...rowHandlers} />
-        </section>
-      </div>
-
-      <div className="today-grid">
-        <section className="panel">
-          <div className="section-heading"><h2>期限が近い待ち</h2><button className="text-button compact" onClick={() => navigate("waiting")}>Waitingへ</button></div>
-          <TodayRows rows={waitingSoon.slice(0, 8)} themes={themes} empty="近い待ちはありません" today={today} {...rowHandlers} />
-        </section>
-        <section className="panel">
-          <div className="section-heading"><h2>最近の現在地</h2><button className="text-button compact" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { date: today } })}>記録する</button></div>
-          <div className="today-update-list">
-            {latestUpdates.length ? latestUpdates.map((entry) => (
-              <button key={entry.id} className="wide-row" onClick={() => openDrawer({ type: "status_update", entity: entry })}>
-                <strong>{themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}</strong>
-                <span>{formatDate(entry.date)} / {entry.summary}</span>
-              </button>
-            )) : <EmptyState title="現在地がまだありません" action="記録する" onAction={() => openDrawer({ type: "status_update", mode: "edit", entity: { date: today } })} />}
-          </div>
         </section>
       </div>
     </div>

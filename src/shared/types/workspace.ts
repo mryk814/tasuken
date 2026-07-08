@@ -82,6 +82,7 @@ export interface Workspace {
 export interface SaveOptions {
   reason?: string;
   source?: string;
+  quiet?: boolean;
 }
 
 export interface SaveOperation {

@@ -110,11 +110,11 @@ test("previewDocument includes readable markdown document styling", () => {
 test("markdown preview css separates heading levels and keeps tables compact", () => {
   const source = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
-  assert.match(source, /\.markdown-preview h2 \{[^}]*border-bottom: 1px solid/s);
+  assert.match(source, /\.markdown-preview h2 \{[^}]*border-bottom: 2px solid/s);
   assert.match(source, /\.markdown-preview h3 \{[^}]*border-left: 4px solid/s);
-  assert.match(source, /\.markdown-preview h4 \{[^}]*font-size: var\(--text-sm\)/s);
-  assert.match(source, /\.markdown-preview table \{[^}]*border-collapse: separate/s);
-  assert.match(source, /\.markdown-preview th:last-child, \.markdown-preview td:last-child/s);
+  assert.match(source, /\.markdown-preview h4 \{[^}]*font-size: var\(--text-base\)/s);
+  assert.match(source, /\.markdown-preview table \{[^}]*border-collapse: collapse/s);
+  assert.match(source, /\.markdown-preview tbody tr:last-child td \{[^}]*border-bottom: 0/s);
   assert.match(source, /\[class\*="_tableColumnEditorTrigger_"\][^}]*opacity: \.28/s);
 });
 
@@ -223,6 +223,80 @@ $$
   assert.match(text, /\[画像: Chart\]/);
   assert.doesNotMatch(text, /#/);
   assert.doesNotMatch(text, /\$\$/);
+});
+
+test("markdown preview renders multiple inline math on one line and inside list items", () => {
+  const html = markdown.renderMarkdownPreview("- 式 $a+b$ と $c^2$ を併記\n- 通常項目");
+
+  const mathCount = (html.match(/class="md-math-inline"/g) || []).length;
+  assert.equal(mathCount, 2);
+  assert.match(html, /<ul><li>式 /);
+  assert.match(html, /<li>通常項目<\/li>/);
+});
+
+test("markdown preview keeps escaped markdown characters literal", () => {
+  const html = markdown.renderMarkdownPreview("価格は \\$100 で、記号 \\* と \\- はそのまま。");
+
+  assert.doesNotMatch(html, /md-math-inline/);
+  assert.doesNotMatch(html, /\\/);
+  assert.match(html, /\$100/);
+  assert.match(html, /記号 \* と - はそのまま。/);
+});
+
+test("markdown preview nests indented lists", () => {
+  const html = markdown.renderMarkdownPreview("- parent\n    - child\n- next");
+
+  assert.equal(html, "<ul><li>parent<ul><li>child</li></ul></li><li>next</li></ul>");
+});
+
+test("markdown preview keeps loose lists as one list", () => {
+  const html = markdown.renderMarkdownPreview("- one\n\n- two");
+
+  assert.equal(html, "<ul><li>one</li><li>two</li></ul>");
+});
+
+test("markdown table cells keep escaped pipes inside a cell", () => {
+  const html = markdown.renderMarkdownPreview("| A | B |\n| --- | --- |\n| a \\| b | c |");
+
+  assert.match(html, /<td>a \| b<\/td>/);
+  assert.match(html, /<td>c<\/td>/);
+});
+
+test("math editor plugin transforms inline math beyond top-level paragraphs", () => {
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/components/markdownMathPlugin.tsx",
+    "utf8",
+  );
+
+  assert.match(source, /\$collectInlineMathTextNodes/);
+  assert.match(source, /transformInlineMathInTextNode/);
+  assert.match(source, /hasFormat\("code"\)/);
+});
+
+test("notes page autosaves dirty drafts when switching notes or leaving the page", () => {
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/pages/NotesPage.tsx",
+    "utf8",
+  );
+
+  assert.match(source, /autosaveRef/);
+  assert.match(source, /自動保存に失敗しました/);
+  assert.match(source, /\[selected\?\.id, saveEntity, setToast\]/);
+});
+
+test("notes page keeps scroll position when switching edit, preview, and raw modes", () => {
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/pages/NotesPage.tsx",
+    "utf8",
+  );
+
+  assert.match(source, /function switchPreviewMode/);
+  assert.match(source, /function restoreModeScroll/);
+  assert.match(source, /_rootContentEditableWrapper_/);
+  assert.match(source, /switchPreviewMode\("edit"\)/);
+  assert.match(source, /switchPreviewMode\("preview"\)/);
+  assert.match(source, /switchPreviewMode\("raw"\)/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => setPreviewMode\(/);
 });
 
 test("outlookHtml creates simple styled HTML without tasken image references", () => {

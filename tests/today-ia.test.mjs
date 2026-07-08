@@ -14,7 +14,7 @@ test("Today page stays focused on daily tasks instead of utility controls", () =
   assert.doesNotMatch(todayPageSource, /ReminderPanel/);
   assert.doesNotMatch(todayPageSource, /TimeboxPanel/);
   assert.doesNotMatch(todayPageSource, /時間割/);
-  assert.match(todayPageSource, /TASK_SHELF_OPTIONS/);
+  assert.doesNotMatch(todayPageSource, /TASK_SHELF_OPTIONS\.map/);
 });
 
 test("Today page removes low-read metric cards from the main scan path", () => {
@@ -27,6 +27,22 @@ test("Today page removes low-read metric cards from the main scan path", () => {
 test("Today page keeps inbox and unscheduled work out of row sections", () => {
   assert.doesNotMatch(todayPageSource, /<h2>Inbox未整理<\/h2>/);
   assert.doesNotMatch(todayPageSource, /<h2>予定なし<\/h2>/);
+});
+
+test("Today candidate shelf is limited to the three useful lanes", () => {
+  assert.match(todayPageSource, /<h3>期限切れ<\/h3>/);
+  assert.match(todayPageSource, /<h3>今週<\/h3>/);
+  assert.match(todayPageSource, /<h3>いつか<\/h3>/);
+  assert.doesNotMatch(todayPageSource, /<h3>\{option\.label\}<\/h3>/);
+  assert.doesNotMatch(todayPageSource, /shelfTaskRows/);
+  assert.doesNotMatch(todayPageSource, /handleMoveShelfTaskToday/);
+});
+
+test("Today removes duplicate risk and current-location sections from the main page", () => {
+  assert.doesNotMatch(todayPageSource, /<h2>期限切れ<\/h2>/);
+  assert.doesNotMatch(todayPageSource, /<h2>期限が近い待ち<\/h2>/);
+  assert.doesNotMatch(todayPageSource, /<h2>最近の現在地<\/h2>/);
+  assert.match(todayPageSource, /<h2>今日の候補棚<\/h2>/);
 });
 
 test("Today opens task rows directly in edit mode and shows lightweight reminder time", () => {
