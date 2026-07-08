@@ -5,7 +5,7 @@ import type {
   SaveOptions,
   Workspace,
 } from "../../../shared/types/workspace";
-import type { MarkdownImageAttachmentRequest } from "../../../shared/attachments";
+import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
 import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
 import type { WordExportRequest } from "../../../shared/wordExport";
@@ -55,8 +55,20 @@ export const workspaceApi = {
   openPath(filePath: string) {
     return desktopApi().files.openPath(filePath);
   },
+  showItemInFolder(filePath: string) {
+    return desktopApi().files.showItemInFolder(filePath);
+  },
+  pathForFile(file: File) {
+    return desktopApi().files.pathForFile(file);
+  },
+  chooseDirectory(title?: string) {
+    return desktopApi().dialogs.chooseDirectory(title);
+  },
   saveMarkdownImageAttachment(request: MarkdownImageAttachmentRequest) {
     return desktopApi().attachments.saveMarkdownImage(request);
+  },
+  importArtifactFiles(request: ArtifactFileImportRequest) {
+    return desktopApi().attachments.importArtifactFiles(request);
   },
   reload() {
     return desktopApi().app.reload();

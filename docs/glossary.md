@@ -31,6 +31,7 @@
 | Note | ノート、メモ | — |
 | KnowledgeNode / KnowledgeEdge | ナレッジ、つながり | — |
 | Reference / ChatRef | チャットリンク、リンク | — |
+| Artifact | 成果物、添付ファイル | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme。ファイル実体はSettingsの「Artifact保存先」配下（年/月フォルダ）にコピー保存 |
 
 ## 頻出の UI 部品・機能語
 

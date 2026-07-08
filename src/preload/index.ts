@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import { IPC, type ResearchDeskApi } from "../shared/ipc/contracts";
 
@@ -20,9 +20,15 @@ const api: ResearchDeskApi = {
   },
   files: {
     openPath: (filePath) => ipcRenderer.invoke(IPC.fileOpen, filePath),
+    showItemInFolder: (filePath) => ipcRenderer.invoke(IPC.fileShowInFolder, filePath),
+    pathForFile: (file) => webUtils.getPathForFile(file),
+  },
+  dialogs: {
+    chooseDirectory: (title) => ipcRenderer.invoke(IPC.dialogChooseDirectory, title),
   },
   attachments: {
     saveMarkdownImage: (request) => ipcRenderer.invoke(IPC.markdownImageSave, request),
+    importArtifactFiles: (request) => ipcRenderer.invoke(IPC.artifactFilesImport, request),
   },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),

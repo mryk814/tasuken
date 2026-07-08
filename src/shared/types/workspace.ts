@@ -25,6 +25,7 @@ export const entityTypes = [
   "plan_dependency",
   "knowledge_edge",
   "change_event",
+  "artifact",
 ] as const;
 
 export type EntityType = (typeof entityTypes)[number];
@@ -75,6 +76,7 @@ export interface Workspace {
   plan_dependencies?: Entity[];
   knowledge_edges?: Entity[];
   change_events?: Entity[];
+  artifacts?: Entity[];
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }

@@ -62,7 +62,7 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "knowledge_nodes", "ai_proposals", "plan_revisions",
   "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
   "schedules", "references", "task_dependencies", "plan_dependencies",
-  "knowledge_edges", "change_events",
+  "knowledge_edges", "change_events", "artifacts",
 ];
 
 function normalizeRoute(route: string): string {

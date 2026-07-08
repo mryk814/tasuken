@@ -883,6 +883,7 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     plan_nodes: base?.plan_nodes || [],
     schedules: base?.schedules || [],
     change_events: base?.change_events || [],
+    artifacts: base?.artifacts || [],
     plan_revisions: base?.plan_revisions || [],
     meta: base?.meta,
   };

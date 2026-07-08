@@ -25,6 +25,7 @@ import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/m
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
+import { ArtifactSection } from "./artifacts";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import { MarkdownEditorPanel } from "./MarkdownEditorPanel";
@@ -262,6 +263,17 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           )}
         </dl>
         {Boolean(entity.description) && <p>{str(entity.description)}</p>}
+        {isChatRef && (
+          <ArtifactSection
+            sourceType="chat_ref"
+            sourceId={resourceId}
+            themeId={str(entity.project_id || entity.theme_id) || null}
+            artifacts={data.artifacts || []}
+            saveEntities={saveEntities}
+            removeEntity={removeEntity}
+            setToast={setToast}
+          />
+        )}
       </DetailDrawer>
     );
   }
@@ -385,6 +397,15 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
               <p className="field-help">完了時や作業後の気づきを、このタスクに紐づけて残せます。</p>
             )}
           </section>
+          <ArtifactSection
+            sourceType="task"
+            sourceId={task.id}
+            themeId={task.project_id || null}
+            artifacts={data.artifacts || []}
+            saveEntities={saveEntities}
+            removeEntity={removeEntity}
+            setToast={setToast}
+          />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             <button className="secondary-button" onClick={copyTask}><IconCopyPlus size={16} />複製する</button>
@@ -1243,6 +1264,15 @@ function NoteDetailDrawer({
             </div>
           </section>
         )}
+        <ArtifactSection
+          sourceType={isReport ? "report" : "note"}
+          sourceId={str(note.id)}
+          themeId={note.theme_id || null}
+          artifacts={data.artifacts || []}
+          saveEntities={saveEntities}
+          removeEntity={removeEntity}
+          setToast={setToast}
+        />
         <section className="comment-thread">
           <h3>コメント {comments.length > 0 && `(${comments.length})`}</h3>
           {comments.length > 0 && (

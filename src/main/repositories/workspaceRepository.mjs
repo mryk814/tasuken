@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  artifactSourceEntityTypes,
   assertEntityType,
   assertItemParentAcyclic,
   hasPath,
@@ -165,6 +166,7 @@ export class WorkspaceDatabase {
     }
     if (key === "activeGroup") return this.ensureMeta("active_group", "");
     if (key === "activityLogDirectory") return this.ensureMeta("activity_log_directory", "");
+    if (key === "artifactDirectory") return this.ensureMeta("artifact_directory", "");
     throw new Error(`未対応の設定です: ${key}`);
   }
 
@@ -191,6 +193,14 @@ export class WorkspaceDatabase {
       const directory = typeof value === "string" ? value : "";
       this.db.prepare(`
         INSERT INTO workspace_meta(key, value) VALUES('activity_log_directory', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(directory);
+      return directory;
+    }
+    if (key === "artifactDirectory") {
+      const directory = typeof value === "string" ? value : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('artifact_directory', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `).run(directory);
       return directory;
@@ -373,6 +383,10 @@ export class WorkspaceDatabase {
     if (type === "capture_entry" && entity.triaged_to_type && entity.triaged_to_id) {
       requireV2(entity.triaged_to_type, entity.triaged_to_id, "triaged_to_id");
     }
+    if (type === "artifact") {
+      const sourceEntityType = artifactSourceEntityTypes[entity.source_type];
+      requireV2(sourceEntityType, entity.source_id, "source_id");
+    }
   }
 
   validateGraph(type, entity) {
@@ -532,6 +546,9 @@ export class WorkspaceDatabase {
         if (type === "capture_entry" && record.triaged_to_type && record.triaged_to_id) {
           requireV2Ref(record.triaged_to_type, record.triaged_to_id, "triaged_to_id");
         }
+        if (type === "artifact") {
+          requireV2Ref(artifactSourceEntityTypes[record.source_type], record.source_id, "source_id");
+        }
       }
     }
 
@@ -676,6 +693,8 @@ export class WorkspaceDatabase {
 
   applyDeletePolicy(type, id) {
     if (type === "theme") {
+      // Themeを出所とするArtifactは子としてcascade。単にtheme_idが付いているだけのArtifactはnullifyで切り離す。
+      this.cascadeWhere("artifact", (entry) => entry.source_type === "theme" && entry.source_id === id, type, id);
       this.nullifyReferences(type, [
         ["item", "theme_id"],
         ["note", "theme_id"],
@@ -684,6 +703,7 @@ export class WorkspaceDatabase {
         ["knowledge_node", "theme_id"],
         ["log_entry", "theme_id"],
         ["view", "theme_id"],
+        ["artifact", "theme_id"],
       ], id);
       this.cascadeWhere("status_update", (entry) => entry.theme_id === id, type, id);
     }
@@ -700,10 +720,21 @@ export class WorkspaceDatabase {
 
     if (type === "note") {
       this.nullifyReferences(type, [["link", "note_id"], ["knowledge_node", "source_note_id"], ["log_entry", "related_note_id"]], id);
+      // note/report由来のArtifactは子としてcascade（restoreで復元。ファイル実体は削除しない）。
+      this.cascadeWhere("artifact", (entry) => (entry.source_type === "note" || entry.source_type === "report") && entry.source_id === id, type, id);
     }
 
     if (type === "link") {
       this.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
+    }
+
+    if (type === "task") {
+      this.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
+    }
+
+    if (type === "resource") {
+      // Chat参照はresourceとして保存されるため、chat_ref由来のArtifactをcascadeする。
+      this.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
     }
 
     if (type === "source_record") {

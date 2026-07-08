@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { AppUpdateCheckResult } from "../../../../../shared/ipc/contracts";
@@ -18,6 +18,32 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [busy, setBusy] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
+  const [artifactDirectory, setArtifactDirectory] = useState("");
+
+  useEffect(() => {
+    workspaceApi.getPreference("artifactDirectory")
+      .then((value) => setArtifactDirectory(typeof value === "string" ? value : ""))
+      .catch(() => {
+        // 未設定として表示するだけでよい（設定操作時に改めてエラーを出す）。
+      });
+  }, []);
+
+  async function chooseArtifactDirectory() {
+    try {
+      const result = await workspaceApi.chooseDirectory("Artifact保存先フォルダを選択");
+      if (result.canceled || !result.path) return;
+      await workspaceApi.setPreference("artifactDirectory", result.path);
+      setArtifactDirectory(result.path);
+      setToast(`Artifact保存先を設定しました。${result.path}`, "success");
+    } catch (error) {
+      setToast(`Artifact保存先を設定できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function openArtifactDirectory() {
+    const result = await workspaceApi.openPath(artifactDirectory);
+    if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
+  }
 
   async function exportSnapshot() {
     setBusy(true);
@@ -140,6 +166,20 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           <p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p>
           <button className="secondary-button" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</button>
           <button className="secondary-button" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</button>
+        </section>
+        <section className="panel settings-form">
+          <h2>Artifact保存先</h2>
+          <p className="field-help">Chat参照・タスク・メモへドラッグしたファイルは、このフォルダ配下の年/月フォルダへコピーされます。</p>
+          <dl className="settings-meta-list">
+            <div>
+              <dt>保存先</dt>
+              <dd>{artifactDirectory || "未設定"}</dd>
+            </div>
+          </dl>
+          <div className="settings-action-row">
+            <button className="secondary-button" onClick={chooseArtifactDirectory}>保存先を選ぶ</button>
+            {artifactDirectory && <button className="secondary-button" onClick={openArtifactDirectory}>フォルダを開く</button>}
+          </div>
         </section>
         <section className="panel settings-form update-panel">
           <h2>更新</h2>

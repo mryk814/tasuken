@@ -56,3 +56,19 @@ export const PLAN_NODE_STATE_LABELS: Record<PlanNodeState, string> = {
   done: "完了",
   cancelled: "中止",
 };
+
+export const ARTIFACT_SOURCE_TYPE_LABELS: Record<string, string> = {
+  chat_ref: "Chat参照",
+  task: "タスク",
+  note: "メモ",
+  report: "報告",
+  theme: "Theme",
+};
+
+export const ARTIFACT_GENERATED_BY_LABELS: Record<string, string> = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  copilot: "Copilot",
+  gemini: "Gemini",
+  manual: "手動",
+};
