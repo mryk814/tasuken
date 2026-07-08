@@ -25,6 +25,7 @@ export const workspaceEntityTypes = [
   "plan_dependency",
   "knowledge_edge",
   "change_event",
+  "artifact",
 ];
 
 const requiredTextFields = {
@@ -50,6 +51,7 @@ const requiredTextFields = {
   plan_dependency: ["plan_node_id", "depends_on_plan_node_id"],
   knowledge_edge: ["source_node_id", "target_node_id", "relation_type"],
   change_event: ["entity_type", "entity_id", "changed_at", "change_type", "source"],
+  artifact: ["title", "filename", "stored_path", "source_type", "source_id"],
 };
 
 const isoDateFields = [
@@ -105,6 +107,18 @@ const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "
 const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
 const changeSources = new Set(["manual", "import", "ai", "migration"]);
+
+// Artifactのsource_typeは意味ラベル。実体エンティティ種別への対応はこの1箇所で管理する
+// （chat_refはresource、reportはnoteとして保存されている）。
+export const artifactSourceEntityTypes = {
+  chat_ref: "resource",
+  task: "task",
+  note: "note",
+  report: "note",
+  theme: "theme",
+};
+const artifactSourceTypes = new Set(Object.keys(artifactSourceEntityTypes));
+const artifactGeneratedByValues = new Set(["chatgpt", "claude", "copilot", "gemini", "manual"]);
 
 function localDateIso(date = new Date()) {
   const year = date.getFullYear();
@@ -322,6 +336,15 @@ export function validateEntity(type, input) {
     if (!entityRefTypes.has(input.entity_type)) throw new Error("change_event.entity_typeが不正です。");
     if (!changeTypes.has(input.change_type)) throw new Error("change_event.change_typeが不正です。");
     if (!changeSources.has(input.source)) throw new Error("change_event.sourceが不正です。");
+  }
+  if (type === "artifact") {
+    if (!artifactSourceTypes.has(input.source_type)) throw new Error("artifact.source_typeが不正です。");
+    if (input.generated_by != null && input.generated_by !== "" && !artifactGeneratedByValues.has(input.generated_by)) {
+      throw new Error("artifact.generated_byが不正です。");
+    }
+    if (input.file_size != null && (!Number.isFinite(Number(input.file_size)) || Number(input.file_size) < 0)) {
+      throw new Error("artifact.file_sizeが不正です。");
+    }
   }
 
   return input;

@@ -187,6 +187,24 @@ export interface KnowledgeNode extends BaseRecord {
   status?: "active" | "resolved" | "deprecated" | "rejected";
 }
 
+export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "theme";
+export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "manual";
+
+export interface Artifact extends BaseRecord {
+  title: string;
+  filename: string;
+  file_type?: string;
+  mime_type?: string;
+  file_size?: number;
+  stored_path: string;
+  original_path?: string | null;
+  source_type: ArtifactSourceType;
+  source_id: string;
+  theme_id?: string | null;
+  description?: string | null;
+  generated_by?: ArtifactGeneratedBy | null;
+}
+
 // activeRecordsで論理削除を除外した「表示用の正本投影」。
 export interface WorkspaceData {
   themes: Theme[];
@@ -216,6 +234,7 @@ export interface WorkspaceData {
   plan_dependencies: BaseRecord[];
   knowledge_edges: BaseRecord[];
   change_events: BaseRecord[];
+  artifacts: Artifact[];
   meta?: WorkspaceMeta;
 }
 

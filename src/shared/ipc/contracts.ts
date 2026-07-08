@@ -7,7 +7,7 @@ import type {
   Workspace,
   WorkspaceMeta,
 } from "../types/workspace";
-import type { MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
+import type { ArtifactFileImportRequest, ArtifactFileImportResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { WordExportRequest, WordExportResult } from "../wordExport";
 
@@ -20,7 +20,10 @@ export const IPC = {
   clipboardWriteText: "clipboard:write-text",
   clipboardWriteHtml: "clipboard:write-html",
   fileOpen: "file:open",
+  fileShowInFolder: "file:show-in-folder",
+  dialogChooseDirectory: "dialog:choose-directory",
   markdownImageSave: "markdown-image:save",
+  artifactFilesImport: "artifact:files-import",
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
@@ -82,9 +85,16 @@ export interface ResearchDeskApi {
   };
   files: {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
+    showItemInFolder(filePath: string): Promise<{ ok: boolean; error?: string }>;
+    // DOMのFileからOSパスを取り出す（Preloadのelectron.webUtils経由。同期）。
+    pathForFile(file: File): string;
+  };
+  dialogs: {
+    chooseDirectory(title?: string): Promise<{ canceled: boolean; path?: string }>;
   };
   attachments: {
     saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
+    importArtifactFiles(request: ArtifactFileImportRequest): Promise<ArtifactFileImportResult>;
   };
   app: {
     reload(): Promise<boolean>;

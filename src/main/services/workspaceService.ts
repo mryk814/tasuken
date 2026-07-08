@@ -3,11 +3,17 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
+import type { ArtifactFileImportRequest, ArtifactFileImportResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult } from "../../shared/ipc/contracts";
 import type { Workspace } from "../../shared/types/workspace";
 import type { WordExportRequest, WordExportResult } from "../../shared/wordExport";
+import {
+  artifactFileTypeOf,
+  artifactMimeTypeOf,
+  artifactMonthSegments,
+  resolveUniqueArtifactFileName,
+} from "./artifactStorage.mjs";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
 import { exportMarkdownNoteToWord } from "./wordExportService";
 
@@ -35,6 +41,7 @@ interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
+  getPreference(key: string): unknown;
 }
 
 function localDateIso(date = new Date()): string {
@@ -152,6 +159,31 @@ function safeAttachmentName(value: string): string {
   return (cleaned || "image").slice(0, 80);
 }
 
+function normalizeArtifactFileImportRequest(value: unknown): ArtifactFileImportRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("添付するファイルの情報が不正です。もう一度ファイルをドラッグしてください。");
+  }
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.files) || !record.files.length) {
+    throw new Error("添付するファイルがありません。ファイルをドラッグしてください。");
+  }
+  const files = record.files.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("添付するファイルの情報が不正です。もう一度ファイルをドラッグしてください。");
+    }
+    const fileRecord = entry as Record<string, unknown>;
+    const filePath = typeof fileRecord.path === "string" ? fileRecord.path.trim() : "";
+    if (!filePath) {
+      throw new Error("ファイルの場所を取得できませんでした。エクスプローラーからファイルをドラッグしてください。");
+    }
+    return {
+      path: filePath,
+      name: typeof fileRecord.name === "string" && fileRecord.name.trim() ? fileRecord.name.trim() : undefined,
+    };
+  });
+  return { files };
+}
+
 function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachmentRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("画像の形式が不正です。画像をコピーし直して、もう一度貼り付けてください。");
@@ -206,6 +238,69 @@ export class WorkspaceService {
     }
     const error = await shell.openPath(filePath);
     return error ? { ok: false, error } : { ok: true };
+  }
+
+  showItemInFolder(filePathValue: unknown): { ok: boolean; error?: string } {
+    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+      throw new Error("表示するファイルの場所がありません。");
+    }
+    const filePath = path.resolve(filePathValue);
+    if (!fs.existsSync(filePath)) {
+      return { ok: false, error: "ファイルが見つかりません。移動または削除された可能性があります。保存先をSettingsで確認してください。" };
+    }
+    shell.showItemInFolder(filePath);
+    return { ok: true };
+  }
+
+  async chooseDirectory(titleValue: unknown): Promise<{ canceled: boolean; path?: string }> {
+    const result = await dialog.showOpenDialog({
+      title: typeof titleValue === "string" && titleValue.trim() ? titleValue : "フォルダを選択",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return { canceled: false, path: result.filePaths[0] };
+  }
+
+  importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {
+    const request = normalizeArtifactFileImportRequest(requestValue);
+    const baseDirectory = String(this.repository.getPreference("artifactDirectory") || "").trim();
+    if (!baseDirectory) return { status: "needs_directory" };
+
+    for (const file of request.files) {
+      if (!fs.existsSync(file.path) || !fs.statSync(file.path).isFile()) {
+        throw new Error(`ドロップしたファイルが見つかりません（${file.name || path.basename(file.path)}）。保存済みのファイルをドラッグしてください。`);
+      }
+    }
+
+    const [year, month] = artifactMonthSegments();
+    const directory = path.join(baseDirectory, year, month);
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+    } catch (error) {
+      throw new Error(`保存先フォルダを作成できませんでした（${directory}）。SettingsでArtifact保存先を書き込みできる場所に変更してください。${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const files: ImportedArtifactFile[] = [];
+    for (const file of request.files) {
+      const originalName = file.name || path.basename(file.path);
+      const filename = resolveUniqueArtifactFileName(originalName, (candidate: string) => fs.existsSync(path.join(directory, candidate)));
+      const storedPath = path.join(directory, filename);
+      try {
+        // COPYFILE_EXCLで既存ファイルへの上書きを防ぐ（同名回避と二重の安全策）。
+        fs.copyFileSync(file.path, storedPath, fs.constants.COPYFILE_EXCL);
+      } catch (error) {
+        throw new Error(`ファイルをコピーできませんでした（${originalName}）。保存先の空き容量とアクセス権を確認して、もう一度ドラッグしてください。${error instanceof Error ? error.message : String(error)}`);
+      }
+      files.push({
+        filename,
+        storedPath,
+        originalPath: file.path,
+        fileSize: fs.statSync(storedPath).size,
+        mimeType: artifactMimeTypeOf(filename),
+        fileType: artifactFileTypeOf(filename),
+      });
+    }
+    return { status: "ok", directory, files };
   }
 
   reload(sender: WebContents): boolean {

@@ -20,6 +20,7 @@
 | SourceRecord | 編集Drawerから削除 | - | 編集Drawerの削除 | あり | 外部入力元の論理削除 |
 | FieldDefinition / FieldValue | 編集Drawerから削除 | - | 編集Drawerの削除 | あり | 追加項目の管理経路 |
 | AI Proposal | 編集Drawerから削除 | Proposal Inboxで却下 | 編集Drawerの削除 | あり | 却下は状態変更、削除は実データ削除 |
+| Artifact | 親詳細Drawerの成果物一覧から削除 | 同左（Artifact単独の詳細画面は持たない） | - | あり | 親（Task/Note/ChatRef/Theme）削除時はcascade論理削除・restoreで復元。ファイル実体は物理削除しない |
 
 共通方針:
 
