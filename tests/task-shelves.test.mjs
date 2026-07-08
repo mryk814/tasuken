@@ -40,8 +40,8 @@ test("task shelves are wired through Today candidates and the task drawer", () =
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
 
   assert.doesNotMatch(todoSource, /moveTaskToShelf/);
-  assert.match(todaySource, /TASK_SHELF_OPTIONS/);
-  assert.match(todaySource, /handleMoveShelfTaskToday/);
-  assert.match(todaySource, /shelf-theme-chip/);
+  assert.match(todaySource, /buildDailyPlanningCandidates/);
+  assert.match(todaySource, /handleMoveCandidateTaskToday/);
+  assert.match(todaySource, /task-shelf-lane/);
   assert.match(drawerSource, /name="planning_shelf"/);
 });
