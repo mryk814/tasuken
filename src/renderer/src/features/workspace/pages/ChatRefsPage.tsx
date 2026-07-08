@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import {
   IconBrandGoogle,
   IconBrandOpenai,
@@ -11,18 +10,18 @@ import {
   IconFoldUp,
   IconGripVertical,
   IconLinkPlus,
+  IconMessageCircleQuestion,
   IconPencil,
   IconStar,
   IconStarFilled,
-  IconMessageCircleQuestion,
   IconTrash,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { PageProps, Theme } from "../types";
-import type { Resource } from "../domain-model/types";
+import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
-import { CHAT_SERVICE_LABELS, type ChatServiceType, resolveChatService } from "../lib/chatServices";
+import type { Resource } from "../domain-model/types";
 import {
   chatThreadMetaLabels,
   clearChatGroupResources,
@@ -35,9 +34,10 @@ import {
   type ChatRefGroup,
   type ChatRefSortOrder,
 } from "../lib/chatRefs";
+import { CHAT_SERVICE_LABELS, resolveChatService, type ChatServiceType } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
 import { str } from "../lib/format";
-import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import type { PageProps, Theme } from "../types";
 
 type StatusFilter = "all" | "inbox" | "adopted";
 type DragPlacement = "before" | "after";
@@ -73,7 +73,7 @@ export function ChatRefsPage({
   const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || themes[0]?.id || "");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortOrder, setSortOrder] = useState<ChatRefSortOrder>("manual");
+  const [sortOrder, setSortOrder] = useState<ChatRefSortOrder>("newest");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
@@ -327,9 +327,9 @@ export function ChatRefsPage({
           <option value="inbox">未整理のみ</option>
         </select>
         <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as ChatRefSortOrder)} aria-label="並び順">
-          <option value="manual">任意順</option>
           <option value="newest">新しい順</option>
           <option value="oldest">古い順</option>
+          <option value="manual">任意順</option>
         </select>
         {groups.length > 1 && (
           <button
