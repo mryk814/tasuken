@@ -276,10 +276,12 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
     const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
     const done = task.state === "done" || task.state === "cancelled";
+    const due = scheduledDate(schedule);
+    const urgency = !done && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
     const reminder = reminderTimeLabel(task.reminder_at, today);
     return (
       <div
-        className="table-row is-clickable-row"
+        className={`table-row is-clickable-row${urgency ? ` is-${urgency}` : ""}`}
         key={task.id}
         style={{ "--chip-color": chipColor } as React.CSSProperties}
         onClick={() => openTaskDetail(task, schedule)}
@@ -329,7 +331,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           <span className="chip-dot" />
           {theme?.name || "個人業務"}
         </span>
-        <span className="num">{formatDate(scheduledDate(schedule))}</span>
+        <span className={`num${urgency ? ` is-${urgency}` : ""}`}>{formatDate(due)}</span>
       </div>
     );
   }

@@ -54,6 +54,13 @@ test("Today shows a lightweight waiting list beside nearby milestones", () => {
   assert.match(todayPageSource, /overdueWaitingCount/);
 });
 
+test("Today and related lists share overdue urgency styling", () => {
+  assert.match(todayPageSource, /function dateUrgency/);
+  assert.match(todayPageSource, /is-\$\{urgency\}/);
+  assert.match(todayPageSource, /markDueToday=\{false\}/);
+  assert.match(todayPageSource, /today-focus-hero.*is-overdue|is-overdue.*today-focus-hero|className=\{`today-focus-hero panel\$\{/);
+});
+
 test("Today opens task rows directly in edit mode and shows lightweight reminder time", () => {
   assert.match(todayPageSource, /reminderMeta/);
   assert.match(todayPageSource, /IconClock/);

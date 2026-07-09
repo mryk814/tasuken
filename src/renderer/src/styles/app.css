@@ -166,6 +166,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .metric-button:hover { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
 .today-focus-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); padding: var(--space-2) var(--pad-card); border-left: 5px solid var(--color-accent); cursor: pointer; transition: background var(--duration-fast) var(--ease); }
 .today-focus-hero:hover { background: var(--color-surface-muted); }
+/* 期限切れ/今日期限の面: *-bg だけではライトで白に溶けるので solid 色を少量混ぜて彩度を出す */
+.today-focus-hero.is-overdue {
+  border-left-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg));
+}
+.today-focus-hero.is-overdue:hover { background: color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg)); }
+.today-focus-hero.is-overdue .focus-hero-label { color: var(--color-danger-strong); }
 .focus-hero-content { display: grid; gap: var(--space-1); min-width: 0; }
 .focus-hero-label { display: flex; align-items: center; gap: var(--space-1); color: var(--color-accent-strong); font-size: var(--text-xs); font-weight: var(--weight-medium); text-transform: uppercase; }
 .focus-hero-title { font-size: var(--text-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -187,9 +194,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   height: 1.25rem;
   padding: 0 var(--space-1);
   border-radius: var(--radius-pill);
-  border: 1px solid var(--color-warning-bd);
-  background: var(--color-warning-bg);
-  color: var(--color-warning-strong);
+  border: 1px solid var(--color-danger-bd);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-danger-bg));
+  color: var(--color-danger-strong);
   font: var(--text-xs) var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -214,11 +221,17 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .today-waiting-row:last-child { border-bottom: 0; }
 .today-waiting-row:hover { background: var(--color-surface-muted); }
 .today-waiting-row.is-due-today {
-  background: color-mix(in srgb, var(--color-warning-bg) 36%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg));
+}
+.today-waiting-row.is-due-today:hover {
+  background: color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg));
 }
 .today-waiting-row.is-overdue {
-  background: color-mix(in srgb, var(--color-warning-bg) 54%, var(--color-surface));
-  box-shadow: inset 3px 0 0 var(--color-warning);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg));
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+.today-waiting-row.is-overdue:hover {
+  background: color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg));
 }
 .today-waiting-theme-bar {
   align-self: stretch;
@@ -245,14 +258,47 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.today-waiting-row time.is-overdue {
+.today-waiting-row time.is-due-today {
   color: var(--color-warning-strong);
+  font-weight: var(--weight-medium);
+}
+.today-waiting-row time.is-overdue {
+  color: var(--color-danger-strong);
   font-weight: var(--weight-medium);
 }
 .today-task-list, .today-update-list { display: grid; }
 .today-task-row { min-height: 40px; display: grid; grid-template-columns: 8px 24px minmax(0, 1fr) 94px 52px; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
 .period-task-row { grid-template-columns: 8px 24px 48px minmax(0, 1fr) 158px 52px; }
 .today-task-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%, var(--color-surface-muted) 46%); }
+.today-task-row.is-due-today {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 12%, color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg))) 0%,
+    color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg)) 42%
+  );
+}
+.today-task-row.is-due-today:hover {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 16%, color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg))) 0%,
+    color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg)) 42%
+  );
+}
+.today-task-row.is-overdue {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 12%, color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg))) 0%,
+    color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg)) 42%
+  );
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+.today-task-row.is-overdue:hover {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 16%, color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg))) 0%,
+    color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg)) 42%
+  );
+}
 .today-task-row:last-child { border-bottom: 0; }
 .period-progress-badge { display: inline-flex; justify-content: center; min-width: 44px; padding: 1px var(--space-1); border: 1px solid var(--color-status-active-bd); border-radius: var(--radius-sm); background: var(--color-status-active-bg); color: var(--color-status-active-fg); font: var(--text-xs) var(--font-mono); }
 .period-action-button { display: inline-flex; align-items: center; justify-content: center; opacity: 1; }
@@ -260,7 +306,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .today-task-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-task-title span { overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .row-reminder-meta { display: inline-flex; align-items: center; gap: 3px; color: var(--color-text-tertiary); font: var(--text-xs) var(--font-mono); white-space: nowrap; }
-.today-task-row time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-align: right; white-space: nowrap; }
+.today-task-row time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.today-task-row time.is-due-today { color: var(--color-warning-strong); font-weight: var(--weight-medium); }
+.today-task-row time.is-overdue { color: var(--color-danger-strong); font-weight: var(--weight-medium); }
 .today-row-spacer { width: 26px; height: 26px; flex: 0 0 auto; }
 .inline-icon.accent { color: var(--color-accent-strong); }
 
@@ -1167,6 +1215,49 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .todo-group-heading strong { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums; }
 .todo-table .table-row, .waiting-table .table-row { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
 .todo-table .table-row:hover, .waiting-table .table-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%, var(--color-surface-muted) 46%); }
+.todo-table .table-row.is-due-today,
+.waiting-table .table-row.is-due-today {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 12%, color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg))) 0%,
+    color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg)) 42%
+  );
+}
+.todo-table .table-row.is-due-today:hover,
+.waiting-table .table-row.is-due-today:hover {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 16%, color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg))) 0%,
+    color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg)) 42%
+  );
+}
+.todo-table .table-row.is-overdue,
+.waiting-table .table-row.is-overdue {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 12%, color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg))) 0%,
+    color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg)) 42%
+  );
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+.todo-table .table-row.is-overdue:hover,
+.waiting-table .table-row.is-overdue:hover {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 16%, color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg))) 0%,
+    color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg)) 42%
+  );
+}
+.todo-table .table-row .num.is-due-today,
+.waiting-table .table-row .num.is-due-today {
+  color: var(--color-warning-strong);
+  font-weight: var(--weight-medium);
+}
+.todo-table .table-row .num.is-overdue,
+.waiting-table .table-row .num.is-overdue {
+  color: var(--color-danger-strong);
+  font-weight: var(--weight-medium);
+}
 .todo-table .table-head, .todo-table .table-row { min-width: 0; grid-template-columns: 8px 22px minmax(0, 1fr) 72px minmax(92px, 118px) 88px; }
 .task-shelf-select { min-width: 0; height: 30px; padding: 0 var(--space-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .task-shelf-select:hover, .task-shelf-select:focus { border-color: var(--color-accent-subtle-bd); color: var(--color-text); }
@@ -1180,8 +1271,17 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .shelf-task-list { display: grid; gap: var(--space-1); }
 .shelf-task-row { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); padding: var(--space-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
 .shelf-task-row:hover { border-color: var(--color-border-strong); background: var(--color-surface-muted); }
-.shelf-task-row.is-overdue { border-color: var(--color-danger-bd); background: color-mix(in srgb, var(--color-danger-bg) 42%, var(--color-surface)); }
-.shelf-task-row.is-due-today { border-color: var(--color-warning-bd); background: color-mix(in srgb, var(--color-warning-bg) 42%, var(--color-surface)); }
+.shelf-task-row.is-overdue {
+  border-color: var(--color-danger-bd);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg));
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+.shelf-task-row.is-due-today {
+  border-color: var(--color-warning-bd);
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg));
+}
+.shelf-task-row.is-overdue .shelf-task-title span { color: var(--color-danger-strong); font-weight: var(--weight-medium); }
+.shelf-task-row.is-due-today .shelf-task-title span { color: var(--color-warning-strong); font-weight: var(--weight-medium); }
 .shelf-theme-bar { align-self: stretch; border-radius: var(--radius-pill); background: var(--chip-color); }
 .shelf-task-title { min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; }
 .shelf-task-title strong, .shelf-task-title span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

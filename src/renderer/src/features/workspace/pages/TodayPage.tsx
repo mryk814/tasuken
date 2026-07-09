@@ -62,6 +62,14 @@ function scheduleDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
 }
 
+/** 今日期限 / 期限切れ。完了系には付けない。 */
+function dateUrgency(date: string | undefined | null, today: string, inactive = false): "overdue" | "due-today" | null {
+  if (inactive || !date) return null;
+  if (date < today) return "overdue";
+  if (date === today) return "due-today";
+  return null;
+}
+
 function scheduleTouchesRange(schedule: Schedule | undefined, start: string, end: string): boolean {
   const date = scheduleDate(schedule);
   return Boolean(date && date >= start && date <= end);
@@ -186,6 +194,8 @@ function TodayRows({
   onPostpone,
   onOpenDetail,
   onAdd,
+  /** 今日専用リストでは due-today を付けない（全部今日なのでうるさくなる） */
+  markDueToday = true,
 }: {
   rows: TodayRow[];
   themes: PageProps["themes"];
@@ -196,6 +206,7 @@ function TodayRows({
   onPostpone: (row: TodayRow, days: number) => void;
   onOpenDetail: (row: TodayRow) => void;
   onAdd?: () => void;
+  markDueToday?: boolean;
 }) {
   if (!rows.length) return <EmptyState title={empty} action={onAdd ? "タスクを追加" : undefined} onAction={onAdd} />;
   return (
@@ -206,10 +217,12 @@ function TodayRows({
         const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
         const isToday = row.date?.slice(0, 10) === today;
         const done = row.status === "done" || row.status === "cancelled" || row.status === "received";
+        const rawUrgency = dateUrgency(row.date, today, done);
+        const urgency = rawUrgency === "due-today" && !markDueToday ? null : rawUrgency;
         const reminder = reminderMeta(row, today);
         return (
           <div
-            className="today-task-row is-clickable-row"
+            className={`today-task-row is-clickable-row${urgency ? ` is-${urgency}` : ""}`}
             key={row.id}
             style={{ "--chip-color": chipColor } as React.CSSProperties}
             onClick={() => onOpenDetail(row)}
@@ -243,7 +256,7 @@ function TodayRows({
                 {reminder && <small className="row-reminder-meta"><IconClock size={13} />{reminder}</small>}
               </button>
             </div>
-            <time>{formatDate(row.date)}</time>
+            <time className={urgency || undefined} dateTime={row.date || undefined}>{formatDate(row.date)}</time>
             <span className="today-postpone-actions">
               {hasSchedule(row) && (
                 <button className="postpone-button" onClick={(event) => { event.stopPropagation(); onPostpone(row, 1); }} title="+1日" aria-label={`${row.title}を1日延期`}>+1d</button>
@@ -289,13 +302,12 @@ function WaitingListRows({
         const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
         const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
         const due = row.date || "";
-        const isOverdue = Boolean(due && due < today);
-        const isDueToday = Boolean(due && due === today);
+        const urgency = dateUrgency(due, today);
         return (
           <button
             key={row.id}
             type="button"
-            className={`today-waiting-row${isOverdue ? " is-overdue" : ""}${isDueToday ? " is-due-today" : ""}`}
+            className={`today-waiting-row${urgency ? ` is-${urgency}` : ""}`}
             style={{ "--chip-color": chipColor } as React.CSSProperties}
             onClick={() => onOpenDetail(row)}
           >
@@ -304,7 +316,7 @@ function WaitingListRows({
               <strong>{row.title}</strong>
               <span>{row.waitingFor || theme?.name || "相手未設定"}</span>
             </span>
-            <time className={isOverdue ? "is-overdue" : undefined} dateTime={due || undefined}>
+            <time className={urgency || undefined} dateTime={due || undefined}>
               {due ? formatDate(due) : "期限なし"}
             </time>
           </button>
@@ -739,7 +751,10 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
       )}
 
       {focusItem && (
-        <section className="today-focus-hero panel" onClick={() => handleOpenDetail(focusItem)}>
+        <section
+          className={`today-focus-hero panel${focusItem.date && focusItem.date < today ? " is-overdue" : ""}`}
+          onClick={() => handleOpenDetail(focusItem)}
+        >
           <div className="focus-hero-content">
             <span className="focus-hero-label"><IconClock size={14} /> {focusItem.date && focusItem.date < today ? "期限切れ" : "次にやること"}</span>
             <strong className="focus-hero-title">{focusItem.title}</strong>
@@ -758,7 +773,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <h2>今日やること</h2>
           <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
-        <TodayRows rows={todayRows} themes={themes} empty="今日のタスクはありません" today={today} {...rowHandlers} onAdd={() => setShowAdd(true)} />
+        <TodayRows rows={todayRows} themes={themes} empty="今日のタスクはありません" today={today} {...rowHandlers} onAdd={() => setShowAdd(true)} markDueToday={false} />
       </section>
 
       <section className="panel task-shelf-panel">

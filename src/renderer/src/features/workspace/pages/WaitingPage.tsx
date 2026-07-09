@@ -2,6 +2,7 @@ import { useState } from "react";
 import { IconCheck, IconPlus, IconX } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
@@ -23,6 +24,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
   const [addWaitingFor, setAddWaitingFor] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const [addDate, setAddDate] = useState("");
+  const today = todayIso();
   const schedulesByOwner = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const allRows = v2.waitings
     .map((w) => ({ waiting: w, schedule: schedulesByOwner.get(`waiting:${w.id}`) }))
@@ -129,9 +131,11 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
             const received = waiting.state === "received";
             const cancelled = waiting.state === "cancelled";
+            const due = scheduledDate(schedule);
+            const urgency = !received && !cancelled && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
             return (
               <div
-                className={`table-row ${cancelled ? "is-cancelled" : ""}`}
+                className={`table-row ${cancelled ? "is-cancelled" : ""}${urgency ? ` is-${urgency}` : ""}`}
                 key={waiting.id}
                 style={{ "--chip-color": chipColor } as React.CSSProperties}
               >
@@ -160,7 +164,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
                   )}
                 </span>
                 <span className="theme-inline"><span className="chip-dot" />{theme?.name || "個人業務"}</span>
-                <span className="num">{formatDate(scheduledDate(schedule))}</span>
+                <span className={`num${urgency ? ` is-${urgency}` : ""}`}>{formatDate(due)}</span>
               </div>
             );
           })}
