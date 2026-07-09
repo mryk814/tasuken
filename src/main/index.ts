@@ -763,7 +763,7 @@ if (requestedUserDataPath) {
   setTimeout(() => {
     recordSmoke("timeout");
     app.exit(1);
-  }, 25000);
+  }, 45000);
 }
 
 async function runSmokeTest(window: BrowserWindow): Promise<void> {
@@ -794,37 +794,72 @@ code block
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const setInputValue = (element, value) => {
-        const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set;
+        const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set
+          || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+          || Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
         if (setter) setter.call(element, value);
         else element.value = value;
         element.dispatchEvent(new Event("input", { bubbles: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true }));
       };
-      const waitForButton = async (label) => {
-        for (let attempt = 0; attempt < 50; attempt += 1) {
-          const target = [...document.querySelectorAll("button")].find((button) => {
-            const firstLabel = button.querySelector("span")?.textContent?.trim();
-            return firstLabel === label || button.textContent.trim() === label;
-          });
+      const waitFor = async (finder, label, attempts = 50) => {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          const target = finder();
           if (target) return target;
           await delay(100);
         }
-        throw new Error(label + " ボタンが見つかりません。画面: " + document.body.innerText.slice(0, 1000));
+        throw new Error(label + " が見つかりません。画面: " + document.body.innerText.slice(0, 1000));
+      };
+      const waitForButton = async (label) => waitFor(() => {
+        return [...document.querySelectorAll("button")].find((button) => {
+          const firstLabel = button.querySelector("span")?.textContent?.trim();
+          return firstLabel === label || button.textContent.trim() === label;
+        });
+      }, label + " ボタン");
+      const clickPaneButton = (pane, label) => {
+        const button = [...pane.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label);
+        if (!button) throw new Error(label + " ボタンがNotesパネル内に見つかりません。");
+        button.click();
+        return button;
+      };
+      const selectNoteRow = async (title) => {
+        const row = await waitFor(
+          () => [...document.querySelectorAll(".note-row-main")].find((button) => button.textContent.includes(title)),
+          "Note行 " + title,
+        );
+        row.click();
+        await delay(120);
+        return row;
+      };
+      const setNoteBodyRaw = async (body) => {
+        const notesPane = document.querySelector(".note-preview-panel");
+        if (!notesPane) throw new Error("Notes中央パネルが見つかりません");
+        clickPaneButton(notesPane, "Raw");
+        await delay(80);
+        const rawArea = notesPane.querySelector("textarea.note-main-editor-raw");
+        if (!rawArea) throw new Error("Raw編集エリアが見つかりません");
+        setInputValue(rawArea, body);
+        await delay(40);
+        return notesPane;
       };
 
+      // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
       (await waitForButton("Notes")).click();
-      await delay(60);
+      await delay(80);
       (await waitForButton("Note")).click();
-      await delay(60);
+      await delay(100);
 
-      const title = document.querySelector('input[name="title"]');
-      const body = document.querySelector('textarea[name="body_markdown"]');
-      const form = document.querySelector(".drawer-form");
-      if (!title || !body || !form) throw new Error("メモ入力フォームが見つかりません");
-
-      title.value = ${JSON.stringify(testTitle)};
-      body.value = "Electron内で入力と保存を確認しました。";
+      const form = await waitFor(() => document.querySelector(".drawer-form"), "メモ入力フォーム");
+      const title = form.querySelector('input[name="title"]');
+      if (!title) throw new Error("メモ入力フォームにタイトル欄がありません");
+      setInputValue(title, ${JSON.stringify(testTitle)});
       form.requestSubmit();
-      await delay(120);
+      await delay(200);
+
+      await selectNoteRow(${JSON.stringify(testTitle)});
+      await setNoteBodyRaw("Electron内で入力と保存を確認しました。");
+      clickPaneButton(document.querySelector(".note-preview-panel"), "保存");
+      await delay(200);
 
       await window.api.entities.save("theme", { id: ${JSON.stringify(smokeThemeId)}, name: "Smoke Theme", code: "SMOKE", status: "active" });
       const smokeImage = await window.api.attachments.saveMarkdownImage({
@@ -832,32 +867,39 @@ code block
         mimeType: "image/png",
         dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
       });
-      (await waitForButton("Markdown文書")).click();
-      await delay(80);
-      const markdownForm = document.querySelector(".drawer-form");
-      const markdownTitle = markdownForm?.querySelector('input[name="title"]');
-      const markdownBody = markdownForm?.querySelector('textarea[name="body_markdown"]');
-      const markdownTheme = markdownForm?.querySelector('input[name="theme_id"]');
-      if (!markdownForm || !markdownTitle || !markdownBody || !markdownTheme) throw new Error("Markdown入力フォームが見つかりません");
-      const clickMarkdownFormButton = (label) => {
-        const button = [...markdownForm.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label);
-        if (!button) throw new Error(label + " ボタンがMarkdown入力フォーム内に見つかりません。");
-        button.click();
-      };
-      setInputValue(markdownTitle, ${JSON.stringify(markdownTitle)});
-      markdownTheme.value = ${JSON.stringify(smokeThemeId)};
-      markdownTheme.dispatchEvent(new Event("input", { bubbles: true }));
-      setInputValue(markdownBody, ${JSON.stringify(markdownBody)}.replace("__SMOKE_IMAGE_URL__", smokeImage.url));
-      clickMarkdownFormButton("Preview");
-      await delay(80);
-      const preview = markdownForm.querySelector(".markdown-preview");
+      const markdownContent = ${JSON.stringify(markdownBody)}.replace("__SMOKE_IMAGE_URL__", smokeImage.url);
+
+      // Markdown 確認用 Note を作成（本文は中央 Raw で投入）
+      (await waitForButton("Note")).click();
+      await delay(100);
+      const markdownForm = await waitFor(() => document.querySelector(".drawer-form"), "Markdown入力フォーム");
+      const markdownTitleInput = markdownForm.querySelector('input[name="title"]');
+      const markdownTheme = markdownForm.querySelector('input[name="theme_id"]');
+      if (!markdownTitleInput || !markdownTheme) throw new Error("Markdown入力フォームの項目が見つかりません");
+      setInputValue(markdownTitleInput, ${JSON.stringify(markdownTitle)});
+      setInputValue(markdownTheme, ${JSON.stringify(smokeThemeId)});
+      markdownForm.requestSubmit();
+      await delay(220);
+
+      await selectNoteRow(${JSON.stringify(markdownTitle)});
+      let notesPane = await setNoteBodyRaw(markdownContent);
+      clickPaneButton(notesPane, "保存");
+      await delay(200);
+
+      // Preview で Markdown 描画を確認
+      clickPaneButton(notesPane, "Preview");
+      await delay(120);
+      const preview = notesPane.querySelector(".note-main-preview.markdown-preview") || notesPane.querySelector(".markdown-preview");
       const markdownPreviewRendered = Boolean(
         preview?.querySelector("h1")?.textContent?.includes("Markdown Preview")
         && preview?.querySelector("li")?.textContent?.includes("箇条書き")
         && [...(preview?.querySelectorAll("code") || [])].some((code) => code.textContent?.includes("code block"))
       );
       const markdownFrontmatterRendered = Boolean(preview?.querySelector(".md-frontmatter")?.textContent?.includes("type: report"));
-      const markdownMathRendered = Boolean(preview?.querySelector(".md-math-inline")?.textContent?.includes("a^2") && preview?.querySelector(".md-math-block")?.textContent?.includes("E = mc^2"));
+      const markdownMathRendered = Boolean(
+        preview?.querySelector(".md-math-inline")?.textContent?.includes("a^2")
+        && preview?.querySelector(".md-math-block")?.textContent?.includes("E = mc^2")
+      );
       const smokePreviewImage = preview?.querySelector('.md-image img[alt="Smoke Image"]');
       if (smokePreviewImage && !smokePreviewImage.complete) {
         await new Promise((resolve) => {
@@ -866,24 +908,35 @@ code block
           setTimeout(resolve, 700);
         });
       }
-      const markdownImageRendered = Boolean(smokePreviewImage?.getAttribute("src")?.startsWith("tasken-attachment://") && smokePreviewImage?.naturalWidth > 0);
-      clickMarkdownFormButton("本文をコピー");
+      const markdownImageRendered = Boolean(
+        smokePreviewImage?.getAttribute("src")?.startsWith("tasken-attachment://")
+        && smokePreviewImage?.naturalWidth > 0
+      );
+
+      clickPaneButton(notesPane, "本文をコピー");
       await delay(140);
       const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
-      markdownForm.requestSubmit();
-      await delay(160);
-      const notesPane = document.querySelector(".note-preview-panel");
+
+      // 編集（Live Preview）面での追記・貼り付け
+      clickPaneButton(notesPane, "編集");
+      await delay(200);
+      notesPane = document.querySelector(".note-preview-panel");
+      const liveEditable = await waitFor(
+        () => notesPane?.querySelector(".note-mdx-content[contenteditable='true']"),
+        "Live Preview編集面",
+        40,
+      );
       const notesPanePreviewRendered = Boolean(
         notesPane?.querySelector("h2")?.textContent?.includes(${JSON.stringify(markdownTitle)})
-        && notesPane?.querySelector(".note-live-editor h1")?.textContent?.includes("Markdown Preview")
+        && (notesPane?.querySelector(".note-live-editor h1")?.textContent?.includes("Markdown Preview")
+          || liveEditable?.querySelector("h1")?.textContent?.includes("Markdown Preview"))
         && notesPane?.querySelector(".document-publish-panel")
       );
       const notesPaneMathRendered = Boolean(
         notesPane?.querySelector(".note-editor-math-inline")
         && notesPane?.querySelector(".note-editor-math-block")
       );
-      const liveEditable = notesPane?.querySelector(".note-mdx-content[contenteditable='true']");
-      if (!liveEditable) throw new Error("Live Preview編集面が見つかりません");
+
       liveEditable.focus();
       let liveTextNode = null;
       for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -913,7 +966,7 @@ code block
       const pasteEvent = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
       Object.defineProperty(pasteEvent, "clipboardData", { value: pasteData });
       liveEditable.dispatchEvent(pasteEvent);
-      await delay(160);
+      await delay(200);
       const notesLiveEditRendered = Boolean(notesPane?.querySelector(".note-live-editor")?.textContent?.includes("Live edit smoke"));
       const notesMarkdownPasteRendered = Boolean(
         notesPane?.querySelector(".note-live-editor h2")?.textContent?.includes("Pasted Markdown Heading")
@@ -921,7 +974,7 @@ code block
       );
       const saveDraftButton = [...(notesPane?.querySelectorAll(".note-preview-actions button") || [])].find((button) => button.textContent.trim() === "保存");
       saveDraftButton?.click();
-      await delay(180);
+      await delay(220);
       const notesLiveEditSaved = notesLiveEditRendered && document.body.innerText.includes("保存しました。");
       await window.api.preferences.set("themeMode", "dark");
       const now = new Date();

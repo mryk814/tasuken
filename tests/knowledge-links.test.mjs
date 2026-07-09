@@ -1,20 +1,25 @@
 import assert from "node:assert/strict";
-import { Buffer } from "node:buffer";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 async function importBundled(relativePath) {
-  const result = await build({
+  // KaTeX フォント埋め込みで data: URL が肥大化するため、一時ファイル経由で import する。
+  const outDir = mkdtempSync(path.join(tmpdir(), "tasken-kl-"));
+  const outfile = path.join(outDir, "bundle.mjs");
+  await build({
     entryPoints: [path.resolve(relativePath)],
     bundle: true,
-    platform: "browser",
+    // micromark 系が browser 条件で document を触るため node で束ねる。
+    platform: "node",
     format: "esm",
-    write: false,
+    outfile,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(pathToFileURL(outfile).href);
 }
 
 const knowledgeLinks = await importBundled("src/renderer/src/features/workspace/lib/knowledgeLinks.ts");
