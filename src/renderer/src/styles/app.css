@@ -37,6 +37,9 @@ html, body, #root { height: 100%; min-height: 0; margin: 0; overflow: hidden; }
   --markdown-accent-strong: #1C557D;
   --markdown-accent-bg: #E8F1F8;
   --markdown-accent-bd: #C3DCEE;
+  --markdown-link: #0B6BCB;
+  --markdown-link-hover: #084F96;
+  --markdown-link-underline: #7BB4E3;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -366,6 +369,82 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   --accentBgHover: var(--color-accent-subtle-bg-strong);
   --accentBorder: var(--color-accent-subtle-bd);
 }
+.note-live-editor-paste-scope { position: relative; }
+/* キャレットがリンク内に入っただけで出る preview ポップオーバーは抑止。編集フォーム（CreateLink/Ctrl+K）は残す。 */
+.note-live-editor [class*="_linkDialogPopoverContent_"]:has([class*="_linkDialogPreviewAnchor_"]) {
+  display: none !important;
+}
+.note-live-editor [class*="_linkDialogAnchor_"]:not([data-visible="true"]) {
+  display: none !important;
+}
+.note-link-hover-card {
+  position: absolute;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(420px, calc(100% - var(--space-4)));
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.note-link-hover-card.is-editing { max-width: min(520px, calc(100% - var(--space-4))); }
+.note-link-hover-open,
+.note-link-hover-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-accent-subtle-bd);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-accent-strong);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.note-link-hover-action {
+  min-width: 28px;
+  padding: 2px;
+  border-color: var(--color-border-subtle);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+}
+.note-link-hover-open:hover,
+.note-link-hover-action:hover { background: color-mix(in srgb, var(--color-accent-subtle-bg) 70%, var(--color-surface-muted)); color: var(--color-accent-strong); }
+.note-link-hover-action.is-danger:hover { border-color: var(--color-danger-bd); background: var(--color-danger-bg); color: var(--color-danger); }
+.note-link-hover-open:focus-visible,
+.note-link-hover-action:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.note-link-hover-url {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-link-hover-edit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: min(420px, 70vw);
+}
+.note-link-hover-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+}
+.note-link-hover-input:focus { border-color: var(--color-accent); outline: 2px solid var(--color-focus); outline-offset: -1px; }
 .note-live-editor [role="toolbar"] { position: sticky; top: 0; z-index: 2; min-height: 36px; padding: var(--space-1) var(--space-2); overflow: hidden; scrollbar-width: none; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface-subtle); color: var(--color-text-secondary); }
 .note-live-editor [role="toolbar"]::-webkit-scrollbar { display: none; }
 .note-live-editor [role="toolbar"] button, .note-live-editor [role="toolbar"] [role="combobox"] { min-width: 30px; min-height: 28px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary) !important; font-size: var(--text-xs); opacity: 1 !important; }
@@ -783,6 +862,55 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview .md-math-operator { margin-right: 0.18em; font-style: normal; }
 .markdown-preview .md-math-inline sub, .markdown-preview .md-math-block sub { font-size: 0.68em; vertical-align: -0.35em; }
 .markdown-preview .md-math-inline sup, .markdown-preview .md-math-block sup { font-size: 0.68em; vertical-align: 0.55em; }
+.markdown-preview a,
+.markdown-preview .md-link,
+.note-mdx-content a {
+  color: var(--markdown-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--markdown-link-underline);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.markdown-preview a:hover,
+.markdown-preview .md-link:hover,
+.note-mdx-content a:hover {
+  color: var(--markdown-link-hover);
+  text-decoration-thickness: 2px;
+  background: color-mix(in srgb, var(--markdown-link) 10%, transparent);
+  border-radius: 3px;
+}
+.markdown-preview a:focus-visible,
+.note-mdx-content a:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.markdown-preview h1 a,
+.markdown-preview h2 a,
+.markdown-preview h3 a,
+.markdown-preview h4 a,
+.markdown-preview blockquote a,
+.markdown-preview th a,
+.markdown-preview td a,
+.note-mdx-content h1 a,
+.note-mdx-content h2 a,
+.note-mdx-content h3 a,
+.note-mdx-content h4 a,
+.note-mdx-content blockquote a,
+.note-mdx-content th a,
+.note-mdx-content td a {
+  color: var(--markdown-link);
+  font-style: normal;
+}
+.markdown-preview pre a,
+.markdown-preview code a,
+.note-mdx-content pre a,
+.note-mdx-content code a {
+  color: var(--markdown-link);
+  text-decoration: underline;
+  background: transparent;
+}
 .markdown-preview .md-wiki-link { display: inline-flex; align-items: center; max-width: 100%; padding: 0 .42em; border: 1px solid var(--color-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-accent-bg) 72%, var(--markdown-paper)); color: var(--color-accent-strong); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
 .markdown-preview .md-frontmatter { margin-bottom: var(--space-3); padding: var(--space-2); border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper-subtle); }
 .markdown-preview .md-frontmatter summary { cursor: pointer; color: var(--markdown-paper-secondary); font-size: var(--text-sm); font-weight: var(--weight-medium); }

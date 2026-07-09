@@ -81,12 +81,44 @@ code line
 test("markdown preview renders safe ordinary links and rejects unsafe link urls", () => {
   const html = markdown.renderMarkdownPreview("[OpenAI](https://openai.com) [mail](mailto:test@example.com) [bad](javascript:alert(1)) ![Chart](https://example.com/chart.png) [[Knowledge]]");
 
-  assert.match(html, /<a href="https:\/\/openai\.com\/" target="_blank" rel="noreferrer">OpenAI<\/a>/);
-  assert.match(html, /<a href="mailto:test@example.com" target="_blank" rel="noreferrer">mail<\/a>/);
+  assert.match(html, /<a class="md-link" href="https:\/\/openai\.com\/" target="_blank" rel="noreferrer">OpenAI<\/a>/);
+  assert.match(html, /<a class="md-link" href="mailto:test@example.com" target="_blank" rel="noreferrer">mail<\/a>/);
   assert.doesNotMatch(html, /href="javascript:/);
   assert.match(html, /bad/);
   assert.match(html, /<img src="https:\/\/example\.com\/chart\.png" alt="Chart"/);
   assert.match(html, /class="md-wiki-link"/);
+  assert.equal(markdown.safeMarkdownLinkUrl("https://example.com/path"), "https://example.com/path");
+  assert.equal(markdown.safeMarkdownLinkUrl("javascript:alert(1)"), "");
+  assert.equal(markdown.safeMarkdownLinkUrl("example.com/docs"), "https://example.com/docs");
+  assert.equal(markdown.safeMarkdownLinkUrl("//example.com/x"), "https://example.com/x");
+  assert.equal(markdown.safeMarkdownLinkUrl("about:blank"), "");
+});
+
+test("markdown preview and editor css make ordinary links visible", () => {
+  const source = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const documentCss = markdown.previewDocument("[OpenAI](https://openai.com)", "markdown");
+
+  assert.match(source, /--markdown-link:\s*#0B6BCB/);
+  assert.match(source, /\.markdown-preview a,\s*\n\.markdown-preview \.md-link/s);
+  assert.match(source, /text-decoration: underline/);
+  assert.match(source, /\.markdown-preview a:hover/);
+  assert.match(source, /\.markdown-preview h2 a/);
+  assert.match(source, /\.markdown-preview blockquote a/);
+  assert.match(documentCss, /#0B6BCB/);
+  assert.match(notesSource, /openSafeMarkdownLink/);
+  assert.match(notesSource, /linkDialogPlugin/);
+  assert.match(notesSource, /pointerdown/);
+  assert.match(notesSource, /metaKey \|\| event\.ctrlKey/);
+  assert.match(notesSource, /note-link-hover-card/);
+  assert.match(notesSource, /mousemove/);
+  assert.match(notesSource, /removeEditorLink|TOGGLE_LINK_COMMAND/);
+  assert.match(notesSource, /updateEditorLinkUrl|setURL/);
+  assert.match(notesSource, /リンクを編集/);
+  assert.match(notesSource, /リンクを削除/);
+  assert.match(source, /note-link-hover-card/);
+  assert.match(source, /note-link-hover-action/);
+  assert.match(source, /_linkDialogPreviewAnchor_/);
 });
 
 test("previewDocument includes readable markdown document styling", () => {

@@ -41,6 +41,28 @@ function safeMarkdownUrl(value: string, kind: "image" | "link"): string {
   }
 }
 
+/** Preview/Edit からリンクを開く前に許可 scheme を検証する。 */
+export function safeMarkdownLinkUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "about:blank") return "";
+  const direct = safeMarkdownUrl(trimmed, "link");
+  if (direct) return direct;
+  // Lexical / ブラウザ解決後の bare host や //example.com を救済する。
+  if (trimmed.startsWith("//")) return safeMarkdownUrl(`https:${trimmed}`, "link");
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !trimmed.startsWith("#") && !trimmed.startsWith("/")) {
+    return safeMarkdownUrl(`https://${trimmed}`, "link");
+  }
+  return "";
+}
+
+/** 許可された Markdown リンクを外部で開く。開けたら true。 */
+export function openSafeMarkdownLink(value: string): boolean {
+  const url = safeMarkdownLinkUrl(value);
+  if (!url || url.startsWith("#")) return false;
+  window.open(url, "_blank", "noreferrer");
+  return true;
+}
+
 const MATH_COMMANDS: Record<string, string> = {
   alpha: "α",
   beta: "β",
@@ -148,7 +170,7 @@ function renderInlineMarkdown(value: string): string {
       const url = safeMarkdownUrl(rawUrl, "link");
       const renderedLabel = escapeHtml(label.trim() || rawUrl);
       if (!url) return renderedLabel;
-      return stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${renderedLabel}</a>`);
+      return stash(`<a class="md-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${renderedLabel}</a>`);
     })
     .replace(/(?<!\\)`([^`]+)`/g, (_match, code: string) => stash(`<code>${escapeHtml(code)}</code>`))
     // 開き$の直後・閉じ$の直前は空白不可、閉じ$の直後に数字を続けない（Pandoc等と同じ規約）。
@@ -309,7 +331,10 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Yu Gothic","Hiragino Ma
 .markdown-document tbody tr:last-child td{border-bottom:0}
 .markdown-document th{background:#F0F6FA;color:#1C557D;font-weight:700}
 .markdown-document tr:nth-child(even) td{background:#F7FBFD}
-.markdown-document a{color:#1C557D;text-decoration:underline;text-underline-offset:2px}
+.markdown-document a,.markdown-document .md-link{color:#0B6BCB;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;text-decoration-color:#7BB4E3}
+.markdown-document a:hover,.markdown-document .md-link:hover{color:#084F96;text-decoration-thickness:2px;background:rgba(11,107,203,.08);border-radius:3px}
+.markdown-document h1 a,.markdown-document h2 a,.markdown-document h3 a,.markdown-document h4 a,.markdown-document blockquote a,.markdown-document th a,.markdown-document td a{color:#0B6BCB}
+.markdown-document pre a,.markdown-document code a{color:#0B6BCB;text-decoration:underline}
 .markdown-document .md-image{margin:16px 0}.markdown-document .md-image img{display:block;max-width:100%;max-height:70vh;object-fit:contain;border:1px solid #CFE0EA;border-radius:7px;background:#fff}.markdown-document .md-image figcaption{margin-top:6px;color:#6b625f;font-size:12px}
 .markdown-document .md-math-inline{display:inline-block;max-width:100%;overflow-x:auto;padding:0 .24em;color:#1C557D;font-family:Georgia,"Times New Roman",serif;font-size:1.04em;white-space:nowrap}
 .markdown-document .md-math-block{overflow-x:auto;margin:10px 0;padding:10px;border:1px solid #CFE0EA;border-radius:7px;background:#F7FBFD;color:#1C557D;font-family:Georgia,"Times New Roman",serif;font-size:1.12em;text-align:center;white-space:nowrap}

@@ -1,4 +1,3 @@
-import { Component, memo, type ClipboardEvent, type ErrorInfo, type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
@@ -11,32 +10,37 @@ import {
   imagePlugin,
   InsertImage,
   InsertTable,
+  linkDialogPlugin,
   linkPlugin,
   listsPlugin,
   ListsToggle,
   markdownShortcutPlugin,
   MDXEditor,
-  type MDXEditorMethods,
   quotePlugin,
   Separator,
   tablePlugin,
   thematicBreakPlugin,
   toolbarPlugin,
   UndoRedo,
+  type MDXEditorMethods,
 } from "@mdxeditor/editor";
-import { IconExternalLink, IconLink, IconMessageCircle, IconSparkles } from "@tabler/icons-react";
+import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
+import { $findMatchingParent } from "@lexical/utils";
+import { IconExternalLink, IconLink, IconLinkOff, IconMessageCircle, IconPencil, IconSparkles } from "@tabler/icons-react";
+import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
+import { Component, memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ErrorInfo, type MouseEvent, type ReactNode } from "react";
 
-import { workspaceApi } from "../../../services/workspaceApi";
 import { noteExportSignature } from "../../../../../shared/fileExport";
-import type { BaseRecord, NoteComment, PageProps } from "../types";
-import { NOTE_TYPE_LABELS } from "../lib/domain";
-import { str } from "../lib/format";
-import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
-import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
-import { insertStructuredMarkdownPaste, isStructuredMarkdownPaste, previewDocument, previewHtml } from "../lib/markdown";
-import { isChatReference } from "../lib/chatRefs";
+import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, StatusBadge, type ContextMenuItem } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
+import { isChatReference } from "../lib/chatRefs";
+import { NOTE_TYPE_LABELS } from "../lib/domain";
+import { str } from "../lib/format";
+import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
+import { insertStructuredMarkdownPaste, isStructuredMarkdownPaste, openSafeMarkdownLink, previewDocument, previewHtml, safeMarkdownLinkUrl } from "../lib/markdown";
+import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
+import type { BaseRecord, NoteComment, PageProps } from "../types";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
@@ -109,6 +113,69 @@ class MarkdownEditorBoundary extends Component<MarkdownEditorBoundaryProps, Mark
   }
 }
 
+function editorLinkHref(anchor: Element): string {
+  if (anchor instanceof HTMLAnchorElement) {
+    // getAttribute より DOM の解決済み href を優先する（Lexical が相対解決するケース対策）。
+    return anchor.href || anchor.getAttribute("href") || "";
+  }
+  return anchor.getAttribute("href") || "";
+}
+
+function shouldOpenEditorLink(event: Pick<MouseEvent | PointerEvent | globalThis.MouseEvent, "metaKey" | "ctrlKey" | "button" | "altKey">): boolean {
+  // 通常クリックは編集優先。
+  // - Ctrl/Cmd+クリック
+  // - 中クリック
+  // - Alt+クリック
+  if (event.button === 1) return true;
+  if (event.button !== 0) return false;
+  return Boolean(event.metaKey || event.ctrlKey || event.altKey);
+}
+
+function getLexicalEditorFromAnchor(anchor: HTMLElement): LexicalEditor | null {
+  return getNearestEditorFromDOMNode(anchor);
+}
+
+function removeEditorLink(anchor: HTMLElement): boolean {
+  const editor = getLexicalEditorFromAnchor(anchor);
+  if (!editor) return false;
+  let removed = false;
+  editor.update(() => {
+    const nearest = $getNearestNodeFromDOMNode(anchor);
+    if (!nearest) return;
+    const linkNode = $isLinkNode(nearest) ? nearest : $findMatchingParent(nearest, $isLinkNode);
+    if (!linkNode || !$isLinkNode(linkNode)) return;
+    linkNode.select();
+    removed = true;
+  });
+  if (!removed) return false;
+  editor.dispatchCommand(TOGGLE_LINK_COMMAND, null);
+  return true;
+}
+
+function updateEditorLinkUrl(anchor: HTMLElement, nextUrl: string): boolean {
+  const url = safeMarkdownLinkUrl(nextUrl);
+  if (!url) return false;
+  const editor = getLexicalEditorFromAnchor(anchor);
+  if (!editor) return false;
+  let updated = false;
+  editor.update(() => {
+    const nearest = $getNearestNodeFromDOMNode(anchor);
+    if (!nearest) return;
+    const linkNode = $isLinkNode(nearest) ? nearest : $findMatchingParent(nearest, $isLinkNode);
+    if (!linkNode || !$isLinkNode(linkNode)) return;
+    linkNode.setURL(url);
+    updated = true;
+  });
+  return updated;
+}
+
+type HoverLinkCard = {
+  url: string;
+  top: number;
+  left: number;
+  anchor: HTMLAnchorElement;
+};
+
 const MarkdownRichEditor = memo(function MarkdownRichEditor({
   markdown,
   onChange,
@@ -116,7 +183,12 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onError,
 }: MarkdownRichEditorProps) {
   const editorRef = useRef<MDXEditorMethods | null>(null);
+  const editorScopeRef = useRef<HTMLDivElement | null>(null);
+  const hoverHideTimerRef = useRef<number | null>(null);
   const [editorFailed, setEditorFailed] = useState(false);
+  const [hoverLink, setHoverLink] = useState<HoverLinkCard | null>(null);
+  const [linkEditMode, setLinkEditMode] = useState(false);
+  const [linkEditUrl, setLinkEditUrl] = useState("");
   const lastInternalMarkdown = useRef(markdown);
   const mountedRef = useRef(false);
   const plugins = useMemo(() => [
@@ -142,6 +214,13 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     quotePlugin(),
     thematicBreakPlugin(),
     linkPlugin(),
+    // CreateLink / Ctrl+K の編集フォーム用。選択位置の preview ポップオーバーは CSS で隠し、
+    // ホバー時の note-link-hover-card に置き換える。
+    linkDialogPlugin({
+      onClickLinkCallback: (url) => {
+        openSafeMarkdownLink(url);
+      },
+    }),
     markdownMathPlugin(),
     imagePlugin({
       imageUploadHandler: onImageUpload,
@@ -181,6 +260,103 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     setEditorFailed(false);
   }, [markdown]);
 
+  // React の onClick だけでは Lexical に握られることがあるため、capture の pointerdown で拾う。
+  useEffect(() => {
+    const root = editorScopeRef.current;
+    if (!root) return;
+
+    const openFromEvent = (event: PointerEvent | globalThis.MouseEvent) => {
+      if (!shouldOpenEditorLink(event)) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest("a[href]");
+      if (!anchor || !root.contains(anchor)) return;
+      if (!openSafeMarkdownLink(editorLinkHref(anchor))) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    root.addEventListener("pointerdown", openFromEvent, true);
+    root.addEventListener("auxclick", openFromEvent, true);
+    return () => {
+      root.removeEventListener("pointerdown", openFromEvent, true);
+      root.removeEventListener("auxclick", openFromEvent, true);
+    };
+  }, []);
+
+  // キャレット移動だけでは出さず、マウスホバー時だけリンク操作カードを出す。
+  useEffect(() => {
+    const root = editorScopeRef.current;
+    if (!root) return;
+
+    const clearHideTimer = () => {
+      if (hoverHideTimerRef.current != null) {
+        window.clearTimeout(hoverHideTimerRef.current);
+        hoverHideTimerRef.current = null;
+      }
+    };
+
+    const scheduleHide = () => {
+      clearHideTimer();
+      hoverHideTimerRef.current = window.setTimeout(() => {
+        setHoverLink(null);
+        setLinkEditMode(false);
+        setLinkEditUrl("");
+        hoverHideTimerRef.current = null;
+      }, 160);
+    };
+
+    const showForAnchor = (anchor: HTMLAnchorElement) => {
+      const url = safeMarkdownLinkUrl(editorLinkHref(anchor));
+      if (!url || url.startsWith("#")) {
+        scheduleHide();
+        return;
+      }
+      const rootRect = root.getBoundingClientRect();
+      const rect = anchor.getBoundingClientRect();
+      clearHideTimer();
+      setHoverLink((current) => {
+        // 編集中は別リンクへ勝手に切り替えない
+        if (current && linkEditMode && current.anchor !== anchor) return current;
+        return {
+          url,
+          anchor,
+          top: Math.max(0, rect.bottom - rootRect.top + root.scrollTop + 6),
+          left: Math.max(0, rect.left - rootRect.left + root.scrollLeft),
+        };
+      });
+    };
+
+    const onMove = (event: globalThis.MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".note-link-hover-card")) {
+        clearHideTimer();
+        return;
+      }
+      if (linkEditMode) return;
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement) || !root.contains(anchor)) {
+        scheduleHide();
+        return;
+      }
+      showForAnchor(anchor);
+    };
+
+    const onLeave = () => {
+      if (linkEditMode) return;
+      scheduleHide();
+    };
+
+    root.addEventListener("mousemove", onMove);
+    root.addEventListener("mouseleave", onLeave);
+    return () => {
+      clearHideTimer();
+      root.removeEventListener("mousemove", onMove);
+      root.removeEventListener("mouseleave", onLeave);
+    };
+  }, [linkEditMode]);
+
   function handleRichEditorPaste(event: ClipboardEvent<HTMLDivElement>) {
     if (clipboardImageFile(event.clipboardData)) return;
     const text = event.clipboardData.getData("text/plain");
@@ -208,7 +384,11 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   }
 
   return (
-    <div className="note-live-editor-paste-scope" onPasteCapture={handleRichEditorPaste}>
+    <div
+      ref={editorScopeRef}
+      className="note-live-editor-paste-scope"
+      onPasteCapture={handleRichEditorPaste}
+    >
       <MDXEditor
         ref={editorRef}
         className="note-live-editor note-mdx-editor"
@@ -226,6 +406,105 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
         plugins={plugins}
         spellCheck
       />
+      {hoverLink && (
+        <div
+          className={`note-link-hover-card ${linkEditMode ? "is-editing" : ""}`}
+          style={{ top: hoverLink.top, left: hoverLink.left }}
+          onMouseEnter={() => {
+            if (hoverHideTimerRef.current != null) {
+              window.clearTimeout(hoverHideTimerRef.current);
+              hoverHideTimerRef.current = null;
+            }
+          }}
+          onMouseLeave={() => {
+            if (linkEditMode) return;
+            setHoverLink(null);
+          }}
+        >
+          {linkEditMode ? (
+            <form
+              className="note-link-hover-edit"
+              onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!updateEditorLinkUrl(hoverLink.anchor, linkEditUrl)) return;
+                const next = safeMarkdownLinkUrl(linkEditUrl) || linkEditUrl;
+                setHoverLink((current) => current ? { ...current, url: next } : current);
+                setLinkEditMode(false);
+              }}
+            >
+              <input
+                className="note-link-hover-input"
+                value={linkEditUrl}
+                onChange={(event) => setLinkEditUrl(event.target.value)}
+                aria-label="リンクURL"
+                autoFocus
+                placeholder="https://..."
+              />
+              <button type="submit" className="note-link-hover-open">保存</button>
+              <button
+                type="button"
+                className="note-link-hover-action"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setLinkEditMode(false);
+                  setLinkEditUrl(hoverLink.url);
+                }}
+              >
+                取消
+              </button>
+            </form>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="note-link-hover-open"
+                title={`${hoverLink.url} を開く`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openSafeMarkdownLink(hoverLink.url);
+                }}
+              >
+                <IconExternalLink size={14} stroke={1.8} />
+                開く
+              </button>
+              <button
+                type="button"
+                className="note-link-hover-action"
+                title="リンクを編集"
+                aria-label="リンクを編集"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setLinkEditUrl(hoverLink.url);
+                  setLinkEditMode(true);
+                }}
+              >
+                <IconPencil size={14} stroke={1.8} />
+              </button>
+              <button
+                type="button"
+                className="note-link-hover-action is-danger"
+                title="リンクを削除"
+                aria-label="リンクを削除"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!removeEditorLink(hoverLink.anchor)) return;
+                  setHoverLink(null);
+                  setLinkEditMode(false);
+                  setLinkEditUrl("");
+                }}
+              >
+                <IconLinkOff size={14} stroke={1.8} />
+              </button>
+              <span className="note-link-hover-url" title={hoverLink.url}>{hoverLink.url}</span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 });
