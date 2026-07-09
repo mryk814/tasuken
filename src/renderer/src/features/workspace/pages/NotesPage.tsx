@@ -26,16 +26,16 @@ import {
 } from "@mdxeditor/editor";
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { $findMatchingParent } from "@lexical/utils";
-import { IconExternalLink, IconFileTypePdf, IconFolder, IconLink, IconLinkOff, IconPencil, IconSparkles } from "@tabler/icons-react";
+import { IconExternalLink, IconFileTypePdf, IconFolder, IconLink, IconLinkOff, IconNotes, IconPencil, IconPrompt, IconReport, IconSparkles } from "@tabler/icons-react";
 import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
 import { Component, memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ErrorInfo, type MouseEvent, type ReactNode } from "react";
 
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { ContextMenu, EmptyState, PageHeader, StatusBadge, type ContextMenuItem } from "../components/common";
+import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
 import { isChatReference } from "../lib/chatRefs";
-import { NOTES_KIND_LABELS, notesKindFromNoteType, type NotesKind } from "../lib/domain";
+import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import {
@@ -75,6 +75,20 @@ type MarkdownEditorBoundaryProps = {
   onError: (message: string) => void;
 };
 type MarkdownEditorBoundaryState = { error: string | null };
+
+function NotesKindIcon({ kind, size = 15 }: { kind: NotesKind; size?: number }) {
+  const props = { size, stroke: 1.75, "aria-hidden": true as const };
+  switch (kind) {
+    case "resource":
+      return <IconLink {...props} />;
+    case "report":
+      return <IconReport {...props} />;
+    case "prompt":
+      return <IconPrompt {...props} />;
+    default:
+      return <IconNotes {...props} />;
+  }
+}
 
 function clipboardImageFile(data: DataTransfer): File | null {
   for (const item of Array.from(data.items)) {
@@ -1013,24 +1027,41 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
             const comments = record.comments as NoteComment[] | undefined;
             const url = str(record.source_url || record.url);
             const kind = recordKind(record);
+            const kindLabel = NOTES_KIND_LABELS[kind];
             const isSelected = selected?.id === record.id;
-            const bodyPreview = recordBody(record) || url || "本文なし";
+            const themeId = str(record.project_id || record.theme_id) || null;
+            const theme = themes.find((entry) => entry.id === themeId);
+            const themeIndex = Math.max(0, themes.findIndex((entry) => entry.id === themeId));
+            const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
+            const bodyPreview = kind === "resource"
+              ? (url || recordBody(record) || "URLなし")
+              : (recordBody(record) || url || "本文なし");
             return (
               <div
                 className={`note-row ${isSelected ? "is-selected" : ""}`}
                 key={`${record.recordType}-${record.id}`}
+                style={{ "--chip-color": chipColor } as React.CSSProperties}
                 onContextMenu={(event) => showRecordMenu(event, record, url)}
               >
+                <span className="todo-theme-bar note-theme-bar" aria-hidden="true" />
                 <button
                   className="note-row-main"
                   onClick={() => openRecord(record)}
                 >
                   <span className="note-row-head">
-                    <StatusBadge value="neutral" label={NOTES_KIND_LABELS[kind]} />
+                    <span className="note-kind" title={kindLabel} aria-label={kindLabel}>
+                      <NotesKindIcon kind={kind} />
+                    </span>
                     <strong className="note-row-title">{str(record.title) || (kind === "resource" ? url || "無題のResource" : "無題")}</strong>
                     {record.recordType === "note" && comments && comments.length > 0 && <span className="comment-count" aria-label={`${comments.length}件のコメント`}>{comments.length}</span>}
                   </span>
-                  <span className="note-row-body">{bodyPreview}</span>
+                  <span className={`note-row-body ${kind === "resource" && url ? "is-url" : ""}`}>{bodyPreview}</span>
+                  <span className="note-row-meta">
+                    <span className="theme-inline">
+                      <span className="chip-dot" />
+                      {theme?.name || "Theme未設定"}
+                    </span>
+                  </span>
                 </button>
                 {canCreateKnowledge(record) && (
                   <button
@@ -1065,10 +1096,27 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
             <>
               <div className="note-preview-header">
                 <div>
-                  <span className="note-preview-theme">
-                    {selectedKind ? NOTES_KIND_LABELS[selectedKind] : "—"}
-                    {" · "}
-                    {selectedTheme?.name || "Theme未設定"}
+                  <span
+                    className="note-preview-theme"
+                    style={{
+                      "--chip-color": `var(--color-${themeColor(
+                        selectedTheme,
+                        Math.max(0, themes.findIndex((entry) => entry.id === (selected.theme_id || selected.project_id))),
+                      )})`,
+                    } as React.CSSProperties}
+                  >
+                    {selectedKind ? (
+                      <span className="note-kind" title={NOTES_KIND_LABELS[selectedKind]}>
+                        <NotesKindIcon kind={selectedKind} size={14} />
+                        <span className="note-kind-label">{NOTES_KIND_LABELS[selectedKind]}</span>
+                      </span>
+                    ) : (
+                      <span className="note-kind-label">—</span>
+                    )}
+                    <span className="theme-inline">
+                      <span className="chip-dot" />
+                      {selectedTheme?.name || "Theme未設定"}
+                    </span>
                   </span>
                   <h2>{str(selected.title) || (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}</h2>
                   {selectedUrl && (
