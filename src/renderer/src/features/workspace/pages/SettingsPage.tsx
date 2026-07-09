@@ -169,7 +169,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         </section>
         <section className="panel settings-form">
           <h2>Artifact保存先</h2>
-          <p className="field-help">Chat参照・タスク・メモへドラッグしたファイルは、このフォルダ配下の年/月フォルダへコピーされます。</p>
+          <p className="field-help">Chat参照・タスク・メモ・Themeへ追加した成果物ファイルは、このフォルダ配下の年/月フォルダへコピーされます。一覧は知識整理の「成果物」から開けます。</p>
           <dl className="settings-meta-list">
             <div>
               <dt>保存先</dt>

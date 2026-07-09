@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -11,6 +12,14 @@ import {
 } from "../src/main/services/artifactStorage.mjs";
 import { artifactSourceEntityTypes, validateEntity, workspaceEntityTypes } from "../src/main/repositories/domain.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+
+const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
+const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+const artifactsComponentSource = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
+const artifactsPageSource = readFileSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx", "utf8");
+const themePageSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
+const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+const contractsSource = readFileSync("src/shared/ipc/contracts.ts", "utf8");
 
 function artifact(overrides = {}) {
   return {
@@ -131,4 +140,29 @@ test("Theme削除でtheme由来のartifactがcascadeされる", () => {
   repo.applyDeletePolicy("theme", "theme-1");
   assert.deepEqual(cascaded.filter((entry) => entry.type === "artifact").map((entry) => entry.id), ["a1"]);
   assert.equal(nullified.includes("artifact.theme_id"), true);
+});
+
+test("成果物一覧が知識整理ナビとルートに接続されている", () => {
+  assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
+  assert.match(routesSource, /\["artifacts", "成果物"\]/);
+  assert.match(routesSource, /artifacts:\s*"knowledge"/);
+  assert.match(workspaceAppSource, /ArtifactsPage/);
+  assert.match(workspaceAppSource, /artifacts:\s*<ArtifactsPage/);
+});
+
+test("成果物の追加入口と元Entity往復がUIにある", () => {
+  assert.match(artifactsComponentSource, /成果物を追加/);
+  assert.match(artifactsComponentSource, /chooseFiles/);
+  assert.match(artifactsComponentSource, /openArtifactSource/);
+  assert.match(artifactsComponentSource, /artifactOpenLabel/);
+  assert.match(artifactsPageSource, /元へ/);
+  assert.match(artifactsPageSource, /Notes/);
+  assert.match(artifactsPageSource, /Chat Refs/);
+  assert.match(artifactsPageSource, /Artifacts/);
+  assert.match(themePageSource, /ArtifactSection/);
+  assert.match(themePageSource, /sourceType="theme"/);
+  assert.match(drawerSource, /sourceType="chat_ref"/);
+  assert.match(drawerSource, /sourceType="task"/);
+  assert.match(drawerSource, /sourceType=\{isReport \? "report" : "note"\}/);
+  assert.match(contractsSource, /dialogChooseFiles/);
 });

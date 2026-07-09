@@ -50,6 +50,7 @@ export function registerIpc(repository: WorkspaceRepository, service: WorkspaceS
   ipcMain.handle(IPC.fileOpen, (_event, filePath) => service.openPath(requireText(filePath, "開くファイル")));
   ipcMain.handle(IPC.fileShowInFolder, (_event, filePath) => service.showItemInFolder(requireText(filePath, "表示するファイル")));
   ipcMain.handle(IPC.dialogChooseDirectory, (_event, title) => service.chooseDirectory(title));
+  ipcMain.handle(IPC.dialogChooseFiles, (_event, title) => service.chooseFiles(title));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
   ipcMain.handle(IPC.artifactFilesImport, (_event, request) => service.importArtifactFiles(request));
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));

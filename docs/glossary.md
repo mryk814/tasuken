@@ -14,6 +14,7 @@
 | Notes | `NotesPage.tsx` | 「ノート」「メモ」。Markdown編集・プレビュー・Document Publish（Markdown正本 / PDF固定表示）の話題はここ。見出し番号（`heading_numbers` + 開始階層 `heading_number_start`、既定は h2から）は文書ごと。ONなら編集/Preview/PDFに番号、Markdownファイル出力には含めない |
 | Knowledge | `KnowledgePage.tsx` | 「ナレッジ」。グラフ表示あり。Note=素材置き場、Knowledge=構造化された知見、と責務を分ける |
 | Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」。外部AIチャットのURL整理 |
+| Artifacts / 成果物 | `ArtifactsPage.tsx` | 「成果物」「添付ファイル」。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの |
 | Import/Export | `ImportExportPage.tsx` | 「AI Import」。検証→プレビュー→採用の取り込み導線 |
 

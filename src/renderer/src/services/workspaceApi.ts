@@ -63,6 +63,9 @@ export const workspaceApi = {
   chooseDirectory(title?: string) {
     return desktopApi().dialogs.chooseDirectory(title);
   },
+  chooseFiles(title?: string) {
+    return desktopApi().dialogs.chooseFiles(title);
+  },
   saveMarkdownImageAttachment(request: MarkdownImageAttachmentRequest) {
     return desktopApi().attachments.saveMarkdownImage(request);
   },

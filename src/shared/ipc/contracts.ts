@@ -21,6 +21,7 @@ export const IPC = {
   fileOpen: "file:open",
   fileShowInFolder: "file:show-in-folder",
   dialogChooseDirectory: "dialog:choose-directory",
+  dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
   appReload: "app:reload",
@@ -89,6 +90,7 @@ export interface ResearchDeskApi {
   };
   dialogs: {
     chooseDirectory(title?: string): Promise<{ canceled: boolean; path?: string }>;
+    chooseFiles(title?: string): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }>;
   };
   attachments: {
     saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;

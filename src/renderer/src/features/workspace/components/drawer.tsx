@@ -299,6 +299,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             sourceId={resourceId}
             themeId={str(entity.project_id || entity.theme_id) || null}
             artifacts={data.artifacts || []}
+            data={data}
             saveEntities={saveEntities}
             removeEntity={removeEntity}
             setToast={setToast}
@@ -432,6 +433,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             sourceId={task.id}
             themeId={task.project_id || null}
             artifacts={data.artifacts || []}
+            data={data}
             saveEntities={saveEntities}
             removeEntity={removeEntity}
             setToast={setToast}
@@ -1362,6 +1364,7 @@ function NoteDetailDrawer({
           sourceId={str(note.id)}
           themeId={note.theme_id || null}
           artifacts={data.artifacts || []}
+          data={data}
           saveEntities={saveEntities}
           removeEntity={removeEntity}
           setToast={setToast}

@@ -242,6 +242,21 @@ export class WorkspaceService {
     return { canceled: false, path: result.filePaths[0] };
   }
 
+  async chooseFiles(titleValue: unknown): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }> {
+    const result = await dialog.showOpenDialog({
+      title: typeof titleValue === "string" && titleValue.trim() ? titleValue : "成果物ファイルを選択",
+      properties: ["openFile", "multiSelections"],
+    });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+    return {
+      canceled: false,
+      files: result.filePaths.map((filePath) => ({
+        path: filePath,
+        name: path.basename(filePath),
+      })),
+    };
+  }
+
   importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {
     const request = normalizeArtifactFileImportRequest(requestValue);
     const baseDirectory = String(this.repository.getPreference("artifactDirectory") || "").trim();

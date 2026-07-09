@@ -47,6 +47,7 @@ import { TodoPage } from "./pages/TodoPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { ThemesPage } from "./pages/ThemesPage";
 import { NotesPage } from "./pages/NotesPage";
+import { ArtifactsPage } from "./pages/ArtifactsPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 import { WaitingPage } from "./pages/WaitingPage";
 import { ImportExportPage } from "./pages/ImportExportPage";
@@ -891,6 +892,7 @@ export function WorkspaceApp() {
     today: <TodayPage {...common} />,
     inbox: <InboxPage {...common} />,
     "chat-refs": <ChatRefsPage {...common} />,
+    artifacts: <ArtifactsPage {...common} />,
     theme: <ThemePage {...common} />,
     todo: <TodoPage {...common} />,
     timeline: <TimelinePage {...common} />,

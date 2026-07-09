@@ -7,6 +7,7 @@ import { THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
 import { buildTaskSection, groupTasksBySection, listTaskSections, type TaskSection, type TaskSectionGroup } from "../lib/taskSections";
+import { ArtifactSection } from "../components/artifacts";
 import { EmptyState, Metric, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 import type { Schedule, Task } from "../domain-model/types";
 
@@ -239,6 +240,19 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, na
           meta={(task) => formatDate(str(task.completed_at || task.updated_at || task.created_at))}
         />
         {!doneTasks.length && <EmptyState title="完了済みの記録はまだありません" />}
+      </section>
+      <section className="panel">
+        <ArtifactSection
+          sourceType="theme"
+          sourceId={theme.id}
+          themeId={theme.id}
+          artifacts={data.artifacts || []}
+          data={data}
+          saveEntities={saveEntities}
+          removeEntity={removeEntity}
+          setToast={setToast}
+          headingExtra={<button className="text-button compact" onClick={() => navigate("artifacts")}>一覧へ</button>}
+        />
       </section>
       <section className="panel report-section">
         <div className="section-heading">

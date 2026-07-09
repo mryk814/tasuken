@@ -25,6 +25,7 @@ const api: ResearchDeskApi = {
   },
   dialogs: {
     chooseDirectory: (title) => ipcRenderer.invoke(IPC.dialogChooseDirectory, title),
+    chooseFiles: (title) => ipcRenderer.invoke(IPC.dialogChooseFiles, title),
   },
   attachments: {
     saveMarkdownImage: (request) => ipcRenderer.invoke(IPC.markdownImageSave, request),
