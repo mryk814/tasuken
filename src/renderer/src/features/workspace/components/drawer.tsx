@@ -222,7 +222,20 @@ function normalizeChecklistItems(entity: DrawerConfig["entity"]) {
 
 export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast }: EntityDrawerProps) {
   const entity = drawer.entity || {};
-  if (drawer.mode === "edit") return <EditDrawer drawer={drawer} data={data} close={close} saveForm={saveForm} registerEditForm={registerEditForm} removeEntity={removeEntity} saveEntities={saveEntities} />;
+  if (drawer.mode === "edit") {
+    return (
+      <EditDrawer
+        drawer={drawer}
+        data={data}
+        close={close}
+        saveForm={saveForm}
+        registerEditForm={registerEditForm}
+        removeEntity={removeEntity}
+        saveEntities={saveEntities}
+        setToast={setToast}
+      />
+    );
+  }
   const type = drawer.type;
   if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} setToast={setToast} />;
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} saveEntities={saveEntities} />;
@@ -545,10 +558,39 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
       </aside>
     );
   }
-  return <EditDrawer drawer={{ ...drawer, mode: "edit" }} data={data} close={close} saveForm={saveForm} registerEditForm={registerEditForm} />;
+  return (
+    <EditDrawer
+      drawer={{ ...drawer, mode: "edit" }}
+      data={data}
+      close={close}
+      saveForm={saveForm}
+      registerEditForm={registerEditForm}
+      removeEntity={removeEntity}
+      saveEntities={saveEntities}
+      setToast={setToast}
+    />
+  );
 }
 
-function EditDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntities }: { drawer: DrawerConfig; data: WorkspaceData; close: CloseDrawer; saveForm: SaveForm; registerEditForm: RegisterEditForm; removeEntity?: RemoveEntity; saveEntities?: SaveEntities }) {
+function EditDrawer({
+  drawer,
+  data,
+  close,
+  saveForm,
+  registerEditForm,
+  removeEntity,
+  saveEntities,
+  setToast,
+}: {
+  drawer: DrawerConfig;
+  data: WorkspaceData;
+  close: CloseDrawer;
+  saveForm: SaveForm;
+  registerEditForm: RegisterEditForm;
+  removeEntity?: RemoveEntity;
+  saveEntities?: SaveEntities;
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+}) {
   const type = drawer.type;
   const entity = drawer.entity;
   const typeLabels: Record<string, string> = {
@@ -566,10 +608,34 @@ function EditDrawer({ drawer, data, close, saveForm, registerEditForm, removeEnt
   };
   const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
+  const entityId = str(entity.id);
+  // Chat/Task/Note は常用が edit 直行なので、作業面として成果物を同じドロワーに置く。
+  const artifactSource = (() => {
+    if (!entityId || !saveEntities || !removeEntity) return null;
+    if (type === "task") {
+      return { sourceType: "task" as const, sourceId: entityId, themeId: str(entity.project_id) || null };
+    }
+    if (type === "note") {
+      const isReport = str(entity.note_type) === "report";
+      return {
+        sourceType: (isReport ? "report" : "note") as "report" | "note",
+        sourceId: entityId,
+        themeId: str(entity.theme_id) || null,
+      };
+    }
+    if (type === "resource" && isChatReferenceEntity(entity)) {
+      return {
+        sourceType: "chat_ref" as const,
+        sourceId: entityId,
+        themeId: str(entity.project_id || entity.theme_id) || null,
+      };
+    }
+    return null;
+  })();
   return (
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
-      <form ref={registerEditForm} className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${str(entity.id) || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
+      <form ref={registerEditForm} className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${entityId || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
         {type === "theme" && (
           <>
             <Field label="テーマ名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
@@ -599,14 +665,30 @@ function EditDrawer({ drawer, data, close, saveForm, registerEditForm, removeEnt
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
         {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
         <button className="primary-button" type="submit">保存する</button>
-        {entity.id && removeEntity && (
+      </form>
+      {artifactSource && saveEntities && removeEntity && (
+        <div className="drawer-content drawer-edit-related">
+          <ArtifactSection
+            sourceType={artifactSource.sourceType}
+            sourceId={artifactSource.sourceId}
+            themeId={artifactSource.themeId}
+            artifacts={data.artifacts || []}
+            data={data}
+            saveEntities={saveEntities}
+            removeEntity={removeEntity}
+            setToast={setToast}
+          />
+        </div>
+      )}
+      {entityId && removeEntity && (
+        <div className="drawer-content">
           <section className="drawer-danger-zone">
             <strong>削除</strong>
             <span>完了やアーカイブではなく、実データを削除します。削除後はToastから元に戻せます。</span>
             <button className="danger-button" type="button" onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}><IconTrash size={16} />この{kindLabel}を削除する</button>
           </section>
-        )}
-      </form>
+        </div>
+      )}
     </aside>
   );
 }

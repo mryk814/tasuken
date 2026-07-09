@@ -305,7 +305,7 @@ export function ArtifactSection({
         <div className="inline-actions">
           {attached.length > 0 && <span>{attached.length}件</span>}
           {headingExtra}
-          <button className="secondary-button compact" disabled={importing} onClick={pickFiles}>
+          <button type="button" className="secondary-button compact" disabled={importing} onClick={pickFiles}>
             <IconPlus size={14} />成果物を追加
           </button>
         </div>
@@ -314,7 +314,7 @@ export function ArtifactSection({
       {needsDirectory && (
         <div className="artifact-directory-prompt">
           <span>Artifact保存先が未設定のため、まだファイルを添付できません。</span>
-          <button className="primary-button compact" onClick={chooseDirectory}>保存先を選ぶ</button>
+          <button type="button" className="primary-button compact" onClick={chooseDirectory}>保存先を選ぶ</button>
         </div>
       )}
       {attached.length > 0 && (
@@ -335,16 +335,18 @@ export function ArtifactSection({
               </span>
               <span className="artifact-row-actions">
                 <button
+                  type="button"
                   className="text-button compact"
                   title={artifactOpenHint(artifact.file_type)}
                   onClick={() => void openArtifactFile(artifact, setToast)}
                 >
                   <IconExternalLink size={14} />{artifactOpenLabel(artifact.file_type)}
                 </button>
-                <button className="text-button compact" onClick={() => void showInFolder(artifact)}><IconFolderOpen size={14} />フォルダ</button>
-                <button className="text-button compact" onClick={() => void copyPath(artifact)}><IconCopy size={14} />パス</button>
+                <button type="button" className="text-button compact" onClick={() => void showInFolder(artifact)}><IconFolderOpen size={14} />フォルダ</button>
+                <button type="button" className="text-button compact" onClick={() => void copyPath(artifact)}><IconCopy size={14} />パス</button>
                 {openDrawer && data && (
                   <button
+                    type="button"
                     className="text-button compact"
                     title="元のChat/Task/Note/Themeへ戻る"
                     onClick={() => {
@@ -356,7 +358,7 @@ export function ArtifactSection({
                     <IconLink size={14} />元へ
                   </button>
                 )}
-                <button className="text-button compact is-danger" onClick={() => removeEntity("artifact", artifact)}><IconTrash size={14} />削除</button>
+                <button type="button" className="text-button compact is-danger" onClick={() => removeEntity("artifact", artifact)}><IconTrash size={14} />削除</button>
               </span>
             </li>
           ))}

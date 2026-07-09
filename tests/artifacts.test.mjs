@@ -166,3 +166,12 @@ test("成果物の追加入口と元Entity往復がUIにある", () => {
   assert.match(drawerSource, /sourceType=\{isReport \? "report" : "note"\}/);
   assert.match(contractsSource, /dialogChooseFiles/);
 });
+
+test("常用のeditドロワー（Chat参照・タスク・メモ）に成果物セクションがある", () => {
+  // Chat/Taskは行クリックがedit直行なので、EditDrawer側に成果物がないと添付ルートが死ぬ。
+  assert.match(drawerSource, /drawer-edit-related/);
+  assert.match(drawerSource, /type === "resource" && isChatReferenceEntity\(entity\)/);
+  assert.match(drawerSource, /sourceType: "chat_ref"/);
+  assert.match(drawerSource, /sourceType: "task"/);
+  assert.match(drawerSource, /sourceType: \(isReport \? "report" : "note"\)/);
+});

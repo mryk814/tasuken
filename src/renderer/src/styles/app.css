@@ -977,6 +977,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   max-height: min(280px, 34vh);
 }
 .markdown-frontmatter-note { width: fit-content; margin: 0; padding: 2px var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.drawer-edit-related { padding-top: 0; border-top: 1px solid var(--color-border-subtle); }
 .artifact-section { display: grid; gap: var(--space-2); }
 .artifact-directory-prompt { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .artifact-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
