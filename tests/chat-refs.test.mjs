@@ -303,3 +303,10 @@ test("chat reference page no longer offers moving chat links to Notes", () => {
   assert.doesNotMatch(source, /Notesへ移す/);
   assert.doesNotMatch(source, /moveResourceToNotes/);
 });
+
+test("Notes page no longer offers moving resources to Chat References", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+
+  assert.doesNotMatch(source, /チャット参照へ移す/);
+  assert.doesNotMatch(source, /moveResourceToChatRefs/);
+});

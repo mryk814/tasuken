@@ -251,9 +251,9 @@ export function ArtifactSection({
           generated_by: null,
         },
       }));
-      await saveEntities(operations, `${operations.length}件の成果物を添付しました。`);
+      await saveEntities(operations, `${operations.length}件の Artifact を添付しました。`);
     } catch (error) {
-      setToast(`成果物を添付できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(`Artifact を添付できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
       setImporting(false);
     }
@@ -268,11 +268,11 @@ export function ArtifactSection({
 
   async function pickFiles() {
     try {
-      const result = await workspaceApi.chooseFiles("成果物ファイルを選択");
+      const result = await workspaceApi.chooseFiles("Artifact ファイルを選択");
       if (result.canceled || !result.files?.length) return;
       await importFromPaths(result.files);
     } catch (error) {
-      setToast(`成果物を選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(`Artifact を選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     }
   }
 
@@ -301,16 +301,16 @@ export function ArtifactSection({
   return (
     <section className="artifact-section">
       <div className="section-heading">
-        <h3>成果物</h3>
+        <h3>Artifacts</h3>
         <div className="inline-actions">
           {attached.length > 0 && <span>{attached.length}件</span>}
           {headingExtra}
           <button type="button" className="secondary-button compact" disabled={importing} onClick={pickFiles}>
-            <IconPlus size={14} />成果物を追加
+            <IconPlus size={14} />Artifact を追加
           </button>
         </div>
       </div>
-      <p className="field-help">AIや調査でできたExcel・画像・PDF・Markdownなどをここに置きます。メモ本文やURL参照とは別物です。</p>
+      <p className="field-help">AIや調査でできた Excel・画像・PDF・Markdown などをここに置きます。メモ本文や URL 参照とは別物です。</p>
       {needsDirectory && (
         <div className="artifact-directory-prompt">
           <span>Artifact保存先が未設定のため、まだファイルを添付できません。</span>

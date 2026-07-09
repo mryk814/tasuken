@@ -133,14 +133,14 @@ export function ArtifactsPage({
       artifact.created_at ? new Date(artifact.created_at).toLocaleDateString("ja-JP") : "",
       artifact.stored_path,
     ].join("\t"));
-    workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("成果物一覧をコピーしました。", "success"));
+    workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("Artifact 一覧をコピーしました。", "success"));
   }
 
   return (
     <div className="page artifacts-page">
       <PageHeader
-        title="成果物"
-        subtitle="AI作業や調査から生まれたExcel・画像・PDF・Markdownなどの実ファイル。メモ本文・URL・Chat参照とは役割が違います。"
+        title="Artifacts"
+        subtitle="AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。"
       >
         <button className="secondary-button" onClick={copyList} disabled={!artifacts.length}>一覧をコピー</button>
       </PageHeader>
@@ -150,7 +150,7 @@ export function ArtifactsPage({
           <div><strong>Notes</strong><span>自分で書く本文</span></div>
           <div><strong>Resources</strong><span>URL / 外部参照</span></div>
           <div><strong>Chat Refs</strong><span>会話の入口</span></div>
-          <div><strong>Artifacts</strong><span>実ファイル成果物</span></div>
+          <div><strong>Artifacts</strong><span>実ファイル</span></div>
         </div>
       </section>
 
@@ -159,7 +159,7 @@ export function ArtifactsPage({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="ファイル名・元Entity・Themeで検索"
-          aria-label="成果物を検索"
+          aria-label="Artifact を検索"
         />
         <select
           value={prefs.themeId}
@@ -204,10 +204,10 @@ export function ArtifactsPage({
       </div>
 
       {!hasAny ? (
-        <EmptyState title="成果物はまだありません" />
+        <EmptyState title="Artifact はまだありません" />
       ) : !artifacts.length ? (
         <div className="empty-state">
-          <strong>条件に合う成果物がありません</strong>
+          <strong>条件に合う Artifact がありません</strong>
           {filterActive && (
             <button
               className="secondary-button compact"
@@ -274,7 +274,7 @@ export function ArtifactsPage({
 
       {hasAny && (
         <p className="field-help artifact-page-help">
-          追加はChat参照・タスク・メモ・Themeの詳細から「成果物を追加」またはドラッグで行います。保存先はSettingsのArtifact保存先です。
+          追加は Chat Refs・Task・Note・Theme の詳細から「Artifact を追加」またはドラッグで行います。保存先は Settings の Artifact 保存先です。
         </p>
       )}
     </div>

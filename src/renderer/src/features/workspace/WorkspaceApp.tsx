@@ -384,14 +384,14 @@ export function WorkspaceApp() {
     return Boolean(form && drawer && formSignature(form) !== drawerFormInitialSignature.current);
   }
 
-  // 既存メモの本文・タイトルは入力が止まって1.5秒後に静かに自動保存する（未保存の作業喪失を防ぐ）。
-  // 新規作成中（entity.id未確定）やタイトル/本文が空の間は、フォーム送信前の警告トーストを誘発しないよう対象外にする。
+  // 既存メモのメタ（タイトル・種別など）は入力が止まって1.5秒後に静かに自動保存する。
+  // 本文は Notes 中央エリアの正本。新規作成中（entity.id未確定）やタイトルが空の間は対象外。
   async function autoSaveNoteDrawerForm(): Promise<void> {
     const form = drawerFormRef.current;
     if (!form || !drawer || drawer.type !== "note" || !drawer.entity?.id) return;
     if (drawerAutosaving.current || !isDrawerFormDirty()) return;
     const values = new FormData(form);
-    if (!formText(values, "title") || !formText(values, "body_markdown")) return;
+    if (!formText(values, "title")) return;
     try {
       drawerAutosaving.current = true;
       await saveFormElement(form, { closeAfterSave: false, quiet: true });
@@ -710,12 +710,16 @@ export function WorkspaceApp() {
       const submittedLinkType = formText(values, "link_type");
       const inferredLinkType = inferChatServiceFromUrl(url);
       const sortOrder = Number(formText(values, "sort_order") || base.sort_order || 0);
+      const hasBodyMarkdownField = Boolean(named("body_markdown"));
       const resource: Resource = {
         id: (base.id as string) || uuid(),
         title,
         url,
         project_id: formText(values, "project_id") || formText(values, "theme_id") || null,
         description: formText(values, "description") || null,
+        body_markdown: hasBodyMarkdownField
+          ? (formText(values, "body_markdown") || null)
+          : ((base.body_markdown as string | null) ?? null),
         source_record_id: (base.source_record_id as string | null) ?? null,
         link_type: hasLinkTypeField
           ? (submittedLinkType || (inferredLinkType !== "other" ? inferredLinkType : null))
@@ -742,9 +746,19 @@ export function WorkspaceApp() {
       entity = { ...rest, name, code: formText(values, "code") || null, description: formText(values, "description"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
     } else if (type === "note") {
       const title = formText(values, "title");
-      const body = formText(values, "body_markdown");
-      if (!title || !body) { setToast("タイトルと本文を入力してください。"); return false; }
-      const noteType = formText(values, "note_type", "memo");
+      if (!title) { setToast("タイトルを入力してください。"); return false; }
+      // 本文は Notes 中央エリアが正本。ドロワーに本文フィールドがあるときだけフォーム値を使う。
+      const hasBodyField = Boolean(named("body_markdown"));
+      const body = hasBodyField
+        ? formText(values, "body_markdown")
+        : String(base.body_markdown || "");
+      if (hasBodyField && !body.trim()) {
+        setToast("本文を入力してください。");
+        return false;
+      }
+      const submittedNoteType = formText(values, "note_type", "note");
+      // 旧 report_prompt を編集して Prompt のまま保存した場合は用途付き prompt に正規化する。
+      const noteType = submittedNoteType === "report_prompt" ? "prompt" : submittedNoteType;
       const hasSourceUrlField = Boolean(named("source_url"));
       const publishEnabled = values.getAll("publish_enabled").map(String).includes("true");
       const hasHeadingNumberFields = Boolean(named("heading_numbers"));
@@ -753,17 +767,15 @@ export function WorkspaceApp() {
       const headingNumberStart = headingNumberStartRaw === "1" || headingNumberStartRaw === "2" || headingNumberStartRaw === "3" || headingNumberStartRaw === "4"
         ? Number(headingNumberStartRaw)
         : 2;
-      const promptProperties = noteType === "prompt" || noteType === "report_prompt" ? {
-        prompt_purpose: formText(values, "prompt_purpose", noteType === "report_prompt" ? "report" : "other"),
+      const promptProperties = noteType === "prompt" ? {
+        prompt_purpose: formText(values, "prompt_purpose", String(base.note_type) === "report_prompt" ? "report" : "other"),
         prompt_variables: formText(values, "prompt_variables"),
         is_default: values.getAll("prompt_is_default").map(String).includes("true"),
       } : {};
-      const reportProperties = noteType === "report" || noteType === "report_prompt" ? {
+      const reportProperties = noteType === "report" ? {
         report_type: formText(values, "report_type", "weekly"),
-        ...(noteType === "report" ? {
-          period_start: formText(values, "period_start") || null,
-          period_end: formText(values, "period_end") || null,
-        } : {}),
+        period_start: formText(values, "period_start") || null,
+        period_end: formText(values, "period_end") || null,
       } : {};
       const headingNumberProperties = hasHeadingNumberFields
         ? { heading_numbers: headingNumbers, heading_number_start: headingNumberStart }
@@ -773,10 +785,10 @@ export function WorkspaceApp() {
         title,
         body_markdown: body,
         note_type: noteType,
-        content_format: formText(values, "content_format") || (noteType === "artifact" || noteType === "report" || noteType === "report_prompt" ? "markdown" : null),
+        content_format: formText(values, "content_format") || "markdown",
         theme_id: formText(values, "theme_id") || null,
-        item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
-        source_url: noteType === "report" || noteType === "report_prompt" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
+        item_id: noteType === "report" ? null : formText(values, "item_id") || null,
+        source_url: noteType === "report" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
         properties_json: {
           ...((base.properties_json as Record<string, unknown>) || {}),

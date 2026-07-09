@@ -813,7 +813,7 @@ code block
 
       (await waitForButton("Notes")).click();
       await delay(60);
-      (await waitForButton("メモを書く")).click();
+      (await waitForButton("Note")).click();
       await delay(60);
 
       const title = document.querySelector('input[name="title"]');

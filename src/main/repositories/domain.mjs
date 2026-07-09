@@ -31,7 +31,8 @@ export const workspaceEntityTypes = [
 const requiredTextFields = {
   theme: ["name"],
   item: ["title"],
-  note: ["title", "body_markdown"],
+  // 本文は Notes 中央エリアで書く。タイトルだけで下書き作成できるようにする。
+  note: ["title"],
   link: ["title", "url"],
   resource: ["title"],
   status_update: ["theme_id", "summary"],

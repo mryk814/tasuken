@@ -26,7 +26,7 @@ import {
 } from "@mdxeditor/editor";
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { $findMatchingParent } from "@lexical/utils";
-import { IconExternalLink, IconFileTypePdf, IconFolder, IconLink, IconLinkOff, IconMessageCircle, IconPencil, IconSparkles } from "@tabler/icons-react";
+import { IconExternalLink, IconFileTypePdf, IconFolder, IconLink, IconLinkOff, IconPencil, IconSparkles } from "@tabler/icons-react";
 import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
 import { Component, memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ErrorInfo, type MouseEvent, type ReactNode } from "react";
 
@@ -35,7 +35,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, StatusBadge, type ContextMenuItem } from "../components/common";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
 import { isChatReference } from "../lib/chatRefs";
-import { NOTE_TYPE_LABELS } from "../lib/domain";
+import { NOTES_KIND_LABELS, notesKindFromNoteType, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import {
@@ -58,7 +58,7 @@ import type { BaseRecord, NoteComment, PageProps } from "../types";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
-type NoteScope = "all" | "memo" | "document" | "resource" | "report" | "prompt" | "learning";
+type NoteScope = "all" | NotesKind;
 type MarkdownRichEditorProps = {
   markdown: string;
   onChange: (value: string) => void;
@@ -553,29 +553,31 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   );
 });
 
-function noteFormat(record: BaseRecord): string {
-  return str(record.content_format) || (str(record.note_type) === "artifact" ? "markdown" : "plain");
-}
-
 function noteProperties(record: BaseRecord): Record<string, unknown> {
   return record.properties_json && typeof record.properties_json === "object" && !Array.isArray(record.properties_json)
     ? record.properties_json as Record<string, unknown>
     : {};
 }
 
-function noteScope(record: Combined): NoteScope {
+function recordKind(record: Combined): NotesKind {
   if (record.recordType === "resource") return "resource";
-  const type = str(record.note_type) || "memo";
-  if (type === "artifact") return "document";
-  if (type === "report") return "report";
-  if (type === "prompt" || type === "report_prompt") return "prompt";
-  if (type === "learning" || type === "reflection") return "learning";
-  return "memo";
+  return notesKindFromNoteType(str(record.note_type));
+}
+
+function recordBody(record: Combined): string {
+  if (record.recordType === "resource") {
+    return str(record.body_markdown) || str(record.description);
+  }
+  return str(record.body_markdown);
 }
 
 function canCreateKnowledge(record: Combined): boolean {
-  const scope = noteScope(record);
-  return record.recordType === "note" && (scope === "memo" || scope === "learning");
+  return record.recordType === "note" && recordKind(record) === "note";
+}
+
+function isWorkbenchRecord(record: Combined): boolean {
+  if (record.recordType === "resource") return true;
+  return record.recordType === "note";
 }
 
 export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity, setToast }: PageProps) {
@@ -596,16 +598,22 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     ...domain.resources.filter((resource) => !isChatReference(resource)).map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   const visible = records.filter((record) => {
-    if (scope !== "all" && noteScope(record) !== scope) return false;
-    return `${str(record.title)} ${str(record.body_markdown || record.description)} ${str(record.url || record.source_url)}`
+    if (scope !== "all" && recordKind(record) !== scope) return false;
+    return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
       .toLowerCase()
       .includes(query.toLowerCase());
   });
-  const markdownNotes = visible.filter((record) => record.recordType === "note" && noteFormat(record) === "markdown" && str(record.body_markdown).trim());
-  const selected = markdownNotes.find((record) => record.id === selectedId) || markdownNotes[0] || null;
-  const selectedTheme = selected ? themes.find((theme) => theme.id === selected.theme_id) : null;
-  const selectedBody = selected ? str(selected.body_markdown) : "";
+  const workbenchRecords = visible.filter(isWorkbenchRecord);
+  const selected = workbenchRecords.find((record) => record.id === selectedId) || workbenchRecords[0] || null;
+  const selectedKind = selected ? recordKind(selected) : null;
+  // Document Publish / Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
+  const showDocumentPublish = selectedKind === "note" || selectedKind === "report";
+  const selectedTheme = selected
+    ? themes.find((theme) => theme.id === (selected.theme_id || selected.project_id))
+    : null;
+  const selectedBody = selected ? recordBody(selected) : "";
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
+  const selectedUrl = selected ? str(selected.url || selected.source_url) : "";
   const selectedProperties = selected ? noteProperties(selected) : {};
   const headingNumberOptions = headingNumberOptionsFromProperties(selectedProperties);
   const headingNumbersEnabled = headingNumberOptions.preview.headingNumbers === true;
@@ -628,7 +636,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   ctxRef.current = { selected, draftBody, draftDirty };
 
-  // 未保存の変更を、別ノートへの切り替え時・Notesページからの離脱時に自動保存する。
+  // 未保存の変更を、別レコードへの切り替え時・Notesページからの離脱時に自動保存する。
   // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
   const autosaveRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   useEffect(() => {
@@ -638,9 +646,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     return () => {
       const { selected: previous, draftBody: body, draftDirty: dirty } = autosaveRef.current;
       if (!previous || !dirty) return;
-      // 本文が空だとnote.body_markdownの必須項目バリデーションに失敗するため、自動保存では既存内容を残して何もしない。
-      if (!body.trim()) return;
-      saveEntity("note", { ...previous, body_markdown: body })
+      // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
+      if (previous.recordType === "note" && !body.trim()) return;
+      const { recordType, ...entity } = previous;
+      saveEntity(recordType, { ...entity, body_markdown: body })
         .catch((error: unknown) => setToast(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`));
     };
   }, [selected?.id, saveEntity, setToast]);
@@ -651,12 +660,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         event.preventDefault();
         const { selected: s, draftBody: body, draftDirty: dirty } = ctxRef.current;
         if (dirty && s) {
-          if (!body.trim()) {
+          if (s.recordType === "note" && !body.trim()) {
             setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
             return;
           }
           setDraftState("保存しています。");
-          saveEntity("note", { ...s, body_markdown: body })
+          const { recordType, ...entity } = s;
+          saveEntity(recordType, { ...entity, body_markdown: body })
             .then(() => setDraftState("保存しました。"))
             .catch((error: unknown) => setDraftState(error instanceof Error ? error.message : "保存できませんでした。"));
         }
@@ -668,7 +678,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   function copy() {
     workspaceApi
-      .copyText(visible.map((record) => `${str(record.title)}\t${record.recordType === "resource" ? "リソース" : str(record.note_type)}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
+      .copyText(visible.map((record) => `${str(record.title)}\t${NOTES_KIND_LABELS[recordKind(record)]}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
       .then(() => setToast("Notes一覧をコピーしました。"));
   }
 
@@ -692,14 +702,19 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     });
   }
 
-  async function moveResourceToChatRefs(record: Combined) {
-    if (record.recordType !== "resource") return;
-    await saveEntity("resource", {
-      ...record,
-      resource_scope: "chat_ref",
-      reference_status: str(record.reference_status) || "inbox",
+  function addNote(noteType: "note" | "report" = "note") {
+    openDrawer({
+      type: "note",
+      mode: "edit",
+      entity: {
+        theme_id: activeTheme?.id || null,
+        note_type: noteType,
+        content_format: "markdown",
+        title: noteType === "report" ? "Report" : "",
+        body_markdown: "",
+        ...(noteType === "report" ? { properties_json: { report_type: "weekly" } } : {}),
+      },
     });
-    setToast("チャット参照へ移しました。");
   }
 
   async function copySelectedRaw() {
@@ -708,17 +723,18 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     setToast("本文をコピーしました。");
   }
 
-  function openRecord(record: Combined, isMarkdown: boolean) {
-    if (isMarkdown) {
+  function openRecord(record: Combined) {
+    // 一覧クリックは右ペイン選択 + 編集ドロワー（メタ・タイトル・種別の編集）。
+    if (isWorkbenchRecord(record)) {
       setSelectedId(record.id);
       setPreviewMode("edit");
-      return;
     }
-    openDrawer({ type: record.recordType, entity: record });
+    openDrawer({ type: record.recordType, mode: "edit", entity: record });
   }
 
   function knowledgeFromNote(record: Combined) {
-    if (isLongKnowledgeSource(record.body_markdown)) {
+    if (record.recordType !== "note") return;
+    if (isLongKnowledgeSource(recordBody(record))) {
       openDrawer({ type: "note", entity: record });
       setToast("本文が長いため、Knowledge候補の抽出導線を開きました。");
       return;
@@ -730,11 +746,16 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     });
   }
 
-  function showRecordMenu(event: MouseEvent, record: Combined, isMarkdown: boolean, url: string) {
+  function showRecordMenu(event: MouseEvent, record: Combined, url: string) {
     event.preventDefault();
     const items: ContextMenuItem[] = [
-      { label: isMarkdown ? "本文を開く" : "詳細を開く", onSelect: () => openRecord(record, isMarkdown) },
-      { label: "編集する", onSelect: () => openDrawer({ type: record.recordType, mode: "edit", entity: record }) },
+      { label: "編集する", onSelect: () => openRecord(record) },
+      { label: "本文を開く", onSelect: () => {
+        if (isWorkbenchRecord(record)) {
+          setSelectedId(record.id);
+          setPreviewMode("edit");
+        }
+      } },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(record.title)) },
     ];
     if (canCreateKnowledge(record)) items.push({ label: "学びとしてKnowledge化", onSelect: () => knowledgeFromNote(record) });
@@ -847,14 +868,15 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   async function saveSelectedDraft() {
     if (!selected || !draftDirty) return;
-    if (!draftBody.trim()) {
+    if (selected.recordType === "note" && !draftBody.trim()) {
       setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
       return;
     }
     setDraftState("保存しています。");
     try {
-      await saveEntity("note", {
-        ...selected,
+      const { recordType, ...entity } = selected;
+      await saveEntity(recordType, {
+        ...entity,
         body_markdown: draftBody,
       });
       setDraftState("保存しました。");
@@ -864,7 +886,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   }
 
   async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_start?: HeadingNumberStart }) {
-    if (!selected) return;
+    if (!selected || selected.recordType !== "note") return;
     try {
       const nextEnabled = patch.heading_numbers ?? headingNumbersEnabled;
       const nextStart = patch.heading_number_start ?? headingNumberStart;
@@ -900,7 +922,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   }
 
   async function exportSelectedMarkdown(chooseDirectory: boolean) {
-    if (!selected) return;
+    if (!selected || !showDocumentPublish) return;
     setMarkdownExporting(true);
     try {
       const bodyForExport = draftBody || selectedBody;
@@ -937,7 +959,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   }
 
   async function exportSelectedPdf() {
-    if (!selected) return;
+    if (!selected || !showDocumentPublish) return;
     setPdfExporting(true);
     try {
       const content = publishMarkdownContent(selected, selectedTheme?.name || "", draftBody || selectedBody);
@@ -961,24 +983,22 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   return (
     <div className="page notes-page">
-      <PageHeader title="Notes & Resources" subtitle="作業ログや素材はここへ入れ、判断に使う部品だけKnowledge化します">
+      <PageHeader title="Notes" subtitle="Note / Resource / Report / Prompt。書く・読む・リンクを見ながらメモする場所">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-        <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: {} })}>リソースを追加</button>
-        <button className="secondary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "artifact", content_format: "markdown" } })}>Markdown文書</button>
-        <button className="secondary-button" onClick={() => addPrompt()}>プロンプトを追加</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "note", mode: "edit", entity: {} })}>メモを書く</button>
+        <button className="primary-button" onClick={() => addNote("note")}>Note</button>
+        <button className="primary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } })}>Resource</button>
+        <button className="primary-button" onClick={() => addNote("report")}>Report</button>
+        <button className="primary-button" onClick={() => addPrompt()}>Prompt</button>
       </PageHeader>
       <div className="filter-bar panel">
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" />
         <div className="segmented" aria-label="表示する種類">
           {[
             ["all", "すべて"],
-            ["memo", "メモ"],
-            ["document", "文書"],
-            ["resource", "リソース"],
-            ["report", "報告書"],
-            ["prompt", "プロンプト"],
-            ["learning", "学び"],
+            ["note", "Note"],
+            ["resource", "Resource"],
+            ["report", "Report"],
+            ["prompt", "Prompt"],
           ].map(([value, label]) => (
             <button key={value} className={scope === value ? "is-active" : ""} onClick={() => setScope(value as NoteScope)}>
               {label}
@@ -992,30 +1012,31 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
           {visible.map((record) => {
             const comments = record.comments as NoteComment[] | undefined;
             const url = str(record.source_url || record.url);
-            const isMarkdown = record.recordType === "note" && noteFormat(record) === "markdown" && Boolean(str(record.body_markdown).trim());
+            const kind = recordKind(record);
             const isSelected = selected?.id === record.id;
+            const bodyPreview = recordBody(record) || url || "本文なし";
             return (
               <div
                 className={`note-row ${isSelected ? "is-selected" : ""}`}
                 key={`${record.recordType}-${record.id}`}
-                onContextMenu={(event) => showRecordMenu(event, record, isMarkdown, url)}
+                onContextMenu={(event) => showRecordMenu(event, record, url)}
               >
                 <button
                   className="note-row-main"
-                  onClick={() => openRecord(record, isMarkdown)}
+                  onClick={() => openRecord(record)}
                 >
                   <span className="note-row-head">
-                    <StatusBadge value="neutral" label={record.recordType === "resource" ? "リソース" : (NOTE_TYPE_LABELS[str(record.note_type)] || str(record.note_type))} />
-                    <strong className="note-row-title">{str(record.title)}</strong>
+                    <StatusBadge value="neutral" label={NOTES_KIND_LABELS[kind]} />
+                    <strong className="note-row-title">{str(record.title) || (kind === "resource" ? url || "無題のResource" : "無題")}</strong>
                     {record.recordType === "note" && comments && comments.length > 0 && <span className="comment-count" aria-label={`${comments.length}件のコメント`}>{comments.length}</span>}
                   </span>
-                  <span className="note-row-body">{str(record.body_markdown || record.description || record.url) || "本文なし"}</span>
+                  <span className="note-row-body">{bodyPreview}</span>
                 </button>
                 {canCreateKnowledge(record) && (
                   <button
                     className="row-action-button note-row-open"
                     onClick={() => knowledgeFromNote(record)}
-                    aria-label={`${str(record.title) || "メモ"}をKnowledge化`}
+                    aria-label={`${str(record.title) || "Note"}をKnowledge化`}
                     title="Knowledge化"
                   >
                     <IconSparkles size={15} />
@@ -1033,20 +1054,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     <IconExternalLink size={15} />
                   </a>
                 )}
-                {record.recordType === "resource" && (
-                  <button
-                    className="row-action-button note-row-open"
-                    onClick={() => moveResourceToChatRefs(record)}
-                    aria-label={`${str(record.title) || "リソース"}をチャット参照へ移す`}
-                    title="チャット参照へ移す"
-                  >
-                    <IconMessageCircle size={15} />
-                  </button>
-                )}
               </div>
             );
           })}
-          {!visible.length && <EmptyState title="一致するメモはありません" action="メモを書く" onAction={() => openDrawer({ type: "note", mode: "edit", entity: {} })} />}
+          {!visible.length && <EmptyState title="一致する項目はありません" action="Noteを書く" onAction={() => addNote("note")} />}
         </section>
         {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
         <section className="panel note-preview-panel" ref={previewPanelRef}>
@@ -1054,8 +1065,15 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
             <>
               <div className="note-preview-header">
                 <div>
-                  <span className="note-preview-theme">{selectedTheme?.name || "Theme未設定"}</span>
-                  <h2>{str(selected.title)}</h2>
+                  <span className="note-preview-theme">
+                    {selectedKind ? NOTES_KIND_LABELS[selectedKind] : "—"}
+                    {" · "}
+                    {selectedTheme?.name || "Theme未設定"}
+                  </span>
+                  <h2>{str(selected.title) || (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}</h2>
+                  {selectedUrl && (
+                    <a className="note-preview-url" href={selectedUrl} target="_blank" rel="noreferrer">{selectedUrl}</a>
+                  )}
                 </div>
                 <div className="note-preview-actions">
                   <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
@@ -1064,30 +1082,40 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     setDraftState("変更を戻しました。");
                   }}>戻す</button>
                   <button className="primary-button compact" disabled={!draftDirty} onClick={saveSelectedDraft} title="Ctrl+S">保存</button>
-                  <button
-                    className="secondary-button compact"
-                    onClick={() => knowledgeFromNote(selected)}
-                  >
-                    Knowledge化
-                  </button>
+                  {canCreateKnowledge(selected) && (
+                    <button
+                      className="secondary-button compact"
+                      onClick={() => knowledgeFromNote(selected)}
+                    >
+                      Knowledge化
+                    </button>
+                  )}
                 </div>
               </div>
               {(draftState || draftDirty) && <span className={`note-draft-state ${draftDirty ? "is-dirty" : ""}`}>{draftState || "本文変更あり"}</span>}
-              <div className={`document-publish-panel document-publish-strip ${markdownExportStale ? "needs-export" : ""}`}>
+              <div className={`document-publish-panel document-publish-strip ${markdownExportStale && showDocumentPublish ? "needs-export" : ""}`}>
                 <div className="document-publish-title">
-                  <strong>Document Publish</strong>
-                  {markdownExportOpenPath && (
-                    <button
-                      className="document-publish-open"
-                      type="button"
-                      title={markdownExportOpenPath}
-                      aria-label="出力先を開く"
-                      onClick={() => openMarkdownExportPath(markdownExportOpenPath)}
-                    >
-                      <IconLink size={15} stroke={1.8} />
-                    </button>
-                  )}
-                  {markdownExportStale && <span className="save-status save-status-error">要再出力</span>}
+                  {showDocumentPublish ? (
+                    <>
+                      <strong>Document Publish</strong>
+                      {markdownExportOpenPath && (
+                        <button
+                          className="document-publish-open"
+                          type="button"
+                          title={markdownExportOpenPath}
+                          aria-label="出力先を開く"
+                          onClick={() => openMarkdownExportPath(markdownExportOpenPath)}
+                        >
+                          <IconLink size={15} stroke={1.8} />
+                        </button>
+                      )}
+                      {markdownExportStale && <span className="save-status save-status-error">要再出力</span>}
+                    </>
+                  ) : selectedKind === "resource" ? (
+                    <strong>リンクメモ</strong>
+                  ) : selectedKind === "prompt" ? (
+                    <strong>Prompt</strong>
+                  ) : null}
                 </div>
                 <div className="document-publish-actions">
                   <div className="segmented note-editor-mode-tabs" aria-label="Markdown表示">
@@ -1095,43 +1123,47 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
-                  <label className="toggle note-heading-number-toggle" title="本文は書き換えず、編集・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
-                    <input
-                      type="checkbox"
-                      checked={headingNumbersEnabled}
-                      onChange={(event) => updateHeadingNumberSettings({ heading_numbers: event.target.checked })}
-                    />
-                    見出し番号
-                  </label>
-                  {headingNumbersEnabled && (
-                    <label className="note-heading-start-field" title="この階層から番号を付けます。より浅い見出しは番号なし">
-                      <select
-                        className="note-heading-start-select"
-                        value={headingNumberStart}
-                        onChange={(event) => updateHeadingNumberSettings({
-                          heading_number_start: normalizeHeadingNumberStart(Number(event.target.value)),
-                        })}
-                        aria-label="番号の開始階層"
-                      >
-                        {HEADING_NUMBER_START_LEVELS.map((level) => (
-                          <option key={level} value={level}>{HEADING_NUMBER_START_LABELS[level]}</option>
-                        ))}
-                      </select>
-                    </label>
+                  {showDocumentPublish && (
+                    <>
+                      <label className="toggle note-heading-number-toggle" title="本文は書き換えず、編集・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
+                        <input
+                          type="checkbox"
+                          checked={headingNumbersEnabled}
+                          onChange={(event) => updateHeadingNumberSettings({ heading_numbers: event.target.checked })}
+                        />
+                        見出し番号
+                      </label>
+                      {headingNumbersEnabled && (
+                        <label className="note-heading-start-field" title="この階層から番号を付けます。より浅い見出しは番号なし">
+                          <select
+                            className="note-heading-start-select"
+                            value={headingNumberStart}
+                            onChange={(event) => updateHeadingNumberSettings({
+                              heading_number_start: normalizeHeadingNumberStart(Number(event.target.value)),
+                            })}
+                            aria-label="番号の開始階層"
+                          >
+                            {HEADING_NUMBER_START_LEVELS.map((level) => (
+                              <option key={level} value={level}>{HEADING_NUMBER_START_LABELS[level]}</option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <button className="primary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(!hasMarkdownExportDirectory)}>
+                        {markdownExporting ? "出力中" : hasMarkdownExportDirectory ? "Markdown" : "出力先を選ぶ"}
+                      </button>
+                      {hasMarkdownExportDirectory && (
+                        <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(true)} title="出力先フォルダを変更">
+                          <IconFolder size={15} stroke={1.8} aria-hidden />
+                          変更
+                        </button>
+                      )}
+                      <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf} title="PDFを出力">
+                        <IconFileTypePdf size={15} stroke={1.8} aria-hidden />
+                        {pdfExporting ? "出力中" : "PDF"}
+                      </button>
+                    </>
                   )}
-                  <button className="primary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(!hasMarkdownExportDirectory)}>
-                    {markdownExporting ? "出力中" : hasMarkdownExportDirectory ? "Markdown" : "出力先を選ぶ"}
-                  </button>
-                  {hasMarkdownExportDirectory && (
-                    <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(true)} title="出力先フォルダを変更">
-                      <IconFolder size={15} stroke={1.8} aria-hidden />
-                      変更
-                    </button>
-                  )}
-                  <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf} title="PDFを出力">
-                    <IconFileTypePdf size={15} stroke={1.8} aria-hidden />
-                    {pdfExporting ? "出力中" : "PDF"}
-                  </button>
                 </div>
               </div>
               {previewMode === "edit" ? (
@@ -1172,7 +1204,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
               )}
             </>
           ) : (
-            <EmptyState title="Markdown文書はありません" action="Markdown文書" onAction={() => openDrawer({ type: "note", mode: "edit", entity: { note_type: "artifact", content_format: "markdown" } })} />
+            <EmptyState title="項目がありません" action="Noteを書く" onAction={() => addNote("note")} />
           )}
         </section>
       </div>

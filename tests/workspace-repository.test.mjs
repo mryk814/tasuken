@@ -77,6 +77,11 @@ test("activity log export directory preference round-trips", () => {
 });
 
 test("link URL validation allows web and mailto but rejects file", () => {
+  // Notes はタイトルだけで下書き作成でき、本文は中央エリアで後から書く。
+  assert.doesNotThrow(() => validateEntity("note", { id: "note-draft", title: "下書き", body_markdown: "" }));
+  assert.doesNotThrow(() => validateEntity("note", { id: "note-title-only", title: "タイトルだけ" }));
+  assert.throws(() => validateEntity("note", { id: "note-no-title", title: "", body_markdown: "本文" }), /note\.title/);
+
   assert.doesNotThrow(() => validateEntity("link", { id: "https", title: "Web", url: "https://example.com", link_type: "other" }));
   assert.doesNotThrow(() => validateEntity("link", { id: "http", title: "Web", url: "http://example.com", link_type: "other" }));
   assert.doesNotThrow(() => validateEntity("link", { id: "mail", title: "Mail", url: "mailto:test@example.com", link_type: "other" }));

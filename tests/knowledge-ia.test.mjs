@@ -19,9 +19,28 @@ test("Prompts are folded into Notes instead of a separate Knowledge nav item", (
 
 test("Notes owns prompt inventory and creation", () => {
   assert.doesNotMatch(shellSource, /promptCount/);
-  assert.match(notesPageSource, /NoteScope = "all" \| "memo" \| "document" \| "resource" \| "report" \| "prompt" \| "learning"/);
+  assert.match(notesPageSource, /type NoteScope = "all" \| NotesKind/);
+  assert.match(notesPageSource, /\["note", "Note"\]/);
+  assert.match(notesPageSource, /\["resource", "Resource"\]/);
+  assert.match(notesPageSource, /\["report", "Report"\]/);
+  assert.match(notesPageSource, /\["prompt", "Prompt"\]/);
+  assert.doesNotMatch(notesPageSource, /\["memo", "メモ"\]/);
+  assert.doesNotMatch(notesPageSource, /\["learning", "学び"\]/);
   assert.match(notesPageSource, /addPrompt/);
   assert.match(notesPageSource, /prompt_purpose/);
+});
+
+test("Notes kinds are simplified to Note Resource Report Prompt", () => {
+  assert.match(notesPageSource, /title="Notes"/);
+  assert.doesNotMatch(notesPageSource, /Notes & Resources/);
+  assert.match(notesPageSource, /primary-button[\s\S]*?>Note</);
+  assert.match(notesPageSource, /primary-button[\s\S]*?>Resource</);
+  assert.match(notesPageSource, /primary-button[\s\S]*?>Report</);
+  assert.match(notesPageSource, /primary-button[\s\S]*?>Prompt</);
+  // 4種別は同格の primary。コピー操作だけ secondary。
+  assert.match(notesPageSource, /secondary-button[\s\S]*?>一覧をコピー</);
+  assert.match(notesPageSource, /body_markdown/);
+  assert.match(notesPageSource, /recordType === "resource"/);
 });
 
 test("AI IO runs document publish export without owning target selection", () => {
@@ -31,11 +50,14 @@ test("AI IO runs document publish export without owning target selection", () =>
   assert.doesNotMatch(importExportPageSource, /type="checkbox" checked=\{enabled\}/);
   assert.match(notesPageSource, /Document Publish/);
   assert.match(notesPageSource, /exportSelectedMarkdown/);
+  // Resource / Prompt は出力しない。Note と Report だけ Document Publish。
+  assert.match(notesPageSource, /showDocumentPublish = selectedKind === "note" \|\| selectedKind === "report"/);
 });
 
-test("resources can still move from Notes to Chat References without changing data type", () => {
-  assert.match(notesPageSource, /moveResourceToChatRefs/);
-  assert.match(notesPageSource, /resource_scope:\s*"chat_ref"/);
+test("Notes no longer offers moving resources to Chat References", () => {
+  assert.doesNotMatch(notesPageSource, /moveResourceToChatRefs/);
+  assert.doesNotMatch(notesPageSource, /チャット参照へ移す/);
+  assert.doesNotMatch(notesPageSource, /resource_scope:\s*"chat_ref"/);
   assert.doesNotMatch(chatRefsPageSource, /moveResourceToNotes/);
   assert.doesNotMatch(chatRefsPageSource, /resource_scope:\s*"note"/);
 });

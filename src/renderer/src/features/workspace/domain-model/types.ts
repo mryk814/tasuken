@@ -149,6 +149,8 @@ export interface Resource {
   title: string;
   url?: string | null;
   description?: string | null;
+  /** リンクを見ながらのメモ（Markdown）。description は短い補足用として残す。 */
+  body_markdown?: string | null;
   project_id?: string | null;
   source_record_id?: string | null;
   link_type?: string | null;

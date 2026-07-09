@@ -334,6 +334,16 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-preview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-1); border-bottom: 1px solid var(--color-border-subtle); }
 .note-preview-header h2 { margin: 0; font-size: var(--text-xl); line-height: var(--lh-tight); }
 .note-preview-theme { display: block; margin-bottom: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.note-preview-url {
+  display: inline-block;
+  margin-top: var(--space-1);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+}
 .note-preview-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-1); }
 .note-draft-state { min-height: 14px; margin-top: calc(var(--space-1) * -1); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .note-draft-state.is-dirty { color: var(--color-accent-strong); }

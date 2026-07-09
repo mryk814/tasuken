@@ -9,7 +9,7 @@ const aiProposalPanelSource = readFileSync("src/renderer/src/features/workspace/
 
 test("AI proposals are folded into the AI integration page", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
-  assert.match(routesSource, /\["ai-io", "AI連携"\]/);
+  assert.match(routesSource, /\["ai-io", "AI IO"\]/);
   assert.match(routesSource, /"proposal-inbox": "ai-io"/);
   assert.match(workspaceAppSource, /route === "proposal-inbox" \? "ai-io"/);
   assert.doesNotMatch(workspaceAppSource, /ProposalInboxPage/);

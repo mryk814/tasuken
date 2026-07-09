@@ -244,7 +244,7 @@ export class WorkspaceService {
 
   async chooseFiles(titleValue: unknown): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }> {
     const result = await dialog.showOpenDialog({
-      title: typeof titleValue === "string" && titleValue.trim() ? titleValue : "成果物ファイルを選択",
+      title: typeof titleValue === "string" && titleValue.trim() ? titleValue : "Artifact ファイルを選択",
       properties: ["openFile", "multiSelections"],
     });
     if (result.canceled || !result.filePaths.length) return { canceled: true };

@@ -1,10 +1,10 @@
 export const crossNavigation = [
-  ["inbox", "Inbox整理"],
+  ["inbox", "Inbox"],
   ["timeline", "Timeline"],
 ] as const;
 
 export const toolNavigation = [
-  ["ai-io", "AI連携"],
+  ["ai-io", "AI IO"],
   ["settings", "Settings"],
 ] as const;
 
@@ -35,8 +35,8 @@ export const todayHubTabs = [
 export const knowledgeHubTabs = [
   ["knowledge", "Knowledge"],
   ["notes", "Notes"],
-  ["chat-refs", "チャット参照"],
-  ["artifacts", "成果物"],
+  ["chat-refs", "Chat Refs"],
+  ["artifacts", "Artifacts"],
 ] as const;
 
 export type RouteId =

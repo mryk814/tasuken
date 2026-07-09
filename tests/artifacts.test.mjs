@@ -142,16 +142,16 @@ test("Theme削除でtheme由来のartifactがcascadeされる", () => {
   assert.equal(nullified.includes("artifact.theme_id"), true);
 });
 
-test("成果物一覧が知識整理ナビとルートに接続されている", () => {
+test("Artifacts 一覧が知識整理ナビとルートに接続されている", () => {
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
-  assert.match(routesSource, /\["artifacts", "成果物"\]/);
+  assert.match(routesSource, /\["artifacts", "Artifacts"\]/);
   assert.match(routesSource, /artifacts:\s*"knowledge"/);
   assert.match(workspaceAppSource, /ArtifactsPage/);
   assert.match(workspaceAppSource, /artifacts:\s*<ArtifactsPage/);
 });
 
-test("成果物の追加入口と元Entity往復がUIにある", () => {
-  assert.match(artifactsComponentSource, /成果物を追加/);
+test("Artifact の追加入口と元Entity往復がUIにある", () => {
+  assert.match(artifactsComponentSource, /Artifact を追加/);
   assert.match(artifactsComponentSource, /chooseFiles/);
   assert.match(artifactsComponentSource, /openArtifactSource/);
   assert.match(artifactsComponentSource, /artifactOpenLabel/);
@@ -159,6 +159,7 @@ test("成果物の追加入口と元Entity往復がUIにある", () => {
   assert.match(artifactsPageSource, /Notes/);
   assert.match(artifactsPageSource, /Chat Refs/);
   assert.match(artifactsPageSource, /Artifacts/);
+  assert.match(artifactsPageSource, /title="Artifacts"/);
   assert.match(themePageSource, /ArtifactSection/);
   assert.match(themePageSource, /sourceType="theme"/);
   assert.match(drawerSource, /sourceType="chat_ref"/);
@@ -167,8 +168,8 @@ test("成果物の追加入口と元Entity往復がUIにある", () => {
   assert.match(contractsSource, /dialogChooseFiles/);
 });
 
-test("常用のeditドロワー（Chat参照・タスク・メモ）に成果物セクションがある", () => {
-  // Chat/Taskは行クリックがedit直行なので、EditDrawer側に成果物がないと添付ルートが死ぬ。
+test("常用のeditドロワー（Chat参照・タスク・メモ）に Artifact セクションがある", () => {
+  // Chat/Taskは行クリックがedit直行なので、EditDrawer側に Artifact がないと添付ルートが死ぬ。
   assert.match(drawerSource, /drawer-edit-related/);
   assert.match(drawerSource, /type === "resource" && isChatReferenceEntity\(entity\)/);
   assert.match(drawerSource, /sourceType: "chat_ref"/);

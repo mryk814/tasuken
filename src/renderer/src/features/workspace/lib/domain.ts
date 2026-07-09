@@ -32,18 +32,54 @@ export const THEME_STATUS_LABELS: Record<string, string> = {
   completed: "完了",
 };
 
-export const NOTE_TYPE_LABELS: Record<string, string> = {
-  memo: "メモ",
-  decision: "意思決定",
-  meeting: "会議メモ",
-  experiment: "実験記録",
-  analysis: "分析",
-  ai_chat: "AI対話",
-  artifact: "文章成果物",
-  prompt: "プロンプト",
-  learning: "学習",
-  reflection: "振り返り",
+/** Notes画面の表示種別（フィルタ・バッジ）。Entityは note / resource のまま。 */
+export type NotesKind = "note" | "resource" | "report" | "prompt";
+
+export const NOTES_KIND_LABELS: Record<NotesKind, string> = {
+  note: "Note",
+  resource: "Resource",
+  report: "Report",
+  prompt: "Prompt",
 };
+
+/** ドロワーで選べる note_type（新規はこれだけ）。 */
+export const NOTE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "note", label: "Note" },
+  { value: "report", label: "Report" },
+  { value: "prompt", label: "Prompt" },
+];
+
+/**
+ * note_type の表示ラベル。
+ * 旧種別（memo / artifact / learning 等）は Note に畳む。report_prompt は Prompt。
+ */
+export const NOTE_TYPE_LABELS: Record<string, string> = {
+  note: "Note",
+  report: "Report",
+  prompt: "Prompt",
+  report_prompt: "Prompt",
+  // 旧種別（読み取り互換）
+  memo: "Note",
+  decision: "Note",
+  meeting: "Note",
+  experiment: "Note",
+  analysis: "Note",
+  ai_chat: "Note",
+  artifact: "Note",
+  learning: "Note",
+  reflection: "Note",
+};
+
+export function notesKindFromNoteType(noteType: string | null | undefined): Exclude<NotesKind, "resource"> {
+  const type = String(noteType || "note");
+  if (type === "report") return "report";
+  if (type === "prompt" || type === "report_prompt") return "prompt";
+  return "note";
+}
+
+export function uiNoteType(noteType: string | null | undefined): string {
+  return notesKindFromNoteType(noteType);
+}
 
 export const KNOWLEDGE_NODE_LABELS: Record<string, string> = {
   question: "Question",

@@ -109,7 +109,7 @@ export function Sidebar({
       <div className="theme-nav">
         <div className="nav-heading"><span>テーマ別</span><button onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>＋ 追加</button></div>
         <button className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`} aria-current={route === "themes" ? "page" : undefined} onClick={() => navigate("themes")}>
-          <span>すべてのテーマ</span>
+          <span>All Themes</span>
         </button>
         {themes.map((theme, index) => {
           const current = route === "theme" && theme.id === activeThemeId;

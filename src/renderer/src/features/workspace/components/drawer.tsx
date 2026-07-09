@@ -15,7 +15,7 @@ import type {
   SaveOperation,
   WorkspaceData,
 } from "../types";
-import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, THEME_STATUS_LABELS, relatedEntityTitle } from "../lib/domain";
+import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, relatedEntityTitle, uiNoteType } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf, TASK_SHELF_OPTIONS } from "../lib/taskShelves";
@@ -29,6 +29,7 @@ import {
   normalizeHeadingNumberStart,
   outlookHtml,
   previewDocument,
+  previewHtml,
   renderedText,
   type HeadingNumberStart,
 } from "../lib/markdown";
@@ -39,7 +40,6 @@ import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveCha
 import { ArtifactSection } from "./artifacts";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
-import { MarkdownEditorPanel } from "./MarkdownEditorPanel";
 import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
@@ -306,6 +306,9 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           )}
         </dl>
         {Boolean(entity.description) && <p>{str(entity.description)}</p>}
+        {!isChatRef && Boolean(entity.body_markdown) && (
+          <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: previewHtml(str(entity.body_markdown), "markdown") }} />
+        )}
         {isChatRef && (
           <ArtifactSection
             sourceType="chat_ref"
@@ -609,7 +612,7 @@ function EditDrawer({
   const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   const entityId = str(entity.id);
-  // Chat/Task/Note は常用が edit 直行なので、作業面として成果物を同じドロワーに置く。
+  // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。
   const artifactSource = (() => {
     if (!entityId || !saveEntities || !removeEntity) return null;
     if (type === "task") {
@@ -694,44 +697,34 @@ function EditDrawer({
 }
 
 function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
-  const initialType = str(entity.note_type) || "memo";
+  const initialType = uiNoteType(str(entity.note_type) || "note");
   const [noteType, setNoteType] = useState(initialType);
   const properties = entity.properties_json && typeof entity.properties_json === "object" ? entity.properties_json as Record<string, unknown> : {};
   const isReport = noteType === "report";
-  const isReportPrompt = noteType === "report_prompt";
-  const isPrompt = noteType === "prompt" || isReportPrompt;
-  const initialFormat = str(entity.content_format) || ((isReport || isReportPrompt || initialType === "artifact" || initialType === "prompt") ? "markdown" : "plain");
+  const isPrompt = noteType === "prompt";
+  const initialFormat = str(entity.content_format) || "markdown";
   const [contentFormat, setContentFormat] = useState(initialFormat);
   function chooseNoteType(next: string) {
     setNoteType(next);
-    if ((next === "artifact" || next === "report" || next === "report_prompt" || next === "prompt") && contentFormat === "plain") {
-      setContentFormat("markdown");
-    }
+    if (contentFormat === "plain") setContentFormat("markdown");
   }
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
-      {!isReport && !isReportPrompt && <ItemSelect items={data.items} value={str(entity.item_id)} />}
+      {!isReport && <ItemSelect items={data.items} value={str(entity.item_id)} />}
       <Field label="種別">
         <select name="note_type" value={noteType} onChange={(event) => chooseNoteType(event.target.value)}>
-          {Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          <option value="report">報告書</option>
-          <option value="report_prompt">報告書プロンプト</option>
-          <option value="prompt">プロンプト</option>
+          {NOTE_TYPE_OPTIONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
         </select>
       </Field>
-      {(isReport || isReportPrompt) && (
+      {isReport && (
         <div className="form-grid">
           <Field label="報告種別">
             <select name="report_type" defaultValue={str(properties.report_type) || "weekly"}>
               {Object.entries(REPORT_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
-        </div>
-      )}
-      {isReport && (
-        <div className="form-grid">
           <Field label="対象開始"><input name="period_start" type="date" defaultValue={str(properties.period_start)} /></Field>
           <Field label="対象終了"><input name="period_end" type="date" defaultValue={str(properties.period_end)} /></Field>
         </div>
@@ -739,7 +732,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
       {isPrompt && (
         <div className="form-grid">
           <Field label="用途">
-            <select name="prompt_purpose" defaultValue={promptPurpose({ note_type: noteType, properties_json: properties })}>
+            <select name="prompt_purpose" defaultValue={promptPurpose({ note_type: str(entity.note_type) || noteType, properties_json: properties })}>
               {Object.entries(PROMPT_PURPOSE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
@@ -762,14 +755,16 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           <option value="plain">Plain text</option>
         </select>
       </Field>
-      <Field label="Document Publish">
-        <input type="hidden" name="publish_enabled" value="false" />
-        <label className="toggle">
-          <input type="checkbox" name="publish_enabled" value="true" defaultChecked={properties.publish_enabled === true || properties.export_enabled === true} />
-          一括出力の対象にする（Markdown / PDF）
-        </label>
-      </Field>
-      {contentFormat === "markdown" && (
+      {!isPrompt && (
+        <Field label="Document Publish">
+          <input type="hidden" name="publish_enabled" value="false" />
+          <label className="toggle">
+            <input type="checkbox" name="publish_enabled" value="true" defaultChecked={properties.publish_enabled === true || properties.export_enabled === true} />
+            一括出力の対象にする（Markdown / PDF）
+          </label>
+        </Field>
+      )}
+      {!isPrompt && contentFormat === "markdown" && (
         <Field label="見出し番号">
           <input type="hidden" name="heading_numbers" value="false" />
           <label className="toggle">
@@ -786,7 +781,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           </label>
         </Field>
       )}
-      <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
+      <p className="field-help">本文は中央の編集エリアで書きます。</p>
     </>
   );
 }
@@ -836,7 +831,16 @@ function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data
           </div>
         </>
       )}
-      <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      {isChatRef ? (
+        <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      ) : (
+        <>
+          <Field label="短い説明">
+            <textarea name="description" defaultValue={str(entity.description)} rows={2} placeholder="一覧用の一行メモ（任意）" />
+          </Field>
+          <p className="field-help">メモ本文は中央の編集エリアで書きます。</p>
+        </>
+      )}
     </>
   );
 }
@@ -1364,7 +1368,7 @@ function NoteDetailDrawer({
         {isArtifact ? (
           <section className="artifact-preview-section">
             <div className="section-heading">
-              <div className="segmented" aria-label="成果物表示">
+              <div className="segmented" aria-label="Markdown表示">
                 <button className={artifactMode === "preview" ? "is-active" : ""} onClick={() => setArtifactMode("preview")}>Preview</button>
                 <button className={artifactMode === "raw" ? "is-active" : ""} onClick={() => setArtifactMode("raw")}>Raw</button>
               </div>
