@@ -721,10 +721,13 @@ export function WorkspaceApp() {
           : ((base.link_type as string | null) ?? null),
         reference_status: formText(values, "reference_status") ? normalizeChatReferenceStatus(formText(values, "reference_status")) : (base.reference_status ? normalizeChatReferenceStatus(String(base.reference_status)) : null),
         importance: formText(values, "importance") || null,
+        resource_scope: (base.resource_scope as Resource["resource_scope"]) ?? null,
         captured_at: resolveSubmittedChatCapturedAt(formText(values, "captured_at"), (base.captured_at as string | null) ?? null),
         chat_group: formText(values, "chat_group") || null,
         parent_resource_id: formText(values, "parent_resource_id") || null,
         sort_order: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : null,
+        // Archive はドロワー編集では触らず保持する（専用操作で付け外し）
+        archived_at: (base.archived_at as string | null | undefined) ?? null,
       };
       await saveEntities(buildSaveResourceOperations(resource), base.id ? "変更を保存しました。" : "リソースを追加しました。");
       finishSave();

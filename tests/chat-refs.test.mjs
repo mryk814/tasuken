@@ -59,6 +59,122 @@ test("chat references keep manual order before date fallback", () => {
   assert.deepEqual(grouped.map((group) => group.label), ["検討", "未分類"]);
   assert.deepEqual(grouped[0].resources.map((r) => r.id), ["a", "b"]);
   assert.equal(grouped[1].key, chatRefs.UNGROUPED_CHAT_GROUP);
+  assert.ok(grouped[0].activityAt);
+});
+
+test("chat groups can be ordered by recent activity while keeping name order available", () => {
+  const resources = [
+    resource("old", "旧", { chat_group: "古い案", updated_at: "2026-05-01T10:00:00.000Z" }),
+    resource("new", "新", { chat_group: "最新案", updated_at: "2026-07-01T10:00:00.000Z" }),
+    resource("mid", "中", { chat_group: "中間案", updated_at: "2026-06-01T10:00:00.000Z" }),
+    resource("free", "未分類", { chat_group: "", updated_at: "2026-07-08T10:00:00.000Z" }),
+  ];
+
+  const byName = chatRefs.groupChatResources(resources, {
+    resourceOrder: "newest",
+    groupOrder: "name",
+  });
+  const namedByLocale = ["古い案", "最新案", "中間案"].sort((a, b) => a.localeCompare(b, "ja-JP"));
+  assert.deepEqual(byName.map((group) => group.label), [...namedByLocale, "未分類"]);
+
+  const byRecent = chatRefs.groupChatResources(resources, {
+    resourceOrder: "newest",
+    groupOrder: "recent",
+  });
+  assert.deepEqual(byRecent.map((group) => group.label), ["最新案", "中間案", "古い案", "未分類"]);
+  assert.equal(byRecent[0].activityAt, "2026-07-01T10:00:00.000Z");
+});
+
+test("recent group order follows saved updated_at only, not click-side overrides by default", () => {
+  const resources = [
+    resource("old", "旧", { chat_group: "A案", updated_at: "2026-05-01T10:00:00.000Z" }),
+    resource("new", "新", { chat_group: "B案", updated_at: "2026-07-01T10:00:00.000Z" }),
+  ];
+  const grouped = chatRefs.groupChatResources(resources, {
+    resourceOrder: "newest",
+    groupOrder: "recent",
+  });
+  assert.deepEqual(grouped.map((group) => group.key), ["B案", "A案"]);
+  assert.equal(grouped[0].activityAt, "2026-07-01T10:00:00.000Z");
+});
+
+test("pinned groups sort before recent/name order for future pin coexistence", () => {
+  const a = { key: "A", label: "A", resources: [], activityAt: "2026-01-01", pinned: false };
+  const b = { key: "B", label: "B", resources: [], activityAt: "2026-07-01", pinned: true };
+  const c = { key: "C", label: "C", resources: [], activityAt: "2026-06-01", pinned: false };
+  const ordered = [a, b, c].sort((left, right) => chatRefs.compareChatGroups(left, right, "recent"));
+  assert.deepEqual(ordered.map((group) => group.key), ["B", "C", "A"]);
+});
+
+test("archive keeps theme and group while excluding from active list", () => {
+  const active = resource("live", "通常", {
+    chat_group: "検討",
+    project_id: "theme-1",
+    reference_status: "adopted",
+    description: "メモ",
+    url: "https://example.test/live",
+  });
+  const archived = chatRefs.archiveChatResource(active, "2026-07-08T12:00:00.000Z");
+
+  assert.equal(archived.chat_group, "検討");
+  assert.equal(archived.project_id, "theme-1");
+  assert.equal(archived.reference_status, "adopted");
+  assert.equal(archived.description, "メモ");
+  assert.equal(archived.url, "https://example.test/live");
+  assert.equal(archived.archived_at, "2026-07-08T12:00:00.000Z");
+  assert.equal(chatRefs.isChatArchived(archived), true);
+  assert.equal(chatRefs.isChatArchived(active), false);
+
+  assert.deepEqual(
+    chatRefs.filterChatResourcesByArchive([active, archived], "active").map((r) => r.id),
+    ["live"],
+  );
+  assert.deepEqual(
+    chatRefs.filterChatResourcesByArchive([active, archived], "archive").map((r) => r.id),
+    ["live"],
+  );
+
+  const both = [
+    resource("a", "A"),
+    resource("b", "B", { archived_at: "2026-07-01T00:00:00.000Z" }),
+  ];
+  assert.deepEqual(chatRefs.filterChatResourcesByArchive(both, "active").map((r) => r.id), ["a"]);
+  assert.deepEqual(chatRefs.filterChatResourcesByArchive(both, "archive").map((r) => r.id), ["b"]);
+  assert.deepEqual(
+    chatRefs.filterChatResourcesByArchive(both, "active", { includeArchivedInActive: true }).map((r) => r.id),
+    ["a", "b"],
+  );
+
+  const restored = chatRefs.restoreChatResource(archived);
+  assert.equal(restored.archived_at, null);
+  assert.equal(restored.chat_group, "検討");
+  assert.equal(restored.reference_status, "adopted");
+});
+
+test("archive is separate from group clear and does not wipe chat_group", () => {
+  const current = [
+    resource("a", "A", { chat_group: "旧グループ" }),
+    resource("b", "B", { chat_group: "旧グループ" }),
+  ];
+  const archived = chatRefs.archiveChatResources(current, "2026-07-08T00:00:00.000Z");
+  assert.deepEqual(archived.map((r) => r.chat_group), ["旧グループ", "旧グループ"]);
+  assert.ok(archived.every((r) => chatRefs.isChatArchived(r)));
+
+  const cleared = chatRefs.clearChatGroupResources(current);
+  assert.deepEqual(cleared.map((r) => r.chat_group), [null, null]);
+  assert.ok(cleared.every((r) => !chatRefs.isChatArchived(r)));
+});
+
+test("fully archived groups drop out of active group name suggestions", () => {
+  const themeId = "theme-1";
+  const resources = [
+    resource("live", "残る", { chat_group: "現行", project_id: themeId }),
+    resource("old-a", "旧A", { chat_group: "完了案", project_id: themeId, archived_at: "2026-07-01T00:00:00.000Z" }),
+    resource("old-b", "旧B", { chat_group: "完了案", project_id: themeId, archived_at: "2026-07-02T00:00:00.000Z" }),
+    resource("other", "他Theme", { chat_group: "現行", project_id: "theme-2" }),
+  ];
+  assert.deepEqual(chatRefs.listActiveChatGroupNames(resources, themeId), ["現行"]);
+  assert.deepEqual(chatRefs.listActiveChatGroupNames(resources, "theme-2"), ["現行"]);
 });
 
 test("chat references use timestamp fallbacks when sorting same-day links by newest", () => {

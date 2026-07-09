@@ -159,6 +159,11 @@ export interface Resource {
   chat_group?: string | null;
   parent_resource_id?: string | null;
   sort_order?: number | null;
+  /**
+   * チャットリンクのArchive時刻。null/未設定は通常一覧。
+   * 削除・グループ解除とは別。Theme / chat_group / reference_status は保持する。
+   */
+  archived_at?: string | null;
 }
 
 export type KnowledgeNodeType =

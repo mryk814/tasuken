@@ -93,6 +93,7 @@ export interface Link extends BaseRecord {
   captured_at?: string | null;
   chat_group?: string | null;
   sort_order?: number | null;
+  archived_at?: string | null;
 }
 
 export interface StatusUpdate extends BaseRecord {

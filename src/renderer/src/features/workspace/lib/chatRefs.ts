@@ -4,13 +4,151 @@ import { isKnownChatService, resolveChatService } from "./chatServices";
 export const UNGROUPED_CHAT_GROUP = "__ungrouped__";
 const CHAT_DISPLAY_TIME_ZONE = "Asia/Tokyo";
 
+/** グループ内のリンク並び順 */
 export type ChatRefSortOrder = "manual" | "newest" | "oldest";
-export type ChatRefGroup = { key: string; label: string; resources: Resource[] };
+/** グループ同士の並び順。将来のピン留めは recent/name の前段で優先する想定 */
+export type ChatGroupSortOrder = "recent" | "name";
+
+export type ChatRefGroup = {
+  key: string;
+  label: string;
+  resources: Resource[];
+  /** グループの最終利用時刻（ISO等）。recent 並びとピン留め共存時の二次キーに使う */
+  activityAt: string;
+  /** 将来のピン留め用。現状は常に false。true のグループを recent/name より前へ出す */
+  pinned?: boolean;
+};
+
+export type GroupChatResourcesOptions = {
+  resourceOrder?: ChatRefSortOrder;
+  groupOrder?: ChatGroupSortOrder;
+  /**
+   * テストや特殊用途向けの上書き。通常UIでは使わない。
+   * 「最近利用」は保存後の updated_at 等から導出する（クリックだけでは動かさない）。
+   */
+  groupActivityByKey?: Record<string, string>;
+  /** groupActivityByKey を引くときの Theme スコープ */
+  themeId?: string | null;
+};
+
+export function chatGroupKey(resource: Pick<Resource, "chat_group"> | { chat_group?: string | null }): string {
+  return String(resource.chat_group || "").trim() || UNGROUPED_CHAT_GROUP;
+}
+
+export function chatGroupActivityKey(themeId: string | null | undefined, groupKey: string): string {
+  return `${themeId || "_"}:${groupKey}`;
+}
+
+/**
+ * 1リソースの「編集・保存」時刻。updated_at を最優先し、なければ作成・取得日。
+ * クリックやリンクを開いただけでは更新されない正本フィールドだけを見る。
+ */
+export function chatResourceActivityAt(resource: Resource): string {
+  for (const key of ["updated_at", "created_at", "captured_at"] as const) {
+    const value = textField(resource, key);
+    if (value) return value;
+  }
+  return "";
+}
+
+/** グループの最終利用時刻 = メンバの保存時刻の最大（任意の external 上書きはテスト用） */
+export function chatGroupActivityAt(resources: Resource[], externalTouch?: string): string {
+  let max = String(externalTouch || "");
+  for (const resource of resources) {
+    const value = chatResourceActivityAt(resource);
+    if (value && value > max) max = value;
+  }
+  return max;
+}
+
+/**
+ * ピン留め将来対応: pinned を先に、続けて groupOrder、最後に名前で安定化。
+ * 未分類は常に末尾（フォルダ運用の逃げ場として固定）。
+ */
+export function compareChatGroups(a: ChatRefGroup, b: ChatRefGroup, groupOrder: ChatGroupSortOrder): number {
+  if (a.key === UNGROUPED_CHAT_GROUP && b.key !== UNGROUPED_CHAT_GROUP) return 1;
+  if (b.key === UNGROUPED_CHAT_GROUP && a.key !== UNGROUPED_CHAT_GROUP) return -1;
+
+  const aPinned = Boolean(a.pinned);
+  const bPinned = Boolean(b.pinned);
+  if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
+  if (groupOrder === "recent") {
+    const activityCompare = b.activityAt.localeCompare(a.activityAt);
+    if (activityCompare) return activityCompare;
+  }
+  return a.label.localeCompare(b.label, "ja-JP");
+}
 
 export function isChatReference(resource: Resource): boolean {
   if (resource.resource_scope === "note") return false;
   if (resource.resource_scope === "chat_ref") return true;
   return isKnownChatService(resource.link_type) || resolveChatService(resource) !== "other" || Boolean(resource.reference_status);
+}
+
+/** Archive 済みか（削除・グループ解除とは独立） */
+export function isChatArchived(resource: Resource): boolean {
+  return Boolean(String(resource.archived_at || "").trim());
+}
+
+/** 通常一覧用: Archive を除く / Archive棚用: Archive のみ */
+export function filterChatResourcesByArchive(
+  resources: Resource[],
+  mode: "active" | "archive",
+  options: { includeArchivedInActive?: boolean } = {},
+): Resource[] {
+  if (mode === "archive") return resources.filter(isChatArchived);
+  if (options.includeArchivedInActive) return resources;
+  return resources.filter((resource) => !isChatArchived(resource));
+}
+
+export function archiveChatResource(resource: Resource, at: string = new Date().toISOString()): Resource {
+  if (isChatArchived(resource)) return resource;
+  return {
+    ...resource,
+    archived_at: at,
+  };
+}
+
+export function restoreChatResource(resource: Resource): Resource {
+  if (!isChatArchived(resource)) return resource;
+  return {
+    ...resource,
+    archived_at: null,
+  };
+}
+
+export function archiveChatResources(resources: Resource[], at: string = new Date().toISOString()): Resource[] {
+  return resources.map((resource) => archiveChatResource(resource, at));
+}
+
+export function restoreChatResources(resources: Resource[]): Resource[] {
+  return resources.map((resource) => restoreChatResource(resource));
+}
+
+/**
+ * 編集ドロワーのグループ候補。
+ * アクティブ（非Archive）リンクが1件以上あるグループ名だけを返す。
+ * 全件Archive済みのグループは選択肢に出さない（手入力での再作成は可能）。
+ */
+export function listActiveChatGroupNames(
+  resources: Array<{
+    chat_group?: string | null;
+    project_id?: string | null;
+    theme_id?: string | null;
+    archived_at?: string | null;
+  }>,
+  projectId?: string | null,
+): string[] {
+  const names = new Set<string>();
+  for (const resource of resources) {
+    if (isChatArchived(resource as Resource)) continue;
+    const theme = String(resource.project_id || resource.theme_id || "");
+    if (String(projectId || "") !== theme) continue;
+    const group = String(resource.chat_group || "").trim();
+    if (group) names.add(group);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, "ja-JP"));
 }
 
 function textField(resource: Resource, key: string): string {
@@ -122,10 +260,21 @@ export function sortChatResources(resources: Resource[], order: ChatRefSortOrder
   });
 }
 
-export function groupChatResources(resources: Resource[], order: ChatRefSortOrder): ChatRefGroup[] {
+export function groupChatResources(
+  resources: Resource[],
+  orderOrOptions: ChatRefSortOrder | GroupChatResourcesOptions = "newest",
+): ChatRefGroup[] {
+  const options: GroupChatResourcesOptions = typeof orderOrOptions === "string"
+    ? { resourceOrder: orderOrOptions, groupOrder: "name" }
+    : orderOrOptions;
+  const resourceOrder = options.resourceOrder || "newest";
+  const groupOrder = options.groupOrder || "name";
+  const activityByKey = options.groupActivityByKey || {};
+  const themeId = options.themeId;
+
   const map = new Map<string, Resource[]>();
   for (const resource of resources) {
-    const key = String(resource.chat_group || "").trim() || UNGROUPED_CHAT_GROUP;
+    const key = chatGroupKey(resource);
     const list = map.get(key);
     if (list) list.push(resource);
     else map.set(key, [resource]);
@@ -133,17 +282,32 @@ export function groupChatResources(resources: Resource[], order: ChatRefSortOrde
 
   const groups: ChatRefGroup[] = [];
   for (const [key, list] of map) {
-    if (key !== UNGROUPED_CHAT_GROUP) {
-      groups.push({ key, label: key, resources: sortChatResources(list, order) });
+    const externalTouch = activityByKey[chatGroupActivityKey(themeId, key)];
+    const activityAt = chatGroupActivityAt(list, externalTouch);
+    const sorted = sortChatResources(list, resourceOrder);
+    if (key === UNGROUPED_CHAT_GROUP) {
+      groups.push({ key: UNGROUPED_CHAT_GROUP, label: "未分類", resources: sorted, activityAt });
+    } else {
+      groups.push({ key, label: key, resources: sorted, activityAt });
     }
   }
-  groups.sort((a, b) => a.label.localeCompare(b.label, "ja-JP"));
 
-  const ungrouped = map.get(UNGROUPED_CHAT_GROUP);
-  if (ungrouped) {
-    groups.push({ key: UNGROUPED_CHAT_GROUP, label: "未分類", resources: sortChatResources(ungrouped, order) });
-  }
+  groups.sort((a, b) => compareChatGroups(a, b, groupOrder));
   return groups;
+}
+
+/** テストや将来の明示操作向け。通常UIのクリックでは呼ばない */
+export function touchChatGroupActivity(
+  current: Record<string, string>,
+  themeId: string | null | undefined,
+  groupKey: string,
+  at: string = new Date().toISOString(),
+): Record<string, string> {
+  if (!groupKey) return current;
+  const key = chatGroupActivityKey(themeId, groupKey);
+  const previous = current[key] || "";
+  if (previous && previous >= at) return current;
+  return { ...current, [key]: at };
 }
 
 export function reorderChatGroupResources(resources: Resource[], draggedId: string, targetId: string, placement: "before" | "after" = "before"): Resource[] {

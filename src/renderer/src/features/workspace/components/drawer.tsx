@@ -24,6 +24,7 @@ import { buildKnowledgeLinkContext, type KnowledgeLinkEntry } from "../lib/knowl
 import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
+import { listActiveChatGroupNames } from "../lib/chatRefs";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { ArtifactSection } from "./artifacts";
 import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
@@ -137,12 +138,19 @@ function ThemeGroupPicker({ value, themes }: { value?: string; themes: Workspace
   );
 }
 
-function ChatGroupPicker({ value, resources, projectId }: { value?: string; resources: { chat_group?: string | null; project_id?: string | null; theme_id?: string | null }[]; projectId?: string | null }) {
+function ChatGroupPicker({ value, resources, projectId }: {
+  value?: string;
+  resources: {
+    chat_group?: string | null;
+    project_id?: string | null;
+    theme_id?: string | null;
+    archived_at?: string | null;
+  }[];
+  projectId?: string | null;
+}) {
   const [selected, setSelected] = useState(value || "");
-  const groups = [...new Set(resources
-    .filter((r) => str(r.project_id || r.theme_id) === str(projectId))
-    .map((r) => str(r.chat_group).trim())
-    .filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja-JP"));
+  // 全件Archive済みグループは候補から外す（手入力で同じ名前を復活させることは可能）
+  const groups = listActiveChatGroupNames(resources, projectId);
   return (
     <Field label="グループ">
       <input name="chat_group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="例: 〇〇モデル改善検討" />
@@ -237,12 +245,24 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <div className="badge-row">
             <StatusBadge value="neutral" label={CHAT_SERVICE_LABELS[service]} />
             <StatusBadge value={normalizeReferenceStatus(entity.reference_status)} label={CHAT_REFERENCE_STATUS_LABELS[normalizeReferenceStatus(entity.reference_status)]} />
+            {Boolean(entity.archived_at) && <StatusBadge value="paused" label="Archive" />}
           </div>
         )}
         <h2>{str(entity.title)}</h2>
         {Boolean(entity.url) && <a href={str(entity.url)} target="_blank" rel="noreferrer">{str(entity.url)}</a>}
         <dl>
           <dt>Theme</dt><dd>{themeName}</dd>
+          {isChatRef && (
+            <>
+              <dt>グループ</dt><dd>{str(entity.chat_group) || "未分類"}</dd>
+              {Boolean(entity.archived_at) && (
+                <>
+                  <dt>Archive</dt>
+                  <dd>保管中（削除・グループ解除とは別）</dd>
+                </>
+              )}
+            </>
+          )}
           {relatedTasks.length > 0 && (
             <>
               <dt>関連タスク</dt>
