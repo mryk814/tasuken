@@ -6,6 +6,7 @@ import { str, uuid } from "../lib/format";
 import { buildSaveTaskOperations, buildSaveWaitingOperations, buildSavePlanNodeOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../domain-model/types";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, buildAiImportPrompt, buildAiOrganizePrompt, parseAiImportPayload } from "../lib/aiImport.js";
+import { noteExportSignature } from "../../../../../shared/fileExport";
 import { buildExportData, exportMarkdown, exportProgressReport, noteProperties, notePublishEnabled, toYaml } from "../lib/io";
 import { previewDocument } from "../lib/markdown";
 import { PageHeader } from "../components/common";
@@ -168,27 +169,51 @@ export function ImportExportPage(props: PageProps) {
     }
     setPublishing(true);
     try {
+      const operations: SaveOperation[] = [];
       let directory = "";
       let exportedCount = 0;
       for (const note of targets) {
+        const properties = noteProperties(note);
+        const markdownExport = properties.markdown_export && typeof properties.markdown_export === "object" && !Array.isArray(properties.markdown_export)
+          ? properties.markdown_export as Record<string, unknown>
+          : {};
         const themeName = themes.find((theme) => theme.id === note.theme_id)?.name || "";
+        const content = publishMarkdownContent(note, themeName);
         const result = await workspaceApi.exportMarkdownFile({
           title: str(note.title),
-          content: publishMarkdownContent(note, themeName),
-          directory: directory || null,
-          chooseDirectory: !directory,
+          content,
+          directory: str(markdownExport.directory) || directory || null,
+          chooseDirectory: !str(markdownExport.directory) && !directory,
           fileName: `${str(note.title) || "markdown-document"}.md`,
         });
         if (result.canceled) {
-          if (!exportedCount) setToast("Markdown出力をキャンセルしました。");
+          if (!exportedCount) setToast("Markdown出力をキャンセルしました。", "info");
           break;
         }
         directory = result.directory || directory;
         exportedCount += 1;
+        operations.push({
+          action: "save",
+          type: "note",
+          entity: {
+            ...note,
+            properties_json: {
+              ...properties,
+              publish_enabled: true,
+              markdown_export: {
+                directory: result.directory,
+                filePath: result.filePath,
+                exportedAt: result.exportedAt,
+                bodySignature: noteExportSignature(str(note.body_markdown)),
+              },
+            },
+          },
+        });
       }
-      if (exportedCount) setToast(`${exportedCount}件のMarkdownを出力しました。`, "success");
+      if (operations.length) await saveEntities(operations, `${exportedCount}件のMarkdownを出力しました。`);
+      else if (exportedCount) setToast(`${exportedCount}件のMarkdownを出力しました。`, "success");
     } catch (error) {
-      setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+      setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
       setPublishing(false);
     }
@@ -214,7 +239,7 @@ export function ImportExportPage(props: PageProps) {
           fileName: `${str(note.title) || "markdown-document"}.pdf`,
         });
         if (result.canceled) {
-          if (!exportedCount) setToast("PDF出力をキャンセルしました。");
+          if (!exportedCount) setToast("PDF出力をキャンセルしました。", "info");
           break;
         }
         directory = result.directory || directory;
@@ -222,62 +247,7 @@ export function ImportExportPage(props: PageProps) {
       }
       if (exportedCount) setToast(`${exportedCount}件のPDFを出力しました。`, "success");
     } catch (error) {
-      setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setPublishing(false);
-    }
-  }
-
-  async function publishWordTargets() {
-    const targets = publishTargetNotes.filter(notePublishEnabled);
-    if (!targets.length) {
-      setToast("Publish対象のMarkdown文書がありません。");
-      return;
-    }
-    setPublishing(true);
-    try {
-      const operations: SaveOperation[] = [];
-      let directory = "";
-      let exportedCount = 0;
-      for (const note of targets) {
-        const properties = noteProperties(note);
-        const wordExport = properties.word_export && typeof properties.word_export === "object" && !Array.isArray(properties.word_export)
-          ? properties.word_export as Record<string, unknown>
-          : {};
-        const result = await workspaceApi.exportMarkdownNoteToWord({
-          title: str(note.title),
-          bodyMarkdown: str(note.body_markdown),
-          themeName: themes.find((theme) => theme.id === note.theme_id)?.name || null,
-          directory: str(wordExport.directory) || directory || null,
-          chooseDirectory: !str(wordExport.directory) && !directory,
-        });
-        if (result.canceled) {
-          if (!exportedCount) setToast("Word出力をキャンセルしました。");
-          break;
-        }
-        directory = result.directory || directory;
-        exportedCount += 1;
-        operations.push({
-          action: "save",
-          type: "note",
-          entity: {
-            ...note,
-            properties_json: {
-              ...properties,
-              publish_enabled: true,
-              word_export: {
-                directory: result.directory,
-                filePath: result.filePath,
-                exportedAt: result.exportedAt,
-                bodySignature: result.bodySignature,
-              },
-            },
-          },
-        });
-      }
-      if (operations.length) await saveEntities(operations, `${exportedCount}件のWord出力を更新しました。`);
-    } catch (error) {
-      setToast(`Word出力に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+      setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
       setPublishing(false);
     }
@@ -577,14 +547,10 @@ export function ImportExportPage(props: PageProps) {
               <h2>Document Publish</h2>
               <div className="inline-actions">
                 <span>Publish対象 {publishEnabledCount}件</span>
-                <button className="primary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishMarkdownTargets}>Publish対象をMarkdown出力</button>
-                <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishPdfTargets}>Publish対象をPDF出力</button>
-                <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishWordTargets}>Word出力オプション</button>
+                <button className="primary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishMarkdownTargets}>Markdown</button>
+                <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishPdfTargets}>PDF</button>
               </div>
             </div>
-            <p className="field-help">
-              MarkdownはAI向け、PDFは固定表示向けです。Wordは編集可能なOffice文書が必要なときだけ使います。
-            </p>
           </div>
           <textarea readOnly value={exported} />
           <div className="form-actions">

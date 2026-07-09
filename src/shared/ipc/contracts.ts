@@ -9,7 +9,6 @@ import type {
 } from "../types/workspace";
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
-import type { WordExportRequest, WordExportResult } from "../wordExport";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -36,7 +35,6 @@ export const IPC = {
   snapshotExport: "snapshot:export",
   snapshotInspect: "snapshot:inspect",
   snapshotApply: "snapshot:apply",
-  noteWordExport: "note:word-export",
   markdownFileExport: "markdown-file:export",
   markdownPdfExport: "markdown-pdf:export",
 } as const;
@@ -119,7 +117,6 @@ export interface ResearchDeskApi {
     applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
   };
   exports: {
-    markdownNoteToWord(request: WordExportRequest): Promise<WordExportResult>;
     markdownFile(request: MarkdownFileExportRequest): Promise<MarkdownFileExportResult>;
     markdownPdf(request: MarkdownPdfExportRequest): Promise<MarkdownPdfExportResult>;
   };

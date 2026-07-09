@@ -11,7 +11,7 @@
 | Inbox整理 | `InboxPage.tsx` | 「Inbox」「インボックス」。クイック記録の行き先。ここで種類とThemeを付けて各所へ接続する |
 | Timeline | `TimelinePage.tsx` | 「ガントチャート」「ガント」。左表＝実施事項/計画、右＝タイムライン描画 |
 | Themes / Theme詳細 | `ThemesPage.tsx` / `ThemePage.tsx` | 「テーマ」。研究テーマ単位。識別子（社内で一意の記号）を別途持つ |
-| Notes | `NotesPage.tsx` | 「ノート」「メモ」。Markdown編集・プレビュー・Word/PDF出力の話題はここ |
+| Notes | `NotesPage.tsx` | 「ノート」「メモ」。Markdown編集・プレビュー・Document Publish（Markdown正本 / PDF固定表示）の話題はここ |
 | Knowledge | `KnowledgePage.tsx` | 「ナレッジ」。グラフ表示あり。Note=素材置き場、Knowledge=構造化された知見、と責務を分ける |
 | Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」。外部AIチャットのURL整理 |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの |

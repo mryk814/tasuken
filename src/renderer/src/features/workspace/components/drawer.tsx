@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import { IconCopyPlus, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconCopyPlus, IconLink, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { noteWordExportSignature } from "../../../../../shared/wordExport";
+import { noteExportSignature } from "../../../../../shared/fileExport";
 import type {
   BaseRecord,
   DrawerConfig,
@@ -652,7 +652,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
         <input type="hidden" name="publish_enabled" value="false" />
         <label className="toggle">
           <input type="checkbox" name="publish_enabled" value="true" defaultChecked={properties.publish_enabled === true || properties.export_enabled === true} />
-          一括Word出力の対象にする
+          一括出力の対象にする（Markdown / PDF）
         </label>
       </Field>
       <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
@@ -951,7 +951,6 @@ function NoteDetailDrawer({
   const [artifactMode, setArtifactMode] = useState<"preview" | "raw">("preview");
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
-  const [wordExporting, setWordExporting] = useState(false);
   const knowledgeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const comments = note.comments || [];
   const theme = data.themes.find((entry) => entry.id === note.theme_id);
@@ -968,14 +967,13 @@ function NoteDetailDrawer({
   const periodStart = str(properties.period_start);
   const periodEnd = str(properties.period_end);
   const periodLabel = [periodStart, periodEnd].filter(Boolean).join(" - ");
-  const wordExport = properties.word_export && typeof properties.word_export === "object" && !Array.isArray(properties.word_export)
-    ? properties.word_export as Record<string, unknown>
+  const markdownExport = properties.markdown_export && typeof properties.markdown_export === "object" && !Array.isArray(properties.markdown_export)
+    ? properties.markdown_export as Record<string, unknown>
     : null;
-  const currentWordSignature = noteWordExportSignature(body);
-  const exportedSignature = str(wordExport?.bodySignature);
-  const hasWordExportDirectory = Boolean(str(wordExport?.directory));
-  const wordExportStale = Boolean(exportedSignature && exportedSignature !== currentWordSignature);
-  const canExportWord = contentFormat === "markdown" && Boolean(body.trim());
+  const currentExportSignature = noteExportSignature(body);
+  const exportedSignature = str(markdownExport?.bodySignature);
+  const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
+  const markdownExportStale = Boolean(exportedSignature && exportedSignature !== currentExportSignature);
   const canExportDocument = contentFormat === "markdown" && Boolean(body.trim());
   const publishMarkdownBody = [
     "---",
@@ -1107,53 +1105,35 @@ function NoteDetailDrawer({
     }
   }
 
-  async function exportWord(chooseDirectory: boolean) {
-    if (!canExportWord) return;
-    setWordExporting(true);
-    try {
-      const result = await workspaceApi.exportMarkdownNoteToWord({
-        title: note.title,
-        bodyMarkdown: body,
-        themeName: theme?.name || null,
-        directory: str(wordExport?.directory) || null,
-        chooseDirectory,
-      });
-      if (result.canceled) {
-        setToast("Word出力をキャンセルしました。", "info");
-        return;
-      }
-      const saved = await saveEntity("note", {
-        ...note,
-        properties_json: {
-          ...properties,
-          word_export: {
-            directory: result.directory,
-            filePath: result.filePath,
-            exportedAt: result.exportedAt,
-            bodySignature: result.bodySignature,
-          },
-        },
-      });
-      setToast(`Wordを出力しました。${result.filePath || ""}`, "success");
-      close({ type: "note", entity: saved });
-    } catch (error) {
-      setToast(`Word出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
-    } finally {
-      setWordExporting(false);
-    }
-  }
-
-  async function exportMarkdown() {
+  async function exportMarkdown(chooseDirectory: boolean) {
     if (!canExportDocument) return;
     setMarkdownExporting(true);
     try {
       const result = await workspaceApi.exportMarkdownFile({
         title: note.title,
         content: publishMarkdownBody,
-        chooseDirectory: true,
+        directory: str(markdownExport?.directory) || null,
+        chooseDirectory,
         fileName: `${note.title || "markdown-document"}.md`,
       });
-      setToast(result.canceled ? "Markdown出力をキャンセルしました。" : `Markdownを出力しました。${result.filePath || ""}`, result.canceled ? "info" : "success");
+      if (result.canceled) {
+        setToast("Markdown出力をキャンセルしました。", "info");
+        return;
+      }
+      const saved = await saveEntity("note", {
+        ...note,
+        properties_json: {
+          ...properties,
+          markdown_export: {
+            directory: result.directory,
+            filePath: result.filePath,
+            exportedAt: result.exportedAt,
+            bodySignature: noteExportSignature(body),
+          },
+        },
+      });
+      setToast(`Markdownを出力しました。${result.filePath || ""}`, "success");
+      close({ type: "note", entity: saved });
     } catch (error) {
       setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
@@ -1188,7 +1168,7 @@ function NoteDetailDrawer({
         <section className={`document-rule-strip ${publishEnabled ? "is-export-target" : "is-export-muted"}`}>
           <div>
             <strong>{publishEnabled ? "Publish対象" : "Publish対象外"}</strong>
-            <span>{publishEnabled ? "一括Word出力と配置更新の対象です。" : "AI Exportとは別に、文書出力の対象から外れています。"}</span>
+            <span>{publishEnabled ? "AI連携の書き出しとは別に、Markdown / PDF 一括出力の対象です。" : "AI連携の書き出しとは別に、文書出力の対象から外れています。"}</span>
           </div>
           <label className="toggle">
             <input type="checkbox" checked={publishEnabled} onChange={(event) => setPublishEnabled(event.target.checked)} />
@@ -1221,46 +1201,54 @@ function NoteDetailDrawer({
           <p className="note-body">{note.body_markdown}</p>
         )}
         {isReport && (
-          <section className="word-export-panel">
+          <section className="report-email-panel">
             <div className="section-heading">
               <h3>メール本文</h3>
             </div>
-            <dl className="word-export-meta">
+            <dl className="report-email-meta">
               <dt>件名候補</dt><dd>{emailSubject}</dd>
               {periodLabel && <><dt>対象期間</dt><dd>{periodLabel}</dd></>}
             </dl>
-            <div className="word-export-actions">
+            <div className="document-publish-actions">
               <button className="secondary-button compact" onClick={() => copyReportEmail("subject")}>件名をコピー</button>
               <button className="secondary-button compact" onClick={() => copyReportEmail("body")}>Outlook本文をコピー</button>
               <button className="primary-button compact" onClick={() => copyReportEmail("combined")}>件名+本文をコピー</button>
             </div>
           </section>
         )}
-        {canExportWord && (
-          <section className={`word-export-panel ${wordExportStale ? "needs-export" : ""}`}>
-            <div className="section-heading">
-              <h3>Document Publish</h3>
-              {wordExportStale && <span className="save-status save-status-error">本文変更あり</span>}
-            </div>
-            {wordExport ? (
-              <dl className="word-export-meta">
-                <dt>出力先</dt><dd>{str(wordExport.filePath) || str(wordExport.directory)}</dd>
-                <dt>出力日</dt><dd>{str(wordExport.exportedAt) ? new Date(str(wordExport.exportedAt)).toLocaleString("ja-JP") : "未出力"}</dd>
-              </dl>
-            ) : (
-              <p className="field-help">MarkdownはAI向け、PDFは固定表示向けです。Wordは必要なときだけ使います。</p>
-            )}
-            {wordExportStale && <p className="field-help">Word出力後に本文が変更されています。必要なら再出力してください。</p>}
-            <div className="word-export-actions">
-              <button className="primary-button compact" disabled={markdownExporting} onClick={exportMarkdown}>Markdown出力</button>
-              <button className="secondary-button compact" disabled={pdfExporting} onClick={exportPdf}>PDF出力</button>
-              <button className="secondary-button compact" disabled={wordExporting} onClick={() => exportWord(!hasWordExportDirectory)}>
-                Word出力オプション:{" "}
-                {hasWordExportDirectory ? "Wordを再出力" : "出力先を選ぶ"}
-              </button>
-              {hasWordExportDirectory && (
-                <button className="secondary-button compact" disabled={wordExporting} onClick={() => exportWord(true)}>出力先を変更</button>
+        {canExportDocument && (
+          <section className={`document-publish-panel ${markdownExportStale ? "needs-export" : ""}`}>
+            <div className="document-publish-title">
+              <strong>Document Publish</strong>
+              {(str(markdownExport?.filePath) || str(markdownExport?.directory)) && (
+                <button
+                  className="document-publish-open"
+                  type="button"
+                  title={str(markdownExport?.filePath) || str(markdownExport?.directory)}
+                  aria-label="出力先を開く"
+                  onClick={async () => {
+                    const target = str(markdownExport?.filePath) || str(markdownExport?.directory);
+                    if (!target) return;
+                    const result = await workspaceApi.openPath(target);
+                    if (result.ok) setToast("出力先を開きました。", "success");
+                    else setToast(result.error || "出力先を開けませんでした。", "danger");
+                  }}
+                >
+                  <IconLink size={15} stroke={1.8} />
+                </button>
               )}
+              {markdownExportStale && <span className="save-status save-status-error">要再出力</span>}
+            </div>
+            <div className="document-publish-actions">
+              <button className="primary-button compact" disabled={markdownExporting} onClick={() => exportMarkdown(!hasMarkdownExportDirectory)}>
+                {markdownExporting ? "出力中" : hasMarkdownExportDirectory ? "Markdown" : "出力先を選ぶ"}
+              </button>
+              {hasMarkdownExportDirectory && (
+                <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportMarkdown(true)}>変更</button>
+              )}
+              <button className="secondary-button compact" disabled={pdfExporting} onClick={exportPdf}>
+                {pdfExporting ? "出力中" : "PDF"}
+              </button>
             </div>
           </section>
         )}
@@ -1304,7 +1292,7 @@ function NoteDetailDrawer({
                 <strong>本文が長いため、このまま1つのKnowledgeにはしません。</strong>
                 <span>要点を抽出して候補にするか、短い本文を自分で作成します。元Noteへの参照は残ります。</span>
               </div>
-              <div className="word-export-actions">
+              <div className="document-publish-actions">
                 <button className="primary-button compact" onClick={startKnowledgeExtraction}>要点抽出する</button>
                 <button className="secondary-button compact" onClick={openManualKnowledgeDraft}>自分で短くして作成</button>
               </div>

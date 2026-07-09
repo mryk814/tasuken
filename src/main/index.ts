@@ -876,7 +876,7 @@ code block
       const notesPanePreviewRendered = Boolean(
         notesPane?.querySelector("h2")?.textContent?.includes(${JSON.stringify(markdownTitle)})
         && notesPane?.querySelector(".note-live-editor h1")?.textContent?.includes("Markdown Preview")
-        && notesPane?.querySelector(".word-export-panel")
+        && notesPane?.querySelector(".document-publish-panel")
       );
       const notesPaneMathRendered = Boolean(
         notesPane?.querySelector(".note-editor-math-inline")

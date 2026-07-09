@@ -7,7 +7,6 @@ import type { ArtifactFileImportRequest, ArtifactFileImportResult, ImportedArtif
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult } from "../../shared/ipc/contracts";
 import type { Workspace } from "../../shared/types/workspace";
-import type { WordExportRequest, WordExportResult } from "../../shared/wordExport";
 import {
   artifactFileTypeOf,
   artifactMimeTypeOf,
@@ -15,7 +14,6 @@ import {
   resolveUniqueArtifactFileName,
 } from "./artifactStorage.mjs";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
-import { exportMarkdownNoteToWord } from "./wordExportService";
 
 type SnapshotDecisions = Record<string, string>;
 
@@ -49,23 +47,6 @@ function localDateIso(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function normalizeWordExportRequest(value: unknown): WordExportRequest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Word出力の内容が不正です。画面を再読み込みして、もう一度試してください。");
-  }
-  const record = value as Record<string, unknown>;
-  const title = typeof record.title === "string" ? record.title : "";
-  const bodyMarkdown = typeof record.bodyMarkdown === "string" ? record.bodyMarkdown : "";
-  if (!title.trim()) throw new Error("Word出力するNoteのタイトルがありません。");
-  return {
-    title,
-    bodyMarkdown,
-    themeName: typeof record.themeName === "string" ? record.themeName : null,
-    directory: typeof record.directory === "string" ? record.directory : null,
-    chooseDirectory: Boolean(record.chooseDirectory),
-  };
 }
 
 function safeExportFileName(value: string, extension: "md" | "pdf"): string {
@@ -380,21 +361,6 @@ export class WorkspaceService {
       manifest: parsed.manifest,
       changes: this.repository.previewSnapshot(parsed.workspace),
     };
-  }
-
-  async exportMarkdownNoteToWord(requestValue: unknown): Promise<WordExportResult> {
-    const request = normalizeWordExportRequest(requestValue);
-    let directory = request.directory?.trim() || "";
-    if (request.chooseDirectory || !directory) {
-      const result = await dialog.showOpenDialog({
-        title: "Word出力先フォルダを選択",
-        defaultPath: directory || undefined,
-        properties: ["openDirectory", "createDirectory"],
-      });
-      if (result.canceled || !result.filePaths[0]) return { canceled: true };
-      directory = result.filePaths[0];
-    }
-    return exportMarkdownNoteToWord(request, directory);
   }
 
   async exportMarkdownFile(requestValue: unknown): Promise<MarkdownFileExportResult> {

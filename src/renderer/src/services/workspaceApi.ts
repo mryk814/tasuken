@@ -8,7 +8,6 @@ import type {
 import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
 import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
-import type { WordExportRequest } from "../../../shared/wordExport";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
@@ -90,9 +89,6 @@ export const workspaceApi = {
   },
   applySnapshot(token: string, decisions: Record<string, string>) {
     return desktopApi().snapshots.applyImport(token, decisions);
-  },
-  exportMarkdownNoteToWord(request: WordExportRequest) {
-    return desktopApi().exports.markdownNoteToWord(request);
   },
   exportMarkdownFile(request: MarkdownFileExportRequest) {
     return desktopApi().exports.markdownFile(request);

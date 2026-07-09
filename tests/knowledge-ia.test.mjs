@@ -25,11 +25,12 @@ test("Notes owns prompt inventory and creation", () => {
 });
 
 test("AI IO runs document publish export without owning target selection", () => {
-  assert.match(importExportPageSource, /publishWordTargets/);
+  assert.match(importExportPageSource, /publishMarkdownTargets/);
   assert.match(importExportPageSource, /notePublishEnabled/);
   assert.doesNotMatch(importExportPageSource, /setNotePublishEnabled/);
   assert.doesNotMatch(importExportPageSource, /type="checkbox" checked=\{enabled\}/);
-  assert.match(notesPageSource, /Word出力/);
+  assert.match(notesPageSource, /Document Publish/);
+  assert.match(notesPageSource, /exportSelectedMarkdown/);
 });
 
 test("resources can still move from Notes to Chat References without changing data type", () => {

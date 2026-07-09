@@ -64,7 +64,6 @@ const api: ResearchDeskApi = {
     applyImport: (token, decisions) => ipcRenderer.invoke(IPC.snapshotApply, token, decisions),
   },
   exports: {
-    markdownNoteToWord: (request) => ipcRenderer.invoke(IPC.noteWordExport, request),
     markdownFile: (request) => ipcRenderer.invoke(IPC.markdownFileExport, request),
     markdownPdf: (request) => ipcRenderer.invoke(IPC.markdownPdfExport, request),
   },
