@@ -55,6 +55,8 @@ function $isMarkdownMathNode(node: LexicalNode | null | undefined): node is Mark
   return node instanceof MarkdownMathNode;
 }
 
+const MATH_AUTOSAVE_MS = 350;
+
 function MathNodeView({
   expression,
   displayMode,
@@ -70,6 +72,7 @@ function MathNodeView({
   const [draft, setDraft] = useState(expression);
 
   useEffect(() => {
+    // 編集中はローカル draft を正本にし、自動保存で expression が変わっても入力を潰さない。
     if (!editing) setDraft(expression);
   }, [expression, editing]);
 
@@ -77,37 +80,50 @@ function MathNodeView({
     if (el) { el.focus(); el.select(); }
   }, []);
 
-  const commit = useCallback(() => {
+  const writeExpression = useCallback((value: string) => {
+    editor.update(() => {
+      const node = $getNodeByKey(nodeKey);
+      if ($isMarkdownMathNode(node)) {
+        const w = node.getWritable() as MarkdownMathNode;
+        w.__expression = value;
+      }
+    });
+  }, [nodeKey, editor]);
+
+  const removeNode = useCallback(() => {
+    editor.update(() => {
+      const node = $getNodeByKey(nodeKey);
+      if (node) node.remove();
+    });
+  }, [nodeKey, editor]);
+
+  // 入力中も debounce でノードへ反映 → ノート全体の自動保存に載せる。
+  useEffect(() => {
+    if (!editing) return;
+    const value = draft.trim();
+    if (!value || value === expression) return;
+    const timer = window.setTimeout(() => {
+      writeExpression(normalizeMathExpression(value));
+    }, MATH_AUTOSAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [draft, editing, expression, writeExpression]);
+
+  const finish = useCallback(() => {
     setEditing(false);
     const value = draft.trim();
     if (!value) {
-      editor.update(() => {
-        const node = $getNodeByKey(nodeKey);
-        if (node) node.remove();
-      });
+      removeNode();
       return;
     }
-    if (value !== expression) {
-      editor.update(() => {
-        const node = $getNodeByKey(nodeKey);
-        if ($isMarkdownMathNode(node)) {
-          const w = node.getWritable() as MarkdownMathNode;
-          w.__expression = value;
-        }
-      });
-    }
-  }, [draft, expression, nodeKey, editor]);
+    const normalized = normalizeMathExpression(value);
+    if (normalized !== expression) writeExpression(normalized);
+  }, [draft, expression, removeNode, writeExpression]);
 
   const cancel = useCallback(() => {
     setEditing(false);
     setDraft(expression);
-    if (!expression.trim()) {
-      editor.update(() => {
-        const node = $getNodeByKey(nodeKey);
-        if (node) node.remove();
-      });
-    }
-  }, [expression, nodeKey, editor]);
+    if (!expression.trim()) removeNode();
+  }, [expression, removeNode]);
 
   if (editing) {
     const previewHtml = draft.trim()
@@ -123,11 +139,12 @@ function MathNodeView({
             value={draft}
             rows={Math.max(2, draft.split("\n").length + 1)}
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
+            onBlur={finish}
             onKeyDown={(e) => {
               e.stopPropagation();
               if (e.key === "Escape") { e.preventDefault(); cancel(); }
-              else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+              // Enter は改行用。確定は自動保存 + フォーカスを外す（Ctrl/Cmd+Enter でも閉じる）。
+              else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(); }
             }}
             spellCheck={false}
             placeholder="数式を入力（例: x^2 + y^2 = r^2）"
@@ -135,7 +152,7 @@ function MathNodeView({
           {previewHtml && (
             <div className="note-editor-math-live-preview" dangerouslySetInnerHTML={{ __html: previewHtml }} />
           )}
-          <span className="note-editor-math-hint">Ctrl+Enter で確定 · Escape でキャンセル</span>
+          <span className="note-editor-math-hint">入力は自動で保存されます · Escape でキャンセル</span>
         </div>
       );
     }
@@ -149,11 +166,11 @@ function MathNodeView({
           value={draft}
           size={Math.max(8, draft.length + 2)}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          onBlur={finish}
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === "Escape") { e.preventDefault(); cancel(); }
-            else if (e.key === "Enter") { e.preventDefault(); commit(); }
+            else if (e.key === "Enter") { e.preventDefault(); finish(); }
           }}
           spellCheck={false}
           placeholder="数式"

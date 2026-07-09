@@ -832,15 +832,52 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-editor-split .markdown-editor-input, .markdown-editor-split .markdown-preview { min-height: min(460px, 62vh); max-height: min(620px, 70vh); overflow: auto; }
 .markdown-preview { min-height: 280px; max-height: 520px; overflow: auto; overflow-wrap: anywhere; padding: var(--space-4); border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper); color: var(--markdown-paper-text); font-size: var(--text-base); line-height: 1.72; }
 .markdown-preview h1, .markdown-preview h2, .markdown-preview h3, .markdown-preview h4 { margin: var(--space-4) 0 var(--space-2); color: var(--markdown-accent-strong); line-height: var(--lh-tight); letter-spacing: 0; }
+.markdown-preview .md-heading-number { font-variant-numeric: tabular-nums; margin-right: 0.15em; font-family: var(--font-mono); font-weight: inherit; color: inherit; }
+/* 編集モード: data 属性のみ付与し ::before で表示（本文 Markdown には入らない） */
+.note-mdx-content h1[data-heading-number]::before,
+.note-mdx-content h2[data-heading-number]::before,
+.note-mdx-content h3[data-heading-number]::before,
+.note-mdx-content h4[data-heading-number]::before {
+  content: attr(data-heading-number) " ";
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-weight: inherit;
+  color: inherit;
+  margin-right: 0.15em;
+}
+.note-heading-number-toggle { min-height: 30px; white-space: nowrap; font-size: var(--text-xs); color: var(--color-text-secondary); }
+.note-heading-start-field { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 30px; color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; }
+.note-heading-start-select {
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+}
+.note-heading-start-select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 .markdown-preview h1:first-child, .markdown-preview h2:first-child, .markdown-preview h3:first-child, .markdown-preview h4:first-child { margin-top: 0; }
 .markdown-preview h1 { padding-bottom: var(--space-2); border-bottom: 2px solid var(--markdown-accent-bd); font-size: var(--text-2xl); }
 .markdown-preview h2 { padding: var(--space-2) var(--space-3); border-left: 6px solid var(--markdown-accent); border-bottom: 2px solid var(--markdown-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 84%, var(--markdown-paper)); font-size: var(--text-xl); }
 .markdown-preview h3 { padding: 2px 0 2px var(--space-2); border-left: 4px solid color-mix(in srgb, var(--markdown-accent) 85%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-size: var(--text-lg); font-weight: var(--weight-bold); }
 .markdown-preview h4 { width: fit-content; max-width: 100%; padding: 3px var(--space-2); border-left: 3px solid color-mix(in srgb, var(--markdown-accent) 60%, var(--markdown-paper)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 58%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-size: var(--text-base); font-weight: var(--weight-bold); }
 .markdown-preview p { margin: var(--space-2) 0; }
-.markdown-preview ul, .markdown-preview ol { margin: var(--space-2) 0 var(--space-3); padding-left: var(--space-5); }
-.markdown-preview li { margin: 3px 0; }
+/* Tailwind preflight が list-style:none にするので、Preview では明示的に戻す（編集面 note-mdx-content と同じ）。 */
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: var(--space-2) 0 var(--space-3);
+  padding-left: var(--space-5);
+  list-style-position: outside;
+}
+.markdown-preview ul { list-style-type: disc; }
+.markdown-preview ol { list-style-type: decimal; }
+.markdown-preview ul ul { list-style-type: circle; }
+.markdown-preview ul ul ul { list-style-type: square; }
+.markdown-preview ol ol { list-style-type: lower-alpha; }
+.markdown-preview li { margin: 3px 0; display: list-item; }
 .markdown-preview li::marker { color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
+.markdown-preview del { text-decoration: line-through; }
 .markdown-preview blockquote { margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border-left: 3px solid var(--markdown-accent-bd); background: color-mix(in srgb, var(--markdown-accent-bg) 20%, var(--markdown-paper)); color: var(--markdown-paper-secondary); font-style: italic; }
 .markdown-preview blockquote p { margin: var(--space-1) 0; }
 .markdown-preview hr { height: 0; margin: var(--space-3) 0; border: 0; border-top: 1px solid var(--markdown-accent-bd); }
@@ -862,6 +899,15 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview .md-math-operator { margin-right: 0.18em; font-style: normal; }
 .markdown-preview .md-math-inline sub, .markdown-preview .md-math-block sub { font-size: 0.68em; vertical-align: -0.35em; }
 .markdown-preview .md-math-inline sup, .markdown-preview .md-math-block sup { font-size: 0.68em; vertical-align: 0.55em; }
+/* MDXEditor が <u> で書き出した下線。PDF/Preview 共通で明示する（UA 依存にしない）。 */
+.markdown-preview u,
+.markdown-preview .md-underline,
+.note-mdx-content u {
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 2px;
+  text-decoration-skip-ink: none;
+}
 .markdown-preview a,
 .markdown-preview .md-link,
 .note-mdx-content a {

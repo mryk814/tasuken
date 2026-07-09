@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { IconCopyPlus, IconLink, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconCopyPlus, IconFileTypePdf, IconFolder, IconLink, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -21,7 +21,17 @@ import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf, TASK_SHELF_OPTIONS } from "../lib/taskShelves";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { buildKnowledgeLinkContext, type KnowledgeLinkEntry } from "../lib/knowledgeLinks";
-import { escapeHtml, outlookHtml, previewDocument, renderedText } from "../lib/markdown";
+import {
+  escapeHtml,
+  HEADING_NUMBER_START_LABELS,
+  HEADING_NUMBER_START_LEVELS,
+  headingNumberOptionsFromProperties,
+  normalizeHeadingNumberStart,
+  outlookHtml,
+  previewDocument,
+  renderedText,
+  type HeadingNumberStart,
+} from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { listActiveChatGroupNames } from "../lib/chatRefs";
@@ -675,6 +685,23 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           一括出力の対象にする（Markdown / PDF）
         </label>
       </Field>
+      {contentFormat === "markdown" && (
+        <Field label="見出し番号">
+          <input type="hidden" name="heading_numbers" value="false" />
+          <label className="toggle">
+            <input type="checkbox" name="heading_numbers" value="true" defaultChecked={properties.heading_numbers === true} />
+            編集・Preview・PDF に通し番号を表示（本文は書き換えない）
+          </label>
+          <label className="note-heading-start-field">
+            開始階層
+            <select name="heading_number_start" defaultValue={normalizeHeadingNumberStart(properties.heading_number_start)}>
+              {HEADING_NUMBER_START_LEVELS.map((level) => (
+                <option key={level} value={level}>{HEADING_NUMBER_START_LABELS[level]}</option>
+              ))}
+            </select>
+          </label>
+        </Field>
+      )}
       <MarkdownEditorPanel name="body_markdown" label={isReportPrompt ? "プロンプト" : "本文"} value={str(entity.body_markdown)} format={contentFormat} />
     </>
   );
@@ -979,6 +1006,7 @@ function NoteDetailDrawer({
   const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
   const body = note.body_markdown || "";
   const properties = note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
+  const headingNumberOptions = headingNumberOptionsFromProperties(properties);
   const publishEnabled = notePublishEnabled(note);
   const isReport = note.note_type === "report";
   const isLongKnowledgeBody = isLongKnowledgeSource(body);
@@ -1043,6 +1071,25 @@ function NoteDetailDrawer({
       },
     });
     setToast(next ? "Document Publish対象にしました。" : "Document Publish対象から外しました。", "success");
+    close({ type: "note", entity: saved });
+  }
+
+  async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_start?: HeadingNumberStart }) {
+    const nextEnabled = patch.heading_numbers ?? headingNumberOptions.preview.headingNumbers === true;
+    const nextStart = patch.heading_number_start ?? normalizeHeadingNumberStart(headingNumberOptions.preview.headingNumberStart);
+    const saved = await saveEntity("note", {
+      ...note,
+      properties_json: {
+        ...properties,
+        heading_numbers: nextEnabled,
+        heading_number_start: nextStart,
+      },
+    });
+    if (patch.heading_numbers !== undefined && patch.heading_number_start === undefined) {
+      setToast(nextEnabled ? "見出し番号を表示します（Preview / PDF）。" : "見出し番号を非表示にしました。", "success");
+    } else if (patch.heading_number_start !== undefined) {
+      setToast(`番号の開始階層を${HEADING_NUMBER_START_LABELS[nextStart]}にしました。`, "success");
+    }
     close({ type: "note", entity: saved });
   }
 
@@ -1167,7 +1214,7 @@ function NoteDetailDrawer({
     try {
       const result = await workspaceApi.exportMarkdownPdf({
         title: note.title,
-        html: previewDocument(publishMarkdownBody, "markdown"),
+        html: previewDocument(publishMarkdownBody, "markdown", headingNumberOptions.publish),
         chooseDirectory: true,
         fileName: `${note.title || "markdown-document"}.pdf`,
       });
@@ -1195,6 +1242,40 @@ function NoteDetailDrawer({
             対象
           </label>
         </section>
+        {contentFormat === "markdown" && (
+          <section className="document-rule-strip">
+            <div>
+              <strong>見出し番号</strong>
+              <span>本文は書き換えず、Preview / PDF に通し番号を付けます。開始階層より浅い見出しは番号なしです。</span>
+            </div>
+            <div className="document-publish-actions">
+              <label className="toggle note-heading-number-toggle">
+                <input
+                  type="checkbox"
+                  checked={headingNumberOptions.preview.headingNumbers === true}
+                  onChange={(event) => updateHeadingNumberSettings({ heading_numbers: event.target.checked })}
+                />
+                表示する
+              </label>
+              {headingNumberOptions.preview.headingNumbers === true && (
+                <label className="note-heading-start-field">
+                  <select
+                    className="note-heading-start-select"
+                    value={normalizeHeadingNumberStart(headingNumberOptions.preview.headingNumberStart)}
+                    onChange={(event) => updateHeadingNumberSettings({
+                      heading_number_start: normalizeHeadingNumberStart(Number(event.target.value)),
+                    })}
+                    aria-label="番号の開始階層"
+                  >
+                    {HEADING_NUMBER_START_LEVELS.map((level) => (
+                      <option key={level} value={level}>{HEADING_NUMBER_START_LABELS[level]}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          </section>
+        )}
         {note.source_url && <div className="link-value"><a href={note.source_url} target="_blank" rel="noreferrer">{note.source_url}</a></div>}
         {isArtifact ? (
           <section className="artifact-preview-section">
@@ -1210,7 +1291,7 @@ function NoteDetailDrawer({
               <iframe
                 className="artifact-preview-frame"
                 sandbox=""
-                srcDoc={previewDocument(body, contentFormat)}
+                srcDoc={previewDocument(body, contentFormat, headingNumberOptions.preview)}
                 title={`${note.title} preview`}
               />
             ) : (
@@ -1264,9 +1345,13 @@ function NoteDetailDrawer({
                 {markdownExporting ? "出力中" : hasMarkdownExportDirectory ? "Markdown" : "出力先を選ぶ"}
               </button>
               {hasMarkdownExportDirectory && (
-                <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportMarkdown(true)}>変更</button>
+                <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportMarkdown(true)} title="出力先フォルダを変更">
+                  <IconFolder size={15} stroke={1.8} aria-hidden />
+                  変更
+                </button>
               )}
-              <button className="secondary-button compact" disabled={pdfExporting} onClick={exportPdf}>
+              <button className="secondary-button compact" disabled={pdfExporting} onClick={exportPdf} title="PDFを出力">
+                <IconFileTypePdf size={15} stroke={1.8} aria-hidden />
                 {pdfExporting ? "出力中" : "PDF"}
               </button>
             </div>

@@ -8,7 +8,7 @@ import type { Task, Waiting, PlanNode, Schedule, ScheduleOwnerType } from "../do
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, buildAiImportPrompt, buildAiOrganizePrompt, parseAiImportPayload } from "../lib/aiImport.js";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { buildExportData, exportMarkdown, exportProgressReport, noteProperties, notePublishEnabled, toYaml } from "../lib/io";
-import { previewDocument } from "../lib/markdown";
+import { headingNumberOptionsFromProperties, previewDocument } from "../lib/markdown";
 import { PageHeader } from "../components/common";
 import { AiProposalPanel } from "../components/AiProposalPanel";
 
@@ -231,9 +231,10 @@ export function ImportExportPage(props: PageProps) {
       let exportedCount = 0;
       for (const note of targets) {
         const themeName = themes.find((theme) => theme.id === note.theme_id)?.name || "";
+        const publishOptions = headingNumberOptionsFromProperties(noteProperties(note)).publish;
         const result = await workspaceApi.exportMarkdownPdf({
           title: str(note.title),
-          html: previewDocument(publishMarkdownContent(note, themeName), "markdown"),
+          html: previewDocument(publishMarkdownContent(note, themeName), "markdown", publishOptions),
           directory: directory || null,
           chooseDirectory: !directory,
           fileName: `${str(note.title) || "markdown-document"}.pdf`,

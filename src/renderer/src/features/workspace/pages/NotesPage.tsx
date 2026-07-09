@@ -26,7 +26,7 @@ import {
 } from "@mdxeditor/editor";
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { $findMatchingParent } from "@lexical/utils";
-import { IconExternalLink, IconLink, IconLinkOff, IconMessageCircle, IconPencil, IconSparkles } from "@tabler/icons-react";
+import { IconExternalLink, IconFileTypePdf, IconFolder, IconLink, IconLinkOff, IconMessageCircle, IconPencil, IconSparkles } from "@tabler/icons-react";
 import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
 import { Component, memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ErrorInfo, type MouseEvent, type ReactNode } from "react";
 
@@ -38,7 +38,21 @@ import { isChatReference } from "../lib/chatRefs";
 import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
-import { insertStructuredMarkdownPaste, isStructuredMarkdownPaste, openSafeMarkdownLink, previewDocument, previewHtml, safeMarkdownLinkUrl } from "../lib/markdown";
+import {
+  applyHeadingNumberAttributes,
+  HEADING_NUMBER_START_LABELS,
+  HEADING_NUMBER_START_LEVELS,
+  headingNumberOptionsFromProperties,
+  insertStructuredMarkdownPaste,
+  isStructuredMarkdownPaste,
+  normalizeHeadingNumberStart,
+  openSafeMarkdownLink,
+  previewDocument,
+  previewHtml,
+  safeMarkdownLinkUrl,
+  type HeadingNumberStart,
+  type MarkdownRenderOptions,
+} from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
 
@@ -50,6 +64,7 @@ type MarkdownRichEditorProps = {
   onChange: (value: string) => void;
   onImageUpload: (file: File) => Promise<string>;
   onError: (message: string) => void;
+  headingNumberOptions?: MarkdownRenderOptions;
 };
 type MarkdownEditorBoundaryProps = {
   markdown: string;
@@ -181,7 +196,10 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onChange,
   onImageUpload,
   onError,
+  headingNumberOptions,
 }: MarkdownRichEditorProps) {
+  const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
+  const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
   const editorRef = useRef<MDXEditorMethods | null>(null);
   const editorScopeRef = useRef<HTMLDivElement | null>(null);
   const hoverHideTimerRef = useRef<number | null>(null);
@@ -259,6 +277,32 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     lastInternalMarkdown.current = markdown;
     setEditorFailed(false);
   }, [markdown]);
+
+  // 見出し番号は data-heading-number + CSS ::before で出す（Lexical の本文テキストには書き込まない）。
+  useEffect(() => {
+    const root = editorScopeRef.current;
+    if (!root) return;
+    const content = () => root.querySelector(".note-mdx-content");
+    const options: MarkdownRenderOptions = {
+      headingNumbers: headingNumbersEnabled,
+      headingNumberStart,
+    };
+    let frame = 0;
+    const refresh = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        applyHeadingNumberAttributes(content(), options);
+      });
+    };
+    refresh();
+    const observer = new MutationObserver(refresh);
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      applyHeadingNumberAttributes(content(), false);
+    };
+  }, [headingNumbersEnabled, headingNumberStart, markdown]);
 
   // React の onClick だけでは Lexical に握られることがあるため、capture の pointerdown で拾う。
   useEffect(() => {
@@ -563,6 +607,9 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const selectedBody = selected ? str(selected.body_markdown) : "";
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
   const selectedProperties = selected ? noteProperties(selected) : {};
+  const headingNumberOptions = headingNumberOptionsFromProperties(selectedProperties);
+  const headingNumbersEnabled = headingNumberOptions.preview.headingNumbers === true;
+  const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions.preview.headingNumberStart);
   const markdownExport = selectedProperties.markdown_export && typeof selectedProperties.markdown_export === "object" && !Array.isArray(selectedProperties.markdown_export)
     ? selectedProperties.markdown_export as Record<string, unknown>
     : null;
@@ -816,6 +863,30 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     }
   }
 
+  async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_start?: HeadingNumberStart }) {
+    if (!selected) return;
+    try {
+      const nextEnabled = patch.heading_numbers ?? headingNumbersEnabled;
+      const nextStart = patch.heading_number_start ?? headingNumberStart;
+      await saveEntity("note", {
+        ...selected,
+        body_markdown: draftDirty ? draftBody : selectedBody,
+        properties_json: {
+          ...selectedProperties,
+          heading_numbers: nextEnabled,
+          heading_number_start: nextStart,
+        },
+      });
+      if (patch.heading_numbers !== undefined && patch.heading_number_start === undefined) {
+        setToast(nextEnabled ? "見出し番号を表示します（編集 / Preview / PDF）。" : "見出し番号を非表示にしました。", "success");
+      } else if (patch.heading_number_start !== undefined) {
+        setToast(`番号の開始階層を${HEADING_NUMBER_START_LABELS[nextStart]}にしました。`, "success");
+      }
+    } catch (error) {
+      setToast(`設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
   function publishMarkdownContent(note: Combined, themeName: string, bodyMarkdown: string): string {
     const metadata = [
       "---",
@@ -872,7 +943,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       const content = publishMarkdownContent(selected, selectedTheme?.name || "", draftBody || selectedBody);
       const result = await workspaceApi.exportMarkdownPdf({
         title: str(selected.title),
-        html: previewDocument(content, "markdown"),
+        html: previewDocument(content, "markdown", headingNumberOptions.publish),
         chooseDirectory: true,
         fileName: `${str(selected.title) || "markdown-document"}.pdf`,
       });
@@ -1024,13 +1095,41 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
+                  <label className="toggle note-heading-number-toggle" title="本文は書き換えず、編集・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
+                    <input
+                      type="checkbox"
+                      checked={headingNumbersEnabled}
+                      onChange={(event) => updateHeadingNumberSettings({ heading_numbers: event.target.checked })}
+                    />
+                    見出し番号
+                  </label>
+                  {headingNumbersEnabled && (
+                    <label className="note-heading-start-field" title="この階層から番号を付けます。より浅い見出しは番号なし">
+                      <select
+                        className="note-heading-start-select"
+                        value={headingNumberStart}
+                        onChange={(event) => updateHeadingNumberSettings({
+                          heading_number_start: normalizeHeadingNumberStart(Number(event.target.value)),
+                        })}
+                        aria-label="番号の開始階層"
+                      >
+                        {HEADING_NUMBER_START_LEVELS.map((level) => (
+                          <option key={level} value={level}>{HEADING_NUMBER_START_LABELS[level]}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <button className="primary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(!hasMarkdownExportDirectory)}>
                     {markdownExporting ? "出力中" : hasMarkdownExportDirectory ? "Markdown" : "出力先を選ぶ"}
                   </button>
                   {hasMarkdownExportDirectory && (
-                    <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(true)}>変更</button>
+                    <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(true)} title="出力先フォルダを変更">
+                      <IconFolder size={15} stroke={1.8} aria-hidden />
+                      変更
+                    </button>
                   )}
-                  <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf}>
+                  <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf} title="PDFを出力">
+                    <IconFileTypePdf size={15} stroke={1.8} aria-hidden />
                     {pdfExporting ? "出力中" : "PDF"}
                   </button>
                 </div>
@@ -1048,6 +1147,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                 >
                   <MarkdownRichEditor
                     markdown={draftBody}
+                    headingNumberOptions={headingNumberOptions.preview}
                     onChange={(value) => {
                       setDraftBody(value);
                       if (draftState) setDraftState("");
@@ -1057,7 +1157,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   />
                 </MarkdownEditorBoundary>
               ) : previewMode === "preview" ? (
-                <div className="note-main-preview markdown-preview" dangerouslySetInnerHTML={{ __html: previewHtml(draftBody, "markdown") }} />
+                <div className="note-main-preview markdown-preview" dangerouslySetInnerHTML={{ __html: previewHtml(draftBody, "markdown", headingNumberOptions.preview) }} />
               ) : (
                 <textarea
                   ref={textareaRef}

@@ -746,6 +746,12 @@ export function WorkspaceApp() {
       const noteType = formText(values, "note_type", "memo");
       const hasSourceUrlField = Boolean(named("source_url"));
       const publishEnabled = values.getAll("publish_enabled").map(String).includes("true");
+      const hasHeadingNumberFields = Boolean(named("heading_numbers"));
+      const headingNumbers = hasHeadingNumberFields && values.getAll("heading_numbers").map(String).includes("true");
+      const headingNumberStartRaw = formText(values, "heading_number_start");
+      const headingNumberStart = headingNumberStartRaw === "1" || headingNumberStartRaw === "2" || headingNumberStartRaw === "3" || headingNumberStartRaw === "4"
+        ? Number(headingNumberStartRaw)
+        : 2;
       const promptProperties = noteType === "prompt" || noteType === "report_prompt" ? {
         prompt_purpose: formText(values, "prompt_purpose", noteType === "report_prompt" ? "report" : "other"),
         prompt_variables: formText(values, "prompt_variables"),
@@ -758,6 +764,9 @@ export function WorkspaceApp() {
           period_end: formText(values, "period_end") || null,
         } : {}),
       } : {};
+      const headingNumberProperties = hasHeadingNumberFields
+        ? { heading_numbers: headingNumbers, heading_number_start: headingNumberStart }
+        : {};
       entity = {
         ...base,
         title,
@@ -768,7 +777,13 @@ export function WorkspaceApp() {
         item_id: noteType === "report" || noteType === "report_prompt" ? null : formText(values, "item_id") || null,
         source_url: noteType === "report" || noteType === "report_prompt" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
-        properties_json: { ...((base.properties_json as Record<string, unknown>) || {}), publish_enabled: publishEnabled, ...reportProperties, ...promptProperties },
+        properties_json: {
+          ...((base.properties_json as Record<string, unknown>) || {}),
+          publish_enabled: publishEnabled,
+          ...reportProperties,
+          ...promptProperties,
+          ...headingNumberProperties,
+        },
         comments: (base.comments as Note["comments"]) || [],
       };
     } else if (type === "status_update") {

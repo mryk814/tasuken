@@ -1,5 +1,53 @@
 import katex from "katex";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmStrikethroughFromMarkdown } from "mdast-util-gfm-strikethrough";
+import { gfmTableFromMarkdown } from "mdast-util-gfm-table";
+import { mathFromMarkdown } from "mdast-util-math";
+import { toString as mdastToString } from "mdast-util-to-string";
+import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough";
+import { gfmTable } from "micromark-extension-gfm-table";
+import { math as micromarkMath } from "micromark-extension-math";
+import type {
+  BlockContent,
+  Blockquote,
+  Code,
+  Content,
+  Delete,
+  Emphasis,
+  Heading,
+  Html,
+  Image,
+  InlineCode,
+  Link,
+  List,
+  ListItem,
+  Paragraph,
+  PhrasingContent,
+  Root,
+  Strong,
+  Table,
+  TableCell,
+  TableRow,
+  Text,
+} from "mdast";
+import { KATEX_DOCUMENT_CSS } from "./katexDocumentCss";
 import { parseWikiLinks } from "./knowledgeLinks";
+
+/** MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。 */
+function parseMarkdownBody(body: string): Root {
+  return fromMarkdown(body, {
+    extensions: [
+      gfmTable(),
+      gfmStrikethrough(),
+      micromarkMath({ singleDollarTextMath: true }),
+    ],
+    mdastExtensions: [
+      gfmTableFromMarkdown(),
+      gfmStrikethroughFromMarkdown(),
+      mathFromMarkdown(),
+    ],
+  });
+}
 
 export function escapeHtml(value: string): string {
   return value
@@ -146,48 +194,6 @@ export function renderMathExpression(value: string, displayMode = false): string
   }
 }
 
-function renderInlineMarkdown(value: string): string {
-  const tokens: string[] = [];
-  const stash = (html: string): string => {
-    const key = `\u0000${tokens.length}\u0000`;
-    tokens.push(html);
-    return key;
-  };
-
-  let text = value
-    .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_match, alt: string, rawUrl: string) => {
-      const url = safeMarkdownUrl(rawUrl, "image");
-      const label = alt.trim() || "貼り付け画像";
-      if (!url) return escapeHtml(`[画像: ${label}]`);
-      return stash(`<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`);
-    })
-    .replace(/\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, (match: string) => {
-      const link = parseWikiLinks(match)[0];
-      if (!link) return escapeHtml(match);
-      return stash(`<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`);
-    })
-    .replace(/(?<!!)\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_match, label: string, rawUrl: string) => {
-      const url = safeMarkdownUrl(rawUrl, "link");
-      const renderedLabel = escapeHtml(label.trim() || rawUrl);
-      if (!url) return renderedLabel;
-      return stash(`<a class="md-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${renderedLabel}</a>`);
-    })
-    .replace(/(?<!\\)`([^`]+)`/g, (_match, code: string) => stash(`<code>${escapeHtml(code)}</code>`))
-    // 開き$の直後・閉じ$の直前は空白不可、閉じ$の直後に数字を続けない（Pandoc等と同じ規約）。
-    // これがないと「予算は$100で、残りは$50です」のような金額表記が丸ごと数式扱いされてしまう。
-    // \$ はMDXEditorがドル記号をエスケープした形なので数式にしない。
-    .replace(/(?<!\\)\$([^\s$](?:[^$\n]*[^\s$])?)\$(?!\d)/g, (_match, expression: string) => stash(`<span class="md-math-inline">${renderMathExpression(expression.trim(), false)}</span>`))
-    // MDXEditorはMarkdown書き出し時に - * _ | $ などをバックスラッシュでエスケープする。
-    // 記号を文字どおり表示し、強調・数式などの記法として再解釈されないよう先に退避する。
-    .replace(/\\([\\`*_{}[\]()#+\-.!|$~<>])/g, (_match, char: string) => stash(escapeHtml(char)));
-
-  text = escapeHtml(text)
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[^\*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-
-  return text.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => tokens[Number(index)] || "");
-}
-
 export function isStructuredMarkdownPaste(value: string): boolean {
   const text = value.trim();
   if (!text) return false;
@@ -288,202 +294,478 @@ export function htmlToMarkdownPaste(html: string): string {
   return normalizeMarkdownPaste(decodeHtmlEntities(text));
 }
 
-function markdownTableCells(line: string): string[] {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  // \| はセル内のパイプ表記なので区切りとして扱わない。
-  return trimmed.split(/(?<!\\)\|/).map((cell) => cell.trim());
-}
-
-function isMarkdownTableSeparator(line: string): boolean {
-  const cells = markdownTableCells(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
-}
-
-function renderMarkdownTableRow(cells: string[], tagName: "th" | "td"): string {
-  return `<tr>${cells.map((cell) => `<${tagName}>${renderInlineMarkdown(cell)}</${tagName}>`).join("")}</tr>`;
-}
-
-function renderMarkdownTable(header: string[], rows: string[][]): string {
-  const body = rows.map((row) => renderMarkdownTableRow(row, "td")).join("");
-  return `<table><thead>${renderMarkdownTableRow(header, "th")}</thead><tbody>${body}</tbody></table>`;
-}
-
-const MARKDOWN_DOCUMENT_CSS = `
-@page{size:A4;margin:18mm}
-body{margin:0;background:#fff;color:#26211f;font-family:"Yu Gothic","Hiragino Maru Gothic ProN","Segoe UI",system-ui,sans-serif}
-.markdown-document{box-sizing:border-box;max-width:840px;margin:0 auto;padding:26px 30px 34px;background:#fff;color:#26211f;font-size:15px;line-height:1.64}
-.markdown-document h1,.markdown-document h2,.markdown-document h3,.markdown-document h4{line-height:1.28;color:#1C557D;break-after:avoid}
-.markdown-document h1{margin:0 0 18px;padding-bottom:10px;border-bottom:2px solid #C3DCEE;font-size:28px}
-.markdown-document h2{margin:28px 0 12px;padding:7px 10px;border-left:5px solid #2D7FB8;border-bottom:1px solid #C3DCEE;background:#E8F1F8;font-size:21px}
-.markdown-document h3{margin:22px 0 10px;padding:2px 0 2px 9px;border-left:4px solid #8DBFE0;font-size:17px}
-.markdown-document h4{width:fit-content;max-width:100%;margin:18px 0 8px;padding:3px 8px;border-left:2px solid #C3DCEE;border-radius:5px;background:#F7FBFD;color:#245F86;font-size:14px}
-.markdown-document p{margin:5px 0}.markdown-document ul,.markdown-document ol{margin:7px 0 8px;padding-left:1.55em}
-.markdown-document li{margin:2px 0}.markdown-document li::marker{color:#2D7FB8;font-weight:700}
-.markdown-document blockquote{margin:10px 0;padding:8px 12px;border-left:4px solid #2D7FB8;border-radius:6px;background:#E8F1F8;color:#1C557D}
-.markdown-document blockquote p{margin:3px 0}
-.markdown-document hr{height:0;margin:14px 0;border:0;border-top:1px solid #C3DCEE}
-.markdown-document pre{overflow:auto;margin:10px 0;padding:10px 12px;border:1px solid #D9E5ED;border-radius:7px;background:#F5F9FC;color:#26211f;font:12px/1.58 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}
-.markdown-document code{padding:1px 4px;border-radius:4px;background:#F0F6FA;color:#1C557D;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em}
-.markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
-.markdown-document table{width:100%;border-collapse:separate;border-spacing:0;margin:12px 0 14px;border:1px solid #D8E6EE;border-radius:5px;overflow:hidden;font-size:13px}
-.markdown-document th,.markdown-document td{padding:4px 7px;border-right:1px solid #D8E6EE;border-bottom:1px solid #D8E6EE;text-align:left;vertical-align:top}
-.markdown-document th:last-child,.markdown-document td:last-child{border-right:0}
-.markdown-document tbody tr:last-child td{border-bottom:0}
-.markdown-document th{background:#F0F6FA;color:#1C557D;font-weight:700}
-.markdown-document tr:nth-child(even) td{background:#F7FBFD}
-.markdown-document a,.markdown-document .md-link{color:#0B6BCB;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;text-decoration-color:#7BB4E3}
-.markdown-document a:hover,.markdown-document .md-link:hover{color:#084F96;text-decoration-thickness:2px;background:rgba(11,107,203,.08);border-radius:3px}
-.markdown-document h1 a,.markdown-document h2 a,.markdown-document h3 a,.markdown-document h4 a,.markdown-document blockquote a,.markdown-document th a,.markdown-document td a{color:#0B6BCB}
-.markdown-document pre a,.markdown-document code a{color:#0B6BCB;text-decoration:underline}
-.markdown-document .md-image{margin:16px 0}.markdown-document .md-image img{display:block;max-width:100%;max-height:70vh;object-fit:contain;border:1px solid #CFE0EA;border-radius:7px;background:#fff}.markdown-document .md-image figcaption{margin-top:6px;color:#6b625f;font-size:12px}
-.markdown-document .md-math-inline{display:inline-block;max-width:100%;overflow-x:auto;padding:0 .24em;color:#1C557D;font-family:Georgia,"Times New Roman",serif;font-size:1.04em;white-space:nowrap}
-.markdown-document .md-math-block{overflow-x:auto;margin:10px 0;padding:10px;border:1px solid #CFE0EA;border-radius:7px;background:#F7FBFD;color:#1C557D;font-family:Georgia,"Times New Roman",serif;font-size:1.12em;text-align:center;white-space:nowrap}
-.markdown-document .md-math-operator{margin-right:.18em;font-style:normal}.markdown-document .md-math-inline sub,.markdown-document .md-math-block sub{font-size:.68em;vertical-align:-.35em}.markdown-document .md-math-inline sup,.markdown-document .md-math-block sup{font-size:.68em;vertical-align:.55em}
-.markdown-document .md-frontmatter{margin:0 0 16px;padding:10px 12px;border:1px solid #CFE0EA;border-radius:7px;background:#F7FBFD}.markdown-document .md-frontmatter summary{cursor:pointer;color:#1C557D;font-weight:700}.markdown-document .md-frontmatter pre{margin:8px 0 0;background:#fff}
-`;
-
-export function renderMarkdownPreview(value: string): string {
-  const { frontmatter, body } = splitFrontmatter(value);
-  const lines = body.split(/\r?\n/);
-  const html: string[] = [];
-  let inCode = false;
-  // インデント量で入れ子リストを表現する。各フレームは開いた<li>を持ったまま積まれ、
-  // 同レベルの次項目・レベル終了時に</li>を閉じる。
-  const listStack: { tag: "ul" | "ol"; indent: number }[] = [];
-  const closeOneList = () => {
-    const frame = listStack.pop();
-    if (frame) html.push(`</li></${frame.tag}>`);
-  };
-  const closeList = () => {
-    while (listStack.length) closeOneList();
-  };
-  const appendListItem = (tag: "ul" | "ol", indent: number, content: string) => {
-    while (listStack.length && indent < listStack[listStack.length - 1].indent) closeOneList();
-    const top = listStack[listStack.length - 1];
-    if (!top || indent > top.indent) {
-      html.push(`<${tag}><li>${content}`);
-      listStack.push({ tag, indent });
-      return;
+function renderTextWithWikiLinks(value: string): string {
+  const parts: string[] = [];
+  const pattern = /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value)) !== null) {
+    if (match.index > last) parts.push(escapeHtml(value.slice(last, match.index)));
+    const link = parseWikiLinks(match[0])[0];
+    if (link) {
+      parts.push(`<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`);
+    } else {
+      parts.push(escapeHtml(match[0]));
     }
-    if (top.tag !== tag) {
-      closeOneList();
-      html.push(`<${tag}><li>${content}`);
-      listStack.push({ tag, indent });
-      return;
-    }
-    html.push(`</li><li>${content}`);
-  };
-  const listIndent = (line: string): number => (line.match(/^\s*/)?.[0] || "").replace(/\t/g, "    ").length;
-  if (frontmatter) {
-    html.push(`<details class="md-frontmatter"><summary>Frontmatter</summary><pre>${escapeHtml(frontmatter)}</pre></details>`);
+    last = match.index + match[0].length;
   }
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
+  if (last < value.length) parts.push(escapeHtml(value.slice(last)));
+  return parts.join("");
+}
+
+function renderAllowedHtmlTag(value: string): string {
+  const trimmed = value.trim();
+  if (/^<u\b[^>]*>$/i.test(trimmed)) return '<u class="md-underline">';
+  if (/^<\/u>$/i.test(trimmed)) return "</u>";
+  if (/^<sup\b[^>]*>$/i.test(trimmed)) return "<sup>";
+  if (/^<\/sup>$/i.test(trimmed)) return "</sup>";
+  if (/^<sub\b[^>]*>$/i.test(trimmed)) return "<sub>";
+  if (/^<\/sub>$/i.test(trimmed)) return "</sub>";
+  if (/^<br\s*\/?>$/i.test(trimmed)) return "<br />";
+  return escapeHtml(value);
+}
+
+function renderPhrasing(nodes: PhrasingContent[] | undefined): string {
+  if (!nodes?.length) return "";
+  return nodes.map((node) => {
+    switch (node.type) {
+      case "text":
+        return renderTextWithWikiLinks((node as Text).value || "");
+      case "strong":
+        return `<strong>${renderPhrasing((node as Strong).children)}</strong>`;
+      case "emphasis":
+        return `<em>${renderPhrasing((node as Emphasis).children)}</em>`;
+      case "delete":
+        return `<del>${renderPhrasing((node as Delete).children)}</del>`;
+      case "inlineCode":
+        return `<code>${escapeHtml((node as InlineCode).value || "")}</code>`;
+      case "break":
+        return "<br />";
+      case "link": {
+        const link = node as Link;
+        const url = safeMarkdownUrl(link.url || "", "link");
+        const label = renderPhrasing(link.children) || escapeHtml(link.url || "");
+        if (!url) return label;
+        return `<a class="md-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${label}</a>`;
+      }
+      case "image": {
+        const image = node as Image;
+        const url = safeMarkdownUrl(image.url || "", "image");
+        const label = (image.alt || "").trim() || "貼り付け画像";
+        if (!url) return escapeHtml(`[画像: ${label}]`);
+        return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+      }
+      case "inlineMath":
+        return `<span class="md-math-inline">${renderMathExpression(String((node as { value?: string }).value || ""), false)}</span>`;
+      case "html":
+        return renderAllowedHtmlTag((node as Html).value || "");
+      default:
+        if ("children" in node && Array.isArray((node as { children?: PhrasingContent[] }).children)) {
+          return renderPhrasing((node as { children: PhrasingContent[] }).children);
+        }
+        if ("value" in node && typeof (node as { value?: unknown }).value === "string") {
+          return escapeHtml(String((node as { value: string }).value));
+        }
+        return "";
+    }
+  }).join("");
+}
+
+function renderTableCell(cell: TableCell, tagName: "th" | "td"): string {
+  return `<${tagName}>${renderPhrasing(cell.children as PhrasingContent[])}</${tagName}>`;
+}
+
+function renderTable(node: Table): string {
+  const rows = node.children as TableRow[];
+  if (!rows.length) return "";
+  const [header, ...bodyRows] = rows;
+  const head = `<thead><tr>${(header.children as TableCell[]).map((cell) => renderTableCell(cell, "th")).join("")}</tr></thead>`;
+  const body = bodyRows.length
+    ? `<tbody>${bodyRows.map((row) => `<tr>${(row.children as TableCell[]).map((cell) => renderTableCell(cell, "td")).join("")}</tr>`).join("")}</tbody>`
+    : "";
+  return `<table>${head}${body}</table>`;
+}
+
+function renderListItem(item: ListItem): string {
+  // tight list では <p> を付けない（編集器の見た目・既存テストと揃える）。
+  const inner = (item.children || []).map((child) => {
+    if (child.type === "paragraph") {
+      return renderPhrasing((child as Paragraph).children);
+    }
+    if (child.type === "list") return renderList(child as List);
+    return renderBlock(child as Content);
+  }).join("");
+  if (item.checked === true || item.checked === false) {
+    const mark = item.checked ? "☑" : "☐";
+    return `<li class="md-task-item" data-checked="${item.checked ? "true" : "false"}"><span class="md-task-marker" aria-hidden="true">${mark}</span> ${inner}</li>`;
+  }
+  return `<li>${inner}</li>`;
+}
+
+function renderList(node: List): string {
+  const tag = node.ordered ? "ol" : "ul";
+  const start = node.ordered && node.start && node.start !== 1 ? ` start="${node.start}"` : "";
+  return `<${tag}${start}>${(node.children as ListItem[]).map((item) => renderListItem(item)).join("")}</${tag}>`;
+}
+
+function renderBlock(
+  node: Content | BlockContent,
+  headingNumbers?: { next: (level: number, titleText: string) => string },
+): string {
+  switch (node.type) {
+    case "paragraph":
+      return `<p>${renderPhrasing((node as Paragraph).children)}</p>`;
+    case "heading": {
+      const heading = node as Heading;
+      const level = Math.min(4, Math.max(1, heading.depth || 1));
+      const titleText = mdastToString(heading);
+      const numberLabel = headingNumbers?.next(level, titleText) || "";
+      const numberHtml = numberLabel
+        ? `<span class="md-heading-number">${escapeHtml(numberLabel)}</span> `
+        : "";
+      return `<h${level}>${numberHtml}${renderPhrasing(heading.children)}</h${level}>`;
+    }
+    case "list":
+      return renderList(node as List);
+    case "table":
+      return renderTable(node as Table);
+    case "blockquote": {
+      const quote = node as Blockquote;
+      const content = (quote.children || []).map((child) => renderBlock(child as Content, headingNumbers)).join("");
+      return `<blockquote>${content || "<br />"}</blockquote>`;
+    }
+    case "code": {
+      const code = node as Code;
+      return `<pre><code>${escapeHtml(code.value || "")}${code.value?.endsWith("\n") ? "" : "\n"}</code></pre>`;
+    }
+    case "thematicBreak":
+      return "<hr />";
+    case "math":
+      return `<div class="md-math-block">${renderMathExpression(String((node as { value?: string }).value || ""), true)}</div>`;
+    case "html": {
+      // ブロック HTML は危険なのでエスケープ。許可インラインは phrasing 側で処理する。
+      const raw = (node as Html).value || "";
+      if (/^<\/?(?:u|sup|sub)\b/i.test(raw.trim())) return renderAllowedHtmlTag(raw);
+      return `<p>${escapeHtml(raw)}</p>`;
+    }
+    default:
+      if ("children" in node && Array.isArray((node as { children?: Content[] }).children)) {
+        return ((node as { children: Content[] }).children).map((child) => renderBlock(child, headingNumbers)).join("");
+      }
+      return "";
+  }
+}
+
+/** Preview / 編集 / PDF 向けの見出し自動ナンバリング。本文 Markdown は書き換えない。 */
+export type MarkdownRenderOptions = {
+  headingNumbers?: boolean;
+  /** 番号付けを始める見出しレベル（1=h1 … 4=h4）。これより浅い見出しは番号なし。既定 2（h2から）。 */
+  headingNumberStart?: number;
+  /**
+   * YAML frontmatter を「Frontmatter」ブロックとして本文先頭に出すか。
+   * 編集プレビューでは true（既定）、PDF / 文書ビュー（previewDocument）では false。
+   */
+  showFrontmatter?: boolean;
+};
+
+export const HEADING_NUMBER_START_LEVELS = [1, 2, 3, 4] as const;
+export type HeadingNumberStart = (typeof HEADING_NUMBER_START_LEVELS)[number];
+/** 未設定時の開始階層。タイトル(h1)を番号なしにし、章立て(h2)から振る用途が主。 */
+export const DEFAULT_HEADING_NUMBER_START: HeadingNumberStart = 2;
+
+export const HEADING_NUMBER_START_LABELS: Record<HeadingNumberStart, string> = {
+  1: "h1から",
+  2: "h2から",
+  3: "h3から",
+  4: "h4から",
+};
+
+/** 1〜4 に正規化。未設定・不正値は h2 から（DEFAULT_HEADING_NUMBER_START）。 */
+export function normalizeHeadingNumberStart(value: unknown): HeadingNumberStart {
+  const n = typeof value === "number" ? value : Number(value);
+  if (n === 1 || n === 2 || n === 3 || n === 4) return n;
+  return DEFAULT_HEADING_NUMBER_START;
+}
+
+/** 見出し先頭が手動番号（1. / 1.1 / 第1章 / (1) / ① 等）か。二重番号を避ける判定。 */
+export function hasManualHeadingNumber(text: string): boolean {
+  const value = text.trim();
+  if (!value) return false;
+  // 1. 概要 / 1.1 背景 / 1.1.1. 詳細
+  if (/^\d+\.\s/.test(value) || /^\d+\.$/.test(value)) return true;
+  if (/^\d+(?:\.\d+)+[.\s]/.test(value) || /^\d+(?:\.\d+)+\.$/.test(value)) return true;
+  // 第1章 / 第２節 / 第十二部
+  if (/^第[0-9０-９一二三四五六七八九十百千]+[章節部編項条]/.test(value)) return true;
+  // (1) 概要 / （12）
+  if (/^[（(][0-9０-９]+[）)]/.test(value)) return true;
+  // ①〜⑳ など
+  if (/^[①-⑳❶-❿⑴-⒇]/.test(value)) return true;
+  // 一、 / 二．
+  if (/^[一二三四五六七八九十]+[、．.]/.test(value)) return true;
+  return false;
+}
+
+/** 1 → "1." / 1.2 → "1.2"（最上位段だけ末尾にドット）。 */
+export function formatHeadingNumber(parts: number[]): string {
+  if (!parts.length) return "";
+  if (parts.length === 1) return `${parts[0]}.`;
+  return parts.join(".");
+}
+
+/**
+ * 見出し配列に対する通し番号ラベルを返す。
+ * - startLevel より浅い見出しは番号なし（カウンタも進めない）
+ * - 対象レベルのうち文書に現れる最上位を 1 段目にする（例: start=2 で h3 のみなら h3 が 1.）
+ * - 手動番号の見出しは null だが、対象レベルならカウンタは進める
+ */
+export function computeHeadingNumberLabels(
+  headings: Array<{ level: number; text: string }>,
+  startLevel: number = DEFAULT_HEADING_NUMBER_START,
+): Array<string | null> {
+  if (!headings.length) return [];
+  const minStart = normalizeHeadingNumberStart(startLevel);
+  const usable = headings.filter((heading) => heading.level >= minStart && heading.level <= 4);
+  if (!usable.length) return headings.map(() => null);
+  const baseLevel = Math.min(...usable.map((heading) => heading.level));
+  const counters = [0, 0, 0, 0];
+  return headings.map(({ level, text }) => {
+    if (level < minStart || level > 4) return null;
+    if (level < baseLevel) return null;
+    const index = level - baseLevel;
+    counters[index] += 1;
+    for (let deeper = index + 1; deeper < counters.length; deeper += 1) counters[deeper] = 0;
+    if (hasManualHeadingNumber(text)) return null;
+    return formatHeadingNumber(counters.slice(0, index + 1));
+  });
+}
+
+function createHeadingNumberState(body: string, options: MarkdownRenderOptions) {
+  if (!options.headingNumbers) {
+    return { next: () => "" };
+  }
+  const startLevel = normalizeHeadingNumberStart(options.headingNumberStart);
+  const headings: Array<{ level: number; text: string }> = [];
+  const lines = body.split(/\r?\n/);
+  let inCode = false;
+  for (const line of lines) {
     if (line.trim().startsWith("```")) {
-      closeList();
-      html.push(inCode ? "</code></pre>" : "<pre><code>");
       inCode = !inCode;
       continue;
     }
-    if (inCode) {
-      html.push(`${escapeHtml(line)}\n`);
-      continue;
-    }
-    const trimmed = line.trim();
-    if (trimmed.startsWith("$$")) {
-      closeList();
-      const collected: string[] = [];
-      const first = trimmed.slice(2);
-      if (first.endsWith("$$") && first.length > 2) {
-        collected.push(first.slice(0, -2));
-      } else {
-        if (first) collected.push(first);
-        while (index + 1 < lines.length) {
-          index += 1;
-          const next = lines[index];
-          if (next === undefined) break;
-          if (next.trim().endsWith("$$")) {
-            collected.push(next.replace(/\$\$\s*$/, ""));
-            break;
-          }
-          collected.push(next);
-        }
-      }
-      html.push(`<div class="md-math-block">${renderMathExpression(collected.join("\n").trim(), true)}</div>`);
-      continue;
-    }
-    if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
-      closeList();
-      html.push("<hr />");
-      continue;
-    }
+    if (inCode) continue;
     const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      closeList();
-      const level = heading[1].length;
-      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
-      continue;
-    }
-    if (line.includes("|") && index + 1 < lines.length && isMarkdownTableSeparator(lines[index + 1])) {
-      closeList();
-      const header = markdownTableCells(line);
-      const rows: string[][] = [];
-      index += 2;
-      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
-        rows.push(markdownTableCells(lines[index]));
-        index += 1;
-      }
-      index -= 1;
-      html.push(renderMarkdownTable(header, rows));
-      continue;
-    }
-    const quote = line.match(/^\s*>\s?(.*)$/);
-    if (quote) {
-      closeList();
-      const chunks = [quote[1]];
-      while (index + 1 < lines.length) {
-        const next = lines[index + 1].match(/^\s*>\s?(.*)$/);
-        if (!next) break;
-        chunks.push(next[1]);
-        index += 1;
-      }
-      const content = chunks.map((chunk) => chunk.trim() ? `<p>${renderInlineMarkdown(chunk)}</p>` : "<br />").join("");
-      html.push(`<blockquote>${content}</blockquote>`);
-      continue;
-    }
-    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
-    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (bullet || ordered) {
-      appendListItem(ordered ? "ol" : "ul", listIndent(line), renderInlineMarkdown((bullet || ordered)?.[1] || ""));
-      continue;
-    }
-    if (!line.trim()) {
-      // 項目間に空行があるリスト（loose list）を分断しないよう、次の非空行がリスト項目なら閉じない。
-      if (listStack.length) {
-        let lookahead = index + 1;
-        while (lookahead < lines.length && !lines[lookahead].trim()) lookahead += 1;
-        const nextLine = lines[lookahead];
-        if (nextLine && /^\s*(?:[-*+]|\d+[.)])\s+\S/.test(nextLine)) continue;
-      }
-      closeList();
-      continue;
-    }
-    closeList();
-    html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+    if (heading) headings.push({ level: heading[1].length, text: heading[2] });
   }
-  closeList();
-  if (inCode) html.push("</code></pre>");
-  return html.join("");
+  const labels = computeHeadingNumberLabels(headings, startLevel);
+  let cursor = 0;
+  return {
+    next(level: number, titleText: string): string {
+      const expected = headings[cursor];
+      if (!expected || expected.level !== level || expected.text !== titleText) {
+        return "";
+      }
+      const label = labels[cursor] || "";
+      cursor += 1;
+      return label;
+    },
+  };
 }
 
-export function previewHtml(body: string, format: string): string {
+/**
+ * note.properties_json から Preview / PDF 用の番号オプションを読む。
+ * `heading_numbers` が ON なら Preview と PDF の両方に番号を付ける（本文・Markdown出力は対象外）。
+ * `heading_number_start` で開始階層（1〜4、既定 2=h2から）。
+ */
+export function headingNumberOptionsFromProperties(properties: Record<string, unknown> | null | undefined): {
+  preview: MarkdownRenderOptions;
+  publish: MarkdownRenderOptions;
+} {
+  const props = properties && typeof properties === "object" && !Array.isArray(properties) ? properties : {};
+  const enabled = props.heading_numbers === true;
+  const options: MarkdownRenderOptions = {
+    headingNumbers: enabled,
+    headingNumberStart: normalizeHeadingNumberStart(props.heading_number_start),
+  };
+  return { preview: options, publish: options };
+}
+
+/** 編集画面の見出し DOM に data-heading-number を付け、::before で表示する（本文テキストは触らない）。 */
+export function applyHeadingNumberAttributes(
+  root: ParentNode | null | undefined,
+  options: boolean | MarkdownRenderOptions,
+): void {
+  if (!root || typeof (root as Element).querySelectorAll !== "function") return;
+  const resolved: MarkdownRenderOptions = typeof options === "boolean"
+    ? { headingNumbers: options }
+    : options;
+  const nodes = Array.from((root as Element).querySelectorAll("h1, h2, h3, h4")) as HTMLElement[];
+  if (!resolved.headingNumbers) {
+    for (const node of nodes) node.removeAttribute("data-heading-number");
+    return;
+  }
+  const headings = nodes.map((node) => ({
+    level: Number(node.tagName.slice(1)),
+    text: (node.textContent || "").replace(/\s+/g, " ").trim(),
+  }));
+  const labels = computeHeadingNumberLabels(headings, normalizeHeadingNumberStart(resolved.headingNumberStart));
+  nodes.forEach((node, index) => {
+    const label = labels[index];
+    if (label) node.setAttribute("data-heading-number", label);
+    else node.removeAttribute("data-heading-number");
+  });
+}
+
+/**
+ * PDF / 成果物 iframe 用のスタンドアロン CSS。
+ * 見た目の正本は app.css の `.markdown-preview`（＋ :root の --markdown-*）。
+ * ここは data: URL で外部 CSS を読めないため、同じトークン値を埋め込み、
+ * ページ枠（@page / padding / break-after）だけ印刷向けに足す。
+ * 編集・Preview の見た目を変えたら、同じ差分をここにも反映すること。
+ */
+const MARKDOWN_DOCUMENT_CSS = `
+@page{size:A4;margin:18mm}
+body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru Gothic ProN","Yu Gothic","Segoe UI",system-ui,sans-serif}
+.markdown-document{
+  --markdown-paper:#fff;
+  --markdown-paper-text:#26211f;
+  --markdown-paper-secondary:#6f625b;
+  --markdown-paper-subtle:#f6f4f1;
+  --markdown-paper-border:#ded8d1;
+  --markdown-accent:#2D7FB8;
+  --markdown-accent-strong:#1C557D;
+  --markdown-accent-bg:#E8F1F8;
+  --markdown-accent-bd:#C3DCEE;
+  --markdown-link:#0B6BCB;
+  --markdown-link-hover:#084F96;
+  --markdown-link-underline:#7BB4E3;
+  --md-space-1:4px;--md-space-2:8px;--md-space-3:12px;--md-space-4:16px;--md-space-5:20px;
+  --md-text-xs:11px;--md-text-sm:13px;--md-text-base:14px;--md-text-lg:16px;--md-text-xl:20px;--md-text-2xl:24px;
+  --md-radius-sm:4px;--md-radius-md:7px;
+  --md-font-mono:ui-monospace,SFMono-Regular,Consolas,monospace;
+  --md-border-subtle:#ECE0DE;
+  box-sizing:border-box;max-width:840px;margin:0 auto;padding:26px 30px 34px;
+  background:var(--markdown-paper);color:var(--markdown-paper-text);
+  font-size:var(--md-text-base);line-height:1.72;overflow-wrap:anywhere
+}
+.markdown-document h1,.markdown-document h2,.markdown-document h3,.markdown-document h4{
+  margin:var(--md-space-4) 0 var(--md-space-2);color:var(--markdown-accent-strong);line-height:1.3;letter-spacing:0;break-after:avoid
+}
+.markdown-document h1:first-child,.markdown-document h2:first-child,.markdown-document h3:first-child,.markdown-document h4:first-child{margin-top:0}
+.markdown-document .md-heading-number{font-variant-numeric:tabular-nums;margin-right:.15em;font-family:var(--md-font-mono);font-weight:inherit;color:inherit}
+.markdown-document h1{padding-bottom:var(--md-space-2);border-bottom:2px solid var(--markdown-accent-bd);font-size:var(--md-text-2xl)}
+.markdown-document h2{
+  padding:var(--md-space-2) var(--md-space-3);border-left:6px solid var(--markdown-accent);border-bottom:2px solid var(--markdown-accent-bd);
+  border-radius:var(--md-radius-sm);background:color-mix(in srgb,var(--markdown-accent-bg) 84%,var(--markdown-paper));font-size:var(--md-text-xl)
+}
+.markdown-document h3{
+  padding:2px 0 2px var(--md-space-2);border-left:4px solid color-mix(in srgb,var(--markdown-accent) 85%,var(--markdown-paper));
+  color:var(--markdown-accent-strong);font-size:var(--md-text-lg);font-weight:700
+}
+.markdown-document h4{
+  width:fit-content;max-width:100%;padding:3px var(--md-space-2);
+  border-left:3px solid color-mix(in srgb,var(--markdown-accent) 60%,var(--markdown-paper));border-radius:var(--md-radius-sm);
+  background:color-mix(in srgb,var(--markdown-accent-bg) 58%,var(--markdown-paper));color:var(--markdown-accent-strong);
+  font-size:var(--md-text-base);font-weight:700
+}
+.markdown-document p{margin:var(--md-space-2) 0}
+.markdown-document ul,.markdown-document ol{margin:var(--md-space-2) 0 var(--md-space-3);padding-left:var(--md-space-5);list-style-position:outside}
+.markdown-document ul{list-style-type:disc}
+.markdown-document ol{list-style-type:decimal}
+.markdown-document ul ul{list-style-type:circle}
+.markdown-document ul ul ul{list-style-type:square}
+.markdown-document ol ol{list-style-type:lower-alpha}
+.markdown-document li{margin:3px 0;display:list-item}
+.markdown-document li::marker{color:var(--markdown-accent-strong);font-weight:700}
+.markdown-document del{text-decoration:line-through}
+.markdown-document blockquote{
+  margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border-left:3px solid var(--markdown-accent-bd);
+  background:color-mix(in srgb,var(--markdown-accent-bg) 20%,var(--markdown-paper));color:var(--markdown-paper-secondary);font-style:italic
+}
+.markdown-document blockquote p{margin:var(--md-space-1) 0}
+.markdown-document hr{height:0;margin:var(--md-space-3) 0;border:0;border-top:1px solid var(--markdown-accent-bd)}
+.markdown-document pre{
+  overflow:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
+  background:color-mix(in srgb,var(--markdown-accent-bg) 42%,var(--markdown-paper));font:var(--md-text-xs)/1.62 var(--md-font-mono);white-space:pre-wrap
+}
+.markdown-document code{
+  padding:1px var(--md-space-1);border-radius:var(--md-radius-sm);
+  background:color-mix(in srgb,var(--markdown-accent-bg) 55%,var(--markdown-paper));color:var(--markdown-accent-strong);
+  font-family:var(--md-font-mono);font-size:.92em
+}
+.markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
+/* 印刷でも枠が見えるようセル全周に border（overflow:hidden は printToPDF で欠けやすいので付けない） */
+.markdown-document table{
+  width:100%;margin:var(--md-space-2) 0 var(--md-space-3);border-collapse:collapse;border-spacing:0;
+  border:1px solid #C9D8E2;font-size:var(--md-text-sm)
+}
+.markdown-document th,.markdown-document td{
+  padding:4px 8px;border:1px solid #C9D8E2;text-align:left;vertical-align:top;background:#fff
+}
+.markdown-document th{
+  background:color-mix(in srgb,var(--markdown-accent-bg) 44%,var(--markdown-paper));color:var(--markdown-accent-strong);font-weight:700
+}
+.markdown-document tr:nth-child(even) td{background:color-mix(in srgb,var(--markdown-accent-bg) 10%,var(--markdown-paper))}
+.markdown-document u,.markdown-document .md-underline{
+  text-decoration:underline;text-decoration-thickness:from-font;text-underline-offset:2px;text-decoration-skip-ink:none
+}
+.markdown-document a,.markdown-document .md-link{
+  color:var(--markdown-link);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;
+  text-decoration-color:var(--markdown-link-underline);overflow-wrap:anywhere
+}
+.markdown-document a:hover,.markdown-document .md-link:hover{
+  color:var(--markdown-link-hover);text-decoration-thickness:2px;background:color-mix(in srgb,var(--markdown-link) 10%,transparent);border-radius:3px
+}
+.markdown-document h1 a,.markdown-document h2 a,.markdown-document h3 a,.markdown-document h4 a,
+.markdown-document blockquote a,.markdown-document th a,.markdown-document td a{color:var(--markdown-link);font-style:normal}
+.markdown-document pre a,.markdown-document code a{color:var(--markdown-link);text-decoration:underline;background:transparent}
+.markdown-document .md-wiki-link{
+  display:inline-flex;align-items:center;max-width:100%;padding:0 .42em;border:1px solid color-mix(in srgb,var(--markdown-accent) 45%,var(--markdown-paper-border));
+  border-radius:var(--md-radius-sm);background:color-mix(in srgb,var(--markdown-accent-bg) 72%,var(--markdown-paper));
+  color:var(--markdown-accent-strong);font-weight:600;overflow-wrap:anywhere
+}
+.markdown-document .md-image{margin:var(--md-space-3) 0}
+.markdown-document .md-image img{
+  display:block;max-width:100%;max-height:70vh;object-fit:contain;border:1px solid var(--markdown-paper-border);
+  border-radius:var(--md-radius-md);background:var(--markdown-paper-subtle)
+}
+.markdown-document .md-image figcaption{margin-top:var(--md-space-1);color:var(--markdown-paper-secondary);font-size:var(--md-text-xs)}
+.markdown-document .md-math-inline{display:inline;padding:0 .12em;color:var(--markdown-accent-strong);vertical-align:baseline}
+.markdown-document .md-math-block{
+  overflow-x:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
+  background:color-mix(in srgb,var(--markdown-accent-bg) 42%,var(--markdown-paper));color:var(--markdown-accent-strong);line-height:1.72;text-align:center
+}
+.markdown-document .md-math-inline .katex,.markdown-document .md-math-block .katex{color:inherit}
+.markdown-document .md-math-block .katex-display{margin:0}
+.markdown-document .md-math-operator{margin-right:.18em;font-style:normal}
+.markdown-document .md-math-inline sub,.markdown-document .md-math-block sub{font-size:.68em;vertical-align:-.35em}
+.markdown-document .md-math-inline sup,.markdown-document .md-math-block sup{font-size:.68em;vertical-align:.55em}
+`;
+
+export function renderMarkdownPreview(value: string, options: MarkdownRenderOptions = {}): string {
+  const { frontmatter, body } = splitFrontmatter(value);
+  const headingNumbers = createHeadingNumberState(body, options);
+  const tree = parseMarkdownBody(body);
+  const parts: string[] = [];
+  // 編集プレビューでは frontmatter を確認できるよう既定で表示。PDF/文書ビューは showFrontmatter:false。
+  if (frontmatter && options.showFrontmatter !== false) {
+    parts.push(`<details class="md-frontmatter"><summary>Frontmatter</summary><pre>${escapeHtml(frontmatter)}</pre></details>`);
+  }
+  for (const child of tree.children) {
+    parts.push(renderBlock(child as Content, headingNumbers));
+  }
+  return parts.join("");
+}
+
+export function previewHtml(body: string, format: string, options: MarkdownRenderOptions = {}): string {
   if (format === "html") return sanitizePreviewHtml(body);
-  if (format === "markdown") return renderMarkdownPreview(body);
+  if (format === "markdown") return renderMarkdownPreview(body, options);
   return `<pre>${escapeHtml(body)}</pre>`;
 }
 
-export function previewDocument(body: string, format: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format)}</main></body></html>`;
+export function previewDocument(body: string, format: string, options: MarkdownRenderOptions = {}): string {
+  // PDF / 成果物iframe は完成文書ビューなので frontmatter を本文に出さない（メタは編集画面側で確認）。
+  const resolved: MarkdownRenderOptions = { ...options, showFrontmatter: options.showFrontmatter ?? false };
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${KATEX_DOCUMENT_CSS}${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format, resolved)}</main></body></html>`;
 }
 
 export function renderedText(body: string, format: string): string {
