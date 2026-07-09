@@ -29,7 +29,6 @@ export const routeAliases: Record<string, string> = {
 export const todayHubTabs = [
   ["today", "Today"],
   ["todo", "ToDo"],
-  ["waiting", "Waiting"],
 ] as const;
 
 export const knowledgeHubTabs = [

@@ -256,6 +256,64 @@ function TodayRows({
   );
 }
 
+function compareWaitingRows(a: TodayRow, b: TodayRow, today: string): number {
+  const aDate = a.date || "";
+  const bDate = b.date || "";
+  const aOverdue = aDate && aDate < today ? 0 : 1;
+  const bOverdue = bDate && bDate < today ? 0 : 1;
+  if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+  const aHasDate = aDate ? 0 : 1;
+  const bHasDate = bDate ? 0 : 1;
+  if (aHasDate !== bHasDate) return aHasDate - bHasDate;
+  return aDate.localeCompare(bDate) || a.title.localeCompare(b.title, "ja");
+}
+
+function WaitingListRows({
+  rows,
+  themes,
+  today,
+  onOpenDetail,
+  empty,
+}: {
+  rows: TodayRow[];
+  themes: PageProps["themes"];
+  today: string;
+  onOpenDetail: (row: TodayRow) => void;
+  empty: string;
+}) {
+  if (!rows.length) return <EmptyState title={empty} />;
+  return (
+    <div className="today-waiting-list">
+      {rows.map((row) => {
+        const themeIndex = themes.findIndex((entry) => entry.id === row.projectId);
+        const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
+        const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
+        const due = row.date || "";
+        const isOverdue = Boolean(due && due < today);
+        const isDueToday = Boolean(due && due === today);
+        return (
+          <button
+            key={row.id}
+            type="button"
+            className={`today-waiting-row${isOverdue ? " is-overdue" : ""}${isDueToday ? " is-due-today" : ""}`}
+            style={{ "--chip-color": chipColor } as React.CSSProperties}
+            onClick={() => onOpenDetail(row)}
+          >
+            <span className="today-waiting-theme-bar" aria-hidden="true" />
+            <span className="today-waiting-main">
+              <strong>{row.title}</strong>
+              <span>{row.waitingFor || theme?.name || "相手未設定"}</span>
+            </span>
+            <time className={isOverdue ? "is-overdue" : undefined} dateTime={due || undefined}>
+              {due ? formatDate(due) : "期限なし"}
+            </time>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function PeriodTaskRows({
   rows,
   themes,
@@ -378,10 +436,11 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     .filter((planNode) => planNode.type === "milestone" && isActivePlanNode(planNode) && scheduleTouchesRange(schedules.get(`plan_node:${planNode.id}`), today, soon))
     .map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)))
     .sort(compareRows);
-  const waitingSoon = v2.waitings
-    .filter((waiting) => waiting.state === "waiting" && scheduleTouchesRange(schedules.get(`waiting:${waiting.id}`), "", soon))
+  const openWaitings = v2.waitings
+    .filter((waiting) => waiting.state === "waiting")
     .map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)))
-    .sort(compareRows);
+    .sort((a, b) => compareWaitingRows(a, b, today));
+  const overdueWaitingCount = openWaitings.filter((row) => row.date && row.date < today).length;
   useEffect(() => {
     workspaceApi.getPreference("activityLogDirectory")
       .then((value) => {
@@ -592,7 +651,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     ...(periodRows.length ? periodRows.map((row) => `- ${scheduleRangeLabel(row.schedule)} ${row.task.title} (${row.dayIndex}/${row.totalDays}日目、終了まであと${row.daysRemaining}日)`) : ["- なし"]),
     "",
     "## Waiting",
-    ...(waitingSoon.length ? waitingSoon.map((row) => `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`) : ["- なし"]),
+    ...(openWaitings.length ? openWaitings.map((row) => `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`) : ["- なし"]),
   ].join("\n");
 
   function buildCurrentActivityLog(date: string): string {
@@ -735,6 +794,29 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         <section className="panel">
           <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
           <TodayRows rows={milestones.slice(0, 8)} themes={themes} empty="近いマイルストーンはありません" today={today} {...rowHandlers} />
+        </section>
+        <section className="panel today-waiting-panel">
+          <div className="section-heading">
+            <h2>
+              待ち
+              {overdueWaitingCount > 0 && (
+                <span className="today-waiting-overdue-count" title="期限切れの待ち">{overdueWaitingCount}</span>
+              )}
+            </h2>
+            <button
+              className="text-button compact"
+              onClick={() => openDrawer({ type: "waiting", mode: "edit", entity: {} })}
+            >
+              追加
+            </button>
+          </div>
+          <WaitingListRows
+            rows={openWaitings.slice(0, 8)}
+            themes={themes}
+            today={today}
+            empty="待ちはありません"
+            onOpenDetail={handleOpenDetail}
+          />
         </section>
       </div>
     </div>

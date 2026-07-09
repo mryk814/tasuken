@@ -15,7 +15,7 @@
 | Knowledge | `KnowledgePage.tsx` | 「ナレッジ」。グラフ表示あり。Note=素材置き場、Knowledge=構造化された知見、と責務を分ける |
 | Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」。サイドバー表記は英語 Chat Refs。外部AIチャットのURL整理 |
 | Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から |
-| Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの |
+| Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
 | Import/Export | `ImportExportPage.tsx` | 「AI Import」。検証→プレビュー→採用の取り込み導線 |
 
 ## エンティティと状態

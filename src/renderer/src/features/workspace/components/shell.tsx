@@ -56,12 +56,6 @@ export function Sidebar({
     const due = String(s?.end_date || "");
     return Boolean(due && due < today);
   }).length;
-  const dueWaitings = domain.waitings.filter((w) => {
-    if (w.state !== "waiting") return false;
-    const s = schedulesByOwner.get(`waiting:${w.id}`);
-    const due = String(s?.end_date || s?.start_date || "");
-    return Boolean(due && due <= today);
-  }).length;
   const knowledgeHealthEntities = [
     ...domain.tasks.map((task) => ({ id: task.id, status: task.state, title: task.title })),
     ...domain.waitings.map((waiting) => ({ id: waiting.id, status: waiting.state, title: waiting.title })),
@@ -76,7 +70,6 @@ export function Sidebar({
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: overdueTasks,
-    waiting: dueWaitings,
     inbox,
     knowledge: knowledgeHealthIssueCount,
     "ai-io": proposalCount,

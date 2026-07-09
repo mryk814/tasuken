@@ -45,6 +45,15 @@ test("Today removes duplicate risk and current-location sections from the main p
   assert.match(todayPageSource, /<h2>今日の候補棚<\/h2>/);
 });
 
+test("Today shows a lightweight waiting list beside nearby milestones", () => {
+  assert.match(todayPageSource, /today-grid/);
+  assert.match(todayPageSource, /近いマイルストーン/);
+  assert.match(todayPageSource, /WaitingListRows/);
+  assert.match(todayPageSource, /today-waiting-row/);
+  assert.match(todayPageSource, /openWaitings/);
+  assert.match(todayPageSource, /overdueWaitingCount/);
+});
+
 test("Today opens task rows directly in edit mode and shows lightweight reminder time", () => {
   assert.match(todayPageSource, /reminderMeta/);
   assert.match(todayPageSource, /IconClock/);
