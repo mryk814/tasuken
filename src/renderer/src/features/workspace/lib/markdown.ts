@@ -322,7 +322,11 @@ function parseDisplayPx(value: string): number | null {
   return Math.max(1, Math.round(n));
 }
 
-/** MDXEditor が出力する <img width height src> を安全な figure に変換する。 */
+/**
+ * MDXEditor が出力する <img width height src> を安全な figure に変換する。
+ * 表示サイズは幅を正とし、height はアスペクト比ヒント（aspect-ratio）に使う。
+ * 上下だけ縮めて幅が残ったデータでも、Preview/PDF では幅ベースの等比表示に揃える。
+ */
 function renderSafeHtmlImage(raw: string): string | null {
   const trimmed = raw.trim();
   // 開始タグのみ（self-closing 可）。閉じタグ付きや複数タグは拒否。
@@ -335,13 +339,13 @@ function renderSafeHtmlImage(raw: string): string | null {
   const alt = attributeValue(trimmed, "alt").trim() || "貼り付け画像";
   const width = parseDisplayPx(attributeValue(trimmed, "width"));
   const height = parseDisplayPx(attributeValue(trimmed, "height"));
-  // 指定幅を CSS 変数でも渡し、スタイルシート側で max-width:100% と競合しないようにする。
+  const aspect = width != null && height != null ? `${width} / ${height}` : "";
   const sizeAttrs = [
     width != null ? ` width="${width}"` : "",
     height != null ? ` height="${height}"` : "",
     width != null ? ` data-display-width="${width}"` : "",
     width != null
-      ? ` style="width:${width}px;max-width:100%;height:auto"`
+      ? ` style="width:${width}px;max-width:100%;height:auto${aspect ? `;aspect-ratio:${aspect}` : ""}"`
       : ` style="max-width:100%;height:auto"`,
   ].join("");
 

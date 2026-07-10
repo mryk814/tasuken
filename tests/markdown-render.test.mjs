@@ -300,10 +300,11 @@ test("markdown preview renders MDX editor html img tags with safe attachment url
   assert.match(html, /src="tasken-attachment:\/\/local\/a5a3a30d-097e-4398-b604-8f80828af63e\.png\/image"/);
   assert.match(html, /width="742"/);
   assert.match(html, /height="280"/);
-  // 指定幅を px で反映し、max-width:100% で本文を超えない。アスペクト比は height:auto
+  // 指定幅を px で反映し、max-width:100% で本文を超えない。等比は aspect-ratio + height:auto
   assert.match(html, /width:742px/);
   assert.match(html, /max-width:100%/);
   assert.match(html, /height:auto/);
+  assert.match(html, /aspect-ratio:742 \/ 280/);
   assert.doesNotMatch(html, /&lt;img/);
 });
 
@@ -313,7 +314,16 @@ test("markdown preview accepts fractional MDX resize widths", () => {
   );
   assert.match(html, /width="334"/);
   assert.match(html, /width:334px/);
+  assert.match(html, /aspect-ratio:334 \/ 120/);
   assert.match(html, /has-display-width/);
+});
+
+test("notes editor hides north-south only image resizers", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(css, /_imageResizerN_/);
+  assert.match(css, /_imageResizerS_/);
+  assert.match(css, /display: none !important/);
+  assert.match(css, /height: auto !important/);
 });
 
 test("markdown preview keeps unsized images within content width", () => {

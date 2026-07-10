@@ -592,23 +592,52 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-live-editor [class*="_rootContentEditableWrapper_"] { flex: 1 1 auto; min-height: 0; display: block; overflow: auto; }
 .note-mdx-content { min-height: 100%; max-height: none; overflow: visible; padding: var(--space-3); border: 0; border-radius: 0; background: var(--markdown-paper); color: var(--markdown-paper-text); caret-color: var(--color-accent); }
 .note-mdx-content:focus, .note-mdx-content:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
-.note-mdx-content [data-lexical-decorator="true"] { max-width: 100%; user-select: none; -webkit-user-select: none; }
-/* 画像幅は MDX の width 属性 / リサイズ結果を優先。本文幅は超えない。 */
+/* decorator が横いっぱいに広がると青枠が画像より大きく見えるので、中身に縮める */
+.note-mdx-content [data-lexical-decorator="true"] {
+  display: inline-block;
+  max-width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  vertical-align: top;
+}
+/*
+ * 表示サイズは「幅」を正とする等比スケール。
+ * height:auto でアスペクト比を保ち、本文幅は超えない。
+ * MDX の上下ハンドルは高さだけ変え幅を残すため、Preview で意図が消える → 非表示にして角/左右に寄せる。
+ */
 .note-mdx-content img {
   display: block;
   max-width: 100%;
-  height: auto;
+  width: auto;
+  height: auto !important;
   object-fit: contain;
   border: 1px solid var(--markdown-paper-border);
   border-radius: var(--radius-md);
   background: var(--markdown-paper-subtle);
 }
 .note-mdx-content p:has([class*="_imageWrapper_"]) { margin: var(--space-2) 0; }
-.note-mdx-content [class*="_imageWrapper_"] { position: relative; width: fit-content; max-width: 100%; margin: var(--space-2) 0; line-height: 0; }
-.note-mdx-content [class*="_imageWrapper_"] > div { width: fit-content; max-width: 100%; line-height: 0; }
-/* 選択時のリサイズハンドルを見つけやすくする */
-.note-mdx-content [class*="_imageWrapper_"] [class*="_imageResizer_"],
-.note-mdx-content [class*="_imageWrapper_"] [class*="imageResizer"] {
+.note-mdx-content [class*="_imageWrapper_"] {
+  display: inline-block !important;
+  position: relative;
+  width: fit-content !important;
+  max-width: 100%;
+  margin: var(--space-2) 0;
+  line-height: 0;
+  vertical-align: top;
+}
+.note-mdx-content [class*="_imageWrapper_"] > div {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  line-height: 0;
+}
+/* 上下だけのハンドルは非表示（幅固定のまま高さだけ変わり、意図とずれる） */
+.note-mdx-content [class*="_imageResizerN_"]:not([class*="_imageResizerNe_"]):not([class*="_imageResizerNw_"]),
+.note-mdx-content [class*="_imageResizerS_"]:not([class*="_imageResizerSe_"]):not([class*="_imageResizerSw_"]) {
+  display: none !important;
+}
+/* 角・左右ハンドルは見やすく */
+.note-mdx-content [class*="_imageResizer_"] {
   z-index: 2;
 }
 .note-mdx-content ul { margin: var(--space-2) 0; padding-left: 1.55rem; list-style-type: disc; }
