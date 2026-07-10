@@ -6,8 +6,10 @@ import {
   artifactFileTypeOf,
   artifactMimeTypeOf,
   artifactMonthSegments,
+  resolveManagedArtifactDirectoryParts,
   resolveUniqueArtifactFileName,
   safeArtifactFileName,
+  safeThemeFolderSegment,
   splitArtifactFileName,
 } from "../src/main/services/artifactStorage.mjs";
 import {
@@ -175,8 +177,64 @@ test("同名ファイルは上書きせず連番でリネームする", () => {
 });
 
 test("保存先サブフォルダはローカル日付のYYYY/MM", () => {
+  // 互換のため関数は残す。#146 の新規 managed 保存では月次ではなく Theme/Inbox ルールを使う。
   assert.deepEqual(artifactMonthSegments(new Date(2026, 6, 9)), ["2026", "07"]);
   assert.deepEqual(artifactMonthSegments(new Date(2025, 11, 31)), ["2025", "12"]);
+});
+
+test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐する", () => {
+  assert.deepEqual(
+    resolveManagedArtifactDirectoryParts({ artifactDirectory: "" }),
+    { kind: "needs_directory" },
+  );
+  assert.deepEqual(
+    resolveManagedArtifactDirectoryParts({
+      artifactDirectory: "C:/tasken",
+      themeId: null,
+    }),
+    { kind: "ok", root: "C:/tasken", segments: ["Inbox"] },
+  );
+  assert.deepEqual(
+    resolveManagedArtifactDirectoryParts({
+      artifactDirectory: "C:/tasken",
+      themeId: "theme-1",
+      themeCode: "MAT-A",
+    }),
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Artifacts"] },
+  );
+  // code がなければ id。名前変更で追従しない。
+  assert.deepEqual(
+    resolveManagedArtifactDirectoryParts({
+      artifactDirectory: "C:/tasken",
+      themeId: "theme-uuid",
+      themeCode: "",
+    }),
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "theme-uuid", "Artifacts"] },
+  );
+  // Theme 専用ルートがあれば共通ルートは不要。
+  assert.deepEqual(
+    resolveManagedArtifactDirectoryParts({
+      artifactDirectory: "",
+      themeId: "theme-1",
+      themeCode: "MAT-A",
+      themeStorageRoot: "D:/themes/mat-a",
+    }),
+    { kind: "ok", root: "D:/themes/mat-a", segments: ["Artifacts"] },
+  );
+  assert.equal(safeThemeFolderSegment('a/b:c*?"'), "a-b-c-");
+});
+
+test("Theme 編集に storage_root があり import に themeId を渡す", () => {
+  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+  const settingsSource = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
+  assert.match(drawerSource, /ThemeStorageRootField|storage_root/);
+  assert.match(drawerSource, /Artifact保存ルート/);
+  assert.match(workspaceAppSource, /storage_root:\s*formText\(values,\s*"storage_root"\)/);
+  assert.match(artifactsComponentSource, /themeId:\s*themeId\s*\|\|\s*null/);
+  assert.match(artifactsComponentSource, /themeId:\s*artifact\.theme_id/);
+  assert.match(settingsSource, /Themes\/識別子\/Artifacts/);
+  assert.match(settingsSource, /Inbox\//);
 });
 
 function fakeDeletePolicyRepository(artifacts) {

@@ -293,6 +293,7 @@ export async function promoteArtifactToManaged(
   try {
     const result = await workspaceApi.importArtifactFiles({
       files: [{ path: target, name: artifact.filename }],
+      themeId: artifact.theme_id || null,
     });
     if (result.status === "needs_directory") {
       onNeedsDirectory?.();
@@ -765,7 +766,10 @@ export function ArtifactSection({
     }
     setImporting(true);
     try {
-      const result = await workspaceApi.importArtifactFiles({ files: requestFiles });
+      const result = await workspaceApi.importArtifactFiles({
+        files: requestFiles,
+        themeId: themeId || null,
+      });
       if (result.status === "needs_directory") {
         setNeedsDirectory(true);
         setToast("Artifact保存先が未設定です。「保存先を選ぶ」から設定してください。", "info");

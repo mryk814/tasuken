@@ -13,6 +13,8 @@ export interface MarkdownImageAttachmentResult {
 
 export interface ArtifactFileImportRequest {
   files: Array<{ path: string; name?: string }>;
+  /** Theme に紐づく managed 保存先を決める（未指定は Inbox） */
+  themeId?: string | null;
 }
 
 export interface ImportedArtifactFile {

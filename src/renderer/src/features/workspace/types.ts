@@ -29,6 +29,8 @@ export interface Theme extends BaseRecord {
   status?: string;
   color?: string;
   group?: string;
+  /** managed Artifact の任意保存ルート（絶対パス）。未設定時は共通ルート配下に自動配置 */
+  storage_root?: string | null;
 }
 
 export interface Item extends BaseRecord {

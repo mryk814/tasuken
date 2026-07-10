@@ -10,7 +10,7 @@ import type { Workspace } from "../../shared/types/workspace";
 import {
   artifactFileTypeOf,
   artifactMimeTypeOf,
-  artifactMonthSegments,
+  resolveManagedArtifactDirectoryParts,
   resolveUniqueArtifactFileName,
 } from "./artifactStorage.mjs";
 import { prepareMarkdownHtmlForPdf } from "./markdownPdfImages.mjs";
@@ -41,6 +41,7 @@ interface WorkspaceRepository {
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
+  get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
 }
 
 function localDateIso(date = new Date()): string {
@@ -163,7 +164,10 @@ function normalizeArtifactFileImportRequest(value: unknown): ArtifactFileImportR
       name: typeof fileRecord.name === "string" && fileRecord.name.trim() ? fileRecord.name.trim() : undefined,
     };
   });
-  return { files };
+  const themeId = typeof record.themeId === "string" && record.themeId.trim()
+    ? record.themeId.trim()
+    : null;
+  return { files, themeId };
 }
 
 function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachmentRequest {
@@ -314,7 +318,29 @@ export class WorkspaceService {
   importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {
     const request = normalizeArtifactFileImportRequest(requestValue);
     const baseDirectory = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    if (!baseDirectory) return { status: "needs_directory" };
+
+    // Theme の storage_root / code を正本から読む。Renderer の表示用コピーに依存しない。
+    let themeStorageRoot: string | null = null;
+    let themeCode: string | null = null;
+    let themeId = request.themeId || null;
+    if (themeId) {
+      const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+      if (theme) {
+        themeId = String(theme.id || themeId);
+        const root = typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
+        themeStorageRoot = root || null;
+        const code = typeof theme.code === "string" ? theme.code.trim() : "";
+        themeCode = code || null;
+      }
+    }
+
+    const location = resolveManagedArtifactDirectoryParts({
+      artifactDirectory: baseDirectory,
+      themeId,
+      themeCode,
+      themeStorageRoot,
+    });
+    if (location.kind === "needs_directory") return { status: "needs_directory" };
 
     for (const file of request.files) {
       if (!fs.existsSync(file.path) || !fs.statSync(file.path).isFile()) {
@@ -322,12 +348,11 @@ export class WorkspaceService {
       }
     }
 
-    const [year, month] = artifactMonthSegments();
-    const directory = path.join(baseDirectory, year, month);
+    const directory = path.join(location.root, ...location.segments);
     try {
       fs.mkdirSync(directory, { recursive: true });
     } catch (error) {
-      throw new Error(`保存先フォルダを作成できませんでした（${directory}）。SettingsでArtifact保存先を書き込みできる場所に変更してください。${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`保存先フォルダを作成できませんでした（${directory}）。SettingsのArtifact保存先、またはThemeの保存ルートを書き込みできる場所に変更してください。${error instanceof Error ? error.message : String(error)}`);
     }
 
     const files: ImportedArtifactFile[] = [];

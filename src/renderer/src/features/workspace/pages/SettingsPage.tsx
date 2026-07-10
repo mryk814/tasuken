@@ -169,7 +169,9 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         </section>
         <section className="panel settings-form">
           <h2>Artifact保存先</h2>
-          <p className="field-help">Chat Refs・Task・Note・Theme へ追加した Artifact ファイルは、このフォルダ配下の年/月フォルダへコピーされます。一覧は知識整理の Artifacts から開けます。</p>
+          <p className="field-help">
+            managed Artifact（コピー保存）の共通ルートです。Theme 未設定は <code>Inbox/</code>、Theme ありで保存ルート未設定は <code>Themes/識別子/Artifacts/</code> に入ります。Theme 編集で専用ルートを指定している場合はそちらを優先します。linked（URL/参照）は対象外です。一覧は知識整理の Artifacts から開けます。
+          </p>
           <dl className="settings-meta-list">
             <div>
               <dt>保存先</dt>

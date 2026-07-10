@@ -67,6 +67,46 @@ export function resolveUniqueArtifactFileName(fileName, exists) {
 }
 
 // 保存先のサブフォルダはローカル日付のYYYY/MM。toISOStringは使わない（UTCずれ防止）。
+// #146 以降の Theme ルールでは月次は任意。既存呼び出し互換のため残す。
 export function artifactMonthSegments(date = new Date()) {
   return [String(date.getFullYear()), String(date.getMonth() + 1).padStart(2, "0")];
+}
+
+/** Theme 自動配置フォルダ名。表示名ではなく code / id を使い、改名で追従しない。 */
+export function safeThemeFolderSegment(value) {
+  const cleaned = String(value || "")
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return cleaned || "theme";
+}
+
+/**
+ * managed Artifact の保存ディレクトリを決める（#146）。
+ * - Theme.storage_root あり → {storage_root}/Artifacts
+ * - Theme あり・未設定 → {artifactDirectory}/Themes/{code|id}/Artifacts
+ * - Theme なし → {artifactDirectory}/Inbox
+ * 既存 stored_path は動かさない。新規保存のみ。
+ *
+ * @returns {{ kind: "needs_directory" } | { kind: "ok", root: string, segments: string[] }}
+ */
+export function resolveManagedArtifactDirectoryParts({
+  artifactDirectory,
+  themeId,
+  themeCode,
+  themeStorageRoot,
+} = {}) {
+  const storageRoot = String(themeStorageRoot || "").trim();
+  if (storageRoot) {
+    return { kind: "ok", root: storageRoot, segments: ["Artifacts"] };
+  }
+  const base = String(artifactDirectory || "").trim();
+  if (!base) return { kind: "needs_directory" };
+  const themeKey = String(themeId || "").trim();
+  if (themeKey) {
+    const folder = safeThemeFolderSegment(themeCode || themeKey);
+    return { kind: "ok", root: base, segments: ["Themes", folder, "Artifacts"] };
+  }
+  return { kind: "ok", root: base, segments: ["Inbox"] };
 }

@@ -743,7 +743,15 @@ export function WorkspaceApp() {
       const name = formText(values, "name");
       if (!name) { setToast("テーマ名を入力してください。"); return false; }
       const { status: _status, ...rest } = base;
-      entity = { ...rest, name, code: formText(values, "code") || null, description: formText(values, "description"), color: formText(values, "color") || (base.color as string) || "", group: formText(values, "group") };
+      entity = {
+        ...rest,
+        name,
+        code: formText(values, "code") || null,
+        description: formText(values, "description"),
+        color: formText(values, "color") || (base.color as string) || "",
+        group: formText(values, "group"),
+        storage_root: formText(values, "storage_root") || null,
+      };
     } else if (type === "note") {
       const title = formText(values, "title");
       if (!title) { setToast("タイトルを入力してください。"); return false; }

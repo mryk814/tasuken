@@ -148,6 +148,53 @@ function ThemeGroupPicker({ value, themes }: { value?: string; themes: Workspace
   );
 }
 
+/** Theme 任意の managed Artifact 保存ルート（#146）。未設定時は共通ルート配下に自動配置。 */
+function ThemeStorageRootField({
+  value,
+  setToast,
+}: {
+  value?: string;
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+}) {
+  const [pathValue, setPathValue] = useState(value || "");
+  async function chooseRoot() {
+    try {
+      const result = await workspaceApi.chooseDirectory("ThemeのArtifact保存ルートを選択");
+      if (result.canceled || !result.path) return;
+      setPathValue(result.path);
+    } catch (error) {
+      setToast(`フォルダを選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+  async function openRoot() {
+    if (!pathValue) return;
+    const result = await workspaceApi.openPath(pathValue);
+    if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
+  }
+  return (
+    <Field label="Artifact保存ルート">
+      <input type="hidden" name="storage_root" value={pathValue} />
+      <p className="field-help">
+        未設定なら Settings の共通保存先配下 <code>Themes/識別子/Artifacts</code> に保存します。設定するとその配下の <code>Artifacts</code> へ直接保存します。
+      </p>
+      <div className="theme-storage-root">
+        <code className="theme-storage-root-path" title={pathValue || undefined}>
+          {pathValue || "未設定（自動配置）"}
+        </code>
+        <div className="inline-actions">
+          <button type="button" className="secondary-button compact" onClick={() => void chooseRoot()}>フォルダを選ぶ</button>
+          {pathValue && (
+            <>
+              <button type="button" className="text-button compact" onClick={() => void openRoot()}>開く</button>
+              <button type="button" className="text-button compact" onClick={() => setPathValue("")}>クリア</button>
+            </>
+          )}
+        </div>
+      </div>
+    </Field>
+  );
+}
+
 function ChatGroupPicker({ value, resources, projectId }: {
   value?: string;
   resources: {
@@ -646,6 +693,7 @@ function EditDrawer({
             <Field label="概要"><textarea name="description" defaultValue={str(entity.description)} /></Field>
             <ThemeColorPicker value={str(entity.color)} />
             <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
+            <ThemeStorageRootField value={str(entity.storage_root)} setToast={setToast} />
           </>
         )}
         {type === "note" && <NoteFields entity={entity} data={data} />}

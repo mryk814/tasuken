@@ -1536,6 +1536,22 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .artifact-dropzone {
   min-height: 40px;
 }
+.theme-storage-root {
+  display: grid;
+  gap: var(--space-1);
+}
+.theme-storage-root-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
 .artifact-directory-prompt { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .artifact-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .artifact-card {
