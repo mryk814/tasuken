@@ -35,7 +35,7 @@ $$
 
 ![Chart](tasken-attachment://local/00000000-0000-0000-0000-000000000000.png/chart)`);
 
-  assert.match(html, /<h1>Title<\/h1>/);
+  assert.match(html, /<h1 id="md-h-0"[^>]*>Title<\/h1>/);
   assert.match(html, /class="md-math-inline"/);
   assert.match(html, /class="md-math-block"/);
   assert.match(html, /class="katex"/);
@@ -67,10 +67,10 @@ test("markdown preview renders document blocks for decorated output", () => {
 code line
 \`\`\``);
 
-  assert.match(html, /<h1>Title<\/h1>/);
-  assert.match(html, /<h2>Section<\/h2>/);
-  assert.match(html, /<h3>Finding<\/h3>/);
-  assert.match(html, /<h4>Detail<\/h4>/);
+  assert.match(html, /<h1 id="md-h-0"[^>]*>Title<\/h1>/);
+  assert.match(html, /<h2 id="md-h-1"[^>]*>Section<\/h2>/);
+  assert.match(html, /<h3 id="md-h-2"[^>]*>Finding<\/h3>/);
+  assert.match(html, /<h4 id="md-h-3"[^>]*>Detail<\/h4>/);
   assert.match(html, /<blockquote><p>Important note<\/p><\/blockquote>/);
   assert.match(html, /<hr \/>/);
   assert.doesNotMatch(html, /<p>\*\*\*<\/p>/);
@@ -136,7 +136,7 @@ test("previewDocument styling stays aligned with markdown-preview tokens", () =>
   assert.match(html, /--markdown-accent:#2D7FB8/);
   assert.match(html, /--markdown-accent-bd:#C3DCEE/);
   assert.match(html, /--markdown-paper-secondary:#6f625b/);
-  assert.match(html, /<h4>Detail<\/h4>/);
+  assert.match(html, /<h4 id="md-h-1"[^>]*>Detail<\/h4>/);
   assert.match(html, /<blockquote>/);
   assert.match(html, /<hr \/>/);
   assert.match(html, /<table>/);
@@ -183,7 +183,7 @@ $$
   assert.doesNotMatch(doc, /class="md-frontmatter"/);
   assert.doesNotMatch(doc, />Frontmatter</);
   assert.doesNotMatch(doc, /type: report/);
-  assert.match(doc, /<h1>Title<\/h1>/);
+  assert.match(doc, /<h1 id="md-h-0"[^>]*>Title<\/h1>/);
   // data: URL の PDF では外部 CSS が使えないため、MathML 二重表示防止 + KaTeX フォントを埋め込む。
   assert.match(doc, /\.katex \.katex-mathml/);
   assert.match(doc, /clip-path:inset\(50%\)|clip:rect/);
@@ -546,30 +546,30 @@ test("heading auto-numbering prefixes h1-h4 and skips manual numbers", () => {
 ### ① 丸数字`;
 
   const off = markdown.renderMarkdownPreview(source);
-  assert.match(off, /<h1>概要<\/h1>/);
+  assert.match(off, /<h1 id="md-h-0"[^>]*>概要<\/h1>/);
   assert.doesNotMatch(off, /md-heading-number/);
 
   // 既定は h2 から（h1 は番号なし）
   const html = markdown.renderMarkdownPreview(source, { headingNumbers: true });
-  assert.match(html, /<h1>概要<\/h1>/);
+  assert.match(html, /<h1 id="md-h-0"[^>]*>概要<\/h1>/);
   assert.doesNotMatch(html, /md-heading-number">1\.<\/span> 概要/);
-  assert.match(html, /<h2><span class="md-heading-number">1\.<\/span> 背景<\/h2>/);
-  assert.match(html, /<h3><span class="md-heading-number">1\.1<\/span> 詳細<\/h3>/);
-  assert.match(html, /<h4><span class="md-heading-number">1\.1\.1<\/span> 補足<\/h4>/);
-  assert.match(html, /<h2><span class="md-heading-number">2\.<\/span> 目的<\/h2>/);
-  assert.match(html, /<h1>方針<\/h1>/);
+  assert.match(html, /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.<\/span> 背景<\/h2>/);
+  assert.match(html, /<h3 id="md-h-2"[^>]*><span class="md-heading-number">1\.1<\/span> 詳細<\/h3>/);
+  assert.match(html, /<h4 id="md-h-3"[^>]*><span class="md-heading-number">1\.1\.1<\/span> 補足<\/h4>/);
+  assert.match(html, /<h2 id="md-h-4"[^>]*><span class="md-heading-number">2\.<\/span> 目的<\/h2>/);
+  assert.match(html, /<h1 id="md-h-5"[^>]*>方針<\/h1>/);
   // 手動番号は二重にしない（カウンタは進める）
-  assert.match(html, /<h2>1\. 既に番号あり<\/h2>/);
+  assert.match(html, /<h2 id="md-h-6"[^>]*>1\. 既に番号あり<\/h2>/);
   assert.doesNotMatch(html, /md-heading-number">3\.<\/span> 1\. 既に番号あり/);
-  assert.match(html, /<h3><span class="md-heading-number">3\.1<\/span> 通常<\/h3>/);
-  assert.match(html, /<h1>第1章 手動章<\/h1>/);
-  assert.match(html, /<h2>\(1\) 括弧番号<\/h2>/);
-  assert.match(html, /<h3>① 丸数字<\/h3>/);
+  assert.match(html, /<h3 id="md-h-7"[^>]*><span class="md-heading-number">3\.1<\/span> 通常<\/h3>/);
+  assert.match(html, /<h1 id="md-h-8"[^>]*>第1章 手動章<\/h1>/);
+  assert.match(html, /<h2 id="md-h-9"[^>]*>\(1\) 括弧番号<\/h2>/);
+  assert.match(html, /<h3 id="md-h-10"[^>]*>① 丸数字<\/h3>/);
 
   // h1 からを明示するとタイトルにも番号が付く
   const fromH1 = markdown.renderMarkdownPreview(source, { headingNumbers: true, headingNumberStart: 1 });
-  assert.match(fromH1, /<h1><span class="md-heading-number">1\.<\/span> 概要<\/h1>/);
-  assert.match(fromH1, /<h2><span class="md-heading-number">1\.1<\/span> 背景<\/h2>/);
+  assert.match(fromH1, /<h1 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> 概要<\/h1>/);
+  assert.match(fromH1, /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> 背景<\/h2>/);
 
   assert.equal(markdown.hasManualHeadingNumber("1. 概要"), true);
   assert.equal(markdown.hasManualHeadingNumber("1.1 背景"), true);
@@ -586,9 +586,9 @@ test("heading auto-numbering starts from shallowest heading in the document", ()
 ### Nested
 ## Second`, { headingNumbers: true });
 
-  assert.match(html, /<h2><span class="md-heading-number">1\.<\/span> First<\/h2>/);
-  assert.match(html, /<h3><span class="md-heading-number">1\.1<\/span> Nested<\/h3>/);
-  assert.match(html, /<h2><span class="md-heading-number">2\.<\/span> Second<\/h2>/);
+  assert.match(html, /<h2 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> First<\/h2>/);
+  assert.match(html, /<h3 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> Nested<\/h3>/);
+  assert.match(html, /<h2 id="md-h-2"[^>]*><span class="md-heading-number">2\.<\/span> Second<\/h2>/);
 });
 
 test("headingNumberStart skips shallower headings (e.g. h1 unnumbered)", () => {
@@ -598,11 +598,11 @@ test("headingNumberStart skips shallower headings (e.g. h1 unnumbered)", () => {
 ## Next`;
 
   const fromH2 = markdown.renderMarkdownPreview(source, { headingNumbers: true, headingNumberStart: 2 });
-  assert.match(fromH2, /<h1>Title<\/h1>/);
+  assert.match(fromH2, /<h1 id="md-h-0"[^>]*>Title<\/h1>/);
   assert.doesNotMatch(fromH2, /md-heading-number">1\.<\/span> Title/);
-  assert.match(fromH2, /<h2><span class="md-heading-number">1\.<\/span> Section<\/h2>/);
-  assert.match(fromH2, /<h3><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/);
-  assert.match(fromH2, /<h2><span class="md-heading-number">2\.<\/span> Next<\/h2>/);
+  assert.match(fromH2, /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.<\/span> Section<\/h2>/);
+  assert.match(fromH2, /<h3 id="md-h-2"[^>]*><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/);
+  assert.match(fromH2, /<h2 id="md-h-3"[^>]*><span class="md-heading-number">2\.<\/span> Next<\/h2>/);
 
   const labels = markdown.computeHeadingNumberLabels(
     [
@@ -645,7 +645,7 @@ test("heading number options follow heading_numbers for both preview and PDF", (
     headingNumberStart: 2,
   });
   assert.match(doc, /md-heading-number/);
-  assert.match(doc, /<h1>Title<\/h1>/);
+  assert.match(doc, /<h1 id="md-h-0"[^>]*>Title<\/h1>/);
   assert.match(doc, /1\./);
 
   const labels = markdown.computeHeadingNumberLabels([
@@ -686,4 +686,144 @@ type: report
   assert.match(html, /\[画像: Chart\]/);
   assert.doesNotMatch(html, /tasken-attachment:/);
   assert.doesNotMatch(html, /Frontmatter/);
+});
+
+test("lightweight callout renders INSIGHT (気づき) in orange and keeps plain blockquotes", () => {
+  const html = markdown.renderMarkdownPreview(`> [!INSIGHT]
+> 気づきを書く
+
+> 普通の引用
+
+> [!NOTE]
+> 旧記法も同じ見た目
+`);
+
+  assert.match(html, /class="md-callout"/);
+  assert.match(html, /data-callout="insight"/);
+  assert.match(html, /class="md-callout-label">気づき<\/div>/);
+  assert.match(html, /気づきを書く/);
+  assert.doesNotMatch(html, /\[!INSIGHT\]/);
+  assert.match(html, /<blockquote><p>普通の引用<\/p><\/blockquote>/);
+  assert.match(html, /旧記法も同じ見た目/);
+
+  assert.deepEqual(markdown.parseCalloutMarker("[!INSIGHT]"), { kind: "INSIGHT", rest: "" });
+  assert.equal(markdown.parseCalloutMarker("[!note] rest text")?.kind, "INSIGHT");
+  assert.equal(markdown.parseCalloutMarker("[!note] rest text")?.rest, "rest text");
+  assert.equal(markdown.parseCalloutMarker("not a callout"), null);
+  assert.match(markdown.INSIGHT_CALLOUT_SNIPPET, /> \[!INSIGHT\]/);
+  assert.equal(markdown.CALLOUT_LABEL, "気づき");
+
+  const doc = markdown.previewDocument("> [!INSIGHT]\n> PDFでも見える", "markdown");
+  assert.match(doc, /class="md-callout"/);
+  assert.match(doc, /\.markdown-document \.md-callout\{/);
+  assert.match(doc, /#C77D29/);
+  assert.match(doc, /PDFでも見える/);
+
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(css, /\.markdown-preview \.md-callout/);
+  assert.match(css, /--color-warning/);
+  assert.match(css, /blockquote\.md-callout/);
+  assert.match(css, /md-callout-marker/);
+  assert.match(css, /md-callout-marker-only/);
+  assert.match(css, /content: attr\(data-callout-label\)/);
+
+  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(notesSource, /applyCalloutDecorations/);
+  assert.doesNotMatch(notesSource, /insertNoteCallout/);
+
+  // Edit 装飾: マーカー専用段落なら「気づき」表示用 class を付ける（軽量 DOM モック）
+  class FakeClassList {
+    constructor() { this._set = new Set(); }
+    contains(name) { return this._set.has(name); }
+    add(name) { this._set.add(name); }
+    remove(name) { this._set.delete(name); }
+  }
+  function el(tag, text = "") {
+    const node = {
+      tagName: tag.toUpperCase(),
+      textContent: text,
+      classList: new FakeClassList(),
+      _attrs: {},
+      children: [],
+      getAttribute(name) { return this._attrs[name] ?? null; },
+      setAttribute(name, value) { this._attrs[name] = value; },
+      removeAttribute(name) { delete this._attrs[name]; },
+      hasAttribute(name) { return name in this._attrs; },
+      querySelector(sel) {
+        if (sel === ":scope > p") return this.children.find((c) => c.tagName === "P") || null;
+        return null;
+      },
+      querySelectorAll(sel) {
+        if (sel === "blockquote") return this.children.filter((c) => c.tagName === "BLOCKQUOTE");
+        return [];
+      },
+    };
+    return node;
+  }
+  const pMarker = el("p", "[!NOTE]");
+  const pBody = el("p", "本文");
+  const quote = el("blockquote");
+  quote.children = [pMarker, pBody];
+  const root = el("div");
+  root.children = [quote];
+  markdown.applyCalloutDecorations(root);
+  assert.equal(quote.classList.contains("md-callout"), true);
+  assert.equal(quote.getAttribute("data-callout-label"), "気づき");
+  assert.equal(pMarker.classList.contains("md-callout-marker-only"), true);
+  assert.equal(pMarker.getAttribute("data-callout-label"), "気づき");
+});
+
+test("extractMarkdownHeadings builds index items and skips code fences", () => {
+  const headings = markdown.extractMarkdownHeadings(`---
+title: t
+---
+# 概要
+
+\`\`\`
+# not a heading
+\`\`\`
+
+## 背景
+### 詳細
+#### 補足
+`);
+
+  assert.deepEqual(headings, [
+    { index: 0, level: 1, text: "概要", id: "md-h-0" },
+    { index: 1, level: 2, text: "背景", id: "md-h-1" },
+    { index: 2, level: 3, text: "詳細", id: "md-h-2" },
+    { index: 3, level: 4, text: "補足", id: "md-h-3" },
+  ]);
+  assert.equal(markdown.HEADING_INDEX_MIN_COUNT, 2);
+  assert.equal(markdown.markdownHeadingId(2), "md-h-2");
+
+  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(notesSource, /MarkdownHeadingIndex/);
+  assert.match(notesSource, /extractMarkdownHeadings/);
+  assert.match(notesSource, /jumpToMarkdownHeading/);
+  assert.match(notesSource, /note-markdown-surface/);
+
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(css, /\.md-heading-index-trigger/);
+  assert.match(css, /\.md-heading-index-bars/);
+  assert.match(css, /\.md-heading-index-panel/);
+  assert.match(css, /\.md-heading-index-item/);
+  assert.match(css, /top: 50%/);
+  assert.match(css, /right: 18px/);
+
+  const indexSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx", "utf8");
+  assert.match(indexSource, /onMouseEnter/);
+  assert.match(indexSource, /onMouseLeave/);
+  assert.match(indexSource, /level === 2/);
+  assert.match(indexSource, /barCount|barHeadings/);
+  assert.match(indexSource, /activeBarIndex|is-active/);
+  assert.match(indexSource, /addEventListener\("scroll"/);
+  assert.match(indexSource, /resolveActiveIndex/);
+  assert.match(indexSource, /computeHeadingNumberLabels/);
+  assert.match(indexSource, /headingNumberOptions/);
+  assert.match(indexSource, /md-heading-index-item-number/);
+  assert.doesNotMatch(indexSource, /onClick=\{\(\) => setOpen/);
+  assert.match(css, /span\.is-active/);
+  assert.match(css, /md-heading-index-item-number/);
+  assert.match(css, /max-height: min\(640px, 78vh\)/);
 });

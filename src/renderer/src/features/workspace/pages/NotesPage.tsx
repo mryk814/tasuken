@@ -33,13 +33,16 @@ import { Component, memo, useEffect, useMemo, useRef, useState, type ClipboardEv
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
 import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import {
+  applyCalloutDecorations,
   applyHeadingNumberAttributes,
+  extractMarkdownHeadings,
   HEADING_NUMBER_START_LABELS,
   HEADING_NUMBER_START_LEVELS,
   headingNumberOptionsFromProperties,
@@ -51,6 +54,7 @@ import {
   previewHtml,
   safeMarkdownLinkUrl,
   type HeadingNumberStart,
+  type MarkdownHeadingItem,
   type MarkdownRenderOptions,
 } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
@@ -305,7 +309,7 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     setEditorFailed(false);
   }, [markdown]);
 
-  // 見出し番号は data-heading-number + CSS ::before で出す（Lexical の本文テキストには書き込まない）。
+  // 見出し番号・Callout 装飾は DOM 属性/class のみ（Lexical の本文テキストには書き込まない）。
   useEffect(() => {
     const root = editorScopeRef.current;
     if (!root) return;
@@ -318,7 +322,9 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     const refresh = () => {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
-        applyHeadingNumberAttributes(content(), options);
+        const node = content();
+        applyHeadingNumberAttributes(node, options);
+        applyCalloutDecorations(node);
       });
     };
     refresh();
@@ -656,6 +662,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const markdownExportStale = Boolean(str(markdownExport?.bodySignature) && str(markdownExport?.bodySignature) !== currentExportSignature);
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && draftBody !== selectedBody);
+  const markdownHeadings = useMemo(() => extractMarkdownHeadings(draftBody), [draftBody]);
 
   useEffect(() => {
     setDraftBody(selectedBody);
@@ -918,6 +925,67 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     } catch (error) {
       setDraftState(error instanceof Error ? error.message : "保存できませんでした。");
     }
+  }
+
+  /** 見出しをビューポート上端から fraction の位置（既定 2/5 = やや上）に来るようスクロールする。 */
+  function scrollHeadingIntoView(scrollEl: HTMLElement, target: HTMLElement, fraction = 0.4) {
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const topInScroll = targetRect.top - scrollRect.top + scrollEl.scrollTop;
+    const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    const nextTop = Math.min(maxScroll, Math.max(0, topInScroll - scrollEl.clientHeight * fraction));
+    scrollEl.scrollTo({ top: nextTop, behavior: "smooth" });
+  }
+
+  function jumpToMarkdownHeading(heading: MarkdownHeadingItem) {
+    const panel = previewPanelRef.current;
+    if (!panel) return;
+    if (previewMode === "preview") {
+      const scrollEl = modeScroller("preview");
+      const el = panel.querySelector(`#${CSS.escape(heading.id)}`) as HTMLElement | null
+        || panel.querySelector(`[data-md-heading-index="${heading.index}"]`) as HTMLElement | null;
+      if (scrollEl && el) scrollHeadingIntoView(scrollEl, el);
+      else el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (previewMode === "edit") {
+      const scrollEl = modeScroller("edit");
+      const content = panel.querySelector(".note-mdx-content");
+      const nodes = content?.querySelectorAll("h1, h2, h3, h4");
+      const el = nodes?.[heading.index] as HTMLElement | undefined;
+      if (scrollEl && el) scrollHeadingIntoView(scrollEl, el);
+      else el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const lines = draftBody.split(/\r?\n/);
+    let inCode = false;
+    let count = 0;
+    let found = -1;
+    for (let i = 0; i < lines.length; i += 1) {
+      if (lines[i].trim().startsWith("```")) {
+        inCode = !inCode;
+        continue;
+      }
+      if (inCode) continue;
+      if (/^#{1,4}\s+\S/.test(lines[i])) {
+        if (count === heading.index) {
+          found = i;
+          break;
+        }
+        count += 1;
+      }
+    }
+    if (found < 0) return;
+    const before = lines.slice(0, found).join("\n");
+    const pos = before.length + (found > 0 ? 1 : 0);
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+    const lineHeight = Number.parseFloat(window.getComputedStyle(ta).lineHeight) || 20;
+    // 見出し行がビューポートの約 2/5 に来る位置へ
+    const nextTop = Math.max(0, found * lineHeight - ta.clientHeight * 0.4);
+    ta.scrollTo({ top: nextTop, behavior: "smooth" });
   }
 
   async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_start?: HeadingNumberStart }) {
@@ -1236,43 +1304,50 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   )}
                 </div>
               </div>
-              {previewMode === "edit" ? (
-                <MarkdownEditorBoundary
-                  markdown={draftBody}
-                  resetKey={selected.id}
-                  onChange={(value) => {
-                    setDraftBody(value);
-                    if (draftState) setDraftState("");
-                  }}
-                  onPaste={handleDraftPaste}
-                  onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
-                >
-                  <MarkdownRichEditor
+              <div className="note-markdown-surface">
+                <MarkdownHeadingIndex
+                  headings={markdownHeadings}
+                  headingNumberOptions={headingNumberOptions.preview}
+                  onSelect={jumpToMarkdownHeading}
+                />
+                {previewMode === "edit" ? (
+                  <MarkdownEditorBoundary
                     markdown={draftBody}
-                    headingNumberOptions={headingNumberOptions.preview}
-                    markdownSourceRef={mdxMarkdownSourceRef}
+                    resetKey={selected.id}
                     onChange={(value) => {
                       setDraftBody(value);
                       if (draftState) setDraftState("");
                     }}
-                    onImageUpload={uploadEditorImage}
+                    onPaste={handleDraftPaste}
                     onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
+                  >
+                    <MarkdownRichEditor
+                      markdown={draftBody}
+                      headingNumberOptions={headingNumberOptions.preview}
+                      markdownSourceRef={mdxMarkdownSourceRef}
+                      onChange={(value) => {
+                        setDraftBody(value);
+                        if (draftState) setDraftState("");
+                      }}
+                      onImageUpload={uploadEditorImage}
+                      onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
+                    />
+                  </MarkdownEditorBoundary>
+                ) : previewMode === "preview" ? (
+                  <div className="note-main-preview markdown-preview" dangerouslySetInnerHTML={{ __html: previewHtml(draftBody, "markdown", headingNumberOptions.preview) }} />
+                ) : (
+                  <textarea
+                    ref={textareaRef}
+                    className="note-main-editor note-main-editor-raw"
+                    value={draftBody}
+                    onPaste={handleDraftPaste}
+                    onChange={(event) => {
+                      setDraftBody(event.target.value);
+                      if (draftState) setDraftState("");
+                    }}
                   />
-                </MarkdownEditorBoundary>
-              ) : previewMode === "preview" ? (
-                <div className="note-main-preview markdown-preview" dangerouslySetInnerHTML={{ __html: previewHtml(draftBody, "markdown", headingNumberOptions.preview) }} />
-              ) : (
-                <textarea
-                  ref={textareaRef}
-                  className="note-main-editor note-main-editor-raw"
-                  value={draftBody}
-                  onPaste={handleDraftPaste}
-                  onChange={(event) => {
-                    setDraftBody(event.target.value);
-                    if (draftState) setDraftState("");
-                  }}
-                />
-              )}
+                )}
+              </div>
             </>
           ) : (
             <EmptyState title="項目がありません" action="Noteを書く" onAction={() => addNote("note")} />

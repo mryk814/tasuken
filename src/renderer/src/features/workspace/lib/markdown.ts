@@ -426,14 +426,14 @@ function renderTable(node: Table): string {
   return `<table>${head}${body}</table>`;
 }
 
-function renderListItem(item: ListItem): string {
+function renderListItem(item: ListItem, ctx: MarkdownRenderContext): string {
   // tight list では <p> を付けない（編集器の見た目・既存テストと揃える）。
   const inner = (item.children || []).map((child) => {
     if (child.type === "paragraph") {
       return renderPhrasing((child as Paragraph).children);
     }
-    if (child.type === "list") return renderList(child as List);
-    return renderBlock(child as Content);
+    if (child.type === "list") return renderList(child as List, ctx);
+    return renderBlock(child as Content, ctx);
   }).join("");
   if (item.checked === true || item.checked === false) {
     const mark = item.checked ? "☑" : "☐";
@@ -442,15 +442,104 @@ function renderListItem(item: ListItem): string {
   return `<li>${inner}</li>`;
 }
 
-function renderList(node: List): string {
+function renderList(node: List, ctx: MarkdownRenderContext): string {
   const tag = node.ordered ? "ol" : "ul";
   const start = node.ordered && node.start && node.start !== 1 ? ` start="${node.start}"` : "";
-  return `<${tag}${start}>${(node.children as ListItem[]).map((item) => renderListItem(item)).join("")}</${tag}>`;
+  return `<${tag}${start}>${(node.children as ListItem[]).map((item) => renderListItem(item, ctx)).join("")}</${tag}>`;
 }
+
+/**
+ * 軽量 Callout。正本は 1 種類 `INSIGHT`（表示: 気づき）。
+ * GitHub Alerts 風 `> [!INSIGHT]`。旧 `[!NOTE]` 等は同じ見た目のエイリアス。
+ */
+export const CALLOUT_KIND = "INSIGHT" as const;
+export type CalloutKind = typeof CALLOUT_KIND;
+export const CALLOUT_LABEL = "気づき";
+/** 手書き用スニペット。 */
+export const INSIGHT_CALLOUT_SNIPPET = "> [!INSIGHT]\n> \n";
+/** @deprecated INSIGHT_CALLOUT_SNIPPET を使う */
+export const NOTE_CALLOUT_SNIPPET = INSIGHT_CALLOUT_SNIPPET;
+
+const CALLOUT_MARKER_RE = /^\[!(INSIGHT|NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i;
+
+export function parseCalloutMarker(text: string): { kind: CalloutKind; rest: string } | null {
+  const match = text.trim().match(CALLOUT_MARKER_RE);
+  if (!match) return null;
+  return { kind: CALLOUT_KIND, rest: match[2].trim() };
+}
+
+function renderCallout(quote: Blockquote, ctx: MarkdownRenderContext): string {
+  const children = [...(quote.children || [])] as Content[];
+  if (!children.length) return `<blockquote><br /></blockquote>`;
+
+  const first = children[0];
+  if (first.type !== "paragraph") {
+    const content = children.map((child) => renderBlock(child, ctx)).join("");
+    return `<blockquote>${content || "<br />"}</blockquote>`;
+  }
+
+  const firstText = mdastToString(first);
+  const marker = parseCalloutMarker(firstText);
+  if (!marker) {
+    const content = children.map((child) => renderBlock(child, ctx)).join("");
+    return `<blockquote>${content || "<br />"}</blockquote>`;
+  }
+
+  const bodyNodes: Content[] = [];
+  if (marker.rest) {
+    bodyNodes.push({ type: "paragraph", children: [{ type: "text", value: marker.rest }] } as Paragraph);
+  }
+  bodyNodes.push(...children.slice(1));
+  const body = bodyNodes.map((child) => renderBlock(child, ctx)).join("") || "<p></p>";
+  return `<aside class="md-callout" data-callout="insight" role="note"><div class="md-callout-label">${escapeHtml(CALLOUT_LABEL)}</div><div class="md-callout-body">${body}</div></aside>`;
+}
+
+/**
+ * Edit（MDX/Lexical）上の blockquote を Callout 見た目にする。
+ * 本文テキストは書き換えず、data 属性と class だけ付ける。
+ */
+export function applyCalloutDecorations(root: ParentNode | null | undefined): void {
+  if (!root || typeof (root as Element).querySelectorAll !== "function") return;
+  const quotes = Array.from((root as Element).querySelectorAll("blockquote")) as HTMLElement[];
+  for (const quote of quotes) {
+    const firstP = quote.querySelector(":scope > p") as HTMLElement | null;
+    const raw = (firstP?.textContent || "").replace(/\u00a0/g, " ");
+    const firstLine = raw.split(/\r?\n/)[0] || raw;
+    const marker = parseCalloutMarker(firstLine.trim()) || parseCalloutMarker(raw.trim());
+    if (!marker) {
+      if (quote.classList.contains("md-callout")) quote.classList.remove("md-callout");
+      if (quote.hasAttribute("data-callout")) quote.removeAttribute("data-callout");
+      if (quote.hasAttribute("data-callout-label")) quote.removeAttribute("data-callout-label");
+      if (firstP?.classList.contains("md-callout-marker")) firstP.classList.remove("md-callout-marker");
+      if (firstP?.classList.contains("md-callout-marker-only")) firstP.classList.remove("md-callout-marker-only");
+      if (firstP?.hasAttribute("data-callout-label")) firstP.removeAttribute("data-callout-label");
+      continue;
+    }
+    // マーカー行だけなら Edit 上は「気づき」ラベルを出し、生の [!INSIGHT]/[!NOTE] は隠す（本文 Markdown は触らない）。
+    const markerOnly = !marker.rest && !/\r?\n/.test(raw.trim());
+    if (!quote.classList.contains("md-callout")) quote.classList.add("md-callout");
+    if (quote.getAttribute("data-callout") !== "insight") quote.setAttribute("data-callout", "insight");
+    if (quote.getAttribute("data-callout-label") !== CALLOUT_LABEL) quote.setAttribute("data-callout-label", CALLOUT_LABEL);
+    if (firstP) {
+      if (!firstP.classList.contains("md-callout-marker")) firstP.classList.add("md-callout-marker");
+      if (firstP.getAttribute("data-callout-label") !== CALLOUT_LABEL) firstP.setAttribute("data-callout-label", CALLOUT_LABEL);
+      if (markerOnly) {
+        if (!firstP.classList.contains("md-callout-marker-only")) firstP.classList.add("md-callout-marker-only");
+      } else if (firstP.classList.contains("md-callout-marker-only")) {
+        firstP.classList.remove("md-callout-marker-only");
+      }
+    }
+  }
+}
+
+type MarkdownRenderContext = {
+  headingNumbers?: { next: (level: number, titleText: string) => string };
+  headingIndex: { value: number };
+};
 
 function renderBlock(
   node: Content | BlockContent,
-  headingNumbers?: { next: (level: number, titleText: string) => string },
+  ctx: MarkdownRenderContext,
 ): string {
   switch (node.type) {
     case "paragraph":
@@ -459,21 +548,20 @@ function renderBlock(
       const heading = node as Heading;
       const level = Math.min(4, Math.max(1, heading.depth || 1));
       const titleText = mdastToString(heading);
-      const numberLabel = headingNumbers?.next(level, titleText) || "";
+      const numberLabel = ctx.headingNumbers?.next(level, titleText) || "";
       const numberHtml = numberLabel
         ? `<span class="md-heading-number">${escapeHtml(numberLabel)}</span> `
         : "";
-      return `<h${level}>${numberHtml}${renderPhrasing(heading.children)}</h${level}>`;
+      const id = markdownHeadingId(ctx.headingIndex.value);
+      ctx.headingIndex.value += 1;
+      return `<h${level} id="${escapeHtml(id)}" data-md-heading-index="${ctx.headingIndex.value - 1}">${numberHtml}${renderPhrasing(heading.children)}</h${level}>`;
     }
     case "list":
-      return renderList(node as List);
+      return renderList(node as List, ctx);
     case "table":
       return renderTable(node as Table);
-    case "blockquote": {
-      const quote = node as Blockquote;
-      const content = (quote.children || []).map((child) => renderBlock(child as Content, headingNumbers)).join("");
-      return `<blockquote>${content || "<br />"}</blockquote>`;
-    }
+    case "blockquote":
+      return renderCallout(node as Blockquote, ctx);
     case "code": {
       const code = node as Code;
       return `<pre><code>${escapeHtml(code.value || "")}${code.value?.endsWith("\n") ? "" : "\n"}</code></pre>`;
@@ -492,11 +580,53 @@ function renderBlock(
     }
     default:
       if ("children" in node && Array.isArray((node as { children?: Content[] }).children)) {
-        return ((node as { children: Content[] }).children).map((child) => renderBlock(child, headingNumbers)).join("");
+        return ((node as { children: Content[] }).children).map((child) => renderBlock(child, ctx)).join("");
       }
       return "";
   }
 }
+
+/** 見出しインデックス用の安定 id（文書内順）。 */
+export function markdownHeadingId(index: number): string {
+  return `md-h-${index}`;
+}
+
+export type MarkdownHeadingItem = {
+  index: number;
+  level: number;
+  text: string;
+  id: string;
+};
+
+/** 本文の見出し一覧。コードフェンス内の # は無視。frontmatter は除く。 */
+export function extractMarkdownHeadings(source: string): MarkdownHeadingItem[] {
+  const { body } = splitFrontmatter(source);
+  const headings: MarkdownHeadingItem[] = [];
+  const lines = body.split(/\r?\n/);
+  let inCode = false;
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    const match = line.match(/^(#{1,4})\s+(.+)$/);
+    if (!match) continue;
+    const index = headings.length;
+    const text = match[2].replace(/\s+#+\s*$/, "").trim();
+    if (!text) continue;
+    headings.push({
+      index,
+      level: match[1].length,
+      text,
+      id: markdownHeadingId(index),
+    });
+  }
+  return headings;
+}
+
+/** 見出しがこの件数以上ならインデックス UI を出す。 */
+export const HEADING_INDEX_MIN_COUNT = 2;
 
 /** Preview / 編集 / PDF 向けの見出し自動ナンバリング。本文 Markdown は書き換えない。 */
 export type MarkdownRenderOptions = {
@@ -724,6 +854,17 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   background:color-mix(in srgb,var(--markdown-accent-bg) 20%,var(--markdown-paper));color:var(--markdown-paper-secondary);font-style:italic
 }
 .markdown-document blockquote p{margin:var(--md-space-1) 0}
+.markdown-document .md-callout{
+  margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border:1px solid #EFD9B0;
+  border-left:4px solid #C77D29;border-radius:var(--md-radius-md);
+  background:color-mix(in srgb,#FBF0DD 78%,#fff);color:var(--markdown-paper-text);break-inside:avoid
+}
+.markdown-document .md-callout-label{
+  margin:0 0 var(--md-space-1);color:#8A5212;font-size:var(--md-text-xs);font-weight:700;letter-spacing:.02em
+}
+.markdown-document .md-callout-body > :first-child{margin-top:0}
+.markdown-document .md-callout-body > :last-child{margin-bottom:0}
+.markdown-document .md-callout p{margin:var(--md-space-1) 0;font-style:normal}
 .markdown-document hr{height:0;margin:var(--md-space-3) 0;border:0;border-top:1px solid var(--markdown-accent-bd)}
 .markdown-document pre{
   overflow:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
@@ -791,7 +932,10 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
 
 export function renderMarkdownPreview(value: string, options: MarkdownRenderOptions = {}): string {
   const { frontmatter, body } = splitFrontmatter(value);
-  const headingNumbers = createHeadingNumberState(body, options);
+  const ctx: MarkdownRenderContext = {
+    headingNumbers: createHeadingNumberState(body, options),
+    headingIndex: { value: 0 },
+  };
   const tree = parseMarkdownBody(body);
   const parts: string[] = [];
   // 編集プレビューでは frontmatter を確認できるよう既定で表示。PDF/文書ビューは showFrontmatter:false。
@@ -799,7 +943,7 @@ export function renderMarkdownPreview(value: string, options: MarkdownRenderOpti
     parts.push(`<details class="md-frontmatter"><summary>Frontmatter</summary><pre>${escapeHtml(frontmatter)}</pre></details>`);
   }
   for (const child of tree.children) {
-    parts.push(renderBlock(child as Content, headingNumbers));
+    parts.push(renderBlock(child as Content, ctx));
   }
   return parts.join("");
 }
