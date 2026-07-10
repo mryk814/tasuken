@@ -1292,7 +1292,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   )}
                 </div>
               </div>
-              {(draftState || draftDirty) && <span className={`note-draft-state ${draftDirty ? "is-dirty" : ""}`}>{draftState || "本文変更あり"}</span>}
+              <span className="note-draft-state" role="status" aria-live="polite">{draftState || "\u00a0"}</span>
               <div className={`document-publish-panel document-publish-strip ${markdownExportStale && showDocumentPublish ? "needs-export" : ""}`}>
                 <div className="document-publish-title">
                   {showDocumentPublish ? (

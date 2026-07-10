@@ -2005,10 +2005,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .chip-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: var(--radius-pill); background: var(--chip-color, var(--color-border-strong)); }
 
 .theme-code { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; padding: 2px var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drawer-danger-zone { display: grid; gap: var(--space-2); margin-top: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-danger-bd); border-left: 4px solid var(--color-danger); border-radius: var(--radius-md); background: var(--color-danger-bg); }
-.drawer-danger-zone strong { color: var(--color-danger-strong); font-size: var(--text-sm); }
-.drawer-danger-zone span { color: var(--color-text-secondary); font-size: var(--text-xs); }
-.drawer-danger-zone .danger-button { justify-self: start; }
+.drawer-edit-actions { display: flex; justify-content: flex-start; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
 
 .micro-memo-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); padding: var(--pad-card); align-items: end; }
 .micro-memo-input textarea { min-height: 88px; resize: vertical; }

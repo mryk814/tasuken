@@ -43,5 +43,7 @@ test("task shelves are wired through Today candidates and the task drawer", () =
   assert.match(todaySource, /buildDailyPlanningCandidates/);
   assert.match(todaySource, /handleMoveCandidateTaskToday/);
   assert.match(todaySource, /task-shelf-lane/);
+  // 編集UIからは非表示だが、既存 planning_shelf は hidden で保持して保存時に消えない（#137）
   assert.match(drawerSource, /name="planning_shelf"/);
+  assert.doesNotMatch(drawerSource, /Field label="候補棚"/);
 });

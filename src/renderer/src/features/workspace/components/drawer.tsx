@@ -18,7 +18,7 @@ import type {
 import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, relatedEntityTitle, uiNoteType } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
-import { normalizeTaskShelf, TASK_SHELF_OPTIONS } from "../lib/taskShelves";
+import { normalizeTaskShelf } from "../lib/taskShelves";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { buildKnowledgeLinkContext, type KnowledgeLinkEntry } from "../lib/knowledgeLinks";
 import {
@@ -684,12 +684,14 @@ function EditDrawer({
         </div>
       )}
       {entityId && removeEntity && (
-        <div className="drawer-content">
-          <section className="drawer-danger-zone">
-            <strong>削除</strong>
-            <span>完了やアーカイブではなく、実データを削除します。削除後はToastから元に戻せます。</span>
-            <button className="danger-button" type="button" onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}><IconTrash size={16} />この{kindLabel}を削除する</button>
-          </section>
+        <div className="drawer-content drawer-edit-actions">
+          <button
+            className="danger-button compact"
+            type="button"
+            onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}
+          >
+            <IconTrash size={16} />削除
+          </button>
         </div>
       )}
     </aside>
@@ -1721,28 +1723,21 @@ function TaskFields({ entity, data, saveEntities }: { entity: DrawerConfig["enti
       setChecklistSaveState("error");
     }
   }
+  // セクション・候補棚は編集UIから外すが、既存値は保存時に消えないよう保持する（#137）。
+  const preservedSectionId = normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
+  const preservedShelf = normalizeTaskShelf(entity.planning_shelf) || "";
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
-      <Field label="セクション">
-        <select name="section_id" defaultValue={normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || ""}>
-          <option value="">未設定</option>
-          {taskSections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
-        </select>
-      </Field>
+      <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
       <Field label="状態">
         <select name="state" defaultValue={str(entity.state) || "todo"}>
           {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
       </Field>
       <label className="toggle priority-toggle"><input name="priority_flag" type="checkbox" defaultChecked={str(entity.priority) === "high"} />旗を付ける</label>
-      <Field label="候補棚">
-        <select name="planning_shelf" defaultValue={normalizeTaskShelf(entity.planning_shelf) || ""}>
-          <option value="">今日/通常</option>
-          {TASK_SHELF_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-        </select>
-      </Field>
+      <input type="hidden" name="planning_shelf" defaultValue={preservedShelf} />
       <Field label="リマインダー"><input name="reminder_at" type="datetime-local" defaultValue={normalizeReminderDateTime(entity.reminder_at) || ""} /></Field>
       <div className="form-grid">
         <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>

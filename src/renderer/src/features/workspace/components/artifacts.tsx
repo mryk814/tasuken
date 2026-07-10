@@ -310,7 +310,6 @@ export function ArtifactSection({
           </button>
         </div>
       </div>
-      <p className="field-help">AIや調査でできた Excel・画像・PDF・Markdown などをここに置きます。メモ本文や URL 参照とは別物です。</p>
       {needsDirectory && (
         <div className="artifact-directory-prompt">
           <span>Artifact保存先が未設定のため、まだファイルを添付できません。</span>

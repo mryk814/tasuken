@@ -77,6 +77,8 @@ test("task sections are wired through Theme detail, task drawer, and save form",
   assert.match(themeSource, /TaskSectionBoard/);
   assert.match(themeSource, /buildTaskSection/);
   assert.match(themeSource, /collapsedSections/);
+  // 編集UIからは非表示だが、既存 section_id は hidden で保持して保存時に消えない（#137）
   assert.match(drawerSource, /name="section_id"/);
+  assert.doesNotMatch(drawerSource, /Field label="セクション"/);
   assert.match(appSource, /section_id: normalizeTaskSectionId/);
 });
