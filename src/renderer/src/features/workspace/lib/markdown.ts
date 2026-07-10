@@ -325,9 +325,8 @@ function parseDisplayPx(value: string): number | null {
 /**
  * MDXEditor が出力する <img width height src> を安全な figure に変換する。
  *
- * 表示の正は「幅」だけ。height 属性は左右リサイズ時に古いまま残りやすく、
- * HTML の width/height から縦長ボックスが予約されて細長い棒になるので Preview/PDF には出さない。
- * 高さはブラウザが画像の自然なアスペクト比から height:auto で決める。
+ * 表示幅は figure に載せる（img の width だけだと Preview CSS で潰れやすい）。
+ * height 属性は壊れた比率の原因になるので出さない。高さは自然比 + height:auto。
  */
 function renderSafeHtmlImage(raw: string): string | null {
   const trimmed = raw.trim();
@@ -340,16 +339,16 @@ function renderSafeHtmlImage(raw: string): string | null {
 
   const alt = attributeValue(trimmed, "alt").trim() || "貼り付け画像";
   const width = parseDisplayPx(attributeValue(trimmed, "width"));
-  // height は保存データには残るが、描画には使わない（壊れた比率の原因になる）
-  const sizeAttrs = [
-    width != null ? ` width="${width}"` : "",
-    width != null ? ` data-display-width="${width}"` : "",
-    width != null
-      ? ` style="width:min(100%, ${width}px);height:auto"`
-      : ` style="max-width:100%;height:auto"`,
-  ].join("");
+  const figureClass = width != null ? "md-image has-display-width" : "md-image";
+  // figure に幅を持たせ、img は 100% で埋める（中央寄せ・指定幅の両方が効く）
+  const figureStyle = width != null
+    ? ` style="width:min(100%, ${width}px)"`
+    : "";
+  const imgAttrs = width != null
+    ? ` width="${width}" data-display-width="${width}" style="width:100%;height:auto;display:block"`
+    : ` style="max-width:100%;height:auto;display:block"`;
 
-  return `<figure class="md-image${width != null ? " has-display-width" : ""}"><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"${sizeAttrs} loading="lazy" /><figcaption>${escapeHtml(alt)}</figcaption></figure>`;
+  return `<figure class="${figureClass}"${figureStyle}><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"${imgAttrs} loading="lazy" /><figcaption>${escapeHtml(alt)}</figcaption></figure>`;
 }
 
 function renderAllowedHtmlTag(value: string): string {
@@ -394,7 +393,7 @@ function renderPhrasing(nodes: PhrasingContent[] | undefined): string {
         const url = safeMarkdownUrl(image.url || "", "image");
         const label = (image.alt || "").trim() || "貼り付け画像";
         if (!url) return escapeHtml(`[画像: ${label}]`);
-        return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="max-width:100%;height:auto" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+        return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="max-width:100%;height:auto;display:block" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
       }
       case "inlineMath":
         return `<span class="md-math-inline">${renderMathExpression(String((node as { value?: string }).value || ""), false)}</span>`;
@@ -766,11 +765,13 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   border-radius:var(--md-radius-sm);background:color-mix(in srgb,var(--markdown-accent-bg) 72%,var(--markdown-paper));
   color:var(--markdown-accent-strong);font-weight:600;overflow-wrap:anywhere
 }
-.markdown-document .md-image{display:block;width:fit-content;max-width:100%;margin:var(--md-space-3) auto}
+.markdown-document .md-image{display:block;max-width:100%;margin:var(--md-space-3) auto;box-sizing:border-box}
+.markdown-document .md-image:not(.has-display-width){width:fit-content}
 .markdown-document .md-image img{
-  display:block;max-width:100%;height:auto;margin:0 auto;object-fit:contain;border:1px solid var(--markdown-paper-border);
+  display:block;width:100%;max-width:100%;height:auto;margin:0;object-fit:contain;border:1px solid var(--markdown-paper-border);
   border-radius:var(--md-radius-md);background:var(--markdown-paper-subtle)
 }
+.markdown-document .md-image:not(.has-display-width) img{width:auto;max-width:100%}
 .markdown-document .md-image figcaption{margin-top:var(--md-space-1);color:var(--markdown-paper-secondary);font-size:var(--md-text-xs);text-align:center}
 .markdown-document .md-image-missing{
   padding:var(--md-space-3);border:1px dashed var(--markdown-paper-border);border-radius:var(--md-radius-md);

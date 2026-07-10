@@ -1072,22 +1072,34 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview tbody tr:last-child td { border-bottom: 0; }
 .markdown-preview th { border-bottom: 2px solid color-mix(in srgb, var(--markdown-accent-bd) 60%, var(--color-border-subtle)); background: color-mix(in srgb, var(--markdown-accent-bg) 44%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
 .markdown-preview tr:nth-child(even) td { background: color-mix(in srgb, var(--markdown-accent-bg) 10%, var(--markdown-paper)); }
-/* 画像は中央寄せ。幅指定は min(100%, Npx)。高さは自然比。 */
+/* 画像は中央寄せ。指定幅は figure の width（inline）が正。img は figure 幅いっぱい。 */
 .markdown-preview .md-image {
   display: block;
-  width: fit-content;
   max-width: 100%;
   margin: var(--space-3) auto;
+  box-sizing: border-box;
+}
+.markdown-preview .md-image:not(.has-display-width) {
+  width: fit-content;
+}
+.markdown-preview .md-image.has-display-width {
+  /* inline style の width:min(100%, Npx) を効かせる */
+  max-width: 100%;
 }
 .markdown-preview .md-image img {
   display: block;
+  width: 100%;
   max-width: 100%;
   height: auto;
-  margin: 0 auto;
+  margin: 0;
   object-fit: contain;
   border: 1px solid var(--markdown-paper-border);
   border-radius: var(--radius-md);
   background: var(--markdown-paper-subtle);
+}
+.markdown-preview .md-image:not(.has-display-width) img {
+  width: auto;
+  max-width: 100%;
 }
 .markdown-preview .md-image figcaption {
   margin-top: var(--space-1);

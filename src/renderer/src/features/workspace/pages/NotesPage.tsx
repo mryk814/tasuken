@@ -65,6 +65,8 @@ type MarkdownRichEditorProps = {
   onImageUpload: (file: File) => Promise<string>;
   onError: (message: string) => void;
   headingNumberOptions?: MarkdownRenderOptions;
+  /** Preview 切替前に最新 Markdown（画像幅含む）を確定するために使う */
+  markdownSourceRef?: { current: (() => string) | null };
 };
 type MarkdownEditorBoundaryProps = {
   markdown: string;
@@ -211,6 +213,7 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onImageUpload,
   onError,
   headingNumberOptions,
+  markdownSourceRef,
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
@@ -223,6 +226,14 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const [linkEditUrl, setLinkEditUrl] = useState("");
   const lastInternalMarkdown = useRef(markdown);
   const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!markdownSourceRef) return;
+    markdownSourceRef.current = () => editorRef.current?.getMarkdown() || lastInternalMarkdown.current || markdown;
+    return () => {
+      markdownSourceRef.current = null;
+    };
+  }, [markdown, markdownSourceRef]);
   const plugins = useMemo(() => [
     toolbarPlugin({
       toolbarContents: () => (
@@ -608,6 +619,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const previewPanelRef = useRef<HTMLElement | null>(null);
+  const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const records: Combined[] = [
     ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
@@ -827,6 +839,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   function switchPreviewMode(nextMode: PreviewMode) {
     if (nextMode === previewMode) return;
+    // Edit を離れる直前に MDX から最新本文を取り込み、画像 width が Preview に残るようにする
+    if (previewMode === "edit" && nextMode !== "edit") {
+      const latest = mdxMarkdownSourceRef.current?.();
+      if (typeof latest === "string" && latest !== draftBody) {
+        setDraftBody(latest);
+      }
+    }
     const ratio = scrollRatio(modeScroller(previewMode));
     setPreviewMode(nextMode);
     restoreModeScroll(nextMode, ratio);
@@ -1231,6 +1250,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   <MarkdownRichEditor
                     markdown={draftBody}
                     headingNumberOptions={headingNumberOptions.preview}
+                    markdownSourceRef={mdxMarkdownSourceRef}
                     onChange={(value) => {
                       setDraftBody(value);
                       if (draftState) setDraftState("");

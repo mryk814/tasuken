@@ -298,12 +298,12 @@ test("markdown preview renders MDX editor html img tags with safe attachment url
 
   assert.match(html, /class="md-image has-display-width"/);
   assert.match(html, /src="tasken-attachment:\/\/local\/a5a3a30d-097e-4398-b604-8f80828af63e\.png\/image"/);
+  // 指定幅は figure に載せ、img は 100% で埋める（Preview で潰れない）
+  assert.match(html, /<figure class="md-image has-display-width" style="width:min\(100%, 742px\)"/);
   assert.match(html, /width="742"/);
+  assert.match(html, /style="width:100%;height:auto;display:block"/);
   // height 属性は壊れた比率の原因になるので Preview には出さない
   assert.doesNotMatch(html, /\sheight="/);
-  assert.match(html, /width:min\(100%, 742px\)/);
-  assert.match(html, /height:auto/);
-  assert.doesNotMatch(html, /aspect-ratio/);
   assert.doesNotMatch(html, /&lt;img/);
 });
 
@@ -311,11 +311,17 @@ test("markdown preview accepts fractional MDX resize widths and ignores stale he
   const html = markdown.renderMarkdownPreview(
     `<img height="900.4" width="333.7" alt="resized" src="tasken-attachment://local/a5a3a30d-097e-4398-b604-8f80828af63e.png/image" />`,
   );
+  assert.match(html, /style="width:min\(100%, 334px\)"/);
   assert.match(html, /width="334"/);
-  assert.match(html, /width:min\(100%, 334px\)/);
   assert.doesNotMatch(html, /\sheight="/);
-  assert.doesNotMatch(html, /aspect-ratio/);
   assert.match(html, /has-display-width/);
+});
+
+test("notes page flushes MDX markdown before leaving edit mode", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(source, /markdownSourceRef/);
+  assert.match(source, /getMarkdown\(\)/);
+  assert.match(source, /previewMode === "edit" && nextMode !== "edit"/);
 });
 
 test("notes editor hides north-south only image resizers", () => {
