@@ -601,15 +601,20 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   vertical-align: top;
 }
 /*
- * 表示サイズは「幅」を正とする等比スケール。
- * height:auto でアスペクト比を保ち、本文幅は超えない。
- * MDX の上下ハンドルは高さだけ変え幅を残すため、Preview で意図が消える → 非表示にして角/左右に寄せる。
+ * 表示サイズは「幅」を正とする等比スケール（height は自然比で auto）。
+ * 画像は段落内で中央寄せ。上下ハンドルは高さだけ変えて壊れるので非表示。
  */
+.note-mdx-content p:has([class*="_imageWrapper_"]),
+.note-mdx-content p:has(img) {
+  text-align: center;
+}
 .note-mdx-content img {
   display: block;
   max-width: 100%;
   width: auto;
   height: auto !important;
+  margin-left: auto;
+  margin-right: auto;
   object-fit: contain;
   border: 1px solid var(--markdown-paper-border);
   border-radius: var(--radius-md);
@@ -617,18 +622,19 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .note-mdx-content p:has([class*="_imageWrapper_"]) { margin: var(--space-2) 0; }
 .note-mdx-content [class*="_imageWrapper_"] {
-  display: inline-block !important;
+  display: block !important;
   position: relative;
   width: fit-content !important;
   max-width: 100%;
-  margin: var(--space-2) 0;
+  margin: var(--space-2) auto;
   line-height: 0;
-  vertical-align: top;
 }
 .note-mdx-content [class*="_imageWrapper_"] > div {
   display: block;
   width: fit-content;
   max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
   line-height: 0;
 }
 /* 上下だけのハンドルは非表示（幅固定のまま高さだけ変わり、意図とずれる） */
@@ -636,7 +642,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mdx-content [class*="_imageResizerS_"]:not([class*="_imageResizerSe_"]):not([class*="_imageResizerSw_"]) {
   display: none !important;
 }
-/* 角・左右ハンドルは見やすく */
 .note-mdx-content [class*="_imageResizer_"] {
   z-index: 2;
 }
@@ -1067,19 +1072,29 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview tbody tr:last-child td { border-bottom: 0; }
 .markdown-preview th { border-bottom: 2px solid color-mix(in srgb, var(--markdown-accent-bd) 60%, var(--color-border-subtle)); background: color-mix(in srgb, var(--markdown-accent-bg) 44%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
 .markdown-preview tr:nth-child(even) td { background: color-mix(in srgb, var(--markdown-accent-bg) 10%, var(--markdown-paper)); }
-.markdown-preview .md-image { margin: var(--space-3) 0; max-width: 100%; }
-/* 幅未指定: 自然サイズ（本文幅まで）。幅指定あり: 指定px（本文幅を超えない）。 */
-.markdown-preview .md-image.has-display-width { width: fit-content; max-width: 100%; }
+/* 画像は中央寄せ。幅指定は min(100%, Npx)。高さは自然比。 */
+.markdown-preview .md-image {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: var(--space-3) auto;
+}
 .markdown-preview .md-image img {
   display: block;
   max-width: 100%;
   height: auto;
+  margin: 0 auto;
   object-fit: contain;
   border: 1px solid var(--markdown-paper-border);
   border-radius: var(--radius-md);
   background: var(--markdown-paper-subtle);
 }
-.markdown-preview .md-image figcaption { margin-top: var(--space-1); color: var(--markdown-paper-secondary); font-size: var(--text-xs); }
+.markdown-preview .md-image figcaption {
+  margin-top: var(--space-1);
+  color: var(--markdown-paper-secondary);
+  font-size: var(--text-xs);
+  text-align: center;
+}
 .markdown-preview .md-math-inline { display: inline; padding: 0 .12em; color: var(--markdown-accent-strong); vertical-align: baseline; }
 .markdown-preview .md-math-block { overflow-x: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-accent-bd); border-radius: var(--radius-md); background: color-mix(in srgb, var(--markdown-accent-bg) 42%, var(--markdown-paper)); color: var(--markdown-accent-strong); line-height: 1.72; text-align: center; }
 .markdown-preview .md-math-inline .katex, .markdown-preview .md-math-block .katex { color: inherit; }

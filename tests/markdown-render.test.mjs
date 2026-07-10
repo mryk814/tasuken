@@ -299,22 +299,22 @@ test("markdown preview renders MDX editor html img tags with safe attachment url
   assert.match(html, /class="md-image has-display-width"/);
   assert.match(html, /src="tasken-attachment:\/\/local\/a5a3a30d-097e-4398-b604-8f80828af63e\.png\/image"/);
   assert.match(html, /width="742"/);
-  assert.match(html, /height="280"/);
-  // 指定幅を px で反映し、max-width:100% で本文を超えない。等比は aspect-ratio + height:auto
-  assert.match(html, /width:742px/);
-  assert.match(html, /max-width:100%/);
+  // height 属性は壊れた比率の原因になるので Preview には出さない
+  assert.doesNotMatch(html, /\sheight="/);
+  assert.match(html, /width:min\(100%, 742px\)/);
   assert.match(html, /height:auto/);
-  assert.match(html, /aspect-ratio:742 \/ 280/);
+  assert.doesNotMatch(html, /aspect-ratio/);
   assert.doesNotMatch(html, /&lt;img/);
 });
 
-test("markdown preview accepts fractional MDX resize widths", () => {
+test("markdown preview accepts fractional MDX resize widths and ignores stale height", () => {
   const html = markdown.renderMarkdownPreview(
-    `<img height="120.4" width="333.7" alt="resized" src="tasken-attachment://local/a5a3a30d-097e-4398-b604-8f80828af63e.png/image" />`,
+    `<img height="900.4" width="333.7" alt="resized" src="tasken-attachment://local/a5a3a30d-097e-4398-b604-8f80828af63e.png/image" />`,
   );
   assert.match(html, /width="334"/);
-  assert.match(html, /width:334px/);
-  assert.match(html, /aspect-ratio:334 \/ 120/);
+  assert.match(html, /width:min\(100%, 334px\)/);
+  assert.doesNotMatch(html, /\sheight="/);
+  assert.doesNotMatch(html, /aspect-ratio/);
   assert.match(html, /has-display-width/);
 });
 
