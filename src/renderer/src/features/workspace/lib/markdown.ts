@@ -313,8 +313,34 @@ function renderTextWithWikiLinks(value: string): string {
   return parts.join("");
 }
 
+/** MDXEditor が出力する <img width height src> を安全な figure に変換する。 */
+function renderSafeHtmlImage(raw: string): string | null {
+  const trimmed = raw.trim();
+  // 開始タグのみ（self-closing 可）。閉じタグ付きや複数タグは拒否。
+  if (!/^<img\b[^>]*\/?>$/i.test(trimmed)) return null;
+  if (/\son\w+\s*=/i.test(trimmed) || /javascript:/i.test(trimmed)) return null;
+
+  const url = safeMarkdownUrl(attributeValue(trimmed, "src"), "image");
+  if (!url) return null;
+
+  const alt = attributeValue(trimmed, "alt").trim() || "貼り付け画像";
+  const widthRaw = attributeValue(trimmed, "width").trim();
+  const heightRaw = attributeValue(trimmed, "height").trim();
+  const width = /^\d{1,5}$/.test(widthRaw) ? widthRaw : "";
+  const height = /^\d{1,5}$/.test(heightRaw) ? heightRaw : "";
+  const sizeAttrs = [
+    width ? ` width="${width}"` : "",
+    height ? ` height="${height}"` : "",
+    width ? ` style="width:min(100%, ${width}px);height:auto;max-width:100%"` : ` style="max-width:100%;height:auto"`,
+  ].join("");
+
+  return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"${sizeAttrs} loading="lazy" /><figcaption>${escapeHtml(alt)}</figcaption></figure>`;
+}
+
 function renderAllowedHtmlTag(value: string): string {
   const trimmed = value.trim();
+  const imageHtml = renderSafeHtmlImage(trimmed);
+  if (imageHtml) return imageHtml;
   if (/^<u\b[^>]*>$/i.test(trimmed)) return '<u class="md-underline">';
   if (/^<\/u>$/i.test(trimmed)) return "</u>";
   if (/^<sup\b[^>]*>$/i.test(trimmed)) return "<sup>";
@@ -443,8 +469,10 @@ function renderBlock(
     case "math":
       return `<div class="md-math-block">${renderMathExpression(String((node as { value?: string }).value || ""), true)}</div>`;
     case "html": {
-      // ブロック HTML は危険なのでエスケープ。許可インラインは phrasing 側で処理する。
+      // ブロック HTML は危険なのでエスケープ。許可インラインと MDX の <img> だけ通す。
       const raw = (node as Html).value || "";
+      const imageHtml = renderSafeHtmlImage(raw);
+      if (imageHtml) return imageHtml;
       if (/^<\/?(?:u|sup|sub)\b/i.test(raw.trim())) return renderAllowedHtmlTag(raw);
       return `<p>${escapeHtml(raw)}</p>`;
     }

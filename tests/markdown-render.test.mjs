@@ -290,6 +290,25 @@ test("markdown preview does not render unsafe image urls", () => {
   assert.match(html, /\[画像: bad\]/);
 });
 
+test("markdown preview renders MDX editor html img tags with safe attachment urls", () => {
+  const html = markdown.renderMarkdownPreview(`# Title
+
+<img height="280" width="742" alt="image" src="tasken-attachment://local/a5a3a30d-097e-4398-b604-8f80828af63e.png/image" />
+`);
+
+  assert.match(html, /class="md-image"/);
+  assert.match(html, /src="tasken-attachment:\/\/local\/a5a3a30d-097e-4398-b604-8f80828af63e\.png\/image"/);
+  assert.match(html, /width="742"/);
+  assert.match(html, /height="280"/);
+  assert.doesNotMatch(html, /&lt;img/);
+});
+
+test("markdown preview rejects unsafe html img tags", () => {
+  const html = markdown.renderMarkdownPreview(`<img src="javascript:alert(1)" alt="x" onerror="alert(1)" />`);
+  assert.doesNotMatch(html, /<img /);
+  assert.match(html, /&lt;img/);
+});
+
 test("renderedText converts markdown report bodies into readable email text", () => {
   const text = markdown.renderedText(`---
 type: report
