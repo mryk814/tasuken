@@ -525,7 +525,8 @@ test("notes page keeps scroll position when switching edit, preview, and raw mod
 
   assert.match(source, /function switchPreviewMode/);
   assert.match(source, /function restoreModeScroll/);
-  assert.match(source, /_rootContentEditableWrapper_/);
+  // Edit 面の実スクロールは contenteditable（.note-mdx-content）
+  assert.match(source, /querySelector<HTMLElement>\("\.note-mdx-content"\)/);
   assert.match(source, /switchPreviewMode\("edit"\)/);
   assert.match(source, /switchPreviewMode\("preview"\)/);
   assert.match(source, /switchPreviewMode\("raw"\)/);
@@ -819,6 +820,9 @@ title: t
   assert.match(indexSource, /activeBarIndex|is-active/);
   assert.match(indexSource, /addEventListener\("scroll"/);
   assert.match(indexSource, /resolveActiveIndex/);
+  // Edit 面は contenteditable がスクロールする（ラッパは overflow:hidden）
+  assert.match(indexSource, /querySelector<HTMLElement>\("\.note-mdx-content"\)/);
+  assert.doesNotMatch(indexSource, /querySelector(?:All)?(?:<[^>]+>)?\([^)]*_rootContentEditableWrapper_/);
   assert.match(indexSource, /computeHeadingNumberLabels/);
   assert.match(indexSource, /headingNumberOptions/);
   assert.match(indexSource, /md-heading-index-item-number/);

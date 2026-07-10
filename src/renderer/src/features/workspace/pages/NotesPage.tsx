@@ -879,7 +879,8 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     if (!panel) return null;
     if (mode === "raw") return panel.querySelector<HTMLElement>("textarea.note-main-editor-raw");
     if (mode === "preview") return panel.querySelector<HTMLElement>(".note-main-preview");
-    return panel.querySelector<HTMLElement>('[class*="_rootContentEditableWrapper_"]');
+    // Edit: contenteditable 自身がスクロールする（ラッパは overflow:hidden）
+    return panel.querySelector<HTMLElement>(".note-mdx-content");
   }
 
   function scrollRatio(element: HTMLElement | null): number {

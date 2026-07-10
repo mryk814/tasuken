@@ -21,7 +21,9 @@ const HEADING_INDEX_BAR_MAX = 16;
 
 function findScrollContainer(surface: HTMLElement | null): HTMLElement | null {
   if (!surface) return null;
-  return surface.querySelector<HTMLElement>('[class*="_rootContentEditableWrapper_"]')
+  // Edit 面の実スクロールは contenteditable（.note-mdx-content）。
+  // ラッパ _rootContentEditableWrapper_ は overflow:hidden で IME 用の箱だけ。
+  return surface.querySelector<HTMLElement>(".note-mdx-content")
     || surface.querySelector<HTMLElement>(".note-main-preview")
     || surface.querySelector<HTMLElement>("textarea.note-main-editor-raw");
 }
