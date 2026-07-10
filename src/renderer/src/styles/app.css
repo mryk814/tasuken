@@ -1481,13 +1481,42 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   overflow-y: auto;
 }
 .artifact-section { display: grid; gap: var(--space-2); }
+.artifact-section-heading {
+  gap: var(--space-2);
+  min-height: 32px;
+  padding-inline: 0;
+  border-bottom: 0;
+}
+.artifact-section-heading h3 {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.artifact-section-count {
+  color: var(--color-text-secondary);
+  font: var(--text-xs) / var(--lh-tight) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.artifact-section-actions {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  gap: var(--space-1);
+}
+.artifact-section-actions .secondary-button.compact {
+  white-space: nowrap;
+  min-height: 28px;
+  padding-inline: var(--space-2);
+}
 .artifact-attach-secondary {
   display: flex;
   justify-content: flex-end;
+  margin-top: calc(var(--space-1) * -1);
 }
 .artifact-attach-secondary .text-button {
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
+  min-height: 24px;
 }
 .artifact-url-form {
   display: grid;
@@ -1503,6 +1532,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .artifact-url-form-inline {
   margin-top: var(--space-1);
   grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.artifact-dropzone {
+  min-height: 40px;
 }
 .artifact-directory-prompt { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .artifact-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }

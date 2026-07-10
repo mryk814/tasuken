@@ -898,16 +898,32 @@ export function ArtifactSection({
 
   return (
     <section className="artifact-section">
-      <div className="section-heading">
-        <h3>Artifacts</h3>
-        <div className="inline-actions">
-          {attached.length > 0 && <span>{attached.length}件</span>}
+      <div className="section-heading artifact-section-heading">
+        <h3>
+          Artifacts
+          {attached.length > 0 && <span className="artifact-section-count">{attached.length}</span>}
+        </h3>
+        <div className="inline-actions artifact-section-actions">
           {headingExtra}
-          <button type="button" className="secondary-button compact" disabled={importing} onClick={pickManagedFiles}>
-            <IconPlus size={14} />Artifact を追加
+          <button
+            type="button"
+            className="secondary-button compact"
+            disabled={importing}
+            onClick={pickManagedFiles}
+            title="ファイルをコピーして追加"
+            aria-label="Artifactを追加"
+          >
+            <IconPlus size={14} />Artifact
           </button>
-          <button type="button" className="secondary-button compact" disabled={importing} onClick={openUrlForm}>
-            <IconLink size={14} />URLをリンク
+          <button
+            type="button"
+            className="secondary-button compact"
+            disabled={importing}
+            onClick={openUrlForm}
+            title="URLをリンク"
+            aria-label="URLをリンク"
+          >
+            <IconLink size={14} />URL
           </button>
         </div>
       </div>
@@ -919,7 +935,7 @@ export function ArtifactSection({
             type="url"
             value={urlDraft}
             onChange={(event) => setUrlDraft(event.target.value)}
-            placeholder="https://... を貼り付け"
+            placeholder="https://..."
             aria-label="リンクするURL"
             disabled={importing}
             onPaste={(event) => {
@@ -981,7 +997,7 @@ export function ArtifactSection({
         className={`artifact-dropzone ${dragOver ? "is-dragover" : ""} ${importing ? "is-busy" : ""}`}
         tabIndex={0}
         role="region"
-        aria-label="Artifactのドロップ領域"
+        aria-label="Artifactのドロップ領域。ファイルはコピー、URLはリンク"
         onDragOver={(event) => {
           event.preventDefault();
           setDragOver(true);
@@ -990,13 +1006,17 @@ export function ArtifactSection({
         onDrop={onDrop}
         onPaste={onPasteUrl}
       >
-        {importing
-          ? "処理中…"
-          : "ファイルをドロップしてコピー / URLをドロップしてリンク"}
+        {importing ? "処理中…" : "ファイルまたはURLをドロップ"}
       </div>
       <div className="artifact-attach-secondary">
-        <button type="button" className="text-button compact" disabled={importing} onClick={pickLinkedFiles}>
-          ファイルをコピーせず参照する
+        <button
+          type="button"
+          className="text-button compact"
+          disabled={importing}
+          onClick={pickLinkedFiles}
+          title="ファイルをコピーせず、場所だけ参照する"
+        >
+          参照のみ
         </button>
       </div>
     </section>
