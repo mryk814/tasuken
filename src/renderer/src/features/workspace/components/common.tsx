@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 
-import type { BaseRecord, DrawerConfig, Item, Theme } from "../types";
+import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
@@ -171,25 +171,6 @@ export function ThemeSelect({
           </button>
         ))}
       </div>
-    </Field>
-  );
-}
-
-export function ItemSelect({
-  items = [],
-  value,
-  label = "関連タスク",
-}: {
-  items?: Item[];
-  value?: string | null;
-  label?: string;
-}) {
-  return (
-    <Field label={label}>
-      <select name={label === "親タスク" ? "parent_item_id" : "item_id"} defaultValue={value || ""}>
-        <option value="">未設定</option>
-        {items.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-      </select>
     </Field>
   );
 }

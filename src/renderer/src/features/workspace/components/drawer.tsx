@@ -38,7 +38,7 @@ import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } 
 import { listActiveChatGroupNames } from "../lib/chatRefs";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { ArtifactSection } from "./artifacts";
-import { DrawerHeader, Field, ItemSelect, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
+import { DrawerHeader, Field, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import {
   TASK_STATE_LABELS,
@@ -714,7 +714,6 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
-      {!isReport && <ItemSelect items={data.items} value={str(entity.item_id)} />}
       <Field label="種別">
         <select name="note_type" value={noteType} onChange={(event) => chooseNoteType(event.target.value)}>
           {NOTE_TYPE_OPTIONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}

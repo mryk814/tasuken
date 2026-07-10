@@ -787,7 +787,10 @@ export function WorkspaceApp() {
         note_type: noteType,
         content_format: formText(values, "content_format") || "markdown",
         theme_id: formText(values, "theme_id") || null,
-        item_id: noteType === "report" ? null : formText(values, "item_id") || null,
+        // Note編集UIから関連タスク（item_id）を外した。フォームに無いときは既存値を保持する（#144）。
+        item_id: noteType === "report"
+          ? null
+          : (named("item_id") ? (formText(values, "item_id") || null) : ((base.item_id as string | null) ?? null)),
         source_url: noteType === "report" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
         properties_json: {
