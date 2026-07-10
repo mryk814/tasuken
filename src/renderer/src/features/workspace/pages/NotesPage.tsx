@@ -35,6 +35,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
+import { markdownTableKeyboardPlugin } from "../components/markdownTableKeyboardPlugin";
 import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
@@ -238,6 +239,65 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
       markdownSourceRef.current = null;
     };
   }, [markdown, markdownSourceRef]);
+
+  // 日本語 IME: 変換開始時にキャレットが編集ホスト内に見えるようスクロールし、
+  // 候補ウィンドウの基準座標が画面外や隠れ位置にならないようにする。
+  useEffect(() => {
+    const root = editorScopeRef.current;
+    if (!root) return;
+
+    const scrollCaretIntoHost = (host: HTMLElement) => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0).cloneRange();
+      let rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        const marker = document.createElement("span");
+        marker.textContent = "\u200b";
+        marker.style.cssText = "display:inline-block;width:0;height:1em;";
+        const insert = range.cloneRange();
+        insert.insertNode(marker);
+        rect = marker.getBoundingClientRect();
+        marker.parentNode?.removeChild(marker);
+        try {
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } catch {
+          // 復元失敗は無視
+        }
+      }
+      const hostRect = host.getBoundingClientRect();
+      const margin = 28;
+      if (rect.bottom > hostRect.bottom - margin) {
+        host.scrollTop += rect.bottom - hostRect.bottom + margin;
+      } else if (rect.top < hostRect.top + margin) {
+        host.scrollTop -= hostRect.top - rect.top + margin;
+      }
+    };
+
+    const onCompositionStart = (event: CompositionEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !root.contains(target)) return;
+      const host = target.closest<HTMLElement>(".note-mdx-content, [contenteditable='true']");
+      if (!host) return;
+      // EditContext が付いている場合は外して従来 caret 基準へ（可能な環境のみ）
+      const withEditContext = host as HTMLElement & { editContext?: unknown };
+      if (withEditContext.editContext != null) {
+        try {
+          withEditContext.editContext = null;
+        } catch {
+          // 読み取り専用の実装では触れない
+        }
+      }
+      window.requestAnimationFrame(() => scrollCaretIntoHost(host));
+    };
+
+    root.addEventListener("compositionstart", onCompositionStart, true);
+    return () => {
+      root.removeEventListener("compositionstart", onCompositionStart, true);
+    };
+  }, []);
+
   const plugins = useMemo(() => [
     toolbarPlugin({
       toolbarContents: () => (
@@ -277,6 +337,8 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
       allowSetImageDimensions: true,
     }),
     tablePlugin(),
+    // 表セル内の ↑↓ を視覚上の上下セル移動にする（←→ は既存の文字移動のまま）
+    markdownTableKeyboardPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "text" }),
     codeMirrorPlugin({
       codeBlockLanguages: {

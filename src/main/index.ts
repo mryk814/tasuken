@@ -752,6 +752,10 @@ app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.commandLine.appendSwitch("in-process-gpu");
+// Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
+// 従来の contenteditable キャレット基準に戻す。
+app.commandLine.appendSwitch("disable-blink-features", "EditContext");
+app.commandLine.appendSwitch("disable-features", "EditContext");
 
 if (requestedUserDataPath) {
   app.setPath("userData", path.resolve(requestedUserDataPath));
