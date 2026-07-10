@@ -4,6 +4,7 @@ import {
   IconBrandGoogle,
   IconBrandOpenai,
   IconBrandWindows,
+  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconCopy,
@@ -17,8 +18,9 @@ import {
   IconStar,
   IconStarFilled,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
@@ -28,6 +30,7 @@ import type { Resource } from "../domain-model/types";
 import {
   archiveChatResource,
   archiveChatResources,
+  chatGroupNameExists,
   chatThreadMetaLabels,
   clearChatGroupResources,
   filterChatResourcesByArchive,
@@ -35,6 +38,7 @@ import {
   groupChatResources,
   isChatArchived,
   isChatReference,
+  listResourcesInChatGroup,
   renameChatGroupResources,
   reorderChatGroupResources,
   restoreChatResource,
@@ -117,6 +121,9 @@ export function ChatRefsPage({
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  /** Electron では window.prompt が使えないため、グループ名変更はインライン編集にする */
+  const [renamingGroupKey, setRenamingGroupKey] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   useEffect(() => {
     if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
@@ -207,34 +214,76 @@ export function ChatRefsPage({
     void saveEntities(resources.flatMap((resource) => buildSaveResourceOperations(resource)), message);
   }
 
-  function renameGroup(group: ChatRefGroup) {
+  /** 表示フィルタを通さない Theme 内の正本メンバ（Archive 含む） */
+  function themeGroupResources(groupKey: string): Resource[] {
+    return listResourcesInChatGroup(scopedResources, groupKey);
+  }
+
+  function startRenameGroup(group: ChatRefGroup) {
     if (group.key === UNGROUPED_CHAT_GROUP) {
-      setToast("未分類グループは名前を変更できません。");
+      setToast("未分類グループは名前を変更できません。", "warning");
       return;
     }
-    const nextName = window.prompt("新しいグループ名", group.label)?.trim();
-    if (!nextName || nextName === group.label) return;
-    const targetExists = groups.some((candidate) => candidate.key !== group.key && candidate.key === nextName);
+    setRenamingGroupKey(group.key);
+    setRenameDraft(group.label);
+  }
+
+  function cancelRenameGroup() {
+    setRenamingGroupKey(null);
+    setRenameDraft("");
+  }
+
+  function commitRenameGroup(group: ChatRefGroup) {
+    if (group.key === UNGROUPED_CHAT_GROUP) {
+      setToast("未分類グループは名前を変更できません。", "warning");
+      cancelRenameGroup();
+      return;
+    }
+    const nextName = renameDraft.trim();
+    if (!nextName) {
+      setToast("グループ名を入力してください。", "warning");
+      return;
+    }
+    if (nextName === group.label) {
+      cancelRenameGroup();
+      return;
+    }
+    // 検索・採用フィルタや Archive 状態に隠れたメンバも含め、Theme 内の該当グループを一括更新する
+    const targets = themeGroupResources(group.key);
+    if (!targets.length) {
+      cancelRenameGroup();
+      return;
+    }
+    const targetExists = chatGroupNameExists(scopedResources, nextName, group.key);
     if (targetExists && !window.confirm(`「${nextName}」に統合します。リンクは削除されません。続けますか？`)) return;
     saveGroupResources(
-      renameChatGroupResources(group.resources, nextName),
+      renameChatGroupResources(targets, nextName),
       targetExists ? "グループを統合しました。" : "グループ名を変更しました。",
     );
     setCollapsed((prev) => {
       const next = new Set(prev);
       next.delete(group.key);
+      next.delete(nextName);
       return next;
     });
+    cancelRenameGroup();
+  }
+
+  function onRenameGroupSubmit(event: FormEvent, group: ChatRefGroup) {
+    event.preventDefault();
+    commitRenameGroup(group);
   }
 
   function clearGroup(group: ChatRefGroup) {
     if (group.key === UNGROUPED_CHAT_GROUP) {
-      setToast("未分類グループは解除できません。");
+      setToast("未分類グループは解除できません。", "warning");
       return;
     }
-    if (!window.confirm(`「${group.label}」のグループだけ解除し、${group.resources.length}件のリンクは未分類へ移します。続けますか？`)) return;
+    const targets = themeGroupResources(group.key);
+    if (!targets.length) return;
+    if (!window.confirm(`「${group.label}」のグループだけ解除し、${targets.length}件のリンクは未分類へ移します。続けますか？`)) return;
     saveGroupResources(
-      clearChatGroupResources(group.resources),
+      clearChatGroupResources(targets),
       "グループを解除し、リンクを未分類へ移しました。",
     );
     setCollapsed((prev) => {
@@ -242,6 +291,7 @@ export function ChatRefsPage({
       next.delete(group.key);
       return next;
     });
+    if (renamingGroupKey === group.key) cancelRenameGroup();
   }
 
   function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
@@ -267,7 +317,7 @@ export function ChatRefsPage({
   }
 
   function archiveGroup(group: ChatRefGroup) {
-    const targets = group.resources.filter((resource) => !isChatArchived(resource));
+    const targets = themeGroupResources(group.key).filter((resource) => !isChatArchived(resource));
     if (!targets.length) return;
     if (!window.confirm(`「${group.label}」の${targets.length}件をArchiveします。削除ではなく保管です。続けますか？`)) return;
     saveGroupResources(
@@ -277,7 +327,7 @@ export function ChatRefsPage({
   }
 
   function restoreGroup(group: ChatRefGroup) {
-    const targets = group.resources.filter(isChatArchived);
+    const targets = themeGroupResources(group.key).filter(isChatArchived);
     if (!targets.length) return;
     if (!window.confirm(`「${group.label}」の${targets.length}件を元のグループへ戻します。続けますか？`)) return;
     saveGroupResources(
@@ -530,77 +580,115 @@ export function ChatRefsPage({
             {groups.map((group) => (
               <div className="chat-link-group" key={group.key}>
                 <div className="chat-group-header">
-                  <button className="chat-group-toggle" onClick={() => toggleGroup(group.key)}>
-                    {collapsed.has(group.key) ? <IconChevronRight size={16} /> : <IconChevronDown size={16} />}
-                    <strong>{isArchiveView && group.key !== UNGROUPED_CHAT_GROUP ? `元グループ: ${group.label}` : group.label}</strong>
-                    <span className="count">{group.resources.length}</span>
-                  </button>
-                  {!isArchiveView && (
+                  {renamingGroupKey === group.key ? (
+                    <form className="chat-group-rename" onSubmit={(event) => onRenameGroupSubmit(event, group)}>
+                      <input
+                        className="chat-group-rename-input"
+                        autoFocus
+                        value={renameDraft}
+                        onChange={(event) => setRenameDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelRenameGroup();
+                          }
+                        }}
+                        aria-label={`${group.label}の新しいグループ名`}
+                        placeholder="グループ名"
+                      />
+                      <button
+                        type="submit"
+                        className="chat-group-rename-save"
+                        aria-label="グループ名を保存"
+                        title="保存"
+                      >
+                        <IconCheck size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="chat-group-rename-cancel"
+                        onClick={cancelRenameGroup}
+                        aria-label="グループ名変更をキャンセル"
+                        title="キャンセル"
+                      >
+                        <IconX size={14} />
+                      </button>
+                    </form>
+                  ) : (
                     <>
-                      <button
-                        className="chat-group-add"
-                        onClick={() => addChatLink(group.key === UNGROUPED_CHAT_GROUP ? "" : group.key)}
-                        aria-label={`${group.label}にチャットリンクを追加`}
-                        title="このグループに追加"
-                      >
-                        <IconLinkPlus size={14} />
+                      <button className="chat-group-toggle" onClick={() => toggleGroup(group.key)}>
+                        {collapsed.has(group.key) ? <IconChevronRight size={16} /> : <IconChevronDown size={16} />}
+                        <strong>{isArchiveView && group.key !== UNGROUPED_CHAT_GROUP ? `元グループ: ${group.label}` : group.label}</strong>
+                        <span className="count">{group.resources.length}</span>
                       </button>
-                      <button
-                        className="chat-group-copy"
-                        onClick={() => copyGroupUrls(group.resources)}
-                        aria-label={`${group.label}のURLをコピー`}
-                        title="URLをコピー"
-                      >
-                        <IconCopy size={14} />
-                      </button>
-                      <button
-                        className="chat-group-archive"
-                        onClick={() => archiveGroup(group)}
-                        aria-label={`${group.label}をまとめてArchive`}
-                        title="グループをArchive（削除ではなく保管）"
-                      >
-                        <IconArchive size={14} />
-                      </button>
-                      {group.key !== UNGROUPED_CHAT_GROUP && (
+                      {!isArchiveView && (
                         <>
                           <button
-                            className="chat-group-edit"
-                            onClick={() => renameGroup(group)}
-                            aria-label={`${group.label}のグループ名を変更`}
-                            title="グループ名を変更"
+                            className="chat-group-add"
+                            onClick={() => addChatLink(group.key === UNGROUPED_CHAT_GROUP ? "" : group.key)}
+                            aria-label={`${group.label}にチャットリンクを追加`}
+                            title="このグループに追加"
                           >
-                            <IconPencil size={14} />
+                            <IconLinkPlus size={14} />
                           </button>
                           <button
-                            className="chat-group-clear"
-                            onClick={() => clearGroup(group)}
-                            aria-label={`${group.label}のグループを解除`}
-                            title="グループ解除（リンクは残る）"
+                            className="chat-group-copy"
+                            onClick={() => copyGroupUrls(group.resources)}
+                            aria-label={`${group.label}のURLをコピー`}
+                            title="URLをコピー"
                           >
-                            <IconTrash size={14} />
+                            <IconCopy size={14} />
+                          </button>
+                          <button
+                            className="chat-group-archive"
+                            onClick={() => archiveGroup(group)}
+                            aria-label={`${group.label}をまとめてArchive`}
+                            title="グループをArchive（削除ではなく保管）"
+                          >
+                            <IconArchive size={14} />
+                          </button>
+                          {group.key !== UNGROUPED_CHAT_GROUP && (
+                            <>
+                              <button
+                                className="chat-group-edit"
+                                onClick={() => startRenameGroup(group)}
+                                aria-label={`${group.label}のグループ名を変更`}
+                                title="グループ名を変更"
+                              >
+                                <IconPencil size={14} />
+                              </button>
+                              <button
+                                className="chat-group-clear"
+                                onClick={() => clearGroup(group)}
+                                aria-label={`${group.label}のグループを解除`}
+                                title="グループ解除（リンクは残る）"
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
+                      {isArchiveView && (
+                        <>
+                          <button
+                            className="chat-group-copy"
+                            onClick={() => copyGroupUrls(group.resources)}
+                            aria-label={`${group.label}のURLをコピー`}
+                            title="URLをコピー"
+                          >
+                            <IconCopy size={14} />
+                          </button>
+                          <button
+                            className="chat-group-restore"
+                            onClick={() => restoreGroup(group)}
+                            aria-label={`${group.label}のArchiveをまとめて解除`}
+                            title="グループのArchiveを解除"
+                          >
+                            <IconArchiveOff size={14} />
                           </button>
                         </>
                       )}
-                    </>
-                  )}
-                  {isArchiveView && (
-                    <>
-                      <button
-                        className="chat-group-copy"
-                        onClick={() => copyGroupUrls(group.resources)}
-                        aria-label={`${group.label}のURLをコピー`}
-                        title="URLをコピー"
-                      >
-                        <IconCopy size={14} />
-                      </button>
-                      <button
-                        className="chat-group-restore"
-                        onClick={() => restoreGroup(group)}
-                        aria-label={`${group.label}のArchiveをまとめて解除`}
-                        title="グループのArchiveを解除"
-                      >
-                        <IconArchiveOff size={14} />
-                      </button>
                     </>
                   )}
                 </div>

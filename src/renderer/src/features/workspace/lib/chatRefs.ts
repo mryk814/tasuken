@@ -342,6 +342,33 @@ export function clearChatGroupResources(resources: Resource[]): Resource[] {
   }));
 }
 
+/**
+ * 指定グループに属するリソースを返す（Archive含む）。
+ * Theme 絞り込みは呼び出し側で行い、この関数は groupKey のみで判定する。
+ * 表示フィルタ（検索・採用状態）を通した部分集合ではなく、正本一覧から渡すこと。
+ */
+export function listResourcesInChatGroup(resources: Resource[], groupKey: string): Resource[] {
+  if (!groupKey || groupKey === UNGROUPED_CHAT_GROUP) {
+    return resources.filter((resource) => chatGroupKey(resource) === UNGROUPED_CHAT_GROUP);
+  }
+  return resources.filter((resource) => chatGroupKey(resource) === groupKey);
+}
+
+/** 同一集合内に、excludeKey 以外で nextGroupKey のメンバがあるか（統合判定用） */
+export function chatGroupNameExists(
+  resources: Resource[],
+  nextGroupKey: string,
+  excludeKey?: string,
+): boolean {
+  const target = String(nextGroupKey || "").trim();
+  if (!target || target === UNGROUPED_CHAT_GROUP) return false;
+  return resources.some((resource) => {
+    const key = chatGroupKey(resource);
+    if (excludeKey && key === excludeKey) return false;
+    return key === target;
+  });
+}
+
 export function buildChatGroupKnowledgePrompt({
   groupLabel,
   themeName,

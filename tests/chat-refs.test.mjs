@@ -277,6 +277,46 @@ test("renaming and clearing a chat group keeps every link record", () => {
   assert.deepEqual(cleared.map((r) => r.chat_group), [null, null]);
 });
 
+test("listResourcesInChatGroup includes archived members and ignores other groups", () => {
+  const resources = [
+    resource("live", "残る", { chat_group: "検討", project_id: "theme-a" }),
+    resource("arch", "保管", { chat_group: "検討", project_id: "theme-a", archived_at: "2026-07-01T00:00:00.000Z" }),
+    resource("other", "別", { chat_group: "別案", project_id: "theme-a" }),
+  ];
+
+  const listed = chatRefs.listResourcesInChatGroup(resources, "検討");
+  assert.deepEqual(listed.map((r) => r.id).sort(), ["arch", "live"]);
+});
+
+test("renaming a theme-scoped group does not touch another theme with the same name", () => {
+  const themeA = [
+    resource("a1", "A1", { chat_group: "旧名", project_id: "theme-a" }),
+    resource("a2", "A2", { chat_group: "旧名", project_id: "theme-a", archived_at: "2026-07-01T00:00:00.000Z" }),
+  ];
+  const themeB = [
+    resource("b1", "B1", { chat_group: "旧名", project_id: "theme-b" }),
+  ];
+
+  // UI は Theme で絞り込んだ scopedResources だけを rename に渡す
+  const renamedA = chatRefs.renameChatGroupResources(
+    chatRefs.listResourcesInChatGroup(themeA, "旧名"),
+    "新名",
+  );
+  assert.deepEqual(renamedA.map((r) => r.chat_group), ["新名", "新名"]);
+  assert.deepEqual(themeB.map((r) => r.chat_group), ["旧名"]);
+});
+
+test("chatGroupNameExists detects merge targets within the same resource set", () => {
+  const resources = [
+    resource("a", "A", { chat_group: "旧" }),
+    resource("b", "B", { chat_group: "新" }),
+  ];
+  assert.equal(chatRefs.chatGroupNameExists(resources, "新", "旧"), true);
+  assert.equal(chatRefs.chatGroupNameExists(resources, "旧", "旧"), false);
+  assert.equal(chatRefs.chatGroupNameExists(resources, "  ", "旧"), false);
+  assert.equal(chatRefs.chatGroupNameExists(resources, "未登場", "旧"), false);
+});
+
 test("knowledge prompt includes group context and all chat links", () => {
   const prompt = chatRefs.buildChatGroupKnowledgePrompt({
     groupLabel: "CAE相談",
