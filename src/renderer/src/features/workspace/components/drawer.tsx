@@ -1306,7 +1306,12 @@ function NoteDetailDrawer({
         chooseDirectory: true,
         fileName: `${note.title || "markdown-document"}.pdf`,
       });
-      setToast(result.canceled ? "PDF出力をキャンセルしました。" : `PDFを出力しました。${result.filePath || ""}`, result.canceled ? "info" : "success");
+      if (result.canceled) {
+        setToast("PDF出力をキャンセルしました。", "info");
+        return;
+      }
+      const warningText = result.warnings?.length ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）` : "";
+      setToast(`PDFを出力しました。${result.filePath || ""}${warningText}`, result.warnings?.length ? "warning" : "success");
     } catch (error) {
       setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {

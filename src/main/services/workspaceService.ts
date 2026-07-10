@@ -13,6 +13,7 @@ import {
   artifactMonthSegments,
   resolveUniqueArtifactFileName,
 } from "./artifactStorage.mjs";
+import { prepareMarkdownHtmlForPdf } from "./markdownPdfImages.mjs";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
 
 type SnapshotDecisions = Record<string, string>;
@@ -415,11 +416,25 @@ export class WorkspaceService {
     }
     fs.mkdirSync(directory, { recursive: true });
     const filePath = path.join(directory, safePdfFileName(request.fileName || request.title || "markdown-document"));
+
+    // data: ページからは tasken-attachment を読めないため、一時 HTML + 相対パス画像で printToPDF する。
+    const tempRoot = fs.mkdtempSync(path.join(app.getPath("temp"), "tasken-pdf-"));
+    const assetDirectory = path.join(tempRoot, "images");
+    const prepared = prepareMarkdownHtmlForPdf(
+      request.html,
+      path.join(this.userDataPath, "attachments", "markdown-images"),
+      { assetDirectory },
+    );
+    const warnings = [...prepared.warnings];
+    const tempHtmlPath = path.join(tempRoot, "document.html");
+    fs.writeFileSync(tempHtmlPath, prepared.html, "utf8");
+
     const pdfWindow = new BrowserWindow({
       show: false,
       webPreferences: {
         contextIsolation: true,
-        javascript: false,
+        // 画像ロード完了待ちのため最小限の JS を許可する（node は無効）
+        javascript: true,
         nodeIntegration: false,
         sandbox: true,
         webSecurity: true,
@@ -427,7 +442,32 @@ export class WorkspaceService {
     });
 
     try {
-      await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(request.html)}`);
+      await pdfWindow.loadFile(tempHtmlPath);
+      // ローカル相対パス画像はほぼ即完了。https 画像や遅延描画に備えて待つ。
+      const imageReport = await pdfWindow.webContents.executeJavaScript(`
+        (async () => {
+          const images = Array.from(document.images || []);
+          await Promise.all(images.map((img) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise((resolve) => {
+              const done = () => resolve();
+              img.addEventListener("load", done, { once: true });
+              img.addEventListener("error", done, { once: true });
+              setTimeout(done, 8000);
+            });
+          }));
+          return images.map((img) => ({
+            ok: Boolean(img.naturalWidth > 0),
+            src: String(img.currentSrc || img.src || "").slice(0, 120),
+          }));
+        })()
+      `) as Array<{ ok: boolean; src: string }>;
+      for (const image of imageReport || []) {
+        if (!image.ok) {
+          warnings.push(`PDF内で画像を描画できませんでした: ${image.src || "(不明)"}`);
+        }
+      }
+
       const pdf = await pdfWindow.webContents.printToPDF({
         pageSize: "A4",
         printBackground: true,
@@ -437,6 +477,11 @@ export class WorkspaceService {
       if (!pdfWindow.isDestroyed()) {
         pdfWindow.close();
       }
+      try {
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      } catch {
+        // 一時ディレクトリ掃除失敗は PDF 成果物に影響しないため握りつぶす
+      }
     }
 
     return {
@@ -444,6 +489,7 @@ export class WorkspaceService {
       filePath,
       directory,
       exportedAt: new Date().toISOString(),
+      warnings: warnings.length ? warnings : undefined,
     };
   }
 

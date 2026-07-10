@@ -725,10 +725,14 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
 }
 .markdown-document .md-image{margin:var(--md-space-3) 0}
 .markdown-document .md-image img{
-  display:block;max-width:100%;max-height:70vh;object-fit:contain;border:1px solid var(--markdown-paper-border);
+  display:block;max-width:100%;max-height:70vh;height:auto;object-fit:contain;border:1px solid var(--markdown-paper-border);
   border-radius:var(--md-radius-md);background:var(--markdown-paper-subtle)
 }
 .markdown-document .md-image figcaption{margin-top:var(--md-space-1);color:var(--markdown-paper-secondary);font-size:var(--md-text-xs)}
+.markdown-document .md-image-missing{
+  padding:var(--md-space-3);border:1px dashed var(--markdown-paper-border);border-radius:var(--md-radius-md);
+  background:var(--markdown-paper-subtle);color:var(--markdown-paper-secondary)
+}
 .markdown-document .md-math-inline{display:inline;padding:0 .12em;color:var(--markdown-accent-strong);vertical-align:baseline}
 .markdown-document .md-math-block{
   overflow-x:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);

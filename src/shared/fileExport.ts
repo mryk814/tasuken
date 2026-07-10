@@ -36,4 +36,6 @@ export interface MarkdownPdfExportResult {
   filePath?: string;
   directory?: string;
   exportedAt?: string;
+  /** 画像欠落など、出力はできたが確認すべき点 */
+  warnings?: string[];
 }

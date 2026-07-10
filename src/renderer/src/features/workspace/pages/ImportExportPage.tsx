@@ -229,6 +229,7 @@ export function ImportExportPage(props: PageProps) {
     try {
       let directory = "";
       let exportedCount = 0;
+      let warningCount = 0;
       for (const note of targets) {
         const themeName = themes.find((theme) => theme.id === note.theme_id)?.name || "";
         const publishOptions = headingNumberOptionsFromProperties(noteProperties(note)).publish;
@@ -245,8 +246,16 @@ export function ImportExportPage(props: PageProps) {
         }
         directory = result.directory || directory;
         exportedCount += 1;
+        warningCount += result.warnings?.length || 0;
       }
-      if (exportedCount) setToast(`${exportedCount}件のPDFを出力しました。`, "success");
+      if (exportedCount) {
+        setToast(
+          warningCount
+            ? `${exportedCount}件のPDFを出力しました（画像の注意が${warningCount}件あります）。`
+            : `${exportedCount}件のPDFを出力しました。`,
+          warningCount ? "warning" : "success",
+        );
+      }
     } catch (error) {
       setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
