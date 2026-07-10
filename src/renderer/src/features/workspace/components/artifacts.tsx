@@ -59,7 +59,6 @@ const TEXT_TYPES = new Set(["txt", "docx", "doc", "json", "html"]);
 const PDF_TYPES = new Set(["pdf"]);
 
 export type ArtifactOpenMode = "external" | "image" | "markdown" | "file";
-export type ArtifactAttachMode = ArtifactStorageMode;
 
 export function artifactFileCategory(fileType?: string): ArtifactOpenMode {
   const type = (fileType || "").toLowerCase();
@@ -736,7 +735,6 @@ export function ArtifactSection({
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
   const [needsDirectory, setNeedsDirectory] = useState(false);
-  const [attachMode, setAttachMode] = useState<ArtifactAttachMode>("managed");
   const [urlDraft, setUrlDraft] = useState("");
   const [urlFormOpen, setUrlFormOpen] = useState(false);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
@@ -798,35 +796,35 @@ export function ArtifactSection({
     }
   }
 
-  async function importFromPaths(requestFiles: Array<{ path: string; name: string }>) {
-    if (attachMode === "linked") {
-      await importLinkedFromPaths(requestFiles);
-      return;
-    }
-    await importManagedFromPaths(requestFiles);
-  }
-
   async function importFiles(files: File[]) {
     const requestFiles = files
       .map((file) => ({ path: workspaceApi.pathForFile(file), name: file.name }))
       .filter((entry) => entry.path);
-    await importFromPaths(requestFiles);
+    // ファイルは既定で managed（コピー）。URL は別経路。
+    await importManagedFromPaths(requestFiles);
   }
 
-  async function pickFiles() {
+  async function pickManagedFiles() {
     try {
-      const result = await workspaceApi.chooseFiles(
-        attachMode === "linked" ? "リンクするファイルを選択" : "Artifact ファイルを選択",
-      );
+      const result = await workspaceApi.chooseFiles("Artifact ファイルを選択");
       if (result.canceled || !result.files?.length) return;
-      await importFromPaths(result.files);
+      await importManagedFromPaths(result.files);
     } catch (error) {
       setToast(`Artifact を選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     }
   }
 
+  async function pickLinkedFiles() {
+    try {
+      const result = await workspaceApi.chooseFiles("参照リンクするファイルを選択");
+      if (result.canceled || !result.files?.length) return;
+      await importLinkedFromPaths(result.files);
+    } catch (error) {
+      setToast(`参照リンクを選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
   function openUrlForm() {
-    setAttachMode("linked");
     setUrlFormOpen(true);
   }
 
@@ -845,7 +843,6 @@ export function ArtifactSection({
       );
       setUrlDraft("");
       setUrlFormOpen(false);
-      setAttachMode("linked");
     } catch (error) {
       setToast(`URLをリンクできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
@@ -873,7 +870,6 @@ export function ArtifactSection({
     setDragOver(false);
     const files = Array.from(event.dataTransfer?.files || []);
     if (files.length) {
-      // ファイルが来たら現在モードで扱う。URLだけ落とす用途と両立する。
       void importFiles(files);
       return;
     }
@@ -883,7 +879,7 @@ export function ArtifactSection({
       return;
     }
     setToast(
-      "ファイルまたはURLをドロップしてください。ブラウザのアドレス/リンクをそのまま落とせます。",
+      "ファイルまたはURLをドロップしてください。ブラウザのリンクをそのまま落とせます。",
       "info",
     );
   }
@@ -892,7 +888,7 @@ export function ArtifactSection({
     const text = event.clipboardData.getData("text/plain");
     const urls = extractHttpUrls(text);
     if (!urls.length) return;
-    // 入力欄にフォーカス中で全文がURLなら通常の貼り付けに任せる。
+    // 入力欄にフォーカス中は通常の貼り付けに任せる。
     if (event.currentTarget instanceof HTMLInputElement && event.currentTarget === urlInputRef.current) {
       return;
     }
@@ -907,44 +903,16 @@ export function ArtifactSection({
         <div className="inline-actions">
           {attached.length > 0 && <span>{attached.length}件</span>}
           {headingExtra}
+          <button type="button" className="secondary-button compact" disabled={importing} onClick={pickManagedFiles}>
+            <IconPlus size={14} />Artifact を追加
+          </button>
+          <button type="button" className="secondary-button compact" disabled={importing} onClick={openUrlForm}>
+            <IconLink size={14} />URLをリンク
+          </button>
         </div>
       </div>
 
-      <div className="artifact-attach-mode" role="group" aria-label="添付方式">
-        <button
-          type="button"
-          className={attachMode === "managed" ? "is-active" : ""}
-          aria-pressed={attachMode === "managed"}
-          onClick={() => setAttachMode("managed")}
-        >
-          コピーして管理
-        </button>
-        <button
-          type="button"
-          className={attachMode === "linked" ? "is-active" : ""}
-          aria-pressed={attachMode === "linked"}
-          onClick={() => setAttachMode("linked")}
-        >
-          場所だけリンク
-        </button>
-      </div>
-
-      <div className="inline-actions artifact-attach-actions">
-        <button type="button" className="secondary-button compact" disabled={importing} onClick={pickFiles}>
-          <IconPlus size={14} />
-          {attachMode === "linked" ? "ファイルをリンク" : "Artifact を追加"}
-        </button>
-        <button
-          type="button"
-          className="secondary-button compact"
-          disabled={importing}
-          onClick={openUrlForm}
-        >
-          <IconLink size={14} />URLをリンク
-        </button>
-      </div>
-
-      {(urlFormOpen || attachMode === "linked") && (
+      {urlFormOpen && (
         <form className="artifact-url-form" onSubmit={(event) => { void submitUrlForm(event); }}>
           <input
             ref={urlInputRef}
@@ -957,7 +925,6 @@ export function ArtifactSection({
             onPaste={(event) => {
               const text = event.clipboardData.getData("text/plain");
               const urls = extractHttpUrls(text);
-              // 複数URLや前後に文言がある貼り付けは即リンクする。
               if (urls.length > 1 || (urls.length === 1 && text.trim() !== urls[0])) {
                 event.preventDefault();
                 void linkUrls(urls);
@@ -974,22 +941,20 @@ export function ArtifactSection({
           <button type="submit" className="primary-button compact" disabled={importing || !urlDraft.trim()}>
             追加
           </button>
-          {urlFormOpen && attachMode !== "linked" && (
-            <button
-              type="button"
-              className="text-button compact"
-              onClick={() => {
-                setUrlFormOpen(false);
-                setUrlDraft("");
-              }}
-            >
-              閉じる
-            </button>
-          )}
+          <button
+            type="button"
+            className="text-button compact"
+            onClick={() => {
+              setUrlFormOpen(false);
+              setUrlDraft("");
+            }}
+          >
+            閉じる
+          </button>
         </form>
       )}
 
-      {needsDirectory && attachMode === "managed" && (
+      {needsDirectory && (
         <div className="artifact-directory-prompt">
           <span>Artifact保存先が未設定のため、まだファイルをコピーできません。</span>
           <button type="button" className="primary-button compact" onClick={chooseDirectory}>保存先を選ぶ</button>
@@ -1026,10 +991,13 @@ export function ArtifactSection({
         onPaste={onPasteUrl}
       >
         {importing
-          ? (attachMode === "linked" ? "リンク中…" : "コピー中…")
-          : (attachMode === "linked"
-            ? "ファイルまたはURLをここにドロップ（コピーしません）"
-            : "ファイルをドロップしてコピー。URLを落とすとリンクとして追加")}
+          ? "処理中…"
+          : "ファイルをドロップしてコピー / URLをドロップしてリンク"}
+      </div>
+      <div className="artifact-attach-secondary">
+        <button type="button" className="text-button compact" disabled={importing} onClick={pickLinkedFiles}>
+          ファイルをコピーせず参照する
+        </button>
       </div>
     </section>
   );

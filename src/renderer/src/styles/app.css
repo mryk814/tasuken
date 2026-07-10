@@ -1481,33 +1481,14 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   overflow-y: auto;
 }
 .artifact-section { display: grid; gap: var(--space-2); }
-.artifact-attach-mode {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-subtle);
-  width: fit-content;
+.artifact-attach-secondary {
+  display: flex;
+  justify-content: flex-end;
 }
-.artifact-attach-mode button {
-  min-height: 28px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
+.artifact-attach-secondary .text-button {
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
-  cursor: pointer;
 }
-.artifact-attach-mode button:hover { color: var(--color-text); background: var(--color-surface); }
-.artifact-attach-mode button.is-active {
-  background: var(--color-surface);
-  color: var(--color-accent-strong);
-  font-weight: var(--weight-bold);
-}
-.artifact-attach-mode button:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
-.artifact-attach-actions { flex-wrap: wrap; gap: var(--space-1); }
 .artifact-url-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
