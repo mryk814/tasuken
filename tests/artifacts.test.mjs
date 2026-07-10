@@ -15,6 +15,8 @@ import {
   artifactCanShowInFolder,
   artifactOpenTarget,
   displayNameFromTarget,
+  extractHttpUrls,
+  extractUrlsFromDataTransfer,
   inferArtifactLinkType,
   resolveArtifactStorageMode,
 } from "../src/shared/artifactLinks.mjs";
@@ -295,6 +297,37 @@ test("managed / linked 添付UIと操作が接続されている", () => {
   assert.match(artifactsComponentSource, /参照先を変更/);
   assert.match(artifactsPageSource, /saveEntities/);
   assert.match(contractsSource, /filePathExists/);
+});
+
+test("URLリンクは OSプロンプトではなくインライン入力とドロップで行う", () => {
+  // Electron では prompt ダイアログが使えない（ChatRefs と同じ制約）。
+  assert.doesNotMatch(artifactsComponentSource, /window\.prompt\s*\(/);
+  assert.match(artifactsComponentSource, /artifact-url-form/);
+  assert.match(artifactsComponentSource, /extractUrlsFromDataTransfer/);
+  assert.match(artifactsComponentSource, /linkUrls/);
+  assert.match(artifactsComponentSource, /https:\/\/\.\.\. を貼り付け/);
+});
+
+test("extractHttpUrls / DataTransfer からURLを拾える", () => {
+  assert.deepEqual(
+    extractHttpUrls("見る: https://example.com/a.pdf と https://contoso.sharepoint.com/b"),
+    ["https://example.com/a.pdf", "https://contoso.sharepoint.com/b"],
+  );
+  assert.deepEqual(extractHttpUrls("https://example.com/x,"), ["https://example.com/x"]);
+
+  const fakeTransfer = {
+    getData(type) {
+      if (type === "text/uri-list") return "https://example.com/from-uri\n#comment";
+      if (type === "text/plain") return "メモ https://example.com/from-plain";
+      if (type === "text/html") return '<a href="https://example.com/from-html">x</a>';
+      return "";
+    },
+  };
+  assert.deepEqual(extractUrlsFromDataTransfer(fakeTransfer), [
+    "https://example.com/from-uri",
+    "https://example.com/from-plain",
+    "https://example.com/from-html",
+  ]);
 });
 
 test("常用のeditドロワー（Chat参照・タスク・メモ）に Artifact セクションがある", () => {

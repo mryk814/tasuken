@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
   IconDotsVertical,
   IconExternalLink,
@@ -22,6 +22,8 @@ import {
   artifactFolderPath,
   artifactOpenTarget,
   displayNameFromTarget,
+  extractHttpUrls,
+  extractUrlsFromDataTransfer,
   inferArtifactLinkType,
   isHttpUrl,
   resolveArtifactStorageMode as resolveStorageModeShared,
@@ -327,49 +329,38 @@ export async function promoteArtifactToManaged(
   }
 }
 
-export async function retargetLinkedArtifact(
+export function isPathLikeArtifactLink(artifact: Artifact): boolean {
+  const currentType = (artifact.link_type || inferArtifactLinkType(String(artifact.target || ""))) as ArtifactLinkType;
+  return currentType === "local_path" || currentType === "shared_path"
+    || (currentType === "onedrive" && !isHttpUrl(String(artifact.target || "")));
+}
+
+export async function applyLinkedArtifactTarget(
   artifact: Artifact,
+  nextTarget: string,
   saveEntities: SaveEntities,
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
-): Promise<void> {
-  if (resolveArtifactStorageMode(artifact) !== "linked") {
-    setToast("参照先の変更は linked Artifact 向けです。", "info");
-    return;
+  options?: { displayName?: string },
+): Promise<boolean> {
+  const target = nextTarget.trim();
+  if (!target) {
+    setToast("参照先が空です。", "warning");
+    return false;
   }
-  const currentType = (artifact.link_type || inferArtifactLinkType(String(artifact.target || ""))) as ArtifactLinkType;
-  const isPathLike = currentType === "local_path" || currentType === "shared_path"
-    || (currentType === "onedrive" && !isHttpUrl(String(artifact.target || "")));
-
+  if (isHttpUrl(target) === false && !target.includes("\\") && !target.includes("/")) {
+    setToast("URL またはファイルパスを指定してください。", "warning");
+    return false;
+  }
+  const nextName = options?.displayName || displayNameFromTarget(target, artifact.filename);
+  const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
+  const fileType = artifactFileTypeFromName(nextName);
   try {
-    let nextTarget = "";
-    let nextName = artifact.filename;
-    if (isPathLike) {
-      const picked = await workspaceApi.chooseFiles("新しい参照ファイルを選択");
-      if (picked.canceled || !picked.files?.length) return;
-      nextTarget = picked.files[0].path;
-      nextName = picked.files[0].name || displayNameFromTarget(nextTarget, artifact.filename);
-    } else {
-      const input = window.prompt("新しいURLを入力", String(artifact.target || ""));
-      if (input == null) return;
-      nextTarget = input.trim();
-      if (!nextTarget) {
-        setToast("URLが空です。", "warning");
-        return;
-      }
-      if (!isHttpUrl(nextTarget)) {
-        setToast("http または https のURLを指定してください。", "warning");
-        return;
-      }
-      nextName = displayNameFromTarget(nextTarget, artifact.filename);
-    }
-    const linkType = inferArtifactLinkType(nextTarget) as ArtifactLinkType;
-    const fileType = artifactFileTypeFromName(nextName);
     await saveEntities([{
       action: "save",
       type: "artifact",
       entity: {
         ...artifact,
-        target: nextTarget,
+        target,
         link_type: linkType,
         filename: nextName,
         title: nextName.replace(/\.[^.]+$/, "") || artifact.title,
@@ -378,6 +369,34 @@ export async function retargetLinkedArtifact(
         last_checked_at: null,
       },
     }], "参照先を更新しました。");
+    return true;
+  } catch (error) {
+    setToast(`参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    return false;
+  }
+}
+
+export async function retargetLinkedArtifact(
+  artifact: Artifact,
+  saveEntities: SaveEntities,
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
+  options?: { onNeedUrlInput?: (artifact: Artifact) => void },
+): Promise<void> {
+  if (resolveArtifactStorageMode(artifact) !== "linked") {
+    setToast("参照先の変更は linked Artifact 向けです。", "info");
+    return;
+  }
+  // Electron では OS のプロンプトダイアログが使えない。URL 系はインライン入力へ。
+  if (!isPathLikeArtifactLink(artifact)) {
+    options?.onNeedUrlInput?.(artifact);
+    return;
+  }
+  try {
+    const picked = await workspaceApi.chooseFiles("新しい参照ファイルを選択");
+    if (picked.canceled || !picked.files?.length) return;
+    const nextTarget = picked.files[0].path;
+    const nextName = picked.files[0].name || displayNameFromTarget(nextTarget, artifact.filename);
+    await applyLinkedArtifactTarget(artifact, nextTarget, saveEntities, setToast, { displayName: nextName });
   } catch (error) {
     setToast(`参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
   }
@@ -405,11 +424,17 @@ export function ArtifactCard({
   onNeedsDirectory?: () => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [urlEdit, setUrlEdit] = useState<string | null>(null);
+  const urlEditRef = useRef<HTMLInputElement | null>(null);
   const metaParts = artifactCardMetaParts(artifact, data, { includeSource: showSource });
   const mode = resolveArtifactStorageMode(artifact);
   const pathTitle = artifactOpenTarget(artifact) || artifact.filename;
   const linkStatus = artifact.link_status;
   const showLinkStatus = mode === "linked" && linkStatus && linkStatus !== "unknown" && linkStatus !== "ok";
+
+  useEffect(() => {
+    if (urlEdit != null) urlEditRef.current?.focus();
+  }, [urlEdit != null]);
 
   function openMenu(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -446,7 +471,11 @@ export function ArtifactCard({
     });
     menuItems.push({
       label: "参照先を変更",
-      onSelect: () => { void retargetLinkedArtifact(artifact, saveEntities, setToast); },
+      onSelect: () => {
+        void retargetLinkedArtifact(artifact, saveEntities, setToast, {
+          onNeedUrlInput: (entry) => setUrlEdit(String(entry.target || "")),
+        });
+      },
     });
     if (artifactCanPromoteToManaged(artifact)) {
       menuItems.push({
@@ -460,6 +489,18 @@ export function ArtifactCard({
     tone: "danger",
     onSelect: () => removeEntity("artifact", artifact),
   });
+
+  async function submitUrlEdit(event?: FormEvent) {
+    event?.preventDefault();
+    if (!saveEntities || urlEdit == null) return;
+    const next = urlEdit.trim();
+    if (!isHttpUrl(next)) {
+      setToast("http または https のURLを指定してください。", "warning");
+      return;
+    }
+    const ok = await applyLinkedArtifactTarget(artifact, next, saveEntities, setToast);
+    if (ok) setUrlEdit(null);
+  }
 
   return (
     <li className={`artifact-card ${mode === "linked" ? "is-linked" : "is-managed"}`}>
@@ -483,6 +524,26 @@ export function ArtifactCard({
         </div>
         {metaParts.length > 0 && (
           <small className="artifact-card-meta">{metaParts.join(" · ")}</small>
+        )}
+        {urlEdit != null && (
+          <form className="artifact-url-form artifact-url-form-inline" onSubmit={(event) => { void submitUrlEdit(event); }}>
+            <input
+              ref={urlEditRef}
+              type="url"
+              value={urlEdit}
+              onChange={(event) => setUrlEdit(event.target.value)}
+              placeholder="https://..."
+              aria-label="新しいURL"
+              onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setUrlEdit(null);
+                }
+              }}
+            />
+            <button type="submit" className="primary-button compact" disabled={!urlEdit.trim()}>更新</button>
+            <button type="button" className="text-button compact" onClick={() => setUrlEdit(null)}>取消</button>
+          </form>
         )}
       </div>
       <span className="artifact-card-actions">
@@ -676,9 +737,16 @@ export function ArtifactSection({
   const [importing, setImporting] = useState(false);
   const [needsDirectory, setNeedsDirectory] = useState(false);
   const [attachMode, setAttachMode] = useState<ArtifactAttachMode>("managed");
+  const [urlDraft, setUrlDraft] = useState("");
+  const [urlFormOpen, setUrlFormOpen] = useState(false);
+  const urlInputRef = useRef<HTMLInputElement | null>(null);
   const attached = artifacts
     .filter((entry) => entry.source_type === sourceType && entry.source_id === sourceId)
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+
+  useEffect(() => {
+    if (urlFormOpen) urlInputRef.current?.focus();
+  }, [urlFormOpen]);
 
   async function chooseDirectory() {
     try {
@@ -757,24 +825,27 @@ export function ArtifactSection({
     }
   }
 
-  async function addUrlLink() {
-    const input = window.prompt("リンクするURL（http/https）を入力");
-    if (input == null) return;
-    const url = input.trim();
-    if (!url) {
-      setToast("URLが空です。", "warning");
-      return;
-    }
-    if (!isHttpUrl(url)) {
+  function openUrlForm() {
+    setAttachMode("linked");
+    setUrlFormOpen(true);
+  }
+
+  async function linkUrls(urls: string[]) {
+    const unique = [...new Set(urls.map((url) => url.trim()).filter((url) => isHttpUrl(url)))];
+    if (!unique.length) {
       setToast("http または https のURLを指定してください。", "warning");
       return;
     }
     setImporting(true);
     try {
+      const operations = unique.map((url) => buildLinkedEntityFromUrl(url, sourceType, sourceId, themeId));
       await saveEntities(
-        [buildLinkedEntityFromUrl(url, sourceType, sourceId, themeId)],
-        "URLをリンクしました。",
+        operations,
+        unique.length === 1 ? "URLをリンクしました。" : `${unique.length}件のURLをリンクしました。`,
       );
+      setUrlDraft("");
+      setUrlFormOpen(false);
+      setAttachMode("linked");
     } catch (error) {
       setToast(`URLをリンクできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
@@ -782,21 +853,51 @@ export function ArtifactSection({
     }
   }
 
+  async function submitUrlForm(event?: FormEvent) {
+    event?.preventDefault();
+    const urls = extractHttpUrls(urlDraft);
+    if (!urls.length && isHttpUrl(urlDraft.trim())) {
+      await linkUrls([urlDraft.trim()]);
+      return;
+    }
+    if (!urls.length) {
+      setToast("http または https のURLを貼り付けてください。", "warning");
+      return;
+    }
+    await linkUrls(urls);
+  }
+
   function onDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     event.stopPropagation();
     setDragOver(false);
     const files = Array.from(event.dataTransfer?.files || []);
-    if (!files.length) {
-      setToast(
-        attachMode === "linked"
-          ? "ファイルをドラッグするか、「URLをリンク」からURLを追加してください。"
-          : "ファイルをドラッグしてください。テキストやリンクは添付できません。",
-        "info",
-      );
+    if (files.length) {
+      // ファイルが来たら現在モードで扱う。URLだけ落とす用途と両立する。
+      void importFiles(files);
       return;
     }
-    void importFiles(files);
+    const urls = extractUrlsFromDataTransfer(event.dataTransfer);
+    if (urls.length) {
+      void linkUrls(urls);
+      return;
+    }
+    setToast(
+      "ファイルまたはURLをドロップしてください。ブラウザのアドレス/リンクをそのまま落とせます。",
+      "info",
+    );
+  }
+
+  function onPasteUrl(event: ClipboardEvent<HTMLDivElement | HTMLInputElement>) {
+    const text = event.clipboardData.getData("text/plain");
+    const urls = extractHttpUrls(text);
+    if (!urls.length) return;
+    // 入力欄にフォーカス中で全文がURLなら通常の貼り付けに任せる。
+    if (event.currentTarget instanceof HTMLInputElement && event.currentTarget === urlInputRef.current) {
+      return;
+    }
+    event.preventDefault();
+    void linkUrls(urls);
   }
 
   return (
@@ -833,12 +934,60 @@ export function ArtifactSection({
           <IconPlus size={14} />
           {attachMode === "linked" ? "ファイルをリンク" : "Artifact を追加"}
         </button>
-        {attachMode === "linked" && (
-          <button type="button" className="secondary-button compact" disabled={importing} onClick={() => void addUrlLink()}>
-            <IconLink size={14} />URLをリンク
-          </button>
-        )}
+        <button
+          type="button"
+          className="secondary-button compact"
+          disabled={importing}
+          onClick={openUrlForm}
+        >
+          <IconLink size={14} />URLをリンク
+        </button>
       </div>
+
+      {(urlFormOpen || attachMode === "linked") && (
+        <form className="artifact-url-form" onSubmit={(event) => { void submitUrlForm(event); }}>
+          <input
+            ref={urlInputRef}
+            type="url"
+            value={urlDraft}
+            onChange={(event) => setUrlDraft(event.target.value)}
+            placeholder="https://... を貼り付け"
+            aria-label="リンクするURL"
+            disabled={importing}
+            onPaste={(event) => {
+              const text = event.clipboardData.getData("text/plain");
+              const urls = extractHttpUrls(text);
+              // 複数URLや前後に文言がある貼り付けは即リンクする。
+              if (urls.length > 1 || (urls.length === 1 && text.trim() !== urls[0])) {
+                event.preventDefault();
+                void linkUrls(urls);
+              }
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setUrlFormOpen(false);
+                setUrlDraft("");
+              }
+            }}
+          />
+          <button type="submit" className="primary-button compact" disabled={importing || !urlDraft.trim()}>
+            追加
+          </button>
+          {urlFormOpen && attachMode !== "linked" && (
+            <button
+              type="button"
+              className="text-button compact"
+              onClick={() => {
+                setUrlFormOpen(false);
+                setUrlDraft("");
+              }}
+            >
+              閉じる
+            </button>
+          )}
+        </form>
+      )}
 
       {needsDirectory && attachMode === "managed" && (
         <div className="artifact-directory-prompt">
@@ -865,15 +1014,22 @@ export function ArtifactSection({
       )}
       <div
         className={`artifact-dropzone ${dragOver ? "is-dragover" : ""} ${importing ? "is-busy" : ""}`}
-        onDragOver={(event) => { event.preventDefault(); setDragOver(true); }}
+        tabIndex={0}
+        role="region"
+        aria-label="Artifactのドロップ領域"
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragOver(true);
+        }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
+        onPaste={onPasteUrl}
       >
         {importing
           ? (attachMode === "linked" ? "リンク中…" : "コピー中…")
           : (attachMode === "linked"
-            ? "ファイルをここにドラッグしてリンク（コピーしません）"
-            : "ファイルをここにドラッグして添付（管理フォルダへコピー・複数可）")}
+            ? "ファイルまたはURLをここにドロップ（コピーしません）"
+            : "ファイルをドロップしてコピー。URLを落とすとリンクとして追加")}
       </div>
     </section>
   );

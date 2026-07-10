@@ -1508,6 +1508,21 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .artifact-attach-mode button:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
 .artifact-attach-actions { flex-wrap: wrap; gap: var(--space-1); }
+.artifact-url-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-1);
+}
+.artifact-url-form input {
+  min-width: 0;
+  min-height: 32px;
+  font-size: var(--text-sm);
+}
+.artifact-url-form-inline {
+  margin-top: var(--space-1);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
 .artifact-directory-prompt { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .artifact-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .artifact-card {

@@ -12,6 +12,46 @@ export function isHttpUrl(value) {
   return /^https?:\/\//i.test(String(value || "").trim());
 }
 
+/** 文中から http(s) URL を取り出す（末尾の句読点は落とす）。 */
+export function extractHttpUrls(text) {
+  const raw = String(text || "");
+  const matches = raw.match(/https?:\/\/[^\s<>"'`]+/gi) || [];
+  return [...new Set(matches.map((url) => url.replace(/[),.;:]+$/g, "").trim()).filter(Boolean))];
+}
+
+/**
+ * DataTransfer から URL を拾う（ブラウザからURLをドラッグしたとき用）。
+ * files がある場合は呼び出し側でファイルを優先する。
+ */
+export function extractUrlsFromDataTransfer(dataTransfer) {
+  if (!dataTransfer || typeof dataTransfer.getData !== "function") return [];
+  const urls = [];
+  try {
+    const uriList = dataTransfer.getData("text/uri-list") || "";
+    for (const line of uriList.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#") && isHttpUrl(trimmed)) urls.push(trimmed);
+    }
+  } catch {
+    // getData が失敗する環境では text/plain のみ試す。
+  }
+  try {
+    urls.push(...extractHttpUrls(dataTransfer.getData("text/plain") || ""));
+  } catch {
+    // ignore
+  }
+  try {
+    const html = dataTransfer.getData("text/html") || "";
+    const hrefMatches = html.matchAll(/\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/gi);
+    for (const match of hrefMatches) {
+      if (match[1]) urls.push(match[1]);
+    }
+  } catch {
+    // ignore
+  }
+  return [...new Set(urls.map((url) => url.trim()).filter((url) => isHttpUrl(url)))];
+}
+
 export function isUncPath(value) {
   const target = String(value || "").trim();
   return target.startsWith("\\\\") || /^\/\/[^/]/.test(target);
