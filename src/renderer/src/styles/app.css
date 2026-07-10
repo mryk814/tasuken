@@ -1476,22 +1476,93 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   overflow: hidden;
 }
 .drawer-edit-footer .artifact-list {
-  max-height: 96px;
+  max-height: 220px;
   overflow-x: hidden;
   overflow-y: auto;
 }
 .artifact-section { display: grid; gap: var(--space-2); }
 .artifact-directory-prompt { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
-.artifact-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
-.artifact-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
-.artifact-row-icon { display: inline-flex; color: var(--color-text-secondary); }
-.artifact-row-name { display: grid; min-width: 0; }
-.artifact-row-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
-.artifact-row-name small { color: var(--color-text-secondary); font-size: var(--text-xs); font-family: var(--font-mono); }
-.artifact-row-actions { display: inline-flex; gap: var(--space-1); }
-.artifact-row-actions .text-button { min-height: 28px; padding: 2px var(--space-1); font-size: var(--text-xs); }
-.artifact-row-actions .text-button.is-danger { color: var(--color-danger); }
-.artifact-row-actions .text-button.is-danger:hover { background: var(--color-danger-bg); }
+.artifact-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.artifact-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.artifact-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+}
+.artifact-card-main { display: grid; gap: 2px; min-width: 0; }
+.artifact-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.artifact-card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+.artifact-card-badges { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); flex-shrink: 0; }
+.artifact-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+}
+.artifact-badge-type { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.artifact-badge-storage {
+  color: var(--color-accent-strong);
+  border-color: var(--color-accent-subtle-bd);
+  background: var(--color-accent-subtle-bg);
+}
+.artifact-card-meta {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-card-actions { display: inline-flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+.artifact-card-open { min-height: 30px; white-space: nowrap; }
+.artifact-card-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.artifact-card-menu:hover { background: var(--color-surface-muted); color: var(--color-text); }
+.artifact-card-menu:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
 .artifact-dropzone { display: flex; align-items: center; justify-content: center; min-height: 52px; padding: var(--space-2); border: 1.5px dashed var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); transition: border var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease); }
 .artifact-dropzone.is-dragover { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
 .artifact-dropzone.is-busy { opacity: 0.7; }
@@ -1503,7 +1574,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .artifacts-filter-bar { flex-wrap: wrap; gap: var(--space-2); }
 .artifacts-filter-bar select { min-height: 34px; }
 .artifact-page-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.artifact-page-row { padding: var(--space-2) var(--space-3); }
 .artifact-page-help { margin-top: var(--space-3); }
 .artifact-preview-section { display: grid; gap: var(--space-2); }
 .artifact-preview-frame { width: 100%; min-height: 380px; border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper); }
@@ -1917,8 +1987,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .dashboard-grid { grid-template-columns: 1fr; }
   .artifact-grid { grid-template-columns: 1fr; }
   .artifact-role-grid { grid-template-columns: 1fr 1fr; }
-  .artifact-page-row { grid-template-columns: auto minmax(0, 1fr); }
-  .artifact-page-row .artifact-row-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+  .artifact-card { grid-template-columns: auto minmax(0, 1fr); }
+  .artifact-card-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .home-metrics { grid-template-columns: repeat(3, 1fr); }
   .today-grid { grid-template-columns: 1fr; }

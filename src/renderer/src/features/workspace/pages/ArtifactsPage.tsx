@@ -1,28 +1,16 @@
 import { useMemo, useState } from "react";
-import {
-  IconCopy,
-  IconExternalLink,
-  IconFolderOpen,
-  IconLink,
-  IconTrash,
-} from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import {
-  ArtifactFileIcon,
-  artifactOpenHint,
-  artifactOpenLabel,
-  formatArtifactFileSize,
-  openArtifactFile,
-  openArtifactSource,
+  ArtifactCard,
   readRecentArtifactIds,
   resolveArtifactSourceLabel,
   themeNameOf,
 } from "../components/artifacts";
 import { EmptyState, PageHeader } from "../components/common";
 import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
-import type { Artifact, ArtifactSourceType, PageProps } from "../types";
+import type { ArtifactSourceType, PageProps } from "../types";
 
 type SortOrder = "newest" | "oldest" | "recent_opened" | "name";
 type TypeFilter = "all" | "image" | "spreadsheet" | "pdf" | "markdown" | "presentation" | "other";
@@ -51,7 +39,7 @@ const TYPE_FILTER_LABELS: Record<TypeFilter, string> = {
   other: "その他",
 };
 
-function matchesTypeFilter(artifact: Artifact, filter: TypeFilter): boolean {
+function matchesTypeFilter(artifact: { file_type?: string }, filter: TypeFilter): boolean {
   if (filter === "all") return true;
   const type = (artifact.file_type || "").toLowerCase();
   if (filter === "image") return ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(type);
@@ -112,16 +100,6 @@ export function ArtifactsPage({
 
   const hasAny = (data.artifacts || []).length > 0;
   const filterActive = prefs.themeId !== "all" || prefs.sourceType !== "all" || prefs.typeFilter !== "all" || Boolean(query.trim());
-
-  async function showInFolder(artifact: Artifact) {
-    const result = await workspaceApi.showItemInFolder(artifact.stored_path);
-    if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
-  }
-
-  async function copyPath(artifact: Artifact) {
-    await workspaceApi.copyText(artifact.stored_path);
-    setToast("ファイルのパスをコピーしました。", "success");
-  }
 
   function copyList() {
     const header = "ファイル名\t種類\tTheme\t元Entity\t作成日\tパス";
@@ -223,51 +201,16 @@ export function ArtifactsPage({
       ) : (
         <ul className="artifact-list artifact-page-list">
           {artifacts.map((artifact) => (
-            <li className="artifact-row artifact-page-row" key={artifact.id}>
-              <span className="artifact-row-icon" aria-hidden="true"><ArtifactFileIcon fileType={artifact.file_type} /></span>
-              <div className="artifact-row-name">
-                <strong title={artifact.stored_path}>{artifact.filename}</strong>
-                <small>
-                  {[
-                    (artifact.file_type || "file").toUpperCase(),
-                    formatArtifactFileSize(artifact.file_size),
-                    themeNameOf(artifact, data),
-                    `${ARTIFACT_SOURCE_TYPE_LABELS[artifact.source_type] || artifact.source_type}: ${resolveArtifactSourceLabel(artifact, data)}`,
-                    artifact.created_at ? new Date(artifact.created_at).toLocaleDateString("ja-JP") : "",
-                  ].filter(Boolean).join(" / ")}
-                </small>
-              </div>
-              <span className="artifact-row-actions">
-                <button
-                  className="text-button compact"
-                  title={artifactOpenHint(artifact.file_type)}
-                  onClick={() => {
-                    void openArtifactFile(artifact, setToast).then(() => setRecentTick((value) => value + 1));
-                  }}
-                >
-                  <IconExternalLink size={14} />{artifactOpenLabel(artifact.file_type)}
-                </button>
-                <button className="text-button compact" onClick={() => void showInFolder(artifact)}>
-                  <IconFolderOpen size={14} />フォルダ
-                </button>
-                <button className="text-button compact" onClick={() => void copyPath(artifact)}>
-                  <IconCopy size={14} />パス
-                </button>
-                <button
-                  className="text-button compact"
-                  onClick={() => {
-                    if (!openArtifactSource(artifact, data, openDrawer)) {
-                      setToast("元の場所が見つかりませんでした。削除済みの可能性があります。", "warning");
-                    }
-                  }}
-                >
-                  <IconLink size={14} />元へ
-                </button>
-                <button className="text-button compact is-danger" onClick={() => removeEntity("artifact", artifact)}>
-                  <IconTrash size={14} />削除
-                </button>
-              </span>
-            </li>
+            <ArtifactCard
+              key={artifact.id}
+              artifact={artifact}
+              data={data}
+              openDrawer={openDrawer}
+              removeEntity={removeEntity}
+              setToast={setToast}
+              showSource
+              onOpened={() => setRecentTick((value) => value + 1)}
+            />
           ))}
         </ul>
       )}

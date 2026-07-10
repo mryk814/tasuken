@@ -191,6 +191,8 @@ export interface KnowledgeNode extends BaseRecord {
 export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "theme";
 export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "manual";
 
+export type ArtifactStorageMode = "managed" | "linked";
+
 export interface Artifact extends BaseRecord {
   title: string;
   filename: string;
@@ -199,6 +201,8 @@ export interface Artifact extends BaseRecord {
   file_size?: number;
   stored_path: string;
   original_path?: string | null;
+  /** 未設定は managed 扱い（#147 で本実装）。表示は #145 から対応 */
+  storage_mode?: ArtifactStorageMode | null;
   source_type: ArtifactSourceType;
   source_id: string;
   theme_id?: string | null;

@@ -155,7 +155,13 @@ test("Artifact の追加入口と元Entity往復がUIにある", () => {
   assert.match(artifactsComponentSource, /chooseFiles/);
   assert.match(artifactsComponentSource, /openArtifactSource/);
   assert.match(artifactsComponentSource, /artifactOpenLabel/);
-  assert.match(artifactsPageSource, /元へ/);
+  assert.match(artifactsComponentSource, /function ArtifactCard/);
+  assert.match(artifactsComponentSource, /フォルダを開く/);
+  assert.match(artifactsComponentSource, /パスをコピー/);
+  assert.match(artifactsComponentSource, /元の場所へ/);
+  assert.match(artifactsComponentSource, /Tasken管理/);
+  assert.match(artifactsPageSource, /ArtifactCard/);
+  assert.match(artifactsPageSource, /showSource/);
   assert.match(artifactsPageSource, /Notes/);
   assert.match(artifactsPageSource, /Chat Refs/);
   assert.match(artifactsPageSource, /Artifacts/);
@@ -166,6 +172,25 @@ test("Artifact の追加入口と元Entity往復がUIにある", () => {
   assert.match(drawerSource, /sourceType="task"/);
   assert.match(drawerSource, /sourceType=\{isReport \? "report" : "note"\}/);
   assert.match(contractsSource, /dialogChooseFiles/);
+});
+
+test("Artifactカードは前面操作を主操作1つ＋メニューに整理する", () => {
+  // 前面: 名前・種別バッジ・保存方式・主操作。詳細はメニュー。
+  assert.match(artifactsComponentSource, /artifact-card-title/);
+  assert.match(artifactsComponentSource, /artifact-badge-type/);
+  assert.match(artifactsComponentSource, /artifact-badge-storage/);
+  assert.match(artifactsComponentSource, /artifact-card-open/);
+  assert.match(artifactsComponentSource, /その他の操作/);
+  assert.match(artifactsComponentSource, /IconDotsVertical/);
+  // 種別ラベル分岐（画像/MDはプレビュー、表計算等は外部）
+  assert.match(artifactsComponentSource, /return "プレビュー"/);
+  assert.match(artifactsComponentSource, /return "外部で開く"/);
+  // Drawer/Page は同一 ArtifactCard
+  assert.match(artifactsComponentSource, /<ArtifactCard/);
+  assert.match(artifactsPageSource, /<ArtifactCard/);
+  // 密集した直置き操作ボタン列は廃止
+  assert.doesNotMatch(artifactsComponentSource, /artifact-row-actions/);
+  assert.doesNotMatch(artifactsPageSource, /artifact-row-actions/);
 });
 
 test("常用のeditドロワー（Chat参照・タスク・メモ）に Artifact セクションがある", () => {

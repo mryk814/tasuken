@@ -1,19 +1,16 @@
-import { useState, type DragEvent, type ReactNode } from "react";
+import { useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import {
-  IconCopy,
+  IconDotsVertical,
   IconExternalLink,
   IconFile,
   IconFileSpreadsheet,
   IconFileText,
   IconFileTypePdf,
   IconFileZip,
-  IconFolderOpen,
-  IconLink,
   IconMarkdown,
   IconPhoto,
   IconPlus,
   IconPresentation,
-  IconTrash,
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -21,6 +18,7 @@ import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
 import type {
   Artifact,
   ArtifactSourceType,
+  ArtifactStorageMode,
   OpenDrawer,
   RemoveEntity,
   SaveEntities,
@@ -28,6 +26,7 @@ import type {
   WorkspaceData,
 } from "../types";
 import { uuid } from "../lib/format";
+import { ContextMenu, type ContextMenuItem } from "./common";
 
 const SPREADSHEET_TYPES = new Set(["xlsx", "xls", "csv", "tsv"]);
 const IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
@@ -50,17 +49,29 @@ export function artifactFileCategory(fileType?: string): ArtifactOpenMode {
 export function artifactOpenLabel(fileType?: string): string {
   const mode = artifactFileCategory(fileType);
   if (mode === "external") return "外部で開く";
-  if (mode === "image") return "画像を開く";
-  if (mode === "markdown") return "Markdownを開く";
+  if (mode === "image" || mode === "markdown") return "プレビュー";
   return "開く";
 }
 
 export function artifactOpenHint(fileType?: string): string {
   const mode = artifactFileCategory(fileType);
   if (mode === "external") return "Excel / PDF / PowerPoint などは関連付けられた外部アプリで開きます。";
-  if (mode === "image") return "関連付けられたアプリで画像を開きます。";
-  if (mode === "markdown") return "関連付けられたアプリで Markdown を開きます。";
+  if (mode === "image") return "画像を確認します（現状は関連付けアプリで開きます。アプリ内ビューアは #130）。";
+  if (mode === "markdown") return "Markdownを確認します（現状は関連付けアプリで開きます。アプリ内ビューアは #130）。";
   return "関連付けられたアプリで開きます。";
+}
+
+export function resolveArtifactStorageMode(artifact: Artifact): ArtifactStorageMode {
+  return artifact.storage_mode === "linked" ? "linked" : "managed";
+}
+
+export function artifactStorageModeLabel(artifact: Artifact): string {
+  return resolveArtifactStorageMode(artifact) === "linked" ? "リンク" : "Tasken管理";
+}
+
+export function artifactTypeBadge(fileType?: string): string {
+  const type = (fileType || "file").toUpperCase();
+  return type.slice(0, 8);
 }
 
 export function ArtifactFileIcon({ fileType }: { fileType?: string }) {
@@ -140,6 +151,144 @@ export function openArtifactSource(artifact: Artifact, data: WorkspaceData, open
 export function themeNameOf(artifact: Artifact, data: WorkspaceData): string {
   if (!artifact.theme_id) return "未設定";
   return (data.themes || []).find((theme) => theme.id === artifact.theme_id)?.name || "未設定";
+}
+
+/** 2行目メタ。空・未設定は出さない。 */
+export function artifactCardMetaParts(artifact: Artifact, data?: WorkspaceData, options?: { includeSource?: boolean }): string[] {
+  const parts: string[] = [];
+  const size = formatArtifactFileSize(artifact.file_size);
+  if (size) parts.push(size);
+  if (data) {
+    const theme = themeNameOf(artifact, data);
+    if (theme && theme !== "未設定") parts.push(theme);
+  }
+  if (options?.includeSource && data) {
+    const sourceLabel = resolveArtifactSourceLabel(artifact, data);
+    const sourceType = ARTIFACT_SOURCE_TYPE_LABELS[artifact.source_type] || artifact.source_type;
+    if (sourceLabel) parts.push(`${sourceType}: ${sourceLabel}`);
+  }
+  return parts;
+}
+
+export async function showArtifactInFolder(
+  artifact: Artifact,
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
+): Promise<void> {
+  const result = await workspaceApi.showItemInFolder(artifact.stored_path);
+  if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
+}
+
+export async function copyArtifactPath(
+  artifact: Artifact,
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
+): Promise<void> {
+  await workspaceApi.copyText(artifact.stored_path);
+  setToast("ファイルのパスをコピーしました。", "success");
+}
+
+export function ArtifactCard({
+  artifact,
+  data,
+  openDrawer,
+  removeEntity,
+  setToast,
+  showSource = false,
+  onOpened,
+}: {
+  artifact: Artifact;
+  data?: WorkspaceData;
+  openDrawer?: OpenDrawer;
+  removeEntity: RemoveEntity;
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+  showSource?: boolean;
+  onOpened?: () => void;
+}) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const metaParts = artifactCardMetaParts(artifact, data, { includeSource: showSource });
+  const pathTitle = artifact.stored_path || artifact.filename;
+
+  function openMenu(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenu({ x: rect.right - 8, y: rect.bottom + 4 });
+  }
+
+  const menuItems: ContextMenuItem[] = [
+    {
+      label: "フォルダを開く",
+      onSelect: () => { void showArtifactInFolder(artifact, setToast); },
+    },
+    {
+      label: "パスをコピー",
+      onSelect: () => { void copyArtifactPath(artifact, setToast); },
+    },
+  ];
+  if (showSource && openDrawer && data) {
+    menuItems.push({
+      label: "元の場所へ",
+      onSelect: () => {
+        if (!openArtifactSource(artifact, data, openDrawer)) {
+          setToast("元の場所が見つかりませんでした。削除済みの可能性があります。", "warning");
+        }
+      },
+    });
+  }
+  menuItems.push({
+    label: "削除",
+    tone: "danger",
+    onSelect: () => removeEntity("artifact", artifact),
+  });
+
+  return (
+    <li className="artifact-card">
+      <span className="artifact-card-icon" aria-hidden="true">
+        <ArtifactFileIcon fileType={artifact.file_type} />
+      </span>
+      <div className="artifact-card-main">
+        <div className="artifact-card-title-row">
+          <strong className="artifact-card-title" title={pathTitle}>{artifact.filename}</strong>
+          <span className="artifact-card-badges">
+            <span className="artifact-badge artifact-badge-type">{artifactTypeBadge(artifact.file_type)}</span>
+            <span className="artifact-badge artifact-badge-storage">{artifactStorageModeLabel(artifact)}</span>
+          </span>
+        </div>
+        {metaParts.length > 0 && (
+          <small className="artifact-card-meta">{metaParts.join(" · ")}</small>
+        )}
+      </div>
+      <span className="artifact-card-actions">
+        <button
+          type="button"
+          className="secondary-button compact artifact-card-open"
+          title={artifactOpenHint(artifact.file_type)}
+          onClick={() => {
+            void openArtifactFile(artifact, setToast).then(() => onOpened?.());
+          }}
+        >
+          <IconExternalLink size={14} />{artifactOpenLabel(artifact.file_type)}
+        </button>
+        <button
+          type="button"
+          className="artifact-card-menu"
+          aria-label="その他の操作"
+          aria-haspopup="menu"
+          aria-expanded={Boolean(menu)}
+          onClick={openMenu}
+        >
+          <IconDotsVertical size={16} />
+        </button>
+      </span>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </li>
+  );
 }
 
 const RECENT_KEY = "artifacts:recent-opened";
@@ -288,16 +437,6 @@ export function ArtifactSection({
     void importFiles(files);
   }
 
-  async function showInFolder(artifact: Artifact) {
-    const result = await workspaceApi.showItemInFolder(artifact.stored_path);
-    if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
-  }
-
-  async function copyPath(artifact: Artifact) {
-    await workspaceApi.copyText(artifact.stored_path);
-    setToast("ファイルのパスをコピーしました。", "success");
-  }
-
   return (
     <section className="artifact-section">
       <div className="section-heading">
@@ -319,47 +458,15 @@ export function ArtifactSection({
       {attached.length > 0 && (
         <ul className="artifact-list">
           {attached.map((artifact) => (
-            <li className="artifact-row" key={artifact.id}>
-              <span className="artifact-row-icon" aria-hidden="true"><ArtifactFileIcon fileType={artifact.file_type} /></span>
-              <span className="artifact-row-name" title={artifact.stored_path}>
-                <strong>{artifact.filename}</strong>
-                <small>
-                  {[
-                    (artifact.file_type || "").toUpperCase(),
-                    formatArtifactFileSize(artifact.file_size),
-                    artifact.created_at ? new Date(artifact.created_at).toLocaleDateString("ja-JP") : "",
-                    data ? themeNameOf(artifact, data) : "",
-                  ].filter(Boolean).join(" / ")}
-                </small>
-              </span>
-              <span className="artifact-row-actions">
-                <button
-                  type="button"
-                  className="text-button compact"
-                  title={artifactOpenHint(artifact.file_type)}
-                  onClick={() => void openArtifactFile(artifact, setToast)}
-                >
-                  <IconExternalLink size={14} />{artifactOpenLabel(artifact.file_type)}
-                </button>
-                <button type="button" className="text-button compact" onClick={() => void showInFolder(artifact)}><IconFolderOpen size={14} />フォルダ</button>
-                <button type="button" className="text-button compact" onClick={() => void copyPath(artifact)}><IconCopy size={14} />パス</button>
-                {openDrawer && data && (
-                  <button
-                    type="button"
-                    className="text-button compact"
-                    title="元のChat/Task/Note/Themeへ戻る"
-                    onClick={() => {
-                      if (!openArtifactSource(artifact, data, openDrawer)) {
-                        setToast("元の場所が見つかりませんでした。削除済みの可能性があります。", "warning");
-                      }
-                    }}
-                  >
-                    <IconLink size={14} />元へ
-                  </button>
-                )}
-                <button type="button" className="text-button compact is-danger" onClick={() => removeEntity("artifact", artifact)}><IconTrash size={14} />削除</button>
-              </span>
-            </li>
+            <ArtifactCard
+              key={artifact.id}
+              artifact={artifact}
+              data={data}
+              openDrawer={openDrawer}
+              removeEntity={removeEntity}
+              setToast={setToast}
+              showSource={Boolean(openDrawer && data)}
+            />
           ))}
         </ul>
       )}
