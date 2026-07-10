@@ -1012,10 +1012,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .spinner { width: 20px; height: 20px; border: 2px solid var(--color-border); border-top-color: var(--color-accent); border-radius: var(--radius-pill); animation: spin var(--duration-base) linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.drawer { position: sticky; z-index: 10; top: 0; width: 390px; height: 100vh; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); }
-.drawer-header { min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); }
+.drawer { position: sticky; z-index: 10; top: 0; width: 390px; height: 100vh; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); overflow: hidden; }
+.drawer-header { flex: 0 0 auto; min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); }
 .drawer-header button { min-height: 32px; border: 0; background: transparent; color: var(--color-text-secondary); }
-.drawer-form, .drawer-content { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3) var(--space-4); overflow-y: auto; }
+/* 編集項目だけが伸びてスクロール。Artifact / 削除は drawer-edit-footer で下に固定する */
+.drawer-form, .drawer-content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3) var(--space-4); overflow-x: hidden; overflow-y: auto; }
 .drawer-form label { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-sm); }
 .drawer-form textarea { min-height: 92px; resize: vertical; }
 .drawer-form .large-textarea { min-height: 280px; font-family: var(--font-mono); }
@@ -1463,7 +1464,22 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   max-height: min(70vh, 720px);
 }
 .markdown-frontmatter-note { width: fit-content; margin: 0; padding: 2px var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
-.drawer-edit-related { padding-top: 0; border-top: 1px solid var(--color-border-subtle); }
+/* 編集ドロワー下部: Artifact + 削除は高さを一定に保ち、上のフォームだけスクロールさせる */
+.drawer-edit-footer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.drawer-edit-footer .artifact-list {
+  max-height: 96px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
 .artifact-section { display: grid; gap: var(--space-2); }
 .artifact-directory-prompt { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .artifact-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
@@ -2005,7 +2021,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .chip-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: var(--radius-pill); background: var(--chip-color, var(--color-border-strong)); }
 
 .theme-code { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; padding: 2px var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drawer-edit-actions { display: flex; justify-content: flex-start; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
+
 
 .micro-memo-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); padding: var(--pad-card); align-items: end; }
 .micro-memo-input textarea { min-height: 88px; resize: vertical; }

@@ -170,7 +170,8 @@ test("Artifact の追加入口と元Entity往復がUIにある", () => {
 
 test("常用のeditドロワー（Chat参照・タスク・メモ）に Artifact セクションがある", () => {
   // Chat/Taskは行クリックがedit直行なので、EditDrawer側に Artifact がないと添付ルートが死ぬ。
-  assert.match(drawerSource, /drawer-edit-related/);
+  // 下部固定（drawer-edit-footer）に置き、上の編集フォームだけスクロールさせる。
+  assert.match(drawerSource, /drawer-edit-footer/);
   assert.match(drawerSource, /type === "resource" && isChatReferenceEntity\(entity\)/);
   assert.match(drawerSource, /sourceType: "chat_ref"/);
   assert.match(drawerSource, /sourceType: "task"/);

@@ -669,29 +669,29 @@ function EditDrawer({
         {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
         <button className="primary-button" type="submit">保存する</button>
       </form>
-      {artifactSource && saveEntities && removeEntity && (
-        <div className="drawer-content drawer-edit-related">
-          <ArtifactSection
-            sourceType={artifactSource.sourceType}
-            sourceId={artifactSource.sourceId}
-            themeId={artifactSource.themeId}
-            artifacts={data.artifacts || []}
-            data={data}
-            saveEntities={saveEntities}
-            removeEntity={removeEntity}
-            setToast={setToast}
-          />
-        </div>
-      )}
-      {entityId && removeEntity && (
-        <div className="drawer-content drawer-edit-actions">
-          <button
-            className="danger-button compact"
-            type="button"
-            onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}
-          >
-            <IconTrash size={16} />削除
-          </button>
+      {(artifactSource || (entityId && removeEntity)) && (
+        <div className="drawer-edit-footer">
+          {artifactSource && saveEntities && removeEntity && (
+            <ArtifactSection
+              sourceType={artifactSource.sourceType}
+              sourceId={artifactSource.sourceId}
+              themeId={artifactSource.themeId}
+              artifacts={data.artifacts || []}
+              data={data}
+              saveEntities={saveEntities}
+              removeEntity={removeEntity}
+              setToast={setToast}
+            />
+          )}
+          {entityId && removeEntity && (
+            <button
+              className="danger-button"
+              type="button"
+              onClick={() => removeEntity(type as Parameters<RemoveEntity>[0], entity)}
+            >
+              <IconTrash size={16} />削除
+            </button>
+          )}
         </div>
       )}
     </aside>
