@@ -175,7 +175,7 @@ function ThemeStorageRootField({
     <Field label="Artifact保存ルート">
       <input type="hidden" name="storage_root" value={pathValue} />
       <p className="field-help">
-        未設定なら Settings の共通保存先配下 <code>Themes/識別子/Artifacts</code> に保存します。設定するとその配下の <code>Artifacts</code> へ直接保存します。
+        未設定なら Settings の共通保存先配下 <code>Themes/識別子/</code> に Artifacts・Notes・Exports を作ります。設定するとそのルート直下に同じ3フォルダを使います。
       </p>
       <div className="theme-storage-root">
         <code className="theme-storage-root-path" title={pathValue || undefined}>
@@ -1319,6 +1319,7 @@ function NoteDetailDrawer({
         directory: str(markdownExport?.directory) || null,
         chooseDirectory,
         fileName: `${note.title || "markdown-document"}.md`,
+        themeId: str(note.theme_id) || null,
       });
       if (result.canceled) {
         setToast("Markdown出力をキャンセルしました。", "info");
@@ -1354,6 +1355,7 @@ function NoteDetailDrawer({
         html: previewDocument(publishMarkdownBody, "markdown", headingNumberOptions.publish),
         chooseDirectory: true,
         fileName: `${note.title || "markdown-document"}.pdf`,
+        themeId: str(note.theme_id) || null,
       });
       if (result.canceled) {
         setToast("PDF出力をキャンセルしました。", "info");

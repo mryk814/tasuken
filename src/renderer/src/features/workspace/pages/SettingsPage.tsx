@@ -170,7 +170,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         <section className="panel settings-form">
           <h2>Artifact保存先</h2>
           <p className="field-help">
-            managed Artifact（コピー保存）の共通ルートです。Theme 未設定は <code>Inbox/</code>、Theme ありで保存ルート未設定は <code>Themes/識別子/Artifacts/</code> に入ります。Theme 編集で専用ルートを指定している場合はそちらを優先します。linked（URL/参照）は対象外です。一覧は知識整理の Artifacts から開けます。
+            managed Artifact と Note Markdown 書き出しの共通ルートです。Theme 未設定は <code>Inbox/</code>（Note は <code>Inbox/Notes/</code>）、Theme ありで保存ルート未設定は <code>Themes/識別子/Artifacts|Notes|Exports/</code> です。Theme 編集の保存ルートがあればそれを優先します。PDF は都度選択（初期位置は Exports）。linked Artifact は対象外です。
           </p>
           <dl className="settings-meta-list">
             <div>

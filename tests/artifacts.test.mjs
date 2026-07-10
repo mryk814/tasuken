@@ -7,6 +7,7 @@ import {
   artifactMimeTypeOf,
   artifactMonthSegments,
   resolveManagedArtifactDirectoryParts,
+  resolveThemeContentDirectoryParts,
   resolveUniqueArtifactFileName,
   safeArtifactFileName,
   safeThemeFolderSegment,
@@ -222,6 +223,46 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
     { kind: "ok", root: "D:/themes/mat-a", segments: ["Artifacts"] },
   );
   assert.equal(safeThemeFolderSegment('a/b:c*?"'), "a-b-c-");
+});
+
+test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", () => {
+  assert.deepEqual(
+    resolveThemeContentDirectoryParts({
+      artifactDirectory: "C:/tasken",
+      themeId: "theme-1",
+      themeCode: "MAT-A",
+      contentKind: "notes",
+    }),
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Notes"] },
+  );
+  assert.deepEqual(
+    resolveThemeContentDirectoryParts({
+      artifactDirectory: "C:/tasken",
+      themeId: "theme-1",
+      themeCode: "MAT-A",
+      contentKind: "exports",
+    }),
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Exports"] },
+  );
+  assert.deepEqual(
+    resolveThemeContentDirectoryParts({
+      artifactDirectory: "C:/tasken",
+      contentKind: "notes",
+    }),
+    { kind: "ok", root: "C:/tasken", segments: ["Inbox", "Notes"] },
+  );
+  assert.deepEqual(
+    resolveThemeContentDirectoryParts({
+      themeStorageRoot: "D:/themes/mat-a",
+      contentKind: "notes",
+    }),
+    { kind: "ok", root: "D:/themes/mat-a", segments: ["Notes"] },
+  );
+
+  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  assert.match(notesSource, /themeId:\s*str\(selected\.project_id \|\| selected\.theme_id\)/);
+  assert.match(drawerSource, /themeId:\s*str\(note\.theme_id\)/);
 });
 
 test("Theme 編集に storage_root があり import に themeId を渡す", () => {

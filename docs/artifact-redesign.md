@@ -170,29 +170,32 @@ source_type, source_id, theme_id, description, generated_by
 
 ```text
 {storage_root}/Artifacts/     … managed Artifact
-{storage_root}/Exports/       … Note Markdown / 汎用書き出し（将来）
-{storage_root}/Notes/         … Note Markdown 書き出し既定（将来）
+{storage_root}/Notes/         … Note Markdown 書き出し既定
+{storage_root}/Exports/       … PDF など都度指定時の初期候補
 ```
 
-月次サブフォルダ（`YYYY/MM`）は **任意**。初期実装は Theme ルート直下の `Artifacts/` にフラット保存 + 同名衝突は既存の `(2)` サフィックスでよい。件数が多い Theme だけ後から月次を足す。
+月次サブフォルダ（`YYYY/MM`）は **任意**。初期実装は Theme ルート直下にフラット保存 + 同名衝突は既存の `(2)` サフィックスでよい。
 
 #### Theme あり（`storage_root` 未設定）
 
 ```text
 {artifactDirectory}/Themes/{theme_code|theme_id}/Artifacts/
+{artifactDirectory}/Themes/{theme_code|theme_id}/Notes/
+{artifactDirectory}/Themes/{theme_code|theme_id}/Exports/
 ```
 
 #### Theme なし
 
 ```text
-{artifactDirectory}/Inbox/
+{artifactDirectory}/Inbox/           … managed Artifact
+{artifactDirectory}/Inbox/Notes/     … Note Markdown 既定
+{artifactDirectory}/Inbox/Exports/   … PDF 初期候補
 ```
 
 #### PDF 共有
 
 - Document Publish の PDF は**都度保存先を選ぶ**（現行の `chooseDirectory` 寄りを維持）。
-- 最後に使ったフォルダは preference（例: `lastPdfExportDirectory`）に記憶して初期表示に使う。
-- Theme の `Exports/` を「おすすめ」として出すのは後続でよい。
+- ダイアログの初期位置に Theme の `Exports/`（なければ Inbox/Exports）を使う。
 
 ### Theme 名変更・削除
 

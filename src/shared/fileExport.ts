@@ -4,6 +4,8 @@ export interface MarkdownFileExportRequest {
   directory?: string | null;
   chooseDirectory?: boolean;
   fileName?: string | null;
+  /** 既定フォルダ解決用。Note の Theme に合わせて Notes/ へ書く */
+  themeId?: string | null;
 }
 
 export interface MarkdownFileExportResult {
@@ -29,6 +31,8 @@ export interface MarkdownPdfExportRequest {
   directory?: string | null;
   chooseDirectory?: boolean;
   fileName?: string | null;
+  /** ダイアログ初期フォルダ用。Theme の Exports/ を候補にする */
+  themeId?: string | null;
 }
 
 export interface MarkdownPdfExportResult {

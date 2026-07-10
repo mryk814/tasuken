@@ -83,30 +83,45 @@ export function safeThemeFolderSegment(value) {
 }
 
 /**
- * managed Artifact の保存ディレクトリを決める（#146）。
- * - Theme.storage_root あり → {storage_root}/Artifacts
- * - Theme あり・未設定 → {artifactDirectory}/Themes/{code|id}/Artifacts
- * - Theme なし → {artifactDirectory}/Inbox
- * 既存 stored_path は動かさない。新規保存のみ。
+ * Theme 単位のコンテンツ保存先（#146）。
+ * contentKind:
+ * - artifacts → Artifacts/（Theme なしは Inbox/）
+ * - notes → Notes/（Markdown 既定）
+ * - exports → Exports/（PDF 等の既定候補）
+ *
+ * - Theme.storage_root あり → {storage_root}/{kind}
+ * - Theme あり・未設定 → {artifactDirectory}/Themes/{code|id}/{kind}
+ * - Theme なし → {artifactDirectory}/Inbox または Inbox/{kind}
  *
  * @returns {{ kind: "needs_directory" } | { kind: "ok", root: string, segments: string[] }}
  */
-export function resolveManagedArtifactDirectoryParts({
+export function resolveThemeContentDirectoryParts({
   artifactDirectory,
   themeId,
   themeCode,
   themeStorageRoot,
+  contentKind = "artifacts",
 } = {}) {
+  const kindKey = String(contentKind || "artifacts");
+  const subfolder = kindKey === "notes" ? "Notes" : kindKey === "exports" ? "Exports" : "Artifacts";
   const storageRoot = String(themeStorageRoot || "").trim();
   if (storageRoot) {
-    return { kind: "ok", root: storageRoot, segments: ["Artifacts"] };
+    return { kind: "ok", root: storageRoot, segments: [subfolder] };
   }
   const base = String(artifactDirectory || "").trim();
   if (!base) return { kind: "needs_directory" };
   const themeKey = String(themeId || "").trim();
   if (themeKey) {
     const folder = safeThemeFolderSegment(themeCode || themeKey);
-    return { kind: "ok", root: base, segments: ["Themes", folder, "Artifacts"] };
+    return { kind: "ok", root: base, segments: ["Themes", folder, subfolder] };
   }
-  return { kind: "ok", root: base, segments: ["Inbox"] };
+  if (subfolder === "Artifacts") {
+    return { kind: "ok", root: base, segments: ["Inbox"] };
+  }
+  return { kind: "ok", root: base, segments: ["Inbox", subfolder] };
+}
+
+/** managed Artifact 専用（互換ラッパ）。 */
+export function resolveManagedArtifactDirectoryParts(options = {}) {
+  return resolveThemeContentDirectoryParts({ ...options, contentKind: "artifacts" });
 }

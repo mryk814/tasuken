@@ -1099,6 +1099,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         directory: str(markdownExport?.directory) || null,
         chooseDirectory,
         fileName: `${str(selected.title) || "markdown-document"}.md`,
+        themeId: str(selected.project_id || selected.theme_id) || null,
       });
       if (result.canceled) {
         setToast("Markdown出力をキャンセルしました。", "info");
@@ -1134,6 +1135,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         html: previewDocument(content, "markdown", headingNumberOptions.publish),
         chooseDirectory: true,
         fileName: `${str(selected.title) || "markdown-document"}.pdf`,
+        themeId: str(selected.project_id || selected.theme_id) || null,
       });
       if (result.canceled) {
         setToast("PDF出力をキャンセルしました。", "info");

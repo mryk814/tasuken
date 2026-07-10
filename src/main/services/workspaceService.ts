@@ -10,7 +10,7 @@ import type { Workspace } from "../../shared/types/workspace";
 import {
   artifactFileTypeOf,
   artifactMimeTypeOf,
-  resolveManagedArtifactDirectoryParts,
+  resolveThemeContentDirectoryParts,
   resolveUniqueArtifactFileName,
 } from "./artifactStorage.mjs";
 import { prepareMarkdownHtmlForPdf } from "./markdownPdfImages.mjs";
@@ -82,6 +82,7 @@ function normalizeMarkdownFileExportRequest(value: unknown): MarkdownFileExportR
     directory: typeof record.directory === "string" ? record.directory : null,
     chooseDirectory: Boolean(record.chooseDirectory),
     fileName: typeof record.fileName === "string" ? record.fileName : null,
+    themeId: typeof record.themeId === "string" && record.themeId.trim() ? record.themeId.trim() : null,
   };
 }
 
@@ -99,6 +100,7 @@ function normalizeMarkdownPdfExportRequest(value: unknown): MarkdownPdfExportReq
     directory: typeof record.directory === "string" ? record.directory : null,
     chooseDirectory: Boolean(record.chooseDirectory),
     fileName: typeof record.fileName === "string" ? record.fileName : null,
+    themeId: typeof record.themeId === "string" && record.themeId.trim() ? record.themeId.trim() : null,
   };
 }
 
@@ -315,14 +317,18 @@ export class WorkspaceService {
     };
   }
 
-  importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {
-    const request = normalizeArtifactFileImportRequest(requestValue);
+  /**
+   * Theme 単位のコンテンツ保存先を解決する。
+   * contentKind: artifacts | notes | exports
+   */
+  private resolveThemeContentDirectory(
+    themeIdValue: string | null | undefined,
+    contentKind: "artifacts" | "notes" | "exports",
+  ): { kind: "needs_directory" } | { kind: "ok"; directory: string } {
     const baseDirectory = String(this.repository.getPreference("artifactDirectory") || "").trim();
-
-    // Theme の storage_root / code を正本から読む。Renderer の表示用コピーに依存しない。
     let themeStorageRoot: string | null = null;
     let themeCode: string | null = null;
-    let themeId = request.themeId || null;
+    let themeId = themeIdValue ? String(themeIdValue).trim() : null;
     if (themeId) {
       const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
       if (theme) {
@@ -333,14 +339,29 @@ export class WorkspaceService {
         themeCode = code || null;
       }
     }
-
-    const location = resolveManagedArtifactDirectoryParts({
+    // .mjs の型推論が弱いため、純ロジック呼び出しは any 経由にする。
+    const location = (resolveThemeContentDirectoryParts as (options: {
+      artifactDirectory?: string | null;
+      themeId?: string | null;
+      themeCode?: string | null;
+      themeStorageRoot?: string | null;
+      contentKind?: "artifacts" | "notes" | "exports";
+    }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] })({
       artifactDirectory: baseDirectory,
       themeId,
       themeCode,
       themeStorageRoot,
+      contentKind,
     });
+    if (location.kind === "needs_directory") return { kind: "needs_directory" };
+    return { kind: "ok", directory: path.join(location.root, ...location.segments) };
+  }
+
+  importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {
+    const request = normalizeArtifactFileImportRequest(requestValue);
+    const location = this.resolveThemeContentDirectory(request.themeId, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
+    const directory = location.directory;
 
     for (const file of request.files) {
       if (!fs.existsSync(file.path) || !fs.statSync(file.path).isFile()) {
@@ -348,7 +369,6 @@ export class WorkspaceService {
       }
     }
 
-    const directory = path.join(location.root, ...location.segments);
     try {
       fs.mkdirSync(directory, { recursive: true });
     } catch (error) {
@@ -463,10 +483,17 @@ export class WorkspaceService {
   async exportMarkdownFile(requestValue: unknown): Promise<MarkdownFileExportResult> {
     const request = normalizeMarkdownFileExportRequest(requestValue);
     let directory = request.directory?.trim() || "";
+    // 初回など directory 未設定時は Theme の Notes/ を既定にする。
+    if (!directory && !request.chooseDirectory) {
+      const themeDir = this.resolveThemeContentDirectory(request.themeId, "notes");
+      if (themeDir.kind === "ok") directory = themeDir.directory;
+    }
     if (request.chooseDirectory || !directory) {
+      const themeDefault = this.resolveThemeContentDirectory(request.themeId, "notes");
+      const defaultPath = directory || (themeDefault.kind === "ok" ? themeDefault.directory : undefined);
       const result = await dialog.showOpenDialog({
         title: "Markdown出力先フォルダを選択",
-        defaultPath: directory || undefined,
+        defaultPath: defaultPath || undefined,
         properties: ["openDirectory", "createDirectory"],
       });
       if (result.canceled || !result.filePaths[0]) return { canceled: true };
@@ -486,10 +513,14 @@ export class WorkspaceService {
   async exportMarkdownPdf(requestValue: unknown): Promise<MarkdownPdfExportResult> {
     const request = normalizeMarkdownPdfExportRequest(requestValue);
     let directory = request.directory?.trim() || "";
+    // PDF は都度選択を維持。Theme の Exports/ をダイアログ初期位置にする。
     if (request.chooseDirectory || !directory) {
+      const themeDefault = this.resolveThemeContentDirectory(request.themeId, "exports");
+      const defaultPath = directory
+        || (themeDefault.kind === "ok" ? themeDefault.directory : undefined);
       const result = await dialog.showOpenDialog({
         title: "PDF出力先フォルダを選択",
-        defaultPath: directory || undefined,
+        defaultPath: defaultPath || undefined,
         properties: ["openDirectory", "createDirectory"],
       });
       if (result.canceled || !result.filePaths[0]) return { canceled: true };
