@@ -921,8 +921,8 @@ code block
       await delay(140);
       const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
 
-      // 編集（Live Preview）面での追記・貼り付け
-      clickPaneButton(notesPane, "編集");
+      // Edit（Live Preview）面での追記・貼り付け
+      clickPaneButton(notesPane, "Edit");
       await delay(200);
       notesPane = document.querySelector(".note-preview-panel");
       const liveEditable = await waitFor(
