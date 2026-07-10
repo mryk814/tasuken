@@ -7,16 +7,36 @@ import {
   IconFileText,
   IconFileTypePdf,
   IconFileZip,
+  IconLink,
   IconMarkdown,
   IconPhoto,
   IconPlus,
   IconPresentation,
 } from "@tabler/icons-react";
 
+import {
+  artifactCanPromoteToManaged,
+  artifactCanShowInFolder,
+  artifactCopyTarget,
+  artifactFileTypeFromName,
+  artifactFolderPath,
+  artifactOpenTarget,
+  displayNameFromTarget,
+  inferArtifactLinkType,
+  isHttpUrl,
+  resolveArtifactStorageMode as resolveStorageModeShared,
+} from "../../../../../shared/artifactLinks.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
+import {
+  ARTIFACT_LINK_STATUS_LABELS,
+  ARTIFACT_LINK_TYPE_LABELS,
+  ARTIFACT_SOURCE_TYPE_LABELS,
+  ARTIFACT_STORAGE_MODE_LABELS,
+} from "../domain-model/labels";
 import type {
   Artifact,
+  ArtifactLinkStatus,
+  ArtifactLinkType,
   ArtifactSourceType,
   ArtifactStorageMode,
   OpenDrawer,
@@ -37,6 +57,7 @@ const TEXT_TYPES = new Set(["txt", "docx", "doc", "json", "html"]);
 const PDF_TYPES = new Set(["pdf"]);
 
 export type ArtifactOpenMode = "external" | "image" | "markdown" | "file";
+export type ArtifactAttachMode = ArtifactStorageMode;
 
 export function artifactFileCategory(fileType?: string): ArtifactOpenMode {
   const type = (fileType || "").toLowerCase();
@@ -62,11 +83,11 @@ export function artifactOpenHint(fileType?: string): string {
 }
 
 export function resolveArtifactStorageMode(artifact: Artifact): ArtifactStorageMode {
-  return artifact.storage_mode === "linked" ? "linked" : "managed";
+  return resolveStorageModeShared(artifact.storage_mode);
 }
 
 export function artifactStorageModeLabel(artifact: Artifact): string {
-  return resolveArtifactStorageMode(artifact) === "linked" ? "リンク" : "Tasken管理";
+  return ARTIFACT_STORAGE_MODE_LABELS[resolveArtifactStorageMode(artifact)] || "Tasken管理";
 }
 
 export function artifactTypeBadge(fileType?: string): string {
@@ -158,6 +179,10 @@ export function artifactCardMetaParts(artifact: Artifact, data?: WorkspaceData, 
   const parts: string[] = [];
   const size = formatArtifactFileSize(artifact.file_size);
   if (size) parts.push(size);
+  if (resolveArtifactStorageMode(artifact) === "linked" && artifact.link_type) {
+    const linkLabel = ARTIFACT_LINK_TYPE_LABELS[artifact.link_type] || artifact.link_type;
+    if (linkLabel) parts.push(linkLabel);
+  }
   if (data) {
     const theme = themeNameOf(artifact, data);
     if (theme && theme !== "未設定") parts.push(theme);
@@ -174,7 +199,11 @@ export async function showArtifactInFolder(
   artifact: Artifact,
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
 ): Promise<void> {
-  const result = await workspaceApi.showItemInFolder(artifact.stored_path);
+  if (!artifactCanShowInFolder(artifact)) {
+    setToast("この Artifact ではフォルダを開けません。URL の場合はパス/URLをコピーしてください。", "info");
+    return;
+  }
+  const result = await workspaceApi.showItemInFolder(artifactFolderPath(artifact));
   if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
 }
 
@@ -182,8 +211,176 @@ export async function copyArtifactPath(
   artifact: Artifact,
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
 ): Promise<void> {
-  await workspaceApi.copyText(artifact.stored_path);
-  setToast("ファイルのパスをコピーしました。", "success");
+  const target = artifactCopyTarget(artifact);
+  if (!target) {
+    setToast("コピーできるパス/URLがありません。", "warning");
+    return;
+  }
+  await workspaceApi.copyText(target);
+  setToast(isHttpUrl(target) ? "URLをコピーしました。" : "パスをコピーしました。", "success");
+}
+
+export async function openArtifactFile(
+  artifact: Artifact,
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
+): Promise<void> {
+  const target = artifactOpenTarget(artifact);
+  if (!target) {
+    setToast("開く場所がありません。参照先を確認してください。", "danger");
+    return;
+  }
+  const result = await workspaceApi.openPath(target);
+  if (!result.ok) {
+    setToast(`ファイルを開けませんでした。${result.error || ""}`, "danger");
+    return;
+  }
+  markArtifactOpened(artifact.id);
+}
+
+export async function checkArtifactLink(
+  artifact: Artifact,
+  saveEntities: SaveEntities,
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
+): Promise<void> {
+  if (resolveArtifactStorageMode(artifact) !== "linked") {
+    setToast("リンク確認は linked Artifact 向けです。", "info");
+    return;
+  }
+  const target = artifactOpenTarget(artifact);
+  if (!target) {
+    setToast("参照先が空です。", "warning");
+    return;
+  }
+  const checkedAt = new Date().toISOString();
+  if (isHttpUrl(target)) {
+    // URL は権限・ネットワーク依存のため自動到達確認しない。
+    await saveEntities([{
+      action: "save",
+      type: "artifact",
+      entity: {
+        ...artifact,
+        link_status: "unknown" as ArtifactLinkStatus,
+        last_checked_at: checkedAt,
+      },
+    }], "URLの到達確認は未対応のため、状態を未確認にしました。");
+    return;
+  }
+  const result = await workspaceApi.pathExists(target);
+  const status: ArtifactLinkStatus = result.exists ? "ok" : "broken";
+  await saveEntities([{
+    action: "save",
+    type: "artifact",
+    entity: {
+      ...artifact,
+      link_status: status,
+      last_checked_at: checkedAt,
+    },
+  }], result.exists ? "参照先に到達できました。" : "参照先が見つかりませんでした（リンク切れ）。");
+}
+
+export async function promoteArtifactToManaged(
+  artifact: Artifact,
+  saveEntities: SaveEntities,
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
+  onNeedsDirectory?: () => void,
+): Promise<void> {
+  if (!artifactCanPromoteToManaged(artifact)) {
+    setToast("URLリンクは自動コピーできません。ファイルを入手してから管理に追加してください。", "info");
+    return;
+  }
+  const target = String(artifact.target || "").trim();
+  try {
+    const result = await workspaceApi.importArtifactFiles({
+      files: [{ path: target, name: artifact.filename }],
+    });
+    if (result.status === "needs_directory") {
+      onNeedsDirectory?.();
+      setToast("Artifact保存先が未設定です。「保存先を選ぶ」から設定してください。", "info");
+      return;
+    }
+    const file = result.files[0];
+    if (!file) {
+      setToast("コピー結果を取得できませんでした。", "danger");
+      return;
+    }
+    await saveEntities([{
+      action: "save",
+      type: "artifact",
+      entity: {
+        ...artifact,
+        storage_mode: "managed",
+        stored_path: file.storedPath,
+        original_path: target,
+        copied_at: file.copiedAt || new Date().toISOString(),
+        filename: file.filename,
+        file_type: file.fileType,
+        mime_type: file.mimeType,
+        file_size: file.fileSize,
+        link_type: null,
+        target: null,
+        link_status: null,
+        last_checked_at: null,
+      },
+    }], "Tasken管理フォルダへコピーしました。");
+  } catch (error) {
+    setToast(`Tasken管理へコピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+  }
+}
+
+export async function retargetLinkedArtifact(
+  artifact: Artifact,
+  saveEntities: SaveEntities,
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
+): Promise<void> {
+  if (resolveArtifactStorageMode(artifact) !== "linked") {
+    setToast("参照先の変更は linked Artifact 向けです。", "info");
+    return;
+  }
+  const currentType = (artifact.link_type || inferArtifactLinkType(String(artifact.target || ""))) as ArtifactLinkType;
+  const isPathLike = currentType === "local_path" || currentType === "shared_path"
+    || (currentType === "onedrive" && !isHttpUrl(String(artifact.target || "")));
+
+  try {
+    let nextTarget = "";
+    let nextName = artifact.filename;
+    if (isPathLike) {
+      const picked = await workspaceApi.chooseFiles("新しい参照ファイルを選択");
+      if (picked.canceled || !picked.files?.length) return;
+      nextTarget = picked.files[0].path;
+      nextName = picked.files[0].name || displayNameFromTarget(nextTarget, artifact.filename);
+    } else {
+      const input = window.prompt("新しいURLを入力", String(artifact.target || ""));
+      if (input == null) return;
+      nextTarget = input.trim();
+      if (!nextTarget) {
+        setToast("URLが空です。", "warning");
+        return;
+      }
+      if (!isHttpUrl(nextTarget)) {
+        setToast("http または https のURLを指定してください。", "warning");
+        return;
+      }
+      nextName = displayNameFromTarget(nextTarget, artifact.filename);
+    }
+    const linkType = inferArtifactLinkType(nextTarget) as ArtifactLinkType;
+    const fileType = artifactFileTypeFromName(nextName);
+    await saveEntities([{
+      action: "save",
+      type: "artifact",
+      entity: {
+        ...artifact,
+        target: nextTarget,
+        link_type: linkType,
+        filename: nextName,
+        title: nextName.replace(/\.[^.]+$/, "") || artifact.title,
+        file_type: fileType,
+        link_status: "unknown",
+        last_checked_at: null,
+      },
+    }], "参照先を更新しました。");
+  } catch (error) {
+    setToast(`参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+  }
 }
 
 export function ArtifactCard({
@@ -191,21 +388,28 @@ export function ArtifactCard({
   data,
   openDrawer,
   removeEntity,
+  saveEntities,
   setToast,
   showSource = false,
   onOpened,
+  onNeedsDirectory,
 }: {
   artifact: Artifact;
   data?: WorkspaceData;
   openDrawer?: OpenDrawer;
   removeEntity: RemoveEntity;
+  saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   showSource?: boolean;
   onOpened?: () => void;
+  onNeedsDirectory?: () => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const metaParts = artifactCardMetaParts(artifact, data, { includeSource: showSource });
-  const pathTitle = artifact.stored_path || artifact.filename;
+  const mode = resolveArtifactStorageMode(artifact);
+  const pathTitle = artifactOpenTarget(artifact) || artifact.filename;
+  const linkStatus = artifact.link_status;
+  const showLinkStatus = mode === "linked" && linkStatus && linkStatus !== "unknown" && linkStatus !== "ok";
 
   function openMenu(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -214,16 +418,17 @@ export function ArtifactCard({
     setMenu({ x: rect.right - 8, y: rect.bottom + 4 });
   }
 
-  const menuItems: ContextMenuItem[] = [
-    {
+  const menuItems: ContextMenuItem[] = [];
+  if (artifactCanShowInFolder(artifact)) {
+    menuItems.push({
       label: "フォルダを開く",
       onSelect: () => { void showArtifactInFolder(artifact, setToast); },
-    },
-    {
-      label: "パスをコピー",
-      onSelect: () => { void copyArtifactPath(artifact, setToast); },
-    },
-  ];
+    });
+  }
+  menuItems.push({
+    label: isHttpUrl(artifactCopyTarget(artifact)) ? "URLをコピー" : "パスをコピー",
+    onSelect: () => { void copyArtifactPath(artifact, setToast); },
+  });
   if (showSource && openDrawer && data) {
     menuItems.push({
       label: "元の場所へ",
@@ -234,6 +439,22 @@ export function ArtifactCard({
       },
     });
   }
+  if (mode === "linked" && saveEntities) {
+    menuItems.push({
+      label: "リンクを確認",
+      onSelect: () => { void checkArtifactLink(artifact, saveEntities, setToast); },
+    });
+    menuItems.push({
+      label: "参照先を変更",
+      onSelect: () => { void retargetLinkedArtifact(artifact, saveEntities, setToast); },
+    });
+    if (artifactCanPromoteToManaged(artifact)) {
+      menuItems.push({
+        label: "Tasken管理へコピー",
+        onSelect: () => { void promoteArtifactToManaged(artifact, saveEntities, setToast, onNeedsDirectory); },
+      });
+    }
+  }
   menuItems.push({
     label: "削除",
     tone: "danger",
@@ -241,16 +462,23 @@ export function ArtifactCard({
   });
 
   return (
-    <li className="artifact-card">
+    <li className={`artifact-card ${mode === "linked" ? "is-linked" : "is-managed"}`}>
       <span className="artifact-card-icon" aria-hidden="true">
-        <ArtifactFileIcon fileType={artifact.file_type} />
+        {mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} />}
       </span>
       <div className="artifact-card-main">
         <div className="artifact-card-title-row">
           <strong className="artifact-card-title" title={pathTitle}>{artifact.filename}</strong>
           <span className="artifact-card-badges">
             <span className="artifact-badge artifact-badge-type">{artifactTypeBadge(artifact.file_type)}</span>
-            <span className="artifact-badge artifact-badge-storage">{artifactStorageModeLabel(artifact)}</span>
+            <span className={`artifact-badge artifact-badge-storage ${mode === "linked" ? "is-linked" : ""}`}>
+              {artifactStorageModeLabel(artifact)}
+            </span>
+            {showLinkStatus && (
+              <span className="artifact-badge artifact-badge-status is-warning">
+                {ARTIFACT_LINK_STATUS_LABELS[linkStatus] || linkStatus}
+              </span>
+            )}
           </span>
         </div>
         {metaParts.length > 0 && (
@@ -314,16 +542,111 @@ export function markArtifactOpened(id: string): void {
   }
 }
 
-export async function openArtifactFile(
-  artifact: Artifact,
-  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
-): Promise<void> {
-  const result = await workspaceApi.openPath(artifact.stored_path);
-  if (!result.ok) {
-    setToast(`ファイルを開けませんでした。${result.error || ""}`, "danger");
-    return;
-  }
-  markArtifactOpened(artifact.id);
+function buildManagedEntities(
+  files: Array<{ filename: string; storedPath: string; originalPath: string; fileSize: number; mimeType: string; fileType: string; copiedAt?: string }>,
+  sourceType: ArtifactSourceType,
+  sourceId: string,
+  themeId?: string | null,
+): SaveOperation[] {
+  const now = new Date().toISOString();
+  return files.map((file) => ({
+    action: "save" as const,
+    type: "artifact" as const,
+    entity: {
+      id: uuid(),
+      title: file.filename.replace(/\.[^.]+$/, ""),
+      filename: file.filename,
+      file_type: file.fileType,
+      mime_type: file.mimeType,
+      file_size: file.fileSize,
+      stored_path: file.storedPath,
+      original_path: file.originalPath,
+      storage_mode: "managed",
+      copied_at: file.copiedAt || now,
+      source_type: sourceType,
+      source_id: sourceId,
+      theme_id: themeId || null,
+      description: null,
+      generated_by: null,
+      link_type: null,
+      target: null,
+      link_status: null,
+      last_checked_at: null,
+    },
+  }));
+}
+
+function buildLinkedEntitiesFromPaths(
+  files: Array<{ path: string; name: string }>,
+  sourceType: ArtifactSourceType,
+  sourceId: string,
+  themeId?: string | null,
+): SaveOperation[] {
+  return files.map((file) => {
+    const target = file.path;
+    const filename = file.name || displayNameFromTarget(target, "file");
+    const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
+    const fileType = artifactFileTypeFromName(filename);
+    return {
+      action: "save" as const,
+      type: "artifact" as const,
+      entity: {
+        id: uuid(),
+        title: filename.replace(/\.[^.]+$/, ""),
+        filename,
+        file_type: fileType,
+        mime_type: undefined,
+        file_size: undefined,
+        stored_path: "",
+        original_path: null,
+        storage_mode: "linked",
+        copied_at: null,
+        link_type: linkType,
+        target,
+        link_status: "unknown" as ArtifactLinkStatus,
+        last_checked_at: null,
+        source_type: sourceType,
+        source_id: sourceId,
+        theme_id: themeId || null,
+        description: null,
+        generated_by: null,
+      },
+    };
+  });
+}
+
+function buildLinkedEntityFromUrl(
+  url: string,
+  sourceType: ArtifactSourceType,
+  sourceId: string,
+  themeId?: string | null,
+): SaveOperation {
+  const target = url.trim();
+  const filename = displayNameFromTarget(target, "link");
+  const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
+  return {
+    action: "save",
+    type: "artifact",
+    entity: {
+      id: uuid(),
+      title: filename.replace(/\.[^.]+$/, "") || "リンク",
+      filename,
+      file_type: artifactFileTypeFromName(filename),
+      stored_path: "",
+      original_path: null,
+      storage_mode: "linked",
+      copied_at: null,
+      link_type: linkType,
+      target,
+      link_status: "unknown",
+      last_checked_at: null,
+      source_type: sourceType,
+      source_id: sourceId,
+      theme_id: themeId || null,
+      description: null,
+      generated_by: null,
+    },
+  };
 }
 
 export function ArtifactSection({
@@ -352,6 +675,7 @@ export function ArtifactSection({
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
   const [needsDirectory, setNeedsDirectory] = useState(false);
+  const [attachMode, setAttachMode] = useState<ArtifactAttachMode>("managed");
   const attached = artifacts
     .filter((entry) => entry.source_type === sourceType && entry.source_id === sourceId)
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
@@ -368,7 +692,7 @@ export function ArtifactSection({
     }
   }
 
-  async function importFromPaths(requestFiles: Array<{ path: string; name: string }>) {
+  async function importManagedFromPaths(requestFiles: Array<{ path: string; name: string }>) {
     if (!requestFiles.length) {
       setToast("ファイルの場所を取得できませんでした。エクスプローラーからファイルを選んでください。", "danger");
       return;
@@ -381,31 +705,37 @@ export function ArtifactSection({
         setToast("Artifact保存先が未設定です。「保存先を選ぶ」から設定してください。", "info");
         return;
       }
-      const operations: SaveOperation[] = result.files.map((file) => ({
-        action: "save",
-        type: "artifact",
-        entity: {
-          id: uuid(),
-          title: file.filename.replace(/\.[^.]+$/, ""),
-          filename: file.filename,
-          file_type: file.fileType,
-          mime_type: file.mimeType,
-          file_size: file.fileSize,
-          stored_path: file.storedPath,
-          original_path: file.originalPath,
-          source_type: sourceType,
-          source_id: sourceId,
-          theme_id: themeId || null,
-          description: null,
-          generated_by: null,
-        },
-      }));
+      const operations = buildManagedEntities(result.files, sourceType, sourceId, themeId);
       await saveEntities(operations, `${operations.length}件の Artifact を添付しました。`);
     } catch (error) {
       setToast(`Artifact を添付できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
       setImporting(false);
     }
+  }
+
+  async function importLinkedFromPaths(requestFiles: Array<{ path: string; name: string }>) {
+    if (!requestFiles.length) {
+      setToast("ファイルの場所を取得できませんでした。エクスプローラーからファイルを選んでください。", "danger");
+      return;
+    }
+    setImporting(true);
+    try {
+      const operations = buildLinkedEntitiesFromPaths(requestFiles, sourceType, sourceId, themeId);
+      await saveEntities(operations, `${operations.length}件の参照をリンクしました。`);
+    } catch (error) {
+      setToast(`リンクを追加できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function importFromPaths(requestFiles: Array<{ path: string; name: string }>) {
+    if (attachMode === "linked") {
+      await importLinkedFromPaths(requestFiles);
+      return;
+    }
+    await importManagedFromPaths(requestFiles);
   }
 
   async function importFiles(files: File[]) {
@@ -417,11 +747,38 @@ export function ArtifactSection({
 
   async function pickFiles() {
     try {
-      const result = await workspaceApi.chooseFiles("Artifact ファイルを選択");
+      const result = await workspaceApi.chooseFiles(
+        attachMode === "linked" ? "リンクするファイルを選択" : "Artifact ファイルを選択",
+      );
       if (result.canceled || !result.files?.length) return;
       await importFromPaths(result.files);
     } catch (error) {
       setToast(`Artifact を選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function addUrlLink() {
+    const input = window.prompt("リンクするURL（http/https）を入力");
+    if (input == null) return;
+    const url = input.trim();
+    if (!url) {
+      setToast("URLが空です。", "warning");
+      return;
+    }
+    if (!isHttpUrl(url)) {
+      setToast("http または https のURLを指定してください。", "warning");
+      return;
+    }
+    setImporting(true);
+    try {
+      await saveEntities(
+        [buildLinkedEntityFromUrl(url, sourceType, sourceId, themeId)],
+        "URLをリンクしました。",
+      );
+    } catch (error) {
+      setToast(`URLをリンクできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -431,7 +788,12 @@ export function ArtifactSection({
     setDragOver(false);
     const files = Array.from(event.dataTransfer?.files || []);
     if (!files.length) {
-      setToast("ファイルをドラッグしてください。テキストやリンクは添付できません。", "info");
+      setToast(
+        attachMode === "linked"
+          ? "ファイルをドラッグするか、「URLをリンク」からURLを追加してください。"
+          : "ファイルをドラッグしてください。テキストやリンクは添付できません。",
+        "info",
+      );
       return;
     }
     void importFiles(files);
@@ -444,14 +806,43 @@ export function ArtifactSection({
         <div className="inline-actions">
           {attached.length > 0 && <span>{attached.length}件</span>}
           {headingExtra}
-          <button type="button" className="secondary-button compact" disabled={importing} onClick={pickFiles}>
-            <IconPlus size={14} />Artifact を追加
-          </button>
         </div>
       </div>
-      {needsDirectory && (
+
+      <div className="artifact-attach-mode" role="group" aria-label="添付方式">
+        <button
+          type="button"
+          className={attachMode === "managed" ? "is-active" : ""}
+          aria-pressed={attachMode === "managed"}
+          onClick={() => setAttachMode("managed")}
+        >
+          コピーして管理
+        </button>
+        <button
+          type="button"
+          className={attachMode === "linked" ? "is-active" : ""}
+          aria-pressed={attachMode === "linked"}
+          onClick={() => setAttachMode("linked")}
+        >
+          場所だけリンク
+        </button>
+      </div>
+
+      <div className="inline-actions artifact-attach-actions">
+        <button type="button" className="secondary-button compact" disabled={importing} onClick={pickFiles}>
+          <IconPlus size={14} />
+          {attachMode === "linked" ? "ファイルをリンク" : "Artifact を追加"}
+        </button>
+        {attachMode === "linked" && (
+          <button type="button" className="secondary-button compact" disabled={importing} onClick={() => void addUrlLink()}>
+            <IconLink size={14} />URLをリンク
+          </button>
+        )}
+      </div>
+
+      {needsDirectory && attachMode === "managed" && (
         <div className="artifact-directory-prompt">
-          <span>Artifact保存先が未設定のため、まだファイルを添付できません。</span>
+          <span>Artifact保存先が未設定のため、まだファイルをコピーできません。</span>
           <button type="button" className="primary-button compact" onClick={chooseDirectory}>保存先を選ぶ</button>
         </div>
       )}
@@ -464,8 +855,10 @@ export function ArtifactSection({
               data={data}
               openDrawer={openDrawer}
               removeEntity={removeEntity}
+              saveEntities={saveEntities}
               setToast={setToast}
               showSource={Boolean(openDrawer && data)}
+              onNeedsDirectory={() => setNeedsDirectory(true)}
             />
           ))}
         </ul>
@@ -476,7 +869,11 @@ export function ArtifactSection({
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
       >
-        {importing ? "コピー中…" : "ファイルをここにドラッグして添付（複数可）"}
+        {importing
+          ? (attachMode === "linked" ? "リンク中…" : "コピー中…")
+          : (attachMode === "linked"
+            ? "ファイルをここにドラッグしてリンク（コピーしません）"
+            : "ファイルをここにドラッグして添付（管理フォルダへコピー・複数可）")}
       </div>
     </section>
   );

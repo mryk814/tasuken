@@ -72,3 +72,24 @@ export const ARTIFACT_GENERATED_BY_LABELS: Record<string, string> = {
   gemini: "Gemini",
   manual: "手動",
 };
+
+export const ARTIFACT_STORAGE_MODE_LABELS: Record<string, string> = {
+  managed: "Tasken管理",
+  linked: "リンク",
+};
+
+export const ARTIFACT_LINK_TYPE_LABELS: Record<string, string> = {
+  url: "URL",
+  local_path: "ローカルパス",
+  shared_path: "共有パス",
+  onedrive: "OneDrive",
+  sharepoint: "SharePoint",
+  teams: "Teams",
+};
+
+export const ARTIFACT_LINK_STATUS_LABELS: Record<string, string> = {
+  unknown: "未確認",
+  ok: "到達可",
+  broken: "リンク切れ",
+  inaccessible: "アクセス不可",
+};

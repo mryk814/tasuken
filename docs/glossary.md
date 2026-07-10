@@ -33,7 +33,7 @@
 | Resource | 外部URL・参照資料。Notes 内の Resource フィルタ。Chat参照とは別 | body_markdown でリンク横メモ可 |
 | KnowledgeNode / KnowledgeEdge | ナレッジ、つながり | — |
 | Reference / ChatRef | チャットリンク、リンク | — |
-| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme。保存方式は `managed`（Tasken管理フォルダへコピー）と `linked`（URL/パス参照のみ）。方針正本は `docs/artifact-redesign.md`（#136） |
+| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme。`storage_mode`: `managed`（Tasken管理フォルダへコピー）/ `linked`（URL・パス参照のみ。`link_type` + `target`）。添付UIは「コピーして管理」「場所だけリンク」。方針正本は `docs/artifact-redesign.md`（#136 / #147） |
 
 ## 頻出の UI 部品・機能語
 

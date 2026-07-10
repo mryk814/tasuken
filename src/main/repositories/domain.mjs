@@ -1,3 +1,5 @@
+import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
+
 export const workspaceEntityTypes = [
   "theme",
   "item",
@@ -52,7 +54,8 @@ const requiredTextFields = {
   plan_dependency: ["plan_node_id", "depends_on_plan_node_id"],
   knowledge_edge: ["source_node_id", "target_node_id", "relation_type"],
   change_event: ["entity_type", "entity_id", "changed_at", "change_type", "source"],
-  artifact: ["title", "filename", "stored_path", "source_type", "source_id"],
+  // stored_path は managed のみ必須。linked は target/link_type を validateEntity で見る。
+  artifact: ["title", "filename", "source_type", "source_id"],
 };
 
 const isoDateFields = [
@@ -120,6 +123,9 @@ export const artifactSourceEntityTypes = {
 };
 const artifactSourceTypes = new Set(Object.keys(artifactSourceEntityTypes));
 const artifactGeneratedByValues = new Set(["chatgpt", "claude", "copilot", "gemini", "manual"]);
+const artifactStorageModes = new Set(["managed", "linked"]);
+const artifactLinkTypes = new Set(["url", "local_path", "shared_path", "onedrive", "sharepoint", "teams"]);
+const artifactLinkStatuses = new Set(["unknown", "ok", "broken", "inaccessible"]);
 
 function localDateIso(date = new Date()) {
   const year = date.getFullYear();
@@ -346,6 +352,25 @@ export function validateEntity(type, input) {
     if (input.file_size != null && (!Number.isFinite(Number(input.file_size)) || Number(input.file_size) < 0)) {
       throw new Error("artifact.file_sizeが不正です。");
     }
+    const storageMode = input.storage_mode === "linked" ? "linked" : "managed";
+    if (input.storage_mode != null && input.storage_mode !== "" && !artifactStorageModes.has(input.storage_mode)) {
+      throw new Error("artifact.storage_modeが不正です。");
+    }
+    if (storageMode === "managed") {
+      if (typeof input.stored_path !== "string" || !input.stored_path.trim()) {
+        throw new Error("artifact.stored_pathを入力してください。");
+      }
+    } else {
+      if (typeof input.target !== "string" || !input.target.trim()) {
+        throw new Error("artifact.targetを入力してください。");
+      }
+      if (!artifactLinkTypes.has(input.link_type)) {
+        throw new Error("artifact.link_typeが不正です。");
+      }
+    }
+    if (input.link_status != null && input.link_status !== "" && !artifactLinkStatuses.has(input.link_status)) {
+      throw new Error("artifact.link_statusが不正です。");
+    }
   }
 
   return input;
@@ -392,6 +417,17 @@ export function normalizeEntity(type, input) {
           sort_order: Number(item.sort_order ?? index),
         }))
         .filter((item) => item.title);
+    }
+  }
+  if (type === "artifact") {
+    // 既存データ互換: storage_mode 未設定は managed。物理パスは移動しない。
+    normalized.storage_mode = normalized.storage_mode === "linked" ? "linked" : "managed";
+    if (typeof normalized.stored_path === "string") normalized.stored_path = normalized.stored_path.trim();
+    else if (normalized.storage_mode === "linked") normalized.stored_path = "";
+    if (typeof normalized.target === "string") normalized.target = normalized.target.trim();
+    if (typeof normalized.filename === "string") normalized.filename = normalized.filename.trim();
+    if (normalized.storage_mode === "linked" && !normalized.link_type && normalized.target) {
+      normalized.link_type = inferArtifactLinkType(normalized.target);
     }
   }
   validateEntity(type, normalized);

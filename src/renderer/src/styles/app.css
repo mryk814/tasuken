@@ -1481,6 +1481,33 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   overflow-y: auto;
 }
 .artifact-section { display: grid; gap: var(--space-2); }
+.artifact-attach-mode {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  width: fit-content;
+}
+.artifact-attach-mode button {
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.artifact-attach-mode button:hover { color: var(--color-text); background: var(--color-surface); }
+.artifact-attach-mode button.is-active {
+  background: var(--color-surface);
+  color: var(--color-accent-strong);
+  font-weight: var(--weight-bold);
+}
+.artifact-attach-mode button:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
+.artifact-attach-actions { flex-wrap: wrap; gap: var(--space-1); }
 .artifact-directory-prompt { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .artifact-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .artifact-card {
@@ -1538,6 +1565,16 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   color: var(--color-accent-strong);
   border-color: var(--color-accent-subtle-bd);
   background: var(--color-accent-subtle-bg);
+}
+.artifact-badge-storage.is-linked {
+  color: var(--color-text-secondary);
+  border-color: var(--color-border-subtle);
+  background: var(--color-surface-muted);
+}
+.artifact-badge-status.is-warning {
+  color: var(--color-warning-strong);
+  border-color: var(--color-warning-bd);
+  background: var(--color-warning-bg);
 }
 .artifact-card-meta {
   color: var(--color-text-secondary);

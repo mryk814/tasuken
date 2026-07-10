@@ -55,6 +55,7 @@ export function ArtifactsPage({
   themes,
   openDrawer,
   removeEntity,
+  saveEntities,
   setToast,
 }: PageProps) {
   const [query, setQuery] = useState("");
@@ -207,6 +208,7 @@ export function ArtifactsPage({
               data={data}
               openDrawer={openDrawer}
               removeEntity={removeEntity}
+              saveEntities={saveEntities}
               setToast={setToast}
               showSource
               onOpened={() => setRecentTick((value) => value + 1)}

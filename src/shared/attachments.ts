@@ -22,6 +22,8 @@ export interface ImportedArtifactFile {
   fileSize: number;
   mimeType: string;
   fileType: string;
+  copiedAt?: string;
+  storageMode?: "managed";
 }
 
 export type ArtifactFileImportResult =

@@ -57,6 +57,9 @@ export const workspaceApi = {
   showItemInFolder(filePath: string) {
     return desktopApi().files.showItemInFolder(filePath);
   },
+  pathExists(filePath: string) {
+    return desktopApi().files.pathExists(filePath);
+  },
   pathForFile(file: File) {
     return desktopApi().files.pathForFile(file);
   },

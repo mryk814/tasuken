@@ -21,6 +21,7 @@ const api: ResearchDeskApi = {
   files: {
     openPath: (filePath) => ipcRenderer.invoke(IPC.fileOpen, filePath),
     showItemInFolder: (filePath) => ipcRenderer.invoke(IPC.fileShowInFolder, filePath),
+    pathExists: (filePath) => ipcRenderer.invoke(IPC.filePathExists, filePath),
     pathForFile: (file) => webUtils.getPathForFile(file),
   },
   dialogs: {

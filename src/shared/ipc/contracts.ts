@@ -20,6 +20,7 @@ export const IPC = {
   clipboardWriteHtml: "clipboard:write-html",
   fileOpen: "file:open",
   fileShowInFolder: "file:show-in-folder",
+  filePathExists: "file:path-exists",
   dialogChooseDirectory: "dialog:choose-directory",
   dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
@@ -85,6 +86,7 @@ export interface ResearchDeskApi {
   files: {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
     showItemInFolder(filePath: string): Promise<{ ok: boolean; error?: string }>;
+    pathExists(filePath: string): Promise<{ exists: boolean; kind: "url" | "path"; error?: string }>;
     // DOMのFileからOSパスを取り出す（Preloadのelectron.webUtils経由。同期）。
     pathForFile(file: File): string;
   };

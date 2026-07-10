@@ -10,7 +10,15 @@ import {
   safeArtifactFileName,
   splitArtifactFileName,
 } from "../src/main/services/artifactStorage.mjs";
-import { artifactSourceEntityTypes, validateEntity, workspaceEntityTypes } from "../src/main/repositories/domain.mjs";
+import {
+  artifactCanPromoteToManaged,
+  artifactCanShowInFolder,
+  artifactOpenTarget,
+  displayNameFromTarget,
+  inferArtifactLinkType,
+  resolveArtifactStorageMode,
+} from "../src/shared/artifactLinks.mjs";
+import { artifactSourceEntityTypes, normalizeEntity, validateEntity, workspaceEntityTypes } from "../src/main/repositories/domain.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
@@ -57,6 +65,86 @@ test("artifactのvalidateEntityが必須項目とenumを検証する", () => {
   assert.throws(() => validateEntity("artifact", artifact({ file_size: -1 })), /file_size/);
   validateEntity("artifact", artifact({ generated_by: "claude" }));
   validateEntity("artifact", artifact({ generated_by: null }));
+});
+
+test("managed / linked の validation と normalize", () => {
+  assert.throws(
+    () => validateEntity("artifact", artifact({ storage_mode: "managed", stored_path: "" })),
+    /stored_path/,
+  );
+  assert.throws(
+    () => validateEntity("artifact", artifact({
+      storage_mode: "linked",
+      stored_path: "",
+      target: "https://example.com/a.pdf",
+      link_type: "weird",
+    })),
+    /link_type/,
+  );
+  assert.throws(
+    () => validateEntity("artifact", artifact({
+      storage_mode: "linked",
+      stored_path: "",
+      target: "",
+      link_type: "url",
+    })),
+    /target/,
+  );
+
+  const linked = validateEntity("artifact", artifact({
+    storage_mode: "linked",
+    stored_path: "",
+    target: "https://example.com/a.pdf",
+    link_type: "url",
+    link_status: "unknown",
+  }));
+  assert.equal(linked.storage_mode, "linked");
+
+  const normalized = normalizeEntity("artifact", artifact({ stored_path: "C:/a.xlsx" }));
+  assert.equal(normalized.storage_mode, "managed");
+
+  const normalizedLinked = normalizeEntity("artifact", artifact({
+    storage_mode: "linked",
+    stored_path: "",
+    target: "C:/docs/report.xlsx",
+  }));
+  assert.equal(normalizedLinked.link_type, "local_path");
+});
+
+test("artifactLinks の open target / link type / promote 可否", () => {
+  assert.equal(resolveArtifactStorageMode(undefined), "managed");
+  assert.equal(resolveArtifactStorageMode("linked"), "linked");
+  assert.equal(inferArtifactLinkType("https://contoso.sharepoint.com/sites/x"), "sharepoint");
+  assert.equal(inferArtifactLinkType("https://teams.microsoft.com/l/message/x"), "teams");
+  assert.equal(inferArtifactLinkType("https://1drv.ms/x/s!abc"), "onedrive");
+  assert.equal(inferArtifactLinkType("https://example.com/a.pdf"), "url");
+  assert.equal(inferArtifactLinkType("\\\\server\\share\\a.xlsx"), "shared_path");
+  assert.equal(inferArtifactLinkType("C:\\Users\\a\\b.xlsx"), "local_path");
+  assert.equal(displayNameFromTarget("https://example.com/docs/report.pdf"), "report.pdf");
+
+  const managed = artifact({ storage_mode: "managed" });
+  assert.equal(artifactOpenTarget(managed), managed.stored_path);
+  assert.equal(artifactCanShowInFolder(managed), true);
+  assert.equal(artifactCanPromoteToManaged(managed), false);
+
+  const linkedUrl = artifact({
+    storage_mode: "linked",
+    stored_path: "",
+    target: "https://example.com/a.pdf",
+    link_type: "url",
+  });
+  assert.equal(artifactOpenTarget(linkedUrl), "https://example.com/a.pdf");
+  assert.equal(artifactCanShowInFolder(linkedUrl), false);
+  assert.equal(artifactCanPromoteToManaged(linkedUrl), false);
+
+  const linkedPath = artifact({
+    storage_mode: "linked",
+    stored_path: "",
+    target: "C:/docs/a.xlsx",
+    link_type: "local_path",
+  });
+  assert.equal(artifactCanShowInFolder(linkedPath), true);
+  assert.equal(artifactCanPromoteToManaged(linkedPath), true);
 });
 
 test("ファイル名の分割と種別・MIME判定", () => {
@@ -191,6 +279,22 @@ test("Artifactカードは前面操作を主操作1つ＋メニューに整理�
   // 密集した直置き操作ボタン列は廃止
   assert.doesNotMatch(artifactsComponentSource, /artifact-row-actions/);
   assert.doesNotMatch(artifactsPageSource, /artifact-row-actions/);
+});
+
+test("managed / linked 添付UIと操作が接続されている", () => {
+  assert.match(artifactsComponentSource, /コピーして管理/);
+  assert.match(artifactsComponentSource, /場所だけリンク/);
+  assert.match(artifactsComponentSource, /URLをリンク/);
+  assert.match(artifactsComponentSource, /storage_mode: "managed"/);
+  assert.match(artifactsComponentSource, /storage_mode: "linked"/);
+  assert.match(artifactsComponentSource, /promoteArtifactToManaged/);
+  assert.match(artifactsComponentSource, /checkArtifactLink/);
+  assert.match(artifactsComponentSource, /retargetLinkedArtifact/);
+  assert.match(artifactsComponentSource, /Tasken管理へコピー/);
+  assert.match(artifactsComponentSource, /リンクを確認/);
+  assert.match(artifactsComponentSource, /参照先を変更/);
+  assert.match(artifactsPageSource, /saveEntities/);
+  assert.match(contractsSource, /filePathExists/);
 });
 
 test("常用のeditドロワー（Chat参照・タスク・メモ）に Artifact セクションがある", () => {

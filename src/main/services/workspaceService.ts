@@ -214,8 +214,26 @@ export class WorkspaceService {
     if (typeof filePathValue !== "string" || !filePathValue.trim()) {
       throw new Error("開くファイルの場所がありません。");
     }
-    const filePath = path.resolve(filePathValue);
-    if (!fs.existsSync(filePath)) {
+    const raw = filePathValue.trim();
+    // linked Artifact の URL 参照。file プロトコルや未知のスキームは開かない。
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        await shell.openExternal(raw);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    // UNC / ローカルパス。resolve は相対パス向けで UNC を壊しうるので存在確認を先に。
+    const candidates = [raw, path.normalize(raw), path.resolve(raw)];
+    const filePath = candidates.find((candidate) => {
+      try {
+        return fs.existsSync(candidate);
+      } catch {
+        return false;
+      }
+    });
+    if (!filePath) {
       return { ok: false, error: "ファイルが見つかりません。出力し直すか、出力先を変更してください。" };
     }
     const error = await shell.openPath(filePath);
@@ -226,12 +244,47 @@ export class WorkspaceService {
     if (typeof filePathValue !== "string" || !filePathValue.trim()) {
       throw new Error("表示するファイルの場所がありません。");
     }
-    const filePath = path.resolve(filePathValue);
-    if (!fs.existsSync(filePath)) {
+    const raw = filePathValue.trim();
+    if (/^https?:\/\//i.test(raw)) {
+      return { ok: false, error: "URLのフォルダは開けません。パスをコピーしてブラウザやエクスプローラーから開いてください。" };
+    }
+    const candidates = [raw, path.normalize(raw), path.resolve(raw)];
+    const filePath = candidates.find((candidate) => {
+      try {
+        return fs.existsSync(candidate);
+      } catch {
+        return false;
+      }
+    });
+    if (!filePath) {
       return { ok: false, error: "ファイルが見つかりません。移動または削除された可能性があります。保存先をSettingsで確認してください。" };
     }
     shell.showItemInFolder(filePath);
     return { ok: true };
+  }
+
+  pathExists(filePathValue: unknown): { exists: boolean; kind: "url" | "path"; error?: string } {
+    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+      return { exists: false, kind: "path", error: "場所がありません。" };
+    }
+    const raw = filePathValue.trim();
+    if (/^https?:\/\//i.test(raw)) {
+      // URL の到達確認は権限・ネットワーク依存のため best-effort で未確認扱い。
+      return { exists: false, kind: "url", error: "URLの到達確認は未対応です。" };
+    }
+    try {
+      const candidates = [raw, path.normalize(raw), path.resolve(raw)];
+      const exists = candidates.some((candidate) => {
+        try {
+          return fs.existsSync(candidate);
+        } catch {
+          return false;
+        }
+      });
+      return { exists, kind: "path" };
+    } catch (error) {
+      return { exists: false, kind: "path", error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   async chooseDirectory(titleValue: unknown): Promise<{ canceled: boolean; path?: string }> {
@@ -278,6 +331,7 @@ export class WorkspaceService {
     }
 
     const files: ImportedArtifactFile[] = [];
+    const copiedAt = new Date().toISOString();
     for (const file of request.files) {
       const originalName = file.name || path.basename(file.path);
       const filename = resolveUniqueArtifactFileName(originalName, (candidate: string) => fs.existsSync(path.join(directory, candidate)));
@@ -295,6 +349,8 @@ export class WorkspaceService {
         fileSize: fs.statSync(storedPath).size,
         mimeType: artifactMimeTypeOf(filename),
         fileType: artifactFileTypeOf(filename),
+        copiedAt,
+        storageMode: "managed",
       });
     }
     return { status: "ok", directory, files };

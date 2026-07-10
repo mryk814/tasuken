@@ -192,6 +192,8 @@ export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "them
 export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "manual";
 
 export type ArtifactStorageMode = "managed" | "linked";
+export type ArtifactLinkType = "url" | "local_path" | "shared_path" | "onedrive" | "sharepoint" | "teams";
+export type ArtifactLinkStatus = "unknown" | "ok" | "broken" | "inaccessible";
 
 export interface Artifact extends BaseRecord {
   title: string;
@@ -199,10 +201,16 @@ export interface Artifact extends BaseRecord {
   file_type?: string;
   mime_type?: string;
   file_size?: number;
+  /** managed では必須。linked では空文字可 */
   stored_path: string;
   original_path?: string | null;
-  /** 未設定は managed 扱い（#147 で本実装）。表示は #145 から対応 */
+  /** 未設定は managed 扱い */
   storage_mode?: ArtifactStorageMode | null;
+  copied_at?: string | null;
+  link_type?: ArtifactLinkType | null;
+  target?: string | null;
+  link_status?: ArtifactLinkStatus | null;
+  last_checked_at?: string | null;
   source_type: ArtifactSourceType;
   source_id: string;
   theme_id?: string | null;
