@@ -41,6 +41,7 @@ import type {
   ArtifactLinkType,
   ArtifactSourceType,
   ArtifactStorageMode,
+  OpenContentViewer,
   OpenDrawer,
   RemoveEntity,
   SaveEntities,
@@ -78,8 +79,8 @@ export function artifactOpenLabel(fileType?: string): string {
 export function artifactOpenHint(fileType?: string): string {
   const mode = artifactFileCategory(fileType);
   if (mode === "external") return "Excel / PDF / PowerPoint などは関連付けられた外部アプリで開きます。";
-  if (mode === "image") return "画像を確認します（現状は関連付けアプリで開きます。アプリ内ビューアは #130）。";
-  if (mode === "markdown") return "Markdownを確認します（現状は関連付けアプリで開きます。アプリ内ビューアは #130）。";
+  if (mode === "image") return "画像をアプリ内ビューアで大きく表示します。";
+  if (mode === "markdown") return "Markdownをアプリ内ビューアで表示します。";
   return "関連付けられたアプリで開きます。";
 }
 
@@ -402,10 +403,21 @@ export async function retargetLinkedArtifact(
   }
 }
 
+export function canPreviewArtifactInApp(artifact: Artifact): boolean {
+  const category = artifactFileCategory(artifact.file_type);
+  if (category !== "image" && category !== "markdown") return false;
+  const target = artifactOpenTarget(artifact);
+  if (!target) return false;
+  // URL の Markdown は CORS のためアプリ内では読めない。画像 URL は img 直指定で可。
+  if (category === "markdown" && isHttpUrl(target)) return false;
+  return true;
+}
+
 export function ArtifactCard({
   artifact,
   data,
   openDrawer,
+  openContentViewer,
   removeEntity,
   saveEntities,
   setToast,
@@ -416,6 +428,7 @@ export function ArtifactCard({
   artifact: Artifact;
   data?: WorkspaceData;
   openDrawer?: OpenDrawer;
+  openContentViewer?: OpenContentViewer;
   removeEntity: RemoveEntity;
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
@@ -552,6 +565,12 @@ export function ArtifactCard({
           className="secondary-button compact artifact-card-open"
           title={artifactOpenHint(artifact.file_type)}
           onClick={() => {
+            if (openContentViewer && canPreviewArtifactInApp(artifact)) {
+              openContentViewer({ type: "artifact", artifactId: artifact.id });
+              markArtifactOpened(artifact.id);
+              onOpened?.();
+              return;
+            }
             void openArtifactFile(artifact, setToast).then(() => onOpened?.());
           }}
         >
@@ -797,6 +816,7 @@ export function ArtifactSection({
   artifacts,
   data,
   openDrawer,
+  openContentViewer,
   saveEntities,
   removeEntity,
   setToast,
@@ -808,6 +828,7 @@ export function ArtifactSection({
   artifacts: Artifact[];
   data?: WorkspaceData;
   openDrawer?: OpenDrawer;
+  openContentViewer?: OpenContentViewer;
   saveEntities: SaveEntities;
   removeEntity: RemoveEntity;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
@@ -1079,6 +1100,7 @@ export function ArtifactSection({
               artifact={artifact}
               data={data}
               openDrawer={openDrawer}
+              openContentViewer={openContentViewer}
               removeEntity={removeEntity}
               saveEntities={saveEntities}
               setToast={setToast}

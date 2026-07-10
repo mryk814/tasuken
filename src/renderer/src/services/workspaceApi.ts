@@ -60,6 +60,9 @@ export const workspaceApi = {
   pathExists(filePath: string) {
     return desktopApi().files.pathExists(filePath);
   },
+  readFilePreview(filePath: string) {
+    return desktopApi().files.readPreview(filePath);
+  },
   pathForFile(file: File) {
     return desktopApi().files.pathForFile(file);
   },

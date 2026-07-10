@@ -8,6 +8,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import type {
   BaseRecord,
+  ContentViewerTarget,
   DrawerConfig,
   DrawerEntityType,
   Entity,
@@ -41,6 +42,7 @@ import type { CaptureEntry, PlanNode, Resource, Schedule, Task, TaskChecklistIte
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { buildArtifactThemeSyncOperations } from "./components/artifacts";
+import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
 import { ThemePage } from "./pages/ThemePage";
@@ -166,6 +168,7 @@ export function WorkspaceApp() {
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
+  const [contentViewer, setContentViewer] = useState<ContentViewerTarget | null>(null);
   const toast = useUiStore((state) => state.toast);
   const toastToneValue = useUiStore((state) => state.toastTone);
   const setToast = useUiStore((state) => state.setToast);
@@ -448,6 +451,14 @@ export function WorkspaceApp() {
       drawerTrigger.current = document.activeElement as HTMLElement | null;
       setDrawer(config);
     })();
+  }
+
+  function openContentViewer(target: ContentViewerTarget) {
+    setContentViewer(target);
+  }
+
+  function closeContentViewer() {
+    setContentViewer(null);
   }
 
   function closeDrawer(next: DrawerConfig | null = null) {
@@ -940,6 +951,7 @@ export function WorkspaceApp() {
     route,
     navigate,
     openDrawer,
+    openContentViewer,
     saveEntity,
     saveEntities,
     removeEntity,
@@ -987,6 +999,7 @@ export function WorkspaceApp() {
           saveEntity={saveEntity}
           saveEntities={saveEntities}
           setToast={setToast}
+          openContentViewer={openContentViewer}
         />
       ) : (
         <ContextPane
@@ -996,6 +1009,15 @@ export function WorkspaceApp() {
           route={route}
           openDrawer={openDrawer}
           navigate={navigate}
+        />
+      )}
+      {contentViewer && (
+        <ContentViewer
+          target={contentViewer}
+          data={data}
+          onClose={closeContentViewer}
+          openDrawer={openDrawer}
+          setToast={setToast}
         />
       )}
       {toast && (

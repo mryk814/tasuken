@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { IconCopyPlus, IconFileTypePdf, IconFolder, IconLink, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconCopyPlus, IconFileTypePdf, IconFolder, IconLink, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -9,6 +9,7 @@ import type {
   DrawerConfig,
   KnowledgeNode,
   Note,
+  OpenContentViewer,
   RemoveEntity,
   SaveEntities,
   SaveEntity,
@@ -249,6 +250,7 @@ interface EntityDrawerProps {
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+  openContentViewer?: OpenContentViewer;
 }
 
 function findSchedule(data: WorkspaceData, ownerType: string, ownerId: string, passedSchedule?: unknown): Schedule | undefined {
@@ -267,7 +269,7 @@ function normalizeChecklistItems(entity: DrawerConfig["entity"]) {
   })).sort((a, b) => a.sort_order - b.sort_order);
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast }: EntityDrawerProps) {
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, openContentViewer }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") {
     return (
@@ -280,11 +282,25 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         removeEntity={removeEntity}
         saveEntities={saveEntities}
         setToast={setToast}
+        openContentViewer={openContentViewer}
       />
     );
   }
   const type = drawer.type;
-  if (type === "note") return <NoteDetailDrawer note={entity as Note} data={data} close={close} removeEntity={removeEntity} saveEntity={saveEntity} saveEntities={saveEntities} setToast={setToast} />;
+  if (type === "note") {
+    return (
+      <NoteDetailDrawer
+        note={entity as Note}
+        data={data}
+        close={close}
+        removeEntity={removeEntity}
+        saveEntity={saveEntity}
+        saveEntities={saveEntities}
+        setToast={setToast}
+        openContentViewer={openContentViewer}
+      />
+    );
+  }
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} saveEntities={saveEntities} />;
   if (type === "resource") {
     const isChatRef = isChatReferenceEntity(entity);
@@ -363,6 +379,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             themeId={str(entity.project_id || entity.theme_id) || null}
             artifacts={data.artifacts || []}
             data={data}
+            openContentViewer={openContentViewer}
             saveEntities={saveEntities}
             removeEntity={removeEntity}
             setToast={setToast}
@@ -497,6 +514,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             themeId={task.project_id || null}
             artifacts={data.artifacts || []}
             data={data}
+            openContentViewer={openContentViewer}
             saveEntities={saveEntities}
             removeEntity={removeEntity}
             setToast={setToast}
@@ -618,6 +636,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
       removeEntity={removeEntity}
       saveEntities={saveEntities}
       setToast={setToast}
+      openContentViewer={openContentViewer}
     />
   );
 }
@@ -631,6 +650,7 @@ function EditDrawer({
   removeEntity,
   saveEntities,
   setToast,
+  openContentViewer,
 }: {
   drawer: DrawerConfig;
   data: WorkspaceData;
@@ -640,6 +660,7 @@ function EditDrawer({
   removeEntity?: RemoveEntity;
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+  openContentViewer?: OpenContentViewer;
 }) {
   const type = drawer.type;
   const entity = drawer.entity;
@@ -726,6 +747,7 @@ function EditDrawer({
               themeId={artifactSource.themeId}
               artifacts={data.artifacts || []}
               data={data}
+              openContentViewer={openContentViewer}
               saveEntities={saveEntities}
               removeEntity={removeEntity}
               setToast={setToast}
@@ -1120,6 +1142,7 @@ function NoteDetailDrawer({
   saveEntity,
   saveEntities,
   setToast,
+  openContentViewer,
 }: {
   note: Note;
   data: WorkspaceData;
@@ -1128,6 +1151,7 @@ function NoteDetailDrawer({
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+  openContentViewer?: OpenContentViewer;
 }) {
   const [comment, setComment] = useState("");
   const [knowledgeText, setKnowledgeText] = useState("");
@@ -1421,6 +1445,17 @@ function NoteDetailDrawer({
           </section>
         )}
         {note.source_url && <div className="link-value"><a href={note.source_url} target="_blank" rel="noreferrer">{note.source_url}</a></div>}
+        {Boolean(body.trim()) && openContentViewer && (
+          <div className="content-viewer-expand-row">
+            <button
+              type="button"
+              className="primary-button compact"
+              onClick={() => openContentViewer({ type: "note", noteId: note.id })}
+            >
+              <IconArrowsMaximize size={15} />大きく表示
+            </button>
+          </div>
+        )}
         {isArtifact ? (
           <section className="artifact-preview-section">
             <div className="section-heading">
@@ -1507,6 +1542,7 @@ function NoteDetailDrawer({
           themeId={note.theme_id || null}
           artifacts={data.artifacts || []}
           data={data}
+          openContentViewer={openContentViewer}
           saveEntities={saveEntities}
           removeEntity={removeEntity}
           setToast={setToast}

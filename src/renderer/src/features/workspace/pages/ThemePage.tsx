@@ -73,7 +73,7 @@ function TaskSectionBoard({
   );
 }
 
-export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, navigate, saveEntities, removeEntity, setToast }: PageProps) {
+export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, openContentViewer, navigate, saveEntities, removeEntity, setToast }: PageProps) {
   const [sectionTitle, setSectionTitle] = useState("");
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   if (!activeTheme) {
@@ -248,6 +248,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, na
           themeId={theme.id}
           artifacts={data.artifacts || []}
           data={data}
+          openContentViewer={openContentViewer}
           saveEntities={saveEntities}
           removeEntity={removeEntity}
           setToast={setToast}

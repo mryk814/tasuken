@@ -54,6 +54,7 @@ export function ArtifactsPage({
   data,
   themes,
   openDrawer,
+  openContentViewer,
   removeEntity,
   saveEntities,
   setToast,
@@ -207,6 +208,7 @@ export function ArtifactsPage({
               artifact={artifact}
               data={data}
               openDrawer={openDrawer}
+              openContentViewer={openContentViewer}
               removeEntity={removeEntity}
               saveEntities={saveEntities}
               setToast={setToast}

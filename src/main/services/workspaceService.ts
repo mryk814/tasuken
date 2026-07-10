@@ -5,7 +5,7 @@ import path from "node:path";
 
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
-import type { AppUpdateCheckResult } from "../../shared/ipc/contracts";
+import type { AppUpdateCheckResult, FilePreviewReadResult } from "../../shared/ipc/contracts";
 import type { Workspace } from "../../shared/types/workspace";
 import {
   artifactFileTypeOf,
@@ -19,6 +19,9 @@ import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
 type SnapshotDecisions = Record<string, string>;
 
 const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
+/** アプリ内ビューア用。インフォグラフィック等の大きめ画像も許容する。 */
+const PREVIEW_IMAGE_MAX_BYTES = 40 * 1024 * 1024;
+const PREVIEW_TEXT_MAX_BYTES = 5 * 1024 * 1024;
 const RELEASES_API_URL = "https://api.github.com/repos/mryk814/tasuken/releases/latest";
 const RELEASES_PAGE_URL = "https://github.com/mryk814/tasuken/releases/latest";
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
@@ -27,6 +30,25 @@ const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/gif": "gif",
   "image/webp": "webp",
   "image/bmp": "bmp",
+};
+const PREVIEW_IMAGE_EXT_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+};
+const PREVIEW_TEXT_EXT_MIME: Record<string, string> = {
+  ".md": "text/markdown",
+  ".markdown": "text/markdown",
+  ".txt": "text/plain",
+  ".json": "application/json",
+  ".html": "text/html",
+  ".htm": "text/html",
+  ".csv": "text/csv",
+  ".tsv": "text/tab-separated-values",
 };
 
 interface GitHubLatestRelease {
@@ -290,6 +312,58 @@ export class WorkspaceService {
       return { exists, kind: "path" };
     } catch (error) {
       return { exists: false, kind: "path", error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * アプリ内ビューア用にローカルファイルを読む。
+   * 画像は data URL、Markdown/テキストは UTF-8 本文。URL や巨大ファイルは拒否する。
+   */
+  readFilePreview(filePathValue: unknown): FilePreviewReadResult {
+    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+      return { ok: false, error: "プレビューするファイルの場所がありません。" };
+    }
+    const raw = filePathValue.trim();
+    if (/^https?:\/\//i.test(raw)) {
+      return { ok: false, error: "URLはアプリ内では直接読み込めません。外部で開いてください。" };
+    }
+    const candidates = [raw, path.normalize(raw), path.resolve(raw)];
+    const filePath = candidates.find((candidate) => {
+      try {
+        return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+      } catch {
+        return false;
+      }
+    });
+    if (!filePath) {
+      return { ok: false, error: "ファイルが見つかりません。移動または削除された可能性があります。" };
+    }
+    const extension = path.extname(filePath).toLowerCase();
+    const imageMime = PREVIEW_IMAGE_EXT_MIME[extension];
+    const textMime = PREVIEW_TEXT_EXT_MIME[extension];
+    if (!imageMime && !textMime) {
+      return { ok: false, error: "この形式はアプリ内プレビューに未対応です。外部アプリで開いてください。" };
+    }
+    try {
+      const stat = fs.statSync(filePath);
+      if (imageMime) {
+        if (stat.size > PREVIEW_IMAGE_MAX_BYTES) {
+          return { ok: false, error: "画像が大きすぎるためプレビューできません。外部アプリで開いてください。" };
+        }
+        const bytes = fs.readFileSync(filePath);
+        const dataUrl = `data:${imageMime};base64,${bytes.toString("base64")}`;
+        return { ok: true, kind: "image", dataUrl, mimeType: imageMime, filePath };
+      }
+      if (stat.size > PREVIEW_TEXT_MAX_BYTES) {
+        return { ok: false, error: "ファイルが大きすぎるためプレビューできません。外部アプリで開いてください。" };
+      }
+      const text = fs.readFileSync(filePath, "utf8");
+      return { ok: true, kind: "text", text, mimeType: textMime || "text/plain", filePath };
+    } catch (error) {
+      return {
+        ok: false,
+        error: `ファイルを読めませんでした。${error instanceof Error ? error.message : String(error)}`,
+      };
     }
   }
 

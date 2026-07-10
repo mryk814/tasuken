@@ -21,6 +21,7 @@ export const IPC = {
   fileOpen: "file:open",
   fileShowInFolder: "file:show-in-folder",
   filePathExists: "file:path-exists",
+  fileReadPreview: "file:read-preview",
   dialogChooseDirectory: "dialog:choose-directory",
   dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
@@ -69,6 +70,12 @@ export interface AppUpdateCheckResult {
   error?: string;
 }
 
+/** アプリ内ビューア用のローカルファイル読み取り結果。 */
+export type FilePreviewReadResult =
+  | { ok: true; kind: "image"; dataUrl: string; mimeType: string; filePath: string }
+  | { ok: true; kind: "text"; text: string; mimeType: string; filePath: string }
+  | { ok: false; error: string };
+
 export interface ResearchDeskApi {
   workspace: {
     load(): Promise<Workspace>;
@@ -87,6 +94,8 @@ export interface ResearchDeskApi {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
     showItemInFolder(filePath: string): Promise<{ ok: boolean; error?: string }>;
     pathExists(filePath: string): Promise<{ exists: boolean; kind: "url" | "path"; error?: string }>;
+    /** アプリ内ビューア用。ローカル画像は data URL、Markdown/テキストは本文を返す。 */
+    readPreview(filePath: string): Promise<FilePreviewReadResult>;
     // DOMのFileからOSパスを取り出す（Preloadのelectron.webUtils経由。同期）。
     pathForFile(file: File): string;
   };
