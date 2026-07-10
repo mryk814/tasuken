@@ -601,8 +601,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   vertical-align: top;
 }
 /*
- * 表示サイズは「幅」を正とする等比スケール（height は自然比で auto）。
- * 画像は段落内で中央寄せ。上下ハンドルは高さだけ変えて壊れるので非表示。
+ * 表示サイズは HTML width 属性（MDX が保存する値）を正とする。
+ * width:auto を書くと属性が無効化され、Edit 再入場時だけ全幅に見える。
+ * height は自然比に固定（壊れた height 属性を無視）。
  */
 .note-mdx-content p:has([class*="_imageWrapper_"]),
 .note-mdx-content p:has(img) {
@@ -611,7 +612,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mdx-content img {
   display: block;
   max-width: 100%;
-  width: auto;
+  /* width は指定しない → <img width="N"> がそのまま効く（width:auto だと属性が無効になる） */
   height: auto !important;
   margin-left: auto;
   margin-right: auto;

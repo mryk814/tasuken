@@ -330,6 +330,9 @@ test("notes editor hides north-south only image resizers", () => {
   assert.match(css, /_imageResizerS_/);
   assert.match(css, /display: none !important/);
   assert.match(css, /height: auto !important/);
+  // width:auto があると <img width> が無効になり Edit 再入場で全幅化する
+  assert.match(css, /width は指定しない/);
+  assert.doesNotMatch(css, /\.note-mdx-content img \{[^}]*\bwidth:\s*auto\b/s);
 });
 
 test("markdown preview keeps unsized images within content width", () => {
