@@ -40,6 +40,7 @@ import {
 import type { CaptureEntry, PlanNode, Resource, Schedule, Task, TaskChecklistItem, TaskRepeatRule, Waiting } from "./domain-model/types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
+import { buildArtifactThemeSyncOperations } from "./components/artifacts";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
 import { ThemePage } from "./pages/ThemePage";
@@ -595,6 +596,12 @@ export function WorkspaceApp() {
         };
         ops.push(...buildSaveScheduleOperations(schedule));
       }
+      // 親 Task の Theme に添付 Artifact を追従させる（保存先ファイルは動かさない）。
+      ops.push(...buildArtifactThemeSyncOperations(data.artifacts || [], {
+        sourceTypes: ["task"],
+        sourceId: taskId,
+        themeId: projectId,
+      }));
       await saveEntities(ops, base.id ? "変更を保存しました。" : "タスクを追加しました。");
       finishSave();
       return true;
@@ -734,7 +741,15 @@ export function WorkspaceApp() {
         // Archive はドロワー編集では触らず保持する（専用操作で付け外し）
         archived_at: (base.archived_at as string | null | undefined) ?? null,
       };
-      await saveEntities(buildSaveResourceOperations(resource), base.id ? "変更を保存しました。" : "リソースを追加しました。");
+      const resourceOps = [
+        ...buildSaveResourceOperations(resource),
+        ...buildArtifactThemeSyncOperations(data.artifacts || [], {
+          sourceTypes: ["chat_ref"],
+          sourceId: resource.id,
+          themeId: resource.project_id || null,
+        }),
+      ];
+      await saveEntities(resourceOps, base.id ? "変更を保存しました。" : "リソースを追加しました。");
       finishSave();
       return true;
     }
@@ -878,6 +893,29 @@ export function WorkspaceApp() {
     }
 
     if (!entity) return false;
+
+    // Note の Theme 変更時は添付 Artifact の theme_id も揃える（ファイルは動かさない）。
+    if (type === "note" && entity.id) {
+      const noteThemeId = (entity.theme_id as string | null) || null;
+      const syncOps = buildArtifactThemeSyncOperations(data.artifacts || [], {
+        sourceTypes: ["note", "report"],
+        sourceId: String(entity.id),
+        themeId: noteThemeId,
+      });
+      if (syncOps.length) {
+        const ops: SaveOperation[] = [
+          { action: "save", type: "note", entity: entity as Entity },
+          ...syncOps,
+        ];
+        if (options.quiet) {
+          await saveWorkspaceEntities(ops);
+        } else {
+          await saveEntities(ops, base.id ? "変更を保存しました。" : "メモを追加しました。");
+        }
+        finishSave(entity as Entity);
+        return true;
+      }
+    }
 
     const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason"), quiet: options.quiet });
     if (type === "theme" && !activeThemeId && saved) setActiveThemeId(saved.id);

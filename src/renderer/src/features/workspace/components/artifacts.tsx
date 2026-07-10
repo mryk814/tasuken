@@ -710,6 +710,86 @@ function buildLinkedEntityFromUrl(
   };
 }
 
+/** 親の Theme 変更に合わせて子 Artifact の theme_id を揃える（ファイル実体は動かさない）。 */
+export function buildArtifactThemeSyncOperations(
+  artifacts: Artifact[],
+  source: { sourceTypes: ArtifactSourceType[]; sourceId: string; themeId: string | null },
+): SaveOperation[] {
+  if (!source.sourceId) return [];
+  const nextTheme = source.themeId || null;
+  return (artifacts || [])
+    .filter((artifact) => (
+      source.sourceTypes.includes(artifact.source_type)
+      && artifact.source_id === source.sourceId
+      && String(artifact.theme_id || "") !== String(nextTheme || "")
+    ))
+    .map((artifact) => ({
+      action: "save" as const,
+      type: "artifact" as const,
+      entity: {
+        ...artifact,
+        theme_id: nextTheme,
+      },
+    }));
+}
+
+/**
+ * 親 Entity の Theme を解決する。
+ * 優先: 編集中フォームの選択 → props → data 上の親 Entity → source が Theme なら自身。
+ * managed 保存先もこの Theme に従う。
+ */
+export function resolveArtifactThemeId(options: {
+  sourceType: ArtifactSourceType;
+  sourceId: string;
+  themeId?: string | null;
+  data?: WorkspaceData;
+  /** ドロワー編集中の form。未指定なら document から探す */
+  form?: HTMLFormElement | null;
+}): string | null {
+  const { sourceType, sourceId, themeId, data } = options;
+  const form = options.form
+    || (typeof document !== "undefined"
+      ? document.querySelector<HTMLFormElement>("aside.drawer form.drawer-form")
+      : null);
+  if (form) {
+    // Task は project_id を theme_id フィールド名で持たせる。Chat は project_id。
+    const fieldName = sourceType === "chat_ref" ? "project_id" : "theme_id";
+    const named = form.elements.namedItem(fieldName);
+    const field = named && !(named instanceof RadioNodeList) && "value" in named
+      ? named as { value: string }
+      : null;
+    if (field) {
+      const fromForm = String(field.value || "").trim();
+      if (fromForm) return fromForm;
+      // 明示的に「個人業務/未設定」を選んだ場合は空を尊重（props で上書きしない）
+      return null;
+    }
+  }
+  const fromProp = String(themeId || "").trim();
+  if (fromProp) return fromProp;
+  if (sourceType === "theme" && sourceId) return sourceId;
+  if (data) {
+    if (sourceType === "task") {
+      const task = (data.tasks || []).find((entry) => entry.id === sourceId);
+      const projectId = task ? String(task.project_id || "").trim() : "";
+      return projectId || null;
+    }
+    if (sourceType === "note" || sourceType === "report") {
+      const note = (data.notes || []).find((entry) => entry.id === sourceId);
+      const noteTheme = note ? String(note.theme_id || "").trim() : "";
+      return noteTheme || null;
+    }
+    if (sourceType === "chat_ref") {
+      const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
+      const resourceTheme = resource
+        ? String(resource.project_id || resource.theme_id || "").trim()
+        : "";
+      return resourceTheme || null;
+    }
+  }
+  return null;
+}
+
 export function ArtifactSection({
   sourceType,
   sourceId,
@@ -739,6 +819,7 @@ export function ArtifactSection({
   const [urlDraft, setUrlDraft] = useState("");
   const [urlFormOpen, setUrlFormOpen] = useState(false);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
   const attached = artifacts
     .filter((entry) => entry.source_type === sourceType && entry.source_id === sourceId)
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
@@ -746,6 +827,12 @@ export function ArtifactSection({
   useEffect(() => {
     if (urlFormOpen) urlInputRef.current?.focus();
   }, [urlFormOpen]);
+
+  function effectiveThemeId(): string | null {
+    const drawer = sectionRef.current?.closest("aside.drawer");
+    const form = drawer?.querySelector<HTMLFormElement>("form.drawer-form") || null;
+    return resolveArtifactThemeId({ sourceType, sourceId, themeId, data, form });
+  }
 
   async function chooseDirectory() {
     try {
@@ -766,16 +853,18 @@ export function ArtifactSection({
     }
     setImporting(true);
     try {
+      // 親 Note/Task の Theme に合わせる（保存先も同じ Theme ルート）。
+      const parentThemeId = effectiveThemeId();
       const result = await workspaceApi.importArtifactFiles({
         files: requestFiles,
-        themeId: themeId || null,
+        themeId: parentThemeId,
       });
       if (result.status === "needs_directory") {
         setNeedsDirectory(true);
         setToast("Artifact保存先が未設定です。「保存先を選ぶ」から設定してください。", "info");
         return;
       }
-      const operations = buildManagedEntities(result.files, sourceType, sourceId, themeId);
+      const operations = buildManagedEntities(result.files, sourceType, sourceId, parentThemeId);
       await saveEntities(operations, `${operations.length}件の Artifact を添付しました。`);
     } catch (error) {
       setToast(`Artifact を添付できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
@@ -791,7 +880,8 @@ export function ArtifactSection({
     }
     setImporting(true);
     try {
-      const operations = buildLinkedEntitiesFromPaths(requestFiles, sourceType, sourceId, themeId);
+      const parentThemeId = effectiveThemeId();
+      const operations = buildLinkedEntitiesFromPaths(requestFiles, sourceType, sourceId, parentThemeId);
       await saveEntities(operations, `${operations.length}件の参照をリンクしました。`);
     } catch (error) {
       setToast(`リンクを追加できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
@@ -840,7 +930,8 @@ export function ArtifactSection({
     }
     setImporting(true);
     try {
-      const operations = unique.map((url) => buildLinkedEntityFromUrl(url, sourceType, sourceId, themeId));
+      const parentThemeId = effectiveThemeId();
+      const operations = unique.map((url) => buildLinkedEntityFromUrl(url, sourceType, sourceId, parentThemeId));
       await saveEntities(
         operations,
         unique.length === 1 ? "URLをリンクしました。" : `${unique.length}件のURLをリンクしました。`,
@@ -901,7 +992,7 @@ export function ArtifactSection({
   }
 
   return (
-    <section className="artifact-section">
+    <section className="artifact-section" ref={sectionRef}>
       <div className="section-heading artifact-section-heading">
         <h3>
           Artifacts

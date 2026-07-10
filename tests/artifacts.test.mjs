@@ -265,6 +265,18 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
   assert.match(drawerSource, /themeId:\s*str\(note\.theme_id\)/);
 });
 
+test("Artifact は親 Entity の Theme を引き継ぐ", () => {
+  assert.match(artifactsComponentSource, /function resolveArtifactThemeId|export function resolveArtifactThemeId/);
+  assert.match(artifactsComponentSource, /effectiveThemeId/);
+  assert.match(artifactsComponentSource, /parentThemeId/);
+  assert.match(artifactsComponentSource, /buildArtifactThemeSyncOperations/);
+  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+  assert.match(workspaceAppSource, /buildArtifactThemeSyncOperations/);
+  assert.match(workspaceAppSource, /sourceTypes:\s*\["task"\]/);
+  assert.match(workspaceAppSource, /sourceTypes:\s*\["note", "report"\]/);
+  assert.match(workspaceAppSource, /sourceTypes:\s*\["chat_ref"\]/);
+});
+
 test("Theme 編集に storage_root があり import に themeId を渡す", () => {
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
   const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
@@ -272,7 +284,7 @@ test("Theme 編集に storage_root があり import に themeId を渡す", () =
   assert.match(drawerSource, /ThemeStorageRootField|storage_root/);
   assert.match(drawerSource, /Artifact保存ルート/);
   assert.match(workspaceAppSource, /storage_root:\s*formText\(values,\s*"storage_root"\)/);
-  assert.match(artifactsComponentSource, /themeId:\s*themeId\s*\|\|\s*null/);
+  assert.match(artifactsComponentSource, /themeId:\s*parentThemeId/);
   assert.match(artifactsComponentSource, /themeId:\s*artifact\.theme_id/);
   assert.match(settingsSource, /Themes\/識別子\/Artifacts/);
   assert.match(settingsSource, /Inbox\//);
