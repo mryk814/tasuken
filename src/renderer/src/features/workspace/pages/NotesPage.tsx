@@ -916,7 +916,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         },
       });
       if (patch.heading_numbers !== undefined && patch.heading_number_start === undefined) {
-        setToast(nextEnabled ? "見出し番号を表示します（編集 / Preview / PDF）。" : "見出し番号を非表示にしました。", "success");
+        setToast(nextEnabled ? "見出し番号を表示します（Edit / Preview / PDF）。" : "見出し番号を非表示にしました。", "success");
       } else if (patch.heading_number_start !== undefined) {
         setToast(`番号の開始階層を${HEADING_NUMBER_START_LABELS[nextStart]}にしました。`, "success");
       }
@@ -1170,13 +1170,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                 </div>
                 <div className="document-publish-actions">
                   <div className="segmented note-editor-mode-tabs" aria-label="Markdown表示">
-                    <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => switchPreviewMode("edit")}>編集</button>
+                    <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => switchPreviewMode("edit")}>Edit</button>
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
                   {showDocumentPublish && (
                     <>
-                      <label className="toggle note-heading-number-toggle" title="本文は書き換えず、編集・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
+                      <label className="toggle note-heading-number-toggle" title="本文は書き換えず、Edit・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
                         <input
                           type="checkbox"
                           checked={headingNumbersEnabled}

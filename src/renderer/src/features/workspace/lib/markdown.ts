@@ -313,6 +313,15 @@ function renderTextWithWikiLinks(value: string): string {
   return parts.join("");
 }
 
+/** MDX リサイズは getBoundingClientRect 由来の小数になり得る。表示用に正の px 整数へ丸める。 */
+function parseDisplayPx(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0 || n > 99999) return null;
+  return Math.max(1, Math.round(n));
+}
+
 /** MDXEditor が出力する <img width height src> を安全な figure に変換する。 */
 function renderSafeHtmlImage(raw: string): string | null {
   const trimmed = raw.trim();
@@ -324,21 +333,19 @@ function renderSafeHtmlImage(raw: string): string | null {
   if (!url) return null;
 
   const alt = attributeValue(trimmed, "alt").trim() || "貼り付け画像";
-  const widthRaw = attributeValue(trimmed, "width").trim();
-  const heightRaw = attributeValue(trimmed, "height").trim();
-  // MDX は px 相当の整数 width/height を保存する。表示は本文幅を上限にアスペクト比を保つ。
-  const width = /^\d{1,5}$/.test(widthRaw) && Number(widthRaw) > 0 ? widthRaw : "";
-  const height = /^\d{1,5}$/.test(heightRaw) && Number(heightRaw) > 0 ? heightRaw : "";
+  const width = parseDisplayPx(attributeValue(trimmed, "width"));
+  const height = parseDisplayPx(attributeValue(trimmed, "height"));
+  // 指定幅を CSS 変数でも渡し、スタイルシート側で max-width:100% と競合しないようにする。
   const sizeAttrs = [
-    width ? ` width="${width}"` : "",
-    // height 属性はレイアウト用のアスペクト比ヒントとして残し、描画は height:auto
-    height ? ` height="${height}"` : "",
-    width
-      ? ` style="width:min(100%, ${width}px);height:auto;max-width:100%"`
+    width != null ? ` width="${width}"` : "",
+    height != null ? ` height="${height}"` : "",
+    width != null ? ` data-display-width="${width}"` : "",
+    width != null
+      ? ` style="width:${width}px;max-width:100%;height:auto"`
       : ` style="max-width:100%;height:auto"`,
   ].join("");
 
-  return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"${sizeAttrs} loading="lazy" /><figcaption>${escapeHtml(alt)}</figcaption></figure>`;
+  return `<figure class="md-image${width != null ? " has-display-width" : ""}"><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"${sizeAttrs} loading="lazy" /><figcaption>${escapeHtml(alt)}</figcaption></figure>`;
 }
 
 function renderAllowedHtmlTag(value: string): string {
@@ -755,7 +762,8 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   border-radius:var(--md-radius-sm);background:color-mix(in srgb,var(--markdown-accent-bg) 72%,var(--markdown-paper));
   color:var(--markdown-accent-strong);font-weight:600;overflow-wrap:anywhere
 }
-.markdown-document .md-image{margin:var(--md-space-3) 0}
+.markdown-document .md-image{margin:var(--md-space-3) 0;max-width:100%}
+.markdown-document .md-image.has-display-width{width:fit-content;max-width:100%}
 .markdown-document .md-image img{
   display:block;max-width:100%;height:auto;object-fit:contain;border:1px solid var(--markdown-paper-border);
   border-radius:var(--md-radius-md);background:var(--markdown-paper-subtle)

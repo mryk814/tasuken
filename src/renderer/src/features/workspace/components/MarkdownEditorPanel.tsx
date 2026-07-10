@@ -139,7 +139,7 @@ export function MarkdownEditorPanel({
       </div>
       <div className="markdown-editor-toolbar">
         <div className="segmented" aria-label={`${label}表示`}>
-          <button type="button" className={mode === "raw" ? "is-active" : ""} onClick={() => switchMode("raw")}>編集</button>
+          <button type="button" className={mode === "raw" ? "is-active" : ""} onClick={() => switchMode("raw")}>Edit</button>
           <button type="button" className={mode === "preview" ? "is-active" : ""} onClick={() => switchMode("preview")}>Preview</button>
         </div>
         <div className="markdown-editor-actions">
