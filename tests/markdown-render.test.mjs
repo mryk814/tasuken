@@ -332,9 +332,11 @@ test("notes editor hides north-south only image resizers", () => {
   assert.match(css, /height: auto !important/);
   // width:auto があると <img width> が無効になり Edit 再入場で全幅化する
   assert.match(css, /width は指定しない/);
-  const imgRule = css.match(/\.note-mdx-content img \{[^}]+\}/s)?.[0] || "";
+  const imgRule = (css.match(/\.note-mdx-content img \{[^}]+\}/s)?.[0] || "").replace(/\/\*[\s\S]*?\*\//g, "");
   assert.match(imgRule, /height:\s*auto\s*!important/);
-  assert.doesNotMatch(imgRule.replace(/\/\*[\s\S]*?\*\//g, ""), /\bwidth\s*:/);
+  // max-width は可。width プロパティ自体は不可（HTML width 属性を潰す）
+  assert.match(imgRule, /max-width:\s*100%/);
+  assert.doesNotMatch(imgRule, /(?<!max-)width\s*:/);
 });
 
 test("markdown preview keeps unsized images within content width", () => {
