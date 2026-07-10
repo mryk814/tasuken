@@ -300,7 +300,24 @@ test("markdown preview renders MDX editor html img tags with safe attachment url
   assert.match(html, /src="tasken-attachment:\/\/local\/a5a3a30d-097e-4398-b604-8f80828af63e\.png\/image"/);
   assert.match(html, /width="742"/);
   assert.match(html, /height="280"/);
+  // 指定幅を本文幅上限つきで反映し、アスペクト比は height:auto
+  assert.match(html, /width:min\(100%, 742px\)/);
+  assert.match(html, /height:auto/);
   assert.doesNotMatch(html, /&lt;img/);
+});
+
+test("markdown preview keeps unsized images within content width", () => {
+  const html = markdown.renderMarkdownPreview(
+    `![Chart](tasken-attachment://local/00000000-0000-0000-0000-000000000000.png/chart)`,
+  );
+  assert.match(html, /max-width:100%/);
+  assert.match(html, /height:auto/);
+});
+
+test("notes page enables image resize and dimension controls", () => {
+  const source = readFileSync(path.resolve("src/renderer/src/features/workspace/pages/NotesPage.tsx"), "utf8");
+  assert.match(source, /disableImageResize:\s*false/);
+  assert.match(source, /allowSetImageDimensions:\s*true/);
 });
 
 test("markdown preview rejects unsafe html img tags", () => {

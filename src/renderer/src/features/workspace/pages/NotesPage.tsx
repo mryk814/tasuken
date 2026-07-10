@@ -256,8 +256,10 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     markdownMathPlugin(),
     imagePlugin({
       imageUploadHandler: onImageUpload,
+      // クリック選択 + ハンドルで幅変更。設定ダイアログでは数値指定・解除（空欄=既定）も可。
       disableImageResize: false,
       disableImageSettingsButton: false,
+      allowSetImageDimensions: true,
     }),
     tablePlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "text" }),

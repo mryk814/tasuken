@@ -593,10 +593,24 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mdx-content { min-height: 100%; max-height: none; overflow: visible; padding: var(--space-3); border: 0; border-radius: 0; background: var(--markdown-paper); color: var(--markdown-paper-text); caret-color: var(--color-accent); }
 .note-mdx-content:focus, .note-mdx-content:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
 .note-mdx-content [data-lexical-decorator="true"] { max-width: 100%; user-select: none; -webkit-user-select: none; }
-.note-mdx-content img { display: block; max-width: 100%; max-height: 520px; object-fit: contain; border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper-subtle); }
+/* 画像幅は MDX の width 属性 / リサイズ結果を優先。本文幅は超えない。 */
+.note-mdx-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border: 1px solid var(--markdown-paper-border);
+  border-radius: var(--radius-md);
+  background: var(--markdown-paper-subtle);
+}
 .note-mdx-content p:has([class*="_imageWrapper_"]) { margin: var(--space-2) 0; }
-.note-mdx-content [class*="_imageWrapper_"] { width: fit-content; max-width: 100%; margin: var(--space-2) 0; line-height: 0; }
+.note-mdx-content [class*="_imageWrapper_"] { position: relative; width: fit-content; max-width: 100%; margin: var(--space-2) 0; line-height: 0; }
 .note-mdx-content [class*="_imageWrapper_"] > div { width: fit-content; max-width: 100%; line-height: 0; }
+/* 選択時のリサイズハンドルを見つけやすくする */
+.note-mdx-content [class*="_imageWrapper_"] [class*="_imageResizer_"],
+.note-mdx-content [class*="_imageWrapper_"] [class*="imageResizer"] {
+  z-index: 2;
+}
 .note-mdx-content ul { margin: var(--space-2) 0; padding-left: 1.55rem; list-style-type: disc; }
 .note-mdx-content ol { margin: var(--space-2) 0; padding-left: 1.55rem; list-style-type: decimal; }
 .note-mdx-content li { padding-left: var(--space-1); }
@@ -1025,7 +1039,15 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview th { border-bottom: 2px solid color-mix(in srgb, var(--markdown-accent-bd) 60%, var(--color-border-subtle)); background: color-mix(in srgb, var(--markdown-accent-bg) 44%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
 .markdown-preview tr:nth-child(even) td { background: color-mix(in srgb, var(--markdown-accent-bg) 10%, var(--markdown-paper)); }
 .markdown-preview .md-image { margin: var(--space-3) 0; }
-.markdown-preview .md-image img { display: block; max-width: 100%; max-height: 520px; object-fit: contain; border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper-subtle); }
+.markdown-preview .md-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border: 1px solid var(--markdown-paper-border);
+  border-radius: var(--radius-md);
+  background: var(--markdown-paper-subtle);
+}
 .markdown-preview .md-image figcaption { margin-top: var(--space-1); color: var(--markdown-paper-secondary); font-size: var(--text-xs); }
 .markdown-preview .md-math-inline { display: inline; padding: 0 .12em; color: var(--markdown-accent-strong); vertical-align: baseline; }
 .markdown-preview .md-math-block { overflow-x: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-accent-bd); border-radius: var(--radius-md); background: color-mix(in srgb, var(--markdown-accent-bg) 42%, var(--markdown-paper)); color: var(--markdown-accent-strong); line-height: 1.72; text-align: center; }
@@ -1107,9 +1129,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-preview-panel .note-mdx-content {
   max-height: none;
 }
+/* 幅指定を潰さない。極端に縦長な画像だけ画面内に収める。 */
 .note-preview-panel .note-mdx-content img,
 .note-preview-panel .note-main-preview .md-image img {
-  max-height: min(280px, 34vh);
+  max-height: min(70vh, 720px);
 }
 .markdown-frontmatter-note { width: fit-content; margin: 0; padding: 2px var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .drawer-edit-related { padding-top: 0; border-top: 1px solid var(--color-border-subtle); }

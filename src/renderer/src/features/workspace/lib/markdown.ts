@@ -326,12 +326,16 @@ function renderSafeHtmlImage(raw: string): string | null {
   const alt = attributeValue(trimmed, "alt").trim() || "貼り付け画像";
   const widthRaw = attributeValue(trimmed, "width").trim();
   const heightRaw = attributeValue(trimmed, "height").trim();
-  const width = /^\d{1,5}$/.test(widthRaw) ? widthRaw : "";
-  const height = /^\d{1,5}$/.test(heightRaw) ? heightRaw : "";
+  // MDX は px 相当の整数 width/height を保存する。表示は本文幅を上限にアスペクト比を保つ。
+  const width = /^\d{1,5}$/.test(widthRaw) && Number(widthRaw) > 0 ? widthRaw : "";
+  const height = /^\d{1,5}$/.test(heightRaw) && Number(heightRaw) > 0 ? heightRaw : "";
   const sizeAttrs = [
     width ? ` width="${width}"` : "",
+    // height 属性はレイアウト用のアスペクト比ヒントとして残し、描画は height:auto
     height ? ` height="${height}"` : "",
-    width ? ` style="width:min(100%, ${width}px);height:auto;max-width:100%"` : ` style="max-width:100%;height:auto"`,
+    width
+      ? ` style="width:min(100%, ${width}px);height:auto;max-width:100%"`
+      : ` style="max-width:100%;height:auto"`,
   ].join("");
 
   return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"${sizeAttrs} loading="lazy" /><figcaption>${escapeHtml(alt)}</figcaption></figure>`;
@@ -379,7 +383,7 @@ function renderPhrasing(nodes: PhrasingContent[] | undefined): string {
         const url = safeMarkdownUrl(image.url || "", "image");
         const label = (image.alt || "").trim() || "貼り付け画像";
         if (!url) return escapeHtml(`[画像: ${label}]`);
-        return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+        return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="max-width:100%;height:auto" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
       }
       case "inlineMath":
         return `<span class="md-math-inline">${renderMathExpression(String((node as { value?: string }).value || ""), false)}</span>`;
@@ -753,7 +757,7 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
 }
 .markdown-document .md-image{margin:var(--md-space-3) 0}
 .markdown-document .md-image img{
-  display:block;max-width:100%;max-height:70vh;height:auto;object-fit:contain;border:1px solid var(--markdown-paper-border);
+  display:block;max-width:100%;height:auto;object-fit:contain;border:1px solid var(--markdown-paper-border);
   border-radius:var(--md-radius-md);background:var(--markdown-paper-subtle)
 }
 .markdown-document .md-image figcaption{margin-top:var(--md-space-1);color:var(--markdown-paper-secondary);font-size:var(--md-text-xs)}
