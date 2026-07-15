@@ -8,8 +8,10 @@ import {
   addSyntaxExtension$,
   addToMarkdownExtension$,
   realmPlugin,
+  $isCodeBlockNode,
   type LexicalExportVisitor,
   type MdastImportVisitor,
+  type CodeBlockNode,
 } from "@mdxeditor/editor";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
@@ -61,7 +63,7 @@ type ParagraphNode = ReturnType<typeof import("lexical").$createParagraphNode>;
 const INLINE_MATH_PATTERN = /\$([^\s$](?:[^$\n]*[^\s$])?)\$(?!\d)/g;
 const BLOCK_MATH_PATTERN = /\$\$([\s\S]+?)\$\$/;
 
-function $isMarkdownMathNode(node: LexicalNode | null | undefined): node is MarkdownMathNode {
+export function $isMarkdownMathNode(node: LexicalNode | null | undefined): node is MarkdownMathNode {
   return node instanceof MarkdownMathNode;
 }
 
@@ -70,7 +72,7 @@ const MATH_AUTOSAVE_MS = 350;
 /** 矢印で数式へ入るときのキャレット位置（キー → start/end） */
 const pendingMathEntryCaret = new Map<NodeKey, "start" | "end" | "all">();
 
-function $selectMathNode(node: MarkdownMathNode, caret: "start" | "end" | "all" = "all"): void {
+export function $selectMathNode(node: MarkdownMathNode, caret: "start" | "end" | "all" = "all"): void {
   pendingMathEntryCaret.set(node.getKey(), caret);
   const selection = $createNodeSelection();
   selection.add(node.getKey());
@@ -153,8 +155,20 @@ function $isAtBlockEdge(direction: "start" | "end"): boolean {
 function MarkdownMathKeyboardPlugin() {
   const [editor] = useLexicalComposerContext();
 
+  const isNavigableBlock = (node: LexicalNode | null | undefined): node is MarkdownMathNode | CodeBlockNode => {
+    return $isMarkdownMathNode(node) || $isCodeBlockNode(node);
+  };
+
+  const enterNavigableBlock = (node: MarkdownMathNode | CodeBlockNode, caret: "start" | "end"): void => {
+    if ($isCodeBlockNode(node)) {
+      node.select();
+      return;
+    }
+    $selectMathNode(node, caret);
+  };
+
   useEffect(() => {
-    const enterAdjacentMath = (
+    const enterAdjacentBlock = (
       event: globalThis.KeyboardEvent,
       backward: boolean,
       caret: "start" | "end",
@@ -165,19 +179,19 @@ function MarkdownMathKeyboardPlugin() {
       const selection = $getSelection();
       if ($isNodeSelection(selection)) {
         const nodes = selection.getNodes();
-        if (nodes.length === 1 && $isMarkdownMathNode(nodes[0])) {
-          // すでに数式が選ばれている → 編集へ（MathNodeView が拾う）
+        if (nodes.length === 1 && isNavigableBlock(nodes[0])) {
+          // すでにブロックが選ばれている → 編集へ。
           event.preventDefault();
-          $selectMathNode(nodes[0], caret);
+          enterNavigableBlock(nodes[0], caret);
           return true;
         }
       }
       if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
 
       const adjacent = $getAdjacentNode(selection.focus, backward);
-      if ($isMarkdownMathNode(adjacent)) {
+      if (isNavigableBlock(adjacent)) {
         event.preventDefault();
-        $selectMathNode(adjacent, caret);
+        enterNavigableBlock(adjacent, caret);
         return true;
       }
       return false;
@@ -186,12 +200,12 @@ function MarkdownMathKeyboardPlugin() {
     return mergeRegister(
       editor.registerCommand(
         KEY_ARROW_RIGHT_COMMAND,
-        (event) => enterAdjacentMath(event, false, "start"),
+        (event) => enterAdjacentBlock(event, false, "start"),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
         KEY_ARROW_LEFT_COMMAND,
-        (event) => enterAdjacentMath(event, true, "end"),
+        (event) => enterAdjacentBlock(event, true, "end"),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
@@ -204,9 +218,9 @@ function MarkdownMathKeyboardPlugin() {
           if (!$isAtBlockEdge("end")) return false;
           const top = selection.anchor.getNode().getTopLevelElement();
           const next = top?.getNextSibling();
-          if (!$isMarkdownMathNode(next) || !next.getDisplayMode()) return false;
+          if (!isNavigableBlock(next) || ($isMarkdownMathNode(next) && !next.getDisplayMode())) return false;
           event.preventDefault();
-          $selectMathNode(next, "start");
+          enterNavigableBlock(next, "start");
           return true;
         },
         COMMAND_PRIORITY_HIGH,
@@ -221,9 +235,9 @@ function MarkdownMathKeyboardPlugin() {
           if (!$isAtBlockEdge("start")) return false;
           const top = selection.anchor.getNode().getTopLevelElement();
           const prev = top?.getPreviousSibling();
-          if (!$isMarkdownMathNode(prev) || !prev.getDisplayMode()) return false;
+          if (!isNavigableBlock(prev) || ($isMarkdownMathNode(prev) && !prev.getDisplayMode())) return false;
           event.preventDefault();
-          $selectMathNode(prev, "end");
+          enterNavigableBlock(prev, "end");
           return true;
         },
         COMMAND_PRIORITY_HIGH,

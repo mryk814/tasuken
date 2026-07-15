@@ -38,6 +38,7 @@ import { noteExportSignature } from "../../../../../shared/fileExport";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
+import { MarkdownCodeBlockNavigation, markdownCodeBlockDescriptor } from "../components/markdownCodeBlockEditor";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
 import { markdownTableKeyboardPlugin } from "../components/markdownTableKeyboardPlugin";
@@ -121,7 +122,9 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
           });
         }}
       >
-        <CodeMirrorEditor {...props} />
+        <MarkdownCodeBlockNavigation nodeKey={props.nodeKey}>
+          <CodeMirrorEditor {...props} />
+        </MarkdownCodeBlockNavigation>
       </div>
     );
   }
@@ -351,7 +354,7 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     markdownTableKeyboardPlugin(),
     codeBlockPlugin({
       defaultCodeBlockLanguage: "text",
-      codeBlockEditorDescriptors: [mermaidCodeBlockDescriptor],
+      codeBlockEditorDescriptors: [mermaidCodeBlockDescriptor, markdownCodeBlockDescriptor],
     }),
     codeMirrorPlugin({
       codeBlockLanguages: {

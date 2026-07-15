@@ -1,6 +1,6 @@
 {
   "name": "tasken",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "研究開発職向けの長期スケジュール・タスク・メモ管理デスクトップアプリ",
   "author": "ootan",
   "private": true,
@@ -71,6 +71,7 @@
     }
   },
   "dependencies": {
+    "@codemirror/view": "^6.43.4",
     "@mdxeditor/editor": "^4.0.4",
     "@tabler/icons-react": "^3.44.0",
     "adm-zip": "^0.5.17",

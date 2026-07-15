@@ -1367,6 +1367,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview .md-mermaid-error { margin-bottom: var(--space-2); color: var(--color-danger); font: var(--text-xs) var(--font-base); }
 .markdown-preview pre.md-mermaid-block.is-rendered > code { display: none; }
 .note-mermaid-code-block { width: 100%; min-width: 0; }
+.note-code-block-keyboard-navigation { display: block; width: 100%; min-width: 0; }
 .note-mermaid-code-block.is-preview { cursor: text; border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper); }
 .note-mermaid-code-block.is-preview:hover { border-color: var(--color-accent-subtle-bd); background: var(--markdown-paper-subtle); }
 .note-mermaid-code-block.is-preview:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
