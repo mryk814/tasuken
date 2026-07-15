@@ -71,6 +71,7 @@
     }
   },
   "dependencies": {
+    "@codemirror/view": "^6.43.4",
     "@mdxeditor/editor": "^4.0.4",
     "@tabler/icons-react": "^3.44.0",
     "adm-zip": "^0.5.17",
