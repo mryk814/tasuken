@@ -29,6 +29,7 @@ import {
   openArtifactFile,
   showArtifactInFolder,
 } from "./artifacts";
+import { MarkdownPreview } from "./MarkdownPreview";
 
 export type { ContentViewerTarget };
 
@@ -480,9 +481,9 @@ export function ContentViewer({
             </div>
           )}
           {load.status === "ready" && load.mode === "markdown" && (
-            <div
+            <MarkdownPreview
               className="content-viewer-markdown markdown-preview"
-              dangerouslySetInnerHTML={{ __html: html }}
+              html={html}
               onClick={handlePreviewClick}
             />
           )}

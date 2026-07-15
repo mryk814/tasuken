@@ -81,6 +81,7 @@
     "mdast-util-gfm-table": "^2.0.0",
     "mdast-util-math": "^3.0.0",
     "mdast-util-to-string": "^4.0.0",
+    "mermaid": "^11.16.0",
     "micromark-extension-gfm-strikethrough": "^2.1.0",
     "micromark-extension-gfm-table": "^2.1.1",
     "micromark-extension-math": "^3.1.0",

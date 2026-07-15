@@ -39,6 +39,7 @@ import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } 
 import { listActiveChatGroupNames } from "../lib/chatRefs";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { ArtifactSection } from "./artifacts";
+import { MarkdownPreview } from "./MarkdownPreview";
 import { DrawerHeader, Field, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import {
@@ -370,7 +371,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         </dl>
         {Boolean(entity.description) && <p>{str(entity.description)}</p>}
         {!isChatRef && Boolean(entity.body_markdown) && (
-          <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: previewHtml(str(entity.body_markdown), "markdown") }} />
+          <MarkdownPreview className="markdown-preview" html={previewHtml(str(entity.body_markdown), "markdown")} />
         )}
         {isChatRef && (
           <ArtifactSection

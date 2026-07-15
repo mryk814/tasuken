@@ -1,6 +1,7 @@
 import { type ClipboardEvent, useRef, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { MarkdownPreview } from "./MarkdownPreview";
 import { htmlToMarkdownPaste, previewHtml, splitFrontmatter } from "../lib/markdown";
 
 type MarkdownEditorMode = "raw" | "preview";
@@ -164,18 +165,18 @@ export function MarkdownEditorPanel({
             }}
           />
           {format === "markdown" && (
-            <div
-              ref={previewRef}
+            <MarkdownPreview
+              rootRef={previewRef}
               className="markdown-preview"
+              html={preview}
               onScroll={(event) => syncScroll(event.currentTarget, textareaRef.current)}
-              dangerouslySetInnerHTML={{ __html: preview }}
             />
           )}
         </div>
       ) : (
         <>
           <input type="hidden" name={name} value={body} />
-          <div ref={standalonePreviewRef} className="markdown-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+          <MarkdownPreview rootRef={standalonePreviewRef} className="markdown-preview" html={preview} />
         </>
       )}
     </section>

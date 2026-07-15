@@ -32,6 +32,7 @@ type TodoRow = {
 };
 
 type TodoSortMode = "default" | "priority" | "theme" | "title";
+type TodoSortDirection = "asc" | "desc";
 type TodoGroupMode = "none" | "schedule" | "theme";
 type TodoRowGroup = {
   id: string;
@@ -52,24 +53,31 @@ function reminderTimeLabel(value: unknown, today: string): string {
   return date && date !== today ? `${formatDate(date)} ${time}` : time;
 }
 
-function sortTodoRows(rows: TodoRow[], sortMode: TodoSortMode, today: string, themes: PageProps["themes"]): TodoRow[] {
+function sortTodoRows(rows: TodoRow[], sortMode: TodoSortMode, direction: TodoSortDirection, filter: string, today: string, themes: PageProps["themes"]): TodoRow[] {
   const themeName = (row: TodoRow) => themes.find((theme) => theme.id === row.task.project_id)?.name || "個人業務";
   const priorityRank = (row: TodoRow) => row.task.priority === "high" ? 0 : 1;
-  const baseCompare = compareTodoRows(today);
+  const baseCompare = (left: TodoRow, right: TodoRow) => {
+    if (sortMode === "default" && filter === "done") {
+      return String(left.task.completed_at || "0000-00-00").localeCompare(String(right.task.completed_at || "0000-00-00"));
+    }
+    return compareTodoRows(today)(left, right);
+  };
   return [...rows].sort((left, right) => {
+    let result = 0;
     if (sortMode === "priority") {
       const priorityDiff = priorityRank(left) - priorityRank(right);
-      if (priorityDiff) return priorityDiff;
+      if (priorityDiff) result = priorityDiff;
     }
-    if (sortMode === "theme") {
+    if (!result && sortMode === "theme") {
       const themeDiff = themeName(left).localeCompare(themeName(right), "ja");
-      if (themeDiff) return themeDiff;
+      if (themeDiff) result = themeDiff;
     }
-    if (sortMode === "title") {
+    if (!result && sortMode === "title") {
       const titleDiff = left.task.title.localeCompare(right.task.title, "ja");
-      if (titleDiff) return titleDiff;
+      if (titleDiff) result = titleDiff;
     }
-    return baseCompare(left, right);
+    if (!result) result = baseCompare(left, right);
+    return direction === "desc" ? -result : result;
   });
 }
 
@@ -98,6 +106,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   const [filter, setFilter] = useState("open");
   const [taskFilters, setTaskFilters] = useState<TaskViewFilters>(DEFAULT_TASK_VIEW_FILTERS);
   const [sortMode, setSortMode] = useState<TodoSortMode>("default");
+  const [sortDirection, setSortDirection] = useState<TodoSortDirection>("desc");
   const [groupMode, setGroupMode] = useState<TodoGroupMode>("none");
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -113,6 +122,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
       setFilter("open");
       setTaskFilters(DEFAULT_TASK_VIEW_FILTERS);
       setSortMode("default");
+      setSortDirection("desc");
       setGroupMode("none");
     }
   }, [route]);
@@ -126,7 +136,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     noSchedule: taskRows.filter((row) => !isDoneRow(row) && !scheduledDate(row.schedule)).length,
     done: taskRows.filter(isDoneRow).length,
   };
-  const visible = sortTodoRows(filterTodoRows(taskRows, currentFilters, today), sortMode, today, themes);
+  const visible = sortTodoRows(filterTodoRows(taskRows, currentFilters, today), sortMode, sortDirection, filter, today, themes);
   const groupedVisible = groupTodoRows(visible, groupMode, today, themes);
 
   function patchTaskFilters(patch: Partial<TaskViewFilters>) {
@@ -262,8 +272,8 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   }
 
   function copyRows() {
-    const header = "タスク\t状態\tテーマ\t今日\t予定終了\tリマインダー\t旗\t繰り返し";
-    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${reminderTimeLabel(task.reminder_at, today)}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
+    const header = "タスク\t状態\tテーマ\t今日\t予定終了\t完了日\tリマインダー\t旗\t繰り返し";
+    const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.completed_at ? task.completed_at.slice(0, 10) : ""}\t${reminderTimeLabel(task.reminder_at, today)}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
     workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("ToDo一覧をコピーしました。"));
   }
 
@@ -277,6 +287,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
     const done = task.state === "done" || task.state === "cancelled";
     const due = scheduledDate(schedule);
+    const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
     const urgency = !done && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
     const reminder = reminderTimeLabel(task.reminder_at, today);
     return (
@@ -331,7 +342,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           <span className="chip-dot" />
           {theme?.name || "個人業務"}
         </span>
-        <span className={`num${urgency ? ` is-${urgency}` : ""}`}>{formatDate(due)}</span>
+        <span className={`num${urgency ? ` is-${urgency}` : ""}`}>{formatDate(done ? completionDate : due)}</span>
       </div>
     );
   }
@@ -406,10 +417,14 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
             <option value="normal">旗なし</option>
           </select>
           <select value={sortMode} onChange={(event) => setSortMode(event.target.value as TodoSortMode)} aria-label="並び替え">
-            <option value="default">並び替え: 期限順</option>
+            <option value="default">並び替え: {filter === "done" ? "完了日" : "予定終了日"}</option>
             <option value="priority">並び替え: 旗優先</option>
             <option value="theme">並び替え: Theme順</option>
             <option value="title">並び替え: 名前順</option>
+          </select>
+          <select value={sortDirection} onChange={(event) => setSortDirection(event.target.value as TodoSortDirection)} aria-label="並び順の向き">
+            <option value="desc">降順（新しい順）</option>
+            <option value="asc">昇順（古い順）</option>
           </select>
           <select value={groupMode} onChange={(event) => setGroupMode(event.target.value as TodoGroupMode)} aria-label="グループ">
             <option value="none">グループなし</option>
@@ -418,7 +433,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           </select>
         </div>
         <div className="data-table todo-table">
-          <div className="table-head"><span /><span /><span>タスク</span><span>繰り返し</span><span>Theme</span><span>予定終了</span></div>
+          <div className="table-head"><span /><span /><span>タスク</span><span>繰り返し</span><span>Theme</span><span>{filter === "done" ? "完了日" : "予定終了"}</span></div>
           {groupedVisible.map((group) => (
             <div key={group.id} className="todo-row-group">
               {groupMode !== "none" && <div className="todo-group-heading"><span>{group.title}</span><strong>{group.rows.length}件</strong></div>}

@@ -369,7 +369,7 @@ export async function applyLinkedArtifactTarget(
         link_status: "unknown",
         last_checked_at: null,
       },
-    }], "参照先を更新しました。");
+    }], "Artifactを更新しました。");
     return true;
   } catch (error) {
     setToast(`参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
@@ -438,7 +438,10 @@ export function ArtifactCard({
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [urlEdit, setUrlEdit] = useState<string | null>(null);
+  const [nameEdit, setNameEdit] = useState(artifact.filename || artifact.title || "");
+  const [artifactEditFocus, setArtifactEditFocus] = useState<"url" | "name">("url");
   const urlEditRef = useRef<HTMLInputElement | null>(null);
+  const nameEditRef = useRef<HTMLInputElement | null>(null);
   const metaParts = artifactCardMetaParts(artifact, data, { includeSource: showSource });
   const mode = resolveArtifactStorageMode(artifact);
   const pathTitle = artifactOpenTarget(artifact) || artifact.filename;
@@ -446,8 +449,11 @@ export function ArtifactCard({
   const showLinkStatus = mode === "linked" && linkStatus && linkStatus !== "unknown" && linkStatus !== "ok";
 
   useEffect(() => {
-    if (urlEdit != null) urlEditRef.current?.focus();
-  }, [urlEdit != null]);
+    if (urlEdit == null) return;
+    const target = artifactEditFocus === "name" ? nameEditRef.current : urlEditRef.current;
+    target?.focus();
+    if (target) target.setSelectionRange(0, target.value.length);
+  }, [artifactEditFocus, urlEdit]);
 
   function openMenu(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -486,8 +492,20 @@ export function ArtifactCard({
       label: "参照先を変更",
       onSelect: () => {
         void retargetLinkedArtifact(artifact, saveEntities, setToast, {
-          onNeedUrlInput: (entry) => setUrlEdit(String(entry.target || "")),
+          onNeedUrlInput: (entry) => {
+            setNameEdit(String(entry.filename || entry.title || ""));
+            setArtifactEditFocus("url");
+            setUrlEdit(String(entry.target || ""));
+          },
         });
+      },
+    });
+    menuItems.push({
+      label: "表示名を変更",
+      onSelect: () => {
+        setNameEdit(String(artifact.filename || artifact.title || ""));
+        setArtifactEditFocus("name");
+        setUrlEdit(String(artifact.target || ""));
       },
     });
     if (artifactCanPromoteToManaged(artifact)) {
@@ -511,7 +529,7 @@ export function ArtifactCard({
       setToast("http または https のURLを指定してください。", "warning");
       return;
     }
-    const ok = await applyLinkedArtifactTarget(artifact, next, saveEntities, setToast);
+    const ok = await applyLinkedArtifactTarget(artifact, next, saveEntities, setToast, { displayName: nameEdit.trim() });
     if (ok) setUrlEdit(null);
   }
 
@@ -540,20 +558,39 @@ export function ArtifactCard({
         )}
         {urlEdit != null && (
           <form className="artifact-url-form artifact-url-form-inline" onSubmit={(event) => { void submitUrlEdit(event); }}>
-            <input
-              ref={urlEditRef}
-              type="url"
-              value={urlEdit}
-              onChange={(event) => setUrlEdit(event.target.value)}
-              placeholder="https://..."
-              aria-label="新しいURL"
-              onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setUrlEdit(null);
-                }
-              }}
-            />
+            <label className="artifact-edit-field">
+              <span>参照先</span>
+              <input
+                ref={urlEditRef}
+                type="url"
+                value={urlEdit}
+                onChange={(event) => setUrlEdit(event.target.value)}
+                placeholder="https://..."
+                aria-label="新しいURL"
+                onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setUrlEdit(null);
+                  }
+                }}
+              />
+            </label>
+            <label className="artifact-edit-field">
+              <span>表示名</span>
+              <input
+                ref={nameEditRef}
+                value={nameEdit}
+                onChange={(event) => setNameEdit(event.target.value)}
+                placeholder="表示名"
+                aria-label="Artifactの表示名"
+                onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setUrlEdit(null);
+                  }
+                }}
+              />
+            </label>
             <button type="submit" className="primary-button compact" disabled={!urlEdit.trim()}>更新</button>
             <button type="button" className="text-button compact" onClick={() => setUrlEdit(null)}>取消</button>
           </form>

@@ -718,6 +718,11 @@ interface SmokeCreatedResult {
   notesPaneMathRendered: boolean;
   notesLiveEditSaved: boolean;
   notesMarkdownPasteRendered: boolean;
+  notesEditPreviewAligned: boolean;
+  notesEditReopened: boolean;
+  notesMermaidRenderedInEdit: boolean;
+  notesCodeBlockFullWidth: boolean;
+  notesFootnoteEditPreviewAligned: boolean;
   rawCopyNotified: boolean;
   themeMode: string;
   clipboardWritten: boolean;
@@ -774,6 +779,7 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
   recordSmoke("renderer-loaded");
   const testTitle = `デスクトップ動作確認 ${Date.now()}`;
   const markdownTitle = `Markdown動作確認 ${Date.now()}`;
+  const footnoteTitle = `脚注動作確認 ${Date.now()}`;
   const smokeTaskTitle = `Todayミニ動作確認 ${Date.now()}`;
   const smokeTaskId = randomUUID();
   const smokeThemeId = `smoke-theme-${Date.now()}`;
@@ -793,7 +799,21 @@ $$
 
 \`\`\`
 code block
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  Edit --> Preview
 \`\`\``;
+  const footnoteBody = `# Footnote Preview
+
+本文の根拠[^smoke]。
+
+[^smoke]: Smoke脚注本文。
+
+## 続き
+
+編集前の本文。`;
   const created = await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -940,6 +960,19 @@ code block
         notesPane?.querySelector(".note-editor-math-inline")
         && notesPane?.querySelector(".note-editor-math-block")
       );
+      const mermaidPreviewInEdit = await waitFor(
+        () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
+        "Edit面のMermaid Preview",
+        30,
+      );
+      const notesMermaidRenderedInEdit = Boolean(mermaidPreviewInEdit);
+      mermaidPreviewInEdit.closest(".note-mermaid-code-block")?.click();
+      const mermaidCodeEditor = await waitFor(
+        () => notesPane?.querySelector(".note-mermaid-code-block.is-editing .cm-editor"),
+        "Mermaidコード編集面",
+        30,
+      );
+      const notesCodeBlockFullWidth = mermaidCodeEditor.getBoundingClientRect().width >= liveEditable.getBoundingClientRect().width * 0.8;
 
       liveEditable.focus();
       let liveTextNode = null;
@@ -976,10 +1009,62 @@ code block
         notesPane?.querySelector(".note-live-editor h2")?.textContent?.includes("Pasted Markdown Heading")
         && notesPane?.querySelector(".note-live-editor strong")?.textContent?.includes("Pasted Bold Text")
       );
+      const editStructure = {
+        h1: liveEditable.querySelector("h1")?.textContent?.trim() || "",
+        h2: liveEditable.querySelector("h2")?.textContent?.trim() || "",
+        strong: liveEditable.querySelector("strong")?.textContent?.trim() || "",
+        list: liveEditable.querySelector("li")?.textContent?.trim() || "",
+      };
       const saveDraftButton = [...(notesPane?.querySelectorAll(".note-preview-actions button") || [])].find((button) => button.textContent.trim() === "保存");
       saveDraftButton?.click();
       await delay(220);
       const notesLiveEditSaved = notesLiveEditRendered && document.body.innerText.includes("保存しました。");
+      clickPaneButton(notesPane, "Preview");
+      await delay(180);
+      const editedPreview = notesPane.querySelector(".note-main-preview.markdown-preview");
+      const previewStructure = {
+        h1: editedPreview?.querySelector("h1")?.textContent?.trim() || "",
+        h2: editedPreview?.querySelector("h2")?.textContent?.trim() || "",
+        strong: editedPreview?.querySelector("strong")?.textContent?.trim() || "",
+        list: editedPreview?.querySelector("li")?.textContent?.trim() || "",
+      };
+      const notesEditPreviewAligned = Object.keys(editStructure).every((key) => editStructure[key] === previewStructure[key])
+        && Boolean(editedPreview?.textContent?.includes("Live edit smoke"));
+      clickPaneButton(notesPane, "Edit");
+      await delay(180);
+      const notesEditReopened = Boolean(notesPane.querySelector(".note-mdx-content[contenteditable='true']")?.textContent?.includes("Live edit smoke"));
+
+      // 脚注MarkdownをEditで更新し、Previewへ切り替えて脚注表示と保存値を確認する。
+      (await waitForButton("Note")).click();
+      await delay(100);
+      const footnoteForm = await waitFor(() => document.querySelector(".drawer-form"), "脚注Note入力フォーム");
+      const footnoteTitleInput = footnoteForm.querySelector('input[name="title"]');
+      if (!footnoteTitleInput) throw new Error("脚注Note入力フォームにタイトル欄がありません");
+      setInputValue(footnoteTitleInput, ${JSON.stringify(footnoteTitle)});
+      footnoteForm.requestSubmit();
+      await delay(220);
+      await selectNoteRow(${JSON.stringify(footnoteTitle)});
+      notesPane = await setNoteBodyRaw(${JSON.stringify(footnoteBody)});
+      clickPaneButton(notesPane, "保存");
+      await delay(180);
+      clickPaneButton(notesPane, "Edit");
+      await delay(160);
+      const footnoteEditor = await waitFor(
+        () => notesPane?.querySelector("textarea.note-editor-footnotes"),
+        "脚注Markdown編集面",
+      );
+      setInputValue(footnoteEditor, ${JSON.stringify(footnoteBody)} + "\\n\\nEdit脚注入力確認。");
+      await delay(100);
+      clickPaneButton(notesPane, "保存");
+      await delay(180);
+      clickPaneButton(notesPane, "Preview");
+      await delay(160);
+      const footnotePreview = notesPane.querySelector(".note-main-preview");
+      const notesFootnoteEditPreviewAligned = Boolean(
+        footnotePreview?.querySelector(".md-footnote-ref")
+        && footnotePreview?.querySelector(".md-footnotes")?.textContent?.includes("Smoke脚注本文")
+        && footnotePreview?.textContent?.includes("Edit脚注入力確認")
+      );
       await window.api.preferences.set("themeMode", "dark");
       const now = new Date();
       const today = [
@@ -1026,6 +1111,11 @@ code block
         notesPaneMathRendered,
         notesLiveEditSaved,
         notesMarkdownPasteRendered,
+        notesEditPreviewAligned,
+        notesEditReopened,
+        notesMermaidRenderedInEdit,
+        notesCodeBlockFullWidth,
+        notesFootnoteEditPreviewAligned,
         rawCopyNotified,
         themeMode,
         clipboardWritten,
@@ -1131,6 +1221,11 @@ code block
         && result.notesPaneMathRendered
         && result.notesLiveEditSaved
         && result.notesMarkdownPasteRendered
+        && result.notesEditPreviewAligned
+        && result.notesEditReopened
+        && result.notesMermaidRenderedInEdit
+        && result.notesCodeBlockFullWidth
+        && result.notesFootnoteEditPreviewAligned
         && result.rawCopyNotified
         && result.rootReady
         && result.todayMiniOpened

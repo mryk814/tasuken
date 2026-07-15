@@ -82,6 +82,46 @@ code line
   assert.match(html, /<pre><code>code line\n<\/code><\/pre>/);
 });
 
+test("markdown preview renders footnotes and keeps Mermaid code blocks identifiable", () => {
+  const html = markdown.renderMarkdownPreview(`結論[^source]。\n\n[^source]: 実験ノートを参照。\n\n\`\`\`mermaid\nflowchart TD\n  A[入力] --> B[判断]\n\`\`\``);
+
+  assert.match(html, /class="md-footnote-ref"/);
+  assert.match(html, /<section class="md-footnotes"/);
+  assert.match(html, /実験ノートを参照/);
+  assert.match(html, /class="md-mermaid-block" data-mermaid="true"/);
+  assert.match(html, /class="language-mermaid"/);
+});
+
+test("rich editor normalization removes only accidental empty fences", () => {
+  const accidental = "本文\n```\n```\n次の段落";
+  const mermaid = "```mermaid\nflowchart TD\n  A --> B\n```\n本文";
+  const code = "```text\nconst value = 1;\n```";
+
+  assert.equal(markdown.normalizeRichEditorMarkdown(accidental), "本文\n\n次の段落");
+  assert.equal(markdown.normalizeRichEditorMarkdown(mermaid), mermaid);
+  assert.equal(markdown.normalizeRichEditorMarkdown(code), code);
+});
+
+test("Notes Edit and Preview share the rendered document style contract", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
+
+  assert.match(source, /contentEditableClassName="note-mdx-content markdown-preview"/);
+  assert.match(source, /<MarkdownPreview className="note-main-preview markdown-preview"/);
+  assert.match(source, /className="note-main-editor note-main-editor-raw note-editor-footnotes"/);
+  assert.match(source, /const mermaidCodeBlockDescriptor/);
+  assert.match(source, /Editor:\s*MermaidCodeBlockEditor/);
+  assert.match(styles, /\.note-preview-panel \.note-main-preview \{[\s\S]*?padding-bottom:\s*60vh;/);
+  assert.match(styles, /\.note-preview-panel \.note-live-editor \[class\*="_rootContentEditableWrapper_"\]::after \{[\s\S]*?flex:\s*0 0 60vh;[\s\S]*?user-select:\s*none;/);
+  assert.doesNotMatch(styles, /\.note-mdx-content \{[^}]*padding:[^;]*60vh/);
+  assert.match(styles, /\.note-live-editor \[class\*="_rootContentEditableWrapper_"\] \{[\s\S]*?overflow:\s*auto;/);
+  assert.match(styles, /\.note-mdx-content\[contenteditable="true"\] \{[\s\S]*?overflow:\s*visible;/);
+  assert.doesNotMatch(styles, /\.note-preview-panel \.note-mdx-content::after/);
+  assert.doesNotMatch(styles, /scroll-padding-bottom:\s*60vh/);
+  assert.match(styles, /:has\(\.cm-editor\)[\s\S]*?width:\s*100%/);
+  assert.doesNotMatch(styles, /\.note-footnote-editor/);
+});
+
 test("markdown preview renders safe ordinary links and rejects unsafe link urls", () => {
   const html = markdown.renderMarkdownPreview("[OpenAI](https://openai.com) [mail](mailto:test@example.com) [bad](javascript:alert(1)) ![Chart](https://example.com/chart.png) [[Knowledge]]");
 
@@ -524,9 +564,12 @@ test("notes page keeps scroll position when switching edit, preview, and raw mod
   );
 
   assert.match(source, /function switchPreviewMode/);
+  assert.match(source, /function captureModeScroll/);
   assert.match(source, /function restoreModeScroll/);
-  // Edit 面の実スクロールは contenteditable（.note-mdx-content）
-  assert.match(source, /querySelector<HTMLElement>\("\.note-mdx-content"\)/);
+  assert.match(source, /headingIndex/);
+  assert.match(source, /headingOffset/);
+  // Edit 面は contenteditable の外枠がスクロールし、末尾余白を選択範囲から分離する。
+  assert.match(source, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
   assert.match(source, /switchPreviewMode\("edit"\)/);
   assert.match(source, /switchPreviewMode\("preview"\)/);
   assert.match(source, /switchPreviewMode\("raw"\)/);
@@ -820,9 +863,8 @@ title: t
   assert.match(indexSource, /activeBarIndex|is-active/);
   assert.match(indexSource, /addEventListener\("scroll"/);
   assert.match(indexSource, /resolveActiveIndex/);
-  // Edit 面は contenteditable がスクロールする（ラッパは overflow:hidden）
-  assert.match(indexSource, /querySelector<HTMLElement>\("\.note-mdx-content"\)/);
-  assert.doesNotMatch(indexSource, /querySelector(?:All)?(?:<[^>]+>)?\([^)]*_rootContentEditableWrapper_/);
+  // Edit 面は contenteditable 外側のスクロールラッパへ追従する。
+  assert.match(indexSource, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
   assert.match(indexSource, /computeHeadingNumberLabels/);
   assert.match(indexSource, /headingNumberOptions/);
   assert.match(indexSource, /md-heading-index-item-number/);

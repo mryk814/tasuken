@@ -1,6 +1,7 @@
 import {
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
+  CodeMirrorEditor,
   codeBlockPlugin,
   codeMirrorPlugin,
   CodeToggle,
@@ -9,6 +10,7 @@ import {
   headingsPlugin,
   imagePlugin,
   InsertImage,
+  InsertCodeBlock,
   InsertTable,
   linkDialogPlugin,
   linkPlugin,
@@ -23,6 +25,8 @@ import {
   toolbarPlugin,
   UndoRedo,
   type MDXEditorMethods,
+  type CodeBlockEditorDescriptor,
+  type CodeBlockEditorProps,
 } from "@mdxeditor/editor";
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { $findMatchingParent } from "@lexical/utils";
@@ -34,6 +38,7 @@ import { noteExportSignature } from "../../../../../shared/fileExport";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
+import { MarkdownPreview } from "../components/MarkdownPreview";
 import { markdownMathPlugin } from "../components/markdownMathPlugin";
 import { markdownTableKeyboardPlugin } from "../components/markdownTableKeyboardPlugin";
 import { isChatReference } from "../lib/chatRefs";
@@ -50,9 +55,11 @@ import {
   insertStructuredMarkdownPaste,
   isStructuredMarkdownPaste,
   normalizeHeadingNumberStart,
+  normalizeRichEditorMarkdown,
   openSafeMarkdownLink,
   previewDocument,
   previewHtml,
+  renderMarkdownPreview,
   safeMarkdownLinkUrl,
   type HeadingNumberStart,
   type MarkdownHeadingItem,
@@ -82,6 +89,66 @@ type MarkdownEditorBoundaryProps = {
   onError: (message: string) => void;
 };
 type MarkdownEditorBoundaryState = { error: string | null };
+
+function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
+  const [editing, setEditing] = useState(false);
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const rendered = useMemo(
+    () => renderMarkdownPreview(`\`\`\`mermaid\n${props.code}\n\`\`\``),
+    [props.code],
+  );
+
+  useEffect(() => {
+    props.focusEmitter.subscribe(() => setEditing(true));
+  }, [props.focusEmitter]);
+
+  useEffect(() => {
+    if (!editing) return;
+    const frame = window.requestAnimationFrame(() => {
+      editorRootRef.current?.querySelector<HTMLElement>(".cm-content")?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <div
+        ref={editorRootRef}
+        className="note-mermaid-code-block is-editing"
+        onBlurCapture={() => {
+          window.requestAnimationFrame(() => {
+            if (!editorRootRef.current?.contains(document.activeElement)) setEditing(false);
+          });
+        }}
+      >
+        <CodeMirrorEditor {...props} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="note-mermaid-code-block is-preview"
+      role="button"
+      tabIndex={0}
+      aria-label="Mermaidを編集"
+      onClick={() => setEditing(true)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        setEditing(true);
+      }}
+    >
+      <MarkdownPreview className="note-mermaid-preview markdown-preview" html={rendered} />
+    </div>
+  );
+}
+
+const mermaidCodeBlockDescriptor: CodeBlockEditorDescriptor = {
+  priority: 10,
+  match: (language) => String(language || "").toLowerCase() === "mermaid",
+  Editor: MermaidCodeBlockEditor,
+};
 
 function NotesKindIcon({ kind, size = 15 }: { kind: NotesKind; size?: number }) {
   const props = { size, stroke: 1.75, "aria-hidden": true as const };
@@ -234,69 +301,11 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
 
   useEffect(() => {
     if (!markdownSourceRef) return;
-    markdownSourceRef.current = () => editorRef.current?.getMarkdown() || lastInternalMarkdown.current || markdown;
+    markdownSourceRef.current = () => normalizeRichEditorMarkdown(editorRef.current?.getMarkdown() || lastInternalMarkdown.current || markdown);
     return () => {
       markdownSourceRef.current = null;
     };
   }, [markdown, markdownSourceRef]);
-
-  // 日本語 IME: 変換開始時にキャレットが編集ホスト内に見えるようスクロールし、
-  // 候補ウィンドウの基準座標が画面外や隠れ位置にならないようにする。
-  useEffect(() => {
-    const root = editorScopeRef.current;
-    if (!root) return;
-
-    const scrollCaretIntoHost = (host: HTMLElement) => {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      const range = selection.getRangeAt(0).cloneRange();
-      let rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
-        const marker = document.createElement("span");
-        marker.textContent = "\u200b";
-        marker.style.cssText = "display:inline-block;width:0;height:1em;";
-        const insert = range.cloneRange();
-        insert.insertNode(marker);
-        rect = marker.getBoundingClientRect();
-        marker.parentNode?.removeChild(marker);
-        try {
-          selection.removeAllRanges();
-          selection.addRange(range);
-        } catch {
-          // 復元失敗は無視
-        }
-      }
-      const hostRect = host.getBoundingClientRect();
-      const margin = 28;
-      if (rect.bottom > hostRect.bottom - margin) {
-        host.scrollTop += rect.bottom - hostRect.bottom + margin;
-      } else if (rect.top < hostRect.top + margin) {
-        host.scrollTop -= hostRect.top - rect.top + margin;
-      }
-    };
-
-    const onCompositionStart = (event: CompositionEvent) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement) || !root.contains(target)) return;
-      const host = target.closest<HTMLElement>(".note-mdx-content, [contenteditable='true']");
-      if (!host) return;
-      // EditContext が付いている場合は外して従来 caret 基準へ（可能な環境のみ）
-      const withEditContext = host as HTMLElement & { editContext?: unknown };
-      if (withEditContext.editContext != null) {
-        try {
-          withEditContext.editContext = null;
-        } catch {
-          // 読み取り専用の実装では触れない
-        }
-      }
-      window.requestAnimationFrame(() => scrollCaretIntoHost(host));
-    };
-
-    root.addEventListener("compositionstart", onCompositionStart, true);
-    return () => {
-      root.removeEventListener("compositionstart", onCompositionStart, true);
-    };
-  }, []);
 
   const plugins = useMemo(() => [
     toolbarPlugin({
@@ -310,6 +319,7 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
           <CodeToggle />
           <Separator />
           <ListsToggle />
+          <InsertCodeBlock />
           <CreateLink />
           <InsertImage />
           <InsertTable />
@@ -339,7 +349,10 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     tablePlugin(),
     // 表セル内の ↑↓ を視覚上の上下セル移動にする（←→ は既存の文字移動のまま）
     markdownTableKeyboardPlugin(),
-    codeBlockPlugin({ defaultCodeBlockLanguage: "text" }),
+    codeBlockPlugin({
+      defaultCodeBlockLanguage: "text",
+      codeBlockEditorDescriptors: [mermaidCodeBlockDescriptor],
+    }),
     codeMirrorPlugin({
       codeBlockLanguages: {
         text: "Text",
@@ -350,6 +363,7 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
         css: "CSS",
         json: "JSON",
         sql: "SQL",
+        mermaid: "Mermaid",
       },
     }),
     frontmatterPlugin(),
@@ -534,9 +548,10 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
         contentEditableClassName="note-mdx-content markdown-preview"
         markdown={markdown}
         onChange={(value) => {
-          lastInternalMarkdown.current = value;
-          if (!mountedRef.current && value === markdown) return;
-          onChange(value);
+          const normalized = normalizeRichEditorMarkdown(value);
+          lastInternalMarkdown.current = normalized;
+          if (!mountedRef.current && normalized === markdown) return;
+          onChange(normalized);
         }}
         onError={({ error }) => {
           setEditorFailed(true);
@@ -666,6 +681,18 @@ function recordBody(record: Combined): string {
   return str(record.body_markdown);
 }
 
+function hasMarkdownFootnotes(value: string): boolean {
+  return /(?:^|\n)\[\^[^\]\n]+\]:|\[\^[^\]\n]+\]/.test(value);
+}
+
+function noteDateLabel(value: unknown): string {
+  const raw = str(value);
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function canCreateKnowledge(record: Combined): boolean {
   return record.recordType === "note" && recordKind(record) === "note";
 }
@@ -727,7 +754,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const markdownHeadings = useMemo(() => extractMarkdownHeadings(draftBody), [draftBody]);
 
   useEffect(() => {
-    setDraftBody(selectedBody);
+    setDraftBody(normalizeRichEditorMarkdown(selectedBody));
     setDraftState("");
   }, [selected?.id, selectedBody]);
 
@@ -879,8 +906,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     if (!panel) return null;
     if (mode === "raw") return panel.querySelector<HTMLElement>("textarea.note-main-editor-raw");
     if (mode === "preview") return panel.querySelector<HTMLElement>(".note-main-preview");
-    // Edit: contenteditable 自身がスクロールする（ラッパは overflow:hidden）
-    return panel.querySelector<HTMLElement>(".note-mdx-content");
+    // Edit: 選択ドラッグの自動スクロールが暴走しないよう、contenteditable の外枠だけをスクロールさせる。
+    return panel.querySelector<HTMLElement>(".note-live-editor [class*='_rootContentEditableWrapper_']")
+      || panel.querySelector<HTMLElement>(".note-mdx-content")
+      || panel.querySelector<HTMLElement>("textarea.note-main-editor-raw");
   }
 
   function scrollRatio(element: HTMLElement | null): number {
@@ -889,8 +918,32 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     return scrollable > 0 ? element.scrollTop / scrollable : 0;
   }
 
-  // MDXEditorはマウント直後に本文の高さが伸びていくため、高さが安定するまで数フレーム復元を続ける。
-  function restoreModeScroll(mode: PreviewMode, ratio: number) {
+  type ModeScrollState = {
+    ratio: number;
+    headingIndex: number | null;
+    headingOffset: number;
+  };
+
+  function captureModeScroll(mode: PreviewMode): ModeScrollState {
+    const element = modeScroller(mode);
+    const state: ModeScrollState = { ratio: scrollRatio(element), headingIndex: null, headingOffset: 0 };
+    if (!element || mode === "raw") return state;
+    const headings = Array.from(element.querySelectorAll<HTMLElement>("h1, h2, h3, h4"));
+    if (!headings.length) return state;
+    const scrollTop = element.getBoundingClientRect().top;
+    let headingIndex = 0;
+    for (let index = 0; index < headings.length; index += 1) {
+      if (headings[index].getBoundingClientRect().top - scrollTop > 8) break;
+      headingIndex = index;
+    }
+    state.headingIndex = headingIndex;
+    state.headingOffset = headings[headingIndex].getBoundingClientRect().top - scrollTop;
+    return state;
+  }
+
+  // EditとPreviewではMermaid等のブロック高が異なるため、比率より見出し位置を優先して復元する。
+  // MDXEditorはマウント直後に本文の高さが伸びるので、高さが安定するまで数フレーム続ける。
+  function restoreModeScroll(mode: PreviewMode, state: ModeScrollState) {
     let frames = 0;
     let lastHeight = -1;
     const apply = () => {
@@ -898,7 +951,14 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       const target = modeScroller(mode);
       if (target) {
         const scrollable = target.scrollHeight - target.clientHeight;
-        if (scrollable > 0) target.scrollTop = ratio * scrollable;
+        const headings = mode === "raw" ? [] : Array.from(target.querySelectorAll<HTMLElement>("h1, h2, h3, h4"));
+        const anchor = state.headingIndex == null ? null : headings[state.headingIndex];
+        if (anchor) {
+          const offset = anchor.getBoundingClientRect().top - target.getBoundingClientRect().top;
+          target.scrollTop = Math.max(0, Math.min(scrollable, target.scrollTop + offset - state.headingOffset));
+        } else if (scrollable > 0) {
+          target.scrollTop = state.ratio * scrollable;
+        }
         if (scrollable > 0 && target.scrollHeight === lastHeight) return;
         lastHeight = target.scrollHeight;
       }
@@ -916,9 +976,9 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         setDraftBody(latest);
       }
     }
-    const ratio = scrollRatio(modeScroller(previewMode));
+    const scrollState = captureModeScroll(previewMode);
     setPreviewMode(nextMode);
-    restoreModeScroll(nextMode, ratio);
+    restoreModeScroll(nextMode, scrollState);
   }
 
   function insertDraftMarkdown(markdown: string, selectionStart: number, selectionEnd: number) {
@@ -1274,6 +1334,12 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     </span>
                   </span>
                   <h2>{str(selected.title) || (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}</h2>
+                  {(selected.created_at || selected.updated_at) && (
+                    <div className="note-date-meta">
+                      {selected.created_at && <span>追加 {noteDateLabel(selected.created_at)}</span>}
+                      {selected.updated_at && <span>更新 {noteDateLabel(selected.updated_at)}</span>}
+                    </div>
+                  )}
                   {selectedUrl && (
                     <a className="note-preview-url" href={selectedUrl} target="_blank" rel="noreferrer">{selectedUrl}</a>
                   )}
@@ -1375,7 +1441,19 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   headingNumberOptions={headingNumberOptions.preview}
                   onSelect={jumpToMarkdownHeading}
                 />
-                {previewMode === "edit" ? (
+                {previewMode === "edit" ? hasMarkdownFootnotes(draftBody) ? (
+                  <textarea
+                    ref={textareaRef}
+                    className="note-main-editor note-main-editor-raw note-editor-footnotes"
+                    value={draftBody}
+                    onPaste={handleDraftPaste}
+                    onChange={(event) => {
+                      setDraftBody(event.target.value);
+                      if (draftState) setDraftState("");
+                    }}
+                    aria-label="脚注を含むMarkdown本文"
+                  />
+                ) : (
                   <MarkdownEditorBoundary
                     markdown={draftBody}
                     resetKey={selected.id}
@@ -1399,7 +1477,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     />
                   </MarkdownEditorBoundary>
                 ) : previewMode === "preview" ? (
-                  <div className="note-main-preview markdown-preview" dangerouslySetInnerHTML={{ __html: previewHtml(draftBody, "markdown", headingNumberOptions.preview) }} />
+                  <MarkdownPreview className="note-main-preview markdown-preview" html={previewHtml(draftBody, "markdown", headingNumberOptions.preview)} />
                 ) : (
                   <textarea
                     ref={textareaRef}
