@@ -294,18 +294,67 @@ export function htmlToMarkdownPaste(html: string): string {
   return normalizeMarkdownPaste(decodeHtmlEntities(text));
 }
 
-function renderTextWithWikiLinks(value: string): string {
+export function normalizeRichEditorMarkdown(value: string): string {
+  // Rich Edit の ``` ショートカットは、閉じフェンスまで単独行として入力すると
+  // 言語なしの空CodeBlockをもう1つ作る。保存値から空ブロックだけを除去する。
+  return value.replace(/(^|\r?\n)```[ \t]*\r?\n```[ \t]*(?=\r?\n|$)/g, "$1");
+}
+
+function extractFootnoteDefinitions(value: string): { body: string; definitions: Map<string, string> } {
+  const definitions = new Map<string, string>();
+  const kept: string[] = [];
+  const lines = value.split(/\r?\n/);
+  let inFence = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const fence = lines[index].match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fence) {
+      inFence = !inFence;
+      kept.push(lines[index]);
+      continue;
+    }
+    if (inFence) {
+      kept.push(lines[index]);
+      continue;
+    }
+    const match = lines[index].match(/^\[\^([^\]\n]+)\]:\s*(.*)$/);
+    if (!match) {
+      kept.push(lines[index]);
+      continue;
+    }
+    const parts = [match[2]];
+    while (index + 1 < lines.length && /^(?: {4}|\t)/.test(lines[index + 1])) {
+      index += 1;
+      parts.push(lines[index].replace(/^(?: {4}|\t)/, ""));
+    }
+    definitions.set(match[1].trim(), parts.join("\n").trim());
+  }
+  return { body: kept.join("\n"), definitions };
+}
+
+function renderTextWithWikiLinks(value: string, ctx: MarkdownRenderContext): string {
   const parts: string[] = [];
-  const pattern = /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g;
+  const pattern = /\[\^([^\]\n]+)\]|\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g;
   let last = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(value)) !== null) {
     if (match.index > last) parts.push(escapeHtml(value.slice(last, match.index)));
-    const link = parseWikiLinks(match[0])[0];
-    if (link) {
-      parts.push(`<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`);
+    if (match[1]) {
+      const key = match[1].trim();
+      let number = ctx.footnotes.get(key);
+      if (!number) {
+        number = ctx.nextFootnote;
+        ctx.nextFootnote += 1;
+        ctx.footnotes.set(key, number);
+      }
+      const id = `fn-${escapeHtml(key)}`;
+      parts.push(`<sup id="fnref-${escapeHtml(key)}" class="md-footnote-ref"><a href="#${id}">[${number}]</a></sup>`);
     } else {
-      parts.push(escapeHtml(match[0]));
+      const link = parseWikiLinks(match[0])[0];
+      if (link) {
+        parts.push(`<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`);
+      } else {
+        parts.push(escapeHtml(match[0]));
+      }
     }
     last = match.index + match[0].length;
   }
@@ -365,18 +414,18 @@ function renderAllowedHtmlTag(value: string): string {
   return escapeHtml(value);
 }
 
-function renderPhrasing(nodes: PhrasingContent[] | undefined): string {
+function renderPhrasing(nodes: PhrasingContent[] | undefined, ctx: MarkdownRenderContext): string {
   if (!nodes?.length) return "";
   return nodes.map((node) => {
     switch (node.type) {
       case "text":
-        return renderTextWithWikiLinks((node as Text).value || "");
+        return renderTextWithWikiLinks((node as Text).value || "", ctx);
       case "strong":
-        return `<strong>${renderPhrasing((node as Strong).children)}</strong>`;
+        return `<strong>${renderPhrasing((node as Strong).children, ctx)}</strong>`;
       case "emphasis":
-        return `<em>${renderPhrasing((node as Emphasis).children)}</em>`;
+        return `<em>${renderPhrasing((node as Emphasis).children, ctx)}</em>`;
       case "delete":
-        return `<del>${renderPhrasing((node as Delete).children)}</del>`;
+        return `<del>${renderPhrasing((node as Delete).children, ctx)}</del>`;
       case "inlineCode":
         return `<code>${escapeHtml((node as InlineCode).value || "")}</code>`;
       case "break":
@@ -384,7 +433,7 @@ function renderPhrasing(nodes: PhrasingContent[] | undefined): string {
       case "link": {
         const link = node as Link;
         const url = safeMarkdownUrl(link.url || "", "link");
-        const label = renderPhrasing(link.children) || escapeHtml(link.url || "");
+        const label = renderPhrasing(link.children, ctx) || escapeHtml(link.url || "");
         if (!url) return label;
         return `<a class="md-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${label}</a>`;
       }
@@ -401,7 +450,7 @@ function renderPhrasing(nodes: PhrasingContent[] | undefined): string {
         return renderAllowedHtmlTag((node as Html).value || "");
       default:
         if ("children" in node && Array.isArray((node as { children?: PhrasingContent[] }).children)) {
-          return renderPhrasing((node as { children: PhrasingContent[] }).children);
+          return renderPhrasing((node as { children: PhrasingContent[] }).children, ctx);
         }
         if ("value" in node && typeof (node as { value?: unknown }).value === "string") {
           return escapeHtml(String((node as { value: string }).value));
@@ -411,17 +460,17 @@ function renderPhrasing(nodes: PhrasingContent[] | undefined): string {
   }).join("");
 }
 
-function renderTableCell(cell: TableCell, tagName: "th" | "td"): string {
-  return `<${tagName}>${renderPhrasing(cell.children as PhrasingContent[])}</${tagName}>`;
+function renderTableCell(cell: TableCell, tagName: "th" | "td", ctx: MarkdownRenderContext): string {
+  return `<${tagName}>${renderPhrasing(cell.children as PhrasingContent[], ctx)}</${tagName}>`;
 }
 
-function renderTable(node: Table): string {
+function renderTable(node: Table, ctx: MarkdownRenderContext): string {
   const rows = node.children as TableRow[];
   if (!rows.length) return "";
   const [header, ...bodyRows] = rows;
-  const head = `<thead><tr>${(header.children as TableCell[]).map((cell) => renderTableCell(cell, "th")).join("")}</tr></thead>`;
+  const head = `<thead><tr>${(header.children as TableCell[]).map((cell) => renderTableCell(cell, "th", ctx)).join("")}</tr></thead>`;
   const body = bodyRows.length
-    ? `<tbody>${bodyRows.map((row) => `<tr>${(row.children as TableCell[]).map((cell) => renderTableCell(cell, "td")).join("")}</tr>`).join("")}</tbody>`
+    ? `<tbody>${bodyRows.map((row) => `<tr>${(row.children as TableCell[]).map((cell) => renderTableCell(cell, "td", ctx)).join("")}</tr>`).join("")}</tbody>`
     : "";
   return `<table>${head}${body}</table>`;
 }
@@ -430,7 +479,7 @@ function renderListItem(item: ListItem, ctx: MarkdownRenderContext): string {
   // tight list では <p> を付けない（編集器の見た目・既存テストと揃える）。
   const inner = (item.children || []).map((child) => {
     if (child.type === "paragraph") {
-      return renderPhrasing((child as Paragraph).children);
+      return renderPhrasing((child as Paragraph).children, ctx);
     }
     if (child.type === "list") return renderList(child as List, ctx);
     return renderBlock(child as Content, ctx);
@@ -535,6 +584,9 @@ export function applyCalloutDecorations(root: ParentNode | null | undefined): vo
 type MarkdownRenderContext = {
   headingNumbers?: { next: (level: number, titleText: string) => string };
   headingIndex: { value: number };
+  footnotes: Map<string, number>;
+  footnoteDefinitions: Map<string, string>;
+  nextFootnote: number;
 };
 
 function renderBlock(
@@ -543,7 +595,7 @@ function renderBlock(
 ): string {
   switch (node.type) {
     case "paragraph":
-      return `<p>${renderPhrasing((node as Paragraph).children)}</p>`;
+      return `<p>${renderPhrasing((node as Paragraph).children, ctx)}</p>`;
     case "heading": {
       const heading = node as Heading;
       const level = Math.min(4, Math.max(1, heading.depth || 1));
@@ -554,17 +606,20 @@ function renderBlock(
         : "";
       const id = markdownHeadingId(ctx.headingIndex.value);
       ctx.headingIndex.value += 1;
-      return `<h${level} id="${escapeHtml(id)}" data-md-heading-index="${ctx.headingIndex.value - 1}">${numberHtml}${renderPhrasing(heading.children)}</h${level}>`;
+      return `<h${level} id="${escapeHtml(id)}" data-md-heading-index="${ctx.headingIndex.value - 1}">${numberHtml}${renderPhrasing(heading.children, ctx)}</h${level}>`;
     }
     case "list":
       return renderList(node as List, ctx);
     case "table":
-      return renderTable(node as Table);
+      return renderTable(node as Table, ctx);
     case "blockquote":
       return renderCallout(node as Blockquote, ctx);
     case "code": {
       const code = node as Code;
-      return `<pre><code>${escapeHtml(code.value || "")}${code.value?.endsWith("\n") ? "" : "\n"}</code></pre>`;
+      const language = String(code.lang || "").trim().toLowerCase();
+      const languageClass = language ? ` class="language-${escapeHtml(language)}"` : "";
+      const mermaid = language === "mermaid" ? " class=\"md-mermaid-block\" data-mermaid=\"true\"" : "";
+      return `<pre${mermaid}><code${languageClass}>${escapeHtml(code.value || "")}${code.value?.endsWith("\n") ? "" : "\n"}</code></pre>`;
     }
     case "thematicBreak":
       return "<hr />";
@@ -830,14 +885,14 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   border-radius:var(--md-radius-sm);background:color-mix(in srgb,var(--markdown-accent-bg) 84%,var(--markdown-paper));font-size:var(--md-text-xl)
 }
 .markdown-document h3{
-  padding:2px 0 2px var(--md-space-2);border-left:4px solid color-mix(in srgb,var(--markdown-accent) 85%,var(--markdown-paper));
-  color:var(--markdown-accent-strong);font-size:var(--md-text-lg);font-weight:700
+  padding:3px 0 3px var(--md-space-2);border-left:4px solid color-mix(in srgb,var(--markdown-accent) 85%,var(--markdown-paper));
+  color:var(--markdown-accent-strong);font-size:var(--md-text-xl);font-weight:700
 }
 .markdown-document h4{
   width:fit-content;max-width:100%;padding:3px var(--md-space-2);
-  border-left:3px solid color-mix(in srgb,var(--markdown-accent) 60%,var(--markdown-paper));border-radius:var(--md-radius-sm);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 58%,var(--markdown-paper));color:var(--markdown-accent-strong);
-  font-size:var(--md-text-base);font-weight:700
+  border-left:2px solid color-mix(in srgb,var(--markdown-accent) 60%,var(--markdown-paper));border-radius:0;
+  background:transparent;color:var(--markdown-paper-secondary);
+  font-size:var(--md-text-base);font-weight:600
 }
 .markdown-document p{margin:var(--md-space-2) 0}
 .markdown-document ul,.markdown-document ol{margin:var(--md-space-2) 0 var(--md-space-3);padding-left:var(--md-space-5);list-style-position:outside}
@@ -854,6 +909,9 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   background:color-mix(in srgb,var(--markdown-accent-bg) 20%,var(--markdown-paper));color:var(--markdown-paper-secondary);font-style:italic
 }
 .markdown-document blockquote p{margin:var(--md-space-1) 0}
+.markdown-document .md-footnote-ref{font-size:.78em;vertical-align:super;line-height:0}
+.markdown-document .md-footnotes{margin-top:var(--md-space-5);padding-top:var(--md-space-2);border-top:1px solid var(--markdown-paper-border);color:var(--markdown-paper-secondary);font-size:var(--md-text-sm)}
+.markdown-document .md-footnotes h4{width:auto;margin:0 0 var(--md-space-1);padding:0;border:0;color:var(--markdown-paper-secondary);font-size:var(--md-text-sm)}
 .markdown-document .md-callout{
   margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border:1px solid #EFD9B0;
   border-left:4px solid #C77D29;border-radius:var(--md-radius-md);
@@ -876,6 +934,9 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   font-family:var(--md-font-mono);font-size:.92em
 }
 .markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
+.markdown-document pre.md-mermaid-block{white-space:normal}
+.markdown-document .md-mermaid-svg{padding:var(--md-space-2);background:var(--markdown-paper);text-align:center}
+.markdown-document .md-mermaid-svg svg{max-width:100%;height:auto}
 /* 印刷でも枠が見えるようセル全周に border（overflow:hidden は printToPDF で欠けやすいので付けない） */
 .markdown-document table{
   width:100%;margin:var(--md-space-2) 0 var(--md-space-3);border-collapse:collapse;border-spacing:0;
@@ -931,10 +992,14 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
 `;
 
 export function renderMarkdownPreview(value: string, options: MarkdownRenderOptions = {}): string {
-  const { frontmatter, body } = splitFrontmatter(value);
+  const { frontmatter, body: rawBody } = splitFrontmatter(value);
+  const { body, definitions } = extractFootnoteDefinitions(rawBody);
   const ctx: MarkdownRenderContext = {
     headingNumbers: createHeadingNumberState(body, options),
     headingIndex: { value: 0 },
+    footnotes: new Map(),
+    footnoteDefinitions: definitions,
+    nextFootnote: 1,
   };
   const tree = parseMarkdownBody(body);
   const parts: string[] = [];
@@ -944,6 +1009,17 @@ export function renderMarkdownPreview(value: string, options: MarkdownRenderOpti
   }
   for (const child of tree.children) {
     parts.push(renderBlock(child as Content, ctx));
+  }
+  if (ctx.footnotes.size > 0) {
+    const ordered = [...ctx.footnotes.entries()].sort(([, a], [, b]) => a - b);
+    const items = ordered.map(([key, number]) => {
+      const definition = ctx.footnoteDefinitions.get(key);
+      if (!definition) return `<li id="fn-${escapeHtml(key)}">脚注の本文がありません。 <a class="md-footnote-backref" href="#fnref-${escapeHtml(key)}">↩</a></li>`;
+      const definitionTree = parseMarkdownBody(definition);
+      const content = definitionTree.children.map((child) => renderBlock(child as Content, ctx)).join("");
+      return `<li id="fn-${escapeHtml(key)}">${content}<a class="md-footnote-backref" href="#fnref-${escapeHtml(key)}" aria-label="脚注へ戻る">↩</a></li>`;
+    });
+    parts.push(`<section class="md-footnotes" aria-label="脚注"><h4>脚注</h4><ol>${items.join("")}</ol></section>`);
   }
   return parts.join("");
 }

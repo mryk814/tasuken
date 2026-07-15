@@ -457,6 +457,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-preview-panel { min-height: 0; display: flex; flex-direction: column; gap: var(--space-2); overflow: hidden; padding: var(--space-2); }
 .note-preview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-1); border-bottom: 1px solid var(--color-border-subtle); }
 .note-preview-header h2 { margin: 0; font-size: var(--text-xl); line-height: var(--lh-tight); }
+.note-date-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); color: var(--color-text-tertiary); font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums; }
 .note-preview-theme { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .note-preview-theme .theme-inline { min-width: 0; }
 .note-preview-url {
@@ -475,7 +476,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-editor-mode-tabs { flex-shrink: 0; margin-right: var(--space-1); }
 .note-editor-mode-tabs button { min-height: 32px; padding: 0 var(--space-2); }
 .note-edit-preview-grid { flex: 1; min-height: 520px; display: grid; grid-template-columns: minmax(300px, 0.92fr) minmax(320px, 1fr); gap: var(--space-2); align-items: stretch; }
-.note-main-editor { min-height: 520px; resize: vertical; padding: var(--space-3); border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper); color: var(--markdown-paper-text); font: var(--text-sm) var(--font-mono); line-height: var(--lh-relaxed); }
+.note-main-editor { min-height: 520px; resize: vertical; padding: var(--space-3) var(--space-3) 60vh; border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper); color: var(--markdown-paper-text); font: var(--text-sm) var(--font-mono); line-height: var(--lh-relaxed); }
 .note-main-editor-raw { flex: 1; }
 .note-live-editor-paste-scope { flex: 1 1 auto; min-height: 0; display: flex; }
 .note-live-editor {
@@ -590,34 +591,34 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-live-editor [class*="_toolbarNodeKindSelectTrigger_"] { width: 144px; justify-content: space-between; background: var(--color-surface) !important; color: var(--color-text) !important; }
 .note-live-editor [class*="_toolbarNodeKindSelectTrigger_"] span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /*
- * 編集面レイアウト（高さ + IME）:
- * - ラッパは flex で残り高さを確保し、position:relative の箱にする
- * - contenteditable は absolute で箱いっぱいにし、自分でスクロールする
- *   → Windows IME は「編集ホスト」基準で候補位置を決めるため、
- *     親 overflow:auto より contenteditable 自身がスクロールした方がずれにくい
- * - height:0 の flex トリックは使わない（Edit 領域が潰れた）
- * - 行高を膨らませない（大きな line-height だと caret 矩形が高くなり候補が文字に被る）
- * - 祖先 transform/filter は無効化
+ * 編集面レイアウト（選択ドラッグ + IME）:
+ * - contenteditable は自然高、外側ラッパだけをスクロール領域にする
+ * - 末尾余白はラッパの疑似要素にし、編集・選択範囲の外へ分離する
+ * - 行高を膨らませず、祖先 transform/filter も無効化して IME の基準を安定させる
  */
 .note-live-editor [class*="_rootContentEditableWrapper_"] {
   flex: 1 1 auto;
   min-height: 0;
   position: relative;
-  display: block;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  background: var(--markdown-paper);
   transform: none;
   filter: none;
   perspective: none;
   will-change: auto;
 }
+.note-live-editor [class*="_rootContentEditableWrapper_"] > div:first-child {
+  flex: 0 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .note-mdx-content {
-  position: absolute;
-  inset: 0;
   box-sizing: border-box;
   width: 100%;
-  height: 100%;
-  overflow: auto;
-  scrollbar-gutter: stable;
   padding: var(--space-3);
   border: 0;
   border-radius: 0;
@@ -632,6 +633,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   /* composition 下線の基準をホスト内に固定 */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+.note-mdx-content[contenteditable="true"] {
+  position: relative;
+  flex: 1 0 auto;
+  min-height: 100%;
+  height: auto;
+  overflow: visible;
 }
 .note-mdx-content:focus, .note-mdx-content:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
 /* 表セル内ネスト editor も IME 基準を崩さない */
@@ -655,6 +663,15 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   display: block;
   vertical-align: top;
 }
+/* CodeBlock は本文幅を使う。decorator 共通の inline-block 縮小を適用しない。 */
+.note-mdx-content [data-lexical-decorator="true"]:has(.cm-editor),
+.note-mdx-content [data-lexical-decorator="true"]:has(.note-mermaid-code-block) {
+  display: block;
+  width: 100%;
+  vertical-align: top;
+}
+.note-mdx-content [class*="_codeMirrorWrapper_"],
+.note-mdx-content .cm-editor { width: 100%; min-width: 0; box-sizing: border-box; }
 /*
  * 表示サイズは HTML width 属性（MDX が保存する値）を正とする。
  * width:auto を書くと属性が無効化され、Edit 再入場時だけ全幅に見える。
@@ -1100,8 +1117,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview h1:first-child, .markdown-preview h2:first-child, .markdown-preview h3:first-child, .markdown-preview h4:first-child { margin-top: 0; }
 .markdown-preview h1 { padding-bottom: var(--space-2); border-bottom: 2px solid var(--markdown-accent-bd); font-size: var(--text-2xl); }
 .markdown-preview h2 { padding: var(--space-2) var(--space-3); border-left: 6px solid var(--markdown-accent); border-bottom: 2px solid var(--markdown-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 84%, var(--markdown-paper)); font-size: var(--text-xl); }
-.markdown-preview h3 { padding: 2px 0 2px var(--space-2); border-left: 4px solid color-mix(in srgb, var(--markdown-accent) 85%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-size: var(--text-lg); font-weight: var(--weight-bold); }
-.markdown-preview h4 { width: fit-content; max-width: 100%; padding: 3px var(--space-2); border-left: 3px solid color-mix(in srgb, var(--markdown-accent) 60%, var(--markdown-paper)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 58%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-size: var(--text-base); font-weight: var(--weight-bold); }
+.markdown-preview h3 { padding: 3px 0 3px var(--space-2); border-left: 4px solid color-mix(in srgb, var(--markdown-accent) 85%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-size: var(--text-xl); font-weight: var(--weight-bold); }
+.markdown-preview h4 { width: fit-content; max-width: 100%; padding: 2px var(--space-2); border-left: 2px solid color-mix(in srgb, var(--markdown-accent) 60%, var(--markdown-paper)); border-radius: 0; background: transparent; color: var(--markdown-paper-secondary); font-size: var(--text-base); font-weight: var(--weight-semibold); }
 .markdown-preview p { margin: var(--space-2) 0; }
 /* Tailwind preflight が list-style:none にするので、Preview では明示的に戻す（編集面 note-mdx-content と同じ）。 */
 .markdown-preview ul,
@@ -1120,6 +1137,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview del { text-decoration: line-through; }
 .markdown-preview blockquote { margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border-left: 3px solid var(--markdown-accent-bd); background: color-mix(in srgb, var(--markdown-accent-bg) 20%, var(--markdown-paper)); color: var(--markdown-paper-secondary); font-style: italic; }
 .markdown-preview blockquote p { margin: var(--space-1) 0; }
+.markdown-preview .md-footnote-ref { font-size: .78em; vertical-align: super; line-height: 0; }
+.markdown-preview .md-footnote-ref a { text-decoration: none; }
+.markdown-preview .md-footnotes { margin-top: var(--space-5); padding-top: var(--space-2); border-top: 1px solid var(--markdown-paper-border); color: var(--markdown-paper-secondary); font-size: var(--text-sm); }
+.markdown-preview .md-footnotes h4 { width: auto; margin: 0 0 var(--space-1); padding: 0; border: 0; color: var(--markdown-paper-secondary); font-size: var(--text-sm); }
+.markdown-preview .md-footnotes ol { margin-top: var(--space-1); }
+.markdown-preview .md-footnote-backref { margin-left: var(--space-1); text-decoration: none; }
 /* 軽量 Callout（> [!INSIGHT]）。オレンジ系で引用と差別化。Preview / Edit 共通。 */
 .markdown-preview .md-callout,
 .note-mdx-content blockquote.md-callout {
@@ -1338,6 +1361,17 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview pre { overflow: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-accent-bd); border-radius: var(--radius-md); background: color-mix(in srgb, var(--markdown-accent-bg) 42%, var(--markdown-paper)); font: var(--text-xs)/1.62 var(--font-mono); white-space: pre-wrap; }
 .markdown-preview code { padding: 1px var(--space-1); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 55%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-family: var(--font-mono); font-size: .92em; }
 .markdown-preview pre code { padding: 0; background: transparent; color: inherit; font-size: inherit; }
+.markdown-preview pre.md-mermaid-block { overflow: auto; white-space: normal; }
+.markdown-preview .md-mermaid-svg { min-width: 0; padding: var(--space-2); background: var(--markdown-paper); text-align: center; }
+.markdown-preview .md-mermaid-svg svg { max-width: 100%; height: auto; }
+.markdown-preview .md-mermaid-error { margin-bottom: var(--space-2); color: var(--color-danger); font: var(--text-xs) var(--font-base); }
+.markdown-preview pre.md-mermaid-block.is-rendered > code { display: none; }
+.note-mermaid-code-block { width: 100%; min-width: 0; }
+.note-mermaid-code-block.is-preview { cursor: text; border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper); }
+.note-mermaid-code-block.is-preview:hover { border-color: var(--color-accent-subtle-bd); background: var(--markdown-paper-subtle); }
+.note-mermaid-code-block.is-preview:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.note-mermaid-preview.markdown-preview { min-height: 0; max-height: none; overflow: hidden; padding: var(--space-2); border: 0; border-radius: inherit; }
+.note-mermaid-preview pre { margin: 0; padding: 0; border: 0; background: transparent; }
 .markdown-preview table { width: 100%; margin: var(--space-2) 0 var(--space-3); border-collapse: collapse; border-spacing: 0; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); overflow: hidden; font-size: var(--text-sm); }
 .markdown-preview th, .markdown-preview td { padding: 3px var(--space-2); border-bottom: 1px solid var(--color-border-subtle); text-align: left; vertical-align: top; }
 .markdown-preview tbody tr:last-child td { border-bottom: 0; }
@@ -1454,6 +1488,21 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .note-preview-panel .note-main-preview {
   overflow: auto;
+  padding-bottom: 60vh;
+}
+.note-preview-panel .note-mdx-content {
+  padding-bottom: var(--space-4);
+}
+.note-preview-panel .note-live-editor [class*="_rootContentEditableWrapper_"]::after {
+  content: "";
+  flex: 0 0 60vh;
+  pointer-events: none;
+  user-select: none;
+}
+.note-editor-footnotes {
+  font-family: "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo", "Segoe UI", var(--font-base);
+  font-size: var(--text-base);
+  line-height: 1.72;
 }
 .note-preview-panel .note-mdx-content {
   max-height: none;
@@ -1531,7 +1580,16 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .artifact-url-form-inline {
   margin-top: var(--space-1);
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, .42fr) auto auto;
+}
+.artifact-edit-field {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.artifact-edit-field span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
 }
 .artifact-dropzone {
   min-height: 40px;
