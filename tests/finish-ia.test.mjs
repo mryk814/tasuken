@@ -13,6 +13,10 @@ test("toast tone is explicit state instead of message-regex inference", () => {
   assert.doesNotMatch(workspaceAppSource, /toastTone\(toast/);
 });
 
+test("app opens Today when no route is specified", () => {
+  assert.match(uiStoreSource, /location\.hash\.slice\(1\) \|\| "today"/);
+});
+
 test("sidebar count badges are limited to action-driving counts", () => {
   assert.doesNotMatch(shellSource, /notesCount/);
   assert.doesNotMatch(shellSource, /knowledgeCount/);

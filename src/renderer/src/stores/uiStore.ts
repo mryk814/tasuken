@@ -17,7 +17,7 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>((set) => ({
-  route: location.hash.slice(1) || "theme",
+  route: location.hash.slice(1) || "today",
   activeThemeId: "",
   themeMode: "light",
   activeGroups: [],
