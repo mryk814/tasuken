@@ -15,6 +15,8 @@ const userDataArgument = process.argv.find((argument) => argument.startsWith("--
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
 const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json");
 const APP_NAME = "Tasken";
+const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
+const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
 const ATTACHMENT_PROTOCOL = "tasken-attachment";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let tray: Tray | null = null;
@@ -1250,8 +1252,8 @@ flowchart LR
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    width: 1480,
-    height: 980,
+    width: MAIN_WINDOW_DEFAULT_WIDTH,
+    height: MAIN_WINDOW_DEFAULT_HEIGHT,
     minWidth: 980,
     minHeight: 680,
     show: !isSmokeTest,
