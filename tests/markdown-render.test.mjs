@@ -23,6 +23,7 @@ async function importBundled(relativePath) {
 }
 
 const markdown = await importBundled("src/renderer/src/features/workspace/lib/markdown.ts");
+const markdownEditing = await importBundled("src/renderer/src/features/workspace/lib/markdownEditing.ts");
 
 test("markdown preview renders tasken images and math markers", () => {
   const html = markdown.renderMarkdownPreview(`# Title
@@ -100,6 +101,30 @@ test("rich editor normalization removes only accidental empty fences", () => {
   assert.equal(markdown.normalizeRichEditorMarkdown(accidental), "本文\n\n次の段落");
   assert.equal(markdown.normalizeRichEditorMarkdown(mermaid), mermaid);
   assert.equal(markdown.normalizeRichEditorMarkdown(code), code);
+});
+
+test("rich editor escapes ambiguous comparison operators without changing saved Markdown", () => {
+  const source = [
+    "M<1",
+    "x<10",
+    "0<a<1",
+    "損失<基準値",
+    "",
+    "`x<10`",
+    "",
+    "```html",
+    "<div>x</div>",
+    "```",
+  ].join("\n");
+  const escaped = markdown.escapeAmbiguousMarkdownComparisons(source);
+  assert.match(escaped, /M\\<1/);
+  assert.match(escaped, /損失\\<基準値/);
+  assert.match(escaped, /`x<10`/);
+  assert.match(escaped, /<div>x<\/div>/);
+  assert.equal(markdown.restoreAmbiguousMarkdownComparisons(escaped), source);
+  const preview = markdown.renderMarkdownPreview(source);
+  assert.match(preview, /M&lt;1/);
+  assert.match(preview, /損失&lt;基準値/);
 });
 
 test("Notes Edit and Preview share the rendered document style contract", () => {
@@ -192,7 +217,7 @@ test("previewDocument styling stays aligned with markdown-preview tokens", () =>
   assert.match(html, /\.markdown-document h2\{[^}]*border-left:6px solid var\(--markdown-accent\)/s);
   assert.match(html, /\.markdown-document h2\{[^}]*border-bottom:2px solid var\(--markdown-accent-bd\)/s);
   assert.match(html, /border-collapse:collapse/);
-  assert.match(html, /padding:3px var\(--md-space-2\)/);
+  assert.match(html, /padding:3px 0/);
   assert.match(previewCss, /\.markdown-preview h2 \{[^}]*border-left: 6px solid var\(--markdown-accent\)/s);
   assert.match(previewCss, /\.markdown-preview table \{[^}]*border-collapse: collapse/s);
 });
@@ -244,7 +269,9 @@ test("markdown preview css separates heading levels and keeps tables compact", (
 
   assert.match(source, /\.markdown-preview h2 \{[^}]*border-bottom: 2px solid/s);
   assert.match(source, /\.markdown-preview h3 \{[^}]*border-left: 4px solid/s);
-  assert.match(source, /\.markdown-preview h4 \{[^}]*font-size: var\(--text-base\)/s);
+  assert.match(source, /\.markdown-preview h4 \{[^}]*border-bottom: 1px solid var\(--markdown-accent-bd\)/s);
+  assert.match(source, /\.markdown-preview h4 \{[^}]*border-left: 0/s);
+  assert.match(source, /\.markdown-preview h4 \{[^}]*color: var\(--markdown-paper-text\)/s);
   assert.match(source, /\.markdown-preview table \{[^}]*border-collapse: collapse/s);
   assert.match(source, /\.markdown-preview tbody tr:last-child td \{[^}]*border-bottom: 0/s);
   assert.match(source, /\[class\*="_tableColumnEditorTrigger_"\][^}]*opacity: \.28/s);
@@ -321,6 +348,23 @@ test("markdown editor wires rich paste after image paste and preserves mode scro
   assert.match(source, /function switchMode/);
   assert.match(source, /requestAnimationFrame/);
   assert.match(source, /switchMode\("preview"\)/);
+});
+
+test("markdown editing helpers format safely, find matches, and build a line diff", () => {
+  const source = "# Title  \n\n\n本文\n\n```python\nvalue = 1  \n\n\n```\n";
+  assert.equal(
+    markdownEditing.formatMarkdown(source),
+    "# Title\n\n本文\n\n```python\nvalue = 1  \n\n\n```",
+  );
+  assert.deepEqual(markdownEditing.findMarkdownMatches("Alpha\nalpha", "alp"), [
+    { index: 0, length: 3 },
+    { index: 6, length: 3 },
+  ]);
+  assert.deepEqual(markdownEditing.diffMarkdownLines("A\nB", "A\nC"), [
+    { kind: "same", text: "A" },
+    { kind: "removed", text: "B" },
+    { kind: "added", text: "C" },
+  ]);
 });
 
 test("markdown preview does not render unsafe image urls", () => {
@@ -667,6 +711,7 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   assert.equal(on.preview.headingNumbers, true);
   assert.equal(on.publish.headingNumbers, true);
   assert.equal(on.preview.headingNumberStart, 2);
+  assert.deepEqual(on.preview.headingNumberLevels, [2, 3, 4]);
   assert.equal(on.publish.headingNumberStart, 2);
 
   // 旧キー heading_numbers_in_publish は無視し、heading_numbers だけを見る
@@ -679,6 +724,16 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   assert.equal(markdown.DEFAULT_HEADING_NUMBER_START, 2);
   assert.equal(markdown.normalizeHeadingNumberStart(undefined), 2);
   assert.equal(markdown.normalizeHeadingNumberStart(1), 1);
+
+  const selected = markdown.headingNumberOptionsFromProperties({
+    heading_numbers: true,
+    heading_number_levels: [1, 3],
+  });
+  assert.deepEqual(selected.preview.headingNumberLevels, [1, 3]);
+  const nonContiguous = markdown.renderMarkdownPreview("# Title\n### Detail\n# Next", selected.preview);
+  assert.match(nonContiguous, /<h1 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> Title<\/h1>/);
+  assert.match(nonContiguous, /<h3 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/);
+  assert.match(nonContiguous, /<h1 id="md-h-2"[^>]*><span class="md-heading-number">2\.<\/span> Next<\/h1>/);
 
   const off = markdown.headingNumberOptionsFromProperties({});
   assert.equal(off.preview.headingNumbers, false);
@@ -702,10 +757,12 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   assert.match(notesSource, /heading_numbers/);
   assert.match(notesSource, /heading_number_start/);
+  assert.match(notesSource, /heading_number_levels/);
   assert.match(notesSource, /headingNumberOptions=\{headingNumberOptions\.preview\}/);
   assert.match(notesSource, /applyHeadingNumberAttributes/);
   assert.match(notesSource, /見出し番号/);
-  assert.match(notesSource, /HEADING_NUMBER_START/);
+  assert.match(notesSource, /HEADING_NUMBER_LEVELS/);
+  assert.match(notesSource, /note-heading-level-picker/);
   assert.doesNotMatch(notesSource, /PDFにも番号|heading_numbers_in_publish/);
 
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");

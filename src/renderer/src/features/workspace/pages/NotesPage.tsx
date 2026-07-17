@@ -46,28 +46,34 @@ import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
+import { diffMarkdownLines, findMarkdownMatches, formatMarkdown } from "../lib/markdownEditing";
 import {
   applyCalloutDecorations,
   applyHeadingNumberAttributes,
   extractMarkdownHeadings,
-  HEADING_NUMBER_START_LABELS,
-  HEADING_NUMBER_START_LEVELS,
+  HEADING_NUMBER_LEVELS,
+  HEADING_NUMBER_LEVEL_LABELS,
   headingNumberOptionsFromProperties,
+  normalizeHeadingNumberLevels,
   insertStructuredMarkdownPaste,
   isStructuredMarkdownPaste,
   normalizeHeadingNumberStart,
   normalizeRichEditorMarkdown,
+  escapeAmbiguousMarkdownComparisons,
   openSafeMarkdownLink,
   previewDocument,
   previewHtml,
   renderMarkdownPreview,
   safeMarkdownLinkUrl,
-  type HeadingNumberStart,
+  restoreAmbiguousMarkdownComparisons,
+  type HeadingNumberLevel,
   type MarkdownHeadingItem,
   type MarkdownRenderOptions,
 } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
+import { usePersistentState } from "../../../utils/usePersistentState";
+import { DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
@@ -301,10 +307,13 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const [linkEditUrl, setLinkEditUrl] = useState("");
   const lastInternalMarkdown = useRef(markdown);
   const mountedRef = useRef(false);
+  const editorMarkdown = escapeAmbiguousMarkdownComparisons(markdown);
 
   useEffect(() => {
     if (!markdownSourceRef) return;
-    markdownSourceRef.current = () => normalizeRichEditorMarkdown(editorRef.current?.getMarkdown() || lastInternalMarkdown.current || markdown);
+    markdownSourceRef.current = () => normalizeRichEditorMarkdown(
+      restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current || editorMarkdown),
+    );
     return () => {
       markdownSourceRef.current = null;
     };
@@ -381,8 +390,8 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
 
   useEffect(() => {
     if (markdown === lastInternalMarkdown.current) return;
-    if (editorRef.current?.getMarkdown() !== markdown) {
-      editorRef.current?.setMarkdown(markdown);
+    if (editorRef.current?.getMarkdown() !== editorMarkdown) {
+      editorRef.current?.setMarkdown(editorMarkdown);
     }
     lastInternalMarkdown.current = markdown;
     setEditorFailed(false);
@@ -519,13 +528,13 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     if (!isStructuredMarkdownPaste(text)) return;
     event.preventDefault();
     event.stopPropagation();
-    const current = editorRef.current?.getMarkdown() || markdown;
+    const current = restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || markdown);
     const selection = window.getSelection();
     const anchorText = selection?.anchorNode?.nodeType === Node.TEXT_NODE ? selection.anchorNode.nodeValue || "" : "";
     const anchorOffset = typeof selection?.anchorOffset === "number" ? selection.anchorOffset : 0;
     const next = insertStructuredMarkdownPaste(current, text, anchorText, anchorOffset);
     lastInternalMarkdown.current = next;
-    editorRef.current?.setMarkdown(next);
+    editorRef.current?.setMarkdown(escapeAmbiguousMarkdownComparisons(next));
     onChange(next);
   }
 
@@ -549,9 +558,9 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
         ref={editorRef}
         className="note-live-editor note-mdx-editor"
         contentEditableClassName="note-mdx-content markdown-preview"
-        markdown={markdown}
+        markdown={editorMarkdown}
         onChange={(value) => {
-          const normalized = normalizeRichEditorMarkdown(value);
+          const normalized = normalizeRichEditorMarkdown(restoreAmbiguousMarkdownComparisons(value));
           lastInternalMarkdown.current = normalized;
           if (!mountedRef.current && normalized === markdown) return;
           onChange(normalized);
@@ -709,20 +718,28 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
-  const [scope, setScope] = useState<NoteScope>("all");
+  const [prefs, setPrefs] = usePersistentState<NotesPreferences>("notes:prefs:v1", DEFAULT_NOTES_PREFS);
+  const scope = prefs.scope;
+  const sortOrder = prefs.sortOrder;
   const [draftBody, setDraftBody] = useState("");
   const [draftState, setDraftState] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [formatUndoBody, setFormatUndoBody] = useState<string | null>(null);
+  const [diffOpen, setDiffOpen] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const previewPanelRef = useRef<HTMLElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const records: Combined[] = [
     ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
     ...domain.resources.filter((resource) => !isChatReference(resource)).map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
-  ].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  ].sort((a, b) => compareNotesRecords(a, b, sortOrder));
   const visible = records.filter((record) => {
     if (scope !== "all" && recordKind(record) !== scope) return false;
     return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
@@ -744,6 +761,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const headingNumberOptions = headingNumberOptionsFromProperties(selectedProperties);
   const headingNumbersEnabled = headingNumberOptions.preview.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions.preview.headingNumberStart);
+  const headingNumberLevels = normalizeHeadingNumberLevels(headingNumberOptions.preview.headingNumberLevels);
+  const headingNumberLevelSummary = headingNumberLevels.length
+    ? headingNumberLevels.map((level) => HEADING_NUMBER_LEVEL_LABELS[level as HeadingNumberLevel]).join("–")
+    : "選択なし";
   const markdownExport = selectedProperties.markdown_export && typeof selectedProperties.markdown_export === "object" && !Array.isArray(selectedProperties.markdown_export)
     ? selectedProperties.markdown_export as Record<string, unknown>
     : null;
@@ -755,10 +776,116 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && draftBody !== selectedBody);
   const markdownHeadings = useMemo(() => extractMarkdownHeadings(draftBody), [draftBody]);
+  const searchMatches = useMemo(() => findMarkdownMatches(draftBody, searchQuery), [draftBody, searchQuery]);
+  const markdownDiff = useMemo(() => diffMarkdownLines(selectedBody, draftBody), [selectedBody, draftBody]);
+
+  function updatePrefs(patch: Partial<NotesPreferences>) {
+    setPrefs((current) => ({ ...current, ...patch }));
+  }
+
+  function focusSearchMatch(index: number) {
+    const match = searchMatches[index];
+    if (!match) return;
+    if (previewMode === "raw") {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(match.index, match.index + match.length);
+      return;
+    }
+    const root = previewPanelRef.current?.querySelector<HTMLElement>(".note-mdx-content");
+    if (!root) return;
+    const needle = searchQuery.trim().toLocaleLowerCase();
+    if (!needle) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let matchIndex = 0;
+    let node: Node | null = walker.nextNode();
+    while (node) {
+      const text = node.nodeValue || "";
+      const lower = text.toLocaleLowerCase();
+      let cursor = 0;
+      while (cursor <= lower.length - needle.length) {
+        const localIndex = lower.indexOf(needle, cursor);
+        if (localIndex < 0) break;
+        if (matchIndex === index) {
+          const target = node.parentElement;
+          target?.scrollIntoView({ block: "center", behavior: "smooth" });
+          return;
+        }
+        matchIndex += 1;
+        cursor = localIndex + needle.length;
+      }
+      node = walker.nextNode();
+    }
+  }
+
+  function moveSearchMatch(direction: 1 | -1) {
+    if (!searchMatches.length) return;
+    const next = (searchIndex + direction + searchMatches.length) % searchMatches.length;
+    setSearchIndex(next);
+    window.requestAnimationFrame(() => focusSearchMatch(next));
+  }
+
+  function formatSelectedDraft() {
+    const current = previewMode === "edit" ? mdxMarkdownSourceRef.current?.() || draftBody : draftBody;
+    const formatted = formatMarkdown(current);
+    if (formatted === current) {
+      setDraftState("整形できる変更はありません。");
+      return;
+    }
+    setFormatUndoBody(current);
+    setDraftBody(formatted);
+    setDraftState("Markdownを整形しました。");
+  }
+
+  function undoFormattedDraft() {
+    if (formatUndoBody === null) return;
+    setDraftBody(formatUndoBody);
+    setFormatUndoBody(null);
+    setDraftState("整形を戻しました。");
+  }
+
+  useEffect(() => {
+    const runtime = globalThis as typeof globalThis & {
+      CSS?: { highlights?: { set(name: string, value: unknown): void; delete(name: string): void } };
+      Highlight?: new (...ranges: Range[]) => unknown;
+    };
+    const registry = runtime.CSS?.highlights;
+    registry?.delete("tasken-markdown-search");
+    if (!searchOpen || !searchQuery.trim() || previewMode !== "edit" || !registry || !runtime.Highlight) return;
+    const root = previewPanelRef.current?.querySelector<HTMLElement>(".note-mdx-content");
+    if (!root) return;
+    const needle = searchQuery.trim().toLocaleLowerCase();
+    const ranges: Range[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node: Node | null = walker.nextNode();
+    while (node) {
+      const text = node.nodeValue || "";
+      const lower = text.toLocaleLowerCase();
+      let cursor = 0;
+      while (cursor <= lower.length - needle.length) {
+        const index = lower.indexOf(needle, cursor);
+        if (index < 0) break;
+        const range = document.createRange();
+        range.setStart(node, index);
+        range.setEnd(node, index + needle.length);
+        ranges.push(range);
+        cursor = index + needle.length;
+      }
+      node = walker.nextNode();
+    }
+    if (ranges.length) registry.set("tasken-markdown-search", new runtime.Highlight(...ranges));
+    return () => {
+      registry.delete("tasken-markdown-search");
+    };
+  }, [searchOpen, searchQuery, previewMode, draftBody]);
 
   useEffect(() => {
     setDraftBody(normalizeRichEditorMarkdown(selectedBody));
     setDraftState("");
+    setFormatUndoBody(null);
+    setDiffOpen(false);
+    setSearchIndex(0);
   }, [selected?.id, selectedBody]);
 
   ctxRef.current = { selected, draftBody, draftDirty };
@@ -783,6 +910,12 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+        window.requestAnimationFrame(() => searchInputRef.current?.focus());
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
         event.preventDefault();
         const { selected: s, draftBody: body, draftDirty: dirty } = ctxRef.current;
@@ -895,13 +1028,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     setContextMenu({ x: event.clientX, y: event.clientY, items });
   }
 
-  async function openMarkdownExportPath(filePath: string) {
-    const result = await workspaceApi.openPath(filePath);
+  async function openMarkdownExportDirectory(directory: string) {
+    const result = await workspaceApi.openPath(directory);
     if (result.ok) {
-      setToast("Markdownファイルを開きました。", "success");
+      setToast("Markdownの保存先フォルダを開きました。", "success");
       return;
     }
-    setToast(result.error || "Markdownファイルを開けませんでした。", "danger");
+    setToast(result.error || "Markdownの保存先フォルダを開けませんでした。", "danger");
   }
 
   function modeScroller(mode: PreviewMode): HTMLElement | null {
@@ -1114,24 +1247,26 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     ta.scrollTo({ top: nextTop, behavior: "smooth" });
   }
 
-  async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_start?: HeadingNumberStart }) {
+  async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_levels?: HeadingNumberLevel[] }) {
     if (!selected || selected.recordType !== "note") return;
     try {
       const nextEnabled = patch.heading_numbers ?? headingNumbersEnabled;
-      const nextStart = patch.heading_number_start ?? headingNumberStart;
+      const nextLevels = patch.heading_number_levels ?? headingNumberLevels;
       await saveEntity("note", {
         ...selected,
         body_markdown: draftDirty ? draftBody : selectedBody,
         properties_json: {
           ...selectedProperties,
           heading_numbers: nextEnabled,
-          heading_number_start: nextStart,
+          heading_number_levels: nextLevels,
+          // 旧版が読めるよう開始階層も併記する。表示の正本はlevels。
+          heading_number_start: nextLevels[0] ?? headingNumberStart,
         },
       });
-      if (patch.heading_numbers !== undefined && patch.heading_number_start === undefined) {
+      if (patch.heading_numbers !== undefined && patch.heading_number_levels === undefined) {
         setToast(nextEnabled ? "見出し番号を表示します（Edit / Preview / PDF）。" : "見出し番号を非表示にしました。", "success");
-      } else if (patch.heading_number_start !== undefined) {
-        setToast(`番号の開始階層を${HEADING_NUMBER_START_LABELS[nextStart]}にしました。`, "success");
+      } else if (patch.heading_number_levels !== undefined) {
+        setToast(`番号対象を${nextLevels.length ? nextLevels.map((level) => `h${level}`).join("・") : "なし"}にしました。`, "success");
       }
     } catch (error) {
       setToast(`設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
@@ -1180,7 +1315,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
           },
         },
       });
-      setToast(`Markdownを出力しました。${result.filePath || ""}`, "success");
+      setToast(`Markdownを保存しました。${result.filePath || ""}`, "success");
     } catch (error) {
       setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
@@ -1232,11 +1367,24 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
             ["report", "Report"],
             ["prompt", "Prompt"],
           ].map(([value, label]) => (
-            <button key={value} className={scope === value ? "is-active" : ""} onClick={() => setScope(value as NoteScope)}>
+            <button key={value} className={scope === value ? "is-active" : ""} onClick={() => updatePrefs({ scope: value as NoteScope })}>
               {label}
             </button>
           ))}
         </div>
+        <label className="notes-sort-field">
+          <span className="sr-only">Notesの並び順</span>
+          <select
+            value={sortOrder}
+            onChange={(event) => updatePrefs({ sortOrder: event.target.value as NotesSortOrder })}
+            aria-label="Notesの並び順"
+          >
+            <option value="updated_desc">更新日：新しい順</option>
+            <option value="updated_asc">更新日：古い順</option>
+            <option value="created_desc">作成日：新しい順</option>
+            <option value="created_asc">作成日：古い順</option>
+          </select>
+        </label>
         <span>{visible.length}件</span>
       </div>
       <div className="notes-workbench">
@@ -1374,11 +1522,11 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                         <button
                           className="document-publish-open"
                           type="button"
-                          title={markdownExportOpenPath}
-                          aria-label="出力先を開く"
-                          onClick={() => openMarkdownExportPath(markdownExportOpenPath)}
+                          title={markdownExportDirectory || markdownExportFilePath}
+                          aria-label="保存先フォルダを開く"
+                          onClick={() => openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)}
                         >
-                          <IconLink size={15} stroke={1.8} />
+                          <IconFolder size={15} stroke={1.8} />
                         </button>
                       )}
                       {markdownExportStale && <span className="save-status save-status-error">要再出力</span>}
@@ -1395,6 +1543,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
+                  <button className={`secondary-button compact ${searchOpen ? "is-active" : ""}`} onClick={() => {
+                    setSearchOpen((current) => !current);
+                    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+                  }}>検索</button>
+                  <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
+                  {formatUndoBody !== null && <button className="secondary-button compact" onClick={undoFormattedDraft}>整形を戻す</button>}
+                  <button className="secondary-button compact" disabled={!draftDirty} onClick={() => setDiffOpen(true)}>変更を確認</button>
                   {showDocumentPublish && (
                     <>
                       <label className="toggle note-heading-number-toggle" title="本文は書き換えず、Edit・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
@@ -1406,28 +1561,35 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                         見出し番号
                       </label>
                       {headingNumbersEnabled && (
-                        <label className="note-heading-start-field" title="この階層から番号を付けます。より浅い見出しは番号なし">
-                          <select
-                            className="note-heading-start-select"
-                            value={headingNumberStart}
-                            onChange={(event) => updateHeadingNumberSettings({
-                              heading_number_start: normalizeHeadingNumberStart(Number(event.target.value)),
-                            })}
-                            aria-label="番号の開始階層"
-                          >
-                            {HEADING_NUMBER_START_LEVELS.map((level) => (
-                              <option key={level} value={level}>{HEADING_NUMBER_START_LABELS[level]}</option>
+                        <details className="note-heading-level-picker">
+                          <summary title="番号を付ける見出しレベル">{headingNumberLevelSummary}</summary>
+                          <div className="note-heading-level-menu" aria-label="番号を付ける見出し">
+                            {HEADING_NUMBER_LEVELS.map((level) => (
+                              <label key={level}>
+                                <input
+                                  type="checkbox"
+                                  checked={headingNumberLevels.includes(level)}
+                                  onChange={(event) => updateHeadingNumberSettings({
+                                    heading_number_levels: normalizeHeadingNumberLevels(
+                                      event.target.checked
+                                        ? [...headingNumberLevels, level]
+                                        : headingNumberLevels.filter((current) => current !== level),
+                                    ),
+                                  })}
+                                />
+                                {HEADING_NUMBER_LEVEL_LABELS[level]}
+                              </label>
                             ))}
-                          </select>
-                        </label>
+                          </div>
+                        </details>
                       )}
-                      <button className="primary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(!hasMarkdownExportDirectory)}>
-                        {markdownExporting ? "出力中" : hasMarkdownExportDirectory ? "Markdown" : "出力先を選ぶ"}
+                      <button className="primary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(false)}>
+                        {markdownExporting ? "保存中" : "保存"}
                       </button>
                       {hasMarkdownExportDirectory && (
-                        <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(true)} title="出力先フォルダを変更">
+                        <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(true)} title="保存先フォルダを変更">
                           <IconFolder size={15} stroke={1.8} aria-hidden />
-                          変更
+                          保存先を変更
                         </button>
                       )}
                       <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf} title="PDFを出力">
@@ -1438,6 +1600,49 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   )}
                 </div>
               </div>
+              {searchOpen && (
+                <div className="markdown-search-bar" role="search" aria-label="Markdown本文を検索">
+                  <input
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      setSearchIndex(0);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        moveSearchMatch(event.shiftKey ? -1 : 1);
+                      }
+                      if (event.key === "Escape") setSearchOpen(false);
+                    }}
+                    placeholder="本文を検索"
+                    aria-label="本文を検索"
+                  />
+                  <span className="markdown-search-count" aria-live="polite">
+                    {searchMatches.length ? `${searchIndex + 1}/${searchMatches.length}` : searchQuery.trim() ? "一致なし" : "検索語を入力"}
+                  </span>
+                  <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(-1)}>前へ</button>
+                  <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(1)}>次へ</button>
+                  <button type="button" className="secondary-button compact" onClick={() => setSearchOpen(false)}>閉じる</button>
+                </div>
+              )}
+              {diffOpen && (
+                <section className="markdown-diff-panel" aria-label="Markdownの変更">
+                  <div className="markdown-diff-heading">
+                    <strong>保存済みとの差分</strong>
+                    <span>{markdownDiff.filter((line) => line.kind === "added").length}行追加 / {markdownDiff.filter((line) => line.kind === "removed").length}行削除</span>
+                    <button type="button" className="secondary-button compact" onClick={() => setDiffOpen(false)}>閉じる</button>
+                  </div>
+                  {draftDirty ? (
+                    <pre className="markdown-diff-lines">{markdownDiff.map((line, index) => (
+                      <code key={`${line.kind}-${index}`} className={`markdown-diff-line is-${line.kind}`}>
+                        <span aria-hidden="true">{line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}</span>{line.text || " "}{"\n"}
+                      </code>
+                    ))}</pre>
+                  ) : <p className="field-help">保存済み内容からの変更はありません。</p>}
+                </section>
+              )}
               <div className="note-markdown-surface">
                 <MarkdownHeadingIndex
                   headings={markdownHeadings}
@@ -1452,6 +1657,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     onPaste={handleDraftPaste}
                     onChange={(event) => {
                       setDraftBody(event.target.value);
+                      setFormatUndoBody(null);
                       if (draftState) setDraftState("");
                     }}
                     aria-label="脚注を含むMarkdown本文"
@@ -1462,6 +1668,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     resetKey={selected.id}
                     onChange={(value) => {
                       setDraftBody(value);
+                      setFormatUndoBody(null);
                       if (draftState) setDraftState("");
                     }}
                     onPaste={handleDraftPaste}
@@ -1473,6 +1680,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                       markdownSourceRef={mdxMarkdownSourceRef}
                       onChange={(value) => {
                         setDraftBody(value);
+                        setFormatUndoBody(null);
                         if (draftState) setDraftState("");
                       }}
                       onImageUpload={uploadEditorImage}
@@ -1489,6 +1697,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     onPaste={handleDraftPaste}
                     onChange={(event) => {
                       setDraftBody(event.target.value);
+                      setFormatUndoBody(null);
                       if (draftState) setDraftState("");
                     }}
                   />

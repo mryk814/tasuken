@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   computeHeadingNumberLabels,
   HEADING_INDEX_MIN_COUNT,
+  HEADING_NUMBER_LEVELS,
   normalizeHeadingNumberStart,
   type MarkdownHeadingItem,
   type MarkdownRenderOptions,
@@ -101,9 +102,10 @@ export function MarkdownHeadingIndex({
     if (!headingNumberOptions?.headingNumbers) return headings.map(() => null as string | null);
     return computeHeadingNumberLabels(
       headings.map((item) => ({ level: item.level, text: item.text })),
-      normalizeHeadingNumberStart(headingNumberOptions.headingNumberStart),
+      headingNumberOptions.headingNumberLevels
+        ?? HEADING_NUMBER_LEVELS.filter((level) => level >= normalizeHeadingNumberStart(headingNumberOptions.headingNumberStart)),
     );
-  }, [headings, headingNumberOptions?.headingNumbers, headingNumberOptions?.headingNumberStart]);
+  }, [headings, headingNumberOptions?.headingNumbers, headingNumberOptions?.headingNumberStart, headingNumberOptions?.headingNumberLevels]);
 
   const barCount = Math.max(1, barHeadings.length);
   const headingsKey = headings.map((item) => `${item.level}:${item.text}`).join("|");
