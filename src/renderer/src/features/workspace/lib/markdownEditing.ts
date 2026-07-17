@@ -6,6 +6,25 @@ export type MarkdownSearchMatch = {
 export type MarkdownDiffLine = {
   kind: "same" | "added" | "removed";
   text: string;
+  beforeLine: number | null;
+  afterLine: number | null;
+};
+
+type RawMarkdownDiffLine = Omit<MarkdownDiffLine, "beforeLine" | "afterLine">;
+
+export type MarkdownDiffHunk = {
+  lines: MarkdownDiffLine[];
+  changedLines: number;
+  addedLines: number;
+  removedLines: number;
+  omittedBefore: number;
+  omittedAfter: number;
+};
+
+export type MarkdownDiffMarker = {
+  lineNumber: number;
+  kind: "added" | "removed" | "changed";
+  hunk: MarkdownDiffHunk;
 };
 
 function splitLines(value: string): string[] {
@@ -76,7 +95,7 @@ export function diffMarkdownLines(before: string, after: string): MarkdownDiffLi
   const newLines = splitLines(after);
   const maxCells = 1_500_000;
   if (oldLines.length * newLines.length > maxCells) {
-    return coarseDiff(oldLines, newLines);
+    return addLineNumbers(coarseDiff(oldLines, newLines));
   }
 
   const table = Array.from({ length: oldLines.length + 1 }, () => new Uint32Array(newLines.length + 1));
@@ -88,7 +107,7 @@ export function diffMarkdownLines(before: string, after: string): MarkdownDiffLi
     }
   }
 
-  const result: MarkdownDiffLine[] = [];
+  const result: RawMarkdownDiffLine[] = [];
   let oldIndex = 0;
   let newIndex = 0;
   while (oldIndex < oldLines.length && newIndex < newLines.length) {
@@ -106,10 +125,79 @@ export function diffMarkdownLines(before: string, after: string): MarkdownDiffLi
   }
   while (oldIndex < oldLines.length) result.push({ kind: "removed", text: oldLines[oldIndex++] });
   while (newIndex < newLines.length) result.push({ kind: "added", text: newLines[newIndex++] });
-  return result;
+  return addLineNumbers(result);
 }
 
-function coarseDiff(oldLines: string[], newLines: string[]): MarkdownDiffLine[] {
+/**
+ * 差分の変更箇所を、前後の文脈行付きの小さなまとまりへ分ける。
+ * 変更のない行をReview画面へ持ち込まず、狭い画面でも変更箇所へ集中できるようにする。
+ */
+export function buildMarkdownDiffHunks(lines: MarkdownDiffLine[], context = 2): MarkdownDiffHunk[] {
+  const safeContext = Math.max(0, Math.floor(context));
+  const changedRanges: Array<{ start: number; end: number }> = [];
+  let changedStart: number | null = null;
+
+  lines.forEach((line, index) => {
+    if (line.kind !== "same") {
+      if (changedStart == null) changedStart = index;
+      return;
+    }
+    if (changedStart == null) return;
+    changedRanges.push({ start: changedStart, end: index - 1 });
+    changedStart = null;
+  });
+  if (changedStart != null) changedRanges.push({ start: changedStart, end: lines.length - 1 });
+
+  return changedRanges.map(({ start, end }) => {
+    const rangeStart = Math.max(0, start - safeContext);
+    const rangeEnd = Math.min(lines.length - 1, end + safeContext);
+    const hunkLines = lines.slice(rangeStart, rangeEnd + 1);
+    return {
+      lines: hunkLines,
+      changedLines: hunkLines.filter((line) => line.kind !== "same").length,
+      addedLines: hunkLines.filter((line) => line.kind === "added").length,
+      removedLines: hunkLines.filter((line) => line.kind === "removed").length,
+      omittedBefore: rangeStart,
+      omittedAfter: lines.length - rangeEnd - 1,
+    };
+  });
+}
+
+/**
+ * 本文左端へ置く変更マーカー。表示中の本文側の行番号へ寄せ、削除だけの変更は直前の行に置く。
+ */
+export function buildMarkdownDiffMarkers(lines: MarkdownDiffLine[], context = 2): MarkdownDiffMarker[] {
+  return buildMarkdownDiffHunks(lines, context).map((hunk) => {
+    const changedLines = hunk.lines.filter((line) => line.kind !== "same");
+    const first = changedLines[0];
+    const anchor = changedLines.find((line) => line.kind === "added") || first;
+    const hasAdded = changedLines.some((line) => line.kind === "added");
+    const hasRemoved = changedLines.some((line) => line.kind === "removed");
+    return {
+      lineNumber: anchor.afterLine ?? Math.max(1, (anchor.beforeLine ?? 1) - 1),
+      kind: hasAdded && hasRemoved ? "changed" : hasAdded ? "added" : "removed",
+      hunk,
+    };
+  });
+}
+
+/**
+ * 下書き本文の指定hunkだけを、保存済み本文側の行へ戻す。
+ * 文脈行も含めたhunk全体を置換し、未変更の行を取りこぼさずに復元する。
+ */
+export function restoreMarkdownDiffHunk(after: string, hunk: MarkdownDiffHunk): string {
+  const currentLines = splitLines(after);
+  const currentHunkLines = hunk.lines.filter((line) => line.afterLine !== null);
+  const originalHunkLines = hunk.lines.filter((line) => line.kind !== "added");
+  if (!currentHunkLines.length) return originalHunkLines.map((line) => line.text).join("\n");
+
+  const start = Math.max(0, (currentHunkLines[0].afterLine ?? 1) - 1);
+  const end = Math.min(currentLines.length, currentHunkLines.at(-1)?.afterLine ?? start);
+  currentLines.splice(start, Math.max(0, end - start), ...originalHunkLines.map((line) => line.text));
+  return currentLines.join("\n");
+}
+
+function coarseDiff(oldLines: string[], newLines: string[]): RawMarkdownDiffLine[] {
   let prefix = 0;
   while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix += 1;
   let suffix = 0;
@@ -124,4 +212,19 @@ function coarseDiff(oldLines: string[], newLines: string[]): MarkdownDiffLine[] 
     ...newLines.slice(prefix, newLines.length - suffix).map((text) => ({ kind: "added" as const, text })),
     ...oldLines.slice(oldLines.length - suffix).map((text) => ({ kind: "same" as const, text })),
   ];
+}
+
+function addLineNumbers(lines: RawMarkdownDiffLine[]): MarkdownDiffLine[] {
+  let beforeLine = 1;
+  let afterLine = 1;
+  return lines.map((line) => {
+    const numbered: MarkdownDiffLine = {
+      ...line,
+      beforeLine: line.kind === "added" ? null : beforeLine,
+      afterLine: line.kind === "removed" ? null : afterLine,
+    };
+    if (line.kind !== "added") beforeLine += 1;
+    if (line.kind !== "removed") afterLine += 1;
+    return numbered;
+  });
 }

@@ -361,9 +361,58 @@ test("markdown editing helpers format safely, find matches, and build a line dif
     { index: 6, length: 3 },
   ]);
   assert.deepEqual(markdownEditing.diffMarkdownLines("A\nB", "A\nC"), [
-    { kind: "same", text: "A" },
-    { kind: "removed", text: "B" },
-    { kind: "added", text: "C" },
+    { kind: "same", text: "A", beforeLine: 1, afterLine: 1 },
+    { kind: "removed", text: "B", beforeLine: 2, afterLine: null },
+    { kind: "added", text: "C", beforeLine: null, afterLine: 2 },
+  ]);
+  const restoreDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nc\nY\nd");
+  const restoreHunks = markdownEditing.buildMarkdownDiffHunks(restoreDiff, 0);
+  assert.equal(markdownEditing.restoreMarkdownDiffHunk("a\nX\nc\nY\nd", restoreHunks[0]), "a\nb\nc\nY\nd");
+  assert.equal(markdownEditing.restoreMarkdownDiffHunk("a\nX\nc\nY\nd", restoreHunks[1]), "a\nX\nc\nd");
+  const consecutiveDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nY\nd");
+  assert.equal(markdownEditing.buildMarkdownDiffMarkers(consecutiveDiff, 0).length, 1);
+  const separatedDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nc\nY");
+  assert.equal(markdownEditing.buildMarkdownDiffMarkers(separatedDiff, 2).length, 2);
+  const diff = markdownEditing.diffMarkdownLines(
+    "a\nb\nc\nd\ne\nf\ng\nh\ni\nj",
+    "a\nb\nX\nd\ne\nf\ng\nh\nY\nj",
+  );
+  assert.deepEqual(markdownEditing.buildMarkdownDiffHunks(diff, 1), [
+    {
+      lines: [
+        { kind: "same", text: "b", beforeLine: 2, afterLine: 2 },
+        { kind: "removed", text: "c", beforeLine: 3, afterLine: null },
+        { kind: "added", text: "X", beforeLine: null, afterLine: 3 },
+        { kind: "same", text: "d", beforeLine: 4, afterLine: 4 },
+      ],
+      changedLines: 2,
+      addedLines: 1,
+      removedLines: 1,
+      omittedBefore: 1,
+      omittedAfter: 7,
+    },
+    {
+      lines: [
+        { kind: "same", text: "h", beforeLine: 8, afterLine: 8 },
+        { kind: "removed", text: "i", beforeLine: 9, afterLine: null },
+        { kind: "added", text: "Y", beforeLine: null, afterLine: 9 },
+        { kind: "same", text: "j", beforeLine: 10, afterLine: 10 },
+      ],
+      changedLines: 2,
+      addedLines: 1,
+      removedLines: 1,
+      omittedBefore: 8,
+      omittedAfter: 0,
+    },
+  ]);
+  assert.deepEqual(markdownEditing.buildMarkdownDiffMarkers(diff, 1).map(({ lineNumber, kind, hunk }) => ({
+    lineNumber,
+    kind,
+    addedLines: hunk.addedLines,
+    removedLines: hunk.removedLines,
+  })), [
+    { lineNumber: 3, kind: "changed", addedLines: 1, removedLines: 1 },
+    { lineNumber: 9, kind: "changed", addedLines: 1, removedLines: 1 },
   ]);
 });
 
@@ -590,7 +639,7 @@ test("math editor plugin transforms inline math beyond top-level paragraphs", ()
   assert.match(source, /hasFormat\("code"\)/);
 });
 
-test("notes page autosaves only when the editing Markdown leaves the screen", () => {
+test("notes page keeps mode switches draft-only and autosaves when the note leaves the screen", () => {
   const source = readFileSync(
     "src/renderer/src/features/workspace/pages/NotesPage.tsx",
     "utf8",
@@ -599,8 +648,12 @@ test("notes page autosaves only when the editing Markdown leaves the screen", ()
   assert.match(source, /autosaveRef/);
   assert.match(source, /function autoSaveDraft/);
   assert.match(source, /自動保存に失敗しました/);
-  assert.match(source, /previewMode === "edit" && nextMode !== "edit"/);
-  assert.match(source, /void autoSaveDraft\(\{ \.\.\.autosaveRef\.current, draftBody:/);
+  const switchStart = source.indexOf("function switchPreviewMode");
+  const switchEnd = source.indexOf("\n  function insertDraftMarkdown", switchStart);
+  const switchSource = source.slice(switchStart, switchEnd);
+  assert.match(switchSource, /previewMode === "edit" && nextMode !== "edit"/);
+  assert.doesNotMatch(switchSource, /autoSaveDraft/);
+  assert.match(source, /return \(\) => \{\s*void autoSaveDraft\(\);/);
   assert.match(source, /\}, \[selected\?\.id\]\);/);
   assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });
@@ -783,8 +836,45 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
   assert.match(css, /data-heading-number/);
   assert.match(css, /note-heading-start-select/);
-  assert.match(css, /markdown-diff-line\.is-added[^}]*color-mix/);
-  assert.match(css, /markdown-diff-line\.is-removed[^}]*color-mix/);
+  assert.match(css, /markdown-diff-marker\.is-added/);
+  assert.match(css, /markdown-diff-marker\.is-removed/);
+  assert.match(css, /markdown-diff-marker\.is-changed/);
+  assert.match(css, /markdown-diff-marker\.is-changed[^}]*linear-gradient/);
+  assert.match(css, /markdown-diff-panel[^}]*height: min\(42vh, 360px\)/);
+  assert.match(css, /markdown-diff-navigation[^}]*flex-wrap: nowrap/);
+  assert.match(css, /markdown-diff-navigation > span[^}]*min-width: 5ch/);
+  assert.match(css, /markdown-diff-count\.is-added/);
+  assert.match(css, /markdown-diff-count\.is-removed/);
+  assert.match(notesSource, /MarkdownDiffMarkerRail/);
+  assert.doesNotMatch(notesSource, /className="note-preview-theme"/);
+  assert.match(notesSource, /selected\.created_at \|\| selected\.updated_at \|\| draftState/);
+  assert.doesNotMatch(notesSource, /draftState \|\| "\\u00a0"/);
+  assert.match(notesSource, /containerLeft/);
+  assert.match(notesSource, /left: markerLeft/);
+  assert.match(notesSource, /contentHeight/);
+  assert.match(notesSource, /lineHeight/);
+  assert.match(notesSource, /findMarkdownMarkerAnchor/);
+  assert.match(notesSource, /anchorTops/);
+  assert.match(notesSource, /metrics\.lineHeight \/ 2/);
+  assert.match(notesSource, /compositionstart/);
+  assert.match(notesSource, /compositionupdate/);
+  assert.match(notesSource, /withEditContext\.editContext = null/);
+  assert.match(notesSource, /markdown-diff-panel/);
+  assert.match(notesSource, /const bottomMargin = 96/);
+  assert.match(notesSource, /previewMode !== "preview"/);
+  assert.match(notesSource, /note-main-editor-raw/);
+  assert.match(notesSource, /scrollToMarker/);
+  assert.match(notesSource, /setActiveIndex\(markers\.length > 0 \? 0 : null\)/);
+  assert.match(notesSource, /scrollToMarker\(0\)/);
+  assert.match(notesSource, /onRestoreHunk/);
+  assert.match(notesSource, /restoreMarkdownDiffHunk/);
+  assert.match(notesSource, /元に戻す/);
+  assert.match(notesSource, /前へ/);
+  assert.match(notesSource, /次へ/);
+  assert.match(css, /markdown-diff-marker-rail/);
+  assert.match(css, /markdown-diff-panel/);
+  assert.doesNotMatch(notesSource, /markdown-diff-popover/);
+  assert.match(css, /white-space: pre-wrap/);
 });
 
 test("outlookHtml creates simple styled HTML without tasken image references", () => {
