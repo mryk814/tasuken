@@ -43,14 +43,14 @@ test("document publish uses Markdown as primary output and removes Word", () => 
 
   assert.match(drawerSource, /Document Publish/);
   assert.match(drawerSource, /exportMarkdown\(/);
-  assert.match(drawerSource, /document-publish-open|IconLink/);
+  assert.match(drawerSource, /document-publish-open|IconFolder/);
   assert.match(drawerSource, /markdown_export/);
-  assert.match(drawerSource, /出力先を選ぶ|>Markdown</);
+  assert.match(drawerSource, /markdownExporting \? "保存中" : "保存"/);
   assert.doesNotMatch(drawerSource, /Word出力|exportWord|word_export|exportMarkdownNoteToWord/);
 
   assert.match(notesSource, /Document Publish/);
   assert.match(notesSource, /exportSelectedMarkdown/);
-  assert.match(notesSource, /document-publish-open|IconLink/);
+  assert.match(notesSource, /document-publish-open|IconFolder/);
   assert.match(notesSource, /markdown_export/);
   assert.match(notesSource, /primary-button compact.*exportSelectedMarkdown|exportSelectedMarkdown[\s\S]*primary-button/);
   assert.doesNotMatch(notesSource, /Word出力|exportSelectedWord|word_export|exportMarkdownNoteToWord|Markdown=AI|document-publish-inline-meta/);

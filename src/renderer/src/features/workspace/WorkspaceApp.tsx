@@ -801,6 +801,12 @@ export function WorkspaceApp() {
       const headingNumberStart = headingNumberStartRaw === "1" || headingNumberStartRaw === "2" || headingNumberStartRaw === "3" || headingNumberStartRaw === "4"
         ? Number(headingNumberStartRaw)
         : 2;
+      const headingNumberLevels = values.getAll("heading_number_levels")
+        .map(Number)
+        .filter((level): level is 1 | 2 | 3 | 4 => level === 1 || level === 2 || level === 3 || level === 4)
+        .filter((level, index, levels) => levels.indexOf(level) === index)
+        .sort((left, right) => left - right);
+      const hasHeadingNumberLevels = Boolean(named("heading_number_levels_present"));
       const promptProperties = noteType === "prompt" ? {
         prompt_purpose: formText(values, "prompt_purpose", String(base.note_type) === "report_prompt" ? "report" : "other"),
         prompt_variables: formText(values, "prompt_variables"),
@@ -812,7 +818,11 @@ export function WorkspaceApp() {
         period_end: formText(values, "period_end") || null,
       } : {};
       const headingNumberProperties = hasHeadingNumberFields
-        ? { heading_numbers: headingNumbers, heading_number_start: headingNumberStart }
+        ? {
+          heading_numbers: headingNumbers,
+          heading_number_start: headingNumberLevels[0] ?? headingNumberStart,
+          heading_number_levels: hasHeadingNumberLevels ? headingNumberLevels : [2, 3, 4],
+        }
         : {};
       entity = {
         ...base,

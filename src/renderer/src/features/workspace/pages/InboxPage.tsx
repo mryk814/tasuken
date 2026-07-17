@@ -601,11 +601,13 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
           <div className="micro-memo-grid">
             {microMemoRows.map((memo) => (
               <article className="micro-memo-card" key={memo.id}>
-                <div>
-                  <strong>{memo.title || memo.text}</strong>
-                  <span>{formatDate(memo.captured_at)}</span>
+                <div className="micro-memo-card-meta">
+                  <time dateTime={memo.captured_at} title={`記録日 ${memo.captured_at}`}>記録 {formatDate(memo.captured_at)}</time>
                 </div>
-                {memo.title && <p>{memo.text}</p>}
+                {memo.title ? <>
+                  <strong>{memo.title}</strong>
+                  <p>{memo.text}</p>
+                </> : <p>{memo.text}</p>}
                 <div className="micro-memo-actions">
                   <button className="row-action-button" onClick={() => copyMicroMemo(memo)} aria-label="付箋メモをコピー" title="コピー"><IconCopy size={15} /></button>
                   <button className="row-action-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })} aria-label="付箋メモを編集" title="編集"><IconPencil size={15} /></button>

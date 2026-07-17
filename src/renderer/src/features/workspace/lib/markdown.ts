@@ -76,6 +76,39 @@ export function splitFrontmatter(value: string): { frontmatter: string; body: st
   };
 }
 
+function escapeComparisonText(value: string): string {
+  return value.replace(/</g, (match, offset: number, source: string) => {
+    const rest = source.slice(offset);
+    // 完結したHTMLタグとMarkdownのautolinkだけは既存のEditor機能として通す。
+    if (/^<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s+[^<>]*)?\s*\/?>/.test(rest)) return match;
+    if (/^<\/?(?:https?:\/\/|mailto:)[^>\s]+>/.test(rest)) return match;
+    return "\\<";
+  });
+}
+
+/**
+ * MDXEditorのHTML構文と衝突する、未完結の比較式だけをEditor内部ではMarkdown escapeする。
+ * 保存値は元の `M<1` へ戻すため、既存のMarkdown正本やPreviewの表示は変えない。
+ */
+export function escapeAmbiguousMarkdownComparisons(value: string): string {
+  const lines = value.replace(/\r\n?/g, "\n").split("\n");
+  let inFence = false;
+  return lines.map((line) => {
+    if (/^\s*(?:`{3,}|~{3,})/.test(line)) {
+      inFence = !inFence;
+      return line;
+    }
+    if (inFence) return line;
+    const parts = line.split(/(`+[^`]*`+)/g);
+    return parts.map((part, index) => index % 2 === 1 ? part : escapeComparisonText(part)).join("");
+  }).join("\n");
+}
+
+/** Editor内部の比較式escapeを保存前のMarkdown正本へ戻す。 */
+export function restoreAmbiguousMarkdownComparisons(value: string): string {
+  return value.replace(/\\</g, "<");
+}
+
 function safeMarkdownUrl(value: string, kind: "image" | "link"): string {
   const trimmed = value.trim().replace(/^<|>$/g, "");
   try {
@@ -688,6 +721,8 @@ export type MarkdownRenderOptions = {
   headingNumbers?: boolean;
   /** 番号付けを始める見出しレベル（1=h1 … 4=h4）。これより浅い見出しは番号なし。既定 2（h2から）。 */
   headingNumberStart?: number;
+  /** 番号を付ける見出しレベル。未設定時は旧設定の開始階層からh4までへ変換する。 */
+  headingNumberLevels?: number[];
   /**
    * YAML frontmatter を「Frontmatter」ブロックとして本文先頭に出すか。
    * 編集プレビューでは true（既定）、PDF / 文書ビュー（previewDocument）では false。
@@ -697,6 +732,9 @@ export type MarkdownRenderOptions = {
 
 export const HEADING_NUMBER_START_LEVELS = [1, 2, 3, 4] as const;
 export type HeadingNumberStart = (typeof HEADING_NUMBER_START_LEVELS)[number];
+export const HEADING_NUMBER_LEVELS = [1, 2, 3, 4] as const;
+export type HeadingNumberLevel = (typeof HEADING_NUMBER_LEVELS)[number];
+export const DEFAULT_HEADING_NUMBER_LEVELS: HeadingNumberLevel[] = [2, 3, 4];
 /** 未設定時の開始階層。タイトル(h1)を番号なしにし、章立て(h2)から振る用途が主。 */
 export const DEFAULT_HEADING_NUMBER_START: HeadingNumberStart = 2;
 
@@ -707,11 +745,26 @@ export const HEADING_NUMBER_START_LABELS: Record<HeadingNumberStart, string> = {
   4: "h4から",
 };
 
+export const HEADING_NUMBER_LEVEL_LABELS: Record<HeadingNumberLevel, string> = {
+  1: "h1",
+  2: "h2",
+  3: "h3",
+  4: "h4",
+};
+
 /** 1〜4 に正規化。未設定・不正値は h2 から（DEFAULT_HEADING_NUMBER_START）。 */
 export function normalizeHeadingNumberStart(value: unknown): HeadingNumberStart {
   const n = typeof value === "number" ? value : Number(value);
   if (n === 1 || n === 2 || n === 3 || n === 4) return n;
   return DEFAULT_HEADING_NUMBER_START;
+}
+
+/** h1〜h4の選択値を正規化。未設定は従来どおりh2〜h4。 */
+export function normalizeHeadingNumberLevels(value: unknown): HeadingNumberLevel[] {
+  if (!Array.isArray(value)) return [...DEFAULT_HEADING_NUMBER_LEVELS];
+  return [...new Set(value.map((entry) => Number(entry)).filter((entry): entry is HeadingNumberLevel => (
+    entry === 1 || entry === 2 || entry === 3 || entry === 4
+  )))].sort((a, b) => a - b);
 }
 
 /** 見出し先頭が手動番号（1. / 1.1 / 第1章 / (1) / ① 等）か。二重番号を避ける判定。 */
@@ -747,22 +800,24 @@ export function formatHeadingNumber(parts: number[]): string {
  */
 export function computeHeadingNumberLabels(
   headings: Array<{ level: number; text: string }>,
-  startLevel: number = DEFAULT_HEADING_NUMBER_START,
+  startLevelOrLevels: number | readonly number[] = DEFAULT_HEADING_NUMBER_START,
 ): Array<string | null> {
   if (!headings.length) return [];
-  const minStart = normalizeHeadingNumberStart(startLevel);
-  const usable = headings.filter((heading) => heading.level >= minStart && heading.level <= 4);
+  const levels = Array.isArray(startLevelOrLevels)
+    ? normalizeHeadingNumberLevels(startLevelOrLevels)
+    : HEADING_NUMBER_LEVELS.filter((level) => level >= normalizeHeadingNumberStart(startLevelOrLevels));
+  const usable = headings.filter((heading) => levels.includes(heading.level as HeadingNumberLevel));
   if (!usable.length) return headings.map(() => null);
-  const baseLevel = Math.min(...usable.map((heading) => heading.level));
-  const counters = [0, 0, 0, 0];
+  const baseIndex = levels.findIndex((level) => usable.some((heading) => heading.level === level));
+  const counters = levels.map(() => 0);
   return headings.map(({ level, text }) => {
-    if (level < minStart || level > 4) return null;
-    if (level < baseLevel) return null;
-    const index = level - baseLevel;
+    const index = levels.indexOf(level as HeadingNumberLevel);
+    if (index < baseIndex) return null;
+    if (index < 0) return null;
     counters[index] += 1;
     for (let deeper = index + 1; deeper < counters.length; deeper += 1) counters[deeper] = 0;
     if (hasManualHeadingNumber(text)) return null;
-    return formatHeadingNumber(counters.slice(0, index + 1));
+    return formatHeadingNumber(counters.slice(baseIndex, index + 1));
   });
 }
 
@@ -770,7 +825,7 @@ function createHeadingNumberState(body: string, options: MarkdownRenderOptions) 
   if (!options.headingNumbers) {
     return { next: () => "" };
   }
-  const startLevel = normalizeHeadingNumberStart(options.headingNumberStart);
+  const levels = options.headingNumberLevels ?? HEADING_NUMBER_LEVELS.filter((level) => level >= normalizeHeadingNumberStart(options.headingNumberStart));
   const headings: Array<{ level: number; text: string }> = [];
   const lines = body.split(/\r?\n/);
   let inCode = false;
@@ -783,7 +838,7 @@ function createHeadingNumberState(body: string, options: MarkdownRenderOptions) 
     const heading = line.match(/^(#{1,4})\s+(.+)$/);
     if (heading) headings.push({ level: heading[1].length, text: heading[2] });
   }
-  const labels = computeHeadingNumberLabels(headings, startLevel);
+  const labels = computeHeadingNumberLabels(headings, levels);
   let cursor = 0;
   return {
     next(level: number, titleText: string): string {
@@ -801,7 +856,7 @@ function createHeadingNumberState(body: string, options: MarkdownRenderOptions) 
 /**
  * note.properties_json から Preview / PDF 用の番号オプションを読む。
  * `heading_numbers` が ON なら Preview と PDF の両方に番号を付ける（本文・Markdown出力は対象外）。
- * `heading_number_start` で開始階層（1〜4、既定 2=h2から）。
+ * `heading_number_levels` で対象階層を保存する。旧 `heading_number_start` は互換読み込みする。
  */
 export function headingNumberOptionsFromProperties(properties: Record<string, unknown> | null | undefined): {
   preview: MarkdownRenderOptions;
@@ -809,9 +864,14 @@ export function headingNumberOptionsFromProperties(properties: Record<string, un
 } {
   const props = properties && typeof properties === "object" && !Array.isArray(properties) ? properties : {};
   const enabled = props.heading_numbers === true;
+  const legacyStart = normalizeHeadingNumberStart(props.heading_number_start);
+  const levels = Object.prototype.hasOwnProperty.call(props, "heading_number_levels")
+    ? normalizeHeadingNumberLevels(props.heading_number_levels)
+    : HEADING_NUMBER_LEVELS.filter((level) => level >= legacyStart);
   const options: MarkdownRenderOptions = {
     headingNumbers: enabled,
-    headingNumberStart: normalizeHeadingNumberStart(props.heading_number_start),
+    headingNumberStart: legacyStart,
+    headingNumberLevels: levels,
   };
   return { preview: options, publish: options };
 }
@@ -834,7 +894,9 @@ export function applyHeadingNumberAttributes(
     level: Number(node.tagName.slice(1)),
     text: (node.textContent || "").replace(/\s+/g, " ").trim(),
   }));
-  const labels = computeHeadingNumberLabels(headings, normalizeHeadingNumberStart(resolved.headingNumberStart));
+  const levels = resolved.headingNumberLevels
+    ?? HEADING_NUMBER_LEVELS.filter((level) => level >= normalizeHeadingNumberStart(resolved.headingNumberStart));
+  const labels = computeHeadingNumberLabels(headings, levels);
   nodes.forEach((node, index) => {
     const label = labels[index];
     if (label) node.setAttribute("data-heading-number", label);
@@ -889,9 +951,9 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   color:var(--markdown-accent-strong);font-size:var(--md-text-xl);font-weight:700
 }
 .markdown-document h4{
-  width:fit-content;max-width:100%;padding:3px var(--md-space-2);
-  border-left:2px solid color-mix(in srgb,var(--markdown-accent) 60%,var(--markdown-paper));border-radius:0;
-  background:transparent;color:var(--markdown-paper-secondary);
+  width:fit-content;max-width:100%;padding:3px 0;
+  border-bottom:1px solid var(--markdown-accent-bd);border-left:0;border-radius:0;
+  background:transparent;color:var(--markdown-paper-text);
   font-size:var(--md-text-base);font-weight:600
 }
 .markdown-document p{margin:var(--md-space-2) 0}
