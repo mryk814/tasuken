@@ -38,6 +38,7 @@ test("Notes UI persists filter and sort preferences and exposes save-folder acti
   assert.match(source, /openMarkdownExportDirectory/);
   assert.match(source, /exportSelectedMarkdown\(false\)/);
   assert.match(source, /保存先フォルダを開く/);
+  assert.doesNotMatch(source, /整形を戻す|formatUndoBody/);
 });
 
 test("micro memo date is a labeled top-level time element", () => {

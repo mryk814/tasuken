@@ -33,6 +33,7 @@ test("document publish uses Markdown as primary output and removes Word", () => 
   const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   const contractsSource = readFileSync("src/shared/ipc/contracts.ts", "utf8");
   const workspaceApiSource = readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
+  const workspaceServiceSource = readFileSync("src/main/services/workspaceService.ts", "utf8");
 
   assert.match(importExportSource, /publishMarkdownTargets/);
   assert.match(importExportSource, /publishPdfTargets/);
@@ -41,19 +42,23 @@ test("document publish uses Markdown as primary output and removes Word", () => 
   assert.match(importExportSource, /markdown_export/);
   assert.doesNotMatch(importExportSource, /publishWordTargets|Word出力|exportMarkdownNoteToWord|word_export|AI向け|固定表示/);
 
-  assert.match(drawerSource, /Document Publish/);
+  assert.match(drawerSource, /label="出力設定"/);
   assert.match(drawerSource, /exportMarkdown\(/);
   assert.match(drawerSource, /document-publish-open|IconFolder/);
   assert.match(drawerSource, /markdown_export/);
   assert.match(drawerSource, /markdownExporting \? "保存中" : "保存"/);
-  assert.doesNotMatch(drawerSource, /Word出力|exportWord|word_export|exportMarkdownNoteToWord/);
+  assert.doesNotMatch(drawerSource, /Document Publish|Publish対象|Word出力|exportWord|word_export|exportMarkdownNoteToWord/);
 
-  assert.match(notesSource, /Document Publish/);
+  assert.match(notesSource, /showDocumentPublish/);
   assert.match(notesSource, /exportSelectedMarkdown/);
   assert.match(notesSource, /document-publish-open|IconFolder/);
   assert.match(notesSource, /markdown_export/);
   assert.match(notesSource, /primary-button compact.*exportSelectedMarkdown|exportSelectedMarkdown[\s\S]*primary-button/);
-  assert.doesNotMatch(notesSource, /Word出力|exportSelectedWord|word_export|exportMarkdownNoteToWord|Markdown=AI|document-publish-inline-meta/);
+  assert.doesNotMatch(notesSource, /Document Publish|Publish対象|Word出力|exportSelectedWord|word_export|exportMarkdownNoteToWord|Markdown=AI|document-publish-inline-meta/);
+
+  assert.match(workspaceServiceSource, /PDF は都度選択する/);
+  assert.match(workspaceServiceSource, /const defaultPath = directory \|\| undefined/);
+  assert.doesNotMatch(workspaceServiceSource, /resolveThemeContentDirectory\(request\.themeId, "exports"\)/);
 
   assert.doesNotMatch(contractsSource, /noteWordExport|WordExport|markdownNoteToWord/);
   assert.doesNotMatch(workspaceApiSource, /exportMarkdownNoteToWord|WordExport|wordExport/);

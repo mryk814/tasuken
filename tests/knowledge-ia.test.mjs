@@ -48,9 +48,11 @@ test("AI IO runs document publish export without owning target selection", () =>
   assert.match(importExportPageSource, /notePublishEnabled/);
   assert.doesNotMatch(importExportPageSource, /setNotePublishEnabled/);
   assert.doesNotMatch(importExportPageSource, /type="checkbox" checked=\{enabled\}/);
-  assert.match(notesPageSource, /Document Publish/);
+  assert.doesNotMatch(importExportPageSource, /Document Publish|Publish対象/);
+  assert.match(notesPageSource, /showDocumentPublish/);
   assert.match(notesPageSource, /exportSelectedMarkdown/);
-  // Resource / Prompt は出力しない。Note と Report だけ Document Publish。
+  assert.doesNotMatch(notesPageSource, /Document Publish|Publish対象/);
+  // Resource / Prompt は出力しない。Note と Report だけ一括出力。
   assert.match(notesPageSource, /showDocumentPublish = selectedKind === "note" \|\| selectedKind === "report"/);
 });
 

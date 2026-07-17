@@ -1748,10 +1748,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-diff-heading > span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 .markdown-diff-heading button { margin-left: auto; }
 .markdown-diff-lines { max-height: 280px; overflow: auto; margin: 0; padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--markdown-paper); color: var(--markdown-paper-text); font: var(--text-xs)/1.65 var(--font-mono); white-space: pre; }
-.markdown-diff-line { display: block; min-height: 1.65em; }
+.markdown-diff-line { display: block; min-height: 1.65em; padding: 0 var(--space-1); border-left: 3px solid transparent; }
 .markdown-diff-line > span { display: inline-block; width: 1.5em; color: var(--color-text-secondary); user-select: none; }
-.markdown-diff-line.is-added { background: var(--color-success-bg); color: var(--color-success-strong); }
-.markdown-diff-line.is-removed { background: var(--color-danger-bg); color: var(--color-danger-strong); }
+.markdown-diff-line.is-added { border-left-color: var(--color-success); background: color-mix(in srgb, var(--color-success) 22%, var(--color-success-bg)); color: var(--color-success-strong); font-weight: var(--weight-medium); }
+.markdown-diff-line.is-removed { border-left-color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 22%, var(--color-danger-bg)); color: var(--color-danger-strong); font-weight: var(--weight-medium); }
 .report-email-panel { display: grid; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 .report-email-meta { grid-template-columns: 58px minmax(0, 1fr); gap: 2px var(--space-2) !important; }
 .report-email-meta dt { margin-top: 0 !important; }
