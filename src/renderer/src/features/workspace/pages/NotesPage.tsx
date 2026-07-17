@@ -1537,10 +1537,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
-                  <button className={`secondary-button compact ${searchOpen ? "is-active" : ""}`} onClick={() => {
-                    setSearchOpen((current) => !current);
-                    window.requestAnimationFrame(() => searchInputRef.current?.focus());
-                  }}>検索</button>
                   <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
                   <button className="secondary-button compact" disabled={!draftDirty} onClick={() => setDiffOpen(true)}>変更を確認</button>
                   {showDocumentPublish && (
