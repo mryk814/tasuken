@@ -46,7 +46,7 @@ import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
-import { diffMarkdownLines, findMarkdownMatches, formatMarkdown } from "../lib/markdownEditing";
+import { buildMarkdownDiffHunks, buildMarkdownDiffMarkers, diffMarkdownLines, findMarkdownMatches, formatMarkdown, restoreMarkdownDiffHunk, type MarkdownDiffMarker } from "../lib/markdownEditing";
 import {
   applyCalloutDecorations,
   applyHeadingNumberAttributes,
@@ -401,6 +401,78 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     setEditorFailed(false);
   }, [markdown]);
 
+  // Windows IME は contenteditable の EditContext や祖先スクロールを基準に候補位置を決める。
+  // 変換開始時に従来の caret 基準へ戻し、候補が入力文字へ重ならないだけの表示領域を確保する。
+  useEffect(() => {
+    const root = editorScopeRef.current;
+    if (!root) return;
+    let frame = 0;
+
+    const caretRect = (): DOMRect | null => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return null;
+      const range = selection.getRangeAt(0).cloneRange();
+      const rects = range.getClientRects();
+      if (rects.length > 0) return rects[rects.length - 1] as DOMRect;
+
+      const container = range.startContainer;
+      if (container.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
+        range.setStart(container, range.startOffset - 1);
+        const previousRect = range.getBoundingClientRect();
+        if (previousRect.height > 0) return previousRect;
+      }
+      const rect = range.getBoundingClientRect();
+      return rect.height > 0 ? rect : null;
+    };
+
+    const keepCaretClear = (editable: HTMLElement) => {
+      const rect = caretRect();
+      if (!rect) return;
+      const scroller = editable.closest<HTMLElement>(".note-live-editor [class*='_rootContentEditableWrapper_']") || editable;
+      const scrollerRect = scroller.getBoundingClientRect();
+      const surface = editable.closest<HTMLElement>(".note-markdown-surface");
+      const reviewPanel = surface?.querySelector<HTMLElement>(".markdown-diff-panel");
+      const reviewTop = reviewPanel?.getBoundingClientRect().top;
+      const visibleBottom = reviewTop == null ? scrollerRect.bottom : Math.min(scrollerRect.bottom, reviewTop);
+      const topMargin = 28;
+      const bottomMargin = 96;
+
+      if (rect.bottom > visibleBottom - bottomMargin) {
+        scroller.scrollTop += rect.bottom - visibleBottom + bottomMargin;
+      } else if (rect.top < scrollerRect.top + topMargin) {
+        scroller.scrollTop -= scrollerRect.top + topMargin - rect.top;
+      }
+    };
+
+    const onComposition = (event: CompositionEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !root.contains(target)) return;
+      const editable = target.closest<HTMLElement>(".note-mdx-content, [contenteditable='true']");
+      if (!editable) return;
+
+      const withEditContext = editable as HTMLElement & { editContext?: unknown };
+      if (withEditContext.editContext != null) {
+        try {
+          withEditContext.editContext = null;
+        } catch {
+          // Chromium 実装が読み取り専用の場合も、caret の退避処理は続ける。
+        }
+      }
+
+      keepCaretClear(editable);
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => keepCaretClear(editable));
+    };
+
+    root.addEventListener("compositionstart", onComposition, true);
+    root.addEventListener("compositionupdate", onComposition, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      root.removeEventListener("compositionstart", onComposition, true);
+      root.removeEventListener("compositionupdate", onComposition, true);
+    };
+  }, []);
+
   // 見出し番号・Callout 装飾は DOM 属性/class のみ（Lexical の本文テキストには書き込まない）。
   useEffect(() => {
     const root = editorScopeRef.current;
@@ -702,6 +774,311 @@ function hasMarkdownFootnotes(value: string): boolean {
   return /(?:^|\n)\[\^[^\]\n]+\]:|\[\^[^\]\n]+\]/.test(value);
 }
 
+type MarkdownDiffScrollMetrics = {
+  containerTop: number;
+  containerLeft: number;
+  contentTop: number;
+  contentHeight: number;
+  lineHeight: number;
+  paddingTop: number;
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  anchorTops: Array<number | null>;
+};
+
+function normalizeMarkdownMarkerText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .toLocaleLowerCase();
+}
+
+function markdownMarkerAnchorTexts(marker: MarkdownDiffMarker): string[] {
+  const changedIndexes = marker.hunk.lines
+    .map((line, index) => line.kind === "same" ? -1 : index)
+    .filter((index) => index >= 0);
+  const firstChangedIndex = changedIndexes[0] ?? 0;
+  const lastChangedIndex = changedIndexes[changedIndexes.length - 1] ?? firstChangedIndex;
+  const candidateLines = [
+    ...marker.hunk.lines.filter((line) => line.kind === "added"),
+    ...marker.hunk.lines.slice(lastChangedIndex + 1).filter((line) => line.kind === "same"),
+    ...marker.hunk.lines.slice(0, firstChangedIndex).reverse().filter((line) => line.kind === "same"),
+  ];
+
+  return [...new Set(candidateLines
+    .map((line) => normalizeMarkdownMarkerText(line.text))
+    .filter((text) => text.length >= 2))];
+}
+
+function markdownMarkerElements(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(
+    "h1, h2, h3, h4, h5, h6, p, li, pre, blockquote, tr, img, [data-lexical-decorator='true']",
+  ));
+}
+
+function markdownMarkerElementText(element: HTMLElement): string {
+  if (element instanceof HTMLImageElement) return element.alt;
+  return element.textContent || "";
+}
+
+function findMarkdownMarkerAnchor(
+  root: HTMLElement,
+  marker: MarkdownDiffMarker,
+  totalLines: number,
+): HTMLElement | null {
+  const elements = markdownMarkerElements(root);
+  const rootRect = root.getBoundingClientRect();
+  const lineRatio = Math.max(0, Math.min(1, (marker.lineNumber - 1) / Math.max(1, totalLines - 1)));
+  const expectedTop = rootRect.top + lineRatio * Math.max(0, root.scrollHeight - 18);
+
+  for (const anchorText of markdownMarkerAnchorTexts(marker)) {
+    const matches = elements.filter((element) => {
+      const elementText = normalizeMarkdownMarkerText(markdownMarkerElementText(element));
+      return elementText === anchorText || elementText.includes(anchorText);
+    });
+    if (matches.length === 0) continue;
+    return matches.reduce((nearest, element) => {
+      const nearestDistance = Math.abs(nearest.getBoundingClientRect().top - expectedTop);
+      const elementDistance = Math.abs(element.getBoundingClientRect().top - expectedTop);
+      return elementDistance < nearestDistance ? element : nearest;
+    });
+  }
+  return null;
+}
+
+function MarkdownDiffMarkerRail({
+  markers,
+  totalLines,
+  mode,
+  surfaceRef,
+  onRestoreHunk,
+}: {
+  markers: MarkdownDiffMarker[];
+  totalLines: number;
+  mode: "edit" | "raw";
+  surfaceRef: { current: HTMLDivElement | null };
+  onRestoreHunk: (marker: MarkdownDiffMarker) => void;
+}) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(markers.length > 0 ? 0 : null);
+  const [metrics, setMetrics] = useState<MarkdownDiffScrollMetrics>({
+    containerTop: 0,
+    containerLeft: 0,
+    contentTop: 0,
+    contentHeight: 0,
+    lineHeight: 0,
+    paddingTop: 0,
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+    anchorTops: [],
+  });
+
+  useEffect(() => setActiveIndex(markers.length > 0 ? 0 : null), [markers]);
+
+  useEffect(() => {
+    let retryTimer: number | null = null;
+    let frame = 0;
+    let container: HTMLElement | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    const findContainer = () => {
+      const surface = surfaceRef.current;
+      if (!surface) return null;
+      if (mode === "raw") return surface.querySelector<HTMLElement>("textarea.note-main-editor-raw");
+      return surface.querySelector<HTMLElement>(".note-live-editor [class*='_rootContentEditableWrapper_']");
+    };
+    const findContent = () => {
+      if (mode === "raw") return null;
+      return surfaceRef.current?.querySelector<HTMLElement>(".note-mdx-content") || null;
+    };
+
+    const measure = () => {
+      const surface = surfaceRef.current;
+      const nextContainer = findContainer();
+      if (!surface || !nextContainer) return;
+      const surfaceRect = surface.getBoundingClientRect();
+      const containerRect = nextContainer.getBoundingClientRect();
+      const content = findContent();
+      const contentRect = content?.getBoundingClientRect();
+      const containerStyle = window.getComputedStyle(nextContainer);
+      const lineHeight = Number.parseFloat(containerStyle.lineHeight);
+      const paddingTop = Number.parseFloat(containerStyle.paddingTop);
+      const anchorTops = mode === "edit" && content
+        ? markers.map((marker) => {
+          const anchor = findMarkdownMarkerAnchor(content, marker, totalLines);
+          if (!anchor) return null;
+          const anchorRect = anchor.getBoundingClientRect();
+          return anchorRect.top - surfaceRect.top + Math.min(12, anchorRect.height / 2);
+        })
+        : [];
+      setMetrics({
+        containerTop: containerRect.top - surfaceRect.top,
+        containerLeft: containerRect.left - surfaceRect.left,
+        contentTop: contentRect ? contentRect.top - surfaceRect.top : containerRect.top - surfaceRect.top,
+        contentHeight: content ? Math.max(content.scrollHeight, contentRect?.height || 0) : nextContainer.scrollHeight,
+        lineHeight: Number.isFinite(lineHeight) ? lineHeight : 0,
+        paddingTop: Number.isFinite(paddingTop) ? paddingTop : 0,
+        scrollTop: nextContainer.scrollTop,
+        scrollHeight: nextContainer.scrollHeight,
+        clientHeight: nextContainer.clientHeight,
+        anchorTops,
+      });
+    };
+
+    const attach = () => {
+      container = findContainer();
+      if (!container) {
+        retryTimer = window.setTimeout(attach, 80);
+        return;
+      }
+      container.addEventListener("scroll", measure, { passive: true });
+      resizeObserver = new ResizeObserver(measure);
+      resizeObserver.observe(container);
+      const content = findContent();
+      if (content) resizeObserver.observe(content);
+      measure();
+    };
+
+    frame = window.requestAnimationFrame(attach);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+      container?.removeEventListener("scroll", measure);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [mode, markers.length, surfaceRef, totalLines]);
+
+  const contentHeight = Math.max(metrics.scrollHeight, metrics.clientHeight, 1);
+  const lineSpan = Math.max(1, totalLines - 1);
+  const markerTop = (marker: MarkdownDiffMarker, index: number) => {
+    if (mode === "raw" && metrics.lineHeight > 0) {
+      return metrics.containerTop + metrics.paddingTop + (marker.lineNumber - 1) * metrics.lineHeight + metrics.lineHeight / 2 - metrics.scrollTop;
+    }
+    const anchoredTop = metrics.anchorTops[index];
+    if (anchoredTop != null) return anchoredTop;
+    const ratio = Math.max(0, Math.min(1, (marker.lineNumber - 1) / lineSpan));
+    const contentTop = metrics.contentTop || metrics.containerTop;
+    const measuredContentHeight = metrics.contentHeight || contentHeight;
+    return contentTop + ratio * Math.max(0, measuredContentHeight - 18);
+  };
+  const findScrollContainer = () => {
+    const surface = surfaceRef.current;
+    if (!surface) return null;
+    if (mode === "raw") return surface.querySelector<HTMLElement>("textarea.note-main-editor-raw");
+    return surface.querySelector<HTMLElement>(".note-live-editor [class*='_rootContentEditableWrapper_']");
+  };
+  const scrollToMarker = (index: number) => {
+    const marker = markers[index];
+    const container = findScrollContainer();
+    if (!marker || !container) return;
+    const ratio = Math.max(0, Math.min(1, (marker.lineNumber - 1) / lineSpan));
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    let documentTop: number;
+    if (mode === "raw") {
+      const style = window.getComputedStyle(container);
+      const lineHeight = Number.parseFloat(style.lineHeight) || 0;
+      const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+      documentTop = paddingTop + (marker.lineNumber - 1) * lineHeight;
+    } else {
+      const content = surfaceRef.current?.querySelector<HTMLElement>(".note-mdx-content");
+      const containerRect = container.getBoundingClientRect();
+      const anchor = content ? findMarkdownMarkerAnchor(content, marker, totalLines) : null;
+      if (anchor) {
+        const anchorRect = anchor.getBoundingClientRect();
+        documentTop = anchorRect.top - containerRect.top + container.scrollTop + Math.min(12, anchorRect.height / 2);
+      } else {
+        const contentRect = content?.getBoundingClientRect();
+        const contentDocumentTop = contentRect ? contentRect.top - containerRect.top + container.scrollTop : 0;
+        const contentHeight = content ? Math.max(content.scrollHeight, contentRect?.height || 0) : container.scrollHeight;
+        documentTop = contentDocumentTop + ratio * Math.max(0, contentHeight - 18);
+      }
+    }
+    const target = documentTop - container.clientHeight * 0.35;
+    container.scrollTo({ top: Math.max(0, Math.min(maxScrollTop, target)), behavior: "smooth" });
+  };
+  const selectMarker = (index: number) => {
+    setActiveIndex(index);
+    window.requestAnimationFrame(() => scrollToMarker(index));
+  };
+  useEffect(() => {
+    if (markers.length === 0) return undefined;
+    const frame = window.requestAnimationFrame(() => scrollToMarker(0));
+    return () => window.cancelAnimationFrame(frame);
+  }, [markers.length, mode, metrics.clientHeight, metrics.scrollHeight]);
+  const activeMarker = activeIndex == null ? null : markers[activeIndex] || null;
+  const markerLeft = metrics.containerLeft + 8;
+
+  return (
+    <div className="markdown-diff-marker-rail" aria-label="Markdownの変更箇所">
+      {markers.map((marker, index) => (
+        <button
+          key={`${marker.lineNumber}-${index}`}
+          type="button"
+          className={`markdown-diff-marker is-${marker.kind} ${activeIndex === index ? "is-active" : ""}`}
+          style={{ top: markerTop(marker, index), left: markerLeft }}
+          aria-label={`変更箇所 ${index + 1}、${marker.lineNumber}行目`}
+          aria-pressed={activeIndex === index}
+          onClick={() => selectMarker(index)}
+        />
+      ))}
+      {activeMarker && (
+        <section
+          className="markdown-diff-panel"
+          role="dialog"
+          aria-label="差分レビュー"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="markdown-diff-heading">
+            <div className="markdown-diff-summary">
+              <strong>差分レビュー</strong>
+              <span className="markdown-diff-counts" aria-label="差分件数">
+                <span className="markdown-diff-count is-added">+{activeMarker.hunk.addedLines}</span>
+                <span aria-hidden="true">/</span>
+                <span className="markdown-diff-count is-removed">-{activeMarker.hunk.removedLines}</span>
+              </span>
+            </div>
+            <div className="markdown-diff-navigation">
+              <button type="button" className="secondary-button compact" onClick={() => selectMarker((activeIndex! - 1 + markers.length) % markers.length)}>前へ</button>
+              <span aria-live="polite">{(activeIndex ?? 0) + 1} / {markers.length}</span>
+              <button type="button" className="secondary-button compact" onClick={() => selectMarker(((activeIndex ?? 0) + 1) % markers.length)}>次へ</button>
+              <button type="button" className="secondary-button compact" onClick={() => setActiveIndex(null)}>閉じる</button>
+            </div>
+          </div>
+          <div className="markdown-diff-hunk-meta">
+            <span>変更箇所 {activeIndex! + 1}</span>
+            <div className="markdown-diff-hunk-actions">
+              <span className="markdown-diff-counts" aria-label="この変更箇所の差分件数">
+                <span className="markdown-diff-count is-added">+{activeMarker.hunk.addedLines}</span>
+                <span aria-hidden="true">/</span>
+                <span className="markdown-diff-count is-removed">-{activeMarker.hunk.removedLines}</span>
+              </span>
+              <button type="button" className="secondary-button compact" onClick={() => onRestoreHunk(activeMarker)}>元に戻す</button>
+            </div>
+          </div>
+          {activeMarker.hunk.omittedBefore > 0 && <div className="markdown-diff-ellipsis">… 前に {activeMarker.hunk.omittedBefore} 行を省略 …</div>}
+          <div className="markdown-diff-lines" role="list" aria-label="差分内容">
+            {activeMarker.hunk.lines.map((line, index) => (
+              <div key={`${line.kind}-${index}-${line.beforeLine ?? line.afterLine ?? "none"}`} className={`markdown-diff-line is-${line.kind}`} role="listitem">
+                <span className="markdown-diff-line-number">{line.beforeLine ?? "·"}</span>
+                <span className="markdown-diff-line-number">{line.afterLine ?? "·"}</span>
+                <span className="markdown-diff-line-marker" aria-hidden="true">{line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}</span>
+                <span className="markdown-diff-line-text">{line.text || " "}</span>
+              </div>
+            ))}
+          </div>
+          {activeMarker.hunk.omittedAfter > 0 && <div className="markdown-diff-ellipsis">… 後に {activeMarker.hunk.omittedAfter} 行を省略 …</div>}
+        </section>
+      )}
+    </div>
+  );
+}
+
 function noteDateLabel(value: unknown): string {
   const raw = str(value);
   if (!raw) return "";
@@ -738,6 +1115,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const previewPanelRef = useRef<HTMLElement | null>(null);
+  const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const records: Combined[] = [
@@ -782,6 +1160,9 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const markdownHeadings = useMemo(() => extractMarkdownHeadings(draftBody), [draftBody]);
   const searchMatches = useMemo(() => findMarkdownMatches(draftBody, searchQuery), [draftBody, searchQuery]);
   const markdownDiff = useMemo(() => diffMarkdownLines(selectedBody, draftBody), [selectedBody, draftBody]);
+  const markdownDiffHunks = useMemo(() => buildMarkdownDiffHunks(markdownDiff), [markdownDiff]);
+  const markdownDiffMarkers = useMemo(() => buildMarkdownDiffMarkers(markdownDiff), [markdownDiff]);
+  const draftLineCount = useMemo(() => draftBody.replace(/\r\n?/g, "\n").split("\n").length, [draftBody]);
 
   function updatePrefs(patch: Partial<NotesPreferences>) {
     setPrefs((current) => ({ ...current, ...patch }));
@@ -839,6 +1220,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     }
     setDraftBody(formatted);
     setDraftState("Markdownを整形しました。");
+  }
+
+  function restoreMarkdownDiffMarker(marker: MarkdownDiffMarker) {
+    const restored = restoreMarkdownDiffHunk(draftBody, marker.hunk);
+    if (restored === draftBody) return;
+    setDraftBody(restored);
+    setDraftState(`変更箇所 ${marker.lineNumber}行目を元に戻しました。`);
   }
 
   useEffect(() => {
@@ -1113,13 +1501,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   function switchPreviewMode(nextMode: PreviewMode) {
     if (nextMode === previewMode) return;
-    // Edit を離れる直前に MDX から最新本文を取り込み、画像 width が Preview に残るようにする
+    // Editを離れる直前にMDXから最新本文を取り込み、Preview/Rawへ最新の下書きを渡す。
+    // モード切替では自動保存しない。
     if (previewMode === "edit" && nextMode !== "edit") {
       const latest = mdxMarkdownSourceRef.current?.();
       if (typeof latest === "string" && latest !== draftBody) {
         setDraftBody(latest);
       }
-      void autoSaveDraft({ ...autosaveRef.current, draftBody: typeof latest === "string" ? latest : draftBody });
     }
     const scrollState = captureModeScroll(previewMode);
     setPreviewMode(nextMode);
@@ -1471,33 +1859,12 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
             <>
               <div className="note-preview-header">
                 <div>
-                  <span
-                    className="note-preview-theme"
-                    style={{
-                      "--chip-color": `var(--color-${themeColor(
-                        selectedTheme,
-                        Math.max(0, themes.findIndex((entry) => entry.id === (selected.theme_id || selected.project_id))),
-                      )})`,
-                    } as React.CSSProperties}
-                  >
-                    {selectedKind ? (
-                      <span className="note-kind" title={NOTES_KIND_LABELS[selectedKind]}>
-                        <NotesKindIcon kind={selectedKind} size={14} />
-                        <span className="note-kind-label">{NOTES_KIND_LABELS[selectedKind]}</span>
-                      </span>
-                    ) : (
-                      <span className="note-kind-label">—</span>
-                    )}
-                    <span className="theme-inline">
-                      <span className="chip-dot" />
-                      {selectedTheme?.name || "Theme未設定"}
-                    </span>
-                  </span>
                   <h2>{str(selected.title) || (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}</h2>
-                  {(selected.created_at || selected.updated_at) && (
+                  {(selected.created_at || selected.updated_at || draftState) && (
                     <div className="note-date-meta">
                       {selected.created_at && <span>追加 {noteDateLabel(selected.created_at)}</span>}
                       {selected.updated_at && <span>更新 {noteDateLabel(selected.updated_at)}</span>}
+                      {draftState && <span className="note-draft-state" role="status" aria-live="polite">{draftState}</span>}
                     </div>
                   )}
                   {selectedUrl && (
@@ -1521,7 +1888,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   )}
                 </div>
               </div>
-              <span className="note-draft-state" role="status" aria-live="polite">{draftState || "\u00a0"}</span>
               <div className={`document-publish-panel document-publish-strip ${markdownExportStale && showDocumentPublish ? "needs-export" : ""}`}>
                 <div className="document-publish-title">
                   {showDocumentPublish ? (
@@ -1552,7 +1918,14 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
                   <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
-                  <button className="secondary-button compact" disabled={!draftDirty} onClick={() => setDiffOpen(true)}>変更を確認</button>
+                  <button
+                    className={`secondary-button compact ${diffOpen ? "is-active" : ""}`}
+                    disabled={!draftDirty}
+                    aria-pressed={diffOpen}
+                    onClick={() => setDiffOpen((current) => !current)}
+                  >
+                    {markdownDiffHunks.length ? `変更 ${markdownDiffHunks.length}か所` : "変更を確認"}
+                  </button>
                   {showDocumentPublish && (
                     <>
                       <label className="toggle note-heading-number-toggle" title="本文は書き換えず、Edit・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
@@ -1630,23 +2003,16 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   <button type="button" className="secondary-button compact" onClick={() => setSearchOpen(false)}>閉じる</button>
                 </div>
               )}
-              {diffOpen && (
-                <section className="markdown-diff-panel" aria-label="Markdownの変更">
-                  <div className="markdown-diff-heading">
-                    <strong>保存済みとの差分</strong>
-                    <span>{markdownDiff.filter((line) => line.kind === "added").length}行追加 / {markdownDiff.filter((line) => line.kind === "removed").length}行削除</span>
-                    <button type="button" className="secondary-button compact" onClick={() => setDiffOpen(false)}>閉じる</button>
-                  </div>
-                  {draftDirty ? (
-                    <pre className="markdown-diff-lines">{markdownDiff.map((line, index) => (
-                      <code key={`${line.kind}-${index}`} className={`markdown-diff-line is-${line.kind}`}>
-                        <span aria-hidden="true">{line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}</span>{line.text || " "}{"\n"}
-                      </code>
-                    ))}</pre>
-                  ) : <p className="field-help">保存済み内容からの変更はありません。</p>}
-                </section>
-              )}
-              <div className="note-markdown-surface">
+              <div ref={markdownSurfaceRef} className="note-markdown-surface">
+                {diffOpen && previewMode !== "preview" && markdownDiffMarkers.length > 0 && (
+                  <MarkdownDiffMarkerRail
+                    markers={markdownDiffMarkers}
+                    totalLines={draftLineCount}
+                    mode={previewMode}
+                    surfaceRef={markdownSurfaceRef}
+                    onRestoreHunk={restoreMarkdownDiffMarker}
+                  />
+                )}
                 <MarkdownHeadingIndex
                   headings={markdownHeadings}
                   headingNumberOptions={headingNumberOptions.preview}
