@@ -590,15 +590,19 @@ test("math editor plugin transforms inline math beyond top-level paragraphs", ()
   assert.match(source, /hasFormat\("code"\)/);
 });
 
-test("notes page autosaves dirty drafts when switching notes or leaving the page", () => {
+test("notes page autosaves only when the editing Markdown leaves the screen", () => {
   const source = readFileSync(
     "src/renderer/src/features/workspace/pages/NotesPage.tsx",
     "utf8",
   );
 
   assert.match(source, /autosaveRef/);
+  assert.match(source, /function autoSaveDraft/);
   assert.match(source, /自動保存に失敗しました/);
-  assert.match(source, /\[selected\?\.id, saveEntity, setToast\]/);
+  assert.match(source, /previewMode === "edit" && nextMode !== "edit"/);
+  assert.match(source, /void autoSaveDraft\(\{ \.\.\.autosaveRef\.current, draftBody:/);
+  assert.match(source, /\}, \[selected\?\.id\]\);/);
+  assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });
 
 test("notes page keeps scroll position when switching edit, preview, and raw modes", () => {

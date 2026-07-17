@@ -885,23 +885,36 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   ctxRef.current = { selected, draftBody, draftDirty };
 
-  // 未保存の変更を、別レコードへの切り替え時・Notesページからの離脱時に自動保存する。
+  // 未保存の変更を、Markdown本文が画面から外れる時だけ自動保存する。
   // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
   const autosaveRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
+  const saveEntityRef = useRef(saveEntity);
+  const setToastRef = useRef(setToast);
+  saveEntityRef.current = saveEntity;
+  setToastRef.current = setToast;
   useEffect(() => {
     autosaveRef.current = { selected, draftBody, draftDirty };
   });
+
+  async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
+    const previous = snapshot.selected;
+    const body = snapshot.draftBody;
+    if (!previous || !(snapshot.draftDirty || body !== recordBody(previous))) return;
+    // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
+    if (previous.recordType === "note" && !body.trim()) return;
+    const { recordType, ...entity } = previous;
+    try {
+      await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
+    } catch (error: unknown) {
+      setToastRef.current(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   useEffect(() => {
     return () => {
-      const { selected: previous, draftBody: body, draftDirty: dirty } = autosaveRef.current;
-      if (!previous || !dirty) return;
-      // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
-      if (previous.recordType === "note" && !body.trim()) return;
-      const { recordType, ...entity } = previous;
-      saveEntity(recordType, { ...entity, body_markdown: body })
-        .catch((error: unknown) => setToast(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`));
+      void autoSaveDraft();
     };
-  }, [selected?.id, saveEntity, setToast]);
+  }, [selected?.id]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1106,6 +1119,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       if (typeof latest === "string" && latest !== draftBody) {
         setDraftBody(latest);
       }
+      void autoSaveDraft({ ...autosaveRef.current, draftBody: typeof latest === "string" ? latest : draftBody });
     }
     const scrollState = captureModeScroll(previewMode);
     setPreviewMode(nextMode);
