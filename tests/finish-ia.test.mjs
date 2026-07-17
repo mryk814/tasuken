@@ -17,6 +17,10 @@ test("app opens Today when no route is specified", () => {
   assert.match(uiStoreSource, /location\.hash\.slice\(1\) \|\| "today"/);
 });
 
+test("sidebar navigation closes the drawer before changing pages", () => {
+  assert.match(workspaceAppSource, /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;\s+setDrawer\(null\);\s+const normalized = normalizeRoute\(next\);/);
+});
+
 test("sidebar count badges are limited to action-driving counts", () => {
   assert.doesNotMatch(shellSource, /notesCount/);
   assert.doesNotMatch(shellSource, /knowledgeCount/);
