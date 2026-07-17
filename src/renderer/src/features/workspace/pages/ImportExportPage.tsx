@@ -164,7 +164,7 @@ export function ImportExportPage(props: PageProps) {
   async function publishMarkdownTargets() {
     const targets = publishTargetNotes.filter(notePublishEnabled);
     if (!targets.length) {
-      setToast("Publish対象のMarkdown文書がありません。");
+      setToast("一括出力対象のMarkdown文書がありません。");
       return;
     }
     setPublishing(true);
@@ -222,7 +222,7 @@ export function ImportExportPage(props: PageProps) {
   async function publishPdfTargets() {
     const targets = publishTargetNotes.filter(notePublishEnabled);
     if (!targets.length) {
-      setToast("Publish対象のMarkdown文書がありません。");
+      setToast("一括出力対象のMarkdown文書がありません。");
       return;
     }
     setPublishing(true);
@@ -554,9 +554,9 @@ export function ImportExportPage(props: PageProps) {
           </div>
           <div className="export-target-panel">
             <div className="section-heading">
-              <h2>Document Publish</h2>
+              <h2>一括出力</h2>
               <div className="inline-actions">
-                <span>Publish対象 {publishEnabledCount}件</span>
+                <span>出力対象 {publishEnabledCount}件</span>
                 <button className="primary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishMarkdownTargets}>Markdown</button>
                 <button className="secondary-button compact" disabled={publishing || !publishEnabledCount} onClick={publishPdfTargets}>PDF</button>
               </div>

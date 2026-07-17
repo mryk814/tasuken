@@ -439,6 +439,7 @@ export function WorkspaceApp() {
   function navigate(next: string) {
     void (async () => {
       if (!(await saveDirtyDrawerForm())) return;
+      setDrawer(null);
       const normalized = normalizeRoute(next);
       location.hash = normalized;
       setRoute(normalized);

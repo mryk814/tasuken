@@ -590,15 +590,19 @@ test("math editor plugin transforms inline math beyond top-level paragraphs", ()
   assert.match(source, /hasFormat\("code"\)/);
 });
 
-test("notes page autosaves dirty drafts when switching notes or leaving the page", () => {
+test("notes page autosaves only when the editing Markdown leaves the screen", () => {
   const source = readFileSync(
     "src/renderer/src/features/workspace/pages/NotesPage.tsx",
     "utf8",
   );
 
   assert.match(source, /autosaveRef/);
+  assert.match(source, /function autoSaveDraft/);
   assert.match(source, /自動保存に失敗しました/);
-  assert.match(source, /\[selected\?\.id, saveEntity, setToast\]/);
+  assert.match(source, /previewMode === "edit" && nextMode !== "edit"/);
+  assert.match(source, /void autoSaveDraft\(\{ \.\.\.autosaveRef\.current, draftBody:/);
+  assert.match(source, /\}, \[selected\?\.id\]\);/);
+  assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });
 
 test("notes page keeps scroll position when switching edit, preview, and raw modes", () => {
@@ -730,6 +734,15 @@ test("heading number options follow heading_numbers for both preview and PDF", (
     heading_number_levels: [1, 3],
   });
   assert.deepEqual(selected.preview.headingNumberLevels, [1, 3]);
+  const selectedLabels = markdown.computeHeadingNumberLabels([
+    { level: 1, text: "First" },
+    { level: 2, text: "Unnumbered" },
+    { level: 3, text: "Detail A" },
+    { level: 3, text: "Detail B" },
+    { level: 1, text: "Second" },
+    { level: 3, text: "Detail C" },
+  ], [1, 3]);
+  assert.deepEqual(selectedLabels, ["1.", null, "1.1", "1.2", "2.", "2.1"]);
   const nonContiguous = markdown.renderMarkdownPreview("# Title\n### Detail\n# Next", selected.preview);
   assert.match(nonContiguous, /<h1 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> Title<\/h1>/);
   assert.match(nonContiguous, /<h3 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/);
@@ -759,6 +772,8 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   assert.match(notesSource, /heading_number_start/);
   assert.match(notesSource, /heading_number_levels/);
   assert.match(notesSource, /headingNumberOptions=\{headingNumberOptions\.preview\}/);
+  assert.match(notesSource, /headingNumberLevels,/);
+  assert.doesNotMatch(notesSource, /整形を戻す|formatUndoBody/);
   assert.match(notesSource, /applyHeadingNumberAttributes/);
   assert.match(notesSource, /見出し番号/);
   assert.match(notesSource, /HEADING_NUMBER_LEVELS/);
@@ -768,6 +783,8 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
   assert.match(css, /data-heading-number/);
   assert.match(css, /note-heading-start-select/);
+  assert.match(css, /markdown-diff-line\.is-added[^}]*color-mix/);
+  assert.match(css, /markdown-diff-line\.is-removed[^}]*color-mix/);
 });
 
 test("outlookHtml creates simple styled HTML without tasken image references", () => {

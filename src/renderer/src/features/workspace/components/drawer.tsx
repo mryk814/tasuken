@@ -833,7 +833,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
         </select>
       </Field>
       {!isPrompt && (
-        <Field label="Document Publish">
+        <Field label="出力設定">
           <input type="hidden" name="publish_enabled" value="false" />
           <label className="toggle">
             <input type="checkbox" name="publish_enabled" value="true" defaultChecked={properties.publish_enabled === true || properties.export_enabled === true} />
@@ -1246,7 +1246,7 @@ function NoteDetailDrawer({
         publish_enabled: next,
       },
     });
-    setToast(next ? "Document Publish対象にしました。" : "Document Publish対象から外しました。", "success");
+    setToast(next ? "一括出力の対象にしました。" : "一括出力の対象から外しました。", "success");
     close({ type: "note", entity: saved });
   }
 
@@ -1418,8 +1418,8 @@ function NoteDetailDrawer({
         <h2>{note.title}</h2>
         <section className={`document-rule-strip ${publishEnabled ? "is-export-target" : "is-export-muted"}`}>
           <div>
-            <strong>{publishEnabled ? "Publish対象" : "Publish対象外"}</strong>
-            <span>{publishEnabled ? "AI連携の書き出しとは別に、Markdown / PDF 一括出力の対象です。" : "AI連携の書き出しとは別に、文書出力の対象から外れています。"}</span>
+            <strong>{publishEnabled ? "一括出力対象" : "一括出力対象外"}</strong>
+            <span>{publishEnabled ? "Markdown / PDF 一括出力の対象です。" : "文書出力の対象から外れています。"}</span>
           </div>
           <label className="toggle">
             <input type="checkbox" checked={publishEnabled} onChange={(event) => setPublishEnabled(event.target.checked)} />
@@ -1522,7 +1522,6 @@ function NoteDetailDrawer({
         {canExportDocument && (
           <section className={`document-publish-panel ${markdownExportStale ? "needs-export" : ""}`}>
             <div className="document-publish-title">
-              <strong>Document Publish</strong>
               {(str(markdownExport?.filePath) || str(markdownExport?.directory)) && (
                 <button
                   className="document-publish-open"

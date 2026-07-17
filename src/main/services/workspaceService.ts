@@ -587,11 +587,9 @@ export class WorkspaceService {
   async exportMarkdownPdf(requestValue: unknown): Promise<MarkdownPdfExportResult> {
     const request = normalizeMarkdownPdfExportRequest(requestValue);
     let directory = request.directory?.trim() || "";
-    // PDF は都度選択を維持。Theme の Exports/ をダイアログ初期位置にする。
+    // PDF は都度選択する。既定の保存先はOSのフォルダ選択ダイアログに任せる。
     if (request.chooseDirectory || !directory) {
-      const themeDefault = this.resolveThemeContentDirectory(request.themeId, "exports");
-      const defaultPath = directory
-        || (themeDefault.kind === "ok" ? themeDefault.directory : undefined);
+      const defaultPath = directory || undefined;
       const result = await dialog.showOpenDialog({
         title: "PDF出力先フォルダを選択",
         defaultPath: defaultPath || undefined,

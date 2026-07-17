@@ -298,6 +298,10 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
+  const headingNumberLevels = Array.isArray(headingNumberOptions?.headingNumberLevels)
+    ? normalizeHeadingNumberLevels(headingNumberOptions.headingNumberLevels)
+    : HEADING_NUMBER_LEVELS.filter((level) => level >= headingNumberStart);
+  const headingNumberLevelKey = headingNumberLevels.join(",");
   const editorRef = useRef<MDXEditorMethods | null>(null);
   const editorScopeRef = useRef<HTMLDivElement | null>(null);
   const hoverHideTimerRef = useRef<number | null>(null);
@@ -405,6 +409,7 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
     const options: MarkdownRenderOptions = {
       headingNumbers: headingNumbersEnabled,
       headingNumberStart,
+      headingNumberLevels,
     };
     let frame = 0;
     const refresh = () => {
@@ -423,7 +428,7 @@ const MarkdownRichEditor = memo(function MarkdownRichEditor({
       observer.disconnect();
       applyHeadingNumberAttributes(content(), false);
     };
-  }, [headingNumbersEnabled, headingNumberStart, markdown]);
+  }, [headingNumbersEnabled, headingNumberStart, headingNumberLevelKey, markdown]);
 
   // React の onClick だけでは Lexical に握られることがあるため、capture の pointerdown で拾う。
   useEffect(() => {
@@ -726,7 +731,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
-  const [formatUndoBody, setFormatUndoBody] = useState<string | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
@@ -749,7 +753,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const workbenchRecords = visible.filter(isWorkbenchRecord);
   const selected = workbenchRecords.find((record) => record.id === selectedId) || workbenchRecords[0] || null;
   const selectedKind = selected ? recordKind(selected) : null;
-  // Document Publish / Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
+  // Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
   const showDocumentPublish = selectedKind === "note" || selectedKind === "report";
   const selectedTheme = selected
     ? themes.find((theme) => theme.id === (selected.theme_id || selected.project_id))
@@ -833,16 +837,8 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       setDraftState("整形できる変更はありません。");
       return;
     }
-    setFormatUndoBody(current);
     setDraftBody(formatted);
     setDraftState("Markdownを整形しました。");
-  }
-
-  function undoFormattedDraft() {
-    if (formatUndoBody === null) return;
-    setDraftBody(formatUndoBody);
-    setFormatUndoBody(null);
-    setDraftState("整形を戻しました。");
   }
 
   useEffect(() => {
@@ -883,30 +879,42 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   useEffect(() => {
     setDraftBody(normalizeRichEditorMarkdown(selectedBody));
     setDraftState("");
-    setFormatUndoBody(null);
     setDiffOpen(false);
     setSearchIndex(0);
   }, [selected?.id, selectedBody]);
 
   ctxRef.current = { selected, draftBody, draftDirty };
 
-  // 未保存の変更を、別レコードへの切り替え時・Notesページからの離脱時に自動保存する。
+  // 未保存の変更を、Markdown本文が画面から外れる時だけ自動保存する。
   // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
   const autosaveRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
+  const saveEntityRef = useRef(saveEntity);
+  const setToastRef = useRef(setToast);
+  saveEntityRef.current = saveEntity;
+  setToastRef.current = setToast;
   useEffect(() => {
     autosaveRef.current = { selected, draftBody, draftDirty };
   });
+
+  async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
+    const previous = snapshot.selected;
+    const body = snapshot.draftBody;
+    if (!previous || !(snapshot.draftDirty || body !== recordBody(previous))) return;
+    // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
+    if (previous.recordType === "note" && !body.trim()) return;
+    const { recordType, ...entity } = previous;
+    try {
+      await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
+    } catch (error: unknown) {
+      setToastRef.current(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   useEffect(() => {
     return () => {
-      const { selected: previous, draftBody: body, draftDirty: dirty } = autosaveRef.current;
-      if (!previous || !dirty) return;
-      // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
-      if (previous.recordType === "note" && !body.trim()) return;
-      const { recordType, ...entity } = previous;
-      saveEntity(recordType, { ...entity, body_markdown: body })
-        .catch((error: unknown) => setToast(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`));
+      void autoSaveDraft();
     };
-  }, [selected?.id, saveEntity, setToast]);
+  }, [selected?.id]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1111,6 +1119,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       if (typeof latest === "string" && latest !== draftBody) {
         setDraftBody(latest);
       }
+      void autoSaveDraft({ ...autosaveRef.current, draftBody: typeof latest === "string" ? latest : draftBody });
     }
     const scrollState = captureModeScroll(previewMode);
     setPreviewMode(nextMode);
@@ -1517,7 +1526,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                 <div className="document-publish-title">
                   {showDocumentPublish ? (
                     <>
-                      <strong>Document Publish</strong>
                       {markdownExportOpenPath && (
                         <button
                           className="document-publish-open"
@@ -1543,12 +1551,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
-                  <button className={`secondary-button compact ${searchOpen ? "is-active" : ""}`} onClick={() => {
-                    setSearchOpen((current) => !current);
-                    window.requestAnimationFrame(() => searchInputRef.current?.focus());
-                  }}>検索</button>
                   <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
-                  {formatUndoBody !== null && <button className="secondary-button compact" onClick={undoFormattedDraft}>整形を戻す</button>}
                   <button className="secondary-button compact" disabled={!draftDirty} onClick={() => setDiffOpen(true)}>変更を確認</button>
                   {showDocumentPublish && (
                     <>
@@ -1657,7 +1660,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     onPaste={handleDraftPaste}
                     onChange={(event) => {
                       setDraftBody(event.target.value);
-                      setFormatUndoBody(null);
                       if (draftState) setDraftState("");
                     }}
                     aria-label="脚注を含むMarkdown本文"
@@ -1668,7 +1670,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     resetKey={selected.id}
                     onChange={(value) => {
                       setDraftBody(value);
-                      setFormatUndoBody(null);
                       if (draftState) setDraftState("");
                     }}
                     onPaste={handleDraftPaste}
@@ -1680,7 +1681,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                       markdownSourceRef={mdxMarkdownSourceRef}
                       onChange={(value) => {
                         setDraftBody(value);
-                        setFormatUndoBody(null);
                         if (draftState) setDraftState("");
                       }}
                       onImageUpload={uploadEditorImage}
@@ -1697,7 +1697,6 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     onPaste={handleDraftPaste}
                     onChange={(event) => {
                       setDraftBody(event.target.value);
-                      setFormatUndoBody(null);
                       if (draftState) setDraftState("");
                     }}
                   />
