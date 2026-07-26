@@ -71,7 +71,10 @@ test("task section drafts normalize names, theme references, and stable order", 
 
 test("task sections are wired through Theme detail, task drawer, and save form", () => {
   const themeSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
-  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const drawerSource = [
+    readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/drawerEntityFields.tsx", "utf8"),
+  ].join("\n");
   const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
   assert.match(themeSource, /TaskSectionBoard/);

@@ -37,7 +37,10 @@ test("task shelf status keeps due and overdue shelf tasks visible", () => {
 test("task shelves are wired through Today candidates and the task drawer", () => {
   const todoSource = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
   const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
-  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const drawerSource = [
+    readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/drawerEntityFields.tsx", "utf8"),
+  ].join("\n");
 
   assert.doesNotMatch(todoSource, /moveTaskToShelf/);
   assert.match(todaySource, /buildDailyPlanningCandidates/);

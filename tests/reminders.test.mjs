@@ -105,7 +105,10 @@ test("reminder settings normalize persisted view data", () => {
 
 test("task reminders stay on tasks and surface as lightweight row metadata", () => {
   const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
-  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const drawerSource = [
+    readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/drawerEntityFields.tsx", "utf8"),
+  ].join("\n");
   const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   const reminderSource = readFileSync("src/renderer/src/features/workspace/lib/reminders.ts", "utf8");
 
@@ -120,15 +123,18 @@ test("task reminders stay on tasks and surface as lightweight row metadata", () 
 });
 
 test("due reminders are connected to native desktop notifications", () => {
-  const mainSource = readFileSync("src/main/index.ts", "utf8");
+  const mainSource = [
+    readFileSync("src/main/index.ts", "utf8"),
+    readFileSync("src/main/reminderController.ts", "utf8"),
+  ].join("\n");
 
   assert.match(mainSource, /Notification/);
   assert.match(mainSource, /REMINDER_CHECK_INTERVAL_MS/);
-  assert.match(mainSource, /startReminderNotifications/);
-  assert.match(mainSource, /showReminderNotification/);
-  assert.match(mainSource, /workspaceRepository\.list\("task"\)/);
-  assert.match(mainSource, /workspaceRepository\.list\("waiting"\)/);
+  assert.match(mainSource, /createReminderController/);
+  assert.match(mainSource, /showNotification/);
+  assert.match(mainSource, /options\.repository\.list\("task"\)/);
+  assert.match(mainSource, /options\.repository\.list\("waiting"\)/);
   assert.match(mainSource, /new Notification\(/);
   assert.match(mainSource, /notification\.show\(\)/);
-  assert.match(mainSource, /notifiedReminderIds/);
+  assert.match(mainSource, /notifiedIds/);
 });

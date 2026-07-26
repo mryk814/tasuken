@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
-const mainSource = readFileSync("src/main/index.ts", "utf8");
+const mainSource = [
+  readFileSync("src/main/index.ts", "utf8"),
+  readFileSync("src/main/todayMiniController.ts", "utf8"),
+].join("\n");
 const preloadSource = readFileSync("src/preload/todayMini.ts", "utf8");
 const htmlSource = readFileSync("src/renderer/today-mini.html", "utf8");
 const contractsSource = readFileSync("src/shared/ipc/global.d.ts", "utf8");
@@ -18,15 +21,15 @@ test("Today no longer exposes the daily loop shelf or morning planning flow", ()
 });
 
 test("Today mini can snap and resize to the top right and fades strongly while inactive", () => {
-  assert.match(mainSource, /function pinTodayMiniTopRight/);
+  assert.match(mainSource, /function pinTopRight/);
   assert.match(mainSource, /screen\.getDisplayMatching/);
-  assert.match(mainSource, /TODAY_MINI_PINNED_WIDTH\s*=\s*360/);
-  assert.match(mainSource, /TODAY_MINI_PINNED_HEIGHT\s*=\s*560/);
+  assert.match(mainSource, /PINNED_WIDTH\s*=\s*360/);
+  assert.match(mainSource, /PINNED_HEIGHT\s*=\s*560/);
   assert.match(mainSource, /setBounds\(/);
   assert.match(mainSource, /today-mini:pin-top-right/);
-  assert.match(mainSource, /TODAY_MINI_INACTIVE_OPACITY\s*=\s*0\.5/);
+  assert.match(mainSource, /INACTIVE_OPACITY\s*=\s*0\.5/);
   assert.match(mainSource, /setOpacity\(1\)/);
-  assert.match(mainSource, /setOpacity\(TODAY_MINI_INACTIVE_OPACITY\)/);
+  assert.match(mainSource, /setOpacity\(INACTIVE_OPACITY\)/);
   assert.match(mainSource, /frame:\s*false/);
   assert.match(mainSource, /autoHideMenuBar:\s*true/);
   assert.match(preloadSource, /pinTopRight/);
