@@ -45,10 +45,16 @@ import type {
   OpenDrawer,
   RemoveEntity,
   SaveEntities,
-  SaveOperation,
   WorkspaceData,
 } from "../types";
-import { uuid } from "../lib/format";
+import {
+  buildArtifactThemeSyncOperations,
+  buildLinkedArtifactOperationFromUrl,
+  buildLinkedArtifactOperationsFromPaths,
+  buildManagedArtifactOperations,
+  resolveArtifactThemeId,
+} from "../lib/artifactEntities";
+import { markArtifactOpened, readRecentArtifactIds } from "../lib/artifactRecent";
 import { ContextMenu, type ContextMenuItem } from "./common";
 
 const SPREADSHEET_TYPES = new Set(["xlsx", "xls", "csv", "tsv"]);
@@ -636,215 +642,6 @@ export function ArtifactCard({
   );
 }
 
-const RECENT_KEY = "artifacts:recent-opened";
-const RECENT_LIMIT = 40;
-
-export function readRecentArtifactIds(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-export function markArtifactOpened(id: string): void {
-  const next = [id, ...readRecentArtifactIds().filter((entry) => entry !== id)].slice(0, RECENT_LIMIT);
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-  } catch {
-    // localStorage が使えない環境では最近開いた順を諦める。
-  }
-}
-
-function buildManagedEntities(
-  files: Array<{ filename: string; storedPath: string; originalPath: string; fileSize: number; mimeType: string; fileType: string; copiedAt?: string }>,
-  sourceType: ArtifactSourceType,
-  sourceId: string,
-  themeId?: string | null,
-): SaveOperation[] {
-  const now = new Date().toISOString();
-  return files.map((file) => ({
-    action: "save" as const,
-    type: "artifact" as const,
-    entity: {
-      id: uuid(),
-      title: file.filename.replace(/\.[^.]+$/, ""),
-      filename: file.filename,
-      file_type: file.fileType,
-      mime_type: file.mimeType,
-      file_size: file.fileSize,
-      stored_path: file.storedPath,
-      original_path: file.originalPath,
-      storage_mode: "managed",
-      copied_at: file.copiedAt || now,
-      source_type: sourceType,
-      source_id: sourceId,
-      theme_id: themeId || null,
-      description: null,
-      generated_by: null,
-      link_type: null,
-      target: null,
-      link_status: null,
-      last_checked_at: null,
-    },
-  }));
-}
-
-function buildLinkedEntitiesFromPaths(
-  files: Array<{ path: string; name: string }>,
-  sourceType: ArtifactSourceType,
-  sourceId: string,
-  themeId?: string | null,
-): SaveOperation[] {
-  return files.map((file) => {
-    const target = file.path;
-    const filename = file.name || displayNameFromTarget(target, "file");
-    const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
-    const fileType = artifactFileTypeFromName(filename);
-    return {
-      action: "save" as const,
-      type: "artifact" as const,
-      entity: {
-        id: uuid(),
-        title: filename.replace(/\.[^.]+$/, ""),
-        filename,
-        file_type: fileType,
-        mime_type: undefined,
-        file_size: undefined,
-        stored_path: "",
-        original_path: null,
-        storage_mode: "linked",
-        copied_at: null,
-        link_type: linkType,
-        target,
-        link_status: "unknown" as ArtifactLinkStatus,
-        last_checked_at: null,
-        source_type: sourceType,
-        source_id: sourceId,
-        theme_id: themeId || null,
-        description: null,
-        generated_by: null,
-      },
-    };
-  });
-}
-
-function buildLinkedEntityFromUrl(
-  url: string,
-  sourceType: ArtifactSourceType,
-  sourceId: string,
-  themeId?: string | null,
-): SaveOperation {
-  const target = url.trim();
-  const filename = displayNameFromTarget(target, "link");
-  const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
-  return {
-    action: "save",
-    type: "artifact",
-    entity: {
-      id: uuid(),
-      title: filename.replace(/\.[^.]+$/, "") || "リンク",
-      filename,
-      file_type: artifactFileTypeFromName(filename),
-      stored_path: "",
-      original_path: null,
-      storage_mode: "linked",
-      copied_at: null,
-      link_type: linkType,
-      target,
-      link_status: "unknown",
-      last_checked_at: null,
-      source_type: sourceType,
-      source_id: sourceId,
-      theme_id: themeId || null,
-      description: null,
-      generated_by: null,
-    },
-  };
-}
-
-/** 親の Theme 変更に合わせて子 Artifact の theme_id を揃える（ファイル実体は動かさない）。 */
-export function buildArtifactThemeSyncOperations(
-  artifacts: Artifact[],
-  source: { sourceTypes: ArtifactSourceType[]; sourceId: string; themeId: string | null },
-): SaveOperation[] {
-  if (!source.sourceId) return [];
-  const nextTheme = source.themeId || null;
-  return (artifacts || [])
-    .filter((artifact) => (
-      source.sourceTypes.includes(artifact.source_type)
-      && artifact.source_id === source.sourceId
-      && String(artifact.theme_id || "") !== String(nextTheme || "")
-    ))
-    .map((artifact) => ({
-      action: "save" as const,
-      type: "artifact" as const,
-      entity: {
-        ...artifact,
-        theme_id: nextTheme,
-      },
-    }));
-}
-
-/**
- * 親 Entity の Theme を解決する。
- * 優先: 編集中フォームの選択 → props → data 上の親 Entity → source が Theme なら自身。
- * managed 保存先もこの Theme に従う。
- */
-export function resolveArtifactThemeId(options: {
-  sourceType: ArtifactSourceType;
-  sourceId: string;
-  themeId?: string | null;
-  data?: WorkspaceData;
-  /** ドロワー編集中の form。未指定なら document から探す */
-  form?: HTMLFormElement | null;
-}): string | null {
-  const { sourceType, sourceId, themeId, data } = options;
-  const form = options.form
-    || (typeof document !== "undefined"
-      ? document.querySelector<HTMLFormElement>("aside.drawer form.drawer-form")
-      : null);
-  if (form) {
-    // Task は project_id を theme_id フィールド名で持たせる。Chat は project_id。
-    const fieldName = sourceType === "chat_ref" ? "project_id" : "theme_id";
-    const named = form.elements.namedItem(fieldName);
-    const field = named && !(named instanceof RadioNodeList) && "value" in named
-      ? named as { value: string }
-      : null;
-    if (field) {
-      const fromForm = String(field.value || "").trim();
-      if (fromForm) return fromForm;
-      // 明示的に「個人業務/未設定」を選んだ場合は空を尊重（props で上書きしない）
-      return null;
-    }
-  }
-  const fromProp = String(themeId || "").trim();
-  if (fromProp) return fromProp;
-  if (sourceType === "theme" && sourceId) return sourceId;
-  if (data) {
-    if (sourceType === "task") {
-      const task = (data.tasks || []).find((entry) => entry.id === sourceId);
-      const projectId = task ? String(task.project_id || "").trim() : "";
-      return projectId || null;
-    }
-    if (sourceType === "note" || sourceType === "report") {
-      const note = (data.notes || []).find((entry) => entry.id === sourceId);
-      const noteTheme = note ? String(note.theme_id || "").trim() : "";
-      return noteTheme || null;
-    }
-    if (sourceType === "chat_ref") {
-      const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
-      const resourceTheme = resource
-        ? String(resource.project_id || resource.theme_id || "").trim()
-        : "";
-      return resourceTheme || null;
-    }
-  }
-  return null;
-}
 
 export function ArtifactSection({
   sourceType,
@@ -922,7 +719,7 @@ export function ArtifactSection({
         setToast("Artifact保存先が未設定です。「保存先を選ぶ」から設定してください。", "info");
         return;
       }
-      const operations = buildManagedEntities(result.files, sourceType, sourceId, parentThemeId);
+      const operations = buildManagedArtifactOperations(result.files, sourceType, sourceId, parentThemeId);
       await saveEntities(operations, `${operations.length}件の Artifact を添付しました。`);
     } catch (error) {
       setToast(`Artifact を添付できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
@@ -939,7 +736,7 @@ export function ArtifactSection({
     setImporting(true);
     try {
       const parentThemeId = effectiveThemeId();
-      const operations = buildLinkedEntitiesFromPaths(requestFiles, sourceType, sourceId, parentThemeId);
+      const operations = buildLinkedArtifactOperationsFromPaths(requestFiles, sourceType, sourceId, parentThemeId);
       await saveEntities(operations, `${operations.length}件の参照をリンクしました。`);
     } catch (error) {
       setToast(`リンクを追加できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
@@ -989,7 +786,7 @@ export function ArtifactSection({
     setImporting(true);
     try {
       const parentThemeId = effectiveThemeId();
-      const operations = unique.map((url) => buildLinkedEntityFromUrl(url, sourceType, sourceId, parentThemeId));
+      const operations = unique.map((url) => buildLinkedArtifactOperationFromUrl(url, sourceType, sourceId, parentThemeId));
       await saveEntities(
         operations,
         unique.length === 1 ? "URLをリンクしました。" : `${unique.length}件のURLをリンクしました。`,

@@ -13,6 +13,8 @@ import {
   validateEntity,
   workspaceEntityTypes,
 } from "./domain.mjs";
+import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
+import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
 
 const SCHEMA_VERSION = 1;
 
@@ -390,76 +392,7 @@ export class WorkspaceDatabase {
   }
 
   validateGraph(type, entity) {
-    if (type === "item") this.validateItemParentGraph(entity);
-    if (type === "task" && entity.parent_task_id) this.validateTaskParentGraph(entity);
-    if (type === "plan_node" && entity.parent_plan_node_id) this.validatePlanNodeParentGraph(entity);
-    if (type === "task_dependency") this.validateTaskDependencyGraph(entity);
-    if (type === "plan_dependency") this.validatePlanDependencyGraph(entity);
-    if (type === "knowledge_edge") this.validateKnowledgeEdgeGraph(entity);
-  }
-
-  validateItemParentGraph(entity) {
-    assertItemParentAcyclic(this.list("item"), entity);
-  }
-
-  validateTaskParentGraph(entity) {
-    const tasks = this.list("task");
-    const byId = new Map(tasks.filter((t) => !t.deleted_at).map((t) => [String(t.id), t]));
-    byId.set(String(entity.id), entity);
-    const seen = new Set([String(entity.id)]);
-    let currentId = String(entity.parent_task_id || "");
-    while (currentId) {
-      if (seen.has(currentId)) throw new Error("Taskの親子関係が循環しています。別の親Taskを選んでください。");
-      seen.add(currentId);
-      currentId = String(byId.get(currentId)?.parent_task_id || "");
-    }
-  }
-
-  validatePlanNodeParentGraph(entity) {
-    const nodes = this.list("plan_node");
-    const byId = new Map(nodes.filter((n) => !n.deleted_at).map((n) => [String(n.id), n]));
-    byId.set(String(entity.id), entity);
-    const seen = new Set([String(entity.id)]);
-    let currentId = String(entity.parent_plan_node_id || "");
-    while (currentId) {
-      if (seen.has(currentId)) throw new Error("PlanNodeの親子関係が循環しています。別の親PlanNodeを選んでください。");
-      seen.add(currentId);
-      currentId = String(byId.get(currentId)?.parent_plan_node_id || "");
-    }
-  }
-
-  validateTaskDependencyGraph(entity) {
-    if (!entity.task_id || !entity.depends_on_task_id) return;
-    const deps = this.list("task_dependency")
-      .filter((d) => !d.deleted_at && String(d.id) !== String(entity.id))
-      .map((d) => [String(d.task_id), String(d.depends_on_task_id)]);
-    deps.push([String(entity.task_id), String(entity.depends_on_task_id)]);
-    if (hasPath(deps, String(entity.depends_on_task_id), String(entity.task_id))) {
-      throw new Error("TaskDependencyが循環します。依存関係の向きを見直してください。");
-    }
-  }
-
-  validatePlanDependencyGraph(entity) {
-    if (!entity.plan_node_id || !entity.depends_on_plan_node_id) return;
-    const deps = this.list("plan_dependency")
-      .filter((d) => !d.deleted_at && String(d.id) !== String(entity.id))
-      .map((d) => [String(d.plan_node_id), String(d.depends_on_plan_node_id)]);
-    deps.push([String(entity.plan_node_id), String(entity.depends_on_plan_node_id)]);
-    if (hasPath(deps, String(entity.depends_on_plan_node_id), String(entity.plan_node_id))) {
-      throw new Error("PlanDependencyが循環します。依存関係の向きを見直してください。");
-    }
-  }
-
-  validateKnowledgeEdgeGraph(entity) {
-    if (!entity.source_node_id || !entity.target_node_id) return;
-    if (!isKnowledgeDirectionalRelationType(entity.relation_type)) return;
-    const edges = this.list("knowledge_edge")
-      .filter((edge) => !edge.deleted_at && String(edge.id) !== String(entity.id) && isKnowledgeDirectionalRelationType(edge.relation_type))
-      .map((edge) => [String(edge.source_node_id), String(edge.target_node_id)]);
-    edges.push([String(entity.source_node_id), String(entity.target_node_id)]);
-    if (hasPath(edges, String(entity.target_node_id), String(entity.source_node_id))) {
-      throw new Error("KnowledgeEdgeが循環します。relationの向きを見直してください。");
-    }
+    validateRepositoryGraph(this, type, entity);
   }
 
   validateSnapshotWorkspace(snapshot) {
@@ -692,88 +625,7 @@ export class WorkspaceDatabase {
   }
 
   applyDeletePolicy(type, id) {
-    if (type === "theme") {
-      // Themeを出所とするArtifactは子としてcascade。単にtheme_idが付いているだけのArtifactはnullifyで切り離す。
-      this.cascadeWhere("artifact", (entry) => entry.source_type === "theme" && entry.source_id === id, type, id);
-      this.nullifyReferences(type, [
-        ["item", "theme_id"],
-        ["note", "theme_id"],
-        ["link", "theme_id"],
-        ["field_definition", "theme_id"],
-        ["knowledge_node", "theme_id"],
-        ["log_entry", "theme_id"],
-        ["view", "theme_id"],
-        ["artifact", "theme_id"],
-      ], id);
-      this.cascadeWhere("status_update", (entry) => entry.theme_id === id, type, id);
-    }
-
-    if (type === "item") {
-      this.nullifyReferences(type, [
-        ["item", "parent_item_id"],
-        ["note", "item_id"],
-        ["link", "item_id"],
-        ["knowledge_node", "source_item_id"],
-        ["log_entry", "item_id"],
-      ], id);
-    }
-
-    if (type === "note") {
-      this.nullifyReferences(type, [["link", "note_id"], ["knowledge_node", "source_note_id"], ["log_entry", "related_note_id"]], id);
-      // note/report由来のArtifactは子としてcascade（restoreで復元。ファイル実体は削除しない）。
-      this.cascadeWhere("artifact", (entry) => (entry.source_type === "note" || entry.source_type === "report") && entry.source_id === id, type, id);
-    }
-
-    if (type === "link") {
-      this.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
-    }
-
-    if (type === "task") {
-      this.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
-    }
-
-    if (type === "resource") {
-      // Chat参照はresourceとして保存されるため、chat_ref由来のArtifactをcascadeする。
-      this.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
-    }
-
-    if (type === "source_record") {
-      this.nullifyReferences(type, [
-        ["item", "source_record_id"],
-        ["note", "source_record_id"],
-        ["link", "source_record_id"],
-        ["log_entry", "source_record_id"],
-      ], id);
-    }
-
-    if (type === "field_definition") {
-      this.cascadeWhere("field_value", (entry) => entry.field_definition_id === id, type, id);
-    }
-
-    if (type === "knowledge_node") {
-      this.cascadeWhere(
-        "knowledge_edge",
-        (entry) => entry.source_node_id === id || entry.target_node_id === id,
-        type,
-        id,
-      );
-    }
-
-    if (["theme", "item", "note", "link", "source_record", "knowledge_node"].includes(type)) {
-      this.cascadeWhere(
-        "entity_source",
-        (entry) => (entry.entity_type === type && entry.entity_id === id)
-          || (type === "source_record" && entry.source_record_id === id),
-        type,
-        id,
-      );
-      this.cascadeWhere(
-        "field_value",
-        (entry) => entry.entity_type === type && entry.entity_id === id,
-        type,
-        id,
-      );
-    }
+    applyRepositoryDeletePolicy(this, type, id);
   }
 
   nullifyReferences(parentType, targets, removedId) {

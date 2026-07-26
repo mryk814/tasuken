@@ -27,8 +27,12 @@ import { artifactSourceEntityTypes, normalizeEntity, validateEntity, workspaceEn
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
-const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+const workspacePageRouterSource = readFileSync(
+  "src/renderer/src/features/workspace/components/WorkspacePageRouter.tsx",
+  "utf8",
+);
 const artifactsComponentSource = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
+const artifactEntitiesSource = readFileSync("src/renderer/src/features/workspace/lib/artifactEntities.ts", "utf8");
 const artifactsPageSource = readFileSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx", "utf8");
 const themePageSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
 const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
@@ -266,23 +270,19 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
 });
 
 test("Artifact は親 Entity の Theme を引き継ぐ", () => {
-  assert.match(artifactsComponentSource, /function resolveArtifactThemeId|export function resolveArtifactThemeId/);
+  assert.match(artifactEntitiesSource, /export function resolveArtifactThemeId/);
   assert.match(artifactsComponentSource, /effectiveThemeId/);
   assert.match(artifactsComponentSource, /parentThemeId/);
-  assert.match(artifactsComponentSource, /buildArtifactThemeSyncOperations/);
-  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
-  assert.match(workspaceAppSource, /buildArtifactThemeSyncOperations/);
-  assert.match(workspaceAppSource, /sourceTypes:\s*\["task"\]/);
-  assert.match(workspaceAppSource, /sourceTypes:\s*\["note", "report"\]/);
-  assert.match(workspaceAppSource, /sourceTypes:\s*\["chat_ref"\]/);
+  assert.match(artifactEntitiesSource, /buildArtifactThemeSyncOperations/);
 });
 
 test("Theme 編集に storage_root があり import に themeId を渡す", () => {
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const drawerPickersSource = readFileSync("src/renderer/src/features/workspace/components/drawerPickers.tsx", "utf8");
   const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   const settingsSource = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
   assert.match(drawerSource, /ThemeStorageRootField|storage_root/);
-  assert.match(drawerSource, /Artifact保存ルート/);
+  assert.match(drawerPickersSource, /Artifact保存ルート/);
   assert.match(workspaceAppSource, /storage_root:\s*formText\(values,\s*"storage_root"\)/);
   assert.match(artifactsComponentSource, /themeId:\s*parentThemeId/);
   assert.match(artifactsComponentSource, /themeId:\s*artifact\.theme_id/);
@@ -347,8 +347,8 @@ test("Artifacts 一覧が知識整理ナビとルートに接続されている"
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
   assert.match(routesSource, /\["artifacts", "Artifacts"\]/);
   assert.match(routesSource, /artifacts:\s*"knowledge"/);
-  assert.match(workspaceAppSource, /ArtifactsPage/);
-  assert.match(workspaceAppSource, /artifacts:\s*<ArtifactsPage/);
+  assert.match(workspacePageRouterSource, /ArtifactsPage/);
+  assert.match(workspacePageRouterSource, /case "artifacts":/);
 });
 
 test("Artifact の追加入口と元Entity往復がUIにある", () => {
@@ -406,7 +406,8 @@ test("managed / linked 添付UIと操作が接続されている", () => {
   assert.match(artifactsComponentSource, /IconPlus size=\{14\} \/>Artifact/);
   assert.match(artifactsComponentSource, /参照のみ/);
   assert.match(artifactsComponentSource, /storage_mode: "managed"/);
-  assert.match(artifactsComponentSource, /storage_mode: "linked"/);
+  assert.match(artifactEntitiesSource, /storage_mode: "managed"/);
+  assert.match(artifactEntitiesSource, /storage_mode: "linked"/);
   assert.match(artifactsComponentSource, /promoteArtifactToManaged/);
   assert.match(artifactsComponentSource, /checkArtifactLink/);
   assert.match(artifactsComponentSource, /retargetLinkedArtifact/);

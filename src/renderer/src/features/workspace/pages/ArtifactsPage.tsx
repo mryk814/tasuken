@@ -4,12 +4,12 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import {
   ArtifactCard,
-  readRecentArtifactIds,
   resolveArtifactSourceLabel,
   themeNameOf,
 } from "../components/artifacts";
 import { EmptyState, PageHeader } from "../components/common";
 import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
+import { readRecentArtifactIds } from "../lib/artifactRecent";
 import type { ArtifactSourceType, PageProps } from "../types";
 
 type SortOrder = "newest" | "oldest" | "recent_opened" | "name";

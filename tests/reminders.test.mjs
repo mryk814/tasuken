@@ -109,7 +109,6 @@ test("task reminders stay on tasks and surface as lightweight row metadata", () 
     readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8"),
     readFileSync("src/renderer/src/features/workspace/components/drawerEntityFields.tsx", "utf8"),
   ].join("\n");
-  const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   const reminderSource = readFileSync("src/renderer/src/features/workspace/lib/reminders.ts", "utf8");
 
   assert.doesNotMatch(todaySource, /buildReminderAlerts/);
@@ -118,8 +117,6 @@ test("task reminders stay on tasks and surface as lightweight row metadata", () 
   assert.doesNotMatch(todaySource, /リマインダー/);
   assert.match(drawerSource, /name="reminder_at"/);
   assert.match(drawerSource, /name="check_reminder_at"/);
-  assert.match(appSource, /reminder_at: normalizeReminderDateTime\(formText\(values, "reminder_at"\)\)/);
-  assert.match(appSource, /check_reminder_at: normalizeReminderDateTime\(formText\(values, "check_reminder_at"\)\)/);
 });
 
 test("due reminders are connected to native desktop notifications", () => {

@@ -282,6 +282,7 @@ test("markdown preview css separates heading levels and keeps tables compact", (
 
 test("markdown editing surfaces use a white paper background", () => {
   const source = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  const artifactSource = readFileSync("src/renderer/src/styles/artifacts.css", "utf8");
 
   assert.match(source, /--markdown-paper: #fff;/);
   assert.match(source, /--markdown-paper-text: #26211f;/);
@@ -291,8 +292,8 @@ test("markdown editing surfaces use a white paper background", () => {
   assert.match(source, /\.note-main-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
   assert.match(source, /\.note-main-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
   assert.match(source, /\.markdown-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
-  assert.match(source, /\.artifact-preview-frame \{[^}]*background: var\(--markdown-paper\)/s);
-  assert.match(source, /\.artifact-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(artifactSource, /\.artifact-preview-frame \{[^}]*background: var\(--markdown-paper\)/s);
+  assert.match(artifactSource, /\.artifact-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
 });
 
 test("structured markdown paste detection keeps plain text paste native", () => {

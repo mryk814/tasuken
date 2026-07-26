@@ -16,7 +16,7 @@ import type {
   SaveOperation,
   WorkspaceData,
 } from "../types";
-import { CHART_COLORS, KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, relatedEntityTitle, uiNoteType } from "../lib/domain";
+import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, relatedEntityTitle, uiNoteType } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
@@ -37,7 +37,6 @@ import {
 } from "../lib/markdown";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
-import { listActiveChatGroupNames } from "../lib/chatRefs";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { ArtifactSection } from "./artifacts";
 import {
@@ -50,6 +49,7 @@ import {
 import { MarkdownPreview } from "./MarkdownPreview";
 import { DrawerHeader, Field, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
+import { ChatGroupPicker, ThemeColorPicker, ThemeGroupPicker, ThemeStorageRootField } from "./drawerPickers";
 import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
@@ -106,144 +106,6 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
   milestone: "節目報告",
   ad_hoc: "その他",
 };
-
-function ThemeColorPicker({ value }: { value?: string }) {
-  const [selected, setSelected] = useState(value || CHART_COLORS[0]);
-  return (
-    <Field label="カラー">
-      <input type="hidden" name="color" value={selected} />
-      <div className="color-swatch-picker">
-        {CHART_COLORS.map((key) => (
-          <button
-            key={key}
-            type="button"
-            className={`color-swatch ${selected === key ? "is-selected" : ""}`}
-            style={{ background: `var(--color-${key})` }}
-            onClick={() => setSelected(key)}
-          />
-        ))}
-      </div>
-    </Field>
-  );
-}
-function ThemeGroupPicker({ value, themes }: { value?: string; themes: WorkspaceData["themes"] }) {
-  const [selected, setSelected] = useState(value || "");
-  const groups = [...new Set(themes.map((theme) => str(theme.group).trim()).filter(Boolean))];
-  return (
-    <Field label="グループ">
-      <input name="group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="新しいグループ名" />
-      {groups.length > 0 && (
-        <div className="group-chip-list">
-          <button
-            type="button"
-            className={`theme-chip ${!selected ? "is-selected" : ""}`}
-            onClick={() => setSelected("")}
-          >
-            なし
-          </button>
-          {groups.map((group) => (
-            <button
-              key={group}
-              type="button"
-              className={`theme-chip ${selected === group ? "is-selected" : ""}`}
-              onClick={() => setSelected(group)}
-            >
-              {group}
-            </button>
-          ))}
-        </div>
-      )}
-    </Field>
-  );
-}
-
-/** Theme 任意の managed Artifact 保存ルート（#146）。未設定時は共通ルート配下に自動配置。 */
-function ThemeStorageRootField({
-  value,
-  setToast,
-}: {
-  value?: string;
-  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
-}) {
-  const [pathValue, setPathValue] = useState(value || "");
-  async function chooseRoot() {
-    try {
-      const result = await workspaceApi.chooseDirectory("ThemeのArtifact保存ルートを選択");
-      if (result.canceled || !result.path) return;
-      setPathValue(result.path);
-    } catch (error) {
-      setToast(`フォルダを選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
-    }
-  }
-  async function openRoot() {
-    if (!pathValue) return;
-    const result = await workspaceApi.openPath(pathValue);
-    if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
-  }
-  return (
-    <Field label="Artifact保存ルート">
-      <input type="hidden" name="storage_root" value={pathValue} />
-      <p className="field-help">
-        未設定なら Settings の共通保存先配下 <code>Themes/識別子/</code> に Artifacts・Notes・Exports を作ります。設定するとそのルート直下に同じ3フォルダを使います。
-      </p>
-      <div className="theme-storage-root">
-        <code className="theme-storage-root-path" title={pathValue || undefined}>
-          {pathValue || "未設定（自動配置）"}
-        </code>
-        <div className="inline-actions">
-          <button type="button" className="secondary-button compact" onClick={() => void chooseRoot()}>フォルダを選ぶ</button>
-          {pathValue && (
-            <>
-              <button type="button" className="text-button compact" onClick={() => void openRoot()}>開く</button>
-              <button type="button" className="text-button compact" onClick={() => setPathValue("")}>クリア</button>
-            </>
-          )}
-        </div>
-      </div>
-    </Field>
-  );
-}
-
-function ChatGroupPicker({ value, resources, projectId }: {
-  value?: string;
-  resources: {
-    chat_group?: string | null;
-    project_id?: string | null;
-    theme_id?: string | null;
-    archived_at?: string | null;
-  }[];
-  projectId?: string | null;
-}) {
-  const [selected, setSelected] = useState(value || "");
-  // 全件Archive済みグループは候補から外す（手入力で同じ名前を復活させることは可能）
-  const groups = listActiveChatGroupNames(resources, projectId);
-  return (
-    <Field label="グループ">
-      <input name="chat_group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="例: 〇〇モデル改善検討" />
-      {groups.length > 0 && (
-        <div className="group-chip-list">
-          <button
-            type="button"
-            className={`theme-chip ${!selected ? "is-selected" : ""}`}
-            onClick={() => setSelected("")}
-          >
-            なし
-          </button>
-          {groups.map((group) => (
-            <button
-              key={group}
-              type="button"
-              className={`theme-chip ${selected === group ? "is-selected" : ""}`}
-              onClick={() => setSelected(group)}
-            >
-              {group}
-            </button>
-          ))}
-        </div>
-      )}
-    </Field>
-  );
-}
 
 type SaveForm = (event: React.FormEvent<HTMLFormElement>) => void;
 type RegisterEditForm = (form: HTMLFormElement | null) => void;
