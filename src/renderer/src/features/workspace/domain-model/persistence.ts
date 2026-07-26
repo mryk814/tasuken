@@ -9,9 +9,6 @@ export interface SaveContext {
   reason?: string | null;
 }
 
-/** @deprecated Use SaveContext instead */
-export type V2SaveContext = SaveContext;
-
 function nowIso(context: SaveContext = {}): string {
   return context.now || new Date().toISOString();
 }

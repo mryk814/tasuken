@@ -13,7 +13,7 @@ import {
   isTimelineCompleted,
   legacyTimelineWorkspace,
   timelineAddDependencyOperations,
-  timelineFindDependencyV2Id,
+  findPlanDependencyId,
   timelineItemDateSpan,
   timelineItemHasSchedule,
   timelineItemIsMilestone,
@@ -203,8 +203,8 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
 
   async function deleteDependency(sel: SelectedDependency) {
     try {
-      const v2Id = timelineFindDependencyV2Id(sel.dependency, v2);
-      const depId = v2Id || sel.dependency.id;
+      const domainDependencyId = findPlanDependencyId(sel.dependency, v2);
+      const depId = domainDependencyId || sel.dependency.id;
       const planDep = v2.plan_dependencies.find((pd) => pd.id === depId);
       await removeEntityQuiet("plan_dependency", depId);
       pushUndo({

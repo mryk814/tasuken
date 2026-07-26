@@ -1,8 +1,8 @@
 /**
  * Legacy compatibility layer.
  *
- * 責任: 旧 Item/Link/Theme/Dependency の読み込み・v2 変換・移行・逆投影（export互換）。
- * ここに新しい業務ロジックを追加しない。新機能は v2 entity に直接実装すること。
+ * 責任: 旧 Item/Link/Theme/Dependency の読み込み・Domain変換・移行・逆投影（export互換）。
+ * ここに新しい業務ロジックを追加しない。新機能はDomain Entityに直接実装すること。
  */
 import type { BaseRecord, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../types";
 import type {
@@ -50,9 +50,6 @@ export interface LegacyConversionResult {
   warnings: string[];
 }
 
-/** @deprecated Use LegacyConversionResult instead */
-export type V2ConversionResult = LegacyConversionResult;
-
 export interface MigrationReport {
   legacyItems: number;
   created: {
@@ -83,9 +80,6 @@ export interface DomainMigration {
   workspace: WorkspaceDomain;
   report: MigrationReport;
 }
-
-/** @deprecated Use DomainMigration instead */
-export type WorkspaceV2Migration = DomainMigration;
 
 const KNOWN_ITEM_KINDS = new Set([
   "task",
@@ -384,9 +378,6 @@ export function legacyItemToDomain(item: Item, _context: LegacyContext): LegacyC
   };
 }
 
-/** @deprecated Use legacyItemToDomain instead */
-export const legacyItemToV2 = legacyItemToDomain;
-
 function emptyWorkspaceDomain(): WorkspaceDomain {
   return {
     projects: [],
@@ -541,21 +532,15 @@ export function legacyWorkspaceToDomainMigration(data: WorkspaceData): DomainMig
   return { workspace, report };
 }
 
-/** @deprecated Use legacyWorkspaceToDomainMigration instead */
-export const legacyWorkspaceToV2Migration = legacyWorkspaceToDomainMigration;
-
 export function legacyWorkspaceToDomain(data: WorkspaceData): WorkspaceDomain {
   return legacyWorkspaceToDomainMigration(data).workspace;
 }
-
-/** @deprecated Use legacyWorkspaceToDomain instead */
-export const legacyWorkspaceToV2 = legacyWorkspaceToDomain;
 
 export function buildMigrationReport(data: WorkspaceData): MigrationReport {
   return legacyWorkspaceToDomainMigration(data).report;
 }
 
-function mergeV2<T extends { id: string }>(
+function mergePersistedDomain<T extends { id: string }>(
   persisted: T[],
   legacyDerived: T[],
   legacyIdField: keyof T & string,
@@ -604,21 +589,21 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
   const pResources = castRecords<Resource>(data.resources);
 
-  const hasPersistedV2 =
+  const hasPersistedDomain =
     pProjects.length || pCaptures.length || pTasks.length ||
     pWaitings.length || pPlanNodes.length || pSchedules.length ||
     pReferences.length || pTaskDeps.length || pPlanDeps.length ||
     pKnowledgeEdges.length || pChangeEvents.length || pResources.length;
 
-  if (!hasPersistedV2) return legacy;
+  if (!hasPersistedDomain) return legacy;
 
   return {
-    projects: mergeV2(pProjects, legacy.projects, "legacy_theme_id"),
-    capture_entries: mergeV2(pCaptures, legacy.capture_entries, "legacy_item_id"),
-    tasks: mergeV2(pTasks, legacy.tasks, "legacy_item_id"),
-    waitings: mergeV2(pWaitings, legacy.waitings, "legacy_item_id"),
-    plan_nodes: mergeV2(pPlanNodes, legacy.plan_nodes, "legacy_item_id"),
-    schedules: mergeV2(pSchedules, legacy.schedules, "legacy_item_id"),
+    projects: mergePersistedDomain(pProjects, legacy.projects, "legacy_theme_id"),
+    capture_entries: mergePersistedDomain(pCaptures, legacy.capture_entries, "legacy_item_id"),
+    tasks: mergePersistedDomain(pTasks, legacy.tasks, "legacy_item_id"),
+    waitings: mergePersistedDomain(pWaitings, legacy.waitings, "legacy_item_id"),
+    plan_nodes: mergePersistedDomain(pPlanNodes, legacy.plan_nodes, "legacy_item_id"),
+    schedules: mergePersistedDomain(pSchedules, legacy.schedules, "legacy_item_id"),
     notes: legacy.notes as Note[],
     resources: mergeById(pResources, legacy.resources),
     knowledge_nodes: legacy.knowledge_nodes,
@@ -627,12 +612,9 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     plan_dependencies: mergeById(pPlanDeps, legacy.plan_dependencies),
     knowledge_edges: mergeById(pKnowledgeEdges, legacy.knowledge_edges),
     ai_proposals: legacy.ai_proposals,
-    change_events: mergeV2(pChangeEvents, legacy.change_events, "legacy_item_id"),
+    change_events: mergePersistedDomain(pChangeEvents, legacy.change_events, "legacy_item_id"),
   };
 }
-
-/** @deprecated Use buildWorkspaceDomain instead */
-export const workspaceToV2 = buildWorkspaceDomain;
 
 export function formatMigrationReport(report: MigrationReport): string {
   const warningLines = report.warnings.length
@@ -672,14 +654,14 @@ export interface MigrationOperations {
 }
 
 /**
- * 旧 Item/Link/Theme/Dependency を v2 entity として保存する migration operations を生成する。
+ * 旧 Item/Link/Theme/Dependency をDomain Entityとして保存する migration operations を生成する。
  *
  * 責任範囲:
- * - 旧データを v2 entity に変換し、未保存分のみ SaveOperation として返す
+ * - 旧データをDomain Entityに変換し、未保存分のみ SaveOperation として返す
  * - 移行済みの旧データの削除候補 ID を返す
  *
  * この関数は「入口」であり、業務ロジックを置く場所ではない。
- * 新機能は v2 entity (Task/Waiting/PlanNode/Resource 等) に対して直接実装すること。
+ * 新機能はDomain Entity (Task/Waiting/PlanNode/Resource 等) に対して直接実装すること。
  */
 export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOperations {
   const { workspace: derived, report } = legacyWorkspaceToDomainMigration(data);
@@ -888,6 +870,3 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     meta: base?.meta,
   };
 }
-
-/** @deprecated Use projectLegacyWorkspace instead */
-export const v2ToLegacyWorkspace = projectLegacyWorkspace;

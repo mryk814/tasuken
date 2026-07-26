@@ -20,7 +20,7 @@ function legacyPlanStatus(planNode: PlanNode): string {
   return planNode.state;
 }
 
-export function v2TimelineItems(domain: WorkspaceDomain): TimelineItem[] {
+export function projectTimelineItems(domain: WorkspaceDomain): TimelineItem[] {
   const schedules = scheduleByOwner(domain);
   return domain.plan_nodes.map((planNode) => {
     const schedule = schedules.get(`plan_node:${planNode.id}`);
@@ -51,7 +51,7 @@ export function v2TimelineItems(domain: WorkspaceDomain): TimelineItem[] {
   });
 }
 
-export function v2TimelineDependencies(domain: WorkspaceDomain): BaseRecord[] {
+export function projectTimelineDependencies(domain: WorkspaceDomain): BaseRecord[] {
   return domain.plan_dependencies.map((dependency) => {
     const planNode = domain.plan_nodes.find((node) => node.id === dependency.plan_node_id);
     const dependsOn = domain.plan_nodes.find((node) => node.id === dependency.depends_on_plan_node_id);
@@ -65,7 +65,7 @@ export function v2TimelineDependencies(domain: WorkspaceDomain): BaseRecord[] {
 }
 
 export function timelineRangeItems(domain: WorkspaceDomain): TimelineItem[] {
-  return v2TimelineItems(domain);
+  return projectTimelineItems(domain);
 }
 
 export function isTimelineCompleted(item: TimelineItem): boolean {
@@ -148,8 +148,8 @@ export interface TimelineWorkspace {
 
 export function legacyTimelineWorkspace(_data: WorkspaceData, domain: WorkspaceDomain): TimelineWorkspace {
   return {
-    items: v2TimelineItems(domain),
-    dependencies: v2TimelineDependencies(domain),
+    items: projectTimelineItems(domain),
+    dependencies: projectTimelineDependencies(domain),
   };
 }
 
@@ -237,7 +237,7 @@ export function timelineAddDependencyOperations(
   };
 }
 
-export function timelineFindDependencyV2Id(dep: BaseRecord, domain: WorkspaceDomain): string | null {
+export function findPlanDependencyId(dep: BaseRecord, domain: WorkspaceDomain): string | null {
   const match = domain.plan_dependencies.find(
     (pd) => pd.id === dep.id,
   );

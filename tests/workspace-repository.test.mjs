@@ -117,7 +117,7 @@ test("workspace entity types and snapshots include v2 domain records", () => {
   assert.ok(zip.getEntry("change_events.json"));
 });
 
-test("v2 entity validation rejects invalid enum values", () => {
+test("domain entity validation rejects invalid enum values", () => {
   assert.doesNotThrow(() => validateEntity("project", { id: "project-1", name: "Project", state: "active" }));
   assert.throws(() => validateEntity("task", { id: "task-1", title: "Task", state: "blocked" }), /task.state/);
   assert.throws(() => validateEntity("schedule", { id: "schedule-1", owner_type: "task", owner_id: "task-1", date_kind: "range", confidence: "fixed", granularity: "day", start_date: "2026-06-20", end_date: "2026-06-19" }), /schedule.end_date/);

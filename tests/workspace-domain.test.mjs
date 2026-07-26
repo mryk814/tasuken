@@ -333,7 +333,7 @@ test("compat timeline projection: plan nodes into legacy-compatible gantt items"
     change_events: [],
   };
 
-  const items = timelineProjection.v2TimelineItems(domain);
+  const items = timelineProjection.projectTimelineItems(domain);
   assert.deepEqual(items.map((item) => item.id), ["legacy-plan-1", "legacy-ms-1"]);
   assert.equal(items[0].kind, "period");
   assert.equal(items[1].kind, "milestone");
@@ -341,7 +341,7 @@ test("compat timeline projection: plan nodes into legacy-compatible gantt items"
   assert.equal(items[0].planned_start, "2026-06-01");
   assert.equal(items[1].planned_end, "2026-06-19");
 
-  const dependencies = timelineProjection.v2TimelineDependencies(domain);
+  const dependencies = timelineProjection.projectTimelineDependencies(domain);
   assert.deepEqual(dependencies, [{
     id: "dep-plan",
     source_item_id: "legacy-plan-1",
