@@ -23,22 +23,9 @@ import type {
   WorkspaceData,
 } from "./types";
 import { entityTitle } from "./lib/domain";
-import { inferChatServiceFromUrl } from "./lib/chatServices";
-import { resolveSubmittedChatCapturedAt } from "./lib/chatRefs";
 import { activeRecords, formText, str, uuid } from "./lib/format";
-import { normalizeReminderDateTime } from "./lib/reminders";
-import { listTaskSections, normalizeTaskSectionId } from "./lib/taskSections";
-import { normalizeTaskShelf } from "./lib/taskShelves";
+import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
-import {
-  buildSaveTaskOperations,
-  buildSaveWaitingOperations,
-  buildSavePlanNodeOperations,
-  buildSaveScheduleOperations,
-  buildSaveCaptureEntryOperations,
-  buildSaveResourceOperations,
-} from "./domain-model/persistence";
-import type { CaptureEntry, PlanNode, Resource, Schedule, Task, TaskChecklistItem, TaskRepeatRule, Waiting } from "./domain-model/types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
 import { buildArtifactThemeSyncOperations } from "./components/artifacts";
@@ -71,57 +58,6 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
 
 function normalizeRoute(route: string): string {
   return route === "micro-memos" ? "inbox" : route === "prompts" ? "notes" : route === "proposal-inbox" ? "ai-io" : routeAliases[route] || route;
-}
-
-function taskRepeatRuleFromForm(values: FormData, fallbackDay: number): TaskRepeatRule | null {
-  const frequency = formText(values, "repeat_frequency");
-  if (!frequency) return null;
-  const interval = Math.max(1, Number(formText(values, "repeat_interval") || 1));
-  const weekdays = values.getAll("repeat_weekdays")
-    .map((value) => Number(value))
-    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
-  const monthDay = Number(formText(values, "repeat_month_day") || fallbackDay || 1);
-  return {
-    frequency: frequency as TaskRepeatRule["frequency"],
-    interval,
-    weekdays: frequency === "weekly" ? weekdays : undefined,
-    month_day: frequency === "monthly" ? monthDay : null,
-    next_from: (formText(values, "repeat_next_from") || "scheduled") as TaskRepeatRule["next_from"],
-    until: formText(values, "repeat_until") || null,
-  };
-}
-
-function taskChecklistFromForm(values: FormData): TaskChecklistItem[] {
-  const ids = values.getAll("checklist_id").map(String);
-  const titles = values.getAll("checklist_title").map(String);
-  return titles
-    .flatMap((title, index): TaskChecklistItem[] => {
-      const trimmed = title.trim();
-      if (!trimmed) return [];
-      const done = values.has(`checklist_done_${index}`);
-      return [{
-        id: ids[index] || uuid(),
-        title: trimmed,
-        done,
-        sort_order: index,
-        completed_at: done ? (formText(values, `checklist_completed_at_${index}`) || new Date().toISOString()) : null,
-      }];
-    });
-}
-
-function monthStart(value: string): string | null {
-  return value ? `${value}-01` : null;
-}
-
-function monthEnd(value: string): string | null {
-  if (!value) return null;
-  const [year, month] = value.split("-").map(Number);
-  const last = new Date(year, month, 0);
-  return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
-}
-
-function normalizeChatReferenceStatus(value: string): string {
-  return value === "adopted" ? "adopted" : "inbox";
 }
 
 function emptyData(): WorkspaceData {
@@ -567,205 +503,25 @@ export function WorkspaceApp() {
     const base = (drawer?.entity || {}) as Record<string, unknown>;
     let entity: Record<string, unknown> | undefined;
 
-    // Domain entity types use the full save cycle, then return.
-    if (type === "task") {
-      const title = formText(values, "title");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
-      const taskId = (base.id as string) || uuid();
-      const projectId = formText(values, "theme_id") || null;
-      const taskSections = projectId ? listTaskSections(data.views || [], projectId) : [];
-      const task: Task = {
-        id: taskId,
-        title,
-        project_id: projectId,
-        section_id: normalizeTaskSectionId(formText(values, "section_id"), taskSections, projectId),
-        state: (formText(values, "state") || "todo") as Task["state"],
-        priority: values.has("priority_flag") ? "high" : "normal",
-        planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
-        reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
-        description: formText(values, "description") || null,
-        repeat_rule: taskRepeatRuleFromForm(values, Number((formText(values, "end_date") || todayIso()).slice(-2))),
-        repeat_series_id: formText(values, "repeat_frequency") ? String(base.repeat_series_id || base.id || taskId) : null,
-        repeat_parent_task_id: (base.repeat_parent_task_id as string | null) ?? null,
-        checklist_items: taskChecklistFromForm(values),
-        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
-        created_at: (base.created_at as string) || new Date().toISOString(),
-      };
-      const ops = buildSaveTaskOperations(task);
-      const startDate = formText(values, "start_date") || null;
-      const endDate = formText(values, "end_date") || null;
-      const scheduleId = formText(values, "_schedule_id");
-      if (startDate || endDate || scheduleId) {
-        const schedule: Schedule = {
-          id: scheduleId || uuid(),
-          owner_type: "task",
-          owner_id: taskId,
-          start_date: startDate,
-          end_date: endDate,
-          date_kind: startDate && endDate && startDate !== endDate ? "range" : endDate ? "deadline" : startDate ? "point" : "unknown",
-          confidence: "fixed",
-          granularity: "day",
-        };
-        ops.push(...buildSaveScheduleOperations(schedule));
-      }
-      // 親 Task の Theme に添付 Artifact を追従させる（保存先ファイルは動かさない）。
-      ops.push(...buildArtifactThemeSyncOperations(data.artifacts || [], {
-        sourceTypes: ["task"],
-        sourceId: taskId,
-        themeId: projectId,
-      }));
-      await saveEntities(ops, base.id ? "変更を保存しました。" : "タスクを追加しました。");
+    const domainPlan = buildDomainDrawerFormPlan({
+      type,
+      values,
+      base,
+      data,
+      domain,
+      hasField: (name) => Boolean(named(name)),
+    });
+    if (domainPlan?.kind === "invalid") {
+      if (domainPlan.field) (named(domainPlan.field) as HTMLInputElement | null)?.focus();
+      setToast(domainPlan.message);
+      return false;
+    }
+    if (domainPlan?.kind === "operations") {
+      await saveEntities(domainPlan.operations, domainPlan.successMessage);
       finishSave();
+      if (domainPlan.navigateTo && closeAfterSave) navigate(domainPlan.navigateTo);
       return true;
     }
-    if (type === "waiting") {
-      const title = formText(values, "title");
-      const waitingFor = formText(values, "waiting_for");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
-      if (!waitingFor) { (named("waiting_for") as HTMLInputElement | null)?.focus(); setToast("相手を入力してください。"); return false; }
-      const waitingId = (base.id as string) || uuid();
-      const waiting: Waiting = {
-        id: waitingId,
-        title,
-        waiting_for: waitingFor,
-        project_id: formText(values, "theme_id") || null,
-        state: (formText(values, "state") || "waiting") as Waiting["state"],
-        check_reminder_at: normalizeReminderDateTime(formText(values, "check_reminder_at")),
-        next_action: formText(values, "next_action") || null,
-        description: formText(values, "description") || null,
-        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
-        created_at: (base.created_at as string) || new Date().toISOString(),
-      };
-      const ops = buildSaveWaitingOperations(waiting);
-      const endDate = formText(values, "end_date") || null;
-      const scheduleId = formText(values, "_schedule_id");
-      if (endDate || scheduleId) {
-        const schedule: Schedule = {
-          id: scheduleId || uuid(),
-          owner_type: "waiting",
-          owner_id: waitingId,
-          end_date: endDate,
-          date_kind: endDate ? "deadline" : "unknown",
-          confidence: "fixed",
-          granularity: "day",
-        };
-        ops.push(...buildSaveScheduleOperations(schedule));
-      }
-      await saveEntities(ops, base.id ? "変更を保存しました。" : "待ちを追加しました。");
-      finishSave();
-      return true;
-    }
-    if (type === "plan_node") {
-      const title = formText(values, "title");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
-      const nodeId = (base.id as string) || uuid();
-      let parentPlanNodeId = (base.parent_plan_node_id as string | null) ?? null;
-      if (!parentPlanNodeId && base._parent_plan_node_item_id) {
-        const v2data = domain;
-        const parentItemId = base._parent_plan_node_item_id as string;
-        const parentNode = v2data.plan_nodes.find((n) => n.legacy_item_id === parentItemId || n.id === parentItemId);
-        parentPlanNodeId = parentNode?.id || parentItemId;
-      }
-      const planNode: PlanNode = {
-        id: nodeId,
-        title,
-        project_id: formText(values, "theme_id") || null,
-        parent_plan_node_id: parentPlanNodeId,
-        type: (formText(values, "node_type") || "phase") as PlanNode["type"],
-        state: (formText(values, "node_state") || "planned") as PlanNode["state"],
-        sort_order: Number(base.sort_order) || 0,
-        description: formText(values, "description") || null,
-        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
-        created_at: (base.created_at as string) || new Date().toISOString(),
-      };
-      const ops = buildSavePlanNodeOperations(planNode);
-      const inputUnit = formText(values, "schedule_input_unit") || formText(values, "schedule_granularity") || "day";
-      const nodeType = planNode.type;
-      const startInput = formText(values, "start_date");
-      const endInput = formText(values, "end_date");
-      const startDate = inputUnit === "month" ? monthStart(startInput) : (startInput || null);
-      const endDate = nodeType === "milestone" ? startDate : inputUnit === "month" ? monthEnd(endInput) : (endInput || null);
-      const scheduleId = formText(values, "_schedule_id");
-      if (nodeType !== "phase" || startDate || endDate || scheduleId) {
-        const schedule: Schedule = {
-          id: scheduleId || uuid(),
-          owner_type: "plan_node",
-          owner_id: nodeId,
-          start_date: startDate,
-          end_date: endDate,
-          date_kind: startDate && endDate && startDate !== endDate ? "range" : endDate ? "deadline" : startDate ? "point" : "unknown",
-          confidence: inputUnit === "month" ? "tentative" : "fixed",
-          granularity: inputUnit === "month" ? "month" : "day",
-        };
-        ops.push(...buildSaveScheduleOperations(schedule));
-      }
-      await saveEntities(ops, base.id ? "変更を保存しました。" : "計画ノードを追加しました。");
-      finishSave();
-      return true;
-    }
-    if (type === "capture_entry") {
-      const text = formText(values, "text") || formText(values, "title");
-      if (!text) { (named("title") as HTMLInputElement | null)?.focus(); setToast("内容を入力してください。"); return false; }
-      const entry: CaptureEntry = {
-        id: (base.id as string) || uuid(),
-        text,
-        title: formText(values, "title") || null,
-        kind: (base.kind as string | null) ?? null,
-        captured_at: formText(values, "captured_at") || (base.captured_at as string) || new Date().toISOString().slice(0, 10),
-        state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
-        legacy_item_id: (base.legacy_item_id as string | null) ?? null,
-      };
-      await saveEntities(buildSaveCaptureEntryOperations(entry), base.id ? "変更を保存しました。" : "Inboxに追加しました。Inboxで整理できます。");
-      finishSave();
-      if (!base.id && closeAfterSave) navigate("inbox");
-      return true;
-    }
-    if (type === "resource") {
-      const title = formText(values, "title");
-      const url = formText(values, "url");
-      if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }
-      if (!url) { (named("url") as HTMLInputElement | null)?.focus(); setToast("URLを入力してください。"); return false; }
-      const hasLinkTypeField = Boolean(named("link_type"));
-      const submittedLinkType = formText(values, "link_type");
-      const inferredLinkType = inferChatServiceFromUrl(url);
-      const sortOrder = Number(formText(values, "sort_order") || base.sort_order || 0);
-      const hasBodyMarkdownField = Boolean(named("body_markdown"));
-      const resource: Resource = {
-        id: (base.id as string) || uuid(),
-        title,
-        url,
-        project_id: formText(values, "project_id") || formText(values, "theme_id") || null,
-        description: formText(values, "description") || null,
-        body_markdown: hasBodyMarkdownField
-          ? (formText(values, "body_markdown") || null)
-          : ((base.body_markdown as string | null) ?? null),
-        source_record_id: (base.source_record_id as string | null) ?? null,
-        link_type: hasLinkTypeField
-          ? (submittedLinkType || (inferredLinkType !== "other" ? inferredLinkType : null))
-          : ((base.link_type as string | null) ?? null),
-        reference_status: formText(values, "reference_status") ? normalizeChatReferenceStatus(formText(values, "reference_status")) : (base.reference_status ? normalizeChatReferenceStatus(String(base.reference_status)) : null),
-        importance: formText(values, "importance") || null,
-        resource_scope: (base.resource_scope as Resource["resource_scope"]) ?? null,
-        captured_at: resolveSubmittedChatCapturedAt(formText(values, "captured_at"), (base.captured_at as string | null) ?? null),
-        chat_group: formText(values, "chat_group") || null,
-        parent_resource_id: formText(values, "parent_resource_id") || null,
-        sort_order: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : null,
-        // Archive はドロワー編集では触らず保持する（専用操作で付け外し）
-        archived_at: (base.archived_at as string | null | undefined) ?? null,
-      };
-      const resourceOps = [
-        ...buildSaveResourceOperations(resource),
-        ...buildArtifactThemeSyncOperations(data.artifacts || [], {
-          sourceTypes: ["chat_ref"],
-          sourceId: resource.id,
-          themeId: resource.project_id || null,
-        }),
-      ];
-      await saveEntities(resourceOps, base.id ? "変更を保存しました。" : "リソースを追加しました。");
-      finishSave();
-      return true;
-    }
-
     if (type === "theme") {
       const name = formText(values, "name");
       if (!name) { setToast("テーマ名を入力してください。"); return false; }

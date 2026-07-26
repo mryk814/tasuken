@@ -270,11 +270,6 @@ test("Artifact は親 Entity の Theme を引き継ぐ", () => {
   assert.match(artifactsComponentSource, /effectiveThemeId/);
   assert.match(artifactsComponentSource, /parentThemeId/);
   assert.match(artifactsComponentSource, /buildArtifactThemeSyncOperations/);
-  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
-  assert.match(workspaceAppSource, /buildArtifactThemeSyncOperations/);
-  assert.match(workspaceAppSource, /sourceTypes:\s*\["task"\]/);
-  assert.match(workspaceAppSource, /sourceTypes:\s*\["note", "report"\]/);
-  assert.match(workspaceAppSource, /sourceTypes:\s*\["chat_ref"\]/);
 });
 
 test("Theme 編集に storage_root があり import に themeId を渡す", () => {

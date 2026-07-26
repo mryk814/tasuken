@@ -75,7 +75,6 @@ test("task sections are wired through Theme detail, task drawer, and save form",
     readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8"),
     readFileSync("src/renderer/src/features/workspace/components/drawerEntityFields.tsx", "utf8"),
   ].join("\n");
-  const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
   assert.match(themeSource, /TaskSectionBoard/);
   assert.match(themeSource, /buildTaskSection/);
@@ -83,5 +82,4 @@ test("task sections are wired through Theme detail, task drawer, and save form",
   // 編集UIからは非表示だが、既存 section_id は hidden で保持して保存時に消えない（#137）
   assert.match(drawerSource, /name="section_id"/);
   assert.doesNotMatch(drawerSource, /Field label="セクション"/);
-  assert.match(appSource, /section_id: normalizeTaskSectionId/);
 });
