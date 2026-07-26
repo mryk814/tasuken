@@ -32,6 +32,7 @@ const workspacePageRouterSource = readFileSync(
   "utf8",
 );
 const artifactsComponentSource = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
+const artifactEntitiesSource = readFileSync("src/renderer/src/features/workspace/lib/artifactEntities.ts", "utf8");
 const artifactsPageSource = readFileSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx", "utf8");
 const themePageSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
 const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
@@ -269,10 +270,10 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
 });
 
 test("Artifact は親 Entity の Theme を引き継ぐ", () => {
-  assert.match(artifactsComponentSource, /function resolveArtifactThemeId|export function resolveArtifactThemeId/);
+  assert.match(artifactEntitiesSource, /export function resolveArtifactThemeId/);
   assert.match(artifactsComponentSource, /effectiveThemeId/);
   assert.match(artifactsComponentSource, /parentThemeId/);
-  assert.match(artifactsComponentSource, /buildArtifactThemeSyncOperations/);
+  assert.match(artifactEntitiesSource, /buildArtifactThemeSyncOperations/);
 });
 
 test("Theme 編集に storage_root があり import に themeId を渡す", () => {
@@ -404,7 +405,8 @@ test("managed / linked 添付UIと操作が接続されている", () => {
   assert.match(artifactsComponentSource, /IconPlus size=\{14\} \/>Artifact/);
   assert.match(artifactsComponentSource, /参照のみ/);
   assert.match(artifactsComponentSource, /storage_mode: "managed"/);
-  assert.match(artifactsComponentSource, /storage_mode: "linked"/);
+  assert.match(artifactEntitiesSource, /storage_mode: "managed"/);
+  assert.match(artifactEntitiesSource, /storage_mode: "linked"/);
   assert.match(artifactsComponentSource, /promoteArtifactToManaged/);
   assert.match(artifactsComponentSource, /checkArtifactLink/);
   assert.match(artifactsComponentSource, /retargetLinkedArtifact/);

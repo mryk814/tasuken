@@ -1,5 +1,5 @@
 import { todayIso } from "../../../utils/dataFormat.js";
-import { buildArtifactThemeSyncOperations } from "../components/artifacts";
+import { buildArtifactThemeSyncOperations } from "./artifactEntities";
 import {
   buildSaveCaptureEntryOperations,
   buildSavePlanNodeOperations,

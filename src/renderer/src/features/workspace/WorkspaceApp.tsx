@@ -28,7 +28,7 @@ import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
-import { buildArtifactThemeSyncOperations } from "./components/artifacts";
+import { buildArtifactThemeSyncOperations } from "./lib/artifactEntities";
 import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
