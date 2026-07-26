@@ -4,7 +4,7 @@ import test from "node:test";
 
 const mathPluginSource = readFileSync("src/renderer/src/features/workspace/components/markdownMathPlugin.tsx", "utf8");
 const codeBlockSource = readFileSync("src/renderer/src/features/workspace/components/markdownCodeBlockEditor.tsx", "utf8");
-const notesPageSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+const notesEditorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
 
 /**
  * $shouldMoveToVerticalCell と同等の「単一行なら常に移動」規則を検証する。
@@ -76,7 +76,7 @@ test("数式・コードブロック: 上下左右の端から隣へ入る経路
   assert.match(codeBlockSource, /EditorView\.findFromDOM/);
   assert.match(codeBlockSource, /priority: 2/);
   assert.match(codeBlockSource, /event\.stopPropagation\(\)/);
-  assert.match(notesPageSource, /codeBlockEditorDescriptors: \[mermaidCodeBlockDescriptor, markdownCodeBlockDescriptor\]/);
+  assert.match(notesEditorSource, /codeBlockEditorDescriptors: \[mermaidCodeBlockDescriptor, markdownCodeBlockDescriptor\]/);
 });
 
 test("コードブロック内の境界判定は4方向で行き先を飛び越さない", () => {

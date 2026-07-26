@@ -1,13 +1,21 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, Notification, protocol, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, Menu, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
+import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
+import { getAppIconPath, migrateLegacyUserDataIfNeeded } from "./platformPaths";
+import {
+  createQuickCaptureController,
+  type QuickCaptureController,
+} from "./quickCaptureController";
+import { createReminderController, type ReminderController } from "./reminderController";
+import { createTodayMiniController, type TodayMiniController } from "./todayMiniController";
+import { createTrayController, type TrayController } from "./trayController";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
-import type { TodayMiniTask } from "../shared/ipc/contracts";
 import type { Entity, EntityType } from "../shared/types/workspace";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -17,45 +25,12 @@ const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json"
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
-const ATTACHMENT_PROTOCOL = "tasken-attachment";
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
-let tray: Tray | null = null;
-let captureWindow: BrowserWindow | null = null;
-let todayMiniWindow: BrowserWindow | null = null;
-let todayMiniFadeTimer: ReturnType<typeof setTimeout> | null = null;
-let reminderCheckTimer: ReturnType<typeof setInterval> | null = null;
-const notifiedReminderIds = new Set<string>();
-const TODAY_MINI_INACTIVE_OPACITY = 0.5;
-const TODAY_MINI_FADE_DELAY_MS = 30000;
-const TODAY_MINI_SCREEN_MARGIN = 16;
-const TODAY_MINI_PINNED_WIDTH = 360;
-const TODAY_MINI_PINNED_HEIGHT = 560;
-const REMINDER_CHECK_INTERVAL_MS = 60000;
-const TODAY_MINI_THEME_COLOR_KEYS = [
-  "chart-1",
-  "chart-2",
-  "chart-3",
-  "chart-4",
-  "chart-5",
-  "chart-6",
-  "theme-extra-1",
-  "theme-extra-2",
-  "theme-extra-3",
-  "theme-extra-4",
-] as const;
-type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: ATTACHMENT_PROTOCOL,
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      stream: true,
-    },
-  },
-]);
+let trayController: TrayController | null = null;
+let quickCaptureController: QuickCaptureController | null = null;
+let todayMiniController: TodayMiniController | null = null;
+let reminderController: ReminderController | null = null;
+registerAttachmentScheme();
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
   try {
@@ -68,289 +43,10 @@ function openAllowedExternalUrl(rawUrl: string): boolean {
   }
 }
 
-function getAppIconPath(): string {
-  return path.join(__dirname, "../../resources/icon.ico");
-}
-
-function markdownAttachmentDirectory(): string {
-  return path.join(app.getPath("userData"), "attachments", "markdown-images");
-}
-
-function attachmentMimeType(fileName: string): string {
-  const extension = path.extname(fileName).toLowerCase();
-  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
-  if (extension === ".gif") return "image/gif";
-  if (extension === ".webp") return "image/webp";
-  if (extension === ".bmp") return "image/bmp";
-  return "image/png";
-}
-
-function registerAttachmentProtocol(): void {
-  protocol.handle(ATTACHMENT_PROTOCOL, (request) => {
-    try {
-      const parsed = new URL(request.url);
-      if (parsed.hostname !== "local") return new Response("Not found", { status: 404 });
-      const fileName = decodeURIComponent(parsed.pathname.split("/").filter(Boolean)[0] || "");
-      if (!/^[a-f0-9-]+\.(png|jpg|gif|webp|bmp)$/i.test(fileName)) {
-        return new Response("Not found", { status: 404 });
-      }
-      const root = path.resolve(markdownAttachmentDirectory());
-      const filePath = path.resolve(root, fileName);
-      if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath)) {
-        return new Response("Not found", { status: 404 });
-      }
-      const bytes = fs.readFileSync(filePath);
-      return new Response(new Uint8Array(bytes), {
-        status: 200,
-        headers: {
-          "content-type": attachmentMimeType(fileName),
-          "cache-control": "no-store",
-        },
-      });
-    } catch {
-      return new Response("Not found", { status: 404 });
-    }
-  });
-}
-
-function migrateLegacyUserDataIfNeeded(): void {
-  const currentDbPath = path.join(app.getPath("userData"), "research-desk.sqlite");
-  if (fs.existsSync(currentDbPath)) return;
-
-  const legacyDbPath = path.join(app.getPath("appData"), "Research Desk", "research-desk.sqlite");
-  if (!fs.existsSync(legacyDbPath)) return;
-
-  fs.mkdirSync(path.dirname(currentDbPath), { recursive: true });
-  for (const suffix of ["", "-wal", "-shm"]) {
-    const legacyPath = `${legacyDbPath}${suffix}`;
-    if (fs.existsSync(legacyPath)) {
-      fs.copyFileSync(legacyPath, `${currentDbPath}${suffix}`);
-    }
-  }
-}
-
-function getCapturePreloadPath(): string {
-  return path.join(__dirname, "../preload/capture.mjs");
-}
-
-function getTodayMiniPreloadPath(): string {
-  return path.join(__dirname, "../preload/todayMini.mjs");
-}
-
-function createCaptureWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 420,
-    height: 228,
-    show: false,
-    frame: false,
-    resizable: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    transparent: false,
-    backgroundColor: "#F4EEEC",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      // TODO: sandbox:true breaks the ESM preload bridge in the current smoke path.
-      // Revisit when preload output/runtime is adjusted and window.captureApi can be verified.
-      sandbox: false,
-      preload: getCapturePreloadPath(),
-    },
-  });
-
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/capture.html`);
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/capture.html"));
-  }
-
-  win.on("blur", () => {
-    if (win.isVisible()) win.hide();
-  });
-
-  return win;
-}
-
-function sendCaptureWindowState(win: BrowserWindow, mode: QuickCaptureMode): void {
-  const themeMode = workspaceRepository?.getPreference("themeMode") ?? "light";
-  const themes = [
-    ...(workspaceRepository?.list("theme") ?? []).map((theme: Entity) => ({ id: theme.id, name: String(theme.name || theme.title || "Theme") })),
-    ...(workspaceRepository?.list("project") ?? []).map((project: Entity) => ({ id: project.id, name: String(project.name || project.title || "Theme") })),
-  ];
-  const uniqueThemes = [...new Map(themes.map((theme) => [theme.id, theme])).values()]
-    .sort((a, b) => a.name.localeCompare(b.name, "ja-JP"));
-  win.webContents.send("quick-capture:theme", themeMode);
-  win.webContents.send("quick-capture:themes", uniqueThemes);
-  win.webContents.send("quick-capture:shown", mode);
-}
-
-function showCaptureWindow(mode: QuickCaptureMode = "inbox"): void {
-  if (!captureWindow || captureWindow.isDestroyed()) {
-    captureWindow = createCaptureWindow();
-  }
-
-  captureWindow.center();
-  captureWindow.show();
-  captureWindow.focus();
-
-  const win = captureWindow;
-  if (win.webContents.isLoading()) {
-    win.webContents.once("did-finish-load", () => {
-      if (!win.isDestroyed()) sendCaptureWindowState(win, mode);
-    });
-  } else {
-    sendCaptureWindowState(win, mode);
-  }
-}
-
-function clearTodayMiniFadeTimer(): void {
-  if (todayMiniFadeTimer) {
-    clearTimeout(todayMiniFadeTimer);
-    todayMiniFadeTimer = null;
-  }
-}
-
-function restoreTodayMiniOpacity(win: BrowserWindow | null = todayMiniWindow): void {
-  clearTodayMiniFadeTimer();
-  if (win && !win.isDestroyed()) win.setOpacity(1);
-}
-
-function scheduleTodayMiniFade(win: BrowserWindow): void {
-  clearTodayMiniFadeTimer();
-  todayMiniFadeTimer = setTimeout(() => {
-    if (!win.isDestroyed() && win.isVisible() && !win.isFocused()) {
-      win.setOpacity(TODAY_MINI_INACTIVE_OPACITY);
-    }
-  }, TODAY_MINI_FADE_DELAY_MS);
-}
-
-function pinTodayMiniTopRight(): boolean {
-  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) {
-    todayMiniWindow = createTodayMiniWindow();
-  }
-  const bounds = todayMiniWindow.getBounds();
-  const { workArea } = screen.getDisplayMatching(bounds);
-  const width = Math.min(TODAY_MINI_PINNED_WIDTH, Math.max(320, workArea.width - TODAY_MINI_SCREEN_MARGIN * 2));
-  const height = Math.min(TODAY_MINI_PINNED_HEIGHT, Math.max(360, workArea.height - TODAY_MINI_SCREEN_MARGIN * 2));
-  const x = workArea.x + workArea.width - width - TODAY_MINI_SCREEN_MARGIN;
-  const y = workArea.y + TODAY_MINI_SCREEN_MARGIN;
-  todayMiniWindow.setBounds({ x: Math.max(workArea.x, x), y: Math.max(workArea.y, y), width, height }, false);
-  restoreTodayMiniOpacity(todayMiniWindow);
-  return true;
-}
-
-function createTodayMiniWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 380,
-    height: 520,
-    minWidth: 320,
-    minHeight: 360,
-    show: false,
-    frame: false,
-    resizable: true,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    autoHideMenuBar: true,
-    title: "今日やること",
-    icon: getAppIconPath(),
-    backgroundColor: "#F4EEEC",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      preload: getTodayMiniPreloadPath(),
-    },
-  });
-
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/today-mini.html`);
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/today-mini.html"));
-  }
-
-  win.on("closed", () => {
-    clearTodayMiniFadeTimer();
-    if (todayMiniWindow === win) todayMiniWindow = null;
-  });
-  win.on("focus", () => restoreTodayMiniOpacity(win));
-  win.on("blur", () => scheduleTodayMiniFade(win));
-
-  return win;
-}
-
-function showTodayMiniWindow(): void {
-  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) {
-    todayMiniWindow = createTodayMiniWindow();
-  }
-  restoreTodayMiniOpacity(todayMiniWindow);
-  todayMiniWindow.show();
-  todayMiniWindow.focus();
-  todayMiniWindow.setAlwaysOnTop(true);
-  if (!todayMiniWindow.webContents.isLoading()) {
-    todayMiniWindow.webContents.send("today-mini:refresh");
-  }
-}
-
-function hideTodayMiniWindow(): boolean {
-  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) return false;
-  todayMiniWindow.hide();
-  restoreTodayMiniOpacity(todayMiniWindow);
-  return true;
-}
-
-function createTrayIcon(): Electron.NativeImage {
-  const icon = nativeImage.createFromPath(getAppIconPath());
-  if (!icon.isEmpty()) return icon.resize({ width: 16, height: 16 });
-
-  // 16x16 RGBA: burgundy "RD" マーク
-  const size = 16;
-  const buf = Buffer.alloc(size * size * 4, 0);
-  const accent = [138, 47, 59, 255]; // #8A2F3B
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      const inOuter = x >= 1 && x < 15 && y >= 1 && y < 15;
-      const inInner = x >= 3 && x < 13 && y >= 3 && y < 13;
-      if (inOuter && !inInner) {
-        buf[i] = accent[0]; buf[i + 1] = accent[1]; buf[i + 2] = accent[2]; buf[i + 3] = accent[3];
-      }
-    }
-  }
-  return nativeImage.createFromBuffer(buf, { width: size, height: size });
-}
-
-function setupTray(): void {
-  tray = new Tray(createTrayIcon());
-
-  const contextMenu = Menu.buildFromTemplate([
-    { label: "今日やることを表示", click: () => showTodayMiniWindow() },
-    { type: "separator" },
-    ...quickCaptureMenuItems(),
-    { type: "separator" },
-    { label: `${APP_NAME} を開く`, click: () => {
-      const windows = BrowserWindow.getAllWindows().filter((w) => w !== captureWindow);
-      if (windows.length) { windows[0].show(); windows[0].focus(); } else { createWindow(); }
-    }},
-    { type: "separator" },
-    { label: "終了", click: () => app.quit() },
-  ]);
-
-  tray.setToolTip(APP_NAME);
-  tray.setContextMenu(contextMenu);
-  tray.on("click", () => showCaptureWindow("inbox"));
-}
-
-function quickCaptureMenuItems(): Electron.MenuItemConstructorOptions[] {
-  return [
-    { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => showCaptureWindow("inbox") },
-    { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => showCaptureWindow("today-task") },
-    { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+,", click: () => showCaptureWindow("done-task") },
-    { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => showCaptureWindow("micro-memo") },
-  ];
-}
-
 function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenuParams): void {
-  const template: Electron.MenuItemConstructorOptions[] = [...quickCaptureMenuItems()];
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(quickCaptureController?.menuItems() || []),
+  ];
   if (params.isEditable) {
     template.push(
       { type: "separator" },
@@ -372,6 +68,8 @@ function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenu
 }
 
 function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
+  const captureWindow = quickCaptureController?.getWindow();
+  const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
     if (win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) {
       win.webContents.send("workspace:changed", change);
@@ -382,268 +80,9 @@ function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } |
   }
 }
 
-function localDateString(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function localDateTimeString(date = new Date()): string {
-  const time = [
-    String(date.getHours()).padStart(2, "0"),
-    String(date.getMinutes()).padStart(2, "0"),
-    String(date.getSeconds()).padStart(2, "0"),
-  ].join(":");
-  const ms = String(date.getMilliseconds()).padStart(3, "0");
-  return `${localDateString(date)}T${time}.${ms}`;
-}
-
-function localDateTimeMinute(date = new Date()): string {
-  return localDateTimeString(date).slice(0, 16);
-}
-
-function normalizeReminderDateTime(value: unknown): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/);
-  if (!match) return "";
-  const [hour, minute] = match[2].split(":");
-  const normalizedHour = String(Number(hour)).padStart(2, "0");
-  const normalizedMinute = String(Number(minute)).padStart(2, "0");
-  if (!/^(?:[01]\d|2[0-3])$/.test(normalizedHour)) return "";
-  if (!/^[0-5]\d$/.test(normalizedMinute)) return "";
-  return `${match[1]}T${normalizedHour}:${normalizedMinute}`;
-}
-
-function reminderIsDueToday(value: unknown, nowMinute = localDateTimeMinute(), today = localDateString()): string {
-  const at = normalizeReminderDateTime(value);
-  if (!at || at.slice(0, 10) !== today || at > nowMinute) return "";
-  return at;
-}
-
-function showReminderNotification(alert: { id: string; title: string; body: string; onClick?: () => void }): void {
-  if (!Notification.isSupported()) return;
-  if (notifiedReminderIds.has(alert.id)) return;
-  notifiedReminderIds.add(alert.id);
-  const notification = new Notification({
-    title: alert.title,
-    body: alert.body,
-    icon: getAppIconPath(),
-  });
-  if (alert.onClick) notification.on("click", alert.onClick);
-  notification.show();
-}
-
-function checkReminderNotifications(): void {
-  if (!workspaceRepository) return;
-  for (const task of workspaceRepository.list("task") as Entity[]) {
-    const at = reminderIsDueToday(task.reminder_at);
-    if (!at || task.state === "done" || task.state === "cancelled") continue;
-    const taskId = String(task.id);
-    showReminderNotification({
-      id: `task:${taskId}:${at}`,
-      title: "Tasken リマインダー",
-      body: String(task.title || "無題のタスク"),
-      onClick: () => openTaskInMainWindow(taskId),
-    });
-  }
-  for (const waiting of workspaceRepository.list("waiting") as Entity[]) {
-    const at = reminderIsDueToday(waiting.check_reminder_at);
-    if (!at || waiting.state === "received" || waiting.state === "cancelled") continue;
-    showReminderNotification({
-      id: `waiting:${String(waiting.id)}:${at}`,
-      title: "Tasken 確認リマインダー",
-      body: String(waiting.title || "無題の待ち"),
-      onClick: () => showMainWindow(),
-    });
-  }
-}
-
-function startReminderNotifications(): void {
-  if (reminderCheckTimer) return;
-  checkReminderNotifications();
-  reminderCheckTimer = setInterval(checkReminderNotifications, REMINDER_CHECK_INTERVAL_MS);
-}
-
-function stopReminderNotifications(): void {
-  if (!reminderCheckTimer) return;
-  clearInterval(reminderCheckTimer);
-  reminderCheckTimer = null;
-}
-
-function registerCaptureIpc(): void {
-  ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string) => {
-    const trimmed = (text || "").trim();
-    if (!trimmed) throw new Error("入力が空です。");
-    if (mode === "today-task" || mode === "done-task") {
-      const taskId = randomUUID();
-      const today = localDateString();
-      const now = new Date().toISOString();
-      const isDoneTask = mode === "done-task";
-      const saved = workspaceRepository.saveMany([
-        {
-          action: "save",
-          type: "task",
-          entity: {
-            id: taskId,
-            title: trimmed,
-            description: null,
-            project_id: themeId || null,
-            state: isDoneTask ? "done" : "todo",
-            priority: "normal",
-            completed_at: isDoneTask ? now : null,
-            created_at: now,
-          },
-          options: { source: "quick-capture" },
-        },
-        {
-          action: "save",
-          type: "schedule",
-          entity: {
-            id: randomUUID(),
-            owner_type: "task",
-            owner_id: taskId,
-            start_date: today,
-            end_date: today,
-            date_kind: "point",
-            confidence: "fixed",
-            granularity: "day",
-          },
-          options: { source: "quick-capture" },
-        },
-      ]);
-      notifyMainWindowRefresh({
-        entities: [
-          { type: "task", entity: saved[0] as Entity },
-          { type: "schedule", entity: saved[1] as Entity },
-        ],
-      });
-      return saved[0];
-    }
-    const saved = workspaceRepository.save("capture_entry", {
-      text: trimmed,
-      title: mode === "micro-memo" ? null : trimmed,
-      kind: mode === "micro-memo" ? "micro_memo" : "inbox",
-      captured_at: localDateTimeString(),
-      state: "untriaged",
-    }, { source: "quick-capture" });
-    notifyMainWindowRefresh({ entities: [{ type: "capture_entry", entity: saved as Entity }] });
-    return saved;
-  });
-
-  ipcMain.on("quick-capture:hide", () => {
-    if (captureWindow && !captureWindow.isDestroyed()) captureWindow.hide();
-  });
-}
-
-function checklistCounts(task: Entity): { done: number; total: number } {
-  const items = Array.isArray(task.checklist_items) ? task.checklist_items : [];
-  const valid = items.filter((item) => item && typeof item === "object" && "title" in item);
-  return {
-    done: valid.filter((item) => Boolean((item as Record<string, unknown>).done)).length,
-    total: valid.length,
-  };
-}
-
-function todayMiniThemeColor(theme: Entity | undefined, index: number): string {
-  const rawColor = typeof theme?.color === "string" ? theme.color.trim() : "";
-  const colorKey = TODAY_MINI_THEME_COLOR_KEYS.includes(rawColor as typeof TODAY_MINI_THEME_COLOR_KEYS[number])
-    ? rawColor
-    : TODAY_MINI_THEME_COLOR_KEYS[((index % TODAY_MINI_THEME_COLOR_KEYS.length) + TODAY_MINI_THEME_COLOR_KEYS.length) % TODAY_MINI_THEME_COLOR_KEYS.length];
-  return `var(--color-${colorKey})`;
-}
-
-function todayMiniThemeMap(): Map<string, { name: string; color: string }> {
-  const entries = [
-    ...(workspaceRepository.list("theme") as Entity[]),
-    ...(workspaceRepository.list("project") as Entity[]),
-  ];
-  return new Map(entries.map((entry, index) => [
-    String(entry.id),
-    {
-      name: String(entry.name || entry.title || "個人業務"),
-      color: todayMiniThemeColor(entry, index),
-    },
-  ] as const));
-}
-
-function listTodayMiniTasks(): TodayMiniTask[] {
-  const today = localDateString();
-  const tasks = (workspaceRepository.list("task") as Entity[])
-    .filter((task) => task.state !== "done" && task.state !== "cancelled");
-  const schedules = (workspaceRepository.list("schedule") as Entity[])
-    .filter((schedule) => schedule.owner_type === "task" && (schedule.start_date === today || schedule.end_date === today));
-  const scheduleByTask = new Map(schedules.map((schedule) => [String(schedule.owner_id), schedule]));
-  const themes = todayMiniThemeMap();
-
-  return tasks
-    .filter((task) => scheduleByTask.has(String(task.id)))
-    .map((task): TodayMiniTask => {
-      const schedule = scheduleByTask.get(String(task.id));
-      const counts = checklistCounts(task);
-      const theme = typeof task.project_id === "string" ? themes.get(task.project_id) : null;
-      return {
-        id: String(task.id),
-        title: String(task.title || "無題のタスク"),
-        themeName: theme?.name || "個人業務",
-        themeColor: theme?.color || "var(--color-chart-6)",
-        scheduleLabel: String(schedule?.end_date || schedule?.start_date || today),
-        hasReminder: typeof task.reminder_at === "string" && task.reminder_at.trim().length > 0,
-        priority: task.priority === "high" ? "high" : "normal",
-        checklistDone: counts.done,
-        checklistTotal: counts.total,
-      };
-    })
-    .sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high") || a.title.localeCompare(b.title, "ja-JP"));
-}
-
-function addTodayMiniTask(title: string): TodayMiniTask[] {
-  const trimmed = title.trim();
-  if (!trimmed) throw new Error("タスク名を入力してください。");
-  const today = localDateString();
-  const taskId = randomUUID();
-  const saved = workspaceRepository.saveMany([
-    {
-      action: "save",
-      type: "task",
-      entity: {
-        id: taskId,
-        title: trimmed,
-        state: "todo",
-        priority: "normal",
-        project_id: null,
-        source: "today-mini",
-      },
-      options: { source: "today-mini" },
-    },
-    {
-      action: "save",
-      type: "schedule",
-      entity: {
-        id: randomUUID(),
-        owner_type: "task",
-        owner_id: taskId,
-        start_date: today,
-        end_date: today,
-        date_kind: "point",
-        confidence: "fixed",
-        granularity: "day",
-      },
-      options: { source: "today-mini" },
-    },
-  ]) as Entity[];
-  notifyMainWindowRefresh({
-    entities: [
-      { type: "task", entity: saved[0] },
-      { type: "schedule", entity: saved[1] },
-    ],
-  });
-  return listTodayMiniTasks();
-}
-
 function findMainWindow(): BrowserWindow | null {
+  const captureWindow = quickCaptureController?.getWindow();
+  const todayMiniWindow = todayMiniController?.getWindow();
   return BrowserWindow.getAllWindows()
     .find((win) => win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) || null;
 }
@@ -654,54 +93,6 @@ function showMainWindow(): BrowserWindow {
   win.show();
   win.focus();
   return win;
-}
-
-function openTaskInMainWindow(taskId: string): boolean {
-  const task = workspaceRepository.get("task", taskId);
-  if (!task) return false;
-  const win = showMainWindow();
-  const send = () => {
-    setTimeout(() => {
-      if (!win.isDestroyed()) win.webContents.send("workspace:open-task-detail", taskId);
-    }, 150);
-  };
-  if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
-  else send();
-  return true;
-}
-
-function registerTodayMiniIpc(): void {
-  ipcMain.handle("today-mini:show", () => {
-    showTodayMiniWindow();
-    return true;
-  });
-  ipcMain.handle("today-mini:pin-top-right", () => pinTodayMiniTopRight());
-  ipcMain.handle("today-mini:hide", () => hideTodayMiniWindow());
-  ipcMain.handle("today-mini:list", () => listTodayMiniTasks());
-  ipcMain.handle("today-mini:refresh", () => listTodayMiniTasks());
-  ipcMain.handle("today-mini:add-task", (_event, title: unknown) => {
-    if (typeof title !== "string") throw new Error("タスク名を入力してください。");
-    return addTodayMiniTask(title);
-  });
-  ipcMain.handle("today-mini:toggle", (_event, taskId: unknown) => {
-    if (typeof taskId !== "string" || !taskId.trim()) {
-      throw new Error("対象タスクがありません。");
-    }
-    const task = workspaceRepository.get("task", taskId) as Entity | null;
-    if (!task) throw new Error("タスクが見つかりません。");
-    const nextState = task.state === "done" ? "todo" : "done";
-    const saved = workspaceRepository.save("task", {
-      ...task,
-      state: nextState,
-      completed_at: nextState === "done" ? new Date().toISOString() : null,
-    }, { source: "today-mini" }) as Entity;
-    notifyMainWindowRefresh({ type: "task", entity: saved });
-    return listTodayMiniTasks();
-  });
-  ipcMain.handle("today-mini:open-task", (_event, taskId: unknown) => {
-    if (typeof taskId !== "string" || !taskId.trim()) return false;
-    return openTaskInMainWindow(taskId);
-  });
 }
 
 interface SmokeCreatedResult {
@@ -1132,6 +523,7 @@ flowchart LR
     todayMiniCompletionSaved: false,
     todayMiniOpenDetail: false,
   };
+  const todayMiniWindow = todayMiniController?.getWindow();
   const todayMini = todayMiniWindow && !todayMiniWindow.isDestroyed() ? todayMiniWindow : null;
   if (todayMini) {
     if (todayMini.webContents.isLoading()) {
@@ -1320,18 +712,48 @@ void app.whenReady().then(() => {
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
   registerIpc(workspaceRepository, new WorkspaceService(workspaceRepository, app.getPath("userData")));
-  registerCaptureIpc();
-  registerTodayMiniIpc();
+  quickCaptureController = createQuickCaptureController({
+    repository: workspaceRepository,
+    notifyWorkspaceChanged: notifyMainWindowRefresh,
+  });
+  quickCaptureController.registerIpc();
+  todayMiniController = createTodayMiniController({
+    repository: workspaceRepository,
+    getAppIconPath,
+    showMainWindow,
+    notifyWorkspaceChanged: notifyMainWindowRefresh,
+  });
+  todayMiniController.registerIpc();
+  reminderController = createReminderController({
+    repository: workspaceRepository,
+    getAppIconPath,
+    openTask: (taskId) => {
+      todayMiniController?.openTask(taskId);
+    },
+    showMainWindow: () => {
+      showMainWindow();
+    },
+  });
+  trayController = createTrayController({
+    appName: APP_NAME,
+    getAppIconPath,
+    showTodayMini: () => todayMiniController?.show(),
+    quickCaptureMenuItems: () => quickCaptureController?.menuItems() || [],
+    showQuickCapture: () => quickCaptureController?.show("inbox"),
+    showMainWindow: () => {
+      showMainWindow();
+    },
+  });
   recordSmoke("app-ready");
   createWindow();
 
   if (!isSmokeTest) {
-    setupTray();
-    startReminderNotifications();
-    globalShortcut.register("CmdOrCtrl+Shift+N", () => showCaptureWindow("inbox"));
-    globalShortcut.register("CmdOrCtrl+Shift+M", () => showCaptureWindow("today-task"));
-    globalShortcut.register("CmdOrCtrl+Shift+,", () => showCaptureWindow("done-task"));
-    globalShortcut.register("CmdOrCtrl+Shift+.", () => showCaptureWindow("micro-memo"));
+    trayController.setup();
+    reminderController.start();
+    globalShortcut.register("CmdOrCtrl+Shift+N", () => quickCaptureController?.show("inbox"));
+    globalShortcut.register("CmdOrCtrl+Shift+M", () => quickCaptureController?.show("today-task"));
+    globalShortcut.register("CmdOrCtrl+Shift+,", () => quickCaptureController?.show("done-task"));
+    globalShortcut.register("CmdOrCtrl+Shift+.", () => quickCaptureController?.show("micro-memo"));
   }
 
   app.on("activate", () => {
@@ -1342,11 +764,11 @@ void app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
   if (process.platform === "darwin") return;
-  if (tray && !tray.isDestroyed()) return;
+  if (trayController?.isActive()) return;
   app.quit();
 });
 
 app.on("will-quit", () => {
-  stopReminderNotifications();
+  reminderController?.stop();
   globalShortcut.unregisterAll();
 });

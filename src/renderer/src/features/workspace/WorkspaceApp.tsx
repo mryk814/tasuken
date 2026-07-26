@@ -567,7 +567,7 @@ export function WorkspaceApp() {
     const base = (drawer?.entity || {}) as Record<string, unknown>;
     let entity: Record<string, unknown> | undefined;
 
-    // --- v2 entity types: full save cycle, then return ---
+    // Domain entity types use the full save cycle, then return.
     if (type === "task") {
       const title = formText(values, "title");
       if (!title) { (named("title") as HTMLInputElement | null)?.focus(); setToast("タイトルを入力してください。"); return false; }

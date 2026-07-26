@@ -259,9 +259,6 @@ export interface WorkspaceDomain {
   change_events: ChangeEvent[];
 }
 
-/** @deprecated Use WorkspaceDomain instead */
-export type WorkspaceV2 = WorkspaceDomain;
-
 export type DomainEntity =
   | Project
   | CaptureEntry
@@ -277,6 +274,3 @@ export type DomainEntity =
   | PlanDependency
   | KnowledgeEdge
   | ChangeEvent;
-
-/** @deprecated Use DomainEntity instead */
-export type V2Entity = DomainEntity;

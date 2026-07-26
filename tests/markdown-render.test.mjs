@@ -128,7 +128,10 @@ test("rich editor escapes ambiguous comparison operators without changing saved 
 });
 
 test("Notes Edit and Preview share the rendered document style contract", () => {
-  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const source = [
+    readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8"),
+  ].join("\n");
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
   assert.match(source, /contentEditableClassName="note-mdx-content markdown-preview"/);
@@ -165,7 +168,7 @@ test("markdown preview renders safe ordinary links and rejects unsafe link urls"
 
 test("markdown preview and editor css make ordinary links visible", () => {
   const source = readFileSync("src/renderer/src/styles/app.css", "utf8");
-  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const notesSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
   const documentCss = markdown.previewDocument("[OpenAI](https://openai.com)", "markdown");
 
   assert.match(source, /--markdown-link:\s*#0B6BCB/);
@@ -451,7 +454,10 @@ test("markdown preview accepts fractional MDX resize widths and ignores stale he
 });
 
 test("notes page flushes MDX markdown before leaving edit mode", () => {
-  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const source = [
+    readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8"),
+  ].join("\n");
   assert.match(source, /markdownSourceRef/);
   assert.match(source, /getMarkdown\(\)/);
   assert.match(source, /previewMode === "edit" && nextMode !== "edit"/);
@@ -482,7 +488,10 @@ test("markdown preview keeps unsized images within content width", () => {
 });
 
 test("notes page enables image resize and dimension controls", () => {
-  const source = readFileSync(path.resolve("src/renderer/src/features/workspace/pages/NotesPage.tsx"), "utf8");
+  const source = readFileSync(
+    path.resolve("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx"),
+    "utf8",
+  );
   assert.match(source, /disableImageResize:\s*false/);
   assert.match(source, /allowSetImageDimensions:\s*true/);
 });
@@ -820,7 +829,11 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   ]);
   assert.deepEqual(labels, ["1.", "1.1", null]);
 
-  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const notesSource = [
+    readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/MarkdownDiffMarkerRail.tsx", "utf8"),
+  ].join("\n");
   assert.match(notesSource, /heading_numbers/);
   assert.match(notesSource, /heading_number_start/);
   assert.match(notesSource, /heading_number_levels/);
@@ -853,7 +866,7 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   assert.match(notesSource, /left: markerLeft/);
   assert.match(notesSource, /contentHeight/);
   assert.match(notesSource, /lineHeight/);
-  assert.match(notesSource, /findMarkdownMarkerAnchor/);
+  assert.match(notesSource, /findMarkerAnchor/);
   assert.match(notesSource, /anchorTops/);
   assert.match(notesSource, /metrics\.lineHeight \/ 2/);
   assert.match(notesSource, /compositionstart/);
@@ -935,7 +948,10 @@ test("lightweight callout renders INSIGHT (気づき) in orange and keeps plain 
   assert.match(css, /md-callout-marker-only/);
   assert.match(css, /content: attr\(data-callout-label\)/);
 
-  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const notesSource = [
+    readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
+    readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8"),
+  ].join("\n");
   assert.match(notesSource, /applyCalloutDecorations/);
   assert.doesNotMatch(notesSource, /insertNoteCallout/);
 
