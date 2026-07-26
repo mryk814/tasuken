@@ -27,7 +27,10 @@ import { artifactSourceEntityTypes, normalizeEntity, validateEntity, workspaceEn
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
-const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+const workspacePageRouterSource = readFileSync(
+  "src/renderer/src/features/workspace/components/WorkspacePageRouter.tsx",
+  "utf8",
+);
 const artifactsComponentSource = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
 const artifactsPageSource = readFileSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx", "utf8");
 const themePageSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
@@ -342,8 +345,8 @@ test("Artifacts 一覧が知識整理ナビとルートに接続されている"
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
   assert.match(routesSource, /\["artifacts", "Artifacts"\]/);
   assert.match(routesSource, /artifacts:\s*"knowledge"/);
-  assert.match(workspaceAppSource, /ArtifactsPage/);
-  assert.match(workspaceAppSource, /artifacts:\s*<ArtifactsPage/);
+  assert.match(workspacePageRouterSource, /ArtifactsPage/);
+  assert.match(workspacePageRouterSource, /case "artifacts":/);
 });
 
 test("Artifact の追加入口と元Entity往復がUIにある", () => {

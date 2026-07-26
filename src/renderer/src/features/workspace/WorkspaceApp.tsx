@@ -32,19 +32,7 @@ import { buildArtifactThemeSyncOperations } from "./components/artifacts";
 import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
-import { ThemePage } from "./pages/ThemePage";
-import { TodoPage } from "./pages/TodoPage";
-import { TimelinePage } from "./pages/TimelinePage";
-import { ThemesPage } from "./pages/ThemesPage";
-import { NotesPage } from "./pages/NotesPage";
-import { ArtifactsPage } from "./pages/ArtifactsPage";
-import { KnowledgePage } from "./pages/KnowledgePage";
-import { WaitingPage } from "./pages/WaitingPage";
-import { ImportExportPage } from "./pages/ImportExportPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { TodayPage } from "./pages/TodayPage";
-import { InboxPage } from "./pages/InboxPage";
-import { ChatRefsPage } from "./pages/ChatRefsPage";
+import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -728,21 +716,6 @@ export function WorkspaceApp() {
     setSnapshotPreview,
   };
 
-  const pages: Record<string, React.ReactNode> = {
-    today: <TodayPage {...common} />,
-    inbox: <InboxPage {...common} />,
-    "chat-refs": <ChatRefsPage {...common} />,
-    artifacts: <ArtifactsPage {...common} />,
-    theme: <ThemePage {...common} />,
-    todo: <TodoPage {...common} />,
-    timeline: <TimelinePage {...common} />,
-    themes: <ThemesPage {...common} />,
-    notes: <NotesPage {...common} />,
-    knowledge: <KnowledgePage {...common} />,
-    waiting: <WaitingPage {...common} />,
-    "ai-io": <ImportExportPage {...common} />,
-    settings: <SettingsPage {...common} themeMode={themeMode} setThemeMode={setThemeMode} activeGroups={activeGroups} setActiveGroups={setActiveGroups} allThemes={allThemes} />,
-  };
   return (
     <div className={`app-shell ${drawer ? "has-drawer" : ""}`}>
       <Sidebar
@@ -754,7 +727,17 @@ export function WorkspaceApp() {
         domain={domain}
         openDrawer={openDrawer}
       />
-      <main className="main-area">{pages[route] || pages.today}</main>
+      <main className="main-area">
+        <WorkspacePageRouter
+          route={route}
+          common={common}
+          themeMode={themeMode}
+          setThemeMode={setThemeMode}
+          activeGroups={activeGroups}
+          setActiveGroups={setActiveGroups}
+          allThemes={allThemes}
+        />
+      </main>
       {drawer ? (
         <EntityDrawer
           drawer={drawer}
