@@ -19,3 +19,10 @@
 3. `drawer.tsx` と `NotesPage.tsx` を責務単位の component / hook / helper へ分離する。
 
 各フェーズは単独でビルド・起動可能な状態にし、フェーズごとにコミットする。
+
+## 完了結果
+
+- `workspace/domain-model` を唯一の Workspace ドメイン正本とし、`workspace-v2/domain` の別名レイヤーを撤去した。
+- Main Process の Attachment Protocol、path 移行、Quick Capture、Reminder、Today Mini、Tray を controller / helper へ分離した。
+- Drawer のエンティティ入力、Notes の Rich Editor、Markdown 差分マーカーを独立 component へ分離した。
+- 互換条件は 217 tests、typecheck、production build、model smoke、desktop smoke、NSIS / portable package 生成で確認した。
