@@ -278,10 +278,11 @@ test("Artifact は親 Entity の Theme を引き継ぐ", () => {
 
 test("Theme 編集に storage_root があり import に themeId を渡す", () => {
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const drawerPickersSource = readFileSync("src/renderer/src/features/workspace/components/drawerPickers.tsx", "utf8");
   const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   const settingsSource = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
   assert.match(drawerSource, /ThemeStorageRootField|storage_root/);
-  assert.match(drawerSource, /Artifact保存ルート/);
+  assert.match(drawerPickersSource, /Artifact保存ルート/);
   assert.match(workspaceAppSource, /storage_root:\s*formText\(values,\s*"storage_root"\)/);
   assert.match(artifactsComponentSource, /themeId:\s*parentThemeId/);
   assert.match(artifactsComponentSource, /themeId:\s*artifact\.theme_id/);
