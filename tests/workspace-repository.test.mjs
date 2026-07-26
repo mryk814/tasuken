@@ -133,11 +133,11 @@ test("directional knowledge edges reject cycles but weak relations do not", () =
     ],
   });
   assert.throws(
-    () => repo.validateKnowledgeEdgeGraph({ id: "ca", source_node_id: "c", target_node_id: "a", relation_type: "leads_to" }),
+    () => repo.validateGraph("knowledge_edge", { id: "ca", source_node_id: "c", target_node_id: "a", relation_type: "leads_to" }),
     /KnowledgeEdgeが循環/,
   );
   assert.doesNotThrow(
-    () => repo.validateKnowledgeEdgeGraph({ id: "weak", source_node_id: "c", target_node_id: "a", relation_type: "supports" }),
+    () => repo.validateGraph("knowledge_edge", { id: "weak", source_node_id: "c", target_node_id: "a", relation_type: "supports" }),
   );
 });
 
