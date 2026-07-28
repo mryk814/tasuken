@@ -15,8 +15,9 @@ import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
-import { buildActivityLog } from "../lib/activityLog";
+import { buildActivityLog, collectActivityLogEntries } from "../lib/activityLog";
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
+import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import { taskShelfStatus } from "../lib/taskShelves";
 import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
@@ -424,9 +425,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
-  const [showActivityLog, setShowActivityLog] = useState(false);
   const [activityDate, setActivityDate] = useState(todayIso());
   const [activityDirectory, setActivityDirectory] = useState("");
+  const [activityAutoExportTime, setActivityAutoExportTime] = useState("");
   const [activityFilePath, setActivityFilePath] = useState("");
   const [exportingActivity, setExportingActivity] = useState(false);
   const today = todayIso();
@@ -454,12 +455,24 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     .sort((a, b) => compareWaitingRows(a, b, today));
   const overdueWaitingCount = openWaitings.filter((row) => row.date && row.date < today).length;
   useEffect(() => {
-    workspaceApi.getPreference("activityLogDirectory")
-      .then((value) => {
-        if (typeof value === "string") setActivityDirectory(value);
+    Promise.all([
+      workspaceApi.getPreference("activityLogDirectory"),
+      workspaceApi.getPreference("activityLogAutoExportTime"),
+    ])
+      .then(([directory, savedTime]) => {
+        if (typeof directory === "string") setActivityDirectory(directory);
+        if (typeof savedTime === "string" && savedTime) {
+          setActivityAutoExportTime(savedTime);
+          return;
+        }
+        const legacyTime = normalizeReminderSettings(findReminderSettingsView(data.views || [])).activity_log_time;
+        if (legacyTime) {
+          setActivityAutoExportTime(legacyTime);
+          workspaceApi.setPreference("activityLogAutoExportTime", legacyTime).catch(() => {});
+        }
       })
       .catch(() => {});
-  }, []);
+  }, [data.views]);
 
   async function handleToggleComplete(row: TodayRow) {
     if (row.v2?.type === "task") {
@@ -675,6 +688,45 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
     });
   }
 
+  const activityEntries = collectActivityLogEntries({
+    date: activityDate,
+    domain: v2,
+    statusUpdates: data.status_updates || [],
+    themes,
+  });
+  const activityGroups = [
+    { label: "完了", rows: activityEntries.completedTasks.map((entry) => entry.title) },
+    { label: "受領", rows: activityEntries.receivedWaitings.map((entry) => entry.title) },
+    { label: "Notes", rows: activityEntries.notes.map((entry) => entry.title) },
+    { label: "資料", rows: activityEntries.resources.map((entry) => entry.title) },
+    { label: "Knowledge", rows: activityEntries.knowledge.map((entry) => entry.title) },
+    { label: "現在地", rows: activityEntries.updates.map((entry) => entry.summary || entry.next_actions || entry.risks || "更新") },
+    { label: "Capture", rows: activityEntries.captures.map((entry) => entry.title || entry.text) },
+  ].filter((group) => group.rows.length > 0);
+  const activityCount = activityGroups.reduce((sum, group) => sum + group.rows.length, 0);
+
+  async function chooseActivityDirectory() {
+    try {
+      const result = await workspaceApi.chooseDirectory("Activity Logの自動出力先を選択");
+      if (result.canceled || !result.path) return;
+      setActivityDirectory(result.path);
+      await workspaceApi.setPreference("activityLogDirectory", result.path);
+      setToast("Activity Logの出力先を設定しました。", "success");
+    } catch (error) {
+      setToast(`出力先を設定できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function updateActivityAutoExportTime(value: string) {
+    setActivityAutoExportTime(value);
+    try {
+      await workspaceApi.setPreference("activityLogAutoExportTime", value);
+      setToast(value ? `Activity Logを毎日${value}に自動出力します。` : "Activity Logの自動出力を停止しました。", "success");
+    } catch (error) {
+      setToast(`自動出力時刻を保存できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
   async function exportActivityLog(chooseDirectory: boolean) {
     setExportingActivity(true);
     try {
@@ -715,27 +767,14 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         <button className="secondary-button" onClick={() => workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。"))}>
           <IconClipboard size={16} /> コピー
         </button>
-        <button className="secondary-button" onClick={() => setShowActivityLog((value) => !value)}>
-          <IconClipboard size={16} /> 活動ログ
+        <button className="secondary-button" onClick={() => document.getElementById("daily-activity")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+          <IconClipboard size={16} /> Activity
         </button>
         <button className="secondary-button" onClick={openTodayTasksWindow}>
           <IconCalendarCheck size={16} /> 今日やること
         </button>
         <button className="primary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
       </PageHeader>
-
-      {showActivityLog && <section className="panel activity-log-strip">
-        <div className="section-heading">
-          <h2>Activity Log</h2>
-          <div className="inline-actions">
-            <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity Log対象日" />
-            <button className="secondary-button compact" onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。"))}>コピー</button>
-            <button className="secondary-button compact" onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</button>
-            <button className="secondary-button compact" disabled={exportingActivity} onClick={() => exportActivityLog(true)}>出力先を変更</button>
-          </div>
-        </div>
-        <span>{activityFilePath ? `出力したファイル: ${activityFilePath}` : activityDirectory ? `出力先: ${activityDirectory}` : "出力先は初回出力時に選択します。"}</span>
-      </section>}
 
       {showAdd && (
         <InlineAddPanel
@@ -834,6 +873,50 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           />
         </section>
       </div>
+
+      <section id="daily-activity" className="panel activity-log-strip">
+        <div className="section-heading">
+          <h2>Activity <span className="activity-count">{activityCount}</span></h2>
+          <div className="inline-actions">
+            <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity対象日" />
+            <button className="secondary-button compact" onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。", "success"))}>コピー</button>
+            <button className="secondary-button compact" onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</button>
+          </div>
+        </div>
+        {activityGroups.length ? (
+          <div className="activity-summary-grid">
+            {activityGroups.map((group) => (
+              <section className="activity-summary-group" key={group.label}>
+                <div className="shelf-lane-heading"><h3>{group.label}</h3><span>{group.rows.length}件</span></div>
+                <ul>
+                  {group.rows.slice(0, 3).map((row, index) => <li key={`${group.label}-${index}`}>{row}</li>)}
+                  {group.rows.length > 3 && <li className="activity-more">ほか{group.rows.length - 3}件</li>}
+                </ul>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="タスクの完了やNoteの更新が自動でここにまとまります" />
+        )}
+        <div className="activity-auto-export">
+          <label>
+            <span>毎日自動出力</span>
+            <input
+              type="time"
+              value={activityAutoExportTime}
+              onChange={(event) => void updateActivityAutoExportTime(event.target.value)}
+              disabled={!activityDirectory}
+              aria-label="Activity Log自動出力時刻"
+            />
+          </label>
+          <span className="activity-output-path">
+            {activityFilePath ? `最新の手動出力: ${activityFilePath}` : activityDirectory ? `出力先: ${activityDirectory}` : "先に自動出力先を選択してください。"}
+          </span>
+          <button className="secondary-button compact" disabled={exportingActivity} onClick={() => void chooseActivityDirectory()}>
+            出力先を選択
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

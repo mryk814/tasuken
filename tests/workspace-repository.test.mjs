@@ -74,6 +74,12 @@ test("activity log export directory preference round-trips", () => {
   assert.equal(repo.getPreference("activityLogDirectory"), exportDir);
   assert.equal(repo.setPreference("activityLogDirectory", ""), "");
   assert.equal(repo.getPreference("activityLogDirectory"), "");
+  assert.equal(repo.setPreference("activityLogAutoExportTime", "17:30"), "17:30");
+  assert.equal(repo.getPreference("activityLogAutoExportTime"), "17:30");
+  assert.equal(repo.setPreference("activityLogAutoExportTime", "25:00"), "");
+  assert.equal(repo.setPreference("activityLogLastAutoExportDate", "2026-07-28"), "2026-07-28");
+  assert.equal(repo.getPreference("activityLogLastAutoExportDate"), "2026-07-28");
+  assert.equal(repo.setPreference("activityLogLastAutoExportDate", "28/07/2026"), "");
 });
 
 test("link URL validation allows web and mailto but rejects file", () => {

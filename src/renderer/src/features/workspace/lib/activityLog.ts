@@ -2,12 +2,22 @@ import type { StatusUpdate, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { compareCapturesNewestFirst } from "../domain-model/selectors";
 
-interface ActivityLogInput {
+export interface ActivityLogInput {
   date: string;
   domain: Pick<WorkspaceDomain, "tasks" | "waitings" | "notes" | "resources" | "knowledge_nodes" | "capture_entries">;
   statusUpdates: StatusUpdate[];
   themes: Theme[];
 }
+
+export type ActivityLogEntries = {
+  completedTasks: WorkspaceDomain["tasks"];
+  receivedWaitings: WorkspaceDomain["waitings"];
+  notes: WorkspaceDomain["notes"];
+  resources: WorkspaceDomain["resources"];
+  knowledge: WorkspaceDomain["knowledge_nodes"];
+  updates: StatusUpdate[];
+  captures: WorkspaceDomain["capture_entries"];
+};
 
 /** Activity Log 用の Theme 表示。ID から現時点の正式名・識別子・概要を解決する。 */
 export type ActivityThemeRef = {
@@ -89,7 +99,7 @@ function collectThemeIds(ids: Array<string | null | undefined>): string[] {
   return ordered;
 }
 
-export function buildActivityLog({ date, domain, statusUpdates, themes }: ActivityLogInput): string {
+export function collectActivityLogEntries({ date, domain, statusUpdates }: ActivityLogInput): ActivityLogEntries {
   const completedTasks = domain.tasks
     .filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === date)
     .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
@@ -112,6 +122,13 @@ export function buildActivityLog({ date, domain, statusUpdates, themes }: Activi
     .filter((entry) => recordDate(entry.captured_at) === date)
     .sort(compareCapturesNewestFirst);
 
+  return { completedTasks, receivedWaitings, notes, resources, knowledge, updates, captures };
+}
+
+export function buildActivityLog(input: ActivityLogInput): string {
+  const { date, themes } = input;
+  const { completedTasks, receivedWaitings, notes, resources, knowledge, updates, captures } =
+    collectActivityLogEntries(input);
   const labelOf = (projectId?: string | null) => formatActivityThemeLabel(resolveActivityTheme(themes, projectId));
 
   const themeIds = collectThemeIds([

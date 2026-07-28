@@ -168,6 +168,8 @@ export class WorkspaceDatabase {
     }
     if (key === "activeGroup") return this.ensureMeta("active_group", "");
     if (key === "activityLogDirectory") return this.ensureMeta("activity_log_directory", "");
+    if (key === "activityLogAutoExportTime") return this.ensureMeta("activity_log_auto_export_time", "");
+    if (key === "activityLogLastAutoExportDate") return this.ensureMeta("activity_log_last_auto_export_date", "");
     if (key === "artifactDirectory") return this.ensureMeta("artifact_directory", "");
     throw new Error(`未対応の設定です: ${key}`);
   }
@@ -198,6 +200,22 @@ export class WorkspaceDatabase {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `).run(directory);
       return directory;
+    }
+    if (key === "activityLogAutoExportTime") {
+      const time = typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('activity_log_auto_export_time', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(time);
+      return time;
+    }
+    if (key === "activityLogLastAutoExportDate") {
+      const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('activity_log_last_auto_export_date', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(date);
+      return date;
     }
     if (key === "artifactDirectory") {
       const directory = typeof value === "string" ? value : "";
