@@ -74,3 +74,11 @@ test("Today period tasks can be completed and spawn dated daily work", () => {
   assert.match(todayPageSource, /buildCompleteTaskOperations\(row\.task, row\.schedule\)/);
   assert.match(todayPageSource, /title: `\$\{row\.task\.title\}：\$\{formatDate\(today\)\}`/);
 });
+
+test("Today surfaces generated Activity and configures automatic daily export", () => {
+  assert.match(todayPageSource, /id="daily-activity"/);
+  assert.match(todayPageSource, /collectActivityLogEntries/);
+  assert.match(todayPageSource, /毎日自動出力/);
+  assert.match(todayPageSource, /activityLogAutoExportTime/);
+  assert.match(todayPageSource, /Activity Logの自動出力先を選択/);
+});

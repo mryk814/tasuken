@@ -2272,8 +2272,23 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .micro-memo-card-meta { min-height: 18px; justify-content: flex-start !important; }
 .micro-memo-card time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 
-.activity-log-strip { display: grid; gap: var(--space-2); }
+.activity-log-strip { display: grid; gap: var(--space-2); scroll-margin-top: var(--space-4); }
 .activity-log-strip > span, .chat-thread-meta { display: block; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.4; }
+.activity-count { margin-left: var(--space-1); color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
+.activity-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-2); padding: 0 var(--pad-card); }
+.activity-summary-group { min-width: 0; padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.activity-summary-group ul { display: grid; gap: var(--space-1); margin: var(--space-1) 0 0; padding: 0; list-style: none; }
+.activity-summary-group li { overflow: hidden; color: var(--color-text); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.activity-summary-group li::before { content: "·"; margin-right: var(--space-1); color: var(--color-accent); }
+.activity-summary-group .activity-more { color: var(--color-text-secondary); }
+.activity-auto-export { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--pad-card) 0; border-top: 1px solid var(--color-border-subtle); }
+.activity-auto-export label { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.activity-auto-export input { width: 112px; }
+.activity-output-path { overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) {
+  .activity-auto-export { grid-template-columns: 1fr; align-items: stretch; }
+  .activity-output-path { white-space: normal; }
+}
 .theme-related-strip { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
 .task-learning-section { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
 .task-learning-list { display: grid; gap: var(--space-2); }

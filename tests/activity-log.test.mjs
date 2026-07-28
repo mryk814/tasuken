@@ -18,6 +18,7 @@ async function importBundled(relativePath) {
 }
 
 const activityLog = await importBundled("src/renderer/src/features/workspace/lib/activityLog.ts");
+const activityAutoExport = await importBundled("src/renderer/src/features/workspace/lib/activityAutoExport.ts");
 
 test("activity log summarizes completed work and empty sections for a date", () => {
   const markdown = activityLog.buildActivityLog({
@@ -112,4 +113,51 @@ test("resolveActivityTheme and format helpers stay readable for external markdow
   const none = activityLog.resolveActivityTheme([], null);
   assert.equal(none.name, "個人業務");
   assert.equal(activityLog.formatActivityThemeLabel(none), "個人業務");
+});
+
+test("activity entries expose the same automatic daily sources used by markdown", () => {
+  const entries = activityLog.collectActivityLogEntries({
+    date: "2026-07-28",
+    domain: {
+      tasks: [{ id: "t1", title: "完了", state: "done", completed_at: "2026-07-28T08:00:00" }],
+      waitings: [],
+      notes: [{ id: "n1", title: "更新Note", updated_at: "2026-07-28T09:00:00" }],
+      resources: [],
+      knowledge_nodes: [],
+      capture_entries: [],
+    },
+    statusUpdates: [],
+    themes: [],
+  });
+
+  assert.deepEqual(entries.completedTasks.map((entry) => entry.id), ["t1"]);
+  assert.deepEqual(entries.notes.map((entry) => entry.id), ["n1"]);
+});
+
+test("activity auto export runs after the configured time once per local date", () => {
+  const now = new Date(2026, 6, 28, 17, 31);
+  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
+    now,
+    time: "17:30",
+    directory: "C:\\logs",
+    lastExportDate: "",
+  }), true);
+  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
+    now,
+    time: "17:30",
+    directory: "C:\\logs",
+    lastExportDate: "2026-07-28",
+  }), false);
+  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
+    now: new Date(2026, 6, 28, 17, 29),
+    time: "17:30",
+    directory: "C:\\logs",
+    lastExportDate: "",
+  }), false);
+  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
+    now,
+    time: "17:30",
+    directory: "",
+    lastExportDate: "",
+  }), false);
 });

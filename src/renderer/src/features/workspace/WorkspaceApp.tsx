@@ -24,6 +24,8 @@ import type {
 } from "./types";
 import { entityTitle } from "./lib/domain";
 import { activeRecords, formText, str, uuid } from "./lib/format";
+import { localDateAndTime, shouldAutoExportActivityLog } from "./lib/activityAutoExport";
+import { buildActivityLog } from "./lib/activityLog";
 import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
@@ -110,6 +112,8 @@ export function WorkspaceApp() {
   const noteAutoSaveTimer = useRef<number | null>(null);
   const noteAutoSaveTriggerRef = useRef<() => void>(() => {});
   const updateCheckStarted = useRef(false);
+  const activityAutoExportRunning = useRef(false);
+  const activityAutoExportFailedTarget = useRef("");
 
   async function loadWorkspace() {
     try {
@@ -293,6 +297,58 @@ export function WorkspaceApp() {
   const notes = data.notes;
   const links = data.links;
   const activeTheme = themes.find((theme) => theme.id === activeThemeId) || themes[0] || null;
+
+  useEffect(() => {
+    if (loadState !== "success") return undefined;
+    let canceled = false;
+
+    async function autoExportActivityLog(): Promise<void> {
+      if (activityAutoExportRunning.current) return;
+      const now = new Date();
+      const current = localDateAndTime(now);
+      activityAutoExportRunning.current = true;
+      try {
+        const [time, directory, lastExportDate] = await Promise.all([
+          workspaceApi.getPreference("activityLogAutoExportTime"),
+          workspaceApi.getPreference("activityLogDirectory"),
+          workspaceApi.getPreference("activityLogLastAutoExportDate"),
+        ]);
+        const failedTarget = `${current.date}:${String(directory || "")}`;
+        if (activityAutoExportFailedTarget.current === failedTarget) return;
+        if (canceled || !shouldAutoExportActivityLog({ now, time, directory, lastExportDate })) return;
+        const result = await workspaceApi.exportMarkdownFile({
+          title: `Tasken Activity Log ${current.date}`,
+          fileName: `tasken-activity-${current.date}.md`,
+          content: buildActivityLog({
+            date: current.date,
+            domain: fullDomain,
+            statusUpdates: fullData.status_updates || [],
+            themes: allThemes,
+          }),
+          directory: String(directory),
+          chooseDirectory: false,
+        });
+        if (canceled || result.canceled) return;
+        await workspaceApi.setPreference("activityLogLastAutoExportDate", current.date);
+        if (!canceled) setToast(`Activity Logを自動出力しました。${result.filePath || ""}`, "success");
+      } catch (error) {
+        const directory = await workspaceApi.getPreference("activityLogDirectory").catch(() => "");
+        activityAutoExportFailedTarget.current = `${current.date}:${String(directory || "")}`;
+        if (!canceled) {
+          setToast(`Activity Logの自動出力に失敗しました。出力先を確認してください。${errorMessage(error)}`, "danger");
+        }
+      } finally {
+        activityAutoExportRunning.current = false;
+      }
+    }
+
+    void autoExportActivityLog();
+    const timer = window.setInterval(() => void autoExportActivityLog(), 60000);
+    return () => {
+      canceled = true;
+      window.clearInterval(timer);
+    };
+  }, [allThemes, fullData, fullDomain, loadState, setToast]);
 
   const handleDrawerFormInput = useCallback(() => {
     noteAutoSaveTriggerRef.current();
