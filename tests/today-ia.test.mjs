@@ -81,4 +81,5 @@ test("Today surfaces generated Activity and configures automatic daily export", 
   assert.match(todayPageSource, /毎日自動出力/);
   assert.match(todayPageSource, /activityLogAutoExportTime/);
   assert.match(todayPageSource, /Activity Logの自動出力先を選択/);
+  assert.match(todayPageSource, /アプリ停止中の未出力分は、次回起動時に日ごとに補完します/);
 });

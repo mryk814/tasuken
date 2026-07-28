@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import { entityTitle } from "./lib/domain";
 import { activeRecords, formText, str, uuid } from "./lib/format";
-import { localDateAndTime, shouldAutoExportActivityLog } from "./lib/activityAutoExport";
+import { activityDatesToAutoExport, localDateAndTime, runActivityAutoExport } from "./lib/activityAutoExport";
 import { buildActivityLog } from "./lib/activityLog";
 import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
@@ -306,6 +306,8 @@ export function WorkspaceApp() {
       if (activityAutoExportRunning.current) return;
       const now = new Date();
       const current = localDateAndTime(now);
+      let activeTargetDate = "";
+      let activeDirectory = "";
       activityAutoExportRunning.current = true;
       try {
         const [time, directory, lastExportDate] = await Promise.all([
@@ -313,29 +315,39 @@ export function WorkspaceApp() {
           workspaceApi.getPreference("activityLogDirectory"),
           workspaceApi.getPreference("activityLogLastAutoExportDate"),
         ]);
-        const failedTarget = `${current.date}:${String(directory || "")}`;
-        if (activityAutoExportFailedTarget.current === failedTarget) return;
-        if (canceled || !shouldAutoExportActivityLog({ now, time, directory, lastExportDate })) return;
-        const result = await workspaceApi.exportMarkdownFile({
-          title: `Tasken Activity Log ${current.date}`,
-          fileName: `tasken-activity-${current.date}.md`,
-          content: buildActivityLog({
-            date: current.date,
-            domain: fullDomain,
-            statusUpdates: fullData.status_updates || [],
-            themes: allThemes,
-          }),
-          directory: String(directory),
-          chooseDirectory: false,
+        activeDirectory = String(directory || "");
+        const targetDates = activityDatesToAutoExport({ now, time, directory, lastExportDate });
+        if (!targetDates.length || canceled) return;
+        if (activityAutoExportFailedTarget.current === `${targetDates[0]}:${activeDirectory}`) return;
+
+        await runActivityAutoExport({
+          dates: targetDates,
+          exportDate: async (targetDate) => {
+            activeTargetDate = targetDate;
+            const result = await workspaceApi.exportMarkdownFile({
+              title: `Tasken Activity Log ${targetDate}`,
+              fileName: `tasken-activity-${targetDate}.md`,
+              content: buildActivityLog({
+                date: targetDate,
+                domain: fullDomain,
+                statusUpdates: fullData.status_updates || [],
+                themes: allThemes,
+              }),
+              directory: activeDirectory,
+              chooseDirectory: false,
+            });
+            if (canceled || result.canceled) throw new Error("自動出力を中断しました。");
+          },
+          markExported: (targetDate) => workspaceApi.setPreference("activityLogLastAutoExportDate", targetDate).then(() => {}),
         });
-        if (canceled || result.canceled) return;
-        await workspaceApi.setPreference("activityLogLastAutoExportDate", current.date);
-        if (!canceled) setToast(`Activity Logを自動出力しました。${result.filePath || ""}`, "success");
-      } catch (error) {
-        const directory = await workspaceApi.getPreference("activityLogDirectory").catch(() => "");
-        activityAutoExportFailedTarget.current = `${current.date}:${String(directory || "")}`;
         if (!canceled) {
-          setToast(`Activity Logの自動出力に失敗しました。出力先を確認してください。${errorMessage(error)}`, "danger");
+          const period = targetDates.length === 1 ? targetDates[0] : `${targetDates[0]}〜${targetDates.at(-1)}`;
+          setToast(`Activity Logを${targetDates.length}日分、自動出力しました。${period}`, "success");
+        }
+      } catch (error) {
+        activityAutoExportFailedTarget.current = `${activeTargetDate || current.date}:${activeDirectory}`;
+        if (!canceled) {
+          setToast(`Activity Log ${activeTargetDate || current.date}の自動出力に失敗しました。次回起動時に再試行します。${errorMessage(error)}`, "danger");
         }
       } finally {
         activityAutoExportRunning.current = false;

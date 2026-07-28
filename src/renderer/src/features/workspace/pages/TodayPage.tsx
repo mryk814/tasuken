@@ -915,6 +915,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
           <button className="secondary-button compact" disabled={exportingActivity} onClick={() => void chooseActivityDirectory()}>
             出力先を選択
           </button>
+          <small>アプリ停止中の未出力分は、次回起動時に日ごとに補完します。</small>
         </div>
       </section>
     </div>

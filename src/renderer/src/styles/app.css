@@ -2285,6 +2285,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .activity-auto-export label { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .activity-auto-export input { width: 112px; }
 .activity-output-path { overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.activity-auto-export small { grid-column: 1 / -1; color: var(--color-text-tertiary); font-size: var(--text-xs); }
 @media (max-width: 760px) {
   .activity-auto-export { grid-template-columns: 1fr; align-items: stretch; }
   .activity-output-path { white-space: normal; }
