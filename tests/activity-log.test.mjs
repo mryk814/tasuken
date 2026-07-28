@@ -134,30 +134,81 @@ test("activity entries expose the same automatic daily sources used by markdown"
   assert.deepEqual(entries.notes.map((entry) => entry.id), ["n1"]);
 });
 
-test("activity auto export runs after the configured time once per local date", () => {
-  const now = new Date(2026, 6, 28, 17, 31);
-  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
-    now,
-    time: "17:30",
+test("activity auto export catches up yesterday when the app starts before today's scheduled time", () => {
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
+    now: new Date(2026, 6, 11, 8, 0),
+    time: "22:00",
     directory: "C:\\logs",
-    lastExportDate: "",
-  }), true);
-  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
+    lastExportDate: "2026-07-09",
+  }), ["2026-07-10"]);
+});
+
+test("activity auto export catches up every missing date in calendar order", () => {
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
+    now: new Date(2026, 6, 11, 8, 0),
+    time: "22:00",
+    directory: "C:\\logs",
+    lastExportDate: "2026-07-07",
+  }), ["2026-07-08", "2026-07-09", "2026-07-10"]);
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
+    now: new Date(2026, 7, 2, 23, 0),
+    time: "22:00",
+    directory: "C:\\logs",
+    lastExportDate: "2026-07-30",
+  }), ["2026-07-31", "2026-08-01", "2026-08-02"]);
+});
+
+test("activity auto export includes today after the scheduled time and does not duplicate it", () => {
+  const now = new Date(2026, 6, 28, 22, 1);
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
     now,
-    time: "17:30",
+    time: "22:00",
+    directory: "C:\\logs",
+    lastExportDate: "2026-07-27",
+  }), ["2026-07-28"]);
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
+    now,
+    time: "22:00",
     directory: "C:\\logs",
     lastExportDate: "2026-07-28",
-  }), false);
-  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
-    now: new Date(2026, 6, 28, 17, 29),
-    time: "17:30",
+  }), []);
+});
+
+test("first-time auto export creates the latest eligible daily snapshot only", () => {
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
+    now: new Date(2026, 6, 28, 9, 0),
+    time: "22:00",
     directory: "C:\\logs",
     lastExportDate: "",
-  }), false);
-  assert.equal(activityAutoExport.shouldAutoExportActivityLog({
-    now,
-    time: "17:30",
+  }), ["2026-07-27"]);
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
+    now: new Date(2026, 6, 28, 23, 0),
+    time: "22:00",
+    directory: "C:\\logs",
+    lastExportDate: "",
+  }), ["2026-07-28"]);
+  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
+    now: new Date(2026, 6, 28, 23, 0),
+    time: "22:00",
     directory: "",
     lastExportDate: "",
-  }), false);
+  }), []);
+});
+
+test("catch-up checkpoints each successful date and leaves a failed date for retry", async () => {
+  const exported = [];
+  const marked = [];
+  await assert.rejects(
+    activityAutoExport.runActivityAutoExport({
+      dates: ["2026-07-08", "2026-07-09", "2026-07-10"],
+      exportDate: async (date) => {
+        if (date === "2026-07-09") throw new Error("disk unavailable");
+        exported.push(date);
+      },
+      markExported: async (date) => { marked.push(date); },
+    }),
+    /disk unavailable/,
+  );
+  assert.deepEqual(exported, ["2026-07-08"]);
+  assert.deepEqual(marked, ["2026-07-08"]);
 });
