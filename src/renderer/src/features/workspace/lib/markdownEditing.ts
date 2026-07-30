@@ -14,6 +14,8 @@ type RawMarkdownDiffLine = Omit<MarkdownDiffLine, "beforeLine" | "afterLine">;
 
 export type MarkdownDiffHunk = {
   lines: MarkdownDiffLine[];
+  focusStart: number;
+  focusEnd: number;
   changedLines: number;
   addedLines: number;
   removedLines: number;
@@ -152,11 +154,16 @@ export function buildMarkdownDiffHunks(lines: MarkdownDiffLine[], context = 2): 
     const rangeStart = Math.max(0, start - safeContext);
     const rangeEnd = Math.min(lines.length - 1, end + safeContext);
     const hunkLines = lines.slice(rangeStart, rangeEnd + 1);
+    const focusStart = start - rangeStart;
+    const focusEnd = end - rangeStart;
+    const focusedLines = hunkLines.slice(focusStart, focusEnd + 1);
     return {
       lines: hunkLines,
-      changedLines: hunkLines.filter((line) => line.kind !== "same").length,
-      addedLines: hunkLines.filter((line) => line.kind === "added").length,
-      removedLines: hunkLines.filter((line) => line.kind === "removed").length,
+      focusStart,
+      focusEnd,
+      changedLines: focusedLines.length,
+      addedLines: focusedLines.filter((line) => line.kind === "added").length,
+      removedLines: focusedLines.filter((line) => line.kind === "removed").length,
       omittedBefore: rangeStart,
       omittedAfter: lines.length - rangeEnd - 1,
     };
@@ -168,7 +175,7 @@ export function buildMarkdownDiffHunks(lines: MarkdownDiffLine[], context = 2): 
  */
 export function buildMarkdownDiffMarkers(lines: MarkdownDiffLine[], context = 2): MarkdownDiffMarker[] {
   return buildMarkdownDiffHunks(lines, context).map((hunk) => {
-    const changedLines = hunk.lines.filter((line) => line.kind !== "same");
+    const changedLines = hunk.lines.slice(hunk.focusStart, hunk.focusEnd + 1);
     const first = changedLines[0];
     const anchor = changedLines.find((line) => line.kind === "added") || first;
     const hasAdded = changedLines.some((line) => line.kind === "added");
@@ -187,9 +194,19 @@ export function buildMarkdownDiffMarkers(lines: MarkdownDiffLine[], context = 2)
  */
 export function restoreMarkdownDiffHunk(after: string, hunk: MarkdownDiffHunk): string {
   const currentLines = splitLines(after);
-  const currentHunkLines = hunk.lines.filter((line) => line.afterLine !== null);
-  const originalHunkLines = hunk.lines.filter((line) => line.kind !== "added");
-  if (!currentHunkLines.length) return originalHunkLines.map((line) => line.text).join("\n");
+  const focusedLines = hunk.lines.slice(hunk.focusStart, hunk.focusEnd + 1);
+  const currentHunkLines = focusedLines.filter((line) => line.kind === "added");
+  const originalHunkLines = focusedLines.filter((line) => line.kind === "removed");
+
+  if (!currentHunkLines.length) {
+    const nextLine = hunk.lines.slice(hunk.focusEnd + 1).find((line) => line.afterLine !== null);
+    const previousLine = hunk.lines.slice(0, hunk.focusStart).reverse().find((line) => line.afterLine !== null);
+    const insertionIndex = nextLine?.afterLine != null
+      ? Math.max(0, nextLine.afterLine - 1)
+      : Math.min(currentLines.length, previousLine?.afterLine ?? 0);
+    currentLines.splice(insertionIndex, 0, ...originalHunkLines.map((line) => line.text));
+    return currentLines.join("\n");
+  }
 
   const start = Math.max(0, (currentHunkLines[0].afterLine ?? 1) - 1);
   const end = Math.min(currentLines.length, currentHunkLines.at(-1)?.afterLine ?? start);

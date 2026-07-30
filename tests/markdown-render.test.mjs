@@ -409,6 +409,23 @@ test("markdown editing helpers format safely, find matches, and build a line dif
   assert.equal(markdownEditing.buildMarkdownDiffMarkers(consecutiveDiff, 0).length, 1);
   const separatedDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nc\nY");
   assert.equal(markdownEditing.buildMarkdownDiffMarkers(separatedDiff, 2).length, 2);
+  const overlappingContextDiff = markdownEditing.diffMarkdownLines("same", "A\nsame\nB");
+  const overlappingContextHunks = markdownEditing.buildMarkdownDiffHunks(overlappingContextDiff, 2);
+  assert.deepEqual(overlappingContextHunks.map((hunk) => ({
+    focusStart: hunk.focusStart,
+    focusEnd: hunk.focusEnd,
+    addedLines: hunk.addedLines,
+  })), [
+    { focusStart: 0, focusEnd: 0, addedLines: 1 },
+    { focusStart: 2, focusEnd: 2, addedLines: 1 },
+  ]);
+  assert.equal(markdownEditing.restoreMarkdownDiffHunk("A\nsame\nB", overlappingContextHunks[0]), "same\nB");
+  assert.equal(markdownEditing.restoreMarkdownDiffHunk("A\nsame\nB", overlappingContextHunks[1]), "A\nsame");
+  const deletionHunk = markdownEditing.buildMarkdownDiffHunks(
+    markdownEditing.diffMarkdownLines("a\nb\nc", "a\nc"),
+    1,
+  )[0];
+  assert.equal(markdownEditing.restoreMarkdownDiffHunk("a\nc", deletionHunk), "a\nb\nc");
   const diff = markdownEditing.diffMarkdownLines(
     "a\nb\nc\nd\ne\nf\ng\nh\ni\nj",
     "a\nb\nX\nd\ne\nf\ng\nh\nY\nj",
@@ -421,6 +438,8 @@ test("markdown editing helpers format safely, find matches, and build a line dif
         { kind: "added", text: "X", beforeLine: null, afterLine: 3 },
         { kind: "same", text: "d", beforeLine: 4, afterLine: 4 },
       ],
+      focusStart: 1,
+      focusEnd: 2,
       changedLines: 2,
       addedLines: 1,
       removedLines: 1,
@@ -434,6 +453,8 @@ test("markdown editing helpers format safely, find matches, and build a line dif
         { kind: "added", text: "Y", beforeLine: null, afterLine: 9 },
         { kind: "same", text: "j", beforeLine: 10, afterLine: 10 },
       ],
+      focusStart: 1,
+      focusEnd: 2,
       changedLines: 2,
       addedLines: 1,
       removedLines: 1,
@@ -891,6 +912,10 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   assert.match(css, /markdown-diff-navigation > span[^}]*min-width: 5ch/);
   assert.match(css, /markdown-diff-count\.is-added/);
   assert.match(css, /markdown-diff-count\.is-removed/);
+  assert.match(css, /markdown-diff-line\.is-current-change/);
+  assert.match(css, /markdown-diff-line\.is-other-change/);
+  assert.match(notesSource, /保存済み → 編集中/);
+  assert.match(notesSource, /aria-current=\{isCurrentChange \? "true" : undefined\}/);
   assert.match(notesSource, /MarkdownDiffMarkerRail/);
   assert.doesNotMatch(notesSource, /className="note-preview-theme"/);
   assert.match(notesSource, /selected\.created_at \|\| selected\.updated_at \|\| draftState/);
