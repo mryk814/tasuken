@@ -627,8 +627,8 @@ export class WorkspaceService {
 
     try {
       await pdfWindow.loadFile(tempHtmlPath);
-      // ローカル相対パス画像はほぼ即完了。https 画像や遅延描画に備えて待つ。
-      const imageReport = await pdfWindow.webContents.executeJavaScript(`
+      // 画像とフォントを待ち、印刷でスクロールできない横長要素をA4本文幅へ収める。
+      const layoutReport = await pdfWindow.webContents.executeJavaScript(`
         (async () => {
           const images = Array.from(document.images || []);
           await Promise.all(images.map((img) => {
@@ -640,16 +640,57 @@ export class WorkspaceService {
               setTimeout(done, 8000);
             });
           }));
-          return images.map((img) => ({
-            ok: Boolean(img.naturalWidth > 0),
-            src: String(img.currentSrc || img.src || "").slice(0, 120),
-          }));
+          if (document.fonts?.ready) await document.fonts.ready;
+
+          let fittedMathCount = 0;
+          for (const block of document.querySelectorAll(".md-math-block")) {
+            const math = block.querySelector(".katex-display > .katex");
+            if (!(math instanceof HTMLElement)) continue;
+            const style = getComputedStyle(block);
+            const availableWidth = block.clientWidth
+              - Number.parseFloat(style.paddingLeft || "0")
+              - Number.parseFloat(style.paddingRight || "0");
+            const range = document.createRange();
+            range.selectNodeContents(math);
+            const contentWidth = Math.max(
+              math.scrollWidth,
+              math.getBoundingClientRect().width,
+              range.getBoundingClientRect().width,
+            );
+            if (availableWidth > 0 && contentWidth > availableWidth + 1) {
+              // KaTeXの伸縮括弧・根号は視覚境界が計測値をわずかに越えるため、2%の印刷余白を残す。
+              math.style.zoom = String((availableWidth * 0.98) / contentWidth);
+              fittedMathCount += 1;
+            }
+          }
+
+          for (const svg of document.querySelectorAll(".md-mermaid-svg svg")) {
+            svg.removeAttribute("height");
+            svg.style.maxWidth = "100%";
+            svg.style.height = "auto";
+          }
+
+          return {
+            images: images.map((img) => ({
+              ok: Boolean(img.naturalWidth > 0),
+              src: String(img.currentSrc || img.src || "").slice(0, 120),
+            })),
+            mermaidErrorCount: document.querySelectorAll(".md-mermaid-block.has-render-error").length,
+            fittedMathCount,
+          };
         })()
-      `) as Array<{ ok: boolean; src: string }>;
-      for (const image of imageReport || []) {
+      `) as {
+        images?: Array<{ ok: boolean; src: string }>;
+        mermaidErrorCount?: number;
+        fittedMathCount?: number;
+      };
+      for (const image of layoutReport?.images || []) {
         if (!image.ok) {
           warnings.push(`PDF内で画像を描画できませんでした: ${image.src || "(不明)"}`);
         }
+      }
+      if (layoutReport?.mermaidErrorCount) {
+        warnings.push(`Mermaidを描画できない箇所が${layoutReport.mermaidErrorCount}件あります。コードを確認してください。`);
       }
 
       const pdf = await pdfWindow.webContents.printToPDF({

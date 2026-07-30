@@ -203,7 +203,7 @@ test("previewDocument styling stays aligned with markdown-preview tokens", () =>
   assert.match(html, /class="markdown-document"/);
   assert.match(html, /--markdown-accent:#2D7FB8/);
   assert.match(html, /--markdown-accent-bd:#C3DCEE/);
-  assert.match(html, /--markdown-paper-secondary:#6f625b/);
+  assert.match(html, /--markdown-paper-secondary:#554b46/);
   assert.match(html, /<h4 id="md-h-1"[^>]*>Detail<\/h4>/);
   assert.match(html, /<blockquote>/);
   assert.match(html, /<hr \/>/);
@@ -265,6 +265,17 @@ $$
   // ラッパーが Georgia 固定や inline-block で KaTeX の baseline を壊さない。
   assert.match(doc, /\.markdown-document \.md-math-inline\{display:inline/);
   assert.doesNotMatch(doc, /\.md-math-inline\{[^}]*font-family:Georgia/);
+  assert.match(doc, /\.markdown-document \.md-math-block\{\s*overflow:visible/s);
+});
+
+test("previewDocument includes print-safe Mermaid and higher-contrast text styling", () => {
+  const doc = markdown.previewDocument("```mermaid\nflowchart LR\nA --> B\n```", "markdown");
+
+  assert.match(doc, /color:#1f1b1a/);
+  assert.match(doc, /print-color-adjust:exact/);
+  assert.match(doc, /\.markdown-document pre\.md-mermaid-block\.is-rendered > code\{display:none\}/);
+  assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-width:100%/s);
+  assert.match(doc, /class="md-mermaid-block" data-mermaid="true"/);
 });
 
 test("markdown preview css separates heading levels and keeps tables compact", () => {

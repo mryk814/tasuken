@@ -1,12 +1,6 @@
 import { useEffect, useRef, type MouseEventHandler, type Ref, type UIEventHandler } from "react";
 
-let mermaidSequence = 0;
-let mermaidModulePromise: Promise<typeof import("mermaid")> | null = null;
-
-function loadMermaid() {
-  mermaidModulePromise ||= import("mermaid");
-  return mermaidModulePromise;
-}
+import { renderMermaidBlocks } from "../lib/mermaid";
 
 export function MarkdownPreview({
   html,
@@ -32,30 +26,9 @@ export function MarkdownPreview({
     if (!nodes.length) return;
 
     let active = true;
-    void loadMermaid().then(({ default: mermaid }) => {
+    void Promise.resolve().then(async () => {
       if (!active || renderVersionRef.current !== version) return;
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: "strict",
-        theme: "base",
-        fontFamily: "Nunito, Yu Gothic UI, Yu Gothic, sans-serif",
-      });
-      return nodes.reduce(async (previous, node) => {
-        await previous;
-        if (!active || renderVersionRef.current !== version) return;
-        const source = node.querySelector("code")?.textContent || "";
-        const id = `tasken-mermaid-${mermaidSequence++}`;
-        try {
-          const result = await mermaid.render(id, source);
-          if (!active || renderVersionRef.current !== version) return;
-          node.innerHTML = `<div class="md-mermaid-svg">${result.svg}</div>`;
-          node.classList.add("is-rendered");
-        } catch {
-          if (!active || renderVersionRef.current !== version) return;
-          node.classList.add("has-render-error");
-          node.insertAdjacentHTML("afterbegin", '<div class="md-mermaid-error">Mermaidを描画できませんでした。コードを確認してください。</div>');
-        }
-      }, Promise.resolve());
+      await renderMermaidBlocks(root);
     }).catch(() => {
       if (active && renderVersionRef.current === version) nodes.forEach((node) => node.classList.add("has-render-error"));
     });
