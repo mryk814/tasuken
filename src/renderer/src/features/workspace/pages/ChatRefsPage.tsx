@@ -30,6 +30,7 @@ import type { Resource } from "../domain-model/types";
 import {
   archiveChatResource,
   archiveChatResources,
+  chatGroupCollapsePreferenceKey,
   chatGroupNameExists,
   chatThreadMetaLabels,
   clearChatGroupResources,
@@ -39,11 +40,13 @@ import {
   isChatArchived,
   isChatReference,
   listResourcesInChatGroup,
+  moveCollapsedChatGroupPreference,
   renameChatGroupResources,
   reorderChatGroupResources,
   restoreChatResource,
   restoreChatResources,
   UNGROUPED_CHAT_GROUP,
+  updateCollapsedChatGroupPreferences,
   type ChatGroupSortOrder,
   type ChatRefGroup,
   type ChatRefSortOrder,
@@ -116,7 +119,7 @@ export function ChatRefsPage({
   } = prefs;
   const updatePrefs = (patch: Partial<ChatRefsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const isArchiveView = listMode === "archive";
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsedPreferences, setCollapsedPreferences] = usePersistentState<string[]>("chat-refs:collapsed-groups:v1", []);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
@@ -175,23 +178,34 @@ export function ChatRefsPage({
     return map;
   }, [chatResources]);
   const allGroupKeys = useMemo(() => groups.map((g) => g.key), [groups]);
+  const collapsePreferenceKey = (groupKey: string, mode: ListMode = listMode) => (
+    chatGroupCollapsePreferenceKey(selectedThemeId || null, mode, groupKey)
+  );
+  const collapsed = useMemo(
+    () => new Set(groups
+      .filter((group) => collapsedPreferences.includes(
+        chatGroupCollapsePreferenceKey(selectedThemeId || null, listMode, group.key),
+      ))
+      .map((group) => group.key)),
+    [collapsedPreferences, groups, listMode, selectedThemeId],
+  );
   const allCollapsed = allGroupKeys.length > 0 && allGroupKeys.every((key) => collapsed.has(key));
 
   function toggleGroup(key: string) {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    const preferenceKey = collapsePreferenceKey(key);
+    setCollapsedPreferences((current) => updateCollapsedChatGroupPreferences(
+      current,
+      [preferenceKey],
+      !current.includes(preferenceKey),
+    ));
   }
 
   function toggleAllGroups() {
-    if (allCollapsed) {
-      setCollapsed(new Set());
-    } else {
-      setCollapsed(new Set(allGroupKeys));
-    }
+    setCollapsedPreferences((current) => updateCollapsedChatGroupPreferences(
+      current,
+      allGroupKeys.map((key) => collapsePreferenceKey(key)),
+      !allCollapsed,
+    ));
   }
 
   function toggleAdopted(r: Resource) {
@@ -260,12 +274,11 @@ export function ChatRefsPage({
       renameChatGroupResources(targets, nextName),
       targetExists ? "グループを統合しました。" : "グループ名を変更しました。",
     );
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.delete(group.key);
-      next.delete(nextName);
-      return next;
-    });
+    setCollapsedPreferences((current) => moveCollapsedChatGroupPreference(
+      current,
+      collapsePreferenceKey(group.key),
+      collapsePreferenceKey(nextName),
+    ));
     cancelRenameGroup();
   }
 
@@ -286,11 +299,14 @@ export function ChatRefsPage({
       clearChatGroupResources(targets),
       "グループを解除し、リンクを未分類へ移しました。",
     );
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.delete(group.key);
-      return next;
-    });
+    setCollapsedPreferences((current) => updateCollapsedChatGroupPreferences(
+      current,
+      [
+        collapsePreferenceKey(group.key, "active"),
+        collapsePreferenceKey(group.key, "archive"),
+      ],
+      false,
+    ));
     if (renamingGroupKey === group.key) cancelRenameGroup();
   }
 
@@ -616,7 +632,11 @@ export function ChatRefsPage({
                     </form>
                   ) : (
                     <>
-                      <button className="chat-group-toggle" onClick={() => toggleGroup(group.key)}>
+                      <button
+                        className="chat-group-toggle"
+                        aria-expanded={!collapsed.has(group.key)}
+                        onClick={() => toggleGroup(group.key)}
+                      >
                         {collapsed.has(group.key) ? <IconChevronRight size={16} /> : <IconChevronDown size={16} />}
                         <strong>{isArchiveView && group.key !== UNGROUPED_CHAT_GROUP ? `元グループ: ${group.label}` : group.label}</strong>
                         <span className="count">{group.resources.length}</span>

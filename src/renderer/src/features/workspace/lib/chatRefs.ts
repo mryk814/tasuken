@@ -8,6 +8,7 @@ const CHAT_DISPLAY_TIME_ZONE = "Asia/Tokyo";
 export type ChatRefSortOrder = "manual" | "newest" | "oldest";
 /** グループ同士の並び順。将来のピン留めは recent/name の前段で優先する想定 */
 export type ChatGroupSortOrder = "recent" | "name";
+export type ChatRefListMode = "active" | "archive";
 
 export type ChatRefGroup = {
   key: string;
@@ -37,6 +38,43 @@ export function chatGroupKey(resource: Pick<Resource, "chat_group"> | { chat_gro
 
 export function chatGroupActivityKey(themeId: string | null | undefined, groupKey: string): string {
   return `${themeId || "_"}:${groupKey}`;
+}
+
+/** 端末内UI設定用。Themeや通常/Archiveが違う同名グループを混同しない。 */
+export function chatGroupCollapsePreferenceKey(
+  themeId: string | null | undefined,
+  listMode: ChatRefListMode,
+  groupKey: string,
+): string {
+  return JSON.stringify([listMode, themeId || null, groupKey]);
+}
+
+/** 指定グループだけを閉じる/開く。ほかのTheme・表示モードの設定は保持する。 */
+export function updateCollapsedChatGroupPreferences(
+  current: string[],
+  preferenceKeys: string[],
+  collapsed: boolean,
+): string[] {
+  const next = new Set(current);
+  for (const key of preferenceKeys) {
+    if (collapsed) next.add(key);
+    else next.delete(key);
+  }
+  return [...next].sort();
+}
+
+/** グループ改名時に、閉じた意味を新しい名前へ引き継ぐ。 */
+export function moveCollapsedChatGroupPreference(
+  current: string[],
+  fromKey: string,
+  toKey: string,
+): string[] {
+  if (!current.includes(fromKey)) return current;
+  return updateCollapsedChatGroupPreferences(
+    updateCollapsedChatGroupPreferences(current, [fromKey], false),
+    [toKey],
+    true,
+  );
 }
 
 /**
