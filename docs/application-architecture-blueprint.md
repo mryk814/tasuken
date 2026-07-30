@@ -69,12 +69,13 @@ src/
 ## データ互換
 
 - DB: `<Electron userData>/research-desk.sqlite`
-- schema version: 1を維持
+- schema version: 2（同期Outbox、受信Cursor、Entity Revision、競合）を維持
 - Snapshot: 既存ZIP manifest、checksum、論理削除、Plan Revisionを維持
 - 初回bootstrap: DBが空の場合だけ既存初期Workspaceを登録
 - Entity保存: Repository transaction内で正規化、参照検証、履歴記録
 - 削除: 論理削除と参照退避
 - Undo: 親子、Theme、Dependency等の退避参照を復元
+- 端末間同期: ローカルSQLiteを維持し、共有フォルダへ端末別の不変差分を書き出す
 
 ## Buildと配布
 

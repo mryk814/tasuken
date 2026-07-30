@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { AppUpdateCheckResult } from "../../../../../shared/ipc/contracts";
+import type { AppUpdateCheckResult, SharedSyncStatus } from "../../../../../shared/ipc/contracts";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
@@ -19,6 +19,8 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
   const [artifactDirectory, setArtifactDirectory] = useState("");
+  const [syncStatus, setSyncStatus] = useState<SharedSyncStatus | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
 
   useEffect(() => {
     workspaceApi.getPreference("artifactDirectory")
@@ -26,6 +28,23 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
       .catch(() => {
         // 未設定として表示するだけでよい（設定操作時に改めてエラーを出す）。
       });
+  }, []);
+
+  useEffect(() => {
+    let canceled = false;
+    const refresh = () => workspaceApi.sharedSyncStatus()
+      .then((status) => {
+        if (!canceled) setSyncStatus(status);
+      })
+      .catch(() => {
+        // 状態取得の失敗は同期パネル内の手動操作時に具体的に表示する。
+      });
+    void refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => {
+      canceled = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   async function chooseArtifactDirectory() {
@@ -43,6 +62,61 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   async function openArtifactDirectory() {
     const result = await workspaceApi.openPath(artifactDirectory);
     if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
+  }
+
+  async function chooseSyncDirectory() {
+    setSyncBusy(true);
+    try {
+      const result = await workspaceApi.chooseDirectory("Tasken同期フォルダを選択");
+      if (result.canceled || !result.path) return;
+      const status = await workspaceApi.configureSharedSync(result.path);
+      setSyncStatus(status);
+      setToast("端末間同期を開始しました。", "success");
+    } catch (error) {
+      setToast(`同期フォルダを設定できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
+  async function runSharedSync() {
+    setSyncBusy(true);
+    try {
+      const status = await workspaceApi.runSharedSync();
+      setSyncStatus(status);
+      setToast(status.conflictCount ? "同期しました。確認が必要な競合があります。" : "同期しました。", status.conflictCount ? "warning" : "success");
+    } catch (error) {
+      setToast(`同期できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setSyncStatus(await workspaceApi.sharedSyncStatus().catch(() => syncStatus));
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
+  async function disableSharedSync() {
+    setSyncBusy(true);
+    try {
+      const status = await workspaceApi.disableSharedSync();
+      setSyncStatus(status);
+      setToast("端末間同期を停止しました。データと同期フォルダは残っています。", "info");
+    } catch (error) {
+      setToast(`同期を停止できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
+  async function resolveSyncConflict(conflictId: string, choice: "local" | "incoming") {
+    setSyncBusy(true);
+    try {
+      const result = await workspaceApi.resolveSharedSyncConflict(conflictId, choice);
+      setSyncStatus(result.status);
+      setToast("競合を解決しました。選んだ内容を他端末へ同期します。", "success");
+    } catch (error) {
+      setToast(`競合を解決できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setSyncBusy(false);
+    }
   }
 
   async function exportSnapshot() {
@@ -167,6 +241,49 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           <button className="secondary-button" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</button>
           <button className="secondary-button" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</button>
         </section>
+        <section className="panel settings-form sync-settings-panel">
+          <div className="settings-section-heading">
+            <h2>端末間同期</h2>
+            <span className={`sync-state sync-state-${syncStatus?.state || "off"}`}>
+              {syncStatus?.state === "syncing"
+                ? "同期中"
+                : syncStatus?.state === "conflict"
+                  ? "要確認"
+                  : syncStatus?.state === "error"
+                    ? "エラー"
+                    : syncStatus?.enabled ? "有効" : "停止"}
+            </span>
+          </div>
+          <p className="field-help">各端末のSQLiteはローカルに保ち、選択したOneDriveまたは共有フォルダで変更だけを交換します。</p>
+          <dl className="settings-meta-list">
+            <div>
+              <dt>同期先</dt>
+              <dd title={syncStatus?.directory}>{syncStatus?.directory || "未設定"}</dd>
+            </div>
+            <div>
+              <dt>最終同期</dt>
+              <dd>{syncStatus?.lastSyncedAt ? new Date(syncStatus.lastSyncedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" }) : "未同期"}</dd>
+            </div>
+            <div>
+              <dt>端末</dt>
+              <dd className="mono-value">{syncStatus?.deviceId ? syncStatus.deviceId.slice(0, 8) : "—"}</dd>
+            </div>
+          </dl>
+          {syncStatus?.lastError && <p className="form-error">同期エラー: {syncStatus.lastError}</p>}
+          <div className="settings-action-row">
+            <button className="secondary-button" disabled={syncBusy} onClick={chooseSyncDirectory}>
+              {syncStatus?.directory ? "同期先を変更" : "同期先を選ぶ"}
+            </button>
+            {syncStatus?.enabled && (
+              <>
+                <button className="primary-button" disabled={syncBusy} onClick={runSharedSync}>
+                  {syncBusy ? "同期中" : "今すぐ同期"}
+                </button>
+                <button className="text-button" disabled={syncBusy} onClick={disableSharedSync}>停止</button>
+              </>
+            )}
+          </div>
+        </section>
         <section className="panel settings-form">
           <h2>Artifact保存先</h2>
           <p className="field-help">
@@ -211,6 +328,37 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           </div>
         </section>
       </div>
+      {syncStatus && syncStatus.conflicts.length > 0 && (
+        <section className="panel sync-conflict-panel">
+          <div className="section-heading">
+            <h2>同期の競合</h2>
+            <span>{syncStatus.conflicts.length}件</span>
+          </div>
+          <p className="field-help">同じデータが両端末で変更されています。残す内容を選んでください。</p>
+          {syncStatus.conflicts.map((conflict) => (
+            <div className="sync-conflict-row" key={conflict.id}>
+              <div className="sync-conflict-title">
+                <strong>{entityTitle(conflict.entityType, conflict.local)}</strong>
+                <small>{conflict.entityType} / 相手端末 {conflict.incomingDeviceId.slice(0, 8)}</small>
+              </div>
+              <div className="sync-conflict-choice">
+                <div>
+                  <span>この端末</span>
+                  <strong>{entityTitle(conflict.entityType, conflict.local)}</strong>
+                  <small>{conflict.local.updated_at ? new Date(String(conflict.local.updated_at)).toLocaleString("ja-JP") : "更新時刻なし"}</small>
+                  <button className="secondary-button" disabled={syncBusy} onClick={() => resolveSyncConflict(conflict.id, "local")}>こちらを残す</button>
+                </div>
+                <div>
+                  <span>相手端末</span>
+                  <strong>{entityTitle(conflict.entityType, conflict.incoming)}</strong>
+                  <small>{conflict.incoming.updated_at ? new Date(String(conflict.incoming.updated_at)).toLocaleString("ja-JP") : "更新時刻なし"}</small>
+                  <button className="secondary-button" disabled={syncBusy} onClick={() => resolveSyncConflict(conflict.id, "incoming")}>こちらを残す</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       {snapshotPreview && (
         <section className="panel snapshot-preview">
           <div className="section-heading"><h2>Snapshot差分</h2><span>{snapshotPreview.changes.length}件</span></div>

@@ -3,6 +3,7 @@ import { ipcMain } from "electron";
 import { IPC } from "../../shared/ipc/contracts";
 import { entityTypes, type EntityType } from "../../shared/types/workspace";
 import type { WorkspaceService } from "../services/workspaceService";
+import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -39,7 +40,11 @@ function requireText(value: unknown, label: string): string {
   return value;
 }
 
-export function registerIpc(repository: WorkspaceRepository, service: WorkspaceService): void {
+export function registerIpc(
+  repository: WorkspaceRepository,
+  service: WorkspaceService,
+  sharedSync: SharedFolderSyncService,
+): void {
   ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
@@ -80,6 +85,16 @@ export function registerIpc(repository: WorkspaceRepository, service: WorkspaceS
   ipcMain.handle(IPC.snapshotInspect, () => service.inspectSnapshot());
   ipcMain.handle(IPC.snapshotApply, (_event, token, decisions) =>
     service.applySnapshot(requireId(token), decisions && typeof decisions === "object" && !Array.isArray(decisions) ? (decisions as Record<string, string>) : {}));
+  ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
+  ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>
+    sharedSync.configure(requireText(directory, "同期フォルダ")));
+  ipcMain.handle(IPC.sharedSyncDisable, () => sharedSync.disable());
+  ipcMain.handle(IPC.sharedSyncNow, () => sharedSync.syncNow());
+  ipcMain.handle(IPC.sharedSyncResolve, (_event, conflictId, choice) =>
+    sharedSync.resolveConflict(
+      requireId(conflictId),
+      choice === "incoming" ? "incoming" : "local",
+    ));
   ipcMain.handle(IPC.markdownFileExport, (_event, request) => service.exportMarkdownFile(request));
   ipcMain.handle(IPC.markdownPdfExport, (_event, request) => service.exportMarkdownPdf(request));
 }

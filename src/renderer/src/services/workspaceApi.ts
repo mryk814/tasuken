@@ -99,6 +99,21 @@ export const workspaceApi = {
   applySnapshot(token: string, decisions: Record<string, string>) {
     return desktopApi().snapshots.applyImport(token, decisions);
   },
+  sharedSyncStatus() {
+    return desktopApi().sharedSync.status();
+  },
+  configureSharedSync(directory: string) {
+    return desktopApi().sharedSync.configure(directory);
+  },
+  disableSharedSync() {
+    return desktopApi().sharedSync.disable();
+  },
+  runSharedSync() {
+    return desktopApi().sharedSync.syncNow();
+  },
+  resolveSharedSyncConflict(conflictId: string, choice: "local" | "incoming") {
+    return desktopApi().sharedSync.resolveConflict(conflictId, choice);
+  },
   exportMarkdownFile(request: MarkdownFileExportRequest) {
     return desktopApi().exports.markdownFile(request);
   },

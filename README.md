@@ -1,7 +1,8 @@
 # Tasken
 
 研究開発職向けの、テーマ・タスク・長期スケジュール・メモ管理デスクトップアプリです。
-データは端末内のElectronユーザープロファイルにあるSQLiteへ保存され、外部サーバーへ送信されません。
+データは端末内のElectronユーザープロファイルにあるSQLiteへ保存されます。
+任意でOneDriveまたは社内共有フォルダを使った端末間差分同期を有効にできます。外部サーバーは必須ではありません。
 
 ## 起動
 
@@ -73,6 +74,11 @@ npm run release:check
 インストール版とportable版はいずれもElectronの`userData`配下に
 `research-desk.sqlite`を保存します。端末間移行やバックアップにはSettingsの
 Workspace Snapshotを使用してください。
+
+複数端末で継続利用する場合は、主端末のSettingsで「端末間同期」の共有フォルダを設定し、
+空のTaskenを起動した別端末で同じフォルダを選びます。
+SQLiteファイルそのものは共有せず、端末別の変更差分だけを交換します。
+詳細は [`docs/shared-folder-sync.md`](./docs/shared-folder-sync.md) を参照してください。
 
 ## 主な画面
 
