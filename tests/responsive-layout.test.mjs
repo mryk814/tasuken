@@ -13,7 +13,9 @@ test("sidebar collapse is accessible and persisted as device UI state", () => {
   assert.match(shellSource, /aria-label=\{collapsed \? "サイドバーを広げる" : "サイドバーを畳む"\}/);
   assert.match(shellSource, /className="theme-dot theme-dot-all"/);
   assert.match(shellSource, /title=\{collapsed \? theme\.name : undefined\}/);
-  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \.nav-heading \{ visibility: hidden; white-space: nowrap; \}/);
+  assert.match(cssSource, /\.sidebar \{[^}]*overflow-x: hidden; overflow-y: auto;/);
+  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar > \* \{ width: 100%; min-width: 0; \}/);
+  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \.nav-heading \{[^}]*overflow: hidden; visibility: hidden; white-space: nowrap; \}/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.theme-nav > button \{ justify-content: center;/);
   assert.doesNotMatch(cssSource, /\.app-shell\.is-sidebar-collapsed \.utility-nav \{ margin-top: auto;/);
 });
