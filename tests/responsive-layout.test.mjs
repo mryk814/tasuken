@@ -11,9 +11,16 @@ test("sidebar collapse is accessible and persisted as device UI state", () => {
   assert.match(workspaceSource, /usePersistentState\("shell:sidebar-collapsed:v1", false\)/);
   assert.match(workspaceSource, /is-sidebar-collapsed/);
   assert.match(shellSource, /aria-label=\{collapsed \? "サイドバーを広げる" : "サイドバーを畳む"\}/);
+  assert.ok(
+    shellSource.indexOf('className="sidebar-toggle"') < shellSource.indexOf('className="brand-mark"'),
+    "sidebar toggle should stay before the brand content in both states",
+  );
   assert.match(shellSource, /className="theme-dot theme-dot-all"/);
   assert.match(shellSource, /title=\{collapsed \? theme\.name : undefined\}/);
   assert.match(cssSource, /\.sidebar \{[^}]*overflow-x: hidden; overflow-y: auto;/);
+  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \{ padding-inline: var\(--space-3\); \}/);
+  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.brand \{ justify-content: flex-start; \}/);
+  assert.doesNotMatch(cssSource, /\.sidebar-toggle \{[^}]*margin-left:/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar > \* \{ width: 100%; min-width: 0; \}/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \.nav-heading \{[^}]*overflow: hidden; visibility: hidden; white-space: nowrap; \}/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.theme-nav > button \{ justify-content: center;/);

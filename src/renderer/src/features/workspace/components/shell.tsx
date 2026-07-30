@@ -127,8 +127,6 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-mark">T</span>
-        <div className="brand-name"><strong>Tasken</strong></div>
         <button
           className="sidebar-toggle"
           type="button"
@@ -140,6 +138,8 @@ export function Sidebar({
             ? <IconLayoutSidebarLeftExpand size={18} aria-hidden="true" />
             : <IconLayoutSidebarLeftCollapse size={18} aria-hidden="true" />}
         </button>
+        <span className="brand-mark">T</span>
+        <div className="brand-name"><strong>Tasken</strong></div>
       </div>
       <nav className="primary-nav nav-group" aria-label="今日の運用">
         <div className="nav-heading"><span>今日の運用</span></div>
