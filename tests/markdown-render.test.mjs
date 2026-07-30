@@ -409,6 +409,17 @@ test("markdown editing helpers format safely, find matches, and build a line dif
   assert.equal(markdownEditing.buildMarkdownDiffMarkers(consecutiveDiff, 0).length, 1);
   const separatedDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nc\nY");
   assert.equal(markdownEditing.buildMarkdownDiffMarkers(separatedDiff, 2).length, 2);
+  const nearbyAdditions = markdownEditing.buildMarkdownDiffMarkers(
+    markdownEditing.diffMarkdownLines(
+      "開始\n中間\n次",
+      "開始\n前の追加段落\n中間\nfda\n次",
+    ),
+    2,
+  );
+  assert.deepEqual(
+    markdownEditing.buildMarkdownDiffMarkerAnchorTexts(nearbyAdditions[1]),
+    ["fda", "中間"],
+  );
   const overlappingContextDiff = markdownEditing.diffMarkdownLines("same", "A\nsame\nB");
   const overlappingContextHunks = markdownEditing.buildMarkdownDiffHunks(overlappingContextDiff, 2);
   assert.deepEqual(overlappingContextHunks.map((hunk) => ({
