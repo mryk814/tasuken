@@ -15,6 +15,7 @@ test("sidebar collapse is accessible and persisted as device UI state", () => {
   assert.match(shellSource, /title=\{collapsed \? theme\.name : undefined\}/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \.nav-heading \{ visibility: hidden; white-space: nowrap; \}/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.theme-nav > button \{ justify-content: center;/);
+  assert.doesNotMatch(cssSource, /\.app-shell\.is-sidebar-collapsed \.utility-nav \{ margin-top: auto;/);
 });
 
 test("compact desktop layout protects the main work area", () => {
