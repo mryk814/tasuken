@@ -1001,7 +1001,7 @@ body{
 .markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
 .markdown-document pre.md-mermaid-block{overflow:visible;white-space:normal;break-inside:avoid}
 .markdown-document .md-mermaid-svg{padding:var(--md-space-2);background:var(--markdown-paper);text-align:center}
-.markdown-document .md-mermaid-svg svg{display:block;max-width:100%;height:auto;margin:0 auto}
+.markdown-document .md-mermaid-svg svg{display:block;width:auto;max-width:100%;height:auto;max-height:205mm;margin:0 auto}
 .markdown-document pre.md-mermaid-block.is-rendered > code{display:none}
 .markdown-document .md-mermaid-error{margin-bottom:var(--md-space-2);color:#9F2F2F;font-size:var(--md-text-xs)}
 /* 印刷でも枠が見えるようセル全周に border（overflow:hidden は printToPDF で欠けやすいので付けない） */

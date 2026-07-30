@@ -24,6 +24,21 @@ async function importBundled(relativePath) {
 
 const markdown = await importBundled("src/renderer/src/features/workspace/lib/markdown.ts");
 const markdownEditing = await importBundled("src/renderer/src/features/workspace/lib/markdownEditing.ts");
+const mermaidSizing = await importBundled("src/renderer/src/features/workspace/lib/mermaidSizing.ts");
+
+test("Mermaid SVG presentation enlarges small diagrams without shrinking large ones", () => {
+  assert.deepEqual(mermaidSizing.mermaidSvgPresentation("0 0 113.046875 174"), {
+    preferredWidth: 170,
+    intrinsicWidth: 114,
+    intrinsicHeight: 174,
+  });
+  assert.deepEqual(mermaidSizing.mermaidSvgPresentation("0 0 855.047 174"), {
+    preferredWidth: 856,
+    intrinsicWidth: 856,
+    intrinsicHeight: 174,
+  });
+  assert.equal(mermaidSizing.mermaidSvgPresentation("0 0 0 100"), null);
+});
 
 test("markdown preview renders tasken images and math markers", () => {
   const html = markdown.renderMarkdownPreview(`# Title
@@ -276,8 +291,12 @@ test("previewDocument includes print-safe Mermaid and higher-contrast text styli
   assert.match(doc, /print-color-adjust:exact/);
   assert.match(doc, /\.markdown-document pre\.md-mermaid-block\.is-rendered > code\{display:none\}/);
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-width:100%/s);
+  assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-height:205mm/s);
   assert.match(doc, /class="md-mermaid-block" data-mermaid="true"/);
   assert.match(mermaidSource, /sequence:\s*\{[\s\S]*mirrorActors:\s*false/);
+  assert.match(mermaidSource, /renderMermaidBlocks\(parsed, "print"\)/);
+  assert.match(mermaidSource, /svg\.style\.maxHeight = "205mm"/);
+  assert.match(mermaidSource, /node\.classList\.add\("is-mermaid-scrollable"\)/);
 });
 
 test("markdown preview css separates heading levels and keeps tables compact", () => {

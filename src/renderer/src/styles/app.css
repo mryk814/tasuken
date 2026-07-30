@@ -1405,8 +1405,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview code { padding: 1px var(--space-1); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 55%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-family: var(--font-mono); font-size: .92em; }
 .markdown-preview pre code { padding: 0; background: transparent; color: inherit; font-size: inherit; }
 .markdown-preview pre.md-mermaid-block { overflow: auto; white-space: normal; }
+.markdown-preview pre.md-mermaid-block.is-mermaid-scrollable { max-height: min(720px, 72vh); }
 .markdown-preview .md-mermaid-svg { min-width: 0; padding: var(--space-2); background: var(--markdown-paper); text-align: center; }
-.markdown-preview .md-mermaid-svg svg { max-width: 100%; height: auto; }
+.markdown-preview .md-mermaid-svg svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .markdown-preview .md-mermaid-error { margin-bottom: var(--space-2); color: var(--color-danger); font: var(--text-xs) var(--font-base); }
 .markdown-preview pre.md-mermaid-block.is-rendered > code { display: none; }
 .note-mermaid-code-block { width: 100%; min-width: 0; }

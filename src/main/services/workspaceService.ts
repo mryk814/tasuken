@@ -668,9 +668,11 @@ export class WorkspaceService {
           }
 
           for (const svg of document.querySelectorAll(".md-mermaid-svg svg")) {
-            svg.removeAttribute("height");
+            svg.style.width = "auto";
             svg.style.maxWidth = "100%";
             svg.style.height = "auto";
+            svg.style.maxHeight = "205mm";
+            svg.style.margin = "0 auto";
           }
 
           return {
