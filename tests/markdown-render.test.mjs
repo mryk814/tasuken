@@ -270,12 +270,14 @@ $$
 
 test("previewDocument includes print-safe Mermaid and higher-contrast text styling", () => {
   const doc = markdown.previewDocument("```mermaid\nflowchart LR\nA --> B\n```", "markdown");
+  const mermaidSource = readFileSync("src/renderer/src/features/workspace/lib/mermaid.ts", "utf8");
 
   assert.match(doc, /color:#1f1b1a/);
   assert.match(doc, /print-color-adjust:exact/);
   assert.match(doc, /\.markdown-document pre\.md-mermaid-block\.is-rendered > code\{display:none\}/);
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-width:100%/s);
   assert.match(doc, /class="md-mermaid-block" data-mermaid="true"/);
+  assert.match(mermaidSource, /sequence:\s*\{[\s\S]*mirrorActors:\s*false/);
 });
 
 test("markdown preview css separates heading levels and keeps tables compact", () => {
