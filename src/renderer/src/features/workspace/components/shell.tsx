@@ -1,12 +1,18 @@
+import { useEffect, useRef, useState } from "react";
 import {
   IconBulb,
+  IconChevronDown,
   IconChecklist,
   IconInbox,
+  IconKeyboard,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
+  IconMinus,
+  IconMoon,
   IconNotes,
   IconPaperclip,
+  IconPlus,
   IconSettings,
   IconSparkles,
   IconSun,
@@ -19,6 +25,149 @@ import type { KnowledgeNode as WorkspaceKnowledgeNode, OpenDrawer, Theme } from 
 import type { KnowledgeEdge, WorkspaceDomain } from "../domain-model/types";
 import { themeColor } from "../lib/domain";
 import { buildKnowledgeHealth } from "../lib/knowledgeHealth";
+
+const taskenIconUrl = new URL("../../../../../../resources/icon.png", import.meta.url).href;
+
+interface AppTitleBarProps {
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+  zoomFactor: number;
+  setZoomFactor: (factor: number) => void;
+  themeMode: "light" | "dark";
+  setThemeMode: (mode: "light" | "dark") => void;
+  openShortcuts: () => void;
+  openSettings: () => void;
+}
+
+export function AppTitleBar({
+  collapsed,
+  setCollapsed,
+  zoomFactor,
+  setZoomFactor,
+  themeMode,
+  setThemeMode,
+  openShortcuts,
+  openSettings,
+}: AppTitleBarProps) {
+  const [openMenu, setOpenMenu] = useState<"view" | "help" | null>(null);
+  const controlsRef = useRef<HTMLDivElement | null>(null);
+  const zoomPercent = Math.round(zoomFactor * 100);
+
+  useEffect(() => {
+    if (!openMenu) return undefined;
+    const closeMenus = (event: PointerEvent) => {
+      if (!controlsRef.current?.contains(event.target as Node)) setOpenMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenMenu(null);
+    };
+    addEventListener("pointerdown", closeMenus);
+    addEventListener("keydown", closeOnEscape);
+    return () => {
+      removeEventListener("pointerdown", closeMenus);
+      removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openMenu]);
+
+  const chooseHelpAction = (action: () => void) => {
+    setOpenMenu(null);
+    action();
+  };
+
+  return (
+    <header className="app-titlebar">
+      <button
+        className="titlebar-sidebar-toggle"
+        type="button"
+        aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+        title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        {collapsed
+          ? <IconLayoutSidebarLeftExpand size={17} aria-hidden="true" />
+          : <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />}
+      </button>
+      <div className="titlebar-brand" aria-label="Tasken">
+        <img src={taskenIconUrl} alt="" aria-hidden="true" />
+        <strong>Tasken</strong>
+      </div>
+      <div className="titlebar-drag-space" />
+      <div className="titlebar-controls" ref={controlsRef}>
+        <div className="titlebar-menu-anchor">
+          <button
+            className={openMenu === "view" ? "is-active" : ""}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "view"}
+            onClick={() => setOpenMenu((current) => current === "view" ? null : "view")}
+          >
+            表示 <IconChevronDown size={13} aria-hidden="true" />
+          </button>
+          {openMenu === "view" && (
+            <div className="titlebar-menu titlebar-view-menu" role="menu" aria-label="表示">
+              <div className="titlebar-zoom-row">
+                <button
+                  type="button"
+                  aria-label="縮小"
+                  title="縮小"
+                  disabled={zoomFactor <= 0.8}
+                  onClick={() => setZoomFactor(Math.max(0.8, zoomFactor - 0.1))}
+                >
+                  <IconMinus size={16} aria-hidden="true" />
+                </button>
+                <button type="button" onClick={() => setZoomFactor(1)}>{zoomPercent}%</button>
+                <button
+                  type="button"
+                  aria-label="拡大"
+                  title="拡大"
+                  disabled={zoomFactor >= 1.3}
+                  onClick={() => setZoomFactor(Math.min(1.3, zoomFactor + 0.1))}
+                >
+                  <IconPlus size={16} aria-hidden="true" />
+                </button>
+              </div>
+              <button
+                className="titlebar-menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setThemeMode(themeMode === "light" ? "dark" : "light");
+                  setOpenMenu(null);
+                }}
+              >
+                {themeMode === "light" ? <IconMoon size={16} aria-hidden="true" /> : <IconSun size={16} aria-hidden="true" />}
+                {themeMode === "light" ? "ダーク表示" : "ライト表示"}
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="titlebar-menu-anchor">
+          <button
+            className={openMenu === "help" ? "is-active" : ""}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "help"}
+            onClick={() => setOpenMenu((current) => current === "help" ? null : "help")}
+          >
+            ヘルプ <IconChevronDown size={13} aria-hidden="true" />
+          </button>
+          {openMenu === "help" && (
+            <div className="titlebar-menu" role="menu" aria-label="ヘルプ">
+              <button className="titlebar-menu-item" type="button" role="menuitem" onClick={() => chooseHelpAction(openShortcuts)}>
+                <IconKeyboard size={16} aria-hidden="true" />
+                ショートカット
+              </button>
+              <button className="titlebar-menu-item" type="button" role="menuitem" onClick={() => chooseHelpAction(openSettings)}>
+                <IconSettings size={16} aria-hidden="true" />
+                設定を開く
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
 
 export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
   return (
@@ -42,7 +191,6 @@ interface SidebarProps {
   route: string;
   navigate: (next: string) => void;
   collapsed: boolean;
-  setCollapsed: (collapsed: boolean) => void;
   themes: Theme[];
   activeThemeId: string;
   setActiveThemeId: (id: string) => void;
@@ -54,7 +202,6 @@ export function Sidebar({
   route,
   navigate,
   collapsed,
-  setCollapsed,
   themes,
   activeThemeId,
   setActiveThemeId,
@@ -126,21 +273,6 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <span className="brand-mark">T</span>
-        <div className="brand-name"><strong>Tasken</strong></div>
-        <button
-          className="sidebar-toggle"
-          type="button"
-          aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
-          title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
-          onClick={() => setCollapsed(!collapsed)}
-        >
-          {collapsed
-            ? <IconLayoutSidebarLeftExpand size={18} aria-hidden="true" />
-            : <IconLayoutSidebarLeftCollapse size={18} aria-hidden="true" />}
-        </button>
-      </div>
       <nav className="primary-nav nav-group" aria-label="今日の運用">
         <div className="nav-heading"><span>今日の運用</span></div>
         {todayHubTabs.map(renderNavButton)}

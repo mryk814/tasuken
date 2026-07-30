@@ -87,6 +87,9 @@ export const workspaceApi = {
   openReleasePage(url?: string) {
     return desktopApi().app.openReleasePage(url);
   },
+  setTitleBarTheme(theme: "light" | "dark") {
+    return desktopApi().app.setTitleBarTheme(theme);
+  },
   showTodayMiniWindow() {
     return desktopApi().app.showTodayMiniWindow();
   },

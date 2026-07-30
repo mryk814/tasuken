@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { IconAlertTriangle, IconCheck, IconInfoCircle, IconTrash } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../services/workspaceApi";
@@ -30,7 +30,7 @@ import { buildActivityLog } from "./lib/activityLog";
 import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
-import { AppState, Sidebar, ShortcutDialog } from "./components/shell";
+import { AppState, AppTitleBar, Sidebar, ShortcutDialog } from "./components/shell";
 import { buildArtifactThemeSyncOperations } from "./lib/artifactEntities";
 import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
@@ -106,6 +106,7 @@ export function WorkspaceApp() {
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("shell:sidebar-collapsed:v1", false);
+  const [zoomFactor, setZoomFactor] = usePersistentState("shell:zoom-factor:v1", 1);
   const [compactDrawerLayout, setCompactDrawerLayout] = useState(() => window.matchMedia("(max-width: 1680px)").matches);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
@@ -189,12 +190,18 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
+    void workspaceApi.setTitleBarTheme(themeMode);
     if (loadState === "success") {
       workspaceApi.setPreference("themeMode", themeMode).catch((error) => {
         setToast(`表示設定を保存できませんでした。${errorMessage(error)}`, "danger");
       });
     }
   }, [themeMode, loadState, setToast]);
+
+  useEffect(() => {
+    const normalized = Math.min(1.3, Math.max(0.8, Math.round(zoomFactor * 10) / 10));
+    if (normalized !== zoomFactor) setZoomFactor(normalized);
+  }, [zoomFactor, setZoomFactor]);
 
   useEffect(() => {
     if (loadState === "success") {
@@ -814,8 +821,29 @@ export function WorkspaceApp() {
     return true;
   }
 
-  if (loadState === "loading") return <AppState state="loading" />;
-  if (loadState === "error") return <AppState state="error" message={loadError} onRetry={loadWorkspace} />;
+  const titleBar = (
+    <AppTitleBar
+      collapsed={sidebarCollapsed}
+      setCollapsed={setSidebarCollapsed}
+      zoomFactor={zoomFactor}
+      setZoomFactor={setZoomFactor}
+      themeMode={themeMode}
+      setThemeMode={setThemeMode}
+      openShortcuts={() => setShowShortcuts(true)}
+      openSettings={() => {
+        setDrawer(null);
+        setRoute("settings");
+      }}
+    />
+  );
+  const frameStyle = { "--app-content-zoom": zoomFactor } as CSSProperties;
+
+  if (loadState === "loading") {
+    return <div className="app-frame" style={frameStyle}>{titleBar}<div className="app-content-viewport"><AppState state="loading" /></div></div>;
+  }
+  if (loadState === "error") {
+    return <div className="app-frame" style={frameStyle}>{titleBar}<div className="app-content-viewport"><AppState state="error" message={loadError} onRetry={loadWorkspace} /></div></div>;
+  }
   if (!workspace) return null;
 
   const common = {
@@ -842,74 +870,78 @@ export function WorkspaceApp() {
   };
 
   return (
-    <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""}`}>
-      <Sidebar
-        route={route}
-        navigate={navigate}
-        collapsed={sidebarCollapsed}
-        setCollapsed={setSidebarCollapsed}
-        themes={themes}
-        activeThemeId={activeThemeId}
-        setActiveThemeId={setActiveThemeId}
-        domain={domain}
-        openDrawer={openDrawer}
-      />
-      <main className="main-area">
-        <WorkspacePageRouter
-          route={route}
-          common={common}
-          themeMode={themeMode}
-          setThemeMode={setThemeMode}
-          activeGroups={activeGroups}
-          setActiveGroups={setActiveGroups}
-          allThemes={allThemes}
-        />
-      </main>
-      {drawer ? (
-        <EntityDrawer
-          drawer={drawer}
-          data={data}
-          close={closeDrawer}
-          saveForm={saveForm}
-          registerEditForm={registerEditForm}
-          removeEntity={removeEntity}
-          saveEntity={saveEntity}
-          saveEntities={saveEntities}
-          setToast={setToast}
-          openContentViewer={openContentViewer}
-        />
-      ) : (
-        <ContextPane
-          data={data}
-          domain={domain}
-          activeTheme={activeTheme}
-          route={route}
-          openDrawer={openDrawer}
-          navigate={navigate}
-        />
-      )}
-      {contentViewer && (
-        <ContentViewer
-          target={contentViewer}
-          data={data}
-          onClose={closeContentViewer}
-          openDrawer={openDrawer}
-          setToast={setToast}
-        />
-      )}
-      {toast && (
-        <div
-          className={`toast is-${toastToneValue}`}
-          role={toastToneValue === "danger" ? "alert" : "status"}
-          aria-live={toastToneValue === "danger" || toastToneValue === "warning" ? "assertive" : "polite"}
-        >
-          <span className="toast-icon" aria-hidden="true">{toastIcon(toastToneValue)}</span>
-          <span className="toast-message">{toast}</span>
-          {lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>}
-          <button onClick={() => setToast("")}>閉じる</button>
+    <div className="app-frame" style={frameStyle}>
+      {titleBar}
+      <div className="app-content-viewport">
+        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""}`}>
+          <Sidebar
+            route={route}
+            navigate={navigate}
+            collapsed={sidebarCollapsed}
+            themes={themes}
+            activeThemeId={activeThemeId}
+            setActiveThemeId={setActiveThemeId}
+            domain={domain}
+            openDrawer={openDrawer}
+          />
+          <main className="main-area">
+            <WorkspacePageRouter
+              route={route}
+              common={common}
+              themeMode={themeMode}
+              setThemeMode={setThemeMode}
+              activeGroups={activeGroups}
+              setActiveGroups={setActiveGroups}
+              allThemes={allThemes}
+            />
+          </main>
+          {drawer ? (
+            <EntityDrawer
+              drawer={drawer}
+              data={data}
+              close={closeDrawer}
+              saveForm={saveForm}
+              registerEditForm={registerEditForm}
+              removeEntity={removeEntity}
+              saveEntity={saveEntity}
+              saveEntities={saveEntities}
+              setToast={setToast}
+              openContentViewer={openContentViewer}
+            />
+          ) : (
+            <ContextPane
+              data={data}
+              domain={domain}
+              activeTheme={activeTheme}
+              route={route}
+              openDrawer={openDrawer}
+              navigate={navigate}
+            />
+          )}
+          {contentViewer && (
+            <ContentViewer
+              target={contentViewer}
+              data={data}
+              onClose={closeContentViewer}
+              openDrawer={openDrawer}
+              setToast={setToast}
+            />
+          )}
+          {toast && (
+            <div
+              className={`toast is-${toastToneValue}`}
+              role={toastToneValue === "danger" ? "alert" : "status"}
+              aria-live={toastToneValue === "danger" || toastToneValue === "warning" ? "assertive" : "polite"}
+            >
+              <span className="toast-icon" aria-hidden="true">{toastIcon(toastToneValue)}</span>
+              <span className="toast-message">{toast}</span>
+              {lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>}
+              <button onClick={() => setToast("")}>閉じる</button>
+            </div>
+          )}
+          {showShortcuts && <ShortcutDialog close={() => setShowShortcuts(false)} />}
         </div>
-      )}
-      {showShortcuts && <ShortcutDialog close={() => setShowShortcuts(false)} />}
+      </div>
     </div>
   );
 }

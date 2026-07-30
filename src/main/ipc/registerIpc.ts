@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 
 import { IPC } from "../../shared/ipc/contracts";
 import { entityTypes, type EntityType } from "../../shared/types/workspace";
@@ -63,6 +63,17 @@ export function registerIpc(
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());
   ipcMain.handle(IPC.appReleasePageOpen, (_event, url) => service.openReleasePage(typeof url === "string" ? url : undefined));
+  ipcMain.handle(IPC.appTitleBarTheme, (event, theme) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return false;
+    const dark = theme === "dark";
+    window.setTitleBarOverlay({
+      color: dark ? "#211E1D" : "#FBF8F6",
+      symbolColor: dark ? "#F4EEEC" : "#3D3532",
+      height: 40,
+    });
+    return true;
+  });
   ipcMain.handle(IPC.entityList, (_event, type, includeDeleted) =>
     repository.list(requireEntityType(type), Boolean(includeDeleted)));
   ipcMain.handle(IPC.entityGet, (_event, type, id) =>
