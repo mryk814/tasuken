@@ -73,6 +73,7 @@ button:active { transform: scale(0.98); }
 .nav-heading button { border: 0; color: var(--color-accent-strong); background: transparent; font-size: var(--text-xs); }
 .theme-nav > button { justify-content: flex-start; font-size: var(--text-sm); }
 .theme-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: var(--radius-pill); background: var(--color-border-strong); }
+.theme-dot-all { background: transparent; border: 2px solid var(--color-accent); }
 .theme-nav > button.is-active .theme-dot { background: var(--color-accent); }
 .app-shell.is-sidebar-collapsed .sidebar { padding-inline: var(--space-2); }
 .app-shell.is-sidebar-collapsed .brand { justify-content: center; padding-inline: 0; }
@@ -80,10 +81,12 @@ button:active { transform: scale(0.98); }
 .app-shell.is-sidebar-collapsed .brand-name,
 .app-shell.is-sidebar-collapsed .nav-label,
 .app-shell.is-sidebar-collapsed .sidebar .count,
-.app-shell.is-sidebar-collapsed .sidebar .nav-heading,
-.app-shell.is-sidebar-collapsed .theme-nav { display: none; }
+.app-shell.is-sidebar-collapsed .theme-nav-label { display: none; }
+.app-shell.is-sidebar-collapsed .sidebar .nav-heading { visibility: hidden; white-space: nowrap; }
 .app-shell.is-sidebar-collapsed .sidebar-toggle { margin-left: 0; }
 .app-shell.is-sidebar-collapsed .primary-nav button { justify-content: center; padding-inline: var(--space-1); }
+.app-shell.is-sidebar-collapsed .theme-nav > button { justify-content: center; padding-inline: var(--space-1); }
+.app-shell.is-sidebar-collapsed .theme-dot { width: 12px; height: 12px; }
 .app-shell.is-sidebar-collapsed .utility-nav { margin-top: auto; }
 .secondary-nav { margin-bottom: auto; }
 kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }

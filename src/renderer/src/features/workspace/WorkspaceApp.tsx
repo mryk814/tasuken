@@ -106,8 +106,11 @@ export function WorkspaceApp() {
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("shell:sidebar-collapsed:v1", false);
+  const [compactDrawerLayout, setCompactDrawerLayout] = useState(() => window.matchMedia("(max-width: 1680px)").matches);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
+  const drawerGeneration = useRef(0);
+  const compactDrawerClosing = useRef(false);
   const drawerFormRef = useRef<HTMLFormElement | null>(null);
   const drawerFormInitialSignature = useRef("");
   const drawerAutosaving = useRef(false);
@@ -175,6 +178,14 @@ export function WorkspaceApp() {
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [setRoute]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1680px)");
+    const updateLayout = () => setCompactDrawerLayout(query.matches);
+    updateLayout();
+    query.addEventListener("change", updateLayout);
+    return () => query.removeEventListener("change", updateLayout);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -430,9 +441,50 @@ export function WorkspaceApp() {
     }
   }
 
+  async function dismissCompactDrawer(generation: number): Promise<void> {
+    if (compactDrawerClosing.current || generation !== drawerGeneration.current) return;
+    compactDrawerClosing.current = true;
+    try {
+      if (!(await saveDirtyDrawerForm()) || generation !== drawerGeneration.current) return;
+      drawerGeneration.current += 1;
+      setDrawer(null);
+    } finally {
+      compactDrawerClosing.current = false;
+    }
+  }
+
+  useEffect(() => {
+    if (!drawer || !compactDrawerLayout || contentViewer) return undefined;
+    const generation = drawerGeneration.current;
+    const isProtectedSurface = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return true;
+      return Boolean(target.closest(".drawer, .content-viewer-overlay, .shortcut-overlay, .context-menu"));
+    };
+    const isActionTrigger = (target: EventTarget | null) => (
+      target instanceof Element && Boolean(target.closest("button, a, [role='button']"))
+    );
+    const onPointerDown = (event: PointerEvent) => {
+      if (isProtectedSurface(event.target) || isActionTrigger(event.target)) return;
+      void dismissCompactDrawer(generation);
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (isProtectedSurface(event.target) || isActionTrigger(event.target)) return;
+      void dismissCompactDrawer(generation);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("focusin", onFocusIn, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("focusin", onFocusIn, true);
+    };
+    // saveDirtyDrawerFormは現在開いているフォームを参照するため、drawerの世代変更時だけ購読し直す。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawer, compactDrawerLayout, contentViewer]);
+
   function navigate(next: string) {
     void (async () => {
       if (!(await saveDirtyDrawerForm())) return;
+      drawerGeneration.current += 1;
       setDrawer(null);
       const normalized = normalizeRoute(next);
       location.hash = normalized;
@@ -444,6 +496,7 @@ export function WorkspaceApp() {
     void (async () => {
       if (!(await saveDirtyDrawerForm())) return;
       drawerTrigger.current = document.activeElement as HTMLElement | null;
+      drawerGeneration.current += 1;
       setDrawer(config);
     })();
   }
@@ -459,6 +512,7 @@ export function WorkspaceApp() {
   function closeDrawer(next: DrawerConfig | null = null) {
     void (async () => {
       if (!(await saveDirtyDrawerForm())) return;
+      drawerGeneration.current += 1;
       setDrawer(next);
       if (!next) requestAnimationFrame(() => drawerTrigger.current?.focus?.());
     })();
@@ -522,6 +576,7 @@ export function WorkspaceApp() {
       lastDeleted.current = { type, id };
       drawerFormRef.current = null;
       drawerFormInitialSignature.current = "";
+      drawerGeneration.current += 1;
       setDrawer(null);
       requestAnimationFrame(() => drawerTrigger.current?.focus?.());
       setToast(`${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`, "warning");

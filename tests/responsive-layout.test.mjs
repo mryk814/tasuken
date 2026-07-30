@@ -11,6 +11,10 @@ test("sidebar collapse is accessible and persisted as device UI state", () => {
   assert.match(workspaceSource, /usePersistentState\("shell:sidebar-collapsed:v1", false\)/);
   assert.match(workspaceSource, /is-sidebar-collapsed/);
   assert.match(shellSource, /aria-label=\{collapsed \? "サイドバーを広げる" : "サイドバーを畳む"\}/);
+  assert.match(shellSource, /className="theme-dot theme-dot-all"/);
+  assert.match(shellSource, /title=\{collapsed \? theme\.name : undefined\}/);
+  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \.nav-heading \{ visibility: hidden; white-space: nowrap; \}/);
+  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.theme-nav > button \{ justify-content: center;/);
 });
 
 test("compact desktop layout protects the main work area", () => {
@@ -20,6 +24,10 @@ test("compact desktop layout protects the main work area", () => {
   assert.match(cssSource, /\.notes-workbench \{[^}]*minmax\(0, 1\.82fr\)/);
   assert.match(cssSource, /\.notes-page \{ width: min\(1600px, 100%\);/);
   assert.match(cssSource, /\.chat-refs-page \{ width: min\(1600px, 100%\);/);
+  assert.match(workspaceSource, /window\.matchMedia\("\(max-width: 1680px\)"\)/);
+  assert.match(workspaceSource, /document\.addEventListener\("pointerdown", onPointerDown, true\)/);
+  assert.match(workspaceSource, /document\.addEventListener\("focusin", onFocusIn, true\)/);
+  assert.match(workspaceSource, /if \(!\(await saveDirtyDrawerForm\(\)\) \|\| generation !== drawerGeneration\.current\) return;/);
 });
 
 test("viewport contract records physical and effective Windows sizes", () => {
