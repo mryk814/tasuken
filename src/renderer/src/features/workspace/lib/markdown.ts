@@ -531,14 +531,15 @@ function renderList(node: List, ctx: MarkdownRenderContext): string {
 }
 
 /**
- * 軽量 Callout。正本は 1 種類 `INSIGHT`（表示: 気づき）。
+ * 軽量 Callout。正本は 1 種類 `INSIGHT`（表示: MEMO）。
  * GitHub Alerts 風 `> [!INSIGHT]`。旧 `[!NOTE]` 等は同じ見た目のエイリアス。
  */
 export const CALLOUT_KIND = "INSIGHT" as const;
 export type CalloutKind = typeof CALLOUT_KIND;
-export const CALLOUT_LABEL = "気づき";
+export const CALLOUT_LABEL = "MEMO";
+export const CALLOUT_INPUT_PLACEHOLDER = "メモを書く";
 /** 手書き用スニペット。 */
-export const INSIGHT_CALLOUT_SNIPPET = "> [!INSIGHT]\n> \n";
+export const INSIGHT_CALLOUT_SNIPPET = `> [!INSIGHT]\n>\n> ${CALLOUT_INPUT_PLACEHOLDER}\n`;
 /** @deprecated INSIGHT_CALLOUT_SNIPPET を使う */
 export const NOTE_CALLOUT_SNIPPET = INSIGHT_CALLOUT_SNIPPET;
 
@@ -597,7 +598,7 @@ export function applyCalloutDecorations(root: ParentNode | null | undefined): vo
       if (firstP?.hasAttribute("data-callout-label")) firstP.removeAttribute("data-callout-label");
       continue;
     }
-    // マーカー行だけなら Edit 上は「気づき」ラベルを出し、生の [!INSIGHT]/[!NOTE] は隠す（本文 Markdown は触らない）。
+    // マーカー行だけなら Edit 上は「MEMO」ラベルを出し、生の [!INSIGHT]/[!NOTE] は隠す（本文 Markdown は触らない）。
     const markerOnly = !marker.rest && !/\r?\n/.test(raw.trim());
     if (!quote.classList.contains("md-callout")) quote.classList.add("md-callout");
     if (quote.getAttribute("data-callout") !== "insight") quote.setAttribute("data-callout", "insight");

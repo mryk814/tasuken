@@ -1,6 +1,7 @@
 import {
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
+  ButtonWithTooltip,
   CodeMirrorEditor,
   codeBlockPlugin,
   codeMirrorPlugin,
@@ -52,7 +53,9 @@ import { markdownTableKeyboardPlugin } from "./markdownTableKeyboardPlugin";
 import {
   applyCalloutDecorations,
   applyHeadingNumberAttributes,
+  CALLOUT_INPUT_PLACEHOLDER,
   HEADING_NUMBER_LEVELS,
+  INSIGHT_CALLOUT_SNIPPET,
   insertStructuredMarkdownPaste,
   isStructuredMarkdownPaste,
   normalizeHeadingNumberLevels,
@@ -85,6 +88,42 @@ type MarkdownEditorBoundaryProps = {
 };
 
 type MarkdownEditorBoundaryState = { error: string | null };
+
+function InsertMemoCalloutButton({ onInsert }: { onInsert: () => void }) {
+  return (
+    <ButtonWithTooltip title="MEMOを挿入" onClick={onInsert}>
+      <span className="note-toolbar-memo-label">MEMO</span>
+    </ButtonWithTooltip>
+  );
+}
+
+function selectInsertedMemoPlaceholder(root: HTMLElement | null): void {
+  if (!root) return;
+  const quotes = Array.from(root.querySelectorAll("blockquote")).reverse();
+  const quote = quotes.find((candidate) => {
+    const paragraphs = candidate.querySelectorAll(":scope > p");
+    if (
+      paragraphs.length >= 2
+      && paragraphs[0]?.textContent?.trim() === "[!INSIGHT]"
+      && paragraphs[1]?.textContent === CALLOUT_INPUT_PLACEHOLDER
+    ) return true;
+    return candidate.textContent?.trim() === `[!INSIGHT]\n${CALLOUT_INPUT_PLACEHOLDER}`;
+  });
+  if (!quote) return;
+
+  const walker = document.createTreeWalker(quote, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const start = node.nodeValue?.lastIndexOf(CALLOUT_INPUT_PLACEHOLDER) ?? -1;
+    if (start < 0) continue;
+    const range = document.createRange();
+    range.setStart(node, start);
+    range.setEnd(node, start + CALLOUT_INPUT_PLACEHOLDER.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return;
+  }
+}
 
 function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   const [editing, setEditing] = useState(false);
@@ -310,6 +349,15 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
           <CodeToggle />
           <Separator />
           <ListsToggle />
+          <InsertMemoCalloutButton
+            onInsert={() => {
+              const editor = editorRef.current;
+              editor?.focus(() => {
+                editor.insertMarkdown(INSIGHT_CALLOUT_SNIPPET);
+                window.requestAnimationFrame(() => selectInsertedMemoPlaceholder(editorScopeRef.current));
+              }, { preventScroll: true });
+            }}
+          />
           <InsertCodeBlock />
           <CreateLink />
           <InsertImage />
