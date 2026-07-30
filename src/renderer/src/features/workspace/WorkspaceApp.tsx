@@ -6,6 +6,7 @@ import { routeAliases } from "../../pages/routes";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
+import { usePersistentState } from "../../utils/usePersistentState";
 import type {
   BaseRecord,
   ContentViewerTarget,
@@ -104,6 +105,7 @@ export function WorkspaceApp() {
   const setActiveGroups = useUiStore((state) => state.setActiveGroups);
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("shell:sidebar-collapsed:v1", false);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
   const drawerFormRef = useRef<HTMLFormElement | null>(null);
@@ -785,10 +787,12 @@ export function WorkspaceApp() {
   };
 
   return (
-    <div className={`app-shell ${drawer ? "has-drawer" : ""}`}>
+    <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""}`}>
       <Sidebar
         route={route}
         navigate={navigate}
+        collapsed={sidebarCollapsed}
+        setCollapsed={setSidebarCollapsed}
         themes={themes}
         activeThemeId={activeThemeId}
         setActiveThemeId={setActiveThemeId}
