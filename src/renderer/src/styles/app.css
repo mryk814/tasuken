@@ -1213,7 +1213,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   font-style: normal;
   color: var(--markdown-paper-text);
 }
-/* Edit: マーカー行。[!INSIGHT] 等の生記法は隠し、「気づき」を表示（Markdown 本文は書き換えない） */
+/* Edit: マーカー行。[!INSIGHT] 等の生記法は隠し、「MEMO」を表示（Markdown 本文は書き換えない） */
 .note-mdx-content blockquote.md-callout > p.md-callout-marker {
   margin: 0 0 var(--space-1);
   color: var(--color-warning-strong);
@@ -1239,6 +1239,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
   pointer-events: none;
+}
+.note-toolbar-memo-label {
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.04em;
 }
 .markdown-preview hr { height: 0; margin: var(--space-3) 0; border: 0; border-top: 1px solid var(--markdown-accent-bd); }
 

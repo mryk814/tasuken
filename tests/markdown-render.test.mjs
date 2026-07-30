@@ -942,9 +942,9 @@ type: report
   assert.doesNotMatch(html, /Frontmatter/);
 });
 
-test("lightweight callout renders INSIGHT (気づき) in orange and keeps plain blockquotes", () => {
+test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plain blockquotes", () => {
   const html = markdown.renderMarkdownPreview(`> [!INSIGHT]
-> 気づきを書く
+> コメントを書く
 
 > 普通の引用
 
@@ -954,8 +954,8 @@ test("lightweight callout renders INSIGHT (気づき) in orange and keeps plain 
 
   assert.match(html, /class="md-callout"/);
   assert.match(html, /data-callout="insight"/);
-  assert.match(html, /class="md-callout-label">気づき<\/div>/);
-  assert.match(html, /気づきを書く/);
+  assert.match(html, /class="md-callout-label">MEMO<\/div>/);
+  assert.match(html, /コメントを書く/);
   assert.doesNotMatch(html, /\[!INSIGHT\]/);
   assert.match(html, /<blockquote><p>普通の引用<\/p><\/blockquote>/);
   assert.match(html, /旧記法も同じ見た目/);
@@ -965,7 +965,9 @@ test("lightweight callout renders INSIGHT (気づき) in orange and keeps plain 
   assert.equal(markdown.parseCalloutMarker("[!note] rest text")?.rest, "rest text");
   assert.equal(markdown.parseCalloutMarker("not a callout"), null);
   assert.match(markdown.INSIGHT_CALLOUT_SNIPPET, /> \[!INSIGHT\]/);
-  assert.equal(markdown.CALLOUT_LABEL, "気づき");
+  assert.match(markdown.INSIGHT_CALLOUT_SNIPPET, /> メモを書く/);
+  assert.equal(markdown.CALLOUT_LABEL, "MEMO");
+  assert.equal(markdown.CALLOUT_INPUT_PLACEHOLDER, "メモを書く");
 
   const doc = markdown.previewDocument("> [!INSIGHT]\n> PDFでも見える", "markdown");
   assert.match(doc, /class="md-callout"/);
@@ -988,7 +990,7 @@ test("lightweight callout renders INSIGHT (気づき) in orange and keeps plain 
   assert.match(notesSource, /applyCalloutDecorations/);
   assert.doesNotMatch(notesSource, /insertNoteCallout/);
 
-  // Edit 装飾: マーカー専用段落なら「気づき」表示用 class を付ける（軽量 DOM モック）
+  // Edit 装飾: マーカー専用段落なら「MEMO」表示用 class を付ける（軽量 DOM モック）
   class FakeClassList {
     constructor() { this._set = new Set(); }
     contains(name) { return this._set.has(name); }
@@ -1025,9 +1027,12 @@ test("lightweight callout renders INSIGHT (気づき) in orange and keeps plain 
   root.children = [quote];
   markdown.applyCalloutDecorations(root);
   assert.equal(quote.classList.contains("md-callout"), true);
-  assert.equal(quote.getAttribute("data-callout-label"), "気づき");
+  assert.equal(quote.getAttribute("data-callout-label"), "MEMO");
   assert.equal(pMarker.classList.contains("md-callout-marker-only"), true);
-  assert.equal(pMarker.getAttribute("data-callout-label"), "気づき");
+  assert.equal(pMarker.getAttribute("data-callout-label"), "MEMO");
+  assert.match(notesSource, /title="MEMOを挿入"/);
+  assert.match(notesSource, /editor\.insertMarkdown\(INSIGHT_CALLOUT_SNIPPET\)/);
+  assert.match(notesSource, /selectInsertedMemoPlaceholder\(editorScopeRef\.current\)/);
 });
 
 test("extractMarkdownHeadings builds index items and skips code fences", () => {
