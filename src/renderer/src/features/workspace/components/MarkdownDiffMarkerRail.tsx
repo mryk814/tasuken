@@ -280,7 +280,11 @@ export function MarkdownDiffMarkerRail({
             </div>
           </div>
           <div className="markdown-diff-hunk-meta">
-            <span>変更箇所 {activeIndex! + 1}</span>
+            <div className="markdown-diff-current-location">
+              <strong>表示中</strong>
+              <span>変更箇所 {activeIndex! + 1} / {markers.length}</span>
+              <span className="markdown-diff-direction">保存済み → 編集中</span>
+            </div>
             <div className="markdown-diff-hunk-actions">
               <span className="markdown-diff-counts" aria-label="この変更箇所の差分件数">
                 <span className="markdown-diff-count is-added">+{activeMarker.hunk.addedLines}</span>
@@ -294,20 +298,26 @@ export function MarkdownDiffMarkerRail({
             <div className="markdown-diff-ellipsis">… 前に {activeMarker.hunk.omittedBefore} 行を省略 …</div>
           )}
           <div className="markdown-diff-lines" role="list" aria-label="差分内容">
-            {activeMarker.hunk.lines.map((line, index) => (
-              <div
-                key={`${line.kind}-${index}-${line.beforeLine ?? line.afterLine ?? "none"}`}
-                className={`markdown-diff-line is-${line.kind}`}
-                role="listitem"
-              >
-                <span className="markdown-diff-line-number">{line.beforeLine ?? "·"}</span>
-                <span className="markdown-diff-line-number">{line.afterLine ?? "·"}</span>
-                <span className="markdown-diff-line-marker" aria-hidden="true">
-                  {line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}
-                </span>
-                <span className="markdown-diff-line-text">{line.text || " "}</span>
-              </div>
-            ))}
+            {activeMarker.hunk.lines.map((line, index) => {
+              const isCurrentChange = index >= activeMarker.hunk.focusStart
+                && index <= activeMarker.hunk.focusEnd;
+              const isOtherChange = line.kind !== "same" && !isCurrentChange;
+              return (
+                <div
+                  key={`${line.kind}-${index}-${line.beforeLine ?? line.afterLine ?? "none"}`}
+                  className={`markdown-diff-line is-${line.kind} ${isCurrentChange ? "is-current-change" : ""} ${isOtherChange ? "is-other-change" : ""}`}
+                  role="listitem"
+                  aria-current={isCurrentChange ? "true" : undefined}
+                >
+                  <span className="markdown-diff-line-number">{line.beforeLine ?? "·"}</span>
+                  <span className="markdown-diff-line-number">{line.afterLine ?? "·"}</span>
+                  <span className="markdown-diff-line-marker" aria-hidden="true">
+                    {isCurrentChange ? "▶" : line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}
+                  </span>
+                  <span className="markdown-diff-line-text">{line.text || " "}</span>
+                </div>
+              );
+            })}
           </div>
           {activeMarker.hunk.omittedAfter > 0 && (
             <div className="markdown-diff-ellipsis">… 後に {activeMarker.hunk.omittedAfter} 行を省略 …</div>
