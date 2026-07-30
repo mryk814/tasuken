@@ -18,7 +18,7 @@ test("app opens Today when no route is specified", () => {
 });
 
 test("sidebar navigation closes the drawer before changing pages", () => {
-  assert.match(workspaceAppSource, /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;\s+setDrawer\(null\);\s+const normalized = normalizeRoute\(next\);/);
+  assert.match(workspaceAppSource, /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;\s+drawerGeneration\.current \+= 1;\s+setDrawer\(null\);\s+const normalized = normalizeRoute\(next\);/);
 });
 
 test("sidebar count badges are limited to action-driving counts", () => {

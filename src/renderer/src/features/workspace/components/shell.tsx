@@ -155,14 +155,29 @@ export function Sidebar({
       </nav>
       <div className="theme-nav">
         <div className="nav-heading"><span>テーマ別</span><button onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>＋ 追加</button></div>
-        <button className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`} aria-current={route === "themes" ? "page" : undefined} onClick={() => navigate("themes")}>
-          <span>All Themes</span>
+        <button
+          className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`}
+          aria-current={route === "themes" ? "page" : undefined}
+          aria-label="All Themes"
+          title={collapsed ? "All Themes" : undefined}
+          onClick={() => navigate("themes")}
+        >
+          <span className="theme-dot theme-dot-all" aria-hidden="true" />
+          <span className="theme-nav-label">All Themes</span>
         </button>
         {themes.map((theme, index) => {
           const current = route === "theme" && theme.id === activeThemeId;
           return (
-            <button key={theme.id} className={current ? "is-active" : ""} aria-current={current ? "page" : undefined} onClick={() => { setActiveThemeId(theme.id); navigate("theme"); }}>
-              <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} /><span>{theme.name}</span>
+            <button
+              key={theme.id}
+              className={current ? "is-active" : ""}
+              aria-current={current ? "page" : undefined}
+              aria-label={theme.name}
+              title={collapsed ? theme.name : undefined}
+              onClick={() => { setActiveThemeId(theme.id); navigate("theme"); }}
+            >
+              <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} aria-hidden="true" />
+              <span className="theme-nav-label">{theme.name}</span>
             </button>
           );
         })}
