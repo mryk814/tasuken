@@ -56,6 +56,13 @@ test("compact desktop layout protects the main work area", () => {
   assert.match(workspaceSource, /if \(!\(await saveDirtyDrawerForm\(\)\) \|\| generation !== drawerGeneration\.current\) return;/);
 });
 
+test("Notes controls wrap as groups without stretching their labels", () => {
+  assert.match(cssSource, /\.notes-page \.header-actions \{[^}]*flex-wrap: wrap;/);
+  assert.match(cssSource, /\.notes-page \.header-actions > button \{[^}]*flex: 0 0 auto;[^}]*white-space: nowrap;/);
+  assert.match(cssSource, /\.notes-page > \.filter-bar \{[^}]*flex-wrap: wrap;[^}]*justify-content: flex-start;/);
+  assert.match(cssSource, /\.notes-page > \.filter-bar \.segmented button \{[^}]*flex: 0 0 auto;[^}]*white-space: nowrap;/);
+});
+
 test("viewport contract records physical and effective Windows sizes", () => {
   for (const size of ["1920 × 1200", "2560 × 1440", "1280 × 800", "1536 × 960"]) {
     assert.match(responsiveGuide, new RegExp(size));
