@@ -646,20 +646,23 @@ export class WorkspaceService {
           for (const block of document.querySelectorAll(".md-math-block")) {
             const math = block.querySelector(".katex-display > .katex");
             if (!(math instanceof HTMLElement)) continue;
+            const visibleMath = math.querySelector(".katex-html");
+            if (!(visibleMath instanceof HTMLElement)) continue;
             const style = getComputedStyle(block);
             const availableWidth = block.clientWidth
               - Number.parseFloat(style.paddingLeft || "0")
               - Number.parseFloat(style.paddingRight || "0");
-            const range = document.createRange();
-            range.selectNodeContents(math);
-            const contentWidth = Math.max(
-              math.scrollWidth,
-              math.getBoundingClientRect().width,
-              range.getBoundingClientRect().width,
+            const bases = Array.from(visibleMath.querySelectorAll(":scope > .base"));
+            if (bases.length > 1) {
+              visibleMath.style.whiteSpace = "normal";
+              bases.slice(1).forEach((base) => base.before(document.createElement("wbr")));
+            }
+            const widestBase = bases.reduce(
+              (width, base) => Math.max(width, base.getBoundingClientRect().width),
+              0,
             );
-            if (availableWidth > 0 && contentWidth > availableWidth + 1) {
-              // KaTeXの伸縮括弧・根号は視覚境界が計測値をわずかに越えるため、2%の印刷余白を残す。
-              math.style.zoom = String((availableWidth * 0.98) / contentWidth);
+            if (availableWidth > 0 && widestBase > availableWidth) {
+              math.style.zoom = String((availableWidth * 0.98) / widestBase);
               fittedMathCount += 1;
             }
           }
