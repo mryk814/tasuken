@@ -317,6 +317,27 @@ test("chatGroupNameExists detects merge targets within the same resource set", (
   assert.equal(chatRefs.chatGroupNameExists(resources, "未登場", "旧"), false);
 });
 
+test("collapsed chat groups persist independently by view, theme, and group", () => {
+  const activeA = chatRefs.chatGroupCollapsePreferenceKey("theme-a", "active", "検討");
+  const archiveA = chatRefs.chatGroupCollapsePreferenceKey("theme-a", "archive", "検討");
+  const activeB = chatRefs.chatGroupCollapsePreferenceKey("theme-b", "active", "検討");
+  assert.notEqual(activeA, archiveA);
+  assert.notEqual(activeA, activeB);
+
+  const collapsed = chatRefs.updateCollapsedChatGroupPreferences([], [activeA, archiveA], true);
+  assert.deepEqual(new Set(collapsed), new Set([activeA, archiveA]));
+  assert.deepEqual(chatRefs.updateCollapsedChatGroupPreferences(collapsed, [activeA], false), [archiveA]);
+});
+
+test("renaming a collapsed chat group keeps it collapsed under the new name", () => {
+  const oldKey = chatRefs.chatGroupCollapsePreferenceKey("theme-a", "active", "旧名");
+  const nextKey = chatRefs.chatGroupCollapsePreferenceKey("theme-a", "active", "新名");
+  const otherKey = chatRefs.chatGroupCollapsePreferenceKey("theme-b", "active", "旧名");
+
+  const moved = chatRefs.moveCollapsedChatGroupPreference([oldKey, otherKey], oldKey, nextKey);
+  assert.deepEqual(new Set(moved), new Set([nextKey, otherKey]));
+});
+
 test("knowledge prompt includes group context and all chat links", () => {
   const prompt = chatRefs.buildChatGroupKnowledgePrompt({
     groupLabel: "CAE相談",
@@ -342,6 +363,7 @@ test("chat reference page no longer offers moving chat links to Notes", () => {
 
   assert.doesNotMatch(source, /Notesへ移す/);
   assert.doesNotMatch(source, /moveResourceToNotes/);
+  assert.match(source, /aria-expanded=\{!collapsed\.has\(group\.key\)\}/);
 });
 
 test("Notes page no longer offers moving resources to Chat References", () => {
