@@ -87,7 +87,6 @@ button:active { transform: scale(0.98); }
 .app-shell.is-sidebar-collapsed .primary-nav button { justify-content: center; padding-inline: var(--space-1); }
 .app-shell.is-sidebar-collapsed .theme-nav > button { justify-content: center; padding-inline: var(--space-1); }
 .app-shell.is-sidebar-collapsed .theme-dot { width: 12px; height: 12px; }
-.app-shell.is-sidebar-collapsed .utility-nav { margin-top: auto; }
 .secondary-nav { margin-bottom: auto; }
 kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 .profile { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-2) 0; border-top: 1px solid var(--color-border-subtle); }
