@@ -29,6 +29,7 @@ export const IPC = {
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
+  appTitleBarTheme: "app:titlebar-theme",
   entityList: "entity:list",
   entityGet: "entity:get",
   entitySave: "entity:save",
@@ -142,6 +143,7 @@ export interface ResearchDeskApi {
     reload(): Promise<boolean>;
     checkForUpdates(): Promise<AppUpdateCheckResult>;
     openReleasePage(url?: string): Promise<boolean>;
+    setTitleBarTheme(theme: "light" | "dark"): Promise<boolean>;
     showTodayMiniWindow(): Promise<boolean>;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;

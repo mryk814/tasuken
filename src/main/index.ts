@@ -655,6 +655,12 @@ function createWindow(): BrowserWindow {
     title: APP_NAME,
     icon: getAppIconPath(),
     autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#FBF8F6",
+      symbolColor: "#3D3532",
+      height: 40,
+    },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

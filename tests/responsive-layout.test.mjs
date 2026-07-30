@@ -5,26 +5,42 @@ import test from "node:test";
 const workspaceSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
 const cssSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
+const mainSource = readFileSync("src/main/index.ts", "utf8");
+const preloadSource = readFileSync("src/preload/index.ts", "utf8");
+const ipcSource = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const responsiveGuide = readFileSync("docs/responsive-layout.md", "utf8");
 
 test("sidebar collapse is accessible and persisted as device UI state", () => {
   assert.match(workspaceSource, /usePersistentState\("shell:sidebar-collapsed:v1", false\)/);
   assert.match(workspaceSource, /is-sidebar-collapsed/);
+  assert.match(shellSource, /className="titlebar-sidebar-toggle"/);
   assert.match(shellSource, /aria-label=\{collapsed \? "サイドバーを広げる" : "サイドバーを畳む"\}/);
-  assert.ok(
-    shellSource.indexOf('className="sidebar-toggle"') < shellSource.indexOf('className="brand-mark"'),
-    "sidebar toggle should stay before the brand content in both states",
-  );
+  assert.doesNotMatch(shellSource, /className="brand"/);
   assert.match(shellSource, /className="theme-dot theme-dot-all"/);
   assert.match(shellSource, /title=\{collapsed \? theme\.name : undefined\}/);
   assert.match(cssSource, /\.sidebar \{[^}]*overflow-x: hidden; overflow-y: auto;/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \{ padding-inline: var\(--space-3\); \}/);
-  assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.brand \{ justify-content: flex-start; \}/);
-  assert.doesNotMatch(cssSource, /\.sidebar-toggle \{[^}]*margin-left:/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar > \* \{ width: 100%; min-width: 0; \}/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.sidebar \.nav-heading \{[^}]*overflow: hidden; visibility: hidden; white-space: nowrap; \}/);
   assert.match(cssSource, /\.app-shell\.is-sidebar-collapsed \.theme-nav > button \{ justify-content: center;/);
   assert.doesNotMatch(cssSource, /\.app-shell\.is-sidebar-collapsed \.utility-nav \{ margin-top: auto;/);
+});
+
+test("custom titlebar keeps native window controls and lightweight display help menus", () => {
+  assert.match(mainSource, /titleBarStyle: "hidden"/);
+  assert.match(mainSource, /titleBarOverlay: \{/);
+  assert.match(cssSource, /\.app-frame \{[^}]*grid-template-rows: 40px minmax\(0, 1fr\)/);
+  assert.match(cssSource, /\.app-titlebar \{[^}]*-webkit-app-region: drag;/);
+  assert.match(cssSource, /\.titlebar-sidebar-toggle \{[^}]*-webkit-app-region: no-drag;/);
+  assert.match(shellSource, /表示 <IconChevronDown/);
+  assert.match(shellSource, /ヘルプ <IconChevronDown/);
+  assert.match(shellSource, /ショートカット/);
+  assert.match(shellSource, /設定を開く/);
+  assert.match(workspaceSource, /usePersistentState\("shell:zoom-factor:v1", 1\)/);
+  assert.match(workspaceSource, /"--app-content-zoom": zoomFactor/);
+  assert.match(cssSource, /\.app-content-viewport > \.app-shell,[\s\S]*zoom: var\(--app-content-zoom\);/);
+  assert.doesNotMatch(preloadSource, /webFrame\.setZoomFactor/);
+  assert.match(ipcSource, /window\.setTitleBarOverlay\(/);
 });
 
 test("compact desktop layout protects the main work area", () => {
