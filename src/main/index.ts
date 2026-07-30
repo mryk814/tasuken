@@ -16,6 +16,7 @@ import { createTodayMiniController, type TodayMiniController } from "./todayMini
 import { createTrayController, type TrayController } from "./trayController";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
+import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -30,6 +31,7 @@ let trayController: TrayController | null = null;
 let quickCaptureController: QuickCaptureController | null = null;
 let todayMiniController: TodayMiniController | null = null;
 let reminderController: ReminderController | null = null;
+let sharedFolderSyncService: SharedFolderSyncService | null = null;
 registerAttachmentScheme();
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
@@ -711,7 +713,12 @@ void app.whenReady().then(() => {
   migrateLegacyUserDataIfNeeded();
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
-  registerIpc(workspaceRepository, new WorkspaceService(workspaceRepository, app.getPath("userData")));
+  sharedFolderSyncService = new SharedFolderSyncService(workspaceRepository, notifyMainWindowRefresh);
+  registerIpc(
+    workspaceRepository,
+    new WorkspaceService(workspaceRepository, app.getPath("userData")),
+    sharedFolderSyncService,
+  );
   quickCaptureController = createQuickCaptureController({
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
@@ -748,6 +755,7 @@ void app.whenReady().then(() => {
   createWindow();
 
   if (!isSmokeTest) {
+    sharedFolderSyncService.start();
     trayController.setup();
     reminderController.start();
     globalShortcut.register("CmdOrCtrl+Shift+N", () => quickCaptureController?.show("inbox"));
@@ -759,6 +767,10 @@ void app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((error: unknown) => {
+  console.error("Tasken failed to start.", error);
+  recordSmoke("startup-failed", { error: String(error) });
+  app.exit(1);
 });
 
 app.on("window-all-closed", () => {
@@ -766,6 +778,10 @@ app.on("window-all-closed", () => {
   if (process.platform === "darwin") return;
   if (trayController?.isActive()) return;
   app.quit();
+});
+
+app.on("before-quit", () => {
+  sharedFolderSyncService?.stop();
 });
 
 app.on("will-quit", () => {

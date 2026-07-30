@@ -66,6 +66,14 @@ const api: ResearchDeskApi = {
     inspectFile: () => ipcRenderer.invoke(IPC.snapshotInspect),
     applyImport: (token, decisions) => ipcRenderer.invoke(IPC.snapshotApply, token, decisions),
   },
+  sharedSync: {
+    status: () => ipcRenderer.invoke(IPC.sharedSyncStatus),
+    configure: (directory) => ipcRenderer.invoke(IPC.sharedSyncConfigure, directory),
+    disable: () => ipcRenderer.invoke(IPC.sharedSyncDisable),
+    syncNow: () => ipcRenderer.invoke(IPC.sharedSyncNow),
+    resolveConflict: (conflictId, choice) =>
+      ipcRenderer.invoke(IPC.sharedSyncResolve, conflictId, choice),
+  },
   exports: {
     markdownFile: (request) => ipcRenderer.invoke(IPC.markdownFileExport, request),
     markdownPdf: (request) => ipcRenderer.invoke(IPC.markdownPdfExport, request),

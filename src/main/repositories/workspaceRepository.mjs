@@ -16,7 +16,7 @@ import {
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
@@ -122,6 +122,43 @@ export class WorkspaceDatabase {
             ON plan_revisions(item_id, changed_at DESC);
         `),
       },
+      {
+        version: 2,
+        up: () => this.db.exec(`
+          CREATE TABLE IF NOT EXISTS sync_entity_heads (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            revision_id TEXT NOT NULL,
+            PRIMARY KEY (entity_type, entity_id)
+          );
+
+          CREATE TABLE IF NOT EXISTS sync_outbox (
+            change_id TEXT PRIMARY KEY,
+            device_sequence INTEGER NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            published_at TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS sync_device_cursors (
+            device_id TEXT PRIMARY KEY,
+            last_sequence INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS sync_conflicts (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            local_revision_id TEXT NOT NULL,
+            incoming_revision_id TEXT NOT NULL,
+            packet_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(entity_type, entity_id)
+          );
+        `),
+      },
     ];
     const applyMigrations = this.db.transaction(() => {
       for (const migration of migrations) {
@@ -152,6 +189,8 @@ export class WorkspaceDatabase {
       activeGroups: this.getPreference("activeGroups"),
       activeGroup: this.getPreference("activeGroup"),
       entityCount: this.db.prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL").get().count,
+      syncPendingCount: this.syncPendingCount(),
+      syncConflictCount: this.syncConflictCount(),
     };
   }
 
@@ -171,6 +210,10 @@ export class WorkspaceDatabase {
     if (key === "activityLogAutoExportTime") return this.ensureMeta("activity_log_auto_export_time", "");
     if (key === "activityLogLastAutoExportDate") return this.ensureMeta("activity_log_last_auto_export_date", "");
     if (key === "artifactDirectory") return this.ensureMeta("artifact_directory", "");
+    if (key === "sharedSyncDirectory") return this.ensureMeta("shared_sync_directory", "");
+    if (key === "sharedSyncEnabled") return this.ensureMeta("shared_sync_enabled", "false") === "true";
+    if (key === "sharedSyncLastAt") return this.ensureMeta("shared_sync_last_at", "");
+    if (key === "sharedSyncLastError") return this.ensureMeta("shared_sync_last_error", "");
     throw new Error(`未対応の設定です: ${key}`);
   }
 
@@ -224,6 +267,31 @@ export class WorkspaceDatabase {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `).run(directory);
       return directory;
+    }
+    if (key === "sharedSyncDirectory") {
+      const directory = typeof value === "string" ? value : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('shared_sync_directory', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(directory);
+      return directory;
+    }
+    if (key === "sharedSyncEnabled") {
+      const enabled = Boolean(value);
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('shared_sync_enabled', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(enabled ? "true" : "false");
+      return enabled;
+    }
+    if (key === "sharedSyncLastAt" || key === "sharedSyncLastError") {
+      const metaKey = key === "sharedSyncLastAt" ? "shared_sync_last_at" : "shared_sync_last_error";
+      const text = typeof value === "string" ? value : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES(?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(metaKey, text);
+      return text;
     }
     if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);
     this.db.prepare(`
@@ -325,7 +393,9 @@ export class WorkspaceDatabase {
       entity.source,
       entity.version,
     );
-    return this.get(type, id);
+    const saved = this.get(type, id);
+    if (!options.skipSync) this.enqueueSyncEntity(type, saved, options.syncParents);
+    return saved;
   }
 
   validateReferences(type, entity) {
@@ -637,7 +707,9 @@ export class WorkspaceDatabase {
         WHERE entity_type = ? AND id = ?
       `).run(timestamp, this.deviceId, type, String(id));
       this.restoreCascadeChildren(type, String(id));
-      return this.get(type, id);
+      const restored = this.get(type, id);
+      this.enqueueSyncEntity(type, restored);
+      return restored;
     });
     return transaction();
   }
@@ -681,6 +753,7 @@ export class WorkspaceDatabase {
       SET data_json = ?, deleted_at = ?, updated_at = ?, device_id = ?, version = version + 1
       WHERE entity_type = ? AND id = ?
     `).run(JSON.stringify(data), timestamp, timestamp, this.deviceId, type, id);
+    this.enqueueSyncEntity(type, this.get(type, id, true));
   }
 
   restoreCascadeChildren(parentType, parentId) {
@@ -696,6 +769,7 @@ export class WorkspaceDatabase {
           SET data_json = ?, deleted_at = NULL, updated_at = ?, device_id = ?, version = version + 1
           WHERE entity_type = ? AND id = ?
         `).run(JSON.stringify(data), timestamp, this.deviceId, entityType, entity.id);
+        this.enqueueSyncEntity(entityType, this.get(entityType, entity.id, true));
       }
     }
     this.restoreDetachedReferences(parentType, parentId);
@@ -850,6 +924,234 @@ export class WorkspaceDatabase {
       revision.related_note_id || null,
       revision.created_at || revision.changed_at,
     );
+  }
+
+  nextSyncSequence() {
+    const current = Number(this.ensureMeta("sync_device_sequence", "0")) || 0;
+    const next = current + 1;
+    this.db.prepare(`
+      INSERT INTO workspace_meta(key, value) VALUES('sync_device_sequence', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(String(next));
+    return next;
+  }
+
+  syncHead(type, id) {
+    return this.db.prepare(
+      "SELECT revision_id FROM sync_entity_heads WHERE entity_type = ? AND entity_id = ?",
+    ).get(type, String(id))?.revision_id || "";
+  }
+
+  setSyncHead(type, id, revisionId) {
+    this.db.prepare(`
+      INSERT INTO sync_entity_heads(entity_type, entity_id, revision_id) VALUES(?, ?, ?)
+      ON CONFLICT(entity_type, entity_id) DO UPDATE SET revision_id = excluded.revision_id
+    `).run(type, String(id), revisionId);
+  }
+
+  enqueueSyncEntity(type, entity, parentRevisionIds) {
+    if (!entity) return null;
+    const changeId = uuid();
+    const sequence = this.nextSyncSequence();
+    const currentHead = this.syncHead(type, entity.id);
+    const parents = Array.isArray(parentRevisionIds)
+      ? [...new Set(parentRevisionIds.filter((entry) => typeof entry === "string" && entry))]
+      : currentHead ? [currentHead] : [];
+    const timestamp = now();
+    const packet = {
+      format: "tasken-sync-change",
+      formatVersion: 1,
+      workspaceId: this.workspaceId,
+      changeId,
+      revisionId: changeId,
+      parentRevisionIds: parents,
+      deviceId: this.deviceId,
+      deviceSequence: sequence,
+      entityType: type,
+      entityId: entity.id,
+      entity,
+      createdAt: timestamp,
+    };
+    this.db.prepare(`
+      INSERT INTO sync_outbox(change_id, device_sequence, payload_json, created_at)
+      VALUES(?, ?, ?, ?)
+    `).run(changeId, sequence, JSON.stringify(packet), timestamp);
+    this.setSyncHead(type, entity.id, changeId);
+    return packet;
+  }
+
+  ensureSyncBaseline() {
+    const transaction = this.db.transaction(() => {
+      let count = 0;
+      for (const type of workspaceEntityTypes) {
+        for (const entity of this.list(type, true)) {
+          if (this.syncHead(type, entity.id)) continue;
+          this.enqueueSyncEntity(type, entity, []);
+          count += 1;
+        }
+      }
+      return count;
+    });
+    return transaction();
+  }
+
+  pendingSyncChanges() {
+    return this.db.prepare(`
+      SELECT change_id, device_sequence, payload_json
+      FROM sync_outbox
+      WHERE published_at IS NULL
+      ORDER BY device_sequence
+    `).all().map((row) => ({
+      changeId: row.change_id,
+      deviceSequence: row.device_sequence,
+      packet: JSON.parse(row.payload_json),
+    }));
+  }
+
+  markSyncPublished(changeId) {
+    this.db.prepare("UPDATE sync_outbox SET published_at = ? WHERE change_id = ?")
+      .run(now(), changeId);
+  }
+
+  syncPendingCount() {
+    return Number(this.db.prepare(
+      "SELECT COUNT(*) AS count FROM sync_outbox WHERE published_at IS NULL",
+    ).get()?.count || 0);
+  }
+
+  syncConflictCount() {
+    return Number(this.db.prepare("SELECT COUNT(*) AS count FROM sync_conflicts").get()?.count || 0);
+  }
+
+  syncCursor(deviceId) {
+    return Number(this.db.prepare(
+      "SELECT last_sequence FROM sync_device_cursors WHERE device_id = ?",
+    ).get(deviceId)?.last_sequence || 0);
+  }
+
+  setSyncCursor(deviceId, sequence) {
+    this.db.prepare(`
+      INSERT INTO sync_device_cursors(device_id, last_sequence, updated_at) VALUES(?, ?, ?)
+      ON CONFLICT(device_id) DO UPDATE SET
+        last_sequence = MAX(sync_device_cursors.last_sequence, excluded.last_sequence),
+        updated_at = excluded.updated_at
+    `).run(deviceId, Number(sequence) || 0, now());
+  }
+
+  adoptSyncWorkspace(workspaceId) {
+    if (!this.isEmpty()) {
+      throw new Error("この端末には既存データがあります。空のTaskenから同期フォルダへ参加してください。");
+    }
+    if (typeof workspaceId !== "string" || !workspaceId.trim()) {
+      throw new Error("同期先のWorkspace IDが不正です。");
+    }
+    this.db.prepare(`
+      INSERT INTO workspace_meta(key, value) VALUES('workspace_id', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(workspaceId);
+    this.workspaceId = workspaceId;
+    return workspaceId;
+  }
+
+  applySyncPacket(packet) {
+    if (!isPlainObject(packet) || packet.format !== "tasken-sync-change" || packet.formatVersion !== 1) {
+      throw new Error("同期差分の形式が不正です。");
+    }
+    if (packet.workspaceId !== this.workspaceId) throw new Error("別のWorkspaceの同期差分です。");
+    assertEntityType(packet.entityType);
+    if (!isPlainObject(packet.entity) || String(packet.entity.id || "") !== String(packet.entityId || "")) {
+      throw new Error("同期差分のEntityが不正です。");
+    }
+    validateEntity(packet.entityType, packet.entity);
+    const transaction = this.db.transaction(() => {
+      const type = packet.entityType;
+      const id = String(packet.entityId);
+      const revisionId = String(packet.revisionId || packet.changeId || "");
+      const incomingParents = Array.isArray(packet.parentRevisionIds)
+        ? packet.parentRevisionIds.filter((entry) => typeof entry === "string")
+        : [];
+      const currentHead = this.syncHead(type, id);
+      if (currentHead === revisionId) return { status: "duplicate", entity: this.get(type, id, true) };
+      const local = this.get(type, id, true);
+      const canApply = !local || !currentHead || incomingParents.includes(currentHead);
+      if (canApply) {
+        this.insertImported(type, packet.entity, "sync");
+        this.setSyncHead(type, id, revisionId);
+        this.db.prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?").run(type, id);
+        return { status: "applied", type, entity: this.get(type, id, true) };
+      }
+
+      const existingConflict = this.db.prepare(
+        "SELECT * FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?",
+      ).get(type, id);
+      const existingIncomingRevision = existingConflict?.incoming_revision_id || "";
+      const shouldAdvanceIncoming = !existingConflict || incomingParents.includes(existingIncomingRevision);
+      if (shouldAdvanceIncoming) {
+        const conflictId = existingConflict?.id || uuid();
+        const timestamp = now();
+        this.db.prepare(`
+          INSERT INTO sync_conflicts(
+            id, entity_type, entity_id, local_revision_id, incoming_revision_id,
+            packet_json, created_at, updated_at
+          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+            incoming_revision_id = excluded.incoming_revision_id,
+            packet_json = excluded.packet_json,
+            updated_at = excluded.updated_at
+        `).run(
+          conflictId,
+          type,
+          id,
+          currentHead,
+          revisionId,
+          JSON.stringify(packet),
+          existingConflict?.created_at || timestamp,
+          timestamp,
+        );
+      }
+      return { status: "conflict", type, entity: local };
+    });
+    return transaction();
+  }
+
+  listSyncConflicts() {
+    return this.db.prepare("SELECT * FROM sync_conflicts ORDER BY updated_at DESC").all().map((row) => {
+      const packet = JSON.parse(row.packet_json);
+      return {
+        id: row.id,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        localRevisionId: row.local_revision_id,
+        incomingRevisionId: row.incoming_revision_id,
+        local: this.get(row.entity_type, row.entity_id, true),
+        incoming: packet.entity,
+        incomingDeviceId: packet.deviceId,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    });
+  }
+
+  resolveSyncConflict(conflictId, choice) {
+    if (!["local", "incoming"].includes(choice)) throw new Error("競合の解決方法が不正です。");
+    const transaction = this.db.transaction(() => {
+      const row = this.db.prepare("SELECT * FROM sync_conflicts WHERE id = ?").get(conflictId);
+      if (!row) throw new Error("解決対象の競合が見つかりません。");
+      const packet = JSON.parse(row.packet_json);
+      const local = this.get(row.entity_type, row.entity_id, true);
+      const chosen = choice === "incoming" ? packet.entity : local;
+      if (!chosen) throw new Error("競合を解決するデータがありません。");
+      if (choice === "incoming") this.insertImported(row.entity_type, chosen, "sync");
+      const parents = [row.local_revision_id, row.incoming_revision_id].filter(Boolean);
+      const resolution = this.enqueueSyncEntity(row.entity_type, this.get(row.entity_type, row.entity_id, true), parents);
+      this.db.prepare("DELETE FROM sync_conflicts WHERE id = ?").run(conflictId);
+      return {
+        type: row.entity_type,
+        entity: this.get(row.entity_type, row.entity_id, true),
+        revisionId: resolution.revisionId,
+      };
+    });
+    return transaction();
   }
 }
 

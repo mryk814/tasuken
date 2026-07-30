@@ -38,6 +38,11 @@ export const IPC = {
   snapshotExport: "snapshot:export",
   snapshotInspect: "snapshot:inspect",
   snapshotApply: "snapshot:apply",
+  sharedSyncStatus: "shared-sync:status",
+  sharedSyncConfigure: "shared-sync:configure",
+  sharedSyncDisable: "shared-sync:disable",
+  sharedSyncNow: "shared-sync:now",
+  sharedSyncResolve: "shared-sync:resolve",
   markdownFileExport: "markdown-file:export",
   markdownPdfExport: "markdown-pdf:export",
 } as const;
@@ -68,6 +73,32 @@ export interface AppUpdateCheckResult {
   releaseUrl: string;
   publishedAt?: string;
   error?: string;
+}
+
+export interface SharedSyncConflict {
+  id: string;
+  entityType: EntityType;
+  entityId: string;
+  localRevisionId: string;
+  incomingRevisionId: string;
+  local: Entity;
+  incoming: Entity;
+  incomingDeviceId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SharedSyncStatus {
+  enabled: boolean;
+  directory: string;
+  workspaceId: string;
+  deviceId: string;
+  state: "off" | "idle" | "syncing" | "conflict" | "error";
+  lastSyncedAt: string;
+  lastError: string;
+  pendingCount: number;
+  conflictCount: number;
+  conflicts: SharedSyncConflict[];
 }
 
 /** アプリ内ビューア用のローカルファイル読み取り結果。 */
@@ -128,6 +159,16 @@ export interface ResearchDeskApi {
     inspectFile(): Promise<SnapshotInspectResult>;
     // decisionsは「change.key -> action」の対応表。配列ではなくオブジェクトで渡す。
     applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
+  };
+  sharedSync: {
+    status(): Promise<SharedSyncStatus>;
+    configure(directory: string): Promise<SharedSyncStatus>;
+    disable(): Promise<SharedSyncStatus>;
+    syncNow(): Promise<SharedSyncStatus>;
+    resolveConflict(conflictId: string, choice: "local" | "incoming"): Promise<{
+      result: { type: EntityType; entity: Entity; revisionId: string };
+      status: SharedSyncStatus;
+    }>;
   };
   exports: {
     markdownFile(request: MarkdownFileExportRequest): Promise<MarkdownFileExportResult>;

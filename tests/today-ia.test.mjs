@@ -83,3 +83,15 @@ test("Today surfaces generated Activity and configures automatic daily export", 
   assert.match(todayPageSource, /Activity Logの自動出力先を選択/);
   assert.match(todayPageSource, /アプリ停止中の未出力分は、次回起動時に日ごとに補完します/);
 });
+
+test("Settings exposes shared-folder sync status, manual sync, and conflict resolution", () => {
+  const settingsSource = readFileSync(
+    "src/renderer/src/features/workspace/pages/SettingsPage.tsx",
+    "utf8",
+  );
+  assert.match(settingsSource, /端末間同期/);
+  assert.match(settingsSource, /configureSharedSync/);
+  assert.match(settingsSource, /runSharedSync/);
+  assert.match(settingsSource, /resolveSharedSyncConflict/);
+  assert.match(settingsSource, /同じデータが両端末で変更されています/);
+});
