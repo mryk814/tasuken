@@ -18,6 +18,10 @@ export async function renderMermaidBlocks(root: ParentNode): Promise<number> {
     securityLevel: "strict",
     theme: "base",
     fontFamily: "Nunito, Yu Gothic UI, Yu Gothic, sans-serif",
+    sequence: {
+      // 下端の参加者ミラーは短い図でもライフラインと余白を大きくするため表示しない。
+      mirrorActors: false,
+    },
   });
 
   let errorCount = 0;
