@@ -47,6 +47,7 @@ import {
   type HeadingNumberLevel,
   type MarkdownHeadingItem,
 } from "../lib/markdown";
+import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { usePersistentState } from "../../../utils/usePersistentState";
@@ -740,7 +741,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       const content = publishMarkdownContent(selected, selectedTheme?.name || "", draftBody || selectedBody);
       const result = await workspaceApi.exportMarkdownPdf({
         title: str(selected.title),
-        html: previewDocument(content, "markdown", headingNumberOptions.publish),
+        html: await renderMermaidDocumentForPdf(previewDocument(content, "markdown", headingNumberOptions.publish)),
         chooseDirectory: true,
         fileName: `${str(selected.title) || "markdown-document"}.pdf`,
         themeId: str(selected.project_id || selected.theme_id) || null,

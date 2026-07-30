@@ -35,6 +35,7 @@ import {
   renderedText,
   type HeadingNumberLevel,
 } from "../lib/markdown";
+import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
@@ -1243,7 +1244,9 @@ function NoteDetailDrawer({
     try {
       const result = await workspaceApi.exportMarkdownPdf({
         title: note.title,
-        html: previewDocument(publishMarkdownBody, "markdown", headingNumberOptions.publish),
+        html: await renderMermaidDocumentForPdf(
+          previewDocument(publishMarkdownBody, "markdown", headingNumberOptions.publish),
+        ),
         chooseDirectory: true,
         fileName: `${note.title || "markdown-document"}.pdf`,
         themeId: str(note.theme_id) || null,

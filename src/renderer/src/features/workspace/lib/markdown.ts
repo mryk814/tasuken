@@ -913,11 +913,14 @@ export function applyHeadingNumberAttributes(
  */
 const MARKDOWN_DOCUMENT_CSS = `
 @page{size:A4;margin:18mm}
-body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru Gothic ProN","Yu Gothic","Segoe UI",system-ui,sans-serif}
+body{
+  margin:0;background:#fff;color:#1f1b1a;font-family:"Nunito","Hiragino Maru Gothic ProN","Yu Gothic","Segoe UI",system-ui,sans-serif;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact
+}
 .markdown-document{
   --markdown-paper:#fff;
-  --markdown-paper-text:#26211f;
-  --markdown-paper-secondary:#6f625b;
+  --markdown-paper-text:#1f1b1a;
+  --markdown-paper-secondary:#554b46;
   --markdown-paper-subtle:#f6f4f1;
   --markdown-paper-border:#ded8d1;
   --markdown-accent:#2D7FB8;
@@ -996,9 +999,11 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
   font-family:var(--md-font-mono);font-size:.92em
 }
 .markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
-.markdown-document pre.md-mermaid-block{white-space:normal}
+.markdown-document pre.md-mermaid-block{overflow:visible;white-space:normal;break-inside:avoid}
 .markdown-document .md-mermaid-svg{padding:var(--md-space-2);background:var(--markdown-paper);text-align:center}
-.markdown-document .md-mermaid-svg svg{max-width:100%;height:auto}
+.markdown-document .md-mermaid-svg svg{display:block;max-width:100%;height:auto;margin:0 auto}
+.markdown-document pre.md-mermaid-block.is-rendered > code{display:none}
+.markdown-document .md-mermaid-error{margin-bottom:var(--md-space-2);color:#9F2F2F;font-size:var(--md-text-xs)}
 /* 印刷でも枠が見えるようセル全周に border（overflow:hidden は printToPDF で欠けやすいので付けない） */
 .markdown-document table{
   width:100%;margin:var(--md-space-2) 0 var(--md-space-3);border-collapse:collapse;border-spacing:0;
@@ -1043,7 +1048,7 @@ body{margin:0;background:#fff;color:#26211f;font-family:"Nunito","Hiragino Maru 
 }
 .markdown-document .md-math-inline{display:inline;padding:0 .12em;color:var(--markdown-accent-strong);vertical-align:baseline}
 .markdown-document .md-math-block{
-  overflow-x:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
+  overflow:visible;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
   background:color-mix(in srgb,var(--markdown-accent-bg) 42%,var(--markdown-paper));color:var(--markdown-accent-strong);line-height:1.72;text-align:center
 }
 .markdown-document .md-math-inline .katex,.markdown-document .md-math-block .katex{color:inherit}
