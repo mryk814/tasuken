@@ -1,3 +1,18 @@
+import {
+  IconBulb,
+  IconChecklist,
+  IconInbox,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconMessageCircle,
+  IconNotes,
+  IconPaperclip,
+  IconSettings,
+  IconSparkles,
+  IconSun,
+  IconTimeline,
+} from "@tabler/icons-react";
+
 import { crossNavigation, knowledgeHubTabs, todayHubTabs, toolNavigation } from "../../../pages/routes";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { KnowledgeNode as WorkspaceKnowledgeNode, OpenDrawer, Theme } from "../types";
@@ -26,6 +41,8 @@ export function AppState({ state, message, onRetry }: { state: "loading" | "erro
 interface SidebarProps {
   route: string;
   navigate: (next: string) => void;
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
   themes: Theme[];
   activeThemeId: string;
   setActiveThemeId: (id: string) => void;
@@ -36,12 +53,26 @@ interface SidebarProps {
 export function Sidebar({
   route,
   navigate,
+  collapsed,
+  setCollapsed,
   themes,
   activeThemeId,
   setActiveThemeId,
   domain,
   openDrawer,
 }: SidebarProps) {
+  const navIconByRoute = {
+    today: IconSun,
+    todo: IconChecklist,
+    inbox: IconInbox,
+    timeline: IconTimeline,
+    knowledge: IconBulb,
+    notes: IconNotes,
+    "chat-refs": IconMessageCircle,
+    artifacts: IconPaperclip,
+    "ai-io": IconSparkles,
+    settings: IconSettings,
+  } as const;
   const inbox = domain.capture_entries.filter((e) => e.state === "untriaged" && e.kind !== "micro_memo").length;
   const today = todayIso();
   const schedulesByOwner = new Map(domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
@@ -76,9 +107,18 @@ export function Sidebar({
   };
   const renderNavButton = ([id, label]: readonly [string, string]) => {
     const count = countByRoute[id] || 0;
+    const NavIcon = navIconByRoute[id as keyof typeof navIconByRoute];
     return (
-      <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>
-        <span>{label}</span>
+      <button
+        key={id}
+        className={route === id ? "is-active" : ""}
+        aria-current={route === id ? "page" : undefined}
+        aria-label={label}
+        title={collapsed ? label : undefined}
+        onClick={() => navigate(id)}
+      >
+        {NavIcon && <NavIcon className="nav-icon" size={17} stroke={1.8} aria-hidden="true" />}
+        <span className="nav-label">{label}</span>
         {count > 0 && <span className="count">{count}</span>}
       </button>
     );
@@ -86,7 +126,21 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">T</span><div><strong>Tasken</strong></div></div>
+      <div className="brand">
+        <span className="brand-mark">T</span>
+        <div className="brand-name"><strong>Tasken</strong></div>
+        <button
+          className="sidebar-toggle"
+          type="button"
+          aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+          title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed
+            ? <IconLayoutSidebarLeftExpand size={18} aria-hidden="true" />
+            : <IconLayoutSidebarLeftCollapse size={18} aria-hidden="true" />}
+        </button>
+      </div>
       <nav className="primary-nav nav-group" aria-label="今日の運用">
         <div className="nav-heading"><span>今日の運用</span></div>
         {todayHubTabs.map(renderNavButton)}
