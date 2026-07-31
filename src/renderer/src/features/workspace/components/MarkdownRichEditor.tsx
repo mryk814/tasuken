@@ -34,7 +34,12 @@ import {
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { $findMatchingParent } from "@lexical/utils";
 import { IconExternalLink, IconLinkOff, IconPencil } from "@tabler/icons-react";
-import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
+import {
+  $getNearestNodeFromDOMNode,
+  $isTextNode,
+  getNearestEditorFromDOMNode,
+  type LexicalEditor,
+} from "lexical";
 import {
   memo,
   useEffect,
@@ -111,12 +116,15 @@ function selectInsertedMemoPlaceholder(root: HTMLElement | null): void {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const start = node.nodeValue?.lastIndexOf(CALLOUT_INPUT_PLACEHOLDER) ?? -1;
     if (start < 0) continue;
-    const range = document.createRange();
-    range.setStart(node, start);
-    range.setEnd(node, start + CALLOUT_INPUT_PLACEHOLDER.length);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    const lexicalEditor = getNearestEditorFromDOMNode(node);
+    if (!lexicalEditor) return;
+    lexicalEditor.update(() => {
+      const lexicalNode = $getNearestNodeFromDOMNode(node);
+      if ($isTextNode(lexicalNode)) {
+        lexicalNode.select(start, start + CALLOUT_INPUT_PLACEHOLDER.length);
+      }
+    }, { discrete: true });
+    lexicalEditor.focus();
     return;
   }
 }
