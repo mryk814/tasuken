@@ -536,6 +536,21 @@ test("notes page flushes MDX markdown before leaving edit mode", () => {
   assert.match(source, /previewMode === "edit" && nextMode !== "edit"/);
 });
 
+test("long note Edit keeps full-document work off the urgent keystroke path", () => {
+  const notesPage = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const richEditor = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const headingIndex = readFileSync("src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx", "utf8");
+
+  assert.match(notesPage, /startTransition\(\(\) => \{\s*setDraftBody\(value\)/);
+  assert.match(notesPage, /diffOpen && draftDirty \? diffMarkdownLines/);
+  assert.match(notesPage, /setTimeout\(\(\) => setIndexedDraftBody\(draftBody\), 240\)/);
+  assert.match(headingIndex, /querySelectorAll<HTMLElement>\("\.note-mdx-content h1,/);
+  assert.doesNotMatch(headingIndex, /function findHeadingElement/);
+  assert.match(headingIndex, /observer\?\.observe\(surface!, \{ childList: true \}\)/);
+  assert.match(richEditor, /observer\.observe\(root, \{ childList: true, subtree: true \}\)/);
+  assert.doesNotMatch(richEditor, /characterData: true/);
+});
+
 test("notes editor hides north-south only image resizers", () => {
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
   assert.match(css, /_imageResizerN_/);
