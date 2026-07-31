@@ -51,11 +51,13 @@ import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { usePersistentState } from "../../../utils/usePersistentState";
-import { DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
+import { compactNotesBodyPreview, DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
 type NoteScope = "all" | NotesKind;
+
+const NOTES_RENDER_BATCH_SIZE = 48;
 
 function NotesKindIcon({ kind, size = 15 }: { kind: NotesKind; size?: number }) {
   const props = { size, stroke: 1.75, "aria-hidden": true as const };
@@ -89,6 +91,10 @@ function recordBody(record: Combined): string {
   return str(record.body_markdown);
 }
 
+function recordBodyPreview(record: Combined, limit = 180): string {
+  return compactNotesBodyPreview(recordBody(record), limit);
+}
+
 function hasMarkdownFootnotes(value: string): boolean {
   return /(?:^|\n)\[\^[^\]\n]+\]:|\[\^[^\]\n]+\]/.test(value);
 }
@@ -113,11 +119,35 @@ function isWorkbenchRecord(record: Combined): boolean {
 export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
+  // Notesへ入った瞬間は読む面だけを出し、重いMDXEditorはEditを選んだ時に初めて起動する。
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
   const [prefs, setPrefs] = usePersistentState<NotesPreferences>("notes:prefs:v1", DEFAULT_NOTES_PREFS);
   const scope = prefs.scope;
   const sortOrder = prefs.sortOrder;
-  const [draftBody, setDraftBody] = useState("");
+  const records = useMemo<Combined[]>(() => [
+    ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
+    ...domain.resources
+      .filter((resource) => !isChatReference(resource))
+      .map((resource) => ({ ...resource, recordType: "resource" as const } as Combined)),
+  ].sort((a, b) => compareNotesRecords(a, b, sortOrder)), [domain.notes, domain.resources, sortOrder]);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visible = useMemo(() => records.filter((record) => {
+    if (scope !== "all" && recordKind(record) !== scope) return false;
+    if (!normalizedQuery) return true;
+    return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
+      .toLocaleLowerCase()
+      .includes(normalizedQuery);
+  }), [normalizedQuery, records, scope]);
+  const [visibleLimit, setVisibleLimit] = useState(NOTES_RENDER_BATCH_SIZE);
+  const renderedRecords = visible.slice(0, visibleLimit);
+  const workbenchRecords = useMemo(() => visible.filter(isWorkbenchRecord), [visible]);
+  const selected = useMemo(
+    () => workbenchRecords.find((record) => record.id === selectedId) || workbenchRecords[0] || null,
+    [selectedId, workbenchRecords],
+  );
+  const selectedBody = selected ? recordBody(selected) : "";
+  // 初回描画を空本文→実本文の二段階にせず、Preview/Editの再構築を一度にする。
+  const [draftBody, setDraftBody] = useState(() => normalizeRichEditorMarkdown(selectedBody));
   const [draftState, setDraftState] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -132,25 +162,12 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
-  const records: Combined[] = [
-    ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
-    ...domain.resources.filter((resource) => !isChatReference(resource)).map((r) => ({ ...r, recordType: "resource" as const } as Combined)),
-  ].sort((a, b) => compareNotesRecords(a, b, sortOrder));
-  const visible = records.filter((record) => {
-    if (scope !== "all" && recordKind(record) !== scope) return false;
-    return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
-      .toLowerCase()
-      .includes(query.toLowerCase());
-  });
-  const workbenchRecords = visible.filter(isWorkbenchRecord);
-  const selected = workbenchRecords.find((record) => record.id === selectedId) || workbenchRecords[0] || null;
   const selectedKind = selected ? recordKind(selected) : null;
   // Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
   const showDocumentPublish = selectedKind === "note" || selectedKind === "report";
   const selectedTheme = selected
     ? themes.find((theme) => theme.id === (selected.theme_id || selected.project_id))
     : null;
-  const selectedBody = selected ? recordBody(selected) : "";
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
   const selectedUrl = selected ? str(selected.url || selected.source_url) : "";
   const selectedProperties = selected ? noteProperties(selected) : {};
@@ -172,11 +189,30 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && draftBody !== selectedBody);
   const markdownHeadings = useMemo(() => extractMarkdownHeadings(draftBody), [draftBody]);
-  const searchMatches = useMemo(() => findMarkdownMatches(draftBody, searchQuery), [draftBody, searchQuery]);
-  const markdownDiff = useMemo(() => diffMarkdownLines(selectedBody, draftBody), [selectedBody, draftBody]);
+  const searchMatches = useMemo(
+    () => searchQuery.trim() ? findMarkdownMatches(draftBody, searchQuery) : [],
+    [draftBody, searchQuery],
+  );
+  const markdownDiff = useMemo(
+    () => draftDirty ? diffMarkdownLines(selectedBody, draftBody) : [],
+    [draftBody, draftDirty, selectedBody],
+  );
   const markdownDiffHunks = useMemo(() => buildMarkdownDiffHunks(markdownDiff), [markdownDiff]);
   const markdownDiffMarkers = useMemo(() => buildMarkdownDiffMarkers(markdownDiff), [markdownDiff]);
   const draftLineCount = useMemo(() => draftBody.replace(/\r\n?/g, "\n").split("\n").length, [draftBody]);
+
+  useEffect(() => {
+    setVisibleLimit(NOTES_RENDER_BATCH_SIZE);
+  }, [normalizedQuery, scope, sortOrder]);
+
+  useEffect(() => {
+    if (visibleLimit >= visible.length) return;
+    const addNextBatch = () => {
+      setVisibleLimit((current) => Math.min(current + NOTES_RENDER_BATCH_SIZE, visible.length));
+    };
+    const idleId = window.requestIdleCallback(addNextBatch, { timeout: 180 });
+    return () => window.cancelIdleCallback(idleId);
+  }, [visible.length, visibleLimit]);
 
   function updatePrefs(patch: Partial<NotesPreferences>) {
     setPrefs((current) => ({ ...current, ...patch }));
@@ -800,7 +836,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       </div>
       <div className="notes-workbench">
         <section className="panel list-page notes-list-panel">
-          {visible.map((record) => {
+          {renderedRecords.map((record) => {
             const comments = record.comments as NoteComment[] | undefined;
             const url = str(record.source_url || record.url);
             const kind = recordKind(record);
@@ -811,8 +847,8 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
             const themeIndex = Math.max(0, themes.findIndex((entry) => entry.id === themeId));
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
             const bodyPreview = kind === "resource"
-              ? (url || recordBody(record) || "URLなし")
-              : (recordBody(record) || url || "本文なし");
+              ? (url || recordBodyPreview(record) || "URLなし")
+              : (recordBodyPreview(record) || url || "本文なし");
             return (
               <div
                 className={`note-row ${isSelected ? "is-selected" : ""}`}

@@ -21,6 +21,8 @@ const notes = await importBundled("src/renderer/src/features/workspace/lib/notes
 
 test("Notes defaults to Note and keeps deterministic date ordering", () => {
   assert.equal(notes.DEFAULT_NOTES_PREFS.scope, "note");
+  assert.equal(notes.compactNotesBodyPreview("a\n\nb", 10), "a b");
+  assert.equal(notes.compactNotesBodyPreview("123456789012345", 10), "1234567890…");
   const records = [
     { id: "same-b", created_at: "2026-07-01", updated_at: "2026-07-10" },
     { id: "same-a", created_at: "2026-07-01", updated_at: "2026-07-10" },
@@ -41,6 +43,16 @@ test("Notes UI persists filter and sort preferences and exposes save-folder acti
   assert.match(source, /event\.key\.toLowerCase\(\) === "f"/);
   assert.doesNotMatch(source, /setSearchOpen\(\(current\) => !current\).*検索/s);
   assert.doesNotMatch(source, /整形を戻す|formatUndoBody/);
+});
+
+test("Notes opens lightweight and fills a large list in idle batches", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(source, /useState<PreviewMode>\("preview"\)/);
+  assert.match(source, /NOTES_RENDER_BATCH_SIZE/);
+  assert.match(source, /requestIdleCallback/);
+  assert.match(source, /renderedRecords\.map/);
+  assert.match(source, /compactNotesBodyPreview/);
+  assert.match(source, /if \(!normalizedQuery\) return true/);
 });
 
 test("micro memo date is a labeled top-level time element", () => {
