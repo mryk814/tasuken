@@ -1234,7 +1234,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   color: var(--markdown-paper-text);
 }
 /* Edit: マーカー行。[!INSIGHT] 等の生記法は隠し、「MEMO」を表示（Markdown 本文は書き換えない） */
-.note-mdx-content blockquote.md-callout > p.md-callout-marker {
+.note-mdx-content blockquote.md-callout > .md-callout-marker {
   margin: 0 0 var(--space-1);
   color: var(--color-warning-strong);
   font-size: var(--text-xs);
@@ -1242,14 +1242,14 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   letter-spacing: 0.02em;
   font-style: normal;
 }
-.note-mdx-content blockquote.md-callout > p.md-callout-marker-only {
+.note-mdx-content blockquote.md-callout > .md-callout-marker-only {
   position: relative;
   min-height: 1.2em;
   color: transparent;
   caret-color: var(--color-warning-strong);
   user-select: text;
 }
-.note-mdx-content blockquote.md-callout > p.md-callout-marker-only::before {
+.note-mdx-content blockquote.md-callout > .md-callout-marker-only::before {
   content: attr(data-callout-label);
   position: absolute;
   left: 0;
@@ -1259,6 +1259,25 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
   pointer-events: none;
+}
+.note-mdx-content blockquote.md-callout:has(> .md-callout-marker-multiline)::before {
+  content: attr(data-callout-label);
+  display: block;
+  margin: 0 0 var(--space-1);
+  color: var(--color-warning-strong);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.02em;
+}
+.note-mdx-content blockquote.md-callout > .md-callout-marker-multiline {
+  color: var(--markdown-paper-text);
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+}
+.note-mdx-content blockquote.md-callout > .md-callout-marker-multiline::first-line {
+  color: transparent;
+  font-size: 0;
 }
 .note-toolbar-memo-label {
   font-size: 10px;

@@ -1051,11 +1051,13 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   assert.match(css, /blockquote\.md-callout/);
   assert.match(css, /md-callout-marker/);
   assert.match(css, /md-callout-marker-only/);
+  assert.match(css, /md-callout-marker-multiline/);
   assert.match(css, /content: attr\(data-callout-label\)/);
 
+  const richEditorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
   const notesSource = [
     readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
-    readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8"),
+    richEditorSource,
   ].join("\n");
   assert.match(notesSource, /applyCalloutDecorations/);
   assert.doesNotMatch(notesSource, /insertNoteCallout/);
@@ -1103,6 +1105,14 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   assert.match(notesSource, /title="MEMOを挿入"/);
   assert.match(notesSource, /editor\.insertMarkdown\(INSIGHT_CALLOUT_SNIPPET\)/);
   assert.match(notesSource, /selectInsertedMemoPlaceholder\(editorScopeRef\.current\)/);
+  assert.match(notesSource, /\$getNearestNodeFromDOMNode\(node\)/);
+  assert.match(notesSource, /lexicalNode\.select\(start, start \+ CALLOUT_INPUT_PLACEHOLDER\.length\)/);
+  assert.doesNotMatch(richEditorSource, /document\.createRange\(\)/);
+  assert.match(richEditorSource, /handleCalloutMarkerEnter/);
+  assert.match(richEditorSource, /quoteNode\.append\(\$createLineBreakNode\(\), placeholder\)/);
+  assert.match(richEditorSource, /placeholder\.select\(0, CALLOUT_INPUT_PLACEHOLDER\.length\)/);
+  assert.match(richEditorSource, /onKeyDownCapture=.*handleCalloutMarkerEnter/);
+  assert.match(richEditorSource, /parseCalloutMarker\(quoteNode\.getTextContent\(\)\.trim\(\)\)/);
 });
 
 test("extractMarkdownHeadings builds index items and skips code fences", () => {
