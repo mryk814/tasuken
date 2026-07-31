@@ -24,6 +24,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { KnowledgeNode as WorkspaceKnowledgeNode, OpenDrawer, Theme } from "../types";
 import type { KnowledgeEdge, WorkspaceDomain } from "../domain-model/types";
 import { themeColor } from "../lib/domain";
+import { preloadWorkspacePage } from "../workspacePageLoaders";
 import { buildKnowledgeHealth } from "../lib/knowledgeHealth";
 
 const taskenIconUrl = new URL("../../../../../../resources/icon.png", import.meta.url).href;
@@ -262,6 +263,8 @@ export function Sidebar({
         aria-current={route === id ? "page" : undefined}
         aria-label={label}
         title={collapsed ? label : undefined}
+        onMouseEnter={() => preloadWorkspacePage(id)}
+        onFocus={() => preloadWorkspacePage(id)}
         onClick={() => navigate(id)}
       >
         {NavIcon && <NavIcon className="nav-icon" size={17} stroke={1.8} aria-hidden="true" />}
@@ -292,6 +295,8 @@ export function Sidebar({
           aria-current={route === "themes" ? "page" : undefined}
           aria-label="All Themes"
           title={collapsed ? "All Themes" : undefined}
+          onMouseEnter={() => preloadWorkspacePage("themes")}
+          onFocus={() => preloadWorkspacePage("themes")}
           onClick={() => navigate("themes")}
         >
           <span className="theme-dot theme-dot-all" aria-hidden="true" />
@@ -306,6 +311,8 @@ export function Sidebar({
               aria-current={current ? "page" : undefined}
               aria-label={theme.name}
               title={collapsed ? theme.name : undefined}
+              onMouseEnter={() => preloadWorkspacePage("theme")}
+              onFocus={() => preloadWorkspacePage("theme")}
               onClick={() => { setActiveThemeId(theme.id); navigate("theme"); }}
             >
               <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} aria-hidden="true" />

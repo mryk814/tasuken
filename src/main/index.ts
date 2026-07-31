@@ -324,7 +324,8 @@ flowchart LR
         await new Promise((resolve) => {
           smokePreviewImage.addEventListener("load", resolve, { once: true });
           smokePreviewImage.addEventListener("error", resolve, { once: true });
-          setTimeout(resolve, 700);
+          // 画面チャンクのアイドル先読み中でも、添付プロトコルの画像デコード完了を待つ。
+          setTimeout(resolve, 2000);
         });
       }
       const markdownImageRendered = Boolean(

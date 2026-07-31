@@ -36,19 +36,17 @@ import { $findMatchingParent } from "@lexical/utils";
 import { IconExternalLink, IconLinkOff, IconPencil } from "@tabler/icons-react";
 import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
 import {
-  Component,
   memo,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ClipboardEvent,
-  type ErrorInfo,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 
 import { MarkdownCodeBlockNavigation, markdownCodeBlockDescriptor } from "./markdownCodeBlockEditor";
+import { clipboardImageFile } from "../lib/clipboardImage";
 import { markdownMathPlugin } from "./markdownMathPlugin";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { markdownTableKeyboardPlugin } from "./markdownTableKeyboardPlugin";
@@ -86,17 +84,6 @@ type MarkdownRichEditorProps = {
   headingNumberOptions?: MarkdownRenderOptions;
   markdownSourceRef?: { current: (() => string) | null };
 };
-
-type MarkdownEditorBoundaryProps = {
-  markdown: string;
-  resetKey: string;
-  children: ReactNode;
-  onChange: (value: string) => void;
-  onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
-  onError: (message: string) => void;
-};
-
-type MarkdownEditorBoundaryState = { error: string | null };
 
 function InsertMemoCalloutButton({ onInsert }: { onInsert: () => void }) {
   return (
@@ -231,58 +218,6 @@ const mermaidCodeBlockDescriptor: CodeBlockEditorDescriptor = {
   match: (language) => String(language || "").toLowerCase() === "mermaid",
   Editor: MermaidCodeBlockEditor,
 };
-
-export function clipboardImageFile(data: DataTransfer): File | null {
-  for (const item of Array.from(data.items)) {
-    if (item.kind === "file" && item.type.startsWith("image/")) {
-      const file = item.getAsFile();
-      if (file) return file;
-    }
-  }
-  return Array.from(data.files).find((file) => file.type.startsWith("image/")) || null;
-}
-
-export function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("画像を読み取れませんでした。"));
-    reader.readAsDataURL(file);
-  });
-}
-
-
-export class MarkdownEditorBoundary extends Component<MarkdownEditorBoundaryProps, MarkdownEditorBoundaryState> {
-  state: MarkdownEditorBoundaryState = { error: null };
-
-  static getDerivedStateFromError(error: unknown): MarkdownEditorBoundaryState {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
-
-  componentDidCatch(error: unknown, _info: ErrorInfo): void {
-    this.props.onError(error instanceof Error ? error.message : String(error));
-  }
-
-  componentDidUpdate(previousProps: MarkdownEditorBoundaryProps): void {
-    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
-      this.setState({ error: null });
-    }
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <textarea
-          className="note-main-editor note-main-editor-raw note-editor-fallback"
-          value={this.props.markdown}
-          onPaste={this.props.onPaste}
-          onChange={(event) => this.props.onChange(event.target.value)}
-        />
-      );
-    }
-    return this.props.children;
-  }
-}
 
 function editorLinkHref(anchor: Element): string {
   if (anchor instanceof HTMLAnchorElement) {

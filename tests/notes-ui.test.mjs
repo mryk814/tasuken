@@ -53,6 +53,8 @@ test("Notes opens lightweight and fills a large list in idle batches", () => {
   assert.match(source, /renderedRecords\.map/);
   assert.match(source, /compactNotesBodyPreview/);
   assert.match(source, /if \(!normalizedQuery\) return true/);
+  assert.match(source, /lazy\(loadMarkdownRichEditor\)/);
+  assert.doesNotMatch(source, /import \{[^}]*MarkdownRichEditor[^}]*\} from "\.\.\/components\/MarkdownRichEditor"/s);
 });
 
 test("micro memo date is a labeled top-level time element", () => {

@@ -9,6 +9,8 @@ import {
   IconSparkles,
 } from "@tabler/icons-react";
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -22,13 +24,9 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
+import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
 import { MarkdownPreview } from "../components/MarkdownPreview";
-import {
-  clipboardImageFile,
-  MarkdownEditorBoundary,
-  MarkdownRichEditor,
-  readFileAsDataUrl,
-} from "../components/MarkdownRichEditor";
+import { clipboardImageFile, readFileAsDataUrl } from "../lib/clipboardImage";
 import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
@@ -58,6 +56,11 @@ type PreviewMode = "edit" | "preview" | "raw";
 type NoteScope = "all" | NotesKind;
 
 const NOTES_RENDER_BATCH_SIZE = 48;
+const loadMarkdownRichEditor = async () => {
+  const module = await import("../components/MarkdownRichEditor");
+  return { default: module.MarkdownRichEditor };
+};
+const MarkdownRichEditor = lazy(loadMarkdownRichEditor);
 
 function NotesKindIcon({ kind, size = 15 }: { kind: NotesKind; size?: number }) {
   const props = { size, stroke: 1.75, "aria-hidden": true as const };
@@ -963,7 +966,14 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                 </div>
                 <div className="document-publish-actions">
                   <div className="segmented note-editor-mode-tabs" aria-label="Markdown表示">
-                    <button className={previewMode === "edit" ? "is-active" : ""} onClick={() => switchPreviewMode("edit")}>Edit</button>
+                    <button
+                      className={previewMode === "edit" ? "is-active" : ""}
+                      onMouseEnter={() => { void loadMarkdownRichEditor(); }}
+                      onFocus={() => { void loadMarkdownRichEditor(); }}
+                      onClick={() => switchPreviewMode("edit")}
+                    >
+                      Edit
+                    </button>
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
@@ -1091,17 +1101,19 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     onPaste={handleDraftPaste}
                     onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
                   >
-                    <MarkdownRichEditor
-                      markdown={draftBody}
-                      headingNumberOptions={headingNumberOptions.preview}
-                      markdownSourceRef={mdxMarkdownSourceRef}
-                      onChange={(value) => {
-                        setDraftBody(value);
-                        if (draftState) setDraftState("");
-                      }}
-                      onImageUpload={uploadEditorImage}
-                      onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
-                    />
+                    <Suspense fallback={<div className="note-editor-loading" role="status">エディタを読み込んでいます…</div>}>
+                      <MarkdownRichEditor
+                        markdown={draftBody}
+                        headingNumberOptions={headingNumberOptions.preview}
+                        markdownSourceRef={mdxMarkdownSourceRef}
+                        onChange={(value) => {
+                          setDraftBody(value);
+                          if (draftState) setDraftState("");
+                        }}
+                        onImageUpload={uploadEditorImage}
+                        onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
+                      />
+                    </Suspense>
                   </MarkdownEditorBoundary>
                 ) : previewMode === "preview" ? (
                   <MarkdownPreview className="note-main-preview markdown-preview" html={previewHtml(draftBody, "markdown", headingNumberOptions.preview)} />
