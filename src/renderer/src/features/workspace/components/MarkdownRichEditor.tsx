@@ -32,10 +32,15 @@ import {
   type CodeBlockEditorProps,
 } from "@mdxeditor/editor";
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
+import { $isQuoteNode } from "@lexical/rich-text";
 import { $findMatchingParent } from "@lexical/utils";
 import { IconExternalLink, IconLinkOff, IconPencil } from "@tabler/icons-react";
 import {
+  $createLineBreakNode,
+  $createTextNode,
+  $getSelection,
   $getNearestNodeFromDOMNode,
+  $isRangeSelection,
   $isTextNode,
   getNearestEditorFromDOMNode,
   type LexicalEditor,
@@ -47,6 +52,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type KeyboardEvent,
   type MouseEvent,
 } from "react";
 
@@ -75,6 +81,7 @@ import {
   normalizeRichEditorMarkdown,
   escapeAmbiguousMarkdownComparisons,
   openSafeMarkdownLink,
+  parseCalloutMarker,
   renderMarkdownPreview,
   safeMarkdownLinkUrl,
   restoreAmbiguousMarkdownComparisons,
@@ -127,6 +134,66 @@ function selectInsertedMemoPlaceholder(root: HTMLElement | null): void {
     lexicalEditor.focus();
     return;
   }
+}
+
+function handleCalloutMarkerEnter(
+  event: KeyboardEvent<HTMLDivElement>,
+  root: HTMLElement | null,
+): void {
+  if (
+    event.key !== "Enter"
+    || event.shiftKey
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.nativeEvent.isComposing
+    || !root
+  ) return;
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const domSelection = window.getSelection();
+  if (
+    !domSelection
+    || !domSelection.isCollapsed
+    || !domSelection.anchorNode
+  ) return;
+  const anchorElement = domSelection.anchorNode instanceof Element
+    ? domSelection.anchorNode
+    : domSelection.anchorNode.parentElement;
+  const quote = anchorElement?.closest("blockquote");
+  if (!(quote instanceof HTMLElement) || !root.contains(quote)) return;
+
+  const marker = parseCalloutMarker((quote.innerText || quote.textContent || "").trim());
+  if (!marker || marker.rest) return;
+
+  const lexicalEditor = getNearestEditorFromDOMNode(quote);
+  if (!lexicalEditor) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  let inserted = false;
+  lexicalEditor.update(() => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
+    const anchorNode = selection.anchor.getNode();
+    const quoteNode = $isQuoteNode(anchorNode)
+      ? anchorNode
+      : $findMatchingParent(anchorNode, $isQuoteNode);
+    if (!$isQuoteNode(quoteNode)) return;
+    const currentMarker = parseCalloutMarker(quoteNode.getTextContent().trim());
+    if (!currentMarker || currentMarker.rest) return;
+    const placeholder = $createTextNode(CALLOUT_INPUT_PLACEHOLDER);
+    quoteNode.append($createLineBreakNode(), placeholder);
+    placeholder.select(0, CALLOUT_INPUT_PLACEHOLDER.length);
+    inserted = true;
+  }, { discrete: true });
+
+  if (!inserted) return;
+  lexicalEditor.focus();
+  window.requestAnimationFrame(() => {
+    applyCalloutDecorations(root.querySelector(".note-mdx-content"));
+  });
 }
 
 function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
@@ -644,6 +711,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     <div
       ref={editorScopeRef}
       className="note-live-editor-paste-scope"
+      onKeyDownCapture={(event) => handleCalloutMarkerEnter(event, editorScopeRef.current)}
       onPasteCapture={handleRichEditorPaste}
     >
       <MDXEditor

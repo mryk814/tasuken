@@ -587,30 +587,73 @@ export function applyCalloutDecorations(root: ParentNode | null | undefined): vo
   const quotes = Array.from((root as Element).querySelectorAll("blockquote")) as HTMLElement[];
   for (const quote of quotes) {
     const firstP = quote.querySelector(":scope > p") as HTMLElement | null;
-    const raw = (firstP?.textContent || "").replace(/\u00a0/g, " ");
+    const firstText = quote.querySelector(":scope > [data-lexical-text='true']") as HTMLElement | null;
+    const markerElement = firstP || firstText;
+    const raw = (
+      firstP?.innerText
+      || quote.innerText
+      || firstP?.textContent
+      || quote.textContent
+      || ""
+    ).replace(/\u00a0/g, " ");
     const firstLine = raw.split(/\r?\n/)[0] || raw;
     const marker = parseCalloutMarker(firstLine.trim()) || parseCalloutMarker(raw.trim());
     if (!marker) {
       if (quote.classList.contains("md-callout")) quote.classList.remove("md-callout");
       if (quote.hasAttribute("data-callout")) quote.removeAttribute("data-callout");
       if (quote.hasAttribute("data-callout-label")) quote.removeAttribute("data-callout-label");
-      if (firstP?.classList.contains("md-callout-marker")) firstP.classList.remove("md-callout-marker");
-      if (firstP?.classList.contains("md-callout-marker-only")) firstP.classList.remove("md-callout-marker-only");
-      if (firstP?.hasAttribute("data-callout-label")) firstP.removeAttribute("data-callout-label");
+      for (const decorated of quote.querySelectorAll(".md-callout-marker")) {
+        decorated.classList.remove(
+          "md-callout-marker",
+          "md-callout-marker-only",
+          "md-callout-marker-multiline",
+        );
+        decorated.removeAttribute("data-callout-label");
+      }
       continue;
     }
     // マーカー行だけなら Edit 上は「MEMO」ラベルを出し、生の [!INSIGHT]/[!NOTE] は隠す（本文 Markdown は触らない）。
-    const markerOnly = !marker.rest && !/\r?\n/.test(raw.trim());
+    const markerRaw = (markerElement?.textContent || "").replace(/\u00a0/g, " ").trim();
+    const markerElementFirstLine = markerRaw.split(/\r?\n/)[0] || markerRaw;
+    const markerOnly = !marker.rest
+      && Boolean(markerElement)
+      && Boolean(parseCalloutMarker(markerElementFirstLine))
+      && !/\r?\n/.test(markerRaw);
+    const markerMultiline = !marker.rest
+      && markerElement === firstP
+      && Boolean(parseCalloutMarker(markerElementFirstLine))
+      && /\r?\n/.test(markerRaw);
     if (!quote.classList.contains("md-callout")) quote.classList.add("md-callout");
     if (quote.getAttribute("data-callout") !== "insight") quote.setAttribute("data-callout", "insight");
     if (quote.getAttribute("data-callout-label") !== CALLOUT_LABEL) quote.setAttribute("data-callout-label", CALLOUT_LABEL);
-    if (firstP) {
-      if (!firstP.classList.contains("md-callout-marker")) firstP.classList.add("md-callout-marker");
-      if (firstP.getAttribute("data-callout-label") !== CALLOUT_LABEL) firstP.setAttribute("data-callout-label", CALLOUT_LABEL);
+    for (const decorated of quote.querySelectorAll(".md-callout-marker")) {
+      if (decorated !== markerElement) {
+        decorated.classList.remove(
+          "md-callout-marker",
+          "md-callout-marker-only",
+          "md-callout-marker-multiline",
+        );
+        decorated.removeAttribute("data-callout-label");
+      }
+    }
+    if (markerElement) {
+      if (!markerElement.classList.contains("md-callout-marker")) markerElement.classList.add("md-callout-marker");
+      if (markerElement.getAttribute("data-callout-label") !== CALLOUT_LABEL) {
+        markerElement.setAttribute("data-callout-label", CALLOUT_LABEL);
+      }
       if (markerOnly) {
-        if (!firstP.classList.contains("md-callout-marker-only")) firstP.classList.add("md-callout-marker-only");
-      } else if (firstP.classList.contains("md-callout-marker-only")) {
-        firstP.classList.remove("md-callout-marker-only");
+        if (!markerElement.classList.contains("md-callout-marker-only")) {
+          markerElement.classList.add("md-callout-marker-only");
+        }
+      } else if (markerElement.classList.contains("md-callout-marker-only")) {
+        markerElement.classList.remove("md-callout-marker-only");
+      }
+      if (markerMultiline) {
+        if (!markerElement.classList.contains("md-callout-marker-multiline")) {
+          markerElement.classList.add("md-callout-marker-multiline");
+        }
+      } else if (markerElement.classList.contains("md-callout-marker-multiline")) {
+        markerElement.classList.remove("md-callout-marker-multiline");
       }
     }
   }
