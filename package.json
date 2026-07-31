@@ -7,7 +7,7 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "patch-package && electron-builder install-app-deps",
     "dev": "electron-vite dev",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc -b",
@@ -30,6 +30,7 @@
     "electron": "^37.10.3",
     "electron-builder": "^26.15.5",
     "electron-vite": "^5.0.0",
+    "patch-package": "^8.0.1",
     "playwright": "^1.61.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
