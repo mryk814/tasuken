@@ -32,6 +32,7 @@ import type {
 } from "mdast";
 import { KATEX_DOCUMENT_CSS } from "./katexDocumentCss";
 import { parseWikiLinks } from "./knowledgeLinks";
+import { mermaidWidthFromMeta } from "./mermaidWidth";
 
 /** MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。 */
 function parseMarkdownBody(body: string): Root {
@@ -652,7 +653,12 @@ function renderBlock(
       const code = node as Code;
       const language = String(code.lang || "").trim().toLowerCase();
       const languageClass = language ? ` class="language-${escapeHtml(language)}"` : "";
-      const mermaid = language === "mermaid" ? " class=\"md-mermaid-block\" data-mermaid=\"true\"" : "";
+      const mermaidWidth = language === "mermaid" ? mermaidWidthFromMeta(code.meta) : null;
+      const mermaid = language === "mermaid"
+        ? ` class="md-mermaid-block" data-mermaid="true"${mermaidWidth === null
+          ? ""
+          : ` data-mermaid-width="${mermaidWidth}" style="width:min(100%, ${mermaidWidth}%);margin-inline:auto"`}`
+        : "";
       return `<pre${mermaid}><code${languageClass}>${escapeHtml(code.value || "")}${code.value?.endsWith("\n") ? "" : "\n"}</code></pre>`;
     }
     case "thematicBreak":

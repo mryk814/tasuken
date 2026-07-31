@@ -18,6 +18,11 @@ export const DEFAULT_NOTES_PREFS: NotesPreferences = {
   sortOrder: "updated_desc",
 };
 
+export function compactNotesBodyPreview(value: unknown, limit = 180): string {
+  const compact = String(value || "").slice(0, limit + 40).replace(/\s+/g, " ").trim();
+  return compact.length > limit ? `${compact.slice(0, limit).trimEnd()}…` : compact;
+}
+
 function recordDate<T extends { created_at?: string; updated_at?: string }>(record: T, field: "created" | "updated"): string {
   return String(field === "created" ? record.created_at || "" : record.updated_at || record.created_at || "");
 }

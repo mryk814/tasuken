@@ -19,12 +19,14 @@ import {
   ListsToggle,
   markdownShortcutPlugin,
   MDXEditor,
+  NESTED_EDITOR_UPDATED_COMMAND,
   quotePlugin,
   Separator,
   tablePlugin,
   thematicBreakPlugin,
   toolbarPlugin,
   UndoRedo,
+  useCodeBlockEditorContext,
   type MDXEditorMethods,
   type CodeBlockEditorDescriptor,
   type CodeBlockEditorProps,
@@ -34,22 +36,27 @@ import { $findMatchingParent } from "@lexical/utils";
 import { IconExternalLink, IconLinkOff, IconPencil } from "@tabler/icons-react";
 import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
 import {
-  Component,
   memo,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ClipboardEvent,
-  type ErrorInfo,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 
 import { MarkdownCodeBlockNavigation, markdownCodeBlockDescriptor } from "./markdownCodeBlockEditor";
+import { clipboardImageFile } from "../lib/clipboardImage";
 import { markdownMathPlugin } from "./markdownMathPlugin";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { markdownTableKeyboardPlugin } from "./markdownTableKeyboardPlugin";
+import {
+  MERMAID_WIDTH_MAX,
+  MERMAID_WIDTH_MIN,
+  MERMAID_WIDTH_STEP,
+  mermaidWidthFromMeta,
+  withMermaidWidthMeta,
+} from "../lib/mermaidWidth";
 import {
   applyCalloutDecorations,
   applyHeadingNumberAttributes,
@@ -77,17 +84,6 @@ type MarkdownRichEditorProps = {
   headingNumberOptions?: MarkdownRenderOptions;
   markdownSourceRef?: { current: (() => string) | null };
 };
-
-type MarkdownEditorBoundaryProps = {
-  markdown: string;
-  resetKey: string;
-  children: ReactNode;
-  onChange: (value: string) => void;
-  onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
-  onError: (message: string) => void;
-};
-
-type MarkdownEditorBoundaryState = { error: string | null };
 
 function InsertMemoCalloutButton({ onInsert }: { onInsert: () => void }) {
   return (
@@ -128,9 +124,20 @@ function selectInsertedMemoPlaceholder(root: HTMLElement | null): void {
 function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   const [editing, setEditing] = useState(false);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const { parentEditor, setMeta } = useCodeBlockEditorContext();
+  const savedWidth = mermaidWidthFromMeta(props.meta);
+  const rangeWidth = savedWidth ?? MERMAID_WIDTH_MAX;
+  const updateWidth = (width: number | null): void => {
+    setMeta(withMermaidWidthMeta(props.meta, width));
+    // MDXEditor 4.0.4 の setMeta は root の onChange を通知しないため、
+    // コード本文の更新と同じ nested-editor command を明示的に送る。
+    window.setTimeout(() => {
+      parentEditor.dispatchCommand(NESTED_EDITOR_UPDATED_COMMAND, undefined);
+    }, 0);
+  };
   const rendered = useMemo(
-    () => renderMarkdownPreview(`\`\`\`mermaid\n${props.code}\n\`\`\``),
-    [props.code],
+    () => renderMarkdownPreview(`\`\`\`mermaid${props.meta ? ` ${props.meta}` : ""}\n${props.code}\n\`\`\``),
+    [props.code, props.meta],
   );
 
   useEffect(() => {
@@ -164,19 +171,44 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   }
 
   return (
-    <div
-      className="note-mermaid-code-block is-preview"
-      role="button"
-      tabIndex={0}
-      aria-label="Mermaidを編集"
-      onClick={() => setEditing(true)}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        setEditing(true);
-      }}
-    >
-      <MarkdownPreview className="note-mermaid-preview markdown-preview" html={rendered} />
+    <div className="note-mermaid-code-block is-preview">
+      <div
+        className="note-mermaid-preview-frame"
+        role="button"
+        tabIndex={0}
+        aria-label="Mermaidを編集"
+        onClick={() => setEditing(true)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          setEditing(true);
+        }}
+      >
+        <MarkdownPreview className="note-mermaid-preview markdown-preview" html={rendered} />
+      </div>
+      <div className="note-mermaid-width-control" aria-label="Mermaidの表示幅">
+        <span>幅</span>
+        <input
+          type="range"
+          min={MERMAID_WIDTH_MIN}
+          max={MERMAID_WIDTH_MAX}
+          step={MERMAID_WIDTH_STEP}
+          value={rangeWidth}
+          aria-label="Mermaidの表示幅"
+          onPointerDown={() => {
+            if (savedWidth === null) updateWidth(MERMAID_WIDTH_MAX);
+          }}
+          onChange={(event) => updateWidth(Number(event.target.value))}
+        />
+        <output>{savedWidth === null ? "自動" : `${savedWidth}%`}</output>
+        <button
+          type="button"
+          disabled={savedWidth === null}
+          onClick={() => updateWidth(null)}
+        >
+          自動
+        </button>
+      </div>
     </div>
   );
 }
@@ -186,58 +218,6 @@ const mermaidCodeBlockDescriptor: CodeBlockEditorDescriptor = {
   match: (language) => String(language || "").toLowerCase() === "mermaid",
   Editor: MermaidCodeBlockEditor,
 };
-
-export function clipboardImageFile(data: DataTransfer): File | null {
-  for (const item of Array.from(data.items)) {
-    if (item.kind === "file" && item.type.startsWith("image/")) {
-      const file = item.getAsFile();
-      if (file) return file;
-    }
-  }
-  return Array.from(data.files).find((file) => file.type.startsWith("image/")) || null;
-}
-
-export function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("画像を読み取れませんでした。"));
-    reader.readAsDataURL(file);
-  });
-}
-
-
-export class MarkdownEditorBoundary extends Component<MarkdownEditorBoundaryProps, MarkdownEditorBoundaryState> {
-  state: MarkdownEditorBoundaryState = { error: null };
-
-  static getDerivedStateFromError(error: unknown): MarkdownEditorBoundaryState {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
-
-  componentDidCatch(error: unknown, _info: ErrorInfo): void {
-    this.props.onError(error instanceof Error ? error.message : String(error));
-  }
-
-  componentDidUpdate(previousProps: MarkdownEditorBoundaryProps): void {
-    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
-      this.setState({ error: null });
-    }
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <textarea
-          className="note-main-editor note-main-editor-raw note-editor-fallback"
-          value={this.props.markdown}
-          onPaste={this.props.onPaste}
-          onChange={(event) => this.props.onChange(event.target.value)}
-        />
-      );
-    }
-    return this.props.children;
-  }
-}
 
 function editorLinkHref(anchor: Element): string {
   if (anchor instanceof HTMLAnchorElement) {

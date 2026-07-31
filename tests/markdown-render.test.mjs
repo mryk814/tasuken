@@ -25,6 +25,7 @@ async function importBundled(relativePath) {
 const markdown = await importBundled("src/renderer/src/features/workspace/lib/markdown.ts");
 const markdownEditing = await importBundled("src/renderer/src/features/workspace/lib/markdownEditing.ts");
 const mermaidSizing = await importBundled("src/renderer/src/features/workspace/lib/mermaidSizing.ts");
+const mermaidWidth = await importBundled("src/renderer/src/features/workspace/lib/mermaidWidth.ts");
 
 test("Mermaid SVG presentation enlarges small diagrams without shrinking large ones", () => {
   assert.deepEqual(mermaidSizing.mermaidSvgPresentation("0 0 113.046875 174"), {
@@ -38,6 +39,13 @@ test("Mermaid SVG presentation enlarges small diagrams without shrinking large o
     intrinsicHeight: 174,
   });
   assert.equal(mermaidSizing.mermaidSvgPresentation("0 0 0 100"), null);
+});
+
+test("Mermaid width metadata normalizes and preserves unrelated fence metadata", () => {
+  assert.equal(mermaidWidth.mermaidWidthFromMeta("title=overview width=67%"), 65);
+  assert.equal(mermaidWidth.mermaidWidthFromMeta("width=20%"), null);
+  assert.equal(mermaidWidth.withMermaidWidthMeta("title=overview width=65%", 80), "title=overview width=80%");
+  assert.equal(mermaidWidth.withMermaidWidthMeta("title=overview width=65%", null), "title=overview");
 });
 
 test("markdown preview renders tasken images and math markers", () => {
@@ -106,6 +114,13 @@ test("markdown preview renders footnotes and keeps Mermaid code blocks identifia
   assert.match(html, /実験ノートを参照/);
   assert.match(html, /class="md-mermaid-block" data-mermaid="true"/);
   assert.match(html, /class="language-mermaid"/);
+});
+
+test("markdown preview applies explicit Mermaid width without changing the diagram source", () => {
+  const html = markdown.renderMarkdownPreview("```mermaid width=65%\nflowchart TD\n  A --> B\n```");
+  assert.match(html, /data-mermaid-width="65"/);
+  assert.match(html, /style="width:min\(100%, 65%\);margin-inline:auto"/);
+  assert.match(html, /flowchart TD/);
 });
 
 test("rich editor normalization removes only accidental empty fences", () => {
@@ -284,14 +299,18 @@ $$
 });
 
 test("previewDocument includes print-safe Mermaid and higher-contrast text styling", () => {
-  const doc = markdown.previewDocument("```mermaid\nflowchart LR\nA --> B\n```", "markdown");
+  const doc = markdown.previewDocument("```mermaid width=65%\nflowchart LR\nA --> B\n```", "markdown");
   const mermaidSource = readFileSync("src/renderer/src/features/workspace/lib/mermaid.ts", "utf8");
+  const pdfServiceSource = readFileSync("src/main/services/workspaceService.ts", "utf8");
 
   assert.match(doc, /color:#1f1b1a/);
   assert.match(doc, /print-color-adjust:exact/);
+  assert.match(doc, /data-mermaid-width="65"/);
+  assert.match(doc, /style="width:min\(100%, 65%\);margin-inline:auto"/);
   assert.match(doc, /\.markdown-document pre\.md-mermaid-block\.is-rendered > code\{display:none\}/);
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-width:100%/s);
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-height:205mm/s);
+  assert.doesNotMatch(pdfServiceSource, /querySelectorAll\("\.md-mermaid-block"\)[^}]*style\.width/);
   assert.match(doc, /class="md-mermaid-block" data-mermaid="true"/);
   assert.match(mermaidSource, /sequence:\s*\{[\s\S]*mirrorActors:\s*false/);
   assert.match(mermaidSource, /renderMermaidBlocks\(parsed, "print"\)/);
@@ -548,6 +567,17 @@ test("notes page enables image resize and dimension controls", () => {
   );
   assert.match(source, /disableImageResize:\s*false/);
   assert.match(source, /allowSetImageDimensions:\s*true/);
+});
+
+test("notes editor exposes persisted Mermaid width controls", () => {
+  const source = readFileSync(
+    path.resolve("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx"),
+    "utf8",
+  );
+  assert.match(source, /useCodeBlockEditorContext/);
+  assert.match(source, /type="range"/);
+  assert.match(source, /setMeta\(withMermaidWidthMeta/);
+  assert.match(source, /Mermaidの表示幅/);
 });
 
 test("markdown preview rejects unsafe html img tags", () => {

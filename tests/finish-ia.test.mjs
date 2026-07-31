@@ -5,6 +5,8 @@ import test from "node:test";
 const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 const uiStoreSource = readFileSync("src/renderer/src/stores/uiStore.ts", "utf8");
 const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+const pageRouterSource = readFileSync("src/renderer/src/features/workspace/components/WorkspacePageRouter.tsx", "utf8");
+const pageLoadersSource = readFileSync("src/renderer/src/features/workspace/workspacePageLoaders.ts", "utf8");
 
 test("toast tone is explicit state instead of message-regex inference", () => {
   assert.match(uiStoreSource, /toastTone/);
@@ -15,6 +17,15 @@ test("toast tone is explicit state instead of message-regex inference", () => {
 
 test("app opens Today when no route is specified", () => {
   assert.match(uiStoreSource, /location\.hash\.slice\(1\) \|\| "today"/);
+});
+
+test("workspace keeps Today immediate and loads the other pages outside the startup bundle", () => {
+  assert.match(pageRouterSource, /import \{ TodayPage \} from "\.\.\/pages\/TodayPage"/);
+  assert.doesNotMatch(pageRouterSource, /import \{ NotesPage \} from "\.\.\/pages\/NotesPage"/);
+  assert.match(pageRouterSource, /lazyNamedPage<PageProps>/);
+  assert.match(pageLoadersSource, /import\("\.\/pages\/NotesPage"\)/);
+  assert.match(pageLoadersSource, /preloadWorkspacePagesWhenIdle/);
+  assert.match(shellSource, /onMouseEnter=\{\(\) => preloadWorkspacePage\(id\)\}/);
 });
 
 test("sidebar navigation closes the drawer before changing pages", () => {
