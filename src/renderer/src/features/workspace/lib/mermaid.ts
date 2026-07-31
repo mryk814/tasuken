@@ -16,6 +16,7 @@ function fitMermaidSvg(node: HTMLElement, mode: MermaidRenderMode): void {
 
   const presentation = mermaidSvgPresentation(svg.getAttribute("viewBox"));
   if (!presentation) return;
+  const hasCustomWidth = node.dataset.mermaidWidth !== undefined;
   svg.removeAttribute("height");
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   svg.style.height = "auto";
@@ -28,6 +29,11 @@ function fitMermaidSvg(node: HTMLElement, mode: MermaidRenderMode): void {
     svg.style.height = "auto";
     svg.style.maxWidth = "100%";
     svg.style.maxHeight = "205mm";
+  } else if (hasCustomWidth) {
+    // 明示幅では画像と同じく図全体を指定領域へ収める。可読性優先の横スクロールは自動幅だけに残す。
+    svg.removeAttribute("width");
+    svg.style.width = "100%";
+    svg.style.maxWidth = "100%";
   } else {
     svg.setAttribute("width", String(presentation.preferredWidth));
     svg.style.width = `${presentation.preferredWidth}px`;

@@ -361,7 +361,7 @@ flowchart LR
         30,
       );
       const notesMermaidRenderedInEdit = Boolean(mermaidPreviewInEdit);
-      mermaidPreviewInEdit.closest(".note-mermaid-code-block")?.click();
+      mermaidPreviewInEdit.closest(".note-mermaid-preview-frame")?.click();
       const mermaidCodeEditor = await waitFor(
         () => notesPane?.querySelector(".note-mermaid-code-block.is-editing .cm-editor"),
         "Mermaidコード編集面",

@@ -19,12 +19,14 @@ import {
   ListsToggle,
   markdownShortcutPlugin,
   MDXEditor,
+  NESTED_EDITOR_UPDATED_COMMAND,
   quotePlugin,
   Separator,
   tablePlugin,
   thematicBreakPlugin,
   toolbarPlugin,
   UndoRedo,
+  useCodeBlockEditorContext,
   type MDXEditorMethods,
   type CodeBlockEditorDescriptor,
   type CodeBlockEditorProps,
@@ -50,6 +52,13 @@ import { MarkdownCodeBlockNavigation, markdownCodeBlockDescriptor } from "./mark
 import { markdownMathPlugin } from "./markdownMathPlugin";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { markdownTableKeyboardPlugin } from "./markdownTableKeyboardPlugin";
+import {
+  MERMAID_WIDTH_MAX,
+  MERMAID_WIDTH_MIN,
+  MERMAID_WIDTH_STEP,
+  mermaidWidthFromMeta,
+  withMermaidWidthMeta,
+} from "../lib/mermaidWidth";
 import {
   applyCalloutDecorations,
   applyHeadingNumberAttributes,
@@ -128,9 +137,20 @@ function selectInsertedMemoPlaceholder(root: HTMLElement | null): void {
 function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   const [editing, setEditing] = useState(false);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const { parentEditor, setMeta } = useCodeBlockEditorContext();
+  const savedWidth = mermaidWidthFromMeta(props.meta);
+  const rangeWidth = savedWidth ?? MERMAID_WIDTH_MAX;
+  const updateWidth = (width: number | null): void => {
+    setMeta(withMermaidWidthMeta(props.meta, width));
+    // MDXEditor 4.0.4 の setMeta は root の onChange を通知しないため、
+    // コード本文の更新と同じ nested-editor command を明示的に送る。
+    window.setTimeout(() => {
+      parentEditor.dispatchCommand(NESTED_EDITOR_UPDATED_COMMAND, undefined);
+    }, 0);
+  };
   const rendered = useMemo(
-    () => renderMarkdownPreview(`\`\`\`mermaid\n${props.code}\n\`\`\``),
-    [props.code],
+    () => renderMarkdownPreview(`\`\`\`mermaid${props.meta ? ` ${props.meta}` : ""}\n${props.code}\n\`\`\``),
+    [props.code, props.meta],
   );
 
   useEffect(() => {
@@ -164,19 +184,44 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   }
 
   return (
-    <div
-      className="note-mermaid-code-block is-preview"
-      role="button"
-      tabIndex={0}
-      aria-label="Mermaidを編集"
-      onClick={() => setEditing(true)}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        setEditing(true);
-      }}
-    >
-      <MarkdownPreview className="note-mermaid-preview markdown-preview" html={rendered} />
+    <div className="note-mermaid-code-block is-preview">
+      <div
+        className="note-mermaid-preview-frame"
+        role="button"
+        tabIndex={0}
+        aria-label="Mermaidを編集"
+        onClick={() => setEditing(true)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          setEditing(true);
+        }}
+      >
+        <MarkdownPreview className="note-mermaid-preview markdown-preview" html={rendered} />
+      </div>
+      <div className="note-mermaid-width-control" aria-label="Mermaidの表示幅">
+        <span>幅</span>
+        <input
+          type="range"
+          min={MERMAID_WIDTH_MIN}
+          max={MERMAID_WIDTH_MAX}
+          step={MERMAID_WIDTH_STEP}
+          value={rangeWidth}
+          aria-label="Mermaidの表示幅"
+          onPointerDown={() => {
+            if (savedWidth === null) updateWidth(MERMAID_WIDTH_MAX);
+          }}
+          onChange={(event) => updateWidth(Number(event.target.value))}
+        />
+        <output>{savedWidth === null ? "自動" : `${savedWidth}%`}</output>
+        <button
+          type="button"
+          disabled={savedWidth === null}
+          onClick={() => updateWidth(null)}
+        >
+          自動
+        </button>
+      </div>
     </div>
   );
 }
