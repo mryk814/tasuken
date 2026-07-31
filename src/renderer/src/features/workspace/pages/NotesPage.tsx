@@ -1128,6 +1128,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   />
                 ) : (
                   <MarkdownEditorBoundary
+                    key={selected.id}
                     markdown={draftBody}
                     resetKey={selected.id}
                     onChange={updateRichEditorDraft}
