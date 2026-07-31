@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   computeHeadingNumberLabels,
@@ -28,20 +28,6 @@ function findScrollContainer(surface: HTMLElement | null): HTMLElement | null {
     || surface.querySelector<HTMLElement>(".note-mdx-content")
     || surface.querySelector<HTMLElement>(".note-main-preview")
     || surface.querySelector<HTMLElement>("textarea.note-main-editor-raw");
-}
-
-function findHeadingElement(surface: HTMLElement, heading: MarkdownHeadingItem): HTMLElement | null {
-  const preview = surface.querySelector(".note-main-preview");
-  if (preview) {
-    return preview.querySelector<HTMLElement>(`#${CSS.escape(heading.id)}`)
-      || preview.querySelector<HTMLElement>(`[data-md-heading-index="${heading.index}"]`);
-  }
-  const mdx = surface.querySelector(".note-mdx-content");
-  if (mdx) {
-    const nodes = mdx.querySelectorAll("h1, h2, h3, h4");
-    return (nodes[heading.index] as HTMLElement | undefined) || null;
-  }
-  return null;
 }
 
 /** スクロール位置から「いま読んでいる」見出しインデックスを求める。 */
@@ -79,7 +65,7 @@ function resolveActiveIndex(
  * 文書中央右の線だけのフロート UI。
  * 線の本数 = h2 数。スクロール位置に応じて現在の線を強調。ホバーで一覧。
  */
-export function MarkdownHeadingIndex({
+export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
   headings,
   onSelect,
   headingNumberOptions,
@@ -157,15 +143,26 @@ export function MarkdownHeadingIndex({
       const surface = surfaceOf();
       const scroller = findScrollContainer(surface);
       if (!scroller || !surface) return;
+      const preview = surface.querySelector<HTMLElement>(".note-main-preview");
+      const editHeadings = preview
+        ? null
+        : surface.querySelectorAll<HTMLElement>(".note-mdx-content h1, .note-mdx-content h2, .note-mdx-content h3, .note-mdx-content h4");
+      const findHeading = (heading: MarkdownHeadingItem): HTMLElement | null => {
+        if (preview) {
+          return preview.querySelector<HTMLElement>(`#${CSS.escape(heading.id)}`)
+            || preview.querySelector<HTMLElement>(`[data-md-heading-index="${heading.index}"]`);
+        }
+        return editHeadings?.[heading.index] || null;
+      };
 
       const barTargets = barHeadings.map((heading) => ({
-        el: findHeadingElement(surface, heading),
+        el: findHeading(heading),
       }));
       const nextBar = resolveActiveIndex(scroller, barTargets);
       setActiveBarIndex((prev) => (prev === nextBar ? prev : nextBar));
 
       const allTargets = headings.map((heading) => ({
-        el: findHeadingElement(surface, heading),
+        el: findHeading(heading),
       }));
       const nextHeading = resolveActiveIndex(scroller, allTargets);
       setActiveHeadingIndex((prev) => (prev === nextHeading ? prev : nextHeading));
@@ -198,7 +195,8 @@ export function MarkdownHeadingIndex({
         frame = window.requestAnimationFrame(attach);
       })
       : null;
-    observer?.observe(surface!, { childList: true, subtree: true });
+    // 監視対象はEdit/Preview本体の差し替えだけ。本文内部の毎キーDOM更新では再接続しない。
+    observer?.observe(surface!, { childList: true });
 
     // 初回レイアウト後にもう一度
     const boot = window.setTimeout(attach, 80);
@@ -277,4 +275,4 @@ export function MarkdownHeadingIndex({
       )}
     </div>
   );
-}
+});

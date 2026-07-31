@@ -312,18 +312,20 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const [linkEditMode, setLinkEditMode] = useState(false);
   const [linkEditUrl, setLinkEditUrl] = useState("");
   const lastInternalMarkdown = useRef(markdown);
+  const onImageUploadRef = useRef(onImageUpload);
   const mountedRef = useRef(false);
   const editorMarkdown = escapeAmbiguousMarkdownComparisons(markdown);
+  onImageUploadRef.current = onImageUpload;
 
   useEffect(() => {
     if (!markdownSourceRef) return;
     markdownSourceRef.current = () => normalizeRichEditorMarkdown(
-      restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current || editorMarkdown),
+      restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current),
     );
     return () => {
       markdownSourceRef.current = null;
     };
-  }, [markdown, markdownSourceRef]);
+  }, [markdownSourceRef]);
 
   const plugins = useMemo(() => [
     toolbarPlugin({
@@ -367,7 +369,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     }),
     markdownMathPlugin(),
     imagePlugin({
-      imageUploadHandler: onImageUpload,
+      imageUploadHandler: (image) => onImageUploadRef.current(image),
       // クリック選択 + ハンドルで幅変更。設定ダイアログでは数値指定・解除（空欄=既定）も可。
       disableImageResize: false,
       disableImageSettingsButton: false,
@@ -395,13 +397,13 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     }),
     frontmatterPlugin(),
     markdownShortcutPlugin(),
-  ], [onImageUpload]);
+  ], []);
 
   useEffect(() => {
     mountedRef.current = false;
     const timer = window.setTimeout(() => { mountedRef.current = true; }, 200);
     return () => window.clearTimeout(timer);
-  }, [markdown]);
+  }, []);
 
   useEffect(() => {
     if (markdown === lastInternalMarkdown.current) return;
@@ -505,13 +507,15 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     };
     refresh();
     const observer = new MutationObserver(refresh);
-    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    // 通常の文字入力はLexicalのTextNode更新だけで、見出し番号・Callout構造は変わらない。
+    // 長文で毎キー全文DOMを再走査しないよう、構造変更だけを監視する。
+    observer.observe(root, { childList: true, subtree: true });
     return () => {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
       applyHeadingNumberAttributes(content(), false);
     };
-  }, [headingNumbersEnabled, headingNumberStart, headingNumberLevelKey, markdown]);
+  }, [headingNumbersEnabled, headingNumberStart, headingNumberLevelKey]);
 
   // React の onClick だけでは Lexical に握られることがあるため、capture の pointerdown で拾う。
   useEffect(() => {

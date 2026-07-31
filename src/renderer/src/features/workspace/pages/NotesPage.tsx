@@ -10,7 +10,10 @@ import {
 } from "@tabler/icons-react";
 import {
   lazy,
+  startTransition,
   Suspense,
+  useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -174,7 +177,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
   const selectedUrl = selected ? str(selected.url || selected.source_url) : "";
   const selectedProperties = selected ? noteProperties(selected) : {};
-  const headingNumberOptions = headingNumberOptionsFromProperties(selectedProperties);
+  const headingNumberOptions = useMemo(
+    () => headingNumberOptionsFromProperties(selectedProperties),
+    [selectedProperties],
+  );
   const headingNumbersEnabled = headingNumberOptions.preview.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions.preview.headingNumberStart);
   const headingNumberLevels = normalizeHeadingNumberLevels(headingNumberOptions.preview.headingNumberLevels);
@@ -191,22 +197,33 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const markdownExportStale = Boolean(str(markdownExport?.bodySignature) && str(markdownExport?.bodySignature) !== currentExportSignature);
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && draftBody !== selectedBody);
-  const markdownHeadings = useMemo(() => extractMarkdownHeadings(draftBody), [draftBody]);
+  // Editのキー入力を最優先し、見出し索引など全文走査が必要な派生表示は後続レンダーへ送る。
+  const deferredDraftBody = useDeferredValue(draftBody);
+  const [indexedDraftBody, setIndexedDraftBody] = useState(draftBody);
+  const markdownHeadings = useMemo(() => extractMarkdownHeadings(indexedDraftBody), [indexedDraftBody]);
   const searchMatches = useMemo(
-    () => searchQuery.trim() ? findMarkdownMatches(draftBody, searchQuery) : [],
-    [draftBody, searchQuery],
+    () => searchOpen && searchQuery.trim() ? findMarkdownMatches(deferredDraftBody, searchQuery) : [],
+    [deferredDraftBody, searchOpen, searchQuery],
   );
   const markdownDiff = useMemo(
-    () => draftDirty ? diffMarkdownLines(selectedBody, draftBody) : [],
-    [draftBody, draftDirty, selectedBody],
+    () => diffOpen && draftDirty ? diffMarkdownLines(selectedBody, deferredDraftBody) : [],
+    [deferredDraftBody, diffOpen, draftDirty, selectedBody],
   );
   const markdownDiffHunks = useMemo(() => buildMarkdownDiffHunks(markdownDiff), [markdownDiff]);
   const markdownDiffMarkers = useMemo(() => buildMarkdownDiffMarkers(markdownDiff), [markdownDiff]);
-  const draftLineCount = useMemo(() => draftBody.replace(/\r\n?/g, "\n").split("\n").length, [draftBody]);
+  const draftLineCount = useMemo(
+    () => diffOpen ? deferredDraftBody.replace(/\r\n?/g, "\n").split("\n").length : 0,
+    [deferredDraftBody, diffOpen],
+  );
 
   useEffect(() => {
     setVisibleLimit(NOTES_RENDER_BATCH_SIZE);
   }, [normalizedQuery, scope, sortOrder]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIndexedDraftBody(draftBody), 240);
+    return () => window.clearTimeout(timer);
+  }, [draftBody]);
 
   useEffect(() => {
     if (visibleLimit >= visible.length) return;
@@ -319,6 +336,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   useEffect(() => {
     setDraftBody(normalizeRichEditorMarkdown(selectedBody));
+    setIndexedDraftBody(normalizeRichEditorMarkdown(selectedBody));
     setDraftState("");
     setDiffOpen(false);
     setSearchIndex(0);
@@ -339,8 +357,9 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
     const previous = snapshot.selected;
-    const body = snapshot.draftBody;
-    if (!previous || !(snapshot.draftDirty || body !== recordBody(previous))) return;
+    const liveBody = mdxMarkdownSourceRef.current?.();
+    const body = typeof liveBody === "string" ? liveBody : snapshot.draftBody;
+    if (!previous || body === recordBody(previous)) return;
     // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
     if (previous.recordType === "note" && !body.trim()) return;
     const { recordType, ...entity } = previous;
@@ -367,7 +386,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
         event.preventDefault();
-        const { selected: s, draftBody: body, draftDirty: dirty } = ctxRef.current;
+        const { selected: s, draftBody: stateBody } = ctxRef.current;
+        const liveBody = mdxMarkdownSourceRef.current?.();
+        const body = typeof liveBody === "string" ? liveBody : stateBody;
+        const dirty = Boolean(s && body !== recordBody(s));
         if (dirty && s) {
           if (s.recordType === "note" && !body.trim()) {
             setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
@@ -617,9 +639,23 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     }
   }
 
+  const updateRichEditorDraft = useCallback((value: string) => {
+    // Lexicalの入力・IME描画を先に確定し、全文由来のNotes表示更新は低優先度で追従させる。
+    startTransition(() => {
+      setDraftBody(value);
+      setDraftState((current) => current ? "" : current);
+    });
+  }, []);
+
+  const reportRichEditorError = useCallback((message: string) => {
+    setDraftState(`Markdownを読み込めませんでした。${message}`);
+  }, []);
+
   async function saveSelectedDraft() {
-    if (!selected || !draftDirty) return;
-    if (selected.recordType === "note" && !draftBody.trim()) {
+    const liveBody = mdxMarkdownSourceRef.current?.();
+    const body = typeof liveBody === "string" ? liveBody : draftBody;
+    if (!selected || body === selectedBody) return;
+    if (selected.recordType === "note" && !body.trim()) {
       setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
       return;
     }
@@ -628,7 +664,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       const { recordType, ...entity } = selected;
       await saveEntity(recordType, {
         ...entity,
-        body_markdown: draftBody,
+        body_markdown: body,
       });
       setDraftState("保存しました。");
     } catch (error) {
@@ -646,7 +682,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     scrollEl.scrollTo({ top: nextTop, behavior: "smooth" });
   }
 
-  function jumpToMarkdownHeading(heading: MarkdownHeadingItem) {
+  const jumpToMarkdownHeading = useCallback((heading: MarkdownHeadingItem) => {
     const panel = previewPanelRef.current;
     if (!panel) return;
     if (previewMode === "preview") {
@@ -668,7 +704,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     }
     const ta = textareaRef.current;
     if (!ta) return;
-    const lines = draftBody.split(/\r?\n/);
+    const lines = ctxRef.current.draftBody.split(/\r?\n/);
     let inCode = false;
     let count = 0;
     let found = -1;
@@ -695,7 +731,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     // 見出し行がビューポートの約 2/5 に来る位置へ
     const nextTop = Math.max(0, found * lineHeight - ta.clientHeight * 0.4);
     ta.scrollTo({ top: nextTop, behavior: "smooth" });
-  }
+  }, [previewMode]);
 
   async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_levels?: HeadingNumberLevel[] }) {
     if (!selected || selected.recordType !== "note") return;
@@ -1094,24 +1130,18 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   <MarkdownEditorBoundary
                     markdown={draftBody}
                     resetKey={selected.id}
-                    onChange={(value) => {
-                      setDraftBody(value);
-                      if (draftState) setDraftState("");
-                    }}
+                    onChange={updateRichEditorDraft}
                     onPaste={handleDraftPaste}
-                    onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
+                    onError={reportRichEditorError}
                   >
                     <Suspense fallback={<div className="note-editor-loading" role="status">エディタを読み込んでいます…</div>}>
                       <MarkdownRichEditor
                         markdown={draftBody}
                         headingNumberOptions={headingNumberOptions.preview}
                         markdownSourceRef={mdxMarkdownSourceRef}
-                        onChange={(value) => {
-                          setDraftBody(value);
-                          if (draftState) setDraftState("");
-                        }}
+                        onChange={updateRichEditorDraft}
                         onImageUpload={uploadEditorImage}
-                        onError={(message) => setDraftState(`Markdownを読み込めませんでした。${message}`)}
+                        onError={reportRichEditorError}
                       />
                     </Suspense>
                   </MarkdownEditorBoundary>
