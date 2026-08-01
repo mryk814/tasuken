@@ -14,6 +14,7 @@
     "build": "electron-vite build",
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
     "smoke:desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing . --smoke-test",
+    "bench:notes": "npm run build && node scripts/notes-performance.mjs",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
     "mcp": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/mcp-server.mjs",
     "rebuild:electron": "electron-rebuild --force -w better-sqlite3",
