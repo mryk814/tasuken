@@ -785,15 +785,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mdx-content th, .note-mdx-content td { padding: 4px var(--space-2); border-right: 1px solid var(--markdown-paper-border); border-bottom: 1px solid var(--markdown-paper-border); }
 .note-mdx-content th:last-child, .note-mdx-content td:last-child { border-right: 0; }
 .note-mdx-content tr:last-child td { border-bottom: 0; }
-.note-mdx-content th { background: color-mix(in srgb, var(--color-accent-subtle-bg) 44%, var(--markdown-paper)); color: var(--markdown-paper-text); font-weight: var(--weight-semibold); }
+.note-mdx-content th { background: var(--markdown-document-table-head-bg); color: var(--markdown-paper-text); font-weight: var(--weight-semibold); }
 .note-mdx-content td { background: var(--markdown-paper); }
 .note-mdx-content [class*="_tableEditor_"],
 .note-mdx-content [class*="_tableWrapper_"] { margin: var(--space-1) 0; }
 .note-mdx-content [class*="_tableColumnEditorTrigger_"],
 .note-mdx-content [class*="_tableRowEditorTrigger_"] { opacity: .28; transform: scale(.72); transform-origin: center; }
-.note-mdx-content pre { background: var(--markdown-paper-subtle); color: var(--markdown-paper-text); }
-.note-editor-math-inline { display: inline; padding: 0 .12em; color: var(--markdown-paper-text); vertical-align: baseline; }
-.note-editor-math-block { overflow-x: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-paper-border); border-radius: var(--radius-md); background: var(--markdown-paper-subtle); color: var(--markdown-paper-text); text-align: center; }
+.note-mdx-content pre { background: var(--markdown-document-code-bg); color: var(--markdown-paper-text); }
 .note-editor-math-clickable { cursor: pointer; transition: background var(--duration-fast) var(--ease), outline-color var(--duration-fast) var(--ease); outline: 1px solid transparent; outline-offset: 2px; }
 .note-editor-math-clickable:hover { background: var(--markdown-accent-bg); outline-color: var(--markdown-accent-bd); }
 .note-editor-math-editing.note-editor-math-block { display: flex; flex-direction: column; gap: var(--space-2); text-align: left; background: var(--markdown-paper-subtle); }
@@ -1199,8 +1197,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .notes-sort-field select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 .markdown-preview h1:first-child, .markdown-preview h2:first-child, .markdown-preview h3:first-child, .markdown-preview h4:first-child { margin-top: 0; }
 .markdown-preview h1 { padding-bottom: var(--space-2); border-bottom: 2px solid var(--markdown-accent-bd); font-size: var(--text-2xl); }
-.markdown-preview h2 { padding: var(--space-2) var(--space-3); border-left: 6px solid var(--markdown-accent); border-bottom: 2px solid var(--markdown-accent-bd); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 84%, var(--markdown-paper)); font-size: var(--text-xl); }
-.markdown-preview h3 { padding: 3px 0 3px var(--space-2); border-left: 4px solid color-mix(in srgb, var(--markdown-accent) 85%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-size: var(--text-xl); font-weight: var(--weight-bold); }
+.markdown-preview h2 { padding: var(--space-2) var(--space-3); border-left: 6px solid var(--markdown-accent); border-bottom: 2px solid var(--markdown-accent-bd); border-radius: var(--radius-sm); background: var(--markdown-document-heading-bg); font-size: var(--text-xl); }
+.markdown-preview h3 { padding: 3px 0 3px var(--space-2); border-left: 4px solid var(--markdown-document-heading-marker); color: var(--markdown-accent-strong); font-size: var(--text-xl); font-weight: var(--weight-bold); }
 .markdown-preview h4 { width: fit-content; max-width: 100%; padding: 2px 0; border-bottom: 1px solid var(--markdown-accent-bd); border-left: 0; border-radius: 0; background: transparent; color: var(--markdown-paper-text); font-size: var(--text-base); font-weight: var(--weight-semibold); }
 .markdown-preview p { margin: var(--space-2) 0; }
 /* Tailwind preflight が list-style:none にするので、Preview では明示的に戻す（編集面 note-mdx-content と同じ）。 */
@@ -1218,7 +1216,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview li { margin: 3px 0; display: list-item; }
 .markdown-preview li::marker { color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
 .markdown-preview del { text-decoration: line-through; }
-.markdown-preview blockquote { margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border-left: 3px solid var(--markdown-accent-bd); background: color-mix(in srgb, var(--markdown-accent-bg) 20%, var(--markdown-paper)); color: var(--markdown-paper-secondary); font-style: italic; }
+.markdown-preview blockquote { margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border-left: 3px solid var(--markdown-accent-bd); background: var(--markdown-document-quote-bg); color: var(--markdown-paper-secondary); font-style: italic; }
 .markdown-preview blockquote p { margin: var(--space-1) 0; }
 .markdown-preview .md-footnote-ref { font-size: .78em; vertical-align: super; line-height: 0; }
 .markdown-preview .md-footnote-ref a { text-decoration: none; }
@@ -1231,16 +1229,16 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mdx-content blockquote.md-callout {
   margin: var(--space-3) 0;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-warning-bd);
-  border-left: 4px solid var(--color-warning);
+  border: 1px solid var(--markdown-document-callout-border);
+  border-left: 4px solid var(--markdown-document-callout-marker);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-warning-bg) 82%, var(--markdown-paper));
+  background: var(--markdown-document-callout-bg);
   color: var(--markdown-paper-text);
   font-style: normal;
 }
 .markdown-preview .md-callout-label {
   margin: 0 0 var(--space-1);
-  color: var(--color-warning-strong);
+  color: var(--markdown-document-callout-label);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
@@ -1256,7 +1254,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 /* Edit: マーカー行。[!INSIGHT] 等の生記法は隠し、「MEMO」を表示（Markdown 本文は書き換えない） */
 .note-mdx-content blockquote.md-callout > .md-callout-marker {
   margin: 0 0 var(--space-1);
-  color: var(--color-warning-strong);
+  color: var(--markdown-document-callout-label);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
@@ -1266,7 +1264,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   position: relative;
   min-height: 1.2em;
   color: transparent;
-  caret-color: var(--color-warning-strong);
+  caret-color: var(--markdown-document-callout-label);
   user-select: text;
 }
 .note-mdx-content blockquote.md-callout > .md-callout-marker-only::before {
@@ -1274,7 +1272,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   position: absolute;
   left: 0;
   top: 0;
-  color: var(--color-warning-strong);
+  color: var(--markdown-document-callout-label);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
@@ -1284,7 +1282,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   content: attr(data-callout-label);
   display: block;
   margin: 0 0 var(--space-1);
-  color: var(--color-warning-strong);
+  color: var(--markdown-document-callout-label);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
@@ -1465,8 +1463,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
     max-height: min(520px, 70vh);
   }
 }
-.markdown-preview pre { overflow: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-accent-bd); border-radius: var(--radius-md); background: color-mix(in srgb, var(--markdown-accent-bg) 42%, var(--markdown-paper)); font: var(--text-xs)/1.62 var(--font-mono); white-space: pre-wrap; }
-.markdown-preview code { padding: 1px var(--space-1); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--markdown-accent-bg) 55%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-family: var(--font-mono); font-size: .92em; }
+.markdown-preview pre { overflow: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-document-block-border); border-radius: var(--radius-md); background: var(--markdown-document-code-bg); font: var(--text-xs)/1.62 var(--font-mono); white-space: pre-wrap; }
+.markdown-preview code { padding: 1px var(--space-1); border-radius: var(--radius-sm); background: var(--markdown-document-inline-code-bg); color: var(--markdown-accent-strong); font-family: var(--font-mono); font-size: .92em; }
 .markdown-preview pre code { padding: 0; background: transparent; color: inherit; font-size: inherit; }
 .markdown-preview pre.md-mermaid-block { overflow: auto; white-space: normal; }
 .markdown-preview pre.md-mermaid-block.is-mermaid-scrollable { max-height: min(720px, 72vh); }
@@ -1490,8 +1488,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .markdown-preview table { width: 100%; margin: var(--space-2) 0 var(--space-3); border-collapse: collapse; border-spacing: 0; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); overflow: hidden; font-size: var(--text-sm); }
 .markdown-preview th, .markdown-preview td { padding: 3px var(--space-2); border-bottom: 1px solid var(--color-border-subtle); text-align: left; vertical-align: top; }
 .markdown-preview tbody tr:last-child td { border-bottom: 0; }
-.markdown-preview th { border-bottom: 2px solid color-mix(in srgb, var(--markdown-accent-bd) 60%, var(--color-border-subtle)); background: color-mix(in srgb, var(--markdown-accent-bg) 44%, var(--markdown-paper)); color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
-.markdown-preview tr:nth-child(even) td { background: color-mix(in srgb, var(--markdown-accent-bg) 10%, var(--markdown-paper)); }
+.markdown-preview th { border-bottom: 2px solid var(--markdown-document-block-border); background: var(--markdown-document-table-head-bg); color: var(--markdown-accent-strong); font-weight: var(--weight-bold); }
+.markdown-preview tr:nth-child(even) td { background: var(--markdown-document-table-stripe-bg); }
 /* 画像は中央寄せ。指定幅は figure の width（inline）が正。img は figure 幅いっぱい。 */
 .markdown-preview .md-image {
   display: block;
@@ -1527,13 +1525,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   font-size: var(--text-xs);
   text-align: center;
 }
-.markdown-preview .md-math-inline { display: inline; padding: 0 .12em; color: var(--markdown-accent-strong); vertical-align: baseline; }
-.markdown-preview .md-math-block { overflow-x: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--markdown-accent-bd); border-radius: var(--radius-md); background: color-mix(in srgb, var(--markdown-accent-bg) 42%, var(--markdown-paper)); color: var(--markdown-accent-strong); line-height: 1.72; text-align: center; }
-.markdown-preview .md-math-inline .katex, .markdown-preview .md-math-block .katex { color: inherit; }
-.markdown-preview .md-math-block .katex-display { margin: 0; }
-.markdown-preview .md-math-operator { margin-right: 0.18em; font-style: normal; }
-.markdown-preview .md-math-inline sub, .markdown-preview .md-math-block sub { font-size: 0.68em; vertical-align: -0.35em; }
-.markdown-preview .md-math-inline sup, .markdown-preview .md-math-block sup { font-size: 0.68em; vertical-align: 0.55em; }
 /* MDXEditor が <u> で書き出した下線。PDF/Preview 共通で明示する（UA 依存にしない）。 */
 .markdown-preview u,
 .markdown-preview .md-underline,

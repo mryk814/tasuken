@@ -26,6 +26,7 @@ const markdown = await importBundled("src/renderer/src/features/workspace/lib/ma
 const markdownEditing = await importBundled("src/renderer/src/features/workspace/lib/markdownEditing.ts");
 const mermaidSizing = await importBundled("src/renderer/src/features/workspace/lib/mermaidSizing.ts");
 const mermaidWidth = await importBundled("src/renderer/src/features/workspace/lib/mermaidWidth.ts");
+const markdownSurfaceSource = readFileSync("src/renderer/src/features/workspace/lib/markdownDocumentSurfaces.ts", "utf8");
 
 test("Mermaid SVG presentation enlarges small diagrams without shrinking large ones", () => {
   assert.deepEqual(mermaidSizing.mermaidSvgPresentation("0 0 113.046875 174"), {
@@ -229,8 +230,15 @@ test("previewDocument styling stays aligned with markdown-preview tokens", () =>
     "markdown",
   );
   const previewCss = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  const rendererEntry = readFileSync("src/renderer/src/main.tsx", "utf8");
 
   assert.match(html, /class="markdown-document"/);
+  assert.match(rendererEntry, /installMarkdownDocumentSurfaces\(document\)/);
+  assert.match(markdownSurfaceSource, /target\.head\.prepend\(style\)/);
+  assert.match(html, /--markdown-document-math-bg:\s*#f6f4f1/);
+  assert.match(html, /--markdown-document-code-bg:\s*#f5f9fc/);
+  assert.match(html, /--markdown-document-quote-bg:\s*#fafcfd/);
+  assert.match(markdownSurfaceSource, /\.note-mdx-content,\s*\n\.markdown-preview,\s*\n\.markdown-document/);
   assert.match(html, /--markdown-accent:#2D7FB8/);
   assert.match(html, /--markdown-accent-bd:#C3DCEE/);
   assert.match(html, /--markdown-paper-secondary:#554b46/);
@@ -293,9 +301,11 @@ $$
   assert.match(doc, /class="katex-mathml"/);
   assert.match(doc, /class="katex-html"/);
   // ラッパーが Georgia 固定や inline-block で KaTeX の baseline を壊さない。
-  assert.match(doc, /\.markdown-document \.md-math-inline\{display:inline/);
+  assert.match(doc, /\.markdown-document \.md-math-inline\s*\{[\s\S]*?display:\s*inline/s);
   assert.doesNotMatch(doc, /\.md-math-inline\{[^}]*font-family:Georgia/);
   assert.match(doc, /\.markdown-document \.md-math-block\{\s*overflow:visible/s);
+  assert.match(doc, /\.markdown-document \.md-math-block\s*\{[\s\S]*?background:\s*var\(--markdown-document-math-bg\)/s);
+  assert.doesNotMatch(doc, /\.markdown-document \.md-math-block\s*\{[^}]*color-mix\(/s);
 });
 
 test("previewDocument includes print-safe Mermaid and higher-contrast text styling", () => {
@@ -712,7 +722,7 @@ test("markdown preview accepts GFM single-dash table separators from MDXEditor",
   assert.match(doc, /<table>/);
   assert.match(doc, /<th>Metric<\/th>/);
   assert.match(doc, /<td>Lead time<\/td>/);
-  assert.match(doc, /border:1px solid #C9D8E2/);
+  assert.match(doc, /border:1px solid var\(--markdown-document-block-border\)/);
   assert.doesNotMatch(doc, />Frontmatter</);
 });
 
@@ -1042,7 +1052,7 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   const doc = markdown.previewDocument("> [!INSIGHT]\n> PDFでも見える", "markdown");
   assert.match(doc, /class="md-callout"/);
   assert.match(doc, /\.markdown-document \.md-callout\{/);
-  assert.match(doc, /#C77D29/);
+  assert.match(doc, /--markdown-document-callout-marker:\s*#c77d29/i);
   assert.match(doc, /PDFでも見える/);
 
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");

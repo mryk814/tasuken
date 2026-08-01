@@ -32,6 +32,7 @@ import type {
 } from "mdast";
 import { KATEX_DOCUMENT_CSS } from "./katexDocumentCss";
 import { parseWikiLinks } from "./knowledgeLinks";
+import { MARKDOWN_DOCUMENT_SURFACES_CSS } from "./markdownDocumentSurfaces";
 import { mermaidWidthFromMeta } from "./mermaidWidth";
 
 /** MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。 */
@@ -956,10 +957,8 @@ export function applyHeadingNumberAttributes(
 
 /**
  * PDF / 成果物 iframe 用のスタンドアロン CSS。
- * 見た目の正本は app.css の `.markdown-preview`（＋ :root の --markdown-*）。
- * ここは data: URL で外部 CSS を読めないため、同じトークン値を埋め込み、
- * ページ枠（@page / padding / break-after）だけ印刷向けに足す。
- * 編集・Preview の見た目を変えたら、同じ差分をここにも反映すること。
+ * 文書面の色と数式スタイルは markdownDocumentSurfaces.ts を Edit / Preview と共有する。
+ * ここでは data: URL 用の基礎トークン、文書構造、A4 の余白と改ページだけを補う。
  */
 const MARKDOWN_DOCUMENT_CSS = `
 @page{size:A4;margin:18mm}
@@ -997,10 +996,10 @@ body{
 .markdown-document h1{padding-bottom:var(--md-space-2);border-bottom:2px solid var(--markdown-accent-bd);font-size:var(--md-text-2xl)}
 .markdown-document h2{
   padding:var(--md-space-2) var(--md-space-3);border-left:6px solid var(--markdown-accent);border-bottom:2px solid var(--markdown-accent-bd);
-  border-radius:var(--md-radius-sm);background:color-mix(in srgb,var(--markdown-accent-bg) 84%,var(--markdown-paper));font-size:var(--md-text-xl)
+  border-radius:var(--md-radius-sm);background:var(--markdown-document-heading-bg);font-size:var(--md-text-xl)
 }
 .markdown-document h3{
-  padding:3px 0 3px var(--md-space-2);border-left:4px solid color-mix(in srgb,var(--markdown-accent) 85%,var(--markdown-paper));
+  padding:3px 0 3px var(--md-space-2);border-left:4px solid var(--markdown-document-heading-marker);
   color:var(--markdown-accent-strong);font-size:var(--md-text-xl);font-weight:700
 }
 .markdown-document h4{
@@ -1021,31 +1020,31 @@ body{
 .markdown-document del{text-decoration:line-through}
 .markdown-document blockquote{
   margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border-left:3px solid var(--markdown-accent-bd);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 20%,var(--markdown-paper));color:var(--markdown-paper-secondary);font-style:italic
+  background:var(--markdown-document-quote-bg);color:var(--markdown-paper-secondary);font-style:italic
 }
 .markdown-document blockquote p{margin:var(--md-space-1) 0}
 .markdown-document .md-footnote-ref{font-size:.78em;vertical-align:super;line-height:0}
 .markdown-document .md-footnotes{margin-top:var(--md-space-5);padding-top:var(--md-space-2);border-top:1px solid var(--markdown-paper-border);color:var(--markdown-paper-secondary);font-size:var(--md-text-sm)}
 .markdown-document .md-footnotes h4{width:auto;margin:0 0 var(--md-space-1);padding:0;border:0;color:var(--markdown-paper-secondary);font-size:var(--md-text-sm)}
 .markdown-document .md-callout{
-  margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border:1px solid #EFD9B0;
-  border-left:4px solid #C77D29;border-radius:var(--md-radius-md);
-  background:color-mix(in srgb,#FBF0DD 78%,#fff);color:var(--markdown-paper-text);break-inside:avoid
+  margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border:1px solid var(--markdown-document-callout-border);
+  border-left:4px solid var(--markdown-document-callout-marker);border-radius:var(--md-radius-md);
+  background:var(--markdown-document-callout-bg);color:var(--markdown-paper-text);break-inside:avoid
 }
 .markdown-document .md-callout-label{
-  margin:0 0 var(--md-space-1);color:#8A5212;font-size:var(--md-text-xs);font-weight:700;letter-spacing:.02em
+  margin:0 0 var(--md-space-1);color:var(--markdown-document-callout-label);font-size:var(--md-text-xs);font-weight:700;letter-spacing:.02em
 }
 .markdown-document .md-callout-body > :first-child{margin-top:0}
 .markdown-document .md-callout-body > :last-child{margin-bottom:0}
 .markdown-document .md-callout p{margin:var(--md-space-1) 0;font-style:normal}
 .markdown-document hr{height:0;margin:var(--md-space-3) 0;border:0;border-top:1px solid var(--markdown-accent-bd)}
 .markdown-document pre{
-  overflow:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 42%,var(--markdown-paper));font:var(--md-text-xs)/1.62 var(--md-font-mono);white-space:pre-wrap
+  overflow:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-document-block-border);border-radius:var(--md-radius-md);
+  background:var(--markdown-document-code-bg);font:var(--md-text-xs)/1.62 var(--md-font-mono);white-space:pre-wrap
 }
 .markdown-document code{
   padding:1px var(--md-space-1);border-radius:var(--md-radius-sm);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 55%,var(--markdown-paper));color:var(--markdown-accent-strong);
+  background:var(--markdown-document-inline-code-bg);color:var(--markdown-accent-strong);
   font-family:var(--md-font-mono);font-size:.92em
 }
 .markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
@@ -1057,15 +1056,15 @@ body{
 /* 印刷でも枠が見えるようセル全周に border（overflow:hidden は printToPDF で欠けやすいので付けない） */
 .markdown-document table{
   width:100%;margin:var(--md-space-2) 0 var(--md-space-3);border-collapse:collapse;border-spacing:0;
-  border:1px solid #C9D8E2;font-size:var(--md-text-sm)
+  border:1px solid var(--markdown-document-block-border);font-size:var(--md-text-sm)
 }
 .markdown-document th,.markdown-document td{
-  padding:4px 8px;border:1px solid #C9D8E2;text-align:left;vertical-align:top;background:#fff
+  padding:4px 8px;border:1px solid var(--markdown-document-block-border);text-align:left;vertical-align:top;background:#fff
 }
 .markdown-document th{
-  background:color-mix(in srgb,var(--markdown-accent-bg) 44%,var(--markdown-paper));color:var(--markdown-accent-strong);font-weight:700
+  background:var(--markdown-document-table-head-bg);color:var(--markdown-accent-strong);font-weight:700
 }
-.markdown-document tr:nth-child(even) td{background:color-mix(in srgb,var(--markdown-accent-bg) 10%,var(--markdown-paper))}
+.markdown-document tr:nth-child(even) td{background:var(--markdown-document-table-stripe-bg)}
 .markdown-document u,.markdown-document .md-underline{
   text-decoration:underline;text-decoration-thickness:from-font;text-underline-offset:2px;text-decoration-skip-ink:none
 }
@@ -1096,16 +1095,7 @@ body{
   padding:var(--md-space-3);border:1px dashed var(--markdown-paper-border);border-radius:var(--md-radius-md);
   background:var(--markdown-paper-subtle);color:var(--markdown-paper-secondary)
 }
-.markdown-document .md-math-inline{display:inline;padding:0 .12em;color:var(--markdown-accent-strong);vertical-align:baseline}
-.markdown-document .md-math-block{
-  overflow:visible;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 42%,var(--markdown-paper));color:var(--markdown-accent-strong);line-height:1.72;text-align:center
-}
-.markdown-document .md-math-inline .katex,.markdown-document .md-math-block .katex{color:inherit}
-.markdown-document .md-math-block .katex-display{margin:0}
-.markdown-document .md-math-operator{margin-right:.18em;font-style:normal}
-.markdown-document .md-math-inline sub,.markdown-document .md-math-block sub{font-size:.68em;vertical-align:-.35em}
-.markdown-document .md-math-inline sup,.markdown-document .md-math-block sup{font-size:.68em;vertical-align:.55em}
+.markdown-document .md-math-block{overflow:visible;break-inside:avoid}
 `;
 
 export function renderMarkdownPreview(value: string, options: MarkdownRenderOptions = {}): string {
@@ -1150,7 +1140,7 @@ export function previewHtml(body: string, format: string, options: MarkdownRende
 export function previewDocument(body: string, format: string, options: MarkdownRenderOptions = {}): string {
   // PDF / 成果物iframe は完成文書ビューなので frontmatter を本文に出さない（メタは編集画面側で確認）。
   const resolved: MarkdownRenderOptions = { ...options, showFrontmatter: options.showFrontmatter ?? false };
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${KATEX_DOCUMENT_CSS}${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format, resolved)}</main></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${KATEX_DOCUMENT_CSS}${MARKDOWN_DOCUMENT_SURFACES_CSS}${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format, resolved)}</main></body></html>`;
 }
 
 export function renderedText(body: string, format: string): string {
