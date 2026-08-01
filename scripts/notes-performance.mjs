@@ -6,6 +6,7 @@ import path from "node:path";
 const appDirectory = path.resolve(process.cwd());
 const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), "tasken-notes-performance-"));
 const sampleCount = 36;
+const interactive = process.argv.includes("--interactive");
 
 function percentile(values, ratio) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -180,6 +181,20 @@ try {
     }
   }, cases);
   await page.reload();
+
+  if (interactive) {
+    await openNote(page, "Kitchen sink note");
+    console.log(JSON.stringify({
+      interactive: true,
+      userDataDirectory,
+      openNote: "Kitchen sink note",
+      notes: cases.map(({ title, body }) => ({ title, markdownCharacters: body.length })),
+    }, null, 2));
+    await new Promise((resolve) => app.process().once("exit", resolve));
+    app = undefined;
+    await rm(userDataDirectory, { recursive: true, force: true });
+    process.exit(0);
+  }
 
   const results = [];
   for (const benchmarkCase of cases) {
