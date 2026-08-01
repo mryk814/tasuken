@@ -154,6 +154,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const selectedBody = selected ? recordBody(selected) : "";
   // 初回描画を空本文→実本文の二段階にせず、Preview/Editの再構築を一度にする。
   const [draftBody, setDraftBody] = useState(() => normalizeRichEditorMarkdown(selectedBody));
+  const [richEditorDirty, setRichEditorDirty] = useState(false);
   const [draftState, setDraftState] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -167,6 +168,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const previewPanelRef = useRef<HTMLElement | null>(null);
   const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
+  const selectedBodyRef = useRef(selectedBody);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const selectedKind = selected ? recordKind(selected) : null;
   // Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
@@ -196,7 +198,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   const currentExportSignature = noteExportSignature(selectedBody);
   const markdownExportStale = Boolean(str(markdownExport?.bodySignature) && str(markdownExport?.bodySignature) !== currentExportSignature);
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
-  const draftDirty = Boolean(selected && draftBody !== selectedBody);
+  const draftDirty = Boolean(selected && (richEditorDirty || draftBody !== selectedBody));
   // Editのキー入力を最優先し、見出し索引など全文走査が必要な派生表示は後続レンダーへ送る。
   const deferredDraftBody = useDeferredValue(draftBody);
   const [indexedDraftBody, setIndexedDraftBody] = useState(draftBody);
@@ -335,8 +337,10 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
   }, [searchOpen, searchQuery, previewMode, draftBody]);
 
   useEffect(() => {
+    selectedBodyRef.current = selectedBody;
     setDraftBody(normalizeRichEditorMarkdown(selectedBody));
     setIndexedDraftBody(normalizeRichEditorMarkdown(selectedBody));
+    setRichEditorDirty(false);
     setDraftState("");
     setDiffOpen(false);
     setSearchIndex(0);
@@ -380,6 +384,8 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
+        const liveBody = mdxMarkdownSourceRef.current?.();
+        if (typeof liveBody === "string") setDraftBody(liveBody);
         setSearchOpen(true);
         window.requestAnimationFrame(() => searchInputRef.current?.focus());
         return;
@@ -398,7 +404,12 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
           setDraftState("保存しています。");
           const { recordType, ...entity } = s;
           saveEntity(recordType, { ...entity, body_markdown: body })
-            .then(() => setDraftState("保存しました。"))
+            .then(() => {
+              selectedBodyRef.current = body;
+              setDraftBody(body);
+              setRichEditorDirty(false);
+              setDraftState("保存しました。");
+            })
             .catch((error: unknown) => setDraftState(error instanceof Error ? error.message : "保存できませんでした。"));
         }
       }
@@ -450,7 +461,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
 
   async function copySelectedRaw() {
     if (!selected) return;
-    await workspaceApi.copyText(effectiveBody);
+    await workspaceApi.copyText(currentDraftBody());
     setToast("本文をコピーしました。");
   }
 
@@ -589,6 +600,14 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     restoreModeScroll(nextMode, scrollState);
   }
 
+  function currentDraftBody(): string {
+    if (previewMode === "edit") {
+      const liveBody = mdxMarkdownSourceRef.current?.();
+      if (typeof liveBody === "string") return liveBody;
+    }
+    return effectiveBody;
+  }
+
   function insertDraftMarkdown(markdown: string, selectionStart: number, selectionEnd: number) {
     setDraftBody((current) => `${current.slice(0, selectionStart)}${markdown}${current.slice(selectionEnd)}`);
     window.setTimeout(() => {
@@ -622,7 +641,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     }
   }
 
-  async function uploadEditorImage(image: File): Promise<string> {
+  const uploadEditorImage = useCallback(async (image: File): Promise<string> => {
     setDraftState("画像を保存しています。");
     try {
       const result = await workspaceApi.saveMarkdownImageAttachment({
@@ -637,14 +656,19 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
       setDraftState(message);
       throw new Error(message);
     }
-  }
+  }, []);
 
   const updateRichEditorDraft = useCallback((value: string) => {
     // Lexicalの入力・IME描画を先に確定し、全文由来のNotes表示更新は低優先度で追従させる。
     startTransition(() => {
       setDraftBody(value);
+      setRichEditorDirty(value !== selectedBodyRef.current);
       setDraftState((current) => current ? "" : current);
     });
+  }, []);
+
+  const markRichEditorDirty = useCallback(() => {
+    setRichEditorDirty(true);
   }, []);
 
   const reportRichEditorError = useCallback((message: string) => {
@@ -666,6 +690,9 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         ...entity,
         body_markdown: body,
       });
+      selectedBodyRef.current = body;
+      setDraftBody(body);
+      setRichEditorDirty(false);
       setDraftState("保存しました。");
     } catch (error) {
       setDraftState(error instanceof Error ? error.message : "保存できませんでした。");
@@ -775,7 +802,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     if (!selected || !showDocumentPublish) return;
     setMarkdownExporting(true);
     try {
-      const bodyForExport = draftBody || selectedBody;
+      const bodyForExport = currentDraftBody() || selectedBody;
       const content = publishMarkdownContent(selected, selectedTheme?.name || "", bodyForExport);
       const result = await workspaceApi.exportMarkdownFile({
         title: str(selected.title),
@@ -813,7 +840,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     if (!selected || !showDocumentPublish) return;
     setPdfExporting(true);
     try {
-      const content = publishMarkdownContent(selected, selectedTheme?.name || "", draftBody || selectedBody);
+      const content = publishMarkdownContent(selected, selectedTheme?.name || "", currentDraftBody() || selectedBody);
       const result = await workspaceApi.exportMarkdownPdf({
         title: str(selected.title),
         html: await renderMermaidDocumentForPdf(previewDocument(content, "markdown", headingNumberOptions.publish)),
@@ -964,6 +991,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                   <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
                   <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
                     setDraftBody(selectedBody);
+                    setRichEditorDirty(false);
                     setDraftState("変更を戻しました。");
                   }}>戻す</button>
                   <button className="primary-button compact" disabled={!draftDirty} onClick={saveSelectedDraft} title="Ctrl+S">保存</button>
@@ -1018,7 +1046,13 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                     className={`secondary-button compact ${diffOpen ? "is-active" : ""}`}
                     disabled={!draftDirty}
                     aria-pressed={diffOpen}
-                    onClick={() => setDiffOpen((current) => !current)}
+                    onClick={() => {
+                      if (!diffOpen) {
+                        const liveBody = mdxMarkdownSourceRef.current?.();
+                        if (typeof liveBody === "string") setDraftBody(liveBody);
+                      }
+                      setDiffOpen((current) => !current);
+                    }}
                   >
                     {markdownDiffHunks.length ? `変更 ${markdownDiffHunks.length}か所` : "変更を確認"}
                   </button>
@@ -1141,6 +1175,7 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
                         headingNumberOptions={headingNumberOptions.preview}
                         markdownSourceRef={mdxMarkdownSourceRef}
                         onChange={updateRichEditorDraft}
+                        onDirty={markRichEditorDirty}
                         onImageUpload={uploadEditorImage}
                         onError={reportRichEditorError}
                       />

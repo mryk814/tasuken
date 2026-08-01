@@ -42,7 +42,7 @@ index 74f8245..c1d391e 100644
          setMarkdown: (markdown) => {
            realm.pub(setMarkdown$, markdown);
 diff --git a/node_modules/@mdxeditor/editor/dist/plugins/core/index.js b/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
-index 74b65d4..b8302bf 100644
+index 74b65d4..fa1794d 100644
 --- a/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
 +++ b/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
 @@ -257,14 +257,13 @@ const createRootEditorSubscription$ = Appender(rootEditorSubscriptions$, (r, sig
@@ -83,7 +83,7 @@ index 74b65d4..b8302bf 100644
 +          if (state !== null) {
 +            exportEditorState(state);
 +          }
-+        }, 300);
++        }, 1200);
        });
 +      return () => {
 +        if (exportTimer !== null) {

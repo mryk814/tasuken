@@ -1,7 +1,7 @@
 import { $isCodeBlockNode, CodeMirrorEditor, useCodeBlockEditorContext, type CodeBlockEditorDescriptor, type CodeBlockEditorProps } from "@mdxeditor/editor";
 import { EditorView } from "@codemirror/view";
 import { $getNodeByKey, type LexicalNode } from "lexical";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 import { $isMarkdownMathNode, $selectMathNode } from "./markdownMathPlugin";
 
@@ -72,6 +72,27 @@ export function MarkdownCodeBlockNavigation({ nodeKey, children }: { nodeKey: st
 }
 
 export function MarkdownCodeBlockEditor(props: CodeBlockEditorProps) {
+  const [active, setActive] = useState(false);
+
+  if (!active) {
+    return (
+      <div
+        className="note-code-block-placeholder"
+        role="button"
+        tabIndex={0}
+        aria-label="コードブロックを編集"
+        title="クリックして編集"
+        onClick={() => setActive(true)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          setActive(true);
+        }}
+      >
+        <pre><code>{props.code}</code></pre>
+      </div>
+    );
+  }
   return (
     <MarkdownCodeBlockNavigation nodeKey={props.nodeKey}>
       <CodeMirrorEditor {...props} />

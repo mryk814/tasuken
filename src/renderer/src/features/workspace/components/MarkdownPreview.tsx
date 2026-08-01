@@ -1,6 +1,6 @@
 import { useEffect, useRef, type MouseEventHandler, type Ref, type UIEventHandler } from "react";
 
-import { renderMermaidBlocks } from "../lib/mermaid";
+import { renderMermaidBlock, renderMermaidBlocks } from "../lib/mermaid";
 
 export function MarkdownPreview({
   html,
@@ -26,15 +26,31 @@ export function MarkdownPreview({
     if (!nodes.length) return;
 
     let active = true;
-    void Promise.resolve().then(async () => {
+    const renderNode = (node: HTMLElement) => {
       if (!active || renderVersionRef.current !== version) return;
-      await renderMermaidBlocks(root);
-    }).catch(() => {
-      if (active && renderVersionRef.current === version) nodes.forEach((node) => node.classList.add("has-render-error"));
-    });
+      void renderMermaidBlock(node).catch(() => {
+        if (active && renderVersionRef.current === version) node.classList.add("has-render-error");
+      });
+    };
+    let observer: IntersectionObserver | null = null;
+    if ("IntersectionObserver" in window) {
+      observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          observer?.unobserve(entry.target);
+          renderNode(entry.target as HTMLElement);
+        }
+      }, { rootMargin: "700px 0px" });
+      nodes.forEach((node) => observer?.observe(node));
+    } else {
+      void renderMermaidBlocks(root).catch(() => {
+        if (active && renderVersionRef.current === version) nodes.forEach((node) => node.classList.add("has-render-error"));
+      });
+    }
 
     return () => {
       active = false;
+      observer?.disconnect();
       renderVersionRef.current += 1;
     };
   }, [html]);

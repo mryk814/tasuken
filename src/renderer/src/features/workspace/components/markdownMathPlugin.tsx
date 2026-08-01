@@ -30,7 +30,9 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  createCommand,
   COMMAND_PRIORITY_HIGH,
+  COMMAND_PRIORITY_LOW,
   DecoratorNode,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
@@ -68,11 +70,14 @@ export function $isMarkdownMathNode(node: LexicalNode | null | undefined): node 
 }
 
 const MATH_AUTOSAVE_MS = 350;
+type OpenMathEditorPayload = {
+  nodeKey: NodeKey;
+  caret: "start" | "end" | "all";
+};
+const OPEN_MATH_EDITOR_COMMAND = createCommand<OpenMathEditorPayload>("OPEN_MATH_EDITOR_COMMAND");
+const pendingMathEntryCaret = new Map<NodeKey, OpenMathEditorPayload["caret"]>();
 
-/** 矢印で数式へ入るときのキャレット位置（キー → start/end） */
-const pendingMathEntryCaret = new Map<NodeKey, "start" | "end" | "all">();
-
-export function $selectMathNode(node: MarkdownMathNode, caret: "start" | "end" | "all" = "all"): void {
+export function $selectMathNode(node: MarkdownMathNode, caret: OpenMathEditorPayload["caret"] = "all"): void {
   pendingMathEntryCaret.set(node.getKey(), caret);
   const selection = $createNodeSelection();
   selection.add(node.getKey());
@@ -242,6 +247,24 @@ function MarkdownMathKeyboardPlugin() {
         },
         COMMAND_PRIORITY_HIGH,
       ),
+      // 数式ごとの update listener は長文中の数式数に比例して毎キー実行される。
+      // rootに1つだけ置き、数式選択を作った操作時だけ対象ノードへcommandを届ける。
+      editor.registerUpdateListener(({ editorState }) => {
+        let payload: OpenMathEditorPayload | null = null;
+        editorState.read(() => {
+          const selection = $getSelection();
+          if (!$isNodeSelection(selection)) return;
+          const [node] = selection.getNodes();
+          if (!$isMarkdownMathNode(node)) return;
+          const caret = pendingMathEntryCaret.get(node.getKey());
+          if (!caret) return;
+          pendingMathEntryCaret.delete(node.getKey());
+          payload = { nodeKey: node.getKey(), caret };
+        });
+        if (payload) {
+          queueMicrotask(() => editor.dispatchCommand(OPEN_MATH_EDITOR_COMMAND, payload as OpenMathEditorPayload));
+        }
+      }),
     );
   }, [editor]);
 
@@ -271,20 +294,20 @@ function MathNodeView({
     if (!editing) setDraft(expression);
   }, [expression, editing]);
 
-  // NodeSelection（矢印で数式に到達）したら編集モードへ。
+  // NodeSelection の全更新監視はせず、矢印で数式へ入った時の command だけを受け取る。
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState }) => {
-      editorState.read(() => {
-        const selection = $getSelection();
-        if (!$isNodeSelection(selection) || !selection.has(nodeKey)) return;
-        const caret = pendingMathEntryCaret.get(nodeKey) ?? "all";
-        pendingMathEntryCaret.delete(nodeKey);
+    return editor.registerCommand(
+      OPEN_MATH_EDITOR_COMMAND,
+      ({ nodeKey: targetNodeKey, caret }) => {
+        if (targetNodeKey !== nodeKey) return false;
         closingRef.current = false;
         setDraft(expression);
         setEntryCaret(caret);
         setEditing(true);
-      });
-    });
+        return true;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
   }, [editor, expression, nodeKey]);
 
   const focusInput = useCallback((el: HTMLTextAreaElement | HTMLInputElement | null) => {
@@ -599,6 +622,12 @@ function hasTransformableMarkdownMath(): boolean {
   return inlineTargets.length > 0;
 }
 
+function textContainsTransformableMarkdownMath(text: string): boolean {
+  if (!text.includes("$")) return false;
+  if (BLOCK_MATH_PATTERN.test(text) || text.trim() === "$$") return true;
+  return hasInlineMathDelimiter(text);
+}
+
 function createPlainParagraphs(text: string): ParagraphNode[] {
   return text
     .split(/\n+/)
@@ -761,7 +790,29 @@ function MarkdownMathComposerPlugin() {
     }
 
     scheduleTransform();
-    const unregister = editor.registerUpdateListener(scheduleTransform);
+    const unregister = editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, editorState }) => {
+      let hasCandidate = false;
+      editorState.read(() => {
+        for (const nodeKey of dirtyLeaves.keys()) {
+          const node = $getNodeByKey(nodeKey);
+          if ($isTextNode(node) && textContainsTransformableMarkdownMath(node.getTextContent())) {
+            hasCandidate = true;
+            return;
+          }
+        }
+        for (const nodeKey of dirtyElements.keys()) {
+          if (nodeKey === "root") continue;
+          const node = $getNodeByKey(nodeKey);
+          if (node && textContainsTransformableMarkdownMath(node.getTextContent())) {
+            hasCandidate = true;
+            return;
+          }
+        }
+        // setMarkdown / 複数ブロック貼り付けなど、rootだけが構造変更された更新は一度確認する。
+        if (!dirtyLeaves.size && dirtyElements.has("root")) hasCandidate = true;
+      });
+      if (hasCandidate) scheduleTransform();
+    });
     return () => {
       unregister();
       if (pendingFrame !== null) {

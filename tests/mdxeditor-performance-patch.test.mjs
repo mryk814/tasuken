@@ -11,7 +11,7 @@ test("MDXEditor defers whole-document Markdown export while typing", () => {
   assert.equal(packageJson.devDependencies["patch-package"], "^8.0.1");
   assert.match(patch, /pendingEditorState = editorState/);
   assert.match(patch, /clearTimeout\(exportTimer\)/);
-  assert.match(patch, /\}, 300\)/);
+  assert.match(patch, /\}, 1200\)/);
 });
 
 test("MDXEditor getMarkdown still exports the current Lexical tree for immediate saves", () => {

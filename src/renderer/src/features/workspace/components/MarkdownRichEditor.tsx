@@ -68,6 +68,7 @@ import {
   mermaidWidthFromMeta,
   withMermaidWidthMeta,
 } from "../lib/mermaidWidth";
+import { markMermaidEditorInput } from "../lib/mermaid";
 import {
   applyCalloutDecorations,
   applyHeadingNumberAttributes,
@@ -93,9 +94,12 @@ type MarkdownRichEditorProps = {
   onChange: (value: string) => void;
   onImageUpload: (file: File) => Promise<string>;
   onError: (message: string) => void;
+  onDirty?: () => void;
   headingNumberOptions?: MarkdownRenderOptions;
   markdownSourceRef?: { current: (() => string) | null };
 };
+
+const LONG_DOCUMENT_SPELLCHECK_LIMIT = 20_000;
 
 function InsertMemoCalloutButton({ onInsert }: { onInsert: () => void }) {
   return (
@@ -362,6 +366,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onChange,
   onImageUpload,
   onError,
+  onDirty,
   headingNumberOptions,
   markdownSourceRef,
 }: MarkdownRichEditorProps) {
@@ -382,6 +387,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const onImageUploadRef = useRef(onImageUpload);
   const mountedRef = useRef(false);
   const editorMarkdown = escapeAmbiguousMarkdownComparisons(markdown);
+  const spellCheck = markdown.length < LONG_DOCUMENT_SPELLCHECK_LIMIT;
   onImageUploadRef.current = onImageUpload;
 
   useEffect(() => {
@@ -712,6 +718,10 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
       ref={editorScopeRef}
       className="note-live-editor-paste-scope"
       onKeyDownCapture={(event) => handleCalloutMarkerEnter(event, editorScopeRef.current)}
+      onInputCapture={() => {
+        markMermaidEditorInput();
+        onDirty?.();
+      }}
       onPasteCapture={handleRichEditorPaste}
     >
       <MDXEditor
@@ -730,7 +740,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
           onError(error);
         }}
         plugins={plugins}
-        spellCheck
+        spellCheck={spellCheck}
       />
       {hoverLink && (
         <div

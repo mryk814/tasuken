@@ -680,6 +680,14 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   height: auto;
   overflow: visible;
 }
+/*
+ * 長文Editでは画面外のtop-level blockをlayout/paint対象から外す。
+ * 自然高の推定値を保持するため、スクロール位置と選択範囲は変えない。
+ */
+.note-mdx-content[contenteditable="true"] > * {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 1.6rem;
+}
 .note-mdx-content:focus, .note-mdx-content:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
 /* 表セル内ネスト editor も IME 基準を崩さない */
 .note-mdx-content [class*="_tableEditor_"] [contenteditable="true"] {
@@ -711,6 +719,15 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .note-mdx-content [class*="_codeMirrorWrapper_"],
 .note-mdx-content .cm-editor { width: 100%; min-width: 0; box-sizing: border-box; }
+.note-code-block-placeholder {
+  width: 100%;
+  min-width: 0;
+  cursor: text;
+}
+.note-code-block-placeholder pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
 /*
  * 表示サイズは HTML width 属性（MDX が保存する値）を正とする。
  * width:auto を書くと属性が無効化され、Edit 再入場時だけ全幅に見える。
