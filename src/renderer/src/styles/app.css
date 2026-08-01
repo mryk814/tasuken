@@ -712,6 +712,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 /* CodeBlock は本文幅を使う。decorator 共通の inline-block 縮小を適用しない。 */
 .note-mdx-content [data-lexical-decorator="true"]:has(.cm-editor),
+.note-mdx-content [data-lexical-decorator="true"]:has(.note-code-block-placeholder),
 .note-mdx-content [data-lexical-decorator="true"]:has(.note-mermaid-code-block) {
   display: block;
   width: 100%;
@@ -720,6 +721,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mdx-content [class*="_codeMirrorWrapper_"],
 .note-mdx-content .cm-editor { width: 100%; min-width: 0; box-sizing: border-box; }
 .note-code-block-placeholder {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   cursor: text;

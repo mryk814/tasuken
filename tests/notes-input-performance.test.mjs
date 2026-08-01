@@ -26,6 +26,7 @@ test("long rich notes keep whole-document and per-decorator work off each keystr
 test("heavy decorators activate only near or during the user's current work", () => {
   assert.match(codeBlockEditor, /note-code-block-placeholder/);
   assert.match(codeBlockEditor, /onClick=\{\(\) => setActive\(true\)\}/);
+  assert.match(css, /data-lexical-decorator="true"\]:has\(\.note-code-block-placeholder\)/);
   assert.match(markdownPreview, /IntersectionObserver/);
   assert.match(markdownPreview, /rootMargin:\s*"700px 0px"/);
   assert.match(mermaid, /waitForMermaidRenderIdle/);
