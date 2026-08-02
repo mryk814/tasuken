@@ -48,6 +48,7 @@
 | Command Palette | `Ctrl+Shift+K`またはタイトルバーから開く共通操作入口。コマンドとTask / Note / Theme / Resource / Artifactを横断検索する |
 | Context Pack | Theme内で明示選択したTask / Note / Resource / Artifactと依頼文を、AIへ渡すMarkdown Snapshotとしてコピー・保存する |
 | Draft Workspace | AI原稿をSource Draft、通常Note本文をWorking Draftとして保持し、Source / Edit / Diff / 軽量Snapshotを切り替えるNotes内の作業面 |
+| Daily Scratchpad | 日付ごとに一枚だけ作る分類前の作業メモ。TodayまたはCommand Paletteから開き、通常Noteとして自動保存する。Activity Logへ全文を自動転記しない |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
 | イナズマ線 | Timelineの進捗折れ線。状態（未着手/進行中/完了）から到達度を導いて描く |
 | テーマチップス | Themeカラー付きの小さなタグ表示。ユーザー評価が高く、他所への展開候補 |

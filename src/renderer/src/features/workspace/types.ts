@@ -324,6 +324,7 @@ export type ContentViewerTarget =
 
 export type OpenContentViewer = (target: ContentViewerTarget) => void;
 export type OpenContextPack = (themeId: string) => void;
+export type OpenDailyScratchpad = (date?: string) => void;
 
 export interface PageProps {
   data: WorkspaceData;
@@ -340,6 +341,7 @@ export interface PageProps {
   openDrawer: OpenDrawer;
   openContentViewer: OpenContentViewer;
   openContextPack: OpenContextPack;
+  openDailyScratchpad: OpenDailyScratchpad;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
   removeEntity: RemoveEntity;
