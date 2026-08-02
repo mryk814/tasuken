@@ -2,19 +2,25 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconArrowUpRight,
+  IconArrowsLeftRight,
   IconChevronDown,
   IconCircle,
+  IconDiamond,
   IconEraser,
   IconGridDots,
   IconHandMove,
   IconHighlight,
   IconLasso,
   IconLine,
+  IconLineDashed,
   IconMaximize,
+  IconMessage,
+  IconNote,
   IconPhoto,
   IconPointer,
   IconPlus,
   IconRectangle,
+  IconSquareRounded,
   IconShape,
   IconSparkles,
   IconTextSize,
@@ -41,6 +47,7 @@ import {
   sketchCanvasMode,
   sketchPageToSvg,
   type SketchDocument,
+  type SketchEraserMode,
   type SketchObject,
   type SketchPage,
   type SketchPoint,
@@ -64,8 +71,13 @@ const SHAPE_ITEMS: Array<{ id: SketchShapeKind; label: string; icon: typeof Icon
   { id: "auto", label: "自動", icon: IconSparkles },
   { id: "line", label: "線", icon: IconLine },
   { id: "rectangle", label: "四角", icon: IconRectangle },
+  { id: "rounded_rectangle", label: "角丸四角", icon: IconSquareRounded },
   { id: "ellipse", label: "円・楕円", icon: IconCircle },
   { id: "triangle", label: "三角", icon: IconTriangle },
+  { id: "diamond", label: "ひし形", icon: IconDiamond },
+  { id: "sticky_note", label: "付箋", icon: IconNote },
+  { id: "callout", label: "吹き出し", icon: IconMessage },
+  { id: "bidirectional_arrow", label: "両矢印", icon: IconArrowsLeftRight },
 ];
 const TOOL_ITEMS: Array<{ id: SketchTool; label: string; icon: typeof IconPointer }> = [
   { id: "select", label: "選択", icon: IconPointer },
@@ -116,6 +128,8 @@ export function SketchPage({
   const activePreset = toolPresets[activePresetTool];
   const [storedShapeKind, setShapeKind] = usePersistentState<SketchShapeKind>("sketch:shape-kind:v1", "auto");
   const shapeKind = SHAPE_ITEMS.some((item) => item.id === storedShapeKind) ? storedShapeKind : "auto";
+  const [eraserMode, setEraserMode] = usePersistentState<SketchEraserMode>("sketch:eraser-mode:v1", "partial");
+  const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
   const [zoom, setZoom] = useState(0.82);
   const [saveState, setSaveState] = useState("保存済み");
   const [dirty, setDirty] = useState(false);
@@ -384,21 +398,65 @@ export function SketchPage({
           })}
         </div>
         {tool === "shape" && (
-          <div className="sketch-tool-group is-shapes" aria-label="図形の種類">
-            {SHAPE_ITEMS.map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  className={shapeKind === item.id ? "is-active" : ""}
-                  aria-pressed={shapeKind === item.id}
-                  onClick={() => setShapeKind(item.id)}
-                  title={item.label}
-                >
-                  <Icon size={18} />
-                </button>
-              );
-            })}
+          <div className="sketch-tool-group sketch-shape-picker">
+            <button
+              className="sketch-shape-picker-trigger is-active"
+              aria-haspopup="menu"
+              aria-expanded={shapeMenuOpen}
+              onClick={() => setShapeMenuOpen((value) => !value)}
+              title="図形の種類"
+            >
+              {(() => {
+                const CurrentIcon = SHAPE_ITEMS.find((item) => item.id === shapeKind)?.icon || IconShape;
+                return <CurrentIcon size={18} />;
+              })()}
+              <span>{SHAPE_ITEMS.find((item) => item.id === shapeKind)?.label}</span>
+              <IconChevronDown size={14} />
+            </button>
+            {shapeMenuOpen && (
+              <div className="sketch-shape-popover" role="menu" aria-label="図形の種類">
+                {SHAPE_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      role="menuitemradio"
+                      aria-checked={shapeKind === item.id}
+                      className={shapeKind === item.id ? "is-active" : ""}
+                      onClick={() => {
+                        setShapeKind(item.id);
+                        setShapeMenuOpen(false);
+                      }}
+                    >
+                      <Icon size={18} />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        {tool === "eraser" && (
+          <div className="sketch-tool-group is-eraser-modes" aria-label="消しゴムの種類">
+            <button
+              className={eraserMode === "partial" ? "is-active" : ""}
+              aria-pressed={eraserMode === "partial"}
+              onClick={() => setEraserMode("partial")}
+              title="線の触れた部分だけを消す"
+            >
+              <IconLineDashed size={18} />
+              <span>部分消し</span>
+            </button>
+            <button
+              className={eraserMode === "stroke" ? "is-active" : ""}
+              aria-pressed={eraserMode === "stroke"}
+              onClick={() => setEraserMode("stroke")}
+              title="触れた線やオブジェクトをまとめて消す"
+            >
+              <IconEraser size={18} />
+              <span>線ごと</span>
+            </button>
           </div>
         )}
         {isSketchPresetTool(tool) && tool !== "eraser" && (
@@ -472,6 +530,7 @@ export function SketchPage({
             color={activePreset.color}
             strokeWidth={activePreset.width}
             shapeKind={shapeKind}
+            eraserMode={eraserMode}
             zoom={zoom}
             onZoom={setZoom}
             onChange={changePage}

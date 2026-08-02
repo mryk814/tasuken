@@ -15,6 +15,7 @@ import { anchoredSketchScroll, sketchZoomFromWheel } from "../lib/sketchNavigati
 import {
   combinedObjectBounds,
   drawSketchPage,
+  eraseSketchObjects,
   hitTest,
   lassoSelection,
   moveSketchObjectsToLayer,
@@ -26,6 +27,7 @@ import {
   translateObject,
   type SketchAlignmentGuides,
   type SketchBounds,
+  type SketchEraserMode,
   type SketchObject,
   type SketchPage,
   type SketchPoint,
@@ -40,6 +42,7 @@ interface SketchCanvasProps {
   color: string;
   strokeWidth: number;
   shapeKind: SketchShapeKind;
+  eraserMode: SketchEraserMode;
   zoom: number;
   onZoom(zoom: number): void;
   onChange(page: SketchPage): void;
@@ -51,6 +54,7 @@ interface SketchCanvasProps {
 
 type PointerMode =
   | { kind: "draw"; points: SketchPoint[] }
+  | { kind: "erase"; points: SketchPoint[]; originObjects: SketchObject[] }
   | { kind: "text"; point: SketchPoint }
   | { kind: "pan"; clientX: number; clientY: number; scrollLeft: number; scrollTop: number }
   | { kind: "move"; start: SketchPoint; ids: string[]; originObjects: SketchObject[] }
@@ -92,7 +96,7 @@ function shapeFromPoints(
   const first = points[0];
   const last = points.at(-1) || first;
   const shape = shapeKind === "auto" ? recognizeShape(points) : shapeKind;
-  if (shape === "line") {
+  if (shape === "line" || shape === "bidirectional_arrow") {
     return { id, type: "shape", shape, color, width, x: first.x, y: first.y, w: last.x - first.x, h: last.y - first.y };
   }
   return {
@@ -114,6 +118,7 @@ export function SketchCanvas({
   color,
   strokeWidth,
   shapeKind,
+  eraserMode,
   zoom,
   onZoom,
   onChange,
@@ -329,8 +334,8 @@ export function SketchCanvas({
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "eraser") {
-      const hit = hitTest(page.objects, point, Math.max(6, strokeWidth / 2));
-      if (hit) commitObjects(page.objects.filter((object) => object.id !== hit.id));
+      pointerModeRef.current = { kind: "erase", points: [point], originObjects: structuredClone(page.objects) };
+      setPreviewObjects(eraseSketchObjects(page.objects, [point], strokeWidth, eraserMode));
       return;
     }
     if (["pen", "highlighter", "shape", "arrow", "lasso"].includes(tool)) {
@@ -411,9 +416,10 @@ export function SketchCanvas({
       scroll.scrollTop = mode.scrollTop - (event.clientY - mode.clientY);
       return;
     }
-    if (tool === "eraser" && event.buttons === 1) {
-      const hit = hitTest(page.objects, point, Math.max(6, strokeWidth / 2));
-      if (hit) commitObjects(page.objects.filter((object) => object.id !== hit.id));
+    if (mode?.kind === "erase") {
+      const points = [...mode.points, ...coalescedPointerPoints(event, page)];
+      pointerModeRef.current = { ...mode, points };
+      setPreviewObjects(eraseSketchObjects(mode.originObjects, points, strokeWidth, eraserMode));
       return;
     }
     if (mode?.kind === "draw") {
@@ -458,6 +464,14 @@ export function SketchCanvas({
     setAlignmentGuides({ vertical: [], horizontal: [] });
     if (!mode) return;
     if (mode.kind === "pan") return;
+    if (mode.kind === "erase") {
+      const points = [...mode.points, ...coalescedPointerPoints(event, page)];
+      const objects = eraseSketchObjects(mode.originObjects, points, strokeWidth, eraserMode);
+      const changed = objects.length !== mode.originObjects.length
+        || objects.some((object, index) => object !== mode.originObjects[index]);
+      if (changed) commitObjects(objects);
+      return;
+    }
 
     if (mode.kind === "text") {
       textCommitRef.current = false;

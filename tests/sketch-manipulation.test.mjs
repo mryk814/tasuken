@@ -87,3 +87,68 @@ test("canvas exposes layer actions and resize or move cursor intent", () => {
   assert.match(canvasSource, /IconStackFront/);
   assert.match(canvasSource, /IconStackBack/);
 });
+
+test("partial eraser splits a stroke while preserving its ink settings", () => {
+  const stroke = {
+    id: "ink",
+    type: "stroke",
+    tool: "highlighter",
+    color: "#2f6fa6",
+    width: 4,
+    points: [
+      { x: 0, y: 50, pressure: 0.2 },
+      { x: 100, y: 50, pressure: 0.8 },
+    ],
+  };
+  const result = sketch.eraseSketchObjects(
+    [stroke],
+    [{ x: 50, y: 40, pressure: 0.5 }, { x: 50, y: 60, pressure: 0.5 }],
+    12,
+    "partial",
+  );
+  assert.equal(result.length, 2);
+  assert.ok(Math.max(...result[0].points.map((point) => point.x)) < 50);
+  assert.ok(Math.min(...result[1].points.map((point) => point.x)) > 50);
+  assert.ok(result.every((entry) => entry.tool === "highlighter" && entry.color === "#2f6fa6" && entry.width === 4));
+});
+
+test("stroke eraser removes a whole stroke and partial eraser removes non-ink objects whole", () => {
+  const stroke = {
+    id: "ink",
+    type: "stroke",
+    tool: "pen",
+    color: "#211e1d",
+    width: 2,
+    points: [{ x: 0, y: 20, pressure: 0.5 }, { x: 100, y: 20, pressure: 0.5 }],
+  };
+  const shape = { id: "shape", type: "shape", shape: "rectangle", color: "#211e1d", width: 2, x: 20, y: 20, w: 60, h: 50 };
+  const path = [{ x: 50, y: 10, pressure: 0.5 }, { x: 50, y: 30, pressure: 0.5 }];
+  assert.deepEqual(sketch.eraseSketchObjects([stroke], path, 12, "stroke"), []);
+  assert.deepEqual(sketch.eraseSketchObjects([shape], path, 12, "partial"), []);
+});
+
+test("diagram shape set renders to SVG without changing the document schema", () => {
+  const shapes = ["rounded_rectangle", "diamond", "sticky_note", "callout", "bidirectional_arrow"];
+  const page = {
+    id: "page",
+    title: "diagram",
+    width: 800,
+    height: 600,
+    background: "plain",
+    objects: shapes.map((shape, index) => ({
+      id: shape,
+      type: "shape",
+      shape,
+      color: "#211e1d",
+      width: 2,
+      x: 40 + index * 100,
+      y: 80,
+      w: 80,
+      h: 60,
+    })),
+  };
+  const svg = sketch.sketchPageToSvg(page);
+  assert.match(svg, /rx="/);
+  assert.match(svg, /marker-start="url\(#arrow-start\)"/);
+  assert.ok(shapes.every((shape) => page.objects.some((object) => object.shape === shape)));
+});
