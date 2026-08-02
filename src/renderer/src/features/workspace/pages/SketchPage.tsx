@@ -248,16 +248,25 @@ export function SketchPage({
     }
   }
 
-  async function copyForAi() {
+  async function copyImageForAi() {
     if (!selected || !activePage) return;
     try {
       await workspaceApi.copySketch({
-        text: sketchAiPrompt(selected.title),
         dataUrl: await renderSketchPageToDataUrl(activePage),
       });
-      setToast("Sketch画像とAI向け指示をクリップボードへコピーしました。AIへそのまま貼り付けられます。", "success");
+      setToast("1/2 Sketch画像をコピーしました。AIの入力欄へ貼り付けてください。", "success");
     } catch (error) {
-      setToast(`AI向けにコピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(`Sketch画像をコピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function copyAiPrompt() {
+    if (!selected) return;
+    try {
+      await workspaceApi.copyText(sketchAiPrompt(selected.title));
+      setToast("2/2 AI向け指示をコピーしました。画像を貼った会話へ続けて貼り付けてください。", "success");
+    } catch (error) {
+      setToast(`AI向け指示をコピーできませんでした。${error instanceof Error ? error.message : String(error)} もう一度試してください。`, "danger");
     }
   }
 
@@ -291,7 +300,8 @@ export function SketchPage({
                 <button role="menuitem" onClick={() => void exportSketch("markdown")}>Markdown + PNG</button>
                 <button role="menuitem" onClick={() => void exportSketch("png")}>PNG画像</button>
                 <button role="menuitem" onClick={() => void exportSketch("svg")}>SVG画像</button>
-                <button role="menuitem" onClick={() => void copyForAi()}><IconSparkles size={15} />AIへ貼り付け</button>
+                <button role="menuitem" onClick={() => void copyImageForAi()}><IconSparkles size={15} />1. AIへ画像をコピー</button>
+                <button role="menuitem" onClick={() => void copyAiPrompt()}><IconSparkles size={15} />2. AI向け指示をコピー</button>
               </div>
             )}
           </div>

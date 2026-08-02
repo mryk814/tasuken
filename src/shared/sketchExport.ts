@@ -16,6 +16,5 @@ export interface SketchExportResult {
 }
 
 export interface SketchClipboardRequest {
-  text: string;
   dataUrl: string;
 }

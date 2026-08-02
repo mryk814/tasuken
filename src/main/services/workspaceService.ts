@@ -244,15 +244,25 @@ export class WorkspaceService {
       throw new Error("AIへ渡すSketchの形式が不正です。画面を再読み込みしてください。");
     }
     const payload = payloadValue as Partial<SketchClipboardRequest>;
-    if (typeof payload.text !== "string" || !payload.text.trim()) {
-      throw new Error("AIへ渡す説明文がありません。");
-    }
     if (typeof payload.dataUrl !== "string" || !payload.dataUrl.startsWith("data:image/png;base64,")) {
-      throw new Error("AIへ渡すSketch画像を作成できませんでした。");
+      throw new Error("Sketch画像を作成できませんでした。描画面を開き直して、もう一度試してください。");
     }
     const image = nativeImage.createFromDataURL(payload.dataUrl);
-    if (image.isEmpty()) throw new Error("AIへ渡すSketch画像を読み取れませんでした。");
-    clipboard.write({ text: payload.text, image });
+    if (image.isEmpty()) {
+      throw new Error("Sketch画像を読み取れませんでした。描画面を開き直して、もう一度試してください。");
+    }
+    clipboard.clear();
+    clipboard.writeImage(image);
+    const written = clipboard.readImage();
+    const expectedSize = image.getSize();
+    const writtenSize = written.getSize();
+    if (
+      written.isEmpty()
+      || writtenSize.width !== expectedSize.width
+      || writtenSize.height !== expectedSize.height
+    ) {
+      throw new Error("Windowsのクリップボードへ画像を書き込めませんでした。クリップボードを使う別アプリを閉じて、もう一度試してください。");
+    }
     return true;
   }
 
