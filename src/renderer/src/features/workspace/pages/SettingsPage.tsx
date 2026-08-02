@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { AppUpdateCheckResult, SharedSyncStatus } from "../../../../../shared/ipc/contracts";
+import type { AppUpdateCheckResult, McpBridgeInfo, SharedSyncStatus } from "../../../../../shared/ipc/contracts";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
@@ -21,6 +21,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [artifactDirectory, setArtifactDirectory] = useState("");
   const [syncStatus, setSyncStatus] = useState<SharedSyncStatus | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
 
   useEffect(() => {
     workspaceApi.getPreference("artifactDirectory")
@@ -29,6 +30,14 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         // 未設定として表示するだけでよい（設定操作時に改めてエラーを出す）。
       });
   }, []);
+
+  useEffect(() => {
+    workspaceApi.getMcpBridgeInfo()
+      .then(setMcpInfo)
+      .catch((error) => {
+        setToast(`MCP Bridgeの情報を取得できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      });
+  }, [setToast]);
 
   useEffect(() => {
     let canceled = false;
@@ -187,6 +196,18 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
     await workspaceApi.openReleasePage(updateInfo?.releaseUrl);
   }
 
+  async function copyMcpConfig() {
+    if (!mcpInfo) return;
+    await workspaceApi.copyText(mcpInfo.configJson);
+    setToast("MCPクライアント設定をコピーしました。", "success");
+  }
+
+  async function openMcpInbox() {
+    if (!mcpInfo) return;
+    const result = await workspaceApi.openPath(mcpInfo.inboxPath);
+    if (!result.ok) setToast(`MCP Inboxを開けませんでした。${result.error || ""}`, "danger");
+  }
+
   const updateStatusLabel = updateInfo
     ? updateInfo.status === "available"
       ? `Tasken ${updateInfo.latestVersion} が公開されています。`
@@ -298,6 +319,29 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           <div className="settings-action-row">
             <button className="secondary-button" onClick={chooseArtifactDirectory}>保存先を選ぶ</button>
             {artifactDirectory && <button className="secondary-button" onClick={openArtifactDirectory}>フォルダを開く</button>}
+          </div>
+        </section>
+        <section className="panel settings-form mcp-settings-panel">
+          <div className="settings-section-heading">
+            <h2>MCP Bridge</h2>
+            <span className="sync-state sync-state-idle">利用可能</span>
+          </div>
+          <p className="field-help">外部AIはTaskenを読み取り、追加・編集はPending Proposalとして送ります。正式データはTaskenで採用するまで変わりません。</p>
+          <dl className="settings-meta-list">
+            <div>
+              <dt>起動</dt>
+              <dd className="mono-value" title={mcpInfo ? `${mcpInfo.command} ${mcpInfo.args.join(" ")}` : ""}>
+                {mcpInfo ? `${mcpInfo.command} ${mcpInfo.args.join(" ")}` : "読込中"}
+              </dd>
+            </div>
+            <div>
+              <dt>受信待ち</dt>
+              <dd>{mcpInfo?.pendingFileCount || 0}件</dd>
+            </div>
+          </dl>
+          <div className="settings-action-row">
+            <button className="primary-button" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</button>
+            <button className="secondary-button" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</button>
           </div>
         </section>
         <section className="panel settings-form update-panel">

@@ -95,6 +95,9 @@ export const workspaceApi = {
   setTitleBarTheme(theme: "light" | "dark") {
     return desktopApi().app.setTitleBarTheme(theme);
   },
+  getMcpBridgeInfo() {
+    return desktopApi().app.getMcpBridgeInfo();
+  },
   showTodayMiniWindow() {
     return desktopApi().app.showTodayMiniWindow();
   },

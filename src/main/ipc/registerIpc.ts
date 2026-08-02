@@ -64,6 +64,7 @@ export function registerIpc(
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());
   ipcMain.handle(IPC.appReleasePageOpen, (_event, url) => service.openReleasePage(typeof url === "string" ? url : undefined));
+  ipcMain.handle(IPC.mcpBridgeInfo, () => service.getMcpBridgeInfo());
   ipcMain.handle(IPC.appTitleBarTheme, (event, theme) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) return false;

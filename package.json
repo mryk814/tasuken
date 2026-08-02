@@ -12,13 +12,15 @@
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc -b",
     "build": "electron-vite build",
+    "build:mcp": "node scripts/build-mcp-bridge.mjs",
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
     "smoke:desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing . --smoke-test",
+    "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
     "bench:notes": "npm run build && node scripts/notes-performance.mjs",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
     "mcp": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/mcp-server.mjs",
     "rebuild:electron": "electron-rebuild --force -w better-sqlite3",
-    "package": "npm run typecheck && npm run build && npm run rebuild:electron && electron-builder --publish never --win nsis portable --config.electronDist=node_modules/electron/dist",
+    "package": "npm run typecheck && npm run build && npm run build:mcp && npm run rebuild:electron && electron-builder --publish never --win nsis portable --config.electronDist=node_modules/electron/dist",
     "release:verify-version": "node scripts/verify-release-version.mjs",
     "release:check": "npm run release:verify-version && npm rebuild better-sqlite3 && npm test && npm run package"
   },
@@ -50,6 +52,12 @@
       "resources/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "mcp-dist",
+        "to": "mcp"
+      }
+    ],
     "asar": true,
     "win": {
       "icon": "resources/icon.ico",
@@ -76,6 +84,7 @@
   "dependencies": {
     "@codemirror/view": "^6.43.4",
     "@mdxeditor/editor": "^4.0.4",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@tabler/icons-react": "^3.44.0",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.11.1",
@@ -89,6 +98,7 @@
     "micromark-extension-gfm-strikethrough": "^2.1.0",
     "micromark-extension-gfm-table": "^2.1.1",
     "micromark-extension-math": "^3.1.0",
+    "zod": "^4.0.0",
     "zustand": "^5.0.14"
   }
 }

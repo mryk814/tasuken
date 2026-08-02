@@ -14,6 +14,7 @@ import {
 import { createReminderController, type ReminderController } from "./reminderController";
 import { createTodayMiniController, type TodayMiniController } from "./todayMiniController";
 import { createTrayController, type TrayController } from "./trayController";
+import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
@@ -32,6 +33,7 @@ let quickCaptureController: QuickCaptureController | null = null;
 let todayMiniController: TodayMiniController | null = null;
 let reminderController: ReminderController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
+let mcpProposalInboxService: McpProposalInboxService | null = null;
 registerAttachmentScheme();
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
@@ -149,27 +151,27 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
 }
 
 app.disableHardwareAcceleration();
-if (process.platform === "win32") app.setAppUserModelId("jp.personal.tasken");
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("disable-gpu-compositing");
-app.commandLine.appendSwitch("disable-gpu-sandbox");
-app.commandLine.appendSwitch("in-process-gpu");
-// Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
-// 従来の contenteditable キャレット基準に戻す。
-app.commandLine.appendSwitch("disable-blink-features", "EditContext");
-app.commandLine.appendSwitch("disable-features", "EditContext");
+  if (process.platform === "win32") app.setAppUserModelId("jp.personal.tasken");
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+  app.commandLine.appendSwitch("in-process-gpu");
+  // Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
+  // 従来の contenteditable キャレット基準に戻す。
+  app.commandLine.appendSwitch("disable-blink-features", "EditContext");
+  app.commandLine.appendSwitch("disable-features", "EditContext");
 
-if (requestedUserDataPath) {
-  app.setPath("userData", path.resolve(requestedUserDataPath));
-} else if (isSmokeTest) {
-  const smokeUserDataPath = path.join(app.getPath("temp"), "research-desk-smoke-test");
-  fs.rmSync(smokeUserDataPath, { recursive: true, force: true });
-  app.setPath("userData", smokeUserDataPath);
-  recordSmoke("main-started");
-  setTimeout(() => {
-    recordSmoke("timeout");
-    app.exit(1);
-  }, 45000);
+  if (requestedUserDataPath) {
+    app.setPath("userData", path.resolve(requestedUserDataPath));
+  } else if (isSmokeTest) {
+    const smokeUserDataPath = path.join(app.getPath("temp"), "research-desk-smoke-test");
+    fs.rmSync(smokeUserDataPath, { recursive: true, force: true });
+    app.setPath("userData", smokeUserDataPath);
+    recordSmoke("main-started");
+    setTimeout(() => {
+      recordSmoke("timeout");
+      app.exit(1);
+    }, 45000);
 }
 
 async function runSmokeTest(window: BrowserWindow): Promise<void> {
@@ -753,7 +755,8 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-void app.whenReady().then(() => {
+async function startDesktopApp(): Promise<void> {
+  await app.whenReady();
   migrateLegacyUserDataIfNeeded();
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
@@ -763,6 +766,14 @@ void app.whenReady().then(() => {
     new WorkspaceService(workspaceRepository, app.getPath("userData")),
     sharedFolderSyncService,
   );
+  mcpProposalInboxService = new McpProposalInboxService(
+    workspaceRepository,
+    app.getPath("userData"),
+    (entities: Entity[]) => notifyMainWindowRefresh({
+      entities: entities.map((entity) => ({ type: "ai_proposal", entity })),
+    }),
+  );
+  mcpProposalInboxService.start();
   quickCaptureController = createQuickCaptureController({
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
@@ -811,24 +822,27 @@ void app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-}).catch((error: unknown) => {
-  console.error("Tasken failed to start.", error);
-  recordSmoke("startup-failed", { error: String(error) });
-  app.exit(1);
+}
+
+void startDesktopApp().catch((error: unknown) => {
+    console.error("Tasken failed to start.", error);
+    recordSmoke("startup-failed", { error: String(error) });
+    app.exit(1);
 });
 
 app.on("window-all-closed", () => {
-  // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
-  if (process.platform === "darwin") return;
-  if (trayController?.isActive()) return;
-  app.quit();
+    // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
+    if (process.platform === "darwin") return;
+    if (trayController?.isActive()) return;
+    app.quit();
 });
 
 app.on("before-quit", () => {
-  sharedFolderSyncService?.stop();
+    sharedFolderSyncService?.stop();
+    mcpProposalInboxService?.stop();
 });
 
 app.on("will-quit", () => {
-  reminderController?.stop();
-  globalShortcut.unregisterAll();
+    reminderController?.stop();
+    globalShortcut.unregisterAll();
 });

@@ -5,7 +5,7 @@ import path from "node:path";
 
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
-import type { AppUpdateCheckResult, FilePreviewReadResult } from "../../shared/ipc/contracts";
+import type { AppUpdateCheckResult, FilePreviewReadResult, McpBridgeInfo } from "../../shared/ipc/contracts";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
 import type { Workspace } from "../../shared/types/workspace";
@@ -548,6 +548,33 @@ export class WorkspaceService {
   async openReleasePage(url?: string): Promise<boolean> {
     await shell.openExternal(safeReleaseUrl(url));
     return true;
+  }
+
+  getMcpBridgeInfo(): McpBridgeInfo {
+    const inboxPath = path.join(this.userDataPath, "mcp-inbox");
+    fs.mkdirSync(inboxPath, { recursive: true });
+    const command = process.execPath;
+    const args = app.isPackaged
+      ? [path.join(process.resourcesPath, "mcp", "server.mjs")]
+      : [path.join(app.getAppPath(), "scripts", "mcp-server.mjs")];
+    const env = { ELECTRON_RUN_AS_NODE: "1" };
+    const config = {
+      mcpServers: {
+        tasken: {
+          command,
+          args,
+          env,
+        },
+      },
+    };
+    return {
+      command,
+      args,
+      configJson: JSON.stringify(config, null, 2),
+      inboxPath,
+      pendingFileCount: fs.readdirSync(inboxPath).filter((name) => name.endsWith(".json")).length,
+      packaged: app.isPackaged,
+    };
   }
 
   async exportSnapshot(): Promise<{ canceled: boolean; filePath?: string }> {

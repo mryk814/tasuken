@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import { str, uuid } from "../lib/format";
 import { assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
+import { buildMarkdownDiffHunks, diffMarkdownLines } from "../lib/markdownEditing";
 import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTaskOperations, buildSaveWaitingOperations } from "../domain-model/persistence";
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
 
@@ -55,6 +56,14 @@ function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data" | "the
 function compact(value: unknown, limit = 220) {
   const text = str(value).replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+}
+
+function noteDiffHunks(candidate: ProposalCandidate) {
+  if (candidate.type !== "note" || !candidate.duplicate || candidate.action !== "merge") return [];
+  return buildMarkdownDiffHunks(
+    diffMarkdownLines(str(candidate.duplicate.body_markdown), str(candidate.entry.body)),
+    2,
+  );
 }
 
 function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperation[] {
@@ -297,7 +306,7 @@ export function AiProposalPanel(props: PageProps) {
           <div className="section-heading"><h2>Preview</h2><span>{preview.candidates.length}件</span></div>
           {preview.payloadIssues.length > 0 && <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>}
           {preview.candidates.map((candidate, index) => (
-            <div className="import-candidate" key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
+            <div className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`} key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
               <div>
                 <strong>{str(candidate.entry.title) || str(candidate.entry.relation_type) || "無題"}</strong>
                 <small>{candidate.type} / {candidate.theme?.name || "Theme未解決"}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title)}` : ""}</small>
@@ -308,6 +317,15 @@ export function AiProposalPanel(props: PageProps) {
                 {candidate.duplicate && <option value="merge">既存を更新</option>}
                 <option value="ignore">無視</option>
               </select>
+              {noteDiffHunks(candidate).length > 0 && (
+                <div className="proposal-note-diff" aria-label="Note変更差分">
+                  {noteDiffHunks(candidate).map((hunk, hunkIndex) => (
+                    <pre key={`${index}-${hunkIndex}`}>
+                      {hunk.lines.map((line) => `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`).join("\n")}
+                    </pre>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
           <div className="form-actions">
