@@ -143,6 +143,10 @@ export function resolveArtifactSourceLabel(artifact: Artifact, data: WorkspaceDa
     const theme = (data.themes || []).find((entry) => entry.id === sourceId);
     return theme ? String(theme.name || "Theme") : ARTIFACT_SOURCE_TYPE_LABELS.theme;
   }
+  if (sourceType === "capture_entry") {
+    const capture = (data.capture_entrys || []).find((entry) => entry.id === sourceId);
+    return capture ? String(capture.title || capture.text || "Inbox") : ARTIFACT_SOURCE_TYPE_LABELS.capture_entry;
+  }
   return ARTIFACT_SOURCE_TYPE_LABELS[sourceType] || sourceType;
 }
 
@@ -172,6 +176,12 @@ export function openArtifactSource(artifact: Artifact, data: WorkspaceData, open
     const theme = (data.themes || []).find((entry) => entry.id === sourceId);
     if (!theme) return false;
     openDrawer({ type: "theme", mode: "edit", entity: theme });
+    return true;
+  }
+  if (sourceType === "capture_entry") {
+    const capture = (data.capture_entrys || []).find((entry) => entry.id === sourceId);
+    if (!capture) return false;
+    openDrawer({ type: "capture_entry", entity: capture });
     return true;
   }
   return false;

@@ -280,6 +280,11 @@ Theme Dashboardは、その問いにすぐ答えるための画面である。
 入力時点で完全に分類されている必要はない。
 まずはInboxに入れ、後でThemeやItem種別を設定できるようにする。
 
+文字・Markdown断片・URL・ファイル・画像・手書きを同じCaptureEntry経路で受け取る。
+URLはResource候補、ファイル・画像はCaptureEntryを出所とするArtifactとして保持する。
+整理後も元Captureから生成先を辿れる。現在の境界と成立ループは
+`docs/quick-capture.md` を正本とする。
+
 ### 入力例
 
 ```text

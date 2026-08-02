@@ -62,6 +62,7 @@ test("artifactはworkspaceエンティティとして登録されている", () 
     note: "note",
     report: "note",
     theme: "theme",
+    capture_entry: "capture_entry",
   });
 });
 
@@ -326,6 +327,15 @@ test("Chat参照（resource）削除でchat_ref由来のartifactがcascadeされ
     artifact({ id: "a2", source_type: "chat_ref", source_id: "res-2" }),
   ]);
   repo.applyDeletePolicy("resource", "res-1");
+  assert.deepEqual(removed.map((entry) => entry.id), ["a1"]);
+});
+
+test("Inbox Capture削除で未整理ファイルArtifactがcascadeされる", () => {
+  const { repo, removed } = fakeDeletePolicyRepository([
+    artifact({ id: "a1", source_type: "capture_entry", source_id: "capture-1" }),
+    artifact({ id: "a2", source_type: "capture_entry", source_id: "capture-2" }),
+  ]);
+  repo.applyDeletePolicy("capture_entry", "capture-1");
   assert.deepEqual(removed.map((entry) => entry.id), ["a1"]);
 });
 

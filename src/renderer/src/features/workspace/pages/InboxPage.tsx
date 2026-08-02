@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  IconArchive,
   IconArrowRight,
   IconCalendarCheck,
   IconCheck,
   IconCopy,
   IconExternalLink,
+  IconFile,
   IconFlag,
   IconFlagFilled,
   IconInbox,
+  IconPaperclip,
   IconPencil,
+  IconRestore,
+  IconSearch,
   IconTrash,
   IconWriting,
 } from "@tabler/icons-react";
@@ -32,17 +37,26 @@ import {
   buildChangeEventOperation,
 } from "../domain-model/persistence";
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
-import type { SaveOperation } from "../types";
+import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
 import { createSketchDraft } from "../lib/sketch";
+import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
+import {
+  captureMatchesQuery,
+  fileCaptureContentType,
+  firstCaptureUrl,
+  quickCaptureTitle,
+} from "../../../../../shared/quickCapture.mjs";
 
-type InboxKind = "task" | "memo" | "link" | "waiting" | "idea";
+type InboxKind = "task" | "memo" | "document" | "link" | "waiting" | "idea" | "artifact";
 
 const INBOX_KIND_OPTIONS: Array<[InboxKind, string]> = [
   ["task", "タスク"],
   ["memo", "メモ"],
+  ["document", "Markdown"],
   ["link", "リンク"],
   ["waiting", "待ち"],
   ["idea", "アイデア"],
+  ["artifact", "Artifact"],
 ];
 
 interface InboxDraft {
@@ -64,7 +78,7 @@ interface InboxRow {
   entry: CaptureEntry;
 }
 
-type InboxLane = "untriaged" | "micro";
+type InboxLane = "untriaged" | "processed" | "micro";
 
 type OrganizedTargetType = "task" | "waiting" | "note" | "resource";
 type OrganizedEntity = Task | Waiting | DomainNote | Resource;
@@ -81,16 +95,17 @@ interface OrganizedResult {
 }
 
 function draftFromEntry(entry: CaptureEntry): InboxDraft {
+  const capturedUrl = entry.url || firstCaptureUrl(entry.text);
   return {
-    output: "task",
-    title: entry.title || entry.text,
-    theme_id: "",
+    output: capturedUrl ? "link" : "task",
+    title: entry.title || quickCaptureTitle(entry.text),
+    theme_id: entry.project_id || "",
     item_id: "",
     planned_end: "",
     today_flag: false,
     priority: "normal",
     description: entry.text,
-    link_url: "",
+    link_url: capturedUrl,
     link_type: "",
     reference_status: "inbox",
     waiting_for: "",
@@ -124,12 +139,29 @@ function copyTextForTarget(result: OrganizedResult): string {
   return [result.title, description].filter(Boolean).join("\n");
 }
 
-export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntities, removeEntity, setToast }: PageProps) {
+export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, removeEntity, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
-  const inboxRows = useMemo(() => {
+  const { artifacts } = data;
+  const [query, setQuery] = useState("");
+  const allInboxRows = useMemo(() => {
     return buildInboxView(v2).entries.map((entry) => ({ entry }));
   }, [v2]);
-  const microMemoRows = useMemo(() => buildMicroMemoView(v2).entries, [v2]);
+  const inboxRows = useMemo(
+    () => allInboxRows.filter((row) => captureMatchesQuery(row.entry, query)),
+    [allInboxRows, query],
+  );
+  const processedRows = useMemo(
+    () => v2.capture_entries
+      .filter((entry) => entry.kind !== "micro_memo" && entry.state !== "untriaged")
+      .filter((entry) => captureMatchesQuery(entry, query))
+      .sort((a, b) => String(b.captured_at).localeCompare(String(a.captured_at))),
+    [query, v2.capture_entries],
+  );
+  const allMicroMemoRows = useMemo(() => buildMicroMemoView(v2).entries, [v2]);
+  const microMemoRows = useMemo(
+    () => allMicroMemoRows.filter((entry) => captureMatchesQuery(entry, query)),
+    [allMicroMemoRows, query],
+  );
   const [lane, setLane] = useState<InboxLane>("untriaged");
   const [drafts, setDrafts] = useState<Record<string, InboxDraft>>({});
   const [selected, setSelected] = useState<string[]>([]);
@@ -137,6 +169,28 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
   const [feedback, setFeedback] = useState("");
   const [recentOrganized, setRecentOrganized] = useState<OrganizedResult[]>([]);
   const today = todayIso();
+
+  function captureArtifacts(captureId: string): Artifact[] {
+    return artifacts.filter((artifact) => artifact.source_type === "capture_entry" && artifact.source_id === captureId);
+  }
+
+  function retargetArtifactOperations(
+    sourceCaptureId: string,
+    sourceType: ArtifactSourceType,
+    sourceId: string,
+    themeId: string | null,
+  ): SaveOperation[] {
+    return captureArtifacts(sourceCaptureId).map((artifact) => ({
+      action: "save",
+      type: "artifact",
+      entity: {
+        ...artifact,
+        source_type: sourceType,
+        source_id: sourceId,
+        theme_id: themeId,
+      },
+    }));
+  }
 
   useEffect(() => {
     setDrafts((current) => {
@@ -213,6 +267,10 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
       setToast("相手を入力してください。入力内容は保持されています。");
       return;
     }
+    if (draft.output === "artifact" && captureArtifacts(row.entry.id).length === 0) {
+      setToast("Artifactに整理するには、先にファイルを記録してください。入力内容は保持されています。", "warning");
+      return;
+    }
     const themeId = draft.theme_id || null;
     const sourceRecordId = row.entry.source_record_id || null;
 
@@ -233,6 +291,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
           created_at: new Date().toISOString(),
         };
         const ops: SaveOperation[] = [...buildSaveTaskOperations(task)];
+        ops.push(...retargetArtifactOperations(row.entry.id, "task", taskId, themeId));
         if (draft.planned_end || draft.today_flag) {
           schedule = {
             id: crypto.randomUUID(),
@@ -279,20 +338,24 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
         await saveEntities(ops, `待ち「${title}」に整理しました。`);
         rememberOrganized("waiting", waitingId, title, waiting, schedule);
 
-      } else if (draft.output === "memo") {
+      } else if (draft.output === "memo" || draft.output === "document") {
         const noteId = uuid();
         const note: DomainNote = {
           id: noteId,
           title,
           body_markdown: draft.description || title,
+          note_type: "note",
+          content_format: "markdown",
           project_id: themeId,
           source_record_id: sourceRecordId,
         };
         const ops: SaveOperation[] = [
           ...buildSaveNoteOperations(note),
+          ...retargetArtifactOperations(row.entry.id, "note", noteId, themeId),
           ...buildTriageCaptureEntryOperations(row.entry, { type: "note", id: noteId }),
         ];
-        await saveEntities(ops, `メモ「${title}」に整理しました。`);
+        const label = draft.output === "document" ? "Markdown文書" : "メモ";
+        await saveEntities(ops, `${label}「${title}」に整理しました。`);
         rememberOrganized("note", noteId, title, note);
 
       } else if (draft.output === "link") {
@@ -311,6 +374,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
         };
         const ops: SaveOperation[] = [
           ...buildSaveResourceOperations(resource),
+          ...retargetArtifactOperations(row.entry.id, "chat_ref", resourceId, themeId),
           ...buildTriageCaptureEntryOperations(row.entry, { type: "resource", id: resourceId }),
         ];
         if (draft.item_id) {
@@ -330,6 +394,13 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
         await saveEntities(ops, `リンク「${title}」に整理しました。`);
         rememberOrganized("resource", resourceId, title, resource);
 
+      } else if (draft.output === "artifact") {
+        const attachedArtifacts = captureArtifacts(row.entry.id);
+        await saveEntities(
+          buildTriageCaptureEntryOperations(row.entry, { type: "artifact", id: attachedArtifacts[0].id }),
+          `${attachedArtifacts.length}件のArtifactとして整理しました。`,
+        );
+        setFeedback(`${attachedArtifacts.length}件のArtifactとして整理しました。`);
       }
       setSelected((current) => current.filter((id) => id !== row.entry.id));
     } catch {
@@ -348,6 +419,92 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
     await removeEntity("capture_entry", row.entry as unknown as Record<string, unknown>);
   }
 
+  async function captureFiles() {
+    const picked = await workspaceApi.chooseFiles("Inboxへ記録するファイル・画像を選択");
+    if (picked.canceled || !picked.files?.length) return;
+    const captureId = crypto.randomUUID();
+    const names = picked.files.map((file) => file.name);
+    const title = names.length === 1 ? names[0] : `${names[0]} ほか${names.length - 1}件`;
+    const entry: CaptureEntry = {
+      id: captureId,
+      title,
+      text: names.join("\n"),
+      kind: "file_capture",
+      content_type: fileCaptureContentType(picked.files),
+      captured_at: new Date().toISOString(),
+      state: "untriaged",
+    };
+    try {
+      await saveEntities([
+        { action: "save", type: "capture_entry", entity: entry as unknown as SaveOperation["entity"] },
+        ...buildLinkedArtifactOperationsFromPaths(picked.files, "capture_entry", captureId),
+        buildChangeEventOperation("capture_entry", captureId, "created"),
+      ], `${picked.files.length}件をInboxへ記録しました。`);
+    } catch (error) {
+      setToast(`ファイルを記録できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function openCapturedArtifact(artifact: Artifact) {
+    const target = String(artifact.stored_path || artifact.target || "");
+    if (!target) {
+      setToast("ファイルの場所がありません。元ファイルを記録し直してください。", "warning");
+      return;
+    }
+    const result = await workspaceApi.openPath(target);
+    if (!result.ok) setToast(`ファイルを開けませんでした。${result.error || "保存場所を確認してください。"}`, "danger");
+  }
+
+  async function restoreToInbox(entry: CaptureEntry) {
+    const restored: CaptureEntry = {
+      ...entry,
+      state: "untriaged",
+      triaged_to_type: null,
+      triaged_to_id: null,
+    };
+    await saveEntities([
+      { action: "save", type: "capture_entry", entity: restored as unknown as SaveOperation["entity"] },
+      buildChangeEventOperation("capture_entry", entry.id, "updated", {}, entry, restored),
+    ], "Inboxへ戻しました。");
+    setLane("untriaged");
+  }
+
+  async function archiveEntry(entry: CaptureEntry) {
+    const archived: CaptureEntry = { ...entry, state: "archived" };
+    await saveEntities([
+      { action: "save", type: "capture_entry", entity: archived as unknown as SaveOperation["entity"] },
+      buildChangeEventOperation("capture_entry", entry.id, "updated", {}, entry, archived),
+    ], "アーカイブしました。整理済みから戻せます。");
+  }
+
+  function openProcessedEntry(entry: CaptureEntry) {
+    const type = entry.triaged_to_type;
+    const id = entry.triaged_to_id;
+    if (!type || !id) return;
+    if (type === "sketch") {
+      localStorage.setItem("tasken:sketch:active-id", id);
+      navigate("sketch");
+      return;
+    }
+    if (type === "artifact") {
+      const artifact = artifacts.find((candidate) => candidate.id === id);
+      if (artifact) void openCapturedArtifact(artifact);
+      return;
+    }
+    const entity = type === "task"
+      ? v2.tasks.find((candidate) => candidate.id === id)
+      : type === "waiting"
+        ? v2.waitings.find((candidate) => candidate.id === id)
+        : type === "note"
+          ? v2.notes.find((candidate) => candidate.id === id)
+          : type === "resource"
+            ? v2.resources.find((candidate) => candidate.id === id)
+            : null;
+    if (entity && ["task", "waiting", "note", "resource"].includes(type)) {
+      openDrawer({ type: type as OrganizedTargetType, mode: "edit", entity: entity as unknown as Record<string, unknown> });
+    }
+  }
+
   async function startInkCapture() {
     const captureId = crypto.randomUUID();
     const title = `Ink Capture ${new Date().toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
@@ -363,6 +520,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
             title,
             text: "手書きで記録",
             kind: "ink_capture",
+            content_type: "ink",
             captured_at: new Date().toISOString(),
             state: "triaged",
             triaged_to_type: "sketch",
@@ -408,18 +566,26 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
     <div className="page inbox-page">
       <PageHeader title="Inbox整理" subtitle="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
         <button className="secondary-button" onClick={() => void startInkCapture()}><IconWriting size={16} />手書きで記録</button>
+        <button className="secondary-button" onClick={() => void captureFiles()}><IconPaperclip size={16} />ファイルを記録</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
         <button className="primary-button" disabled={!selected.length} onClick={organizeSelected}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
       </PageHeader>
       <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
         <button className={lane === "untriaged" ? "is-active" : ""} aria-current={lane === "untriaged" ? "page" : undefined} onClick={() => setLane("untriaged")}>
-          未整理 <span>{inboxRows.length}</span>
+          未整理 <span>{allInboxRows.length}</span>
+        </button>
+        <button className={lane === "processed" ? "is-active" : ""} aria-current={lane === "processed" ? "page" : undefined} onClick={() => setLane("processed")}>
+          整理済み <span>{v2.capture_entries.filter((entry) => entry.kind !== "micro_memo" && entry.state !== "untriaged").length}</span>
         </button>
         <button className={lane === "micro" ? "is-active" : ""} aria-current={lane === "micro" ? "page" : undefined} onClick={() => setLane("micro")}>
-          付箋メモ <span>{microMemoRows.length}</span>
+          付箋メモ <span>{allMicroMemoRows.length}</span>
         </button>
       </div>
+      <label className="inbox-search">
+        <IconSearch size={16} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Inboxを検索" />
+      </label>
       {lane === "untriaged" && selected.length > 0 && (
         <section className="panel inbox-bulk-toolbar">
           <label className="inbox-bulk-check">
@@ -431,9 +597,11 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
               <option value="" disabled>一括変更</option>
               <option value="task">タスク</option>
               <option value="memo">メモ</option>
+              <option value="document">Markdown</option>
               <option value="link">リンク</option>
               <option value="waiting">待ち</option>
               <option value="idea">アイデア</option>
+              <option value="artifact">Artifact</option>
             </select>
           </label>
           <label>Theme
@@ -595,6 +763,16 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
                         </label>
                       </div>
                     )}
+                    {captureArtifacts(row.entry.id).length > 0 && (
+                      <div className="inbox-captured-files" aria-label="記録したファイル">
+                        {captureArtifacts(row.entry.id).map((artifact) => (
+                          <button key={artifact.id} type="button" onClick={() => void openCapturedArtifact(artifact)}>
+                            <IconFile size={14} />
+                            {artifact.filename}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <label>説明・補足
                       <textarea value={draft.description} onChange={(event) => patchDraft(row.entry.id, { description: event.target.value })} />
                     </label>
@@ -615,6 +793,14 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
                       >
                         <IconTrash size={15} />
                       </button>
+                      <button
+                        className="row-action-button"
+                        onClick={() => void archiveEntry(row.entry)}
+                        aria-label={`${draft.title || "記録"}をアーカイブ`}
+                        title="アーカイブ"
+                      >
+                        <IconArchive size={15} />
+                      </button>
                       <button className="primary-button compact" disabled={isOrganizing} onClick={() => organize(row)}>
                         {isOrganizing ? "整理中..." : "整理する"}
                       </button>
@@ -626,6 +812,52 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
           </div>
         ) : (
           <EmptyState title="未整理の記録はありません" action="記録を追加" onAction={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })} />
+        )}
+      </section> : lane === "processed" ? <section className="panel inbox-panel">
+        <div className="section-heading">
+          <h2>整理済み</h2>
+          <span>{processedRows.length}件</span>
+        </div>
+        {processedRows.length ? (
+          <div className="inbox-processed-list">
+            {processedRows.map((entry) => (
+              <article className="inbox-processed-row" key={entry.id}>
+                <div className="inbox-processed-main">
+                  <span className={`inbox-state-label is-${entry.state}`}>
+                    {entry.state === "triaged" ? "整理済み" : "アーカイブ"}
+                  </span>
+                  <strong>{entry.title || quickCaptureTitle(entry.text)}</strong>
+                  <small>{formatDate(entry.captured_at)}</small>
+                  {entry.content_type && <span className="inbox-content-type">{entry.content_type}</span>}
+                </div>
+                <p>{entry.text}</p>
+                {captureArtifacts(entry.id).length > 0 && (
+                  <div className="inbox-captured-files">
+                    {captureArtifacts(entry.id).map((artifact) => (
+                      <button key={artifact.id} type="button" onClick={() => void openCapturedArtifact(artifact)}>
+                        <IconFile size={14} />
+                        {artifact.filename}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="inbox-processed-actions">
+                  {entry.state === "triaged" && entry.triaged_to_id && (
+                    <button className="secondary-button compact" onClick={() => openProcessedEntry(entry)}>
+                      <IconExternalLink size={14} />整理先を開く
+                    </button>
+                  )}
+                  {entry.state === "archived" && (
+                    <button className="secondary-button compact" onClick={() => void restoreToInbox(entry)}>
+                      <IconRestore size={14} />Inboxへ戻す
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title={query ? "検索に一致する整理済み記録はありません" : "整理済みの記録はありません"} />
         )}
       </section> : <section className="panel inbox-panel">
         <div className="section-heading">
@@ -653,7 +885,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
             ))}
           </div>
         ) : (
-          <EmptyState title="付箋メモはありません" />
+          <EmptyState title={query ? "検索に一致する付箋メモはありません" : "付箋メモはありません"} />
         )}
       </section>}
     </div>

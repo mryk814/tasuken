@@ -19,6 +19,9 @@ export interface CaptureEntry {
   text: string;
   title?: string | null;
   kind?: "inbox" | "micro_memo" | string | null;
+  content_type?: "text" | "url" | "file" | "image" | "markdown" | "ink" | null;
+  url?: string | null;
+  project_id?: string | null;
   captured_at: string;
   state: CaptureEntryState;
   source_record_id?: string | null;
@@ -139,6 +142,7 @@ export interface Note {
   id: string;
   title: string;
   body_markdown?: string;
+  note_type?: string | null;
   content_format?: string | null;
   project_id?: string | null;
   source_record_id?: string | null;
@@ -205,7 +209,8 @@ export type EntityRefType =
   | "note"
   | "resource"
   | "knowledge_node"
-  | "sketch";
+  | "sketch"
+  | "artifact";
 
 export interface Reference {
   id: string;

@@ -180,7 +180,7 @@
         <strong id="title">Inbox に記録</strong>
         <span id="mode-pill" class="mode-pill">Inbox</span>
       </div>
-      <span id="hint" class="capture-hint">Ctrl+Enter で送信 / Esc で閉じる</span>
+      <span id="hint" class="capture-hint">Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる</span>
       <label id="theme-row" class="theme-row">
         <span>Theme</span>
         <select id="theme-select">
@@ -227,7 +227,7 @@
         const isTodayTask = mode === "today-task";
         const isMicroMemo = mode === "micro-memo";
         const isDoneTask = mode === "done-task";
-        const usesTheme = isTodayTask || isDoneTask;
+        const usesTheme = !isMicroMemo;
         title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
         modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
         input.placeholder = isDoneTask ? "今やったこと" : isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
@@ -236,12 +236,12 @@
         themeRow.classList.toggle("is-visible", usesTheme);
       }
 
-      async function submit() {
+      async function submit(continueCapturing = false) {
         const text = input.value.trim();
         if (!text) return;
         submitButton.disabled = true;
         try {
-          const usesTheme = mode === "today-task" || mode === "done-task";
+          const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
           await window.captureApi.save(text, mode, themeId);
           if (usesTheme) {
@@ -255,7 +255,11 @@
           feedback.style.animation = "";
           setTimeout(() => {
             feedback.style.display = "none";
-            window.captureApi.hide();
+            if (continueCapturing) {
+              input.focus();
+            } else {
+              window.captureApi.hide();
+            }
           }, 600);
         } catch {
           feedback.textContent = "保存できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
@@ -266,7 +270,7 @@
         }
       }
 
-      submitButton.addEventListener("click", submit);
+      submitButton.addEventListener("click", () => submit(false));
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
@@ -275,7 +279,7 @@
         }
         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
           event.preventDefault();
-          submit();
+          submit(event.shiftKey);
         }
       });
 
