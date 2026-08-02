@@ -146,6 +146,7 @@ export interface Note {
   content_format?: string | null;
   project_id?: string | null;
   source_record_id?: string | null;
+  properties_json?: Record<string, unknown>;
 }
 
 export interface Resource {

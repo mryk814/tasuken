@@ -38,6 +38,7 @@ import { ContextPane } from "./components/contextPane";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPalette";
 import { ContextPackDialog } from "./components/ContextPackDialog";
+import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -110,6 +111,7 @@ export function WorkspaceApp() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [contextPackThemeId, setContextPackThemeId] = useState<string | null>(null);
+  const [scratchpadDate, setScratchpadDate] = useState<string | null>(null);
   const closeContextPack = useCallback(() => setContextPackThemeId(null), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("shell:sidebar-collapsed:v1", false);
   const [zoomFactor, setZoomFactor] = usePersistentState("shell:zoom-factor:v1", 1);
@@ -844,6 +846,13 @@ export function WorkspaceApp() {
     window.dispatchEvent(new CustomEvent("tasken:notes-command", { detail: command }));
   };
   const commandPaletteEntries: CommandPaletteEntry[] = [
+    {
+      id: "open:daily-scratchpad",
+      label: "今日のDaily Scratchpadを開く",
+      keywords: ["今日", "日次", "メモ", "scratchpad", "書き散らす"],
+      category: "Commands",
+      execute: () => setScratchpadDate(todayIso()),
+    },
     { id: "navigate:today", label: "Todayへ移動", keywords: ["今日", "home"], category: "Commands", execute: () => navigate("today") },
     { id: "navigate:todo", label: "ToDoへ移動", keywords: ["task", "タスク"], category: "Commands", execute: () => navigate("todo") },
     { id: "navigate:inbox", label: "Inboxへ移動", keywords: ["capture", "記録"], category: "Commands", execute: () => navigate("inbox") },
@@ -999,6 +1008,7 @@ export function WorkspaceApp() {
     openDrawer,
     openContentViewer,
     openContextPack: setContextPackThemeId,
+    openDailyScratchpad: (date?: string) => setScratchpadDate(date || todayIso()),
     saveEntity,
     saveEntities,
     removeEntity,
@@ -1093,6 +1103,21 @@ export function WorkspaceApp() {
               openDrawer={openDrawer}
               setToast={setToast}
               close={closeContextPack}
+            />
+          )}
+          {scratchpadDate && (
+            <DailyScratchpadDialog
+              key={scratchpadDate}
+              initialDate={scratchpadDate}
+              today={todayIso()}
+              notes={data.notes}
+              tasks={domain.tasks}
+              references={domain.references}
+              saveEntity={saveEntity}
+              saveEntities={saveEntities}
+              openDrawer={openDrawer}
+              setToast={setToast}
+              close={() => setScratchpadDate(null)}
             />
           )}
         </div>

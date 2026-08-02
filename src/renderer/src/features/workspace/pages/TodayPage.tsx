@@ -6,6 +6,7 @@ import {
   IconChevronRight,
   IconClipboard,
   IconClock,
+  IconNotebook,
   IconPlus,
 } from "@tabler/icons-react";
 
@@ -421,7 +422,7 @@ function CandidateTaskRows({
   );
 }
 
-export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, setToast }: PageProps) {
+export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, openDailyScratchpad, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
@@ -764,6 +765,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
   return (
     <div className="page today-page">
       <PageHeader title="Today" subtitle="今日見るものを一か所に集めます。">
+        <button className="primary-button" onClick={() => openDailyScratchpad(today)}>
+          <IconNotebook size={16} /> 今日のScratchpad
+        </button>
         <button className="secondary-button" onClick={() => workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。"))}>
           <IconClipboard size={16} /> コピー
         </button>
@@ -773,7 +777,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, save
         <button className="secondary-button" onClick={openTodayTasksWindow}>
           <IconCalendarCheck size={16} /> 今日やること
         </button>
-        <button className="primary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
+        <button className="secondary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
       </PageHeader>
 
       {showAdd && (
