@@ -107,6 +107,15 @@ export interface SketchAlignmentGuides {
   horizontal: number[];
 }
 
+export const SKETCH_BACKGROUND_RENDERING = {
+  paperColor: "#fffdfb",
+  dotColor: "#b9aaad",
+  gridColor: "#d0c2c4",
+  spacing: 24,
+  dotRadius: 1.55,
+  gridLineWidth: 1.35,
+} as const;
+
 const DEFAULT_PAGE_WIDTH = 1200;
 const DEFAULT_PAGE_HEIGHT = 850;
 const INFINITE_PAGE_WIDTH = 2400;
@@ -545,18 +554,18 @@ export function drawSketchPage(
   options: { selectedIds?: string[]; draftObject?: SketchStroke; draftShape?: SketchShape; lassoPoints?: SketchPoint[] } = {},
 ) {
   context.clearRect(0, 0, page.width, page.height);
-  context.fillStyle = "#fffdfb";
+  context.fillStyle = SKETCH_BACKGROUND_RENDERING.paperColor;
   context.fillRect(0, 0, page.width, page.height);
 
   if (page.background !== "plain") {
-    context.fillStyle = "#dccfd0";
-    context.strokeStyle = "#eadfe0";
-    context.lineWidth = 1;
-    for (let x = 24; x < page.width; x += 24) {
-      for (let y = 24; y < page.height; y += 24) {
+    context.fillStyle = SKETCH_BACKGROUND_RENDERING.dotColor;
+    context.strokeStyle = SKETCH_BACKGROUND_RENDERING.gridColor;
+    context.lineWidth = SKETCH_BACKGROUND_RENDERING.gridLineWidth;
+    for (let x = SKETCH_BACKGROUND_RENDERING.spacing; x < page.width; x += SKETCH_BACKGROUND_RENDERING.spacing) {
+      for (let y = SKETCH_BACKGROUND_RENDERING.spacing; y < page.height; y += SKETCH_BACKGROUND_RENDERING.spacing) {
         if (page.background === "dot") {
           context.beginPath();
-          context.arc(x, y, 1.1, 0, Math.PI * 2);
+          context.arc(x, y, SKETCH_BACKGROUND_RENDERING.dotRadius, 0, Math.PI * 2);
           context.fill();
         }
       }
@@ -568,7 +577,7 @@ export function drawSketchPage(
       }
     }
     if (page.background === "grid") {
-      for (let y = 24; y < page.height; y += 24) {
+      for (let y = SKETCH_BACKGROUND_RENDERING.spacing; y < page.height; y += SKETCH_BACKGROUND_RENDERING.spacing) {
         context.beginPath();
         context.moveTo(0, y);
         context.lineTo(page.width, y);
