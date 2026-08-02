@@ -355,15 +355,21 @@ export function SketchPage({
             />
           ))}
         </div>
-        <label className="sketch-width-field">
-          <span className="sr-only">線幅</span>
-          <select value={strokeWidth} onChange={(event) => setStrokeWidth(Number(event.target.value))}>
-            <option value={1}>1 px</option>
-            <option value={2}>2 px</option>
-            <option value={4}>4 px</option>
-            <option value={7}>7 px</option>
-          </select>
-        </label>
+        <div className="sketch-width-options" role="radiogroup" aria-label="線の太さ">
+          {[1, 2, 4, 7].map((width) => (
+            <button
+              key={width}
+              className={strokeWidth === width ? "is-active" : ""}
+              role="radio"
+              aria-checked={strokeWidth === width}
+              aria-label={`${width}px`}
+              onClick={() => setStrokeWidth(width)}
+              title={`${width}px`}
+            >
+              <span style={{ height: `${Math.max(1, tool === "highlighter" ? width * 2 : width)}px` }} />
+            </button>
+          ))}
+        </div>
         <div className="sketch-tool-group is-history">
           <button disabled={!undoStack.length} onClick={undo} title="元に戻す"><IconArrowBackUp size={18} /><span>戻す</span></button>
           <button disabled={!redoStack.length} onClick={redo} title="やり直す"><IconArrowForwardUp size={18} /><span>やり直す</span></button>
