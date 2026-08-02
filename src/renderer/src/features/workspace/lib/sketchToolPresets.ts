@@ -27,6 +27,13 @@ export const SKETCH_TOOL_WIDTHS: Record<SketchPresetTool, number[]> = {
   text: [18, 24, 32, 44],
 };
 
+export function sketchToolWidthSampleSize(tool: SketchPresetTool, width: number): number {
+  if (tool === "eraser") return Math.min(22, width / 2);
+  if (tool === "text") return Math.max(2, Math.min(12, width / 3));
+  if (tool === "highlighter") return Math.max(3, Math.min(12, width / 4));
+  return Math.max(1, Math.min(12, width));
+}
+
 export function isSketchPresetTool(tool: SketchTool): tool is SketchPresetTool {
   return tool in DEFAULT_SKETCH_TOOL_PRESETS;
 }

@@ -61,6 +61,7 @@ import {
   isSketchPresetTool,
   normalizeSketchToolPresets,
   SKETCH_TOOL_WIDTHS,
+  sketchToolWidthSampleSize,
   type SketchPresetTool,
   type SketchToolPresets,
 } from "../lib/sketchToolPresets";
@@ -489,10 +490,15 @@ export function SketchPage({
                 title={`${width}px`}
               >
                 <span style={tool === "eraser"
-                  ? { width: `${Math.min(22, width / 2)}px`, height: `${Math.min(22, width / 2)}px` }
-                  : tool === "text"
-                    ? { height: `${Math.max(2, Math.min(12, width / 3))}px` }
-                    : { height: `${Math.max(1, Math.min(12, width))}px` }}
+                  ? {
+                      width: `${sketchToolWidthSampleSize(tool, width)}px`,
+                      height: `${sketchToolWidthSampleSize(tool, width)}px`,
+                    }
+                  : {
+                      height: `${sketchToolWidthSampleSize(tool, width)}px`,
+                      background: tool === "highlighter" ? activePreset.color : undefined,
+                      opacity: tool === "highlighter" ? 0.38 : undefined,
+                    }}
                 />
               </button>
             ))}
