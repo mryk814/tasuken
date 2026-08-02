@@ -13,6 +13,7 @@ import {
   IconNotes,
   IconPaperclip,
   IconPlus,
+  IconSearch,
   IconSettings,
   IconSparkles,
   IconSun,
@@ -38,6 +39,7 @@ interface AppTitleBarProps {
   setThemeMode: (mode: "light" | "dark") => void;
   openShortcuts: () => void;
   openSettings: () => void;
+  openCommandPalette: () => void;
 }
 
 export function AppTitleBar({
@@ -49,6 +51,7 @@ export function AppTitleBar({
   setThemeMode,
   openShortcuts,
   openSettings,
+  openCommandPalette,
 }: AppTitleBarProps) {
   const [openMenu, setOpenMenu] = useState<"view" | "help" | null>(null);
   const controlsRef = useRef<HTMLDivElement | null>(null);
@@ -94,6 +97,16 @@ export function AppTitleBar({
       </div>
       <div className="titlebar-drag-space" />
       <div className="titlebar-controls" ref={controlsRef}>
+        <button
+          type="button"
+          className="titlebar-command-button"
+          onClick={openCommandPalette}
+          title="Command Palette (Ctrl+Shift+K)"
+        >
+          <IconSearch size={15} aria-hidden="true" />
+          <span>コマンド</span>
+          <kbd>Ctrl+Shift+K</kbd>
+        </button>
         <div className="titlebar-menu-anchor">
           <button
             className={openMenu === "view" ? "is-active" : ""}

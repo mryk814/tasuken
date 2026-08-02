@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconCopy, IconFileText, IconMessage2Plus } from "@tabler/icons-react";
+import { IconCopy, IconFileText, IconMessage2Plus, IconSparkles } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, PageProps, SaveOperation } from "../types";
@@ -73,7 +73,7 @@ function TaskSectionBoard({
   );
 }
 
-export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, openContentViewer, navigate, saveEntities, removeEntity, setToast }: PageProps) {
+export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, openContentViewer, openContextPack, navigate, saveEntities, removeEntity, setToast }: PageProps) {
   const [sectionTitle, setSectionTitle] = useState("");
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   if (!activeTheme) {
@@ -175,6 +175,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
     <div className="page">
       <PageHeader title={theme.name} subtitle={theme.description}>
         {theme.code && <span className="theme-code">{theme.code}</span>}
+        <button className="secondary-button" onClick={() => openContextPack(theme.id)}><IconSparkles size={16} />AI向けContext</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: theme.id } })}>現在地を記録</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: theme.id } })}>タスクを追加</button>
       </PageHeader>

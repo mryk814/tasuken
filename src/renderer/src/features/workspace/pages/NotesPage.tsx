@@ -182,6 +182,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
   const selectedBodyRef = useRef(selectedBody);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
+  const commandActionsRef = useRef<Record<string, () => void | Promise<void>>>({});
   const selectedKind = selected ? recordKind(selected) : null;
   // Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
   const showDocumentPublish = selectedKind === "note" || selectedKind === "report";
@@ -922,6 +923,26 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
       setPdfExporting(false);
     }
   }
+
+  commandActionsRef.current = {
+    save: () => selected ? saveSelectedDraft() : setToast("保存する文書を選択してください。", "warning"),
+    edit: () => selected ? switchPreviewMode("edit") : setToast("編集する文書を選択してください。", "warning"),
+    preview: () => selected ? switchPreviewMode("preview") : setToast("表示する文書を選択してください。", "warning"),
+    format: () => selected ? formatSelectedDraft() : setToast("整形する文書を選択してください。", "warning"),
+    pdf: () => showDocumentPublish ? exportSelectedPdf() : setToast("PDF出力できるNoteまたはReportを選択してください。", "warning"),
+    folder: () => markdownExportOpenPath
+      ? openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)
+      : setToast("先にMarkdownを出力して保存先を決めてください。", "warning"),
+  };
+
+  useEffect(() => {
+    const runCommand = (event: Event) => {
+      const command = (event as CustomEvent<string>).detail;
+      void commandActionsRef.current[command]?.();
+    };
+    window.addEventListener("tasken:notes-command", runCommand);
+    return () => window.removeEventListener("tasken:notes-command", runCommand);
+  }, []);
 
   return (
     <div className="page notes-page">

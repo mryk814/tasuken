@@ -36,6 +36,8 @@ import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
+import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPalette";
+import { ContextPackDialog } from "./components/ContextPackDialog";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -106,6 +108,9 @@ export function WorkspaceApp() {
   const setActiveGroups = useUiStore((state) => state.setActiveGroups);
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [contextPackThemeId, setContextPackThemeId] = useState<string | null>(null);
+  const closeContextPack = useCallback(() => setContextPackThemeId(null), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("shell:sidebar-collapsed:v1", false);
   const [zoomFactor, setZoomFactor] = usePersistentState("shell:zoom-factor:v1", 1);
   const [compactDrawerLayout, setCompactDrawerLayout] = useState(() => window.matchMedia("(max-width: 1680px)").matches);
@@ -180,6 +185,19 @@ export function WorkspaceApp() {
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [setRoute]);
+
+  useEffect(() => {
+    const openPalette = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "k") return;
+      const target = event.target as HTMLElement | null;
+      const isEditing = Boolean(target?.closest("input, textarea, [contenteditable='true']"));
+      if (!event.shiftKey && isEditing) return;
+      event.preventDefault();
+      setShowCommandPalette((current) => !current);
+    };
+    addEventListener("keydown", openPalette);
+    return () => removeEventListener("keydown", openPalette);
+  }, []);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 1680px)");
@@ -822,6 +840,123 @@ export function WorkspaceApp() {
     return true;
   }
 
+  const dispatchNotesCommand = (command: string) => {
+    window.dispatchEvent(new CustomEvent("tasken:notes-command", { detail: command }));
+  };
+  const commandPaletteEntries: CommandPaletteEntry[] = [
+    { id: "navigate:today", label: "Todayへ移動", keywords: ["今日", "home"], category: "Commands", execute: () => navigate("today") },
+    { id: "navigate:todo", label: "ToDoへ移動", keywords: ["task", "タスク"], category: "Commands", execute: () => navigate("todo") },
+    { id: "navigate:inbox", label: "Inboxへ移動", keywords: ["capture", "記録"], category: "Commands", execute: () => navigate("inbox") },
+    { id: "navigate:notes", label: "Notesへ移動", keywords: ["note", "markdown", "文書"], category: "Commands", execute: () => navigate("notes") },
+    { id: "navigate:themes", label: "All Themesへ移動", keywords: ["theme", "テーマ"], category: "Commands", execute: () => navigate("themes") },
+    { id: "navigate:artifacts", label: "Artifactsへ移動", keywords: ["file", "成果物"], category: "Commands", execute: () => navigate("artifacts") },
+    {
+      id: "create:task",
+      label: "Taskを作る",
+      keywords: ["追加", "todo", "新規"],
+      category: "Commands",
+      execute: () => openDrawer({ type: "task", mode: "edit", entity: { project_id: activeTheme?.id || null } }),
+    },
+    {
+      id: "create:note",
+      label: "Noteを作る",
+      keywords: ["メモ", "追加", "新規"],
+      category: "Commands",
+      execute: () => openDrawer({
+        type: "note",
+        mode: "edit",
+        entity: { project_id: activeTheme?.id || null, note_type: "note", content_format: "markdown" },
+      }),
+    },
+    {
+      id: "create:markdown",
+      label: "Markdown文書を作る",
+      keywords: ["document", "原稿", "追加", "新規"],
+      category: "Commands",
+      execute: () => openDrawer({
+        type: "note",
+        mode: "edit",
+        entity: {
+          project_id: activeTheme?.id || null,
+          note_type: "note",
+          content_format: "markdown",
+          properties_json: { publish_enabled: true },
+        },
+      }),
+    },
+    {
+      id: "create:capture",
+      label: "Quick Captureを開く",
+      keywords: ["inbox", "記録", "capture"],
+      category: "Commands",
+      shortcut: "Ctrl+Shift+N",
+      execute: () => openDrawer({
+        type: "capture_entry",
+        mode: "edit",
+        entity: { state: "untriaged", captured_at: new Date().toISOString() },
+      }),
+    },
+    ...(activeTheme ? [{
+      id: "ai:context-pack",
+      label: `${activeTheme.name}のContext Packを作る`,
+      keywords: ["AI", "文脈", "prompt", "theme"],
+      category: "Commands" as const,
+      execute: () => setContextPackThemeId(activeTheme.id),
+    }] : []),
+    ...(route === "notes" ? [
+      { id: "notes:save", label: "現在の文書を保存", keywords: ["save", "保存"], category: "Commands" as const, shortcut: "Ctrl+S", execute: () => dispatchNotesCommand("save") },
+      { id: "notes:edit", label: "現在の文書をEditで表示", keywords: ["編集", "markdown"], category: "Commands" as const, execute: () => dispatchNotesCommand("edit") },
+      { id: "notes:preview", label: "現在の文書をPreviewで表示", keywords: ["表示", "render"], category: "Commands" as const, execute: () => dispatchNotesCommand("preview") },
+      { id: "notes:format", label: "現在のMarkdownを整形", keywords: ["format", "空行"], category: "Commands" as const, execute: () => dispatchNotesCommand("format") },
+      { id: "notes:pdf", label: "現在の文書をPDF出力", keywords: ["export", "出力"], category: "Commands" as const, execute: () => dispatchNotesCommand("pdf") },
+      { id: "notes:folder", label: "現在の文書の保存先を開く", keywords: ["folder", "directory", "フォルダ"], category: "Commands" as const, execute: () => dispatchNotesCommand("folder") },
+    ] : []),
+    ...domain.tasks.map((task) => ({
+      id: `task:${task.id}`,
+      label: task.title,
+      keywords: ["task", "タスク", themes.find((theme) => theme.id === task.project_id)?.name || ""],
+      category: "Tasks" as const,
+      execute: () => openDrawer({
+        type: "task",
+        entity: {
+          ...task,
+          _schedule: domain.schedules.find((schedule) => schedule.owner_type === "task" && schedule.owner_id === task.id),
+        } as Record<string, unknown>,
+      }),
+    })),
+    ...domain.notes.map((note) => ({
+      id: `note:${note.id}`,
+      label: note.title,
+      keywords: ["note", "markdown", "文書", themes.find((theme) => theme.id === note.project_id)?.name || ""],
+      category: "Notes / Documents" as const,
+      execute: () => openDrawer({ type: "note", entity: note as unknown as Record<string, unknown> }),
+    })),
+    ...themes.map((theme) => ({
+      id: `theme:${theme.id}`,
+      label: theme.name,
+      keywords: ["theme", "テーマ", str(theme.code), str(theme.description)],
+      category: "Themes" as const,
+      execute: () => {
+        setActiveThemeId(theme.id);
+        navigate("theme");
+      },
+    })),
+    ...domain.resources.map((resource) => ({
+      id: `resource:${resource.id}`,
+      label: resource.title,
+      keywords: ["resource", "資料", str(resource.url), str(resource.description)],
+      category: "Resources / Artifacts" as const,
+      execute: () => openDrawer({ type: "resource", entity: resource as unknown as Record<string, unknown> }),
+    })),
+    ...(data.artifacts || []).map((artifact) => ({
+      id: `artifact:${artifact.id}`,
+      label: str(artifact.title || artifact.file_name || "Artifact"),
+      keywords: ["artifact", "ファイル", str(artifact.file_path || artifact.url)],
+      category: "Resources / Artifacts" as const,
+      execute: () => openContentViewer({ type: "artifact", artifactId: artifact.id }),
+    })),
+  ];
+
   const titleBar = (
     <AppTitleBar
       collapsed={sidebarCollapsed}
@@ -831,6 +966,7 @@ export function WorkspaceApp() {
       themeMode={themeMode}
       setThemeMode={setThemeMode}
       openShortcuts={() => setShowShortcuts(true)}
+      openCommandPalette={() => setShowCommandPalette(true)}
       openSettings={() => {
         setDrawer(null);
         setRoute("settings");
@@ -861,6 +997,7 @@ export function WorkspaceApp() {
     navigate,
     openDrawer,
     openContentViewer,
+    openContextPack: setContextPackThemeId,
     saveEntity,
     saveEntities,
     removeEntity,
@@ -941,6 +1078,22 @@ export function WorkspaceApp() {
             </div>
           )}
           {showShortcuts && <ShortcutDialog close={() => setShowShortcuts(false)} />}
+          <CommandPalette
+            open={showCommandPalette}
+            entries={commandPaletteEntries}
+            close={() => setShowCommandPalette(false)}
+          />
+          {contextPackThemeId && themes.find((theme) => theme.id === contextPackThemeId) && (
+            <ContextPackDialog
+              theme={themes.find((theme) => theme.id === contextPackThemeId) as Theme}
+              domain={domain}
+              data={data}
+              saveEntity={saveEntity}
+              openDrawer={openDrawer}
+              setToast={setToast}
+              close={closeContextPack}
+            />
+          )}
         </div>
       </div>
     </div>

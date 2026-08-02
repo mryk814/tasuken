@@ -45,6 +45,8 @@
 | クイック記録 | Ctrl+Shift+N（Inbox行き）。Ctrl+Enterで記録して閉じ、Ctrl+Shift+Enterで連続記録。Themeは任意 |
 | 整理済み | InboxでTask / Note / Markdown / Resource / Artifactへ整理した履歴とアーカイブ。整理先を再び開ける |
 | 選択範囲から切り出す | NotesのEditで選んだMarkdownを、元本文を変更せずTaskまたはNoteとして作成する。作成先から元Note・見出し・引用を辿れる |
+| Command Palette | `Ctrl+Shift+K`またはタイトルバーから開く共通操作入口。コマンドとTask / Note / Theme / Resource / Artifactを横断検索する |
+| Context Pack | Theme内で明示選択したTask / Note / Resource / Artifactと依頼文を、AIへ渡すMarkdown Snapshotとしてコピー・保存する |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
 | イナズマ線 | Timelineの進捗折れ線。状態（未着手/進行中/完了）から到達度を導いて描く |
 | テーマチップス | Themeカラー付きの小さなタグ表示。ユーザー評価が高く、他所への展開候補 |

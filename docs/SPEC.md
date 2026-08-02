@@ -463,6 +463,19 @@ notes:
 - 測定位置の影響を疑う
 ```
 
+### Command Palette
+
+`Ctrl+Shift+K`を共通入口とし、固定registryのコマンドとTask / Note / Theme / Resource / Artifactを横断検索する。
+作成・移動は既存Drawerとroute、Notesの保存・Preview・整形・PDF・保存先操作は既存処理へ委譲し、画面ごとの重複経路を作らない。
+最近実行した項目を端末内に保持し、`Esc`で閉じた場合は元のfocusへ戻す。
+
+### Theme Context Pack
+
+Theme内のTask / Note / Resource / Artifactから利用者が選んだ項目だけを、目的・依頼文付きMarkdownへまとめる。
+文字数と概算token数、Preview、クリップボードコピーを提供する。
+保存時はPrompt Noteとして出力時点のMarkdownとEntity ID一覧をSnapshot保持し、AI回答用Markdown Noteから出典を辿れるようにする。
+長文Noteは抜粋し、Artifact本文や資格情報を自動収集しない。
+
 ## 5.9 Stats
 
 統計量は最初から作り込みすぎない。
