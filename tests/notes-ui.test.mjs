@@ -45,9 +45,9 @@ test("Notes UI persists filter and sort preferences and exposes save-folder acti
   assert.doesNotMatch(source, /整形を戻す|formatUndoBody/);
 });
 
-test("Notes opens lightweight and fills a large list in idle batches", () => {
+test("Notes opens directly in Edit while filling a large list in idle batches", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  assert.match(source, /useState<PreviewMode>\("preview"\)/);
+  assert.match(source, /useState<PreviewMode>\("edit"\)/);
   assert.match(source, /NOTES_RENDER_BATCH_SIZE/);
   assert.match(source, /requestIdleCallback/);
   assert.match(source, /renderedRecords\.map/);

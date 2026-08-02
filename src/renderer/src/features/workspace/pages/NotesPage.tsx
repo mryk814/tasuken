@@ -152,8 +152,8 @@ function isWorkbenchRecord(record: Combined): boolean {
 export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navigate, saveEntity, saveEntities, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Notesへ入った瞬間は読む面だけを出し、重いMDXEditorはEditを選んだ時に初めて起動する。
-  const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
+  // Notesは書く場所としてEditを初期表示にする。Preview / Rawは必要なときだけ切り替える。
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const [prefs, setPrefs] = usePersistentState<NotesPreferences>("notes:prefs:v1", DEFAULT_NOTES_PREFS);
   const sketches = useMemo(() => data.sketches as Sketch[], [data.sketches]);
   const scope = prefs.scope;
