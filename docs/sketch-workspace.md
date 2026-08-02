@@ -6,19 +6,20 @@
 
 ## 利用の一周
 
-1. Inboxの「手書きで記録」またはNotesの「Sketchを開く」から開始する。
-2. ペン、蛍光ペン、消しゴム、図形認識、矢印、テキスト、画像で複数ページを編集する。
-3. 変更は短い遅延で自動保存され、再起動後も編集可能なオブジェクトとして復元する。
-4. 必要に応じてNoteへPNGを挿入する。元SketchへのReferenceを同時に保存する。
-5. Markdown + PNG、PNG、SVGへ書き出すか、画像と説明用プロンプトをクリップボードへコピーして外部AIへ渡す。
-6. Sketchを削除した場合は論理削除し、関連Referenceだけを連動して論理削除する。
+1. SidebarのKnowledgeにある「Sketch」またはInboxの「手書きで記録」から開始する。
+2. Sketch棚で検索・Theme絞り込み・並び替えを行い、行を選ぶと詳細ドロワー、明示的に「開く」と編集面へ進む。
+3. ペン、蛍光ペン、消しゴム、図形認識、矢印、テキスト、画像で複数ページを編集する。
+4. 変更は短い遅延で自動保存され、再起動後も編集可能なオブジェクトとして復元する。
+5. 必要に応じてMarkdown + PNG、PNG、SVGへ書き出すか、画像と説明用プロンプトをクリップボードへコピーして外部AIへ渡す。
+6. Sketchのタイトル・Theme変更と削除は詳細ドロワーから行う。削除は論理削除し、undoできる。
+7. Note埋め込みはNote側から既存Sketchを選び、埋め込みから元Sketchを再編集できる経路へ置換する（#216）。置換までは既存のPNG添付＋Reference経路を維持する。
 
 ## 正本と派生物
 
 ```mermaid
 flowchart LR
   Capture["Ink Capture"] --> Sketch["Sketch document<br/>editable source of truth"]
-  Notes["Notes"] --> Sketch
+  Library["Sketch library"] --> Sketch
   Sketch --> Note["Note attachment + Reference"]
   Sketch --> Export["Markdown / PNG / SVG"]
   Sketch --> AI["Clipboard image + prompt"]
@@ -43,4 +44,4 @@ flowchart LR
 - RendererからSQLiteへ直接書かない。
 - 保存失敗時は編集中のdocumentを画面に残す。
 - Exportは派生処理でありSketch正本を書き換えない。
-- Captureから開始してもNotesから開始しても同じSketch編集面へ合流する。
+- Sketch棚から開始してもInk Captureから開始しても同じSketch編集面へ合流する。

@@ -72,7 +72,7 @@
 ### 3.6 手書きの思考過程を受け入れる
 
 文字・数式・簡単な図解は、Markdownへ整形する前の手書きの方が速いことがある。
-Notes配下に編集可能なSketchを持ち、Inboxから素早く開始できるようにする。
+Knowledge配下に独立したSketch棚と編集面を持ち、一覧・詳細・編集・削除を一周できるようにする。Inboxからも素早く開始できる。
 SketchはNoteへ画像として挿入できるほか、Markdown・PNG・SVG・外部AI向けクリップボードへ派生できる。
 詳細な境界と成立ループは `docs/sketch-workspace.md` を正本とする。
 

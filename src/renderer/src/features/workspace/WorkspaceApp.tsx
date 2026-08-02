@@ -694,6 +694,18 @@ export function WorkspaceApp() {
         group: formText(values, "group"),
         storage_root: formText(values, "storage_root") || null,
       };
+    } else if (type === "sketch") {
+      const title = formText(values, "title");
+      if (!title) {
+        named("title")?.focus();
+        setToast("Sketchのタイトルを入力してください。", "warning");
+        return false;
+      }
+      entity = {
+        ...base,
+        title,
+        project_id: formText(values, "project_id") || null,
+      };
     } else if (type === "note") {
       const title = formText(values, "title");
       if (!title) { setToast("タイトルを入力してください。"); return false; }
@@ -882,6 +894,7 @@ export function WorkspaceApp() {
     { id: "navigate:todo", label: "ToDoへ移動", keywords: ["task", "タスク"], category: "Commands", execute: () => navigate("todo") },
     { id: "navigate:inbox", label: "Inboxへ移動", keywords: ["capture", "記録"], category: "Commands", execute: () => navigate("inbox") },
     { id: "navigate:notes", label: "Notesへ移動", keywords: ["note", "markdown", "文書"], category: "Commands", execute: () => navigate("notes") },
+    { id: "navigate:sketch", label: "Sketchへ移動", keywords: ["手書き", "図解", "canvas"], category: "Commands", execute: () => navigate("sketch") },
     { id: "navigate:themes", label: "All Themesへ移動", keywords: ["theme", "テーマ"], category: "Commands", execute: () => navigate("themes") },
     { id: "navigate:artifacts", label: "Artifactsへ移動", keywords: ["file", "成果物"], category: "Commands", execute: () => navigate("artifacts") },
     {
@@ -1056,9 +1069,9 @@ export function WorkspaceApp() {
     <div className="app-frame" style={frameStyle}>
       {titleBar}
       <div className="app-content-viewport">
-        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch" ? "is-canvas-route" : ""}`}>
+        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch-editor" ? "is-canvas-route" : ""}`}>
           <Sidebar
-            route={route === "sketch" ? "notes" : route}
+            route={route === "sketch-editor" ? "sketch" : route}
             navigate={navigate}
             collapsed={sidebarCollapsed}
             themes={themes}
@@ -1091,8 +1104,9 @@ export function WorkspaceApp() {
               setToast={setToast}
               openContentViewer={openContentViewer}
               startFocusSession={startFocusSession}
+              navigate={navigate}
             />
-          ) : route !== "sketch" ? (
+          ) : route !== "sketch-editor" ? (
             <ContextPane
               data={data}
               domain={domain}

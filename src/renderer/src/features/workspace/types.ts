@@ -277,7 +277,8 @@ export type DrawerEntityType =
   | "task"
   | "waiting"
   | "plan_node"
-  | "capture_entry";
+  | "capture_entry"
+  | "sketch";
 
 export interface DrawerConfig {
   type: DrawerEntityType;
