@@ -1,0 +1,33 @@
+# Tasuken app charter
+
+## アプリの性格
+
+- 主性格: 個人用の研究・業務ワークスペース（作業ツール）
+- 部分性格: Sketchだけはキャンバス系。キャンバス内の紙面とインク色を先に設計し、周辺クロームは共通デザイントークンへ従う
+- 中心価値: タスクを消すことではなく、研究開発活動の現在地と考えた過程を失わないこと
+
+## データの重さ
+
+- Tasukenが正本データを所有するローカルファーストアプリ
+- SQLite Repositoryを唯一の書き込み経路とする
+- Snapshot / Import / Exportの往復性を保つ
+- Sketchはレンダリング画像ではなく編集可能なオブジェクト文書を正本とする。画像・Markdown・AI向けデータは派生物
+
+## 利用者と配布
+
+- 主利用者: Windows 11上で研究・業務を進める個人
+- 入力機器: マウス、タッチ、板タブレット、ペン対応モバイルモニター
+- 配布: ElectronのWindows installer / portable
+
+## アクセント
+
+- 共通のburgundyアクセントを維持する
+- Sketchの紙面内では黒・青・burgundy・orangeをインク色として使う。danger等の状態色とは意味を混ぜない
+
+## Sketchの境界契約
+
+1. Ink Captureは素早い入口であり、保存後は通常のSketchとして同じ編集面に到達する。
+2. SketchはNotes配下に置くが、Markdown本文へ生の軌跡データを埋め込まない。
+3. Noteへ挿入する際はPNGを添付し、Sketchへの`derived_from`参照を残す。
+4. AI連携は画像と説明用テキストのクリップボード往復を既定とし、APIキーを内蔵しない。
+5. 既存のNotes・Snapshot・Import/Export形式を壊さず、Sketchを追加コレクションとして扱う。

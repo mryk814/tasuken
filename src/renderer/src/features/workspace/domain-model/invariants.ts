@@ -96,6 +96,7 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     note: new Set(domain.notes.map((n) => n.id)),
     resource: new Set(domain.resources.map((r) => r.id)),
     knowledge_node: new Set(domain.knowledge_nodes.map((k) => k.id)),
+    sketch: new Set(domain.sketches.map((s) => s.id)),
   };
   for (const entry of domain.capture_entries) {
     if (entry.state === "triaged" && entry.triaged_to_type && entry.triaged_to_id) {
@@ -126,6 +127,11 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
   for (const node of domain.plan_nodes) {
     if (node.project_id && !projectIds.has(node.project_id)) {
       violations.push({ rule: "project_ref_exists", entity_type: "plan_node", entity_id: node.id, message: `PlanNode ${node.id} references project ${node.project_id} which does not exist.` });
+    }
+  }
+  for (const sketch of domain.sketches) {
+    if (sketch.project_id && !projectIds.has(sketch.project_id)) {
+      violations.push({ rule: "project_ref_exists", entity_type: "sketch", entity_id: sketch.id, message: `Sketch ${sketch.id} references project ${sketch.project_id} which does not exist.` });
     }
   }
 

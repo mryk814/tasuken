@@ -21,6 +21,7 @@ import type {
   Reference,
   Resource,
   Schedule,
+  Sketch,
   ScheduleOwnerType,
   Task,
   TaskDependency,
@@ -388,6 +389,7 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
     schedules: [],
     notes: [],
     resources: [],
+    sketches: [],
     knowledge_nodes: [],
     references: [],
     task_dependencies: [],
@@ -588,12 +590,13 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pKnowledgeEdges = castRecords<KnowledgeEdge>(data.knowledge_edges);
   const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
   const pResources = castRecords<Resource>(data.resources);
+  const pSketches = castRecords<Sketch>(data.sketches);
 
   const hasPersistedDomain =
     pProjects.length || pCaptures.length || pTasks.length ||
     pWaitings.length || pPlanNodes.length || pSchedules.length ||
     pReferences.length || pTaskDeps.length || pPlanDeps.length ||
-    pKnowledgeEdges.length || pChangeEvents.length || pResources.length;
+    pKnowledgeEdges.length || pChangeEvents.length || pResources.length || pSketches.length;
 
   if (!hasPersistedDomain) return legacy;
 
@@ -606,6 +609,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     schedules: mergePersistedDomain(pSchedules, legacy.schedules, "legacy_item_id"),
     notes: legacy.notes as Note[],
     resources: mergeById(pResources, legacy.resources),
+    sketches: pSketches,
     knowledge_nodes: legacy.knowledge_nodes,
     references: mergeById(pReferences, legacy.references),
     task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
@@ -835,6 +839,7 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
       ...domain.plan_nodes.map(itemFromPlanNode),
     ],
     notes: domain.notes as WorkspaceData["notes"],
+    sketches: domain.sketches as WorkspaceData["sketches"],
     links: domain.resources.map((resource) => ({
       id: resource.id,
       title: resource.title,

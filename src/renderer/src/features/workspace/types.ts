@@ -220,6 +220,13 @@ export interface Artifact extends BaseRecord {
   generated_by?: ArtifactGeneratedBy | null;
 }
 
+export interface Sketch extends BaseRecord {
+  title: string;
+  project_id?: string | null;
+  origin_capture_id?: string | null;
+  document: import("./lib/sketch").SketchDocument;
+}
+
 // activeRecordsで論理削除を除外した「表示用の正本投影」。
 export interface WorkspaceData {
   themes: Theme[];
@@ -250,6 +257,7 @@ export interface WorkspaceData {
   knowledge_edges: BaseRecord[];
   change_events: BaseRecord[];
   artifacts: Artifact[];
+  sketches: Sketch[];
   meta?: WorkspaceMeta;
 }
 

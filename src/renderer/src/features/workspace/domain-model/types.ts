@@ -168,6 +168,16 @@ export interface Resource {
   archived_at?: string | null;
 }
 
+export interface Sketch {
+  id: string;
+  title: string;
+  project_id?: string | null;
+  origin_capture_id?: string | null;
+  document: import("../lib/sketch").SketchDocument;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export type KnowledgeNodeType =
   | "source"
   | "evidence"
@@ -194,7 +204,8 @@ export type EntityRefType =
   | "plan_node"
   | "note"
   | "resource"
-  | "knowledge_node";
+  | "knowledge_node"
+  | "sketch";
 
 export interface Reference {
   id: string;
@@ -250,6 +261,7 @@ export interface WorkspaceDomain {
   schedules: Schedule[];
   notes: Note[];
   resources: Resource[];
+  sketches: Sketch[];
   knowledge_nodes: KnowledgeNode[];
   references: Reference[];
   task_dependencies: TaskDependency[];
@@ -268,6 +280,7 @@ export type DomainEntity =
   | Schedule
   | Note
   | Resource
+  | Sketch
   | KnowledgeNode
   | Reference
   | TaskDependency

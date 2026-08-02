@@ -56,6 +56,7 @@ function isPlainObject(value) {
 function collectionKey(type) {
   if (type === "task_dependency") return "task_dependencies";
   if (type === "plan_dependency") return "plan_dependencies";
+  if (type === "sketch") return "sketches";
   return `${type}s`;
 }
 
@@ -315,7 +316,7 @@ export class WorkspaceDatabase {
 
   loadWorkspace(includeDeleted = false) {
     const result = {};
-    for (const type of workspaceEntityTypes) result[`${type}s`] = this.list(type, includeDeleted);
+    for (const type of workspaceEntityTypes) result[collectionKey(type)] = this.list(type, includeDeleted);
     result.plan_revisions = this.db.prepare(
       "SELECT * FROM plan_revisions ORDER BY changed_at DESC",
     ).all().map((row) => ({
@@ -797,7 +798,7 @@ export class WorkspaceDatabase {
     if (!this.isEmpty()) return this.loadWorkspace();
     const transaction = this.db.transaction(() => {
       for (const type of workspaceEntityTypes) {
-        const records = legacyWorkspace?.[`${type}s`] || [];
+        const records = legacyWorkspace?.[collectionKey(type)] || [];
         for (const record of records) this.insertImported(type, record, "legacy");
       }
     });
@@ -840,7 +841,7 @@ export class WorkspaceDatabase {
     this.validateSnapshotWorkspace(snapshot);
     const changes = [];
     for (const type of workspaceEntityTypes) {
-      for (const incoming of snapshot?.[`${type}s`] || []) {
+      for (const incoming of snapshot?.[collectionKey(type)] || []) {
         const local = this.get(type, incoming.id, true);
         let category = "new";
         if (local) {

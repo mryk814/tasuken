@@ -10,6 +10,7 @@ import {
   IconInbox,
   IconPencil,
   IconTrash,
+  IconWriting,
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -28,9 +29,11 @@ import {
   buildSaveNoteOperations,
   buildTriageCaptureEntryOperations,
   buildSendMicroMemoToInboxOperations,
+  buildChangeEventOperation,
 } from "../domain-model/persistence";
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 import type { SaveOperation } from "../types";
+import { createSketchDraft } from "../lib/sketch";
 
 type InboxKind = "task" | "memo" | "link" | "waiting" | "idea";
 
@@ -345,6 +348,37 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
     await removeEntity("capture_entry", row.entry as unknown as Record<string, unknown>);
   }
 
+  async function startInkCapture() {
+    const captureId = crypto.randomUUID();
+    const title = `Ink Capture ${new Date().toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+    const sketch = createSketchDraft(title, null, captureId);
+    try {
+      await saveEntities([
+        { action: "save", type: "sketch", entity: sketch },
+        {
+          action: "save",
+          type: "capture_entry",
+          entity: {
+            id: captureId,
+            title,
+            text: "手書きで記録",
+            kind: "ink_capture",
+            captured_at: new Date().toISOString(),
+            state: "triaged",
+            triaged_to_type: "sketch",
+            triaged_to_id: sketch.id,
+          },
+        },
+        buildChangeEventOperation("capture_entry", captureId, "triaged"),
+        buildChangeEventOperation("sketch", sketch.id, "created"),
+      ], "Ink Captureを開始しました。");
+      localStorage.setItem("tasken:sketch:active-id", sketch.id);
+      navigate("sketch");
+    } catch (error) {
+      setToast(`Ink Captureを開始できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
   function bulkPatch(patch: Partial<InboxDraft>) {
     setDrafts((current) => {
       const next = { ...current };
@@ -373,6 +407,7 @@ export function InboxPage({ domain: v2, themes, openDrawer, navigate, saveEntiti
   return (
     <div className="page inbox-page">
       <PageHeader title="Inbox整理" subtitle="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
+        <button className="secondary-button" onClick={() => void startInkCapture()}><IconWriting size={16} />手書きで記録</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
         <button className="primary-button" disabled={!selected.length} onClick={organizeSelected}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>

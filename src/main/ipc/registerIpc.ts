@@ -52,6 +52,7 @@ export function registerIpc(
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => repository.setPreference(requireId(key), value));
   ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
   ipcMain.handle(IPC.clipboardWriteHtml, (_event, payload) => service.writeClipboardHtml(payload));
+  ipcMain.handle(IPC.clipboardWriteSketch, (_event, payload) => service.writeClipboardSketch(payload));
   ipcMain.handle(IPC.fileOpen, (_event, filePath) => service.openPath(requireText(filePath, "開くファイル")));
   ipcMain.handle(IPC.fileShowInFolder, (_event, filePath) => service.showItemInFolder(requireText(filePath, "表示するファイル")));
   ipcMain.handle(IPC.filePathExists, (_event, filePath) => service.pathExists(requireText(filePath, "確認する場所")));
@@ -108,4 +109,5 @@ export function registerIpc(
     ));
   ipcMain.handle(IPC.markdownFileExport, (_event, request) => service.exportMarkdownFile(request));
   ipcMain.handle(IPC.markdownPdfExport, (_event, request) => service.exportMarkdownPdf(request));
+  ipcMain.handle(IPC.sketchExport, (_event, request) => service.exportSketch(request));
 }

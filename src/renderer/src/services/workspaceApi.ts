@@ -8,6 +8,7 @@ import type {
 import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
 import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
+import type { SketchClipboardRequest, SketchExportRequest } from "../../../shared/sketchExport";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
@@ -50,6 +51,9 @@ export const workspaceApi = {
   },
   copyHtml(html: string, text: string) {
     return desktopApi().clipboard.writeHtml({ html, text });
+  },
+  copySketch(payload: SketchClipboardRequest) {
+    return desktopApi().clipboard.writeSketch(payload);
   },
   openPath(filePath: string) {
     return desktopApi().files.openPath(filePath);
@@ -122,5 +126,8 @@ export const workspaceApi = {
   },
   exportMarkdownPdf(request: MarkdownPdfExportRequest) {
     return desktopApi().exports.markdownPdf(request);
+  },
+  exportSketch(request: SketchExportRequest) {
+    return desktopApi().exports.sketch(request);
   },
 };

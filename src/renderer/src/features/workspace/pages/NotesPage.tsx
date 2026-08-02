@@ -7,6 +7,7 @@ import {
   IconPrompt,
   IconReport,
   IconSparkles,
+  IconWriting,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -53,6 +54,7 @@ import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { compactNotesBodyPreview, DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
+import { createSketchDraft } from "../lib/sketch";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
@@ -122,7 +124,7 @@ function isWorkbenchRecord(record: Combined): boolean {
   return record.recordType === "note";
 }
 
-export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity, setToast }: PageProps) {
+export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navigate, saveEntity, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Notesへ入った瞬間は読む面だけを出し、重いMDXEditorはEditを選んだ時に初めて起動する。
@@ -457,6 +459,21 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
         ...(noteType === "report" ? { properties_json: { report_type: "weekly" } } : {}),
       },
     });
+  }
+
+  async function addSketch() {
+    try {
+      const saved = await saveEntity("sketch", createSketchDraft("新しいSketch", activeTheme?.id || null));
+      localStorage.setItem("tasken:sketch:active-id", saved.id);
+      navigate("sketch");
+    } catch (error) {
+      setToast(`Sketchを作成できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  function openSketch(id: string) {
+    localStorage.setItem("tasken:sketch:active-id", id);
+    navigate("sketch");
   }
 
   async function copySelectedRaw() {
@@ -865,11 +882,23 @@ export function NotesPage({ themes, domain, activeTheme, openDrawer, saveEntity,
     <div className="page notes-page">
       <PageHeader title="Notes" subtitle="Note / Resource / Report / Prompt。書く・読む・リンクを見ながらメモする場所">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
+        <button className="secondary-button" onClick={() => void addSketch()}><IconWriting size={16} />新しいSketch</button>
         <button className="primary-button" onClick={() => addNote("note")}>Note</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } })}>Resource</button>
         <button className="primary-button" onClick={() => addNote("report")}>Report</button>
         <button className="primary-button" onClick={() => addPrompt()}>Prompt</button>
       </PageHeader>
+      {data.sketches.length > 0 && (
+        <section className="notes-sketch-strip" aria-label="最近のSketch">
+          <span><IconWriting size={16} />Sketch</span>
+          {data.sketches.slice(0, 4).map((sketch) => (
+            <button key={sketch.id} onClick={() => openSketch(sketch.id)}>
+              <strong>{String(sketch.title || "無題のSketch")}</strong>
+              <small>{sketch.updated_at ? new Date(sketch.updated_at).toLocaleDateString("ja-JP") : ""}</small>
+            </button>
+          ))}
+        </section>
+      )}
       <div className="filter-bar panel">
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" />
         <div className="segmented" aria-label="表示する種類">

@@ -13,6 +13,7 @@ export const routeParent: Record<string, string> = {
   waiting: "today",
   "micro-memos": "inbox",
   notes: "knowledge",
+  sketch: "notes",
   prompts: "notes",
   "chat-refs": "knowledge",
   artifacts: "knowledge",
@@ -49,6 +50,7 @@ export type RouteId =
   | "timeline"
   | "themes"
   | "notes"
+  | "sketch"
   | "prompts"
   | "knowledge"
   | "waiting"
