@@ -7,6 +7,7 @@ import {
   IconCircle,
   IconDiamond,
   IconEraser,
+  IconFile,
   IconGridDots,
   IconHandMove,
   IconHighlight,
@@ -36,12 +37,20 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { SketchCanvas } from "../components/SketchCanvas";
 import {
+  resolveSketchPageSize,
+  SketchPageSizePicker,
+  sketchPageSizeLabel,
+  sketchPageSizeValue,
+  type SketchPageSizeValue,
+} from "../components/SketchPageSizePicker";
+import {
   cloneSketchDocument,
   createEmptySketchDocument,
   createSketchPage,
   cropSketchPageToContent,
   drawSketchPage,
   expandInfinitePage,
+  minimumSketchPageSize,
   renderSketchPageToDataUrl,
   sketchAiPrompt,
   sketchCanvasMode,
@@ -138,6 +147,8 @@ export function SketchPage({
   const [redoStack, setRedoStack] = useState<SketchDocument[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportRange, setExportRange] = useState<"drawing" | "canvas">("drawing");
+  const [pageSizeOpen, setPageSizeOpen] = useState(false);
+  const [pageSize, setPageSize] = useState<SketchPageSizeValue>(() => sketchPageSizeValue());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
 
@@ -154,6 +165,7 @@ export function SketchPage({
     setSaveState("保存済み");
     setUndoStack([]);
     setRedoStack([]);
+    setPageSizeOpen(false);
   }, [selected?.id]);
 
   useEffect(() => {
@@ -236,9 +248,30 @@ export function SketchPage({
   }
 
   function addPage() {
-    const page = createSketchPage(String(document.pages.length + 1), "page");
+    const page = createSketchPage(
+      String(document.pages.length + 1),
+      "page",
+      { width: activePage.width, height: activePage.height },
+    );
     changeDocument({ ...document, pages: [...document.pages, page] });
     setActivePageId(page.id);
+  }
+
+  function openPageSize() {
+    setPageSize(sketchPageSizeValue({ width: activePage.width, height: activePage.height }));
+    setPageSizeOpen(true);
+  }
+
+  function applyPageSize() {
+    const size = resolveSketchPageSize(pageSize);
+    if (!size) return;
+    const minimum = minimumSketchPageSize(activePage);
+    if (size.width < minimum.width || size.height < minimum.height) {
+      setToast(`描画内容が収まりません。幅${minimum.width}px・高さ${minimum.height}px以上にしてください。`, "warning");
+      return;
+    }
+    changePage({ ...activePage, ...size });
+    setPageSizeOpen(false);
   }
 
   function removePage(pageId: string) {
@@ -547,11 +580,35 @@ export function SketchPage({
             onPasteImage={(file, point) => void insertImage(file, point)}
           />
           <div className="sketch-bottom-controls">
-            <span>{canvasMode === "page" ? `${document.pages.findIndex((page) => page.id === activePage.id) + 1} / ${document.pages.length}` : `${activePage.width} × ${activePage.height}`}</span>
+            <span>{canvasMode === "page"
+              ? `${document.pages.findIndex((page) => page.id === activePage.id) + 1} / ${document.pages.length} · ${activePage.width} × ${activePage.height}`
+              : `${activePage.width} × ${activePage.height}`}</span>
             <button onClick={() => setZoom((value) => clampSketchZoom(value - 0.1))} aria-label="縮小" title="縮小（Ctrl+ホイール）"><IconZoomOut size={17} /></button>
             <span>{Math.round(zoom * 100)}%</span>
             <button onClick={() => setZoom((value) => clampSketchZoom(value + 0.1))} aria-label="拡大" title="拡大（Ctrl+ホイール）"><IconZoomIn size={17} /></button>
             <button onClick={() => setZoom(0.82)} aria-label="ページ全体を表示"><IconMaximize size={17} /></button>
+            {canvasMode === "page" && (
+              <div className="sketch-page-size-menu">
+                <button onClick={openPageSize} aria-haspopup="dialog" aria-expanded={pageSizeOpen}>
+                  <IconFile size={17} />用紙: {sketchPageSizeLabel(activePage)}
+                </button>
+                {pageSizeOpen && (
+                  <section className="sketch-page-size-popover" role="dialog" aria-label="用紙サイズ">
+                    <SketchPageSizePicker value={pageSize} onChange={setPageSize} />
+                    <div className="sketch-page-size-actions">
+                      <button className="secondary-button compact" onClick={() => setPageSizeOpen(false)}>閉じる</button>
+                      <button
+                        className="primary-button compact"
+                        disabled={!resolveSketchPageSize(pageSize)}
+                        onClick={applyPageSize}
+                      >
+                        適用
+                      </button>
+                    </div>
+                  </section>
+                )}
+              </div>
+            )}
             <button
               onClick={() => {
                 const order: SketchPage["background"][] = ["dot", "grid", "plain"];

@@ -4,8 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { EmptyState, PageHeader } from "../components/common";
 import {
+  resolveSketchPageSize,
+  SketchPageSizePicker,
+  sketchPageSizeValue,
+  type SketchPageSizeValue,
+} from "../components/SketchPageSizePicker";
+import {
   createSketchDraft,
   drawSketchPage,
+  SKETCH_PAGE_PRESETS,
   sketchCanvasMode,
   type SketchCanvasMode,
   type SketchPage,
@@ -52,6 +59,8 @@ export function SketchLibraryPage({
 }: PageProps) {
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [createMode, setCreateMode] = useState<SketchCanvasMode>("page");
+  const [pageSize, setPageSize] = useState<SketchPageSizeValue>(() => sketchPageSizeValue());
   const [preferences, setPreferences] = usePersistentState<SketchLibraryPreferences>(
     "sketch:library-prefs:v1",
     DEFAULT_PREFERENCES,
@@ -81,8 +90,16 @@ export function SketchLibraryPage({
 
   const filterActive = preferences.themeId !== "all" || Boolean(query.trim());
 
-  function createSketch(mode: SketchCanvasMode) {
-    const draft = createSketchDraft("新しいSketch", activeTheme?.id || null, null, mode);
+  function openCreateDialog() {
+    setCreateMode("page");
+    setPageSize(sketchPageSizeValue(SKETCH_PAGE_PRESETS.landscape));
+    setCreateOpen(true);
+  }
+
+  function createSketch() {
+    const resolvedPageSize = createMode === "page" ? resolveSketchPageSize(pageSize) : SKETCH_PAGE_PRESETS.landscape;
+    if (!resolvedPageSize) return;
+    const draft = createSketchDraft("新しいSketch", activeTheme?.id || null, null, createMode, resolvedPageSize);
     setCreateOpen(false);
     openDrawer({
       type: "sketch",
@@ -100,7 +117,7 @@ export function SketchLibraryPage({
   return (
     <div className="page sketch-library-page">
       <PageHeader title="Sketch">
-        <button className="primary-button" onClick={() => setCreateOpen(true)}>
+        <button className="primary-button" onClick={openCreateDialog}>
           <IconPlus size={16} />新しいSketch
         </button>
       </PageHeader>
@@ -175,7 +192,7 @@ export function SketchLibraryPage({
           }}
         />
       ) : (
-        <EmptyState title="Sketchはまだありません" action="新しいSketch" onAction={() => setCreateOpen(true)} />
+        <EmptyState title="Sketchはまだありません" action="新しいSketch" onAction={openCreateDialog} />
       )}
 
       {createOpen && (
@@ -191,18 +208,45 @@ export function SketchLibraryPage({
               <h2 id="sketch-mode-title">作業面を選ぶ</h2>
               <button className="icon-button" onClick={() => setCreateOpen(false)} aria-label="閉じる"><IconX size={18} /></button>
             </header>
-            <div className="sketch-mode-options">
-              <button onClick={() => createSketch("page")}>
+            <div className="sketch-mode-switch" role="radiogroup" aria-label="Sketchの作業面">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={createMode === "page"}
+                className={createMode === "page" ? "is-active" : ""}
+                onClick={() => setCreateMode("page")}
+              >
                 <IconFile size={24} />
                 <strong>Page</strong>
-                <span>固定比率の紙を増やして書く。Noteや共有向き。</span>
+                <span>紙を増やして書く</span>
               </button>
-              <button onClick={() => createSketch("infinite")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={createMode === "infinite"}
+                className={createMode === "infinite" ? "is-active" : ""}
+                onClick={() => setCreateMode("infinite")}
+              >
                 <IconArrowsMaximize size={24} />
                 <strong>Infinite</strong>
-                <span>一枚の面を移動・拡大し、図解に合わせて広げる。</span>
+                <span>一枚の面を広げる</span>
               </button>
             </div>
+            {createMode === "page" ? (
+              <section className="sketch-page-create-options" aria-label="Pageの用紙設定">
+                <span className="field-label">用紙</span>
+                <SketchPageSizePicker value={pageSize} onChange={setPageSize} />
+              </section>
+            ) : (
+              <p className="sketch-mode-description">2400 × 1600から始まり、描画に合わせて右・下へ広がります。</p>
+            )}
+            <button
+              className="primary-button"
+              disabled={createMode === "page" && !resolveSketchPageSize(pageSize)}
+              onClick={createSketch}
+            >
+              {createMode === "page" ? "Pageを作成" : "Infiniteを作成"}
+            </button>
           </section>
         </div>
       )}

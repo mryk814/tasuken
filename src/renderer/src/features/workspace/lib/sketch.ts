@@ -2,6 +2,10 @@ export type SketchTool = "select" | "lasso" | "pen" | "highlighter" | "eraser" |
 export type SketchBackground = "plain" | "dot" | "grid";
 export type SketchCanvasMode = "page" | "infinite";
 export type SketchEraserMode = "partial" | "stroke";
+export interface SketchPageSize {
+  width: number;
+  height: number;
+}
 export type SketchShapeKind =
   | "auto"
   | "line"
@@ -116,26 +120,42 @@ export const SKETCH_BACKGROUND_RENDERING = {
   gridLineWidth: 1.35,
 } as const;
 
-const DEFAULT_PAGE_WIDTH = 1200;
-const DEFAULT_PAGE_HEIGHT = 850;
+export const SKETCH_PAGE_PRESETS = {
+  landscape: { width: 1200, height: 850 },
+  portrait: { width: 850, height: 1200 },
+  square: { width: 1000, height: 1000 },
+} as const satisfies Record<string, SketchPageSize>;
+
+export const SKETCH_PAGE_SIZE_LIMITS = {
+  min: 480,
+  max: 3000,
+} as const;
+
 const INFINITE_PAGE_WIDTH = 2400;
 const INFINITE_PAGE_HEIGHT = 1600;
 const INFINITE_GROW_MARGIN = 240;
 const INFINITE_GROW_STEP = 800;
 
-export function createSketchPage(title = "1", mode: SketchCanvasMode = "page"): SketchPage {
+export function createSketchPage(
+  title = "1",
+  mode: SketchCanvasMode = "page",
+  pageSize: SketchPageSize = SKETCH_PAGE_PRESETS.landscape,
+): SketchPage {
   return {
     id: crypto.randomUUID(),
     title,
-    width: mode === "infinite" ? INFINITE_PAGE_WIDTH : DEFAULT_PAGE_WIDTH,
-    height: mode === "infinite" ? INFINITE_PAGE_HEIGHT : DEFAULT_PAGE_HEIGHT,
+    width: mode === "infinite" ? INFINITE_PAGE_WIDTH : pageSize.width,
+    height: mode === "infinite" ? INFINITE_PAGE_HEIGHT : pageSize.height,
     background: "dot",
     objects: [],
   };
 }
 
-export function createEmptySketchDocument(mode: SketchCanvasMode = "page"): SketchDocument {
-  return { schema_version: 1, mode, pages: [createSketchPage("1", mode)] };
+export function createEmptySketchDocument(
+  mode: SketchCanvasMode = "page",
+  pageSize: SketchPageSize = SKETCH_PAGE_PRESETS.landscape,
+): SketchDocument {
+  return { schema_version: 1, mode, pages: [createSketchPage("1", mode, pageSize)] };
 }
 
 export function createSketchDraft(
@@ -143,13 +163,14 @@ export function createSketchDraft(
   projectId: string | null = null,
   originCaptureId: string | null = null,
   mode: SketchCanvasMode = "page",
+  pageSize: SketchPageSize = SKETCH_PAGE_PRESETS.landscape,
 ) {
   return {
     id: crypto.randomUUID(),
     title,
     project_id: projectId,
     origin_capture_id: originCaptureId,
-    document: createEmptySketchDocument(mode),
+    document: createEmptySketchDocument(mode, pageSize),
   };
 }
 
@@ -159,6 +180,15 @@ export function sketchCanvasMode(document: SketchDocument): SketchCanvasMode {
 
 export function cloneSketchDocument(document: SketchDocument): SketchDocument {
   return structuredClone(document);
+}
+
+export function minimumSketchPageSize(page: SketchPage, padding = 48): SketchPageSize {
+  const bounds = combinedObjectBounds(page.objects);
+  if (!bounds) return { width: SKETCH_PAGE_SIZE_LIMITS.min, height: SKETCH_PAGE_SIZE_LIMITS.min };
+  return {
+    width: Math.max(SKETCH_PAGE_SIZE_LIMITS.min, Math.ceil(bounds.x + bounds.w + padding)),
+    height: Math.max(SKETCH_PAGE_SIZE_LIMITS.min, Math.ceil(bounds.y + bounds.h + padding)),
+  };
 }
 
 export function objectBounds(object: SketchObject): SketchBounds {
