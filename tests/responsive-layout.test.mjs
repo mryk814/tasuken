@@ -50,10 +50,20 @@ test("compact desktop layout protects the main work area", () => {
   assert.match(cssSource, /\.notes-workbench \{[^}]*minmax\(0, 1\.82fr\)/);
   assert.match(cssSource, /\.notes-page \{ width: min\(1600px, 100%\);/);
   assert.match(cssSource, /\.chat-refs-page \{ width: min\(1600px, 100%\);/);
+  assert.match(cssSource, /\.sketch-library-page,[\s\S]*\.artifacts-page \{ width: min\(1600px, 100%\); \}/);
   assert.match(workspaceSource, /window\.matchMedia\("\(max-width: 1680px\)"\)/);
   assert.match(workspaceSource, /document\.addEventListener\("pointerdown", onPointerDown, true\)/);
   assert.match(workspaceSource, /document\.addEventListener\("focusin", onFocusIn, true\)/);
   assert.match(workspaceSource, /if \(!\(await saveDirtyDrawerForm\(\)\) \|\| generation !== drawerGeneration\.current\) return;/);
+});
+
+test("Sketch keeps the page rail separate from canvas tools and inside the titlebar viewport", () => {
+  assert.match(cssSource, /\.app-shell\.is-canvas-route \.main-area \{[^}]*height: 100%;[^}]*overflow: hidden;/);
+  assert.match(cssSource, /\.sketch-page \{[^}]*grid-template-columns: var\(--sketch-page-rail-width\) minmax\(0, 1fr\);/);
+  assert.match(cssSource, /\.sketch-toolbar \{[^}]*grid-column: 2;[^}]*grid-row: 2;[^}]*overflow: visible;/);
+  assert.match(cssSource, /\.sketch-page-rail \{[^}]*grid-column: 1;[^}]*grid-row: 2 \/ 4;/);
+  assert.match(cssSource, /\.sketch-canvas-area \{[^}]*grid-column: 2;[^}]*grid-row: 3;/);
+  assert.match(cssSource, /\.sketch-shape-popover \{[^}]*right: 0;[^}]*grid-template-columns: repeat\(5, 76px\);/);
 });
 
 test("Notes controls wrap as groups without stretching their labels", () => {

@@ -149,6 +149,7 @@ test("diagram shape set renders to SVG without changing the document schema", ()
   };
   const svg = sketch.sketchPageToSvg(page);
   assert.match(svg, /rx="/);
+  assert.match(svg, /H 372 L 352\.8 140 L 357\.6 120/);
   assert.match(svg, /marker-start="url\(#arrow-start\)"/);
   assert.ok(shapes.every((shape) => page.objects.some((object) => object.shape === shape)));
 });

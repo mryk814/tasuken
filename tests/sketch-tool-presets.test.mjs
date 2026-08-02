@@ -39,7 +39,7 @@ test("invalid stored presets fall back per tool without overwriting valid peers"
 test("tool presets and shape choice persist as UI state", () => {
   assert.match(pageSource, /usePersistentState<SketchToolPresets>/);
   assert.match(pageSource, /"sketch:tool-presets:v1"/);
-  assert.match(pageSource, /"sketch:shape-kind:v1"/);
+  assert.match(pageSource, /"sketch:shape-kind:v2", "rectangle"/);
   assert.match(pageSource, /"sketch:eraser-mode:v1"/);
   assert.match(pageSource, /tool !== "eraser"/);
 });
@@ -57,6 +57,7 @@ test("eraser modes and the compact diagram palette are visible toolbar choices",
   assert.match(pageSource, />部分消し</);
   assert.match(pageSource, />線ごと</);
   assert.match(pageSource, /className="sketch-shape-popover"/);
+  assert.match(pageSource, /label: "手描き認識"/);
   for (const kind of ["rounded_rectangle", "diamond", "sticky_note", "callout", "bidirectional_arrow"]) {
     assert.match(pageSource, new RegExp(`id: "${kind}"`));
   }

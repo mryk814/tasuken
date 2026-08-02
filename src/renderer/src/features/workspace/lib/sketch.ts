@@ -755,10 +755,20 @@ export function drawSketchObject(
     else if (object.shape === "callout") {
       const tail = Math.min(32, Math.abs(object.w) / 4, Math.abs(object.h) / 3);
       const radius = Math.min(20, Math.abs(object.w) / 6, Math.abs(object.h) / 6);
-      context.roundRect(object.x, object.y, object.w, object.h - tail, radius);
-      context.moveTo(object.x + object.w * 0.2, y2 - tail);
-      context.lineTo(object.x + object.w * 0.14, y2);
-      context.lineTo(object.x + object.w * 0.38, y2 - tail);
+      const bodyBottom = y2 - tail;
+      context.moveTo(object.x + radius, object.y);
+      context.lineTo(x2 - radius, object.y);
+      context.quadraticCurveTo(x2, object.y, x2, object.y + radius);
+      context.lineTo(x2, bodyBottom - radius);
+      context.quadraticCurveTo(x2, bodyBottom, x2 - radius, bodyBottom);
+      context.lineTo(object.x + object.w * 0.4, bodyBottom);
+      context.lineTo(object.x + object.w * 0.16, y2);
+      context.lineTo(object.x + object.w * 0.22, bodyBottom);
+      context.lineTo(object.x + radius, bodyBottom);
+      context.quadraticCurveTo(object.x, bodyBottom, object.x, bodyBottom - radius);
+      context.lineTo(object.x, object.y + radius);
+      context.quadraticCurveTo(object.x, object.y, object.x + radius, object.y);
+      context.closePath();
     }
     else {
       context.moveTo(object.x, object.y);
@@ -822,7 +832,9 @@ export function sketchPageToSvg(page: SketchPage): string {
       }
       if (object.shape === "callout") {
         const tail = Math.min(32, Math.abs(object.w) / 4, Math.abs(object.h) / 3);
-        return `<path d="M ${object.x + 16} ${object.y} H ${object.x + object.w - 16} Q ${object.x + object.w} ${object.y} ${object.x + object.w} ${object.y + 16} V ${object.y + object.h - tail - 16} Q ${object.x + object.w} ${object.y + object.h - tail} ${object.x + object.w - 16} ${object.y + object.h - tail} H ${object.x + object.w * 0.38} L ${object.x + object.w * 0.14} ${object.y + object.h} L ${object.x + object.w * 0.2} ${object.y + object.h - tail} H ${object.x + 16} Q ${object.x} ${object.y + object.h - tail} ${object.x} ${object.y + object.h - tail - 16} V ${object.y + 16} Q ${object.x} ${object.y} ${object.x + 16} ${object.y} Z" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
+        const radius = Math.min(20, Math.abs(object.w) / 6, Math.abs(object.h) / 6);
+        const bodyBottom = object.y + object.h - tail;
+        return `<path d="M ${object.x + radius} ${object.y} H ${object.x + object.w - radius} Q ${object.x + object.w} ${object.y} ${object.x + object.w} ${object.y + radius} V ${bodyBottom - radius} Q ${object.x + object.w} ${bodyBottom} ${object.x + object.w - radius} ${bodyBottom} H ${object.x + object.w * 0.4} L ${object.x + object.w * 0.16} ${object.y + object.h} L ${object.x + object.w * 0.22} ${bodyBottom} H ${object.x + radius} Q ${object.x} ${bodyBottom} ${object.x} ${bodyBottom - radius} V ${object.y + radius} Q ${object.x} ${object.y} ${object.x + radius} ${object.y} Z" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
       }
       const markerEnd = object.shape === "arrow" || object.shape === "bidirectional_arrow" ? ' marker-end="url(#arrow)"' : "";
       const markerStart = object.shape === "bidirectional_arrow" ? ' marker-start="url(#arrow-start)"' : "";
