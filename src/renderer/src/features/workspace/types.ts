@@ -323,6 +323,7 @@ export type ContentViewerTarget =
   | { type: "artifact"; artifactId: string };
 
 export type OpenContentViewer = (target: ContentViewerTarget) => void;
+export type OpenContextPack = (themeId: string) => void;
 
 export interface PageProps {
   data: WorkspaceData;
@@ -338,6 +339,7 @@ export interface PageProps {
   navigate(next: string): void;
   openDrawer: OpenDrawer;
   openContentViewer: OpenContentViewer;
+  openContextPack: OpenContextPack;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
   removeEntity: RemoveEntity;

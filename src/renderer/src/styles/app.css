@@ -638,6 +638,271 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
+
+.titlebar-command-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.titlebar-command-button kbd {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+.command-palette-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding: min(12vh, 112px) var(--space-4) var(--space-4);
+  background: color-mix(in srgb, var(--color-text) 22%, transparent);
+}
+.command-palette {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(680px, calc(100vw - var(--space-8)));
+  max-height: min(680px, calc(88vh - var(--space-8)));
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+.command-palette-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.command-palette-search input {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--text-md);
+  outline: 0;
+}
+.command-palette kbd {
+  padding: 2px var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.command-palette-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-danger-bd);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-strong);
+}
+.command-palette-results {
+  overflow: auto;
+  padding: var(--space-2);
+}
+.command-palette-group + .command-palette-group {
+  margin-top: var(--space-2);
+}
+.command-palette-group h3 {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.command-palette-group > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 38px;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+.command-palette-group > button:hover,
+.command-palette-group > button.is-selected {
+  border-color: var(--color-accent-subtle-bd);
+  background: var(--color-accent-subtle-bg);
+}
+.command-palette-group > button:active {
+  background: var(--color-accent-subtle-bg-strong);
+}
+.command-palette-group > button:disabled {
+  opacity: 0.62;
+}
+.command-palette-group > button > span {
+  display: grid;
+  min-width: 0;
+}
+.command-palette-group strong,
+.command-palette-group small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-palette-group small {
+  color: var(--color-text-tertiary);
+}
+.command-palette-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-8);
+  color: var(--color-text-secondary);
+}
+.context-pack-backdrop {
+  position: fixed;
+  z-index: 115;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--color-text) 24%, transparent);
+}
+.context-pack-dialog {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  width: min(1040px, calc(100vw - var(--space-8)));
+  height: min(820px, calc(100vh - var(--space-8)));
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+.context-pack-dialog > header,
+.context-pack-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.context-pack-dialog > header > div {
+  display: grid;
+  gap: 2px;
+}
+.context-pack-dialog > header span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+.context-pack-dialog > header h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.context-pack-dialog > footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 0;
+}
+.context-pack-summary {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.context-pack-tabs {
+  justify-self: start;
+  margin: var(--space-2) var(--space-3) 0;
+}
+.context-pack-body {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+}
+.context-pack-request-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.context-pack-request-fields label {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+}
+.context-pack-request-fields textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.context-pack-privacy-note {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--color-info-bd);
+  border-radius: var(--radius-sm);
+  background: var(--color-info-bg);
+  color: var(--color-info-strong);
+  font-size: var(--text-xs);
+}
+.context-pack-candidate-group {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+.context-pack-candidate-group h3 {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--text-sm);
+}
+.context-pack-candidate-group h3 span {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-normal);
+}
+.context-pack-candidate {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+.context-pack-candidate:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle);
+}
+.context-pack-candidate > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.context-pack-candidate small {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-pack-preview {
+  min-height: 100%;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--markdown-paper);
+}
+@media (max-width: 800px) {
+  .context-pack-request-fields { grid-template-columns: 1fr; }
+  .context-pack-dialog > footer { flex-wrap: wrap; }
+}
 /* キャレットがリンク内に入っただけで出る preview ポップオーバーは抑止。編集フォーム（CreateLink/Ctrl+K）は残す。 */
 .note-live-editor [class*="_linkDialogPopoverContent_"]:has([class*="_linkDialogPreviewAnchor_"]) {
   display: none !important;
