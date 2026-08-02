@@ -77,8 +77,7 @@ import {
 import type { BaseRecord, PageProps, Sketch } from "../types";
 
 const SKETCH_COLORS = ["#211e1d", "#2f6fa6", "#3f7a4f", "#8a2f3b", "#c47a18"];
-const SHAPE_ITEMS: Array<{ id: SketchShapeKind; label: string; icon: typeof IconShape }> = [
-  { id: "auto", label: "自動", icon: IconSparkles },
+const SHAPE_ITEMS: Array<{ id: SketchShapeKind; label: string; description?: string; icon: typeof IconShape }> = [
   { id: "line", label: "線", icon: IconLine },
   { id: "rectangle", label: "四角", icon: IconRectangle },
   { id: "rounded_rectangle", label: "角丸四角", icon: IconSquareRounded },
@@ -88,6 +87,7 @@ const SHAPE_ITEMS: Array<{ id: SketchShapeKind; label: string; icon: typeof Icon
   { id: "sticky_note", label: "付箋", icon: IconNote },
   { id: "callout", label: "吹き出し", icon: IconMessage },
   { id: "bidirectional_arrow", label: "両矢印", icon: IconArrowsLeftRight },
+  { id: "auto", label: "手描き認識", description: "描いた線から、直線・四角・楕円を判定します", icon: IconSparkles },
 ];
 const TOOL_ITEMS: Array<{ id: SketchTool; label: string; icon: typeof IconPointer }> = [
   { id: "select", label: "選択", icon: IconPointer },
@@ -136,8 +136,8 @@ export function SketchPage({
   const toolPresets = useMemo(() => normalizeSketchToolPresets(storedPresets), [storedPresets]);
   const activePresetTool: SketchPresetTool = isSketchPresetTool(tool) ? tool : "pen";
   const activePreset = toolPresets[activePresetTool];
-  const [storedShapeKind, setShapeKind] = usePersistentState<SketchShapeKind>("sketch:shape-kind:v1", "auto");
-  const shapeKind = SHAPE_ITEMS.some((item) => item.id === storedShapeKind) ? storedShapeKind : "auto";
+  const [storedShapeKind, setShapeKind] = usePersistentState<SketchShapeKind>("sketch:shape-kind:v2", "rectangle");
+  const shapeKind = SHAPE_ITEMS.some((item) => item.id === storedShapeKind) ? storedShapeKind : "rectangle";
   const [eraserMode, setEraserMode] = usePersistentState<SketchEraserMode>("sketch:eraser-mode:v1", "partial");
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
   const [zoom, setZoom] = useState(0.82);
@@ -376,7 +376,7 @@ export function SketchPage({
   }
 
   return (
-    <div className="sketch-page">
+    <div className={`sketch-page is-${canvasMode}`}>
       <header className="sketch-header">
         <div className="sketch-title-group">
           <button className="text-button compact" onClick={() => navigate("sketch")}>Sketch</button>
@@ -457,6 +457,7 @@ export function SketchPage({
                       role="menuitemradio"
                       aria-checked={shapeKind === item.id}
                       className={shapeKind === item.id ? "is-active" : ""}
+                      title={item.description || `${item.label}を描きます`}
                       onClick={() => {
                         setShapeKind(item.id);
                         setShapeMenuOpen(false);
