@@ -8,6 +8,13 @@ const checksum = (text) => crypto.createHash("sha256").update(text).digest("hex"
 const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 10 * 1024 * 1024;
 
+function collectionKey(type) {
+  if (type === "task_dependency") return "task_dependencies";
+  if (type === "plan_dependency") return "plan_dependencies";
+  if (type === "sketch") return "sketches";
+  return `${type}s`;
+}
+
 function readEntryText(entry, name) {
   if (entry.header.size > MAX_ENTRY_BYTES) {
     throw new Error(`${name}が大きすぎます。Snapshotを分割するか、不要なデータを削除してください。`);
@@ -54,8 +61,9 @@ export function createSnapshot(workspace) {
   const zip = new AdmZip();
   const files = {};
   for (const type of workspaceEntityTypes) {
-    const name = `${type}s.json`;
-    const content = JSON.stringify(workspace[`${type}s`] || [], null, 2);
+    const key = collectionKey(type);
+    const name = `${key}.json`;
+    const content = JSON.stringify(workspace[key] || [], null, 2);
     zip.addFile(name, Buffer.from(content, "utf8"));
     files[name] = checksum(content);
   }
@@ -96,17 +104,18 @@ export function readSnapshot(filePath) {
 
   const workspace = { meta: { workspaceId: manifest.workspaceId, deviceId: manifest.deviceId } };
   for (const type of workspaceEntityTypes) {
-    const name = `${type}s.json`;
+    const key = collectionKey(type);
+    const name = `${key}.json`;
     const entry = zip.getEntry(name);
     if (!entry) {
-      workspace[`${type}s`] = [];
+      workspace[key] = [];
       continue;
     }
     const text = readEntryText(entry, name);
     if (manifest.files?.[name] && checksum(text) !== manifest.files[name]) {
       throw new Error(`${name}のチェックサムが一致しません。Snapshotが破損している可能性があります。`);
     }
-    workspace[`${type}s`] = JSON.parse(text);
+    workspace[key] = JSON.parse(text);
   }
   const revisionsEntry = zip.getEntry("plan_revisions.json");
   if (revisionsEntry) {

@@ -10,6 +10,7 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
       ["log_entry", "theme_id"],
       ["view", "theme_id"],
       ["artifact", "theme_id"],
+      ["sketch", "project_id"],
     ], id);
     repository.cascadeWhere("status_update", (entry) => entry.theme_id === id, type, id);
   }
@@ -32,6 +33,15 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   if (type === "link") repository.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
   if (type === "task") repository.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
   if (type === "resource") repository.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
+  if (type === "sketch") {
+    repository.cascadeWhere(
+      "reference",
+      (entry) => (entry.source_type === "sketch" && entry.source_id === id)
+        || (entry.target_type === "sketch" && entry.target_id === id),
+      type,
+      id,
+    );
+  }
 
   if (type === "source_record") {
     repository.nullifyReferences(type, [

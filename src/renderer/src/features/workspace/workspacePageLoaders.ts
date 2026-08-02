@@ -7,6 +7,7 @@ const pageLoaders: Record<string, () => Promise<unknown>> = {
   timeline: () => import("./pages/TimelinePage"),
   themes: () => import("./pages/ThemesPage"),
   notes: () => import("./pages/NotesPage"),
+  sketch: () => import("./pages/SketchPage"),
   knowledge: () => import("./pages/KnowledgePage"),
   waiting: () => import("./pages/WaitingPage"),
   "ai-io": () => import("./pages/ImportExportPage"),
@@ -22,7 +23,7 @@ export function preloadWorkspacePage(route: string): void {
 }
 
 export function preloadWorkspacePagesWhenIdle(): () => void {
-  const routes = ["todo", "inbox", "timeline", "knowledge", "notes", "chat-refs", "artifacts", "ai-io", "settings"];
+  const routes = ["todo", "inbox", "timeline", "knowledge", "notes", "sketch", "chat-refs", "artifacts", "ai-io", "settings"];
   let cancelled = false;
   let idleId: number | null = null;
 

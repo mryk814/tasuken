@@ -45,6 +45,7 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
   "schedules", "references", "task_dependencies", "plan_dependencies",
   "knowledge_edges", "change_events", "artifacts",
+  "sketches",
 ];
 
 function normalizeRoute(route: string): string {
@@ -873,9 +874,9 @@ export function WorkspaceApp() {
     <div className="app-frame" style={frameStyle}>
       {titleBar}
       <div className="app-content-viewport">
-        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""}`}>
+        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch" ? "is-canvas-route" : ""}`}>
           <Sidebar
-            route={route}
+            route={route === "sketch" ? "notes" : route}
             navigate={navigate}
             collapsed={sidebarCollapsed}
             themes={themes}
@@ -908,7 +909,7 @@ export function WorkspaceApp() {
               setToast={setToast}
               openContentViewer={openContentViewer}
             />
-          ) : (
+          ) : route !== "sketch" ? (
             <ContextPane
               data={data}
               domain={domain}
@@ -917,7 +918,7 @@ export function WorkspaceApp() {
               openDrawer={openDrawer}
               navigate={navigate}
             />
-          )}
+          ) : null}
           {contentViewer && (
             <ContentViewer
               target={contentViewer}

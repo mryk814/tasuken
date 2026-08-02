@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, shell, type WebContents } from "electron";
+import { app, BrowserWindow, clipboard, dialog, nativeImage, shell, type WebContents } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,6 +6,7 @@ import path from "node:path";
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult, FilePreviewReadResult } from "../../shared/ipc/contracts";
+import type { SketchClipboardRequest, SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import type { Workspace } from "../../shared/types/workspace";
 import {
   artifactFileTypeOf,
@@ -235,6 +236,23 @@ export class WorkspaceService {
       throw new Error("コピーする本文がありません。");
     }
     clipboard.write({ html, text });
+    return true;
+  }
+
+  writeClipboardSketch(payloadValue: unknown): boolean {
+    if (!payloadValue || typeof payloadValue !== "object" || Array.isArray(payloadValue)) {
+      throw new Error("AIへ渡すSketchの形式が不正です。画面を再読み込みしてください。");
+    }
+    const payload = payloadValue as Partial<SketchClipboardRequest>;
+    if (typeof payload.text !== "string" || !payload.text.trim()) {
+      throw new Error("AIへ渡す説明文がありません。");
+    }
+    if (typeof payload.dataUrl !== "string" || !payload.dataUrl.startsWith("data:image/png;base64,")) {
+      throw new Error("AIへ渡すSketch画像を作成できませんでした。");
+    }
+    const image = nativeImage.createFromDataURL(payload.dataUrl);
+    if (image.isEmpty()) throw new Error("AIへ渡すSketch画像を読み取れませんでした。");
+    clipboard.write({ text: payload.text, image });
     return true;
   }
 
@@ -745,6 +763,55 @@ export class WorkspaceService {
       mimeType: request.mimeType,
       url: `tasken-attachment://local/${encodeURIComponent(storageFileName)}/${encodeURIComponent(displayName)}`,
     };
+  }
+
+  async exportSketch(requestValue: unknown): Promise<SketchExportResult> {
+    if (!requestValue || typeof requestValue !== "object" || Array.isArray(requestValue)) {
+      throw new Error("Sketch出力の内容が不正です。画面を再読み込みしてください。");
+    }
+    const request = requestValue as Partial<SketchExportRequest>;
+    if (!["png", "svg", "markdown"].includes(String(request.format))) {
+      throw new Error("Sketchの出力形式が不正です。");
+    }
+    if (typeof request.dataUrl !== "string" || !request.dataUrl.startsWith("data:image/png;base64,")) {
+      throw new Error("Sketch画像を作成できませんでした。");
+    }
+    if (typeof request.svg !== "string" || !request.svg.startsWith("<svg")) {
+      throw new Error("SketchのSVGを作成できませんでした。");
+    }
+    if (typeof request.markdown !== "string" || !request.markdown.trim()) {
+      throw new Error("SketchのMarkdownを作成できませんでした。");
+    }
+
+    const format = request.format as "png" | "svg" | "markdown";
+    const extension = format === "markdown" ? "md" : format;
+    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Sketch");
+    const location = this.resolveThemeContentDirectory(request.themeId || null, "exports");
+    const directory = location.kind === "ok" ? location.directory : app.getPath("documents");
+    if (location.kind === "ok") fs.mkdirSync(directory, { recursive: true });
+    const result = await dialog.showSaveDialog({
+      title: `Sketchを${extension.toUpperCase()}で書き出す`,
+      defaultPath: path.join(directory, `${safeTitle}.${extension}`),
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+
+    if (format === "png") {
+      const buffer = Buffer.from(request.dataUrl.slice("data:image/png;base64,".length), "base64");
+      fs.writeFileSync(result.filePath, buffer);
+      return { canceled: false, filePath: result.filePath };
+    }
+    if (format === "svg") {
+      fs.writeFileSync(result.filePath, request.svg, "utf8");
+      return { canceled: false, filePath: result.filePath };
+    }
+
+    const companionFilePath = path.join(path.dirname(result.filePath), `${path.basename(result.filePath, ".md")}.png`);
+    const buffer = Buffer.from(request.dataUrl.slice("data:image/png;base64,".length), "base64");
+    fs.writeFileSync(companionFilePath, buffer);
+    const markdown = request.markdown.replace("{{SKETCH_IMAGE}}", path.basename(companionFilePath));
+    fs.writeFileSync(result.filePath, markdown, "utf8");
+    return { canceled: false, filePath: result.filePath, companionFilePath };
   }
 
   applySnapshot(token: string, decisions: SnapshotDecisions): Workspace {

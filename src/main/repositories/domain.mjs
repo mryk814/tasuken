@@ -28,6 +28,7 @@ export const workspaceEntityTypes = [
   "knowledge_edge",
   "change_event",
   "artifact",
+  "sketch",
 ];
 
 const requiredTextFields = {
@@ -56,6 +57,7 @@ const requiredTextFields = {
   change_event: ["entity_type", "entity_id", "changed_at", "change_type", "source"],
   // stored_path は managed のみ必須。linked は target/link_type を validateEntity で見る。
   artifact: ["title", "filename", "source_type", "source_id"],
+  sketch: ["title"],
 };
 
 const isoDateFields = [
@@ -107,7 +109,7 @@ const scheduleOwnerTypes = new Set(["task", "waiting", "plan_node"]);
 const scheduleDateKinds = new Set(["point", "deadline", "range", "unknown"]);
 const scheduleConfidenceValues = new Set(["rough", "tentative", "fixed"]);
 const scheduleGranularityValues = new Set(["day", "week", "month"]);
-const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node"]);
+const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch"]);
 const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
 const changeSources = new Set(["manual", "import", "ai", "migration"]);
@@ -193,6 +195,23 @@ function validateTaskChecklist(items) {
     if (!Number.isFinite(Number(item.sort_order))) throw new Error("task.checklist_items.sort_orderが不正です。");
     if (item.completed_at != null && item.completed_at !== "" && Number.isNaN(new Date(item.completed_at).getTime())) {
       throw new Error("task.checklist_items.completed_atが不正です。");
+    }
+  }
+}
+
+function validateSketchDocument(document) {
+  if (!isPlainObject(document)) throw new Error("sketch.documentが不正です。");
+  if (document.schema_version !== 1) throw new Error("sketch.document.schema_versionが不正です。");
+  if (!Array.isArray(document.pages) || !document.pages.length) {
+    throw new Error("sketch.document.pagesを1件以上指定してください。");
+  }
+  if (document.pages.length > 200) throw new Error("sketch.document.pagesは200ページ以内にしてください。");
+  for (const page of document.pages) {
+    if (!isPlainObject(page) || typeof page.id !== "string" || !page.id.trim()) {
+      throw new Error("sketch.document.pagesの形式が不正です。");
+    }
+    if (!Array.isArray(page.objects) || page.objects.length > 5000) {
+      throw new Error("sketchの1ページは5000要素以内にしてください。");
     }
   }
 }
@@ -343,6 +362,15 @@ export function validateEntity(type, input) {
     if (!entityRefTypes.has(input.entity_type)) throw new Error("change_event.entity_typeが不正です。");
     if (!changeTypes.has(input.change_type)) throw new Error("change_event.change_typeが不正です。");
     if (!changeSources.has(input.source)) throw new Error("change_event.sourceが不正です。");
+  }
+  if (type === "sketch") {
+    validateSketchDocument(input.document);
+    if (input.project_id != null && typeof input.project_id !== "string") {
+      throw new Error("sketch.project_idが不正です。");
+    }
+    if (input.origin_capture_id != null && typeof input.origin_capture_id !== "string") {
+      throw new Error("sketch.origin_capture_idが不正です。");
+    }
   }
   if (type === "artifact") {
     if (!artifactSourceTypes.has(input.source_type)) throw new Error("artifact.source_typeが不正です。");
