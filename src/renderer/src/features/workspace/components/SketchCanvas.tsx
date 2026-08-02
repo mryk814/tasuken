@@ -2,13 +2,17 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 
 import {
   boundsContainPoint,
+  combinedObjectBounds,
   drawSketchPage,
   hitTest,
   lassoSelection,
   objectBounds,
   recognizeShape,
   resizeObject,
+  snapObjectResize,
+  snapObjectTranslation,
   translateObject,
+  type SketchAlignmentGuides,
   type SketchBounds,
   type SketchObject,
   type SketchPage,
@@ -24,12 +28,14 @@ interface SketchCanvasProps {
   zoom: number;
   onChange(page: SketchPage): void;
   onToolChange(tool: SketchTool): void;
+  onUndo(): void;
+  onRedo(): void;
 }
 
 type PointerMode =
   | { kind: "draw"; points: SketchPoint[] }
-  | { kind: "move"; start: SketchPoint; ids: string[] }
-  | { kind: "resize"; start: SketchPoint; id: string; bounds: SketchBounds }
+  | { kind: "move"; start: SketchPoint; ids: string[]; originObjects: SketchObject[] }
+  | { kind: "resize"; start: SketchPoint; id: string; bounds: SketchBounds; originObjects: SketchObject[] }
   | null;
 
 function pointerPoint(event: ReactPointerEvent<HTMLCanvasElement>, page: SketchPage): SketchPoint {
@@ -42,32 +48,48 @@ function pointerPoint(event: ReactPointerEvent<HTMLCanvasElement>, page: SketchP
 }
 
 function selectionBounds(page: SketchPage, selectedIds: string[]): SketchBounds | null {
-  const bounds = page.objects.filter((object) => selectedIds.includes(object.id)).map(objectBounds);
-  if (!bounds.length) return null;
-  const x = Math.min(...bounds.map((entry) => entry.x));
-  const y = Math.min(...bounds.map((entry) => entry.y));
-  const x2 = Math.max(...bounds.map((entry) => entry.x + entry.w));
-  const y2 = Math.max(...bounds.map((entry) => entry.y + entry.h));
-  return { x, y, w: x2 - x, h: y2 - y };
+  return combinedObjectBounds(page.objects.filter((object) => selectedIds.includes(object.id)));
 }
 
-export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, onToolChange }: SketchCanvasProps) {
+export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, onToolChange, onUndo, onRedo }: SketchCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pointerModeRef = useRef<PointerMode>(null);
+  const copiedObjectsRef = useRef<SketchObject[]>([]);
+  const pasteGenerationRef = useRef(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [draftPoints, setDraftPoints] = useState<SketchPoint[]>([]);
+  const [previewObjects, setPreviewObjects] = useState<SketchObject[] | null>(null);
+  const [alignmentGuides, setAlignmentGuides] = useState<SketchAlignmentGuides>({ vertical: [], horizontal: [] });
   const [textEditor, setTextEditor] = useState<{ x: number; y: number; value: string } | null>(null);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
-    drawSketchPage(context, page, {
+    const renderedPage = previewObjects ? { ...page, objects: previewObjects } : page;
+    drawSketchPage(context, renderedPage, {
       selectedIds,
       draftPoints: tool === "lasso" ? undefined : draftPoints,
       lassoPoints: tool === "lasso" ? draftPoints : undefined,
     });
-  }, [draftPoints, page, selectedIds, tool]);
+    context.save();
+    context.strokeStyle = "#2f6fa6";
+    context.lineWidth = 1.5;
+    context.setLineDash([7, 5]);
+    for (const x of alignmentGuides.vertical) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, page.height);
+      context.stroke();
+    }
+    for (const y of alignmentGuides.horizontal) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(page.width, y);
+      context.stroke();
+    }
+    context.restore();
+  }, [alignmentGuides, draftPoints, page, previewObjects, selectedIds, tool]);
 
   useEffect(() => render(), [render]);
   useEffect(() => setSelectedIds((current) => current.filter((id) => page.objects.some((object) => object.id === id))), [page.objects]);
@@ -85,10 +107,42 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
         event.preventDefault();
         setSelectedIds(page.objects.map((object) => object.id));
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedIds.length) {
+        event.preventDefault();
+        copiedObjectsRef.current = structuredClone(page.objects.filter((object) => selectedIds.includes(object.id)));
+        pasteGenerationRef.current = 0;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && copiedObjectsRef.current.length) {
+        event.preventDefault();
+        pasteGenerationRef.current += 1;
+        const offset = 24 * pasteGenerationRef.current;
+        const copies = copiedObjectsRef.current.map((object) => ({
+          ...translateObject(structuredClone(object), offset, offset),
+          id: crypto.randomUUID(),
+        }));
+        onChange({ ...page, objects: [...page.objects, ...copies] });
+        setSelectedIds(copies.map((object) => object.id));
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d" && selectedIds.length) {
+        event.preventDefault();
+        const copies = page.objects
+          .filter((object) => selectedIds.includes(object.id))
+          .map((object) => ({ ...translateObject(structuredClone(object), 24, 24), id: crypto.randomUUID() }));
+        onChange({ ...page, objects: [...page.objects, ...copies] });
+        setSelectedIds(copies.map((object) => object.id));
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) onRedo();
+        else onUndo();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        onRedo();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onChange, page, selectedIds]);
+  }, [onChange, onRedo, onUndo, page, selectedIds]);
 
   function commitObjects(objects: SketchObject[]) {
     onChange({ ...page, objects });
@@ -118,7 +172,13 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
       if (selectedIds.length === 1 && selectedBounds) {
         const handle = { x: selectedBounds.x + selectedBounds.w + 6, y: selectedBounds.y + selectedBounds.h + 6 };
         if (Math.hypot(point.x - handle.x, point.y - handle.y) <= 18) {
-          pointerModeRef.current = { kind: "resize", start: point, id: selectedIds[0], bounds: selectedBounds };
+          pointerModeRef.current = {
+            kind: "resize",
+            start: point,
+            id: selectedIds[0],
+            bounds: selectedBounds,
+            originObjects: structuredClone(page.objects),
+          };
           return;
         }
       }
@@ -131,8 +191,41 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
         ? (selectedIds.includes(hit.id) ? selectedIds.filter((id) => id !== hit.id) : [...selectedIds, hit.id])
         : (selectedIds.includes(hit.id) ? selectedIds : [hit.id]);
       setSelectedIds(ids);
-      pointerModeRef.current = { kind: "move", start: point, ids };
+      pointerModeRef.current = { kind: "move", start: point, ids, originObjects: structuredClone(page.objects) };
     }
+  }
+
+  function moveObjects(mode: Extract<NonNullable<PointerMode>, { kind: "move" }>, point: SketchPoint) {
+    const snapped = snapObjectTranslation(
+      mode.originObjects,
+      mode.ids,
+      point.x - mode.start.x,
+      point.y - mode.start.y,
+    );
+    return {
+      objects: mode.originObjects.map((object) => (
+        mode.ids.includes(object.id) ? translateObject(object, snapped.dx, snapped.dy) : object
+      )),
+      guides: snapped.guides,
+      distance: Math.hypot(snapped.dx, snapped.dy),
+    };
+  }
+
+  function resizeObjects(mode: Extract<NonNullable<PointerMode>, { kind: "resize" }>, point: SketchPoint) {
+    const object = mode.originObjects.find((entry) => entry.id === mode.id);
+    if (!object) return null;
+    const nextBounds = {
+      ...mode.bounds,
+      w: Math.max(16, mode.bounds.w + point.x - mode.start.x),
+      h: Math.max(16, mode.bounds.h + point.y - mode.start.y),
+    };
+    const snapped = snapObjectResize(nextBounds, mode.originObjects, mode.id);
+    return {
+      objects: mode.originObjects.map((entry) => (
+        entry.id === object.id ? resizeObject(entry, snapped.bounds) : entry
+      )),
+      guides: snapped.guides,
+    };
   }
 
   function onPointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
@@ -147,6 +240,19 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
       const points = [...mode.points, point];
       pointerModeRef.current = { ...mode, points };
       setDraftPoints(points);
+      return;
+    }
+    if (mode?.kind === "move") {
+      const preview = moveObjects(mode, point);
+      setPreviewObjects(preview.objects);
+      setAlignmentGuides(preview.guides);
+      return;
+    }
+    if (mode?.kind === "resize") {
+      const preview = resizeObjects(mode, point);
+      if (!preview) return;
+      setPreviewObjects(preview.objects);
+      setAlignmentGuides(preview.guides);
     }
   }
 
@@ -155,25 +261,19 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
     const mode = pointerModeRef.current;
     pointerModeRef.current = null;
     setDraftPoints([]);
+    setPreviewObjects(null);
+    setAlignmentGuides({ vertical: [], horizontal: [] });
     if (!mode) return;
 
     if (mode.kind === "move") {
-      const dx = point.x - mode.start.x;
-      const dy = point.y - mode.start.y;
-      if (Math.hypot(dx, dy) > 1) {
-        commitObjects(page.objects.map((object) => mode.ids.includes(object.id) ? translateObject(object, dx, dy) : object));
-      }
+      const result = moveObjects(mode, point);
+      if (result.distance > 1) commitObjects(result.objects);
       return;
     }
     if (mode.kind === "resize") {
-      const object = page.objects.find((entry) => entry.id === mode.id);
-      if (!object) return;
-      const nextBounds = {
-        ...mode.bounds,
-        w: Math.max(16, mode.bounds.w + point.x - mode.start.x),
-        h: Math.max(16, mode.bounds.h + point.y - mode.start.y),
-      };
-      commitObjects(page.objects.map((entry) => entry.id === object.id ? resizeObject(entry, nextBounds) : entry));
+      if (Math.hypot(point.x - mode.start.x, point.y - mode.start.y) <= 1) return;
+      const result = resizeObjects(mode, point);
+      if (result) commitObjects(result.objects);
       return;
     }
 
@@ -233,6 +333,13 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
     }
   }
 
+  function onPointerCancel() {
+    pointerModeRef.current = null;
+    setDraftPoints([]);
+    setPreviewObjects(null);
+    setAlignmentGuides({ vertical: [], horizontal: [] });
+  }
+
   function commitText() {
     if (!textEditor) return;
     const text = textEditor.value.trim();
@@ -264,7 +371,7 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={onPointerCancel}
           aria-label="Sketchキャンバス"
         />
         {textEditor && (

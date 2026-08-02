@@ -398,6 +398,8 @@ export function SketchPage({
             zoom={zoom}
             onChange={changePage}
             onToolChange={setTool}
+            onUndo={undo}
+            onRedo={redo}
           />
           <div className="sketch-bottom-controls">
             <span>{document.pages.findIndex((page) => page.id === activePage.id) + 1} / {document.pages.length}</span>
