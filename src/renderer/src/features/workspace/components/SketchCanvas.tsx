@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent as ReactClipboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
+import { clipboardImageFile } from "../lib/clipboardImage";
 import {
   boundsContainPoint,
   combinedObjectBounds,
@@ -30,10 +38,12 @@ interface SketchCanvasProps {
   onToolChange(tool: SketchTool): void;
   onUndo(): void;
   onRedo(): void;
+  onPasteImage(file: File, point: SketchPoint): void;
 }
 
 type PointerMode =
   | { kind: "draw"; points: SketchPoint[] }
+  | { kind: "text"; point: SketchPoint }
   | { kind: "move"; start: SketchPoint; ids: string[]; originObjects: SketchObject[] }
   | { kind: "resize"; start: SketchPoint; id: string; bounds: SketchBounds; originObjects: SketchObject[] }
   | null;
@@ -62,11 +72,24 @@ function selectionBounds(page: SketchPage, selectedIds: string[]): SketchBounds 
   return combinedObjectBounds(page.objects.filter((object) => selectedIds.includes(object.id)));
 }
 
-export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, onToolChange, onUndo, onRedo }: SketchCanvasProps) {
+export function SketchCanvas({
+  page,
+  tool,
+  color,
+  strokeWidth,
+  zoom,
+  onChange,
+  onToolChange,
+  onUndo,
+  onRedo,
+  onPasteImage,
+}: SketchCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pointerModeRef = useRef<PointerMode>(null);
   const copiedObjectsRef = useRef<SketchObject[]>([]);
   const pasteGenerationRef = useRef(0);
+  const lastPointerRef = useRef<SketchPoint>({ x: page.width / 2, y: page.height / 2, pressure: 0.5 });
+  const textCommitRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [draftPoints, setDraftPoints] = useState<SketchPoint[]>([]);
   const [previewObjects, setPreviewObjects] = useState<SketchObject[] | null>(null);
@@ -169,13 +192,33 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
 
   function onPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
     if (event.button !== 0) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
     const point = pointerPoint(event, page);
+    lastPointerRef.current = point;
+
+    if (["shape", "arrow", "text"].includes(tool)) {
+      const hit = hitTest(page.objects, point);
+      if (hit) {
+        event.currentTarget.focus();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setSelectedIds([hit.id]);
+        onToolChange("select");
+        pointerModeRef.current = {
+          kind: "move",
+          start: point,
+          ids: [hit.id],
+          originObjects: structuredClone(page.objects),
+        };
+        return;
+      }
+    }
 
     if (tool === "text") {
-      setTextEditor({ x: point.x, y: point.y, value: "" });
+      pointerModeRef.current = { kind: "text", point };
       return;
     }
+
+    event.currentTarget.focus();
+    event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "eraser") {
       const hit = hitTest(page.objects, point);
       if (hit) commitObjects(page.objects.filter((object) => object.id !== hit.id));
@@ -249,6 +292,7 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
 
   function onPointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
     const point = pointerPoint(event, page);
+    lastPointerRef.current = point;
     const mode = pointerModeRef.current;
     if (tool === "eraser" && event.buttons === 1) {
       const hit = hitTest(page.objects, point);
@@ -284,6 +328,11 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
     setAlignmentGuides({ vertical: [], horizontal: [] });
     if (!mode) return;
 
+    if (mode.kind === "text") {
+      textCommitRef.current = false;
+      setTextEditor({ x: mode.point.x, y: mode.point.y, value: "" });
+      return;
+    }
     if (mode.kind === "move") {
       const result = moveObjects(mode, point);
       if (result.distance > 1) commitObjects(result.objects);
@@ -330,7 +379,6 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
       };
       commitObjects([...page.objects, object]);
       setSelectedIds([object.id]);
-      onToolChange("select");
       return;
     }
     if (tool === "arrow") {
@@ -349,7 +397,6 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
       };
       commitObjects([...page.objects, object]);
       setSelectedIds([object.id]);
-      onToolChange("select");
     }
   }
 
@@ -361,23 +408,31 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
   }
 
   function commitText() {
-    if (!textEditor) return;
-    const text = textEditor.value.trim();
+    if (!textEditor || textCommitRef.current) return;
+    textCommitRef.current = true;
+    const editor = textEditor;
+    const text = editor.value.trim();
     if (text) {
       const object: SketchObject = {
         id: crypto.randomUUID(),
         type: "text",
         color,
-        x: textEditor.x,
-        y: textEditor.y + 24,
+        x: editor.x,
+        y: editor.y + 24,
         text,
         font_size: 24,
       };
       commitObjects([...page.objects, object]);
       setSelectedIds([object.id]);
-      onToolChange("select");
     }
     setTextEditor(null);
+  }
+
+  function onPaste(event: ReactClipboardEvent<HTMLCanvasElement>) {
+    const image = clipboardImageFile(event.clipboardData);
+    if (!image) return;
+    event.preventDefault();
+    onPasteImage(image, lastPointerRef.current);
   }
 
   return (
@@ -388,10 +443,12 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
           className={`sketch-canvas is-${tool}`}
           width={page.width}
           height={page.height}
+          tabIndex={0}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
+          onPaste={onPaste}
           aria-label="Sketchキャンバス"
         />
         {textEditor && (
@@ -403,8 +460,14 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
             onChange={(event) => setTextEditor({ ...textEditor, value: event.target.value })}
             onBlur={commitText}
             onKeyDown={(event) => {
-              if (event.key === "Escape") setTextEditor(null);
-              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") commitText();
+              if (event.key === "Escape") {
+                textCommitRef.current = true;
+                setTextEditor(null);
+              }
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                commitText();
+              }
             }}
             aria-label="Sketchテキスト"
           />

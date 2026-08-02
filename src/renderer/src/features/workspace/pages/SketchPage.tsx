@@ -36,6 +36,7 @@ import {
   type SketchDocument,
   type SketchObject,
   type SketchPage,
+  type SketchPoint,
   type SketchTool,
 } from "../lib/sketch";
 import type { BaseRecord, PageProps, Sketch } from "../types";
@@ -133,6 +134,14 @@ export function SketchPage({
     if (tool === "image") fileInputRef.current?.click();
   }, [tool]);
 
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    const handleCancel = () => setTool("select");
+    input.addEventListener("cancel", handleCancel);
+    return () => input.removeEventListener("cancel", handleCancel);
+  }, []);
+
   const activePage = document.pages.find((page) => page.id === activePageId) || document.pages[0];
   const selectedTheme = themes.find((theme) => theme.id === selected?.project_id);
 
@@ -182,7 +191,7 @@ export function SketchPage({
     setActivePageId(pages[Math.max(0, index - 1)]?.id || pages[0].id);
   }
 
-  async function insertImage(file: File) {
+  async function insertImage(file: File, point?: Pick<SketchPoint, "x" | "y">) {
     if (!activePage || !file.type.startsWith("image/")) return;
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -195,14 +204,16 @@ export function SketchPage({
     await image.decode();
     const maxWidth = 420;
     const ratio = Math.min(1, maxWidth / image.width);
+    const width = Math.max(80, image.width * ratio);
+    const height = Math.max(60, image.height * ratio);
     const object: SketchObject = {
       id: crypto.randomUUID(),
       type: "image",
       color: "#211e1d",
-      x: 80,
-      y: 80,
-      w: Math.max(80, image.width * ratio),
-      h: Math.max(60, image.height * ratio),
+      x: point ? Math.max(0, Math.min(activePage.width - width, point.x - width / 2)) : 80,
+      y: point ? Math.max(0, Math.min(activePage.height - height, point.y - height / 2)) : 80,
+      w: width,
+      h: height,
       data_url: dataUrl,
     };
     changePage({ ...activePage, objects: [...activePage.objects, object] });
@@ -406,6 +417,7 @@ export function SketchPage({
             onToolChange={setTool}
             onUndo={undo}
             onRedo={redo}
+            onPasteImage={(file, point) => void insertImage(file, point)}
           />
           <div className="sketch-bottom-controls">
             <span>{document.pages.findIndex((page) => page.id === activePage.id) + 1} / {document.pages.length}</span>
