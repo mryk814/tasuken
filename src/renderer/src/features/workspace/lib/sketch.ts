@@ -1,5 +1,6 @@
 export type SketchTool = "select" | "lasso" | "pen" | "highlighter" | "eraser" | "shape" | "arrow" | "text" | "image" | "pan";
 export type SketchBackground = "plain" | "dot" | "grid";
+export type SketchCanvasMode = "page" | "infinite";
 
 export interface SketchPoint {
   x: number;
@@ -59,6 +60,7 @@ export interface SketchPage {
 
 export interface SketchDocument {
   schema_version: 1;
+  mode?: SketchCanvasMode;
   pages: SketchPage[];
 }
 
@@ -95,30 +97,43 @@ export interface SketchAlignmentGuides {
 
 const DEFAULT_PAGE_WIDTH = 1200;
 const DEFAULT_PAGE_HEIGHT = 850;
+const INFINITE_PAGE_WIDTH = 2400;
+const INFINITE_PAGE_HEIGHT = 1600;
+const INFINITE_GROW_MARGIN = 240;
+const INFINITE_GROW_STEP = 800;
 
-export function createSketchPage(title = "1"): SketchPage {
+export function createSketchPage(title = "1", mode: SketchCanvasMode = "page"): SketchPage {
   return {
     id: crypto.randomUUID(),
     title,
-    width: DEFAULT_PAGE_WIDTH,
-    height: DEFAULT_PAGE_HEIGHT,
+    width: mode === "infinite" ? INFINITE_PAGE_WIDTH : DEFAULT_PAGE_WIDTH,
+    height: mode === "infinite" ? INFINITE_PAGE_HEIGHT : DEFAULT_PAGE_HEIGHT,
     background: "dot",
     objects: [],
   };
 }
 
-export function createEmptySketchDocument(): SketchDocument {
-  return { schema_version: 1, pages: [createSketchPage()] };
+export function createEmptySketchDocument(mode: SketchCanvasMode = "page"): SketchDocument {
+  return { schema_version: 1, mode, pages: [createSketchPage("1", mode)] };
 }
 
-export function createSketchDraft(title = "新しいSketch", projectId: string | null = null, originCaptureId: string | null = null) {
+export function createSketchDraft(
+  title = "新しいSketch",
+  projectId: string | null = null,
+  originCaptureId: string | null = null,
+  mode: SketchCanvasMode = "page",
+) {
   return {
     id: crypto.randomUUID(),
     title,
     project_id: projectId,
     origin_capture_id: originCaptureId,
-    document: createEmptySketchDocument(),
+    document: createEmptySketchDocument(mode),
   };
+}
+
+export function sketchCanvasMode(document: SketchDocument): SketchCanvasMode {
+  return document.mode === "infinite" ? "infinite" : "page";
 }
 
 export function cloneSketchDocument(document: SketchDocument): SketchDocument {
@@ -141,6 +156,37 @@ export function objectBounds(object: SketchObject): SketchBounds {
     return { x: object.x, y: object.y - object.font_size, w: Math.max(36, object.text.length * object.font_size * 0.72), h: object.font_size * 1.4 };
   }
   return { x: Math.min(object.x, object.x + object.w), y: Math.min(object.y, object.y + object.h), w: Math.abs(object.w), h: Math.abs(object.h) };
+}
+
+export function expandInfinitePage(page: SketchPage): SketchPage {
+  if (!page.objects.length) return page;
+  const bounds = combinedObjectBounds(page.objects);
+  if (!bounds) return page;
+  const requiredWidth = bounds.x + bounds.w + INFINITE_GROW_MARGIN;
+  const requiredHeight = bounds.y + bounds.h + INFINITE_GROW_MARGIN;
+  const width = requiredWidth > page.width
+    ? Math.ceil(requiredWidth / INFINITE_GROW_STEP) * INFINITE_GROW_STEP
+    : page.width;
+  const height = requiredHeight > page.height
+    ? Math.ceil(requiredHeight / INFINITE_GROW_STEP) * INFINITE_GROW_STEP
+    : page.height;
+  return width === page.width && height === page.height ? page : { ...page, width, height };
+}
+
+export function cropSketchPageToContent(page: SketchPage, padding = 80): SketchPage {
+  if (!page.objects.length) return page;
+  const bounds = combinedObjectBounds(page.objects);
+  if (!bounds) return page;
+  const minX = Math.max(0, bounds.x - padding);
+  const minY = Math.max(0, bounds.y - padding);
+  const maxX = Math.min(page.width, bounds.x + bounds.w + padding);
+  const maxY = Math.min(page.height, bounds.y + bounds.h + padding);
+  return {
+    ...page,
+    width: Math.max(240, Math.ceil(maxX - minX)),
+    height: Math.max(180, Math.ceil(maxY - minY)),
+    objects: page.objects.map((object) => translateObject(object, -minX, -minY)),
+  };
 }
 
 export function combinedObjectBounds(objects: SketchObject[]): SketchBounds | null {

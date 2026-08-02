@@ -1,9 +1,15 @@
-import { IconPlus, IconWriting } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconFile, IconPlus, IconWriting, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { EmptyState, PageHeader } from "../components/common";
-import { createSketchDraft, drawSketchPage, type SketchPage } from "../lib/sketch";
+import {
+  createSketchDraft,
+  drawSketchPage,
+  sketchCanvasMode,
+  type SketchCanvasMode,
+  type SketchPage,
+} from "../lib/sketch";
 import type { PageProps, Sketch } from "../types";
 
 const ACTIVE_SKETCH_KEY = "tasken:sketch:active-id";
@@ -45,6 +51,7 @@ export function SketchLibraryPage({
   openDrawer,
 }: PageProps) {
   const [query, setQuery] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const [preferences, setPreferences] = usePersistentState<SketchLibraryPreferences>(
     "sketch:library-prefs:v1",
     DEFAULT_PREFERENCES,
@@ -74,8 +81,9 @@ export function SketchLibraryPage({
 
   const filterActive = preferences.themeId !== "all" || Boolean(query.trim());
 
-  function createSketch() {
-    const draft = createSketchDraft("新しいSketch", activeTheme?.id || null);
+  function createSketch(mode: SketchCanvasMode) {
+    const draft = createSketchDraft("新しいSketch", activeTheme?.id || null, null, mode);
+    setCreateOpen(false);
     openDrawer({
       type: "sketch",
       mode: "edit",
@@ -91,7 +99,7 @@ export function SketchLibraryPage({
   return (
     <div className="page sketch-library-page">
       <PageHeader title="Sketch">
-        <button className="primary-button" onClick={createSketch}>
+        <button className="primary-button" onClick={() => setCreateOpen(true)}>
           <IconPlus size={16} />新しいSketch
         </button>
       </PageHeader>
@@ -149,7 +157,9 @@ export function SketchLibraryPage({
                   <strong>{sketch.title || "無題のSketch"}</strong>
                 </button>
                 <span>{theme?.name || "Theme未設定"}</span>
-                <span className="sketch-library-number">{sketch.document.pages.length}</span>
+                <span className="sketch-library-number">
+                  {sketchCanvasMode(sketch.document) === "infinite" ? "Infinite" : `Page · ${sketch.document.pages.length}`}
+                </span>
                 <time dateTime={String(sketch.updated_at || sketch.created_at || "")}>{updatedLabel(sketch)}</time>
                 <button className="secondary-button compact" onClick={() => openSketch(sketch)}>開く</button>
               </article>
@@ -166,7 +176,36 @@ export function SketchLibraryPage({
           }}
         />
       ) : (
-        <EmptyState title="Sketchはまだありません" action="新しいSketch" onAction={createSketch} />
+        <EmptyState title="Sketchはまだありません" action="新しいSketch" onAction={() => setCreateOpen(true)} />
+      )}
+
+      {createOpen && (
+        <div className="modal-backdrop" onMouseDown={() => setCreateOpen(false)}>
+          <section
+            className="modal-card sketch-mode-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sketch-mode-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="modal-card-header">
+              <h2 id="sketch-mode-title">作業面を選ぶ</h2>
+              <button className="icon-button" onClick={() => setCreateOpen(false)} aria-label="閉じる"><IconX size={18} /></button>
+            </header>
+            <div className="sketch-mode-options">
+              <button onClick={() => createSketch("page")}>
+                <IconFile size={24} />
+                <strong>Page</strong>
+                <span>固定比率の紙を増やして書く。Noteや共有向き。</span>
+              </button>
+              <button onClick={() => createSketch("infinite")}>
+                <IconArrowsMaximize size={24} />
+                <strong>Infinite</strong>
+                <span>一枚の面を移動・拡大し、図解に合わせて広げる。</span>
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );

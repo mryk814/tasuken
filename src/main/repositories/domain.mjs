@@ -203,6 +203,9 @@ function validateTaskChecklist(items) {
 function validateSketchDocument(document) {
   if (!isPlainObject(document)) throw new Error("sketch.documentが不正です。");
   if (document.schema_version !== 1) throw new Error("sketch.document.schema_versionが不正です。");
+  if (document.mode != null && !["page", "infinite"].includes(document.mode)) {
+    throw new Error("sketch.document.modeが不正です。");
+  }
   if (!Array.isArray(document.pages) || !document.pages.length) {
     throw new Error("sketch.document.pagesを1件以上指定してください。");
   }

@@ -14,6 +14,7 @@
 6. Sketchのタイトル・Theme変更と削除は詳細ドロワーから行う。削除は論理削除し、undoできる。
 7. Note埋め込みはNote Edit側のカーソル位置から既存Sketchとページを選ぶ。本文には`tasken-sketch:<sketch-id>/<page-id>`参照だけを保存し、Edit・Preview・PDFの画像は現在のSketch正本から生成する。
 8. Note Previewの埋め込みを押すと同じSketch・ページを編集面で開く。Sketchまたはページを削除してもNote本文は残し、参照切れを明示する。
+9. 新規作成時にPageまたはInfiniteを選ぶ。比較条件と同一サンプルは[Canvas mode comparison](./sketch-canvas-modes.md)を正本とする。
 
 ## 正本と派生物
 
@@ -26,7 +27,7 @@ flowchart LR
   Sketch --> AI["Clipboard image<br/>then prompt"]
 ```
 
-`Sketch.document`のschema versionは1。各ページは寸法・背景・オブジェクト配列を持つ。オブジェクトは筆圧付きstroke、高lighter、shape、arrow、text、image。PNGやSVGは都度レンダリングし、編集データの代用にはしない。
+`Sketch.document`のschema versionは1。`mode`は`page | infinite`で、省略された既存データは`page`として読む。各ページは寸法・背景・オブジェクト配列を持つ。オブジェクトは筆圧付きstroke、高lighter、shape、arrow、text、image。PNGやSVGは都度レンダリングし、編集データの代用にはしない。
 
 ## 初期実装の機能範囲
 
@@ -37,6 +38,7 @@ flowchart LR
 - 選択、投げ縄選択、操作中から追従する移動・リサイズ、辺・中心の整列ガイド、複数選択、複製
 - Undo / Redo、Delete、Ctrl+A、Ctrl+C/V、Ctrl+D、Ctrl+Z/Y
 - 複数Sketch、複数ページ、ページ背景、ズーム
+- Page / Infiniteの作成時選択、Infiniteのpan・zoom・右下方向への自動拡張、描画範囲／全体Export
 - 自動保存、Snapshot、論理削除
 - Note側からの参照埋め込み・再編集、Markdown + PNG / PNG / SVG、AI向けコピー
 

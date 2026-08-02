@@ -44,6 +44,7 @@ interface SketchCanvasProps {
 type PointerMode =
   | { kind: "draw"; points: SketchPoint[] }
   | { kind: "text"; point: SketchPoint }
+  | { kind: "pan"; clientX: number; clientY: number; scrollLeft: number; scrollTop: number }
   | { kind: "move"; start: SketchPoint; ids: string[]; originObjects: SketchObject[] }
   | { kind: "resize"; start: SketchPoint; id: string; bounds: SketchBounds; originObjects: SketchObject[] }
   | null;
@@ -85,6 +86,7 @@ export function SketchCanvas({
   onPasteImage,
 }: SketchCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const pointerModeRef = useRef<PointerMode>(null);
   const copiedObjectsRef = useRef<SketchObject[]>([]);
   const pasteGenerationRef = useRef(0);
@@ -191,9 +193,23 @@ export function SketchCanvas({
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 && event.button !== 1) return;
     const point = pointerPoint(event, page);
     lastPointerRef.current = point;
+    if (tool === "pan" || event.button === 1) {
+      const scroll = scrollRef.current;
+      if (!scroll) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerModeRef.current = {
+        kind: "pan",
+        clientX: event.clientX,
+        clientY: event.clientY,
+        scrollLeft: scroll.scrollLeft,
+        scrollTop: scroll.scrollTop,
+      };
+      return;
+    }
 
     if (["shape", "arrow", "text"].includes(tool)) {
       const hit = hitTest(page.objects, point);
@@ -294,6 +310,13 @@ export function SketchCanvas({
     const point = pointerPoint(event, page);
     lastPointerRef.current = point;
     const mode = pointerModeRef.current;
+    if (mode?.kind === "pan") {
+      const scroll = scrollRef.current;
+      if (!scroll) return;
+      scroll.scrollLeft = mode.scrollLeft - (event.clientX - mode.clientX);
+      scroll.scrollTop = mode.scrollTop - (event.clientY - mode.clientY);
+      return;
+    }
     if (tool === "eraser" && event.buttons === 1) {
       const hit = hitTest(page.objects, point);
       if (hit) commitObjects(page.objects.filter((object) => object.id !== hit.id));
@@ -327,6 +350,7 @@ export function SketchCanvas({
     setPreviewObjects(null);
     setAlignmentGuides({ vertical: [], horizontal: [] });
     if (!mode) return;
+    if (mode.kind === "pan") return;
 
     if (mode.kind === "text") {
       textCommitRef.current = false;
@@ -436,7 +460,7 @@ export function SketchCanvas({
   }
 
   return (
-    <div className="sketch-canvas-scroll">
+    <div className="sketch-canvas-scroll" ref={scrollRef}>
       <div className="sketch-canvas-stage" style={{ width: `${page.width * zoom}px`, height: `${page.height * zoom}px` }}>
         <canvas
           ref={canvasRef}
