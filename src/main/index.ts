@@ -121,6 +121,8 @@ interface SmokeCreatedResult {
   rawCopyNotified: boolean;
   themeMode: string;
   clipboardWritten: boolean;
+  sketchClipboardWritten: boolean;
+  sketchClipboardPasted: boolean;
 }
 
 interface SmokeReloadResult {
@@ -490,6 +492,16 @@ flowchart LR
       const todayMiniWindowOpened = await window.api.app.showTodayMiniWindow();
       const themeMode = await window.api.preferences.get("themeMode");
       const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
+      const sketchClipboardCanvas = document.createElement("canvas");
+      sketchClipboardCanvas.width = 8;
+      sketchClipboardCanvas.height = 8;
+      const sketchClipboardContext = sketchClipboardCanvas.getContext("2d");
+      if (!sketchClipboardContext) throw new Error("Sketch clipboard smoke canvas is unavailable.");
+      sketchClipboardContext.fillStyle = "#8a2f3b";
+      sketchClipboardContext.fillRect(0, 0, 8, 8);
+      const sketchClipboardWritten = await window.api.clipboard.writeSketch({
+        dataUrl: sketchClipboardCanvas.toDataURL("image/png")
+      });
 
       return {
         title: document.title,
@@ -515,9 +527,32 @@ flowchart LR
         rawCopyNotified,
         themeMode,
         clipboardWritten,
+        sketchClipboardWritten,
       };
     })()
   `) as SmokeCreatedResult;
+
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const target = document.createElement("div");
+      target.id = "sketch-clipboard-smoke-target";
+      target.contentEditable = "true";
+      target.style.position = "fixed";
+      target.style.left = "-10000px";
+      document.body.append(target);
+      target.focus();
+    })()
+  `);
+  window.webContents.paste();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  created.sketchClipboardPasted = await window.webContents.executeJavaScript(`
+    (() => {
+      const target = document.querySelector("#sketch-clipboard-smoke-target");
+      const pasted = Boolean(target?.querySelector("img"));
+      target?.remove();
+      return pasted;
+    })()
+  `) as boolean;
 
   let mini: SmokeMiniResult = {
     todayMiniOpened: false,
@@ -631,6 +666,8 @@ flowchart LR
         && result.todayMiniCompletionSaved
         && result.todayMiniOpenDetail
         && result.clipboardWritten
+        && result.sketchClipboardWritten
+        && result.sketchClipboardPasted
         && result.themeMode === "dark"
         && result.themeModeAfterReload === "dark"
           ? 0

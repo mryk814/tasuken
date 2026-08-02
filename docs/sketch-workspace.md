@@ -10,7 +10,7 @@
 2. Sketch棚で検索・Theme絞り込み・並び替えを行い、行を選ぶと詳細ドロワー、明示的に「開く」と編集面へ進む。
 3. ペン、蛍光ペン、消しゴム、図形認識、矢印、テキスト、画像で複数ページを編集する。
 4. 変更は短い遅延で自動保存され、再起動後も編集可能なオブジェクトとして復元する。
-5. 必要に応じてMarkdown + PNG、PNG、SVGへ書き出すか、画像と説明用プロンプトをクリップボードへコピーして外部AIへ渡す。
+5. 必要に応じてMarkdown + PNG、PNG、SVGへ書き出す。外部AIへ渡す場合は「1. AIへ画像をコピー」で画像を貼り、その後「2. AI向け指示をコピー」で同じ会話へ指示を貼る。
 6. Sketchのタイトル・Theme変更と削除は詳細ドロワーから行う。削除は論理削除し、undoできる。
 7. Note埋め込みはNote Edit側のカーソル位置から既存Sketchとページを選ぶ。本文には`tasken-sketch:<sketch-id>/<page-id>`参照だけを保存し、Edit・Preview・PDFの画像は現在のSketch正本から生成する。
 8. Note Previewの埋め込みを押すと同じSketch・ページを編集面で開く。Sketchまたはページを削除してもNote本文は残し、参照切れを明示する。
@@ -23,7 +23,7 @@ flowchart LR
   Library["Sketch library"] --> Sketch
   Sketch --> Note["Note embed reference<br/>Sketch ID + page ID"]
   Sketch --> Export["Markdown / PNG / SVG"]
-  Sketch --> AI["Clipboard image + prompt"]
+  Sketch --> AI["Clipboard image<br/>then prompt"]
 ```
 
 `Sketch.document`のschema versionは1。各ページは寸法・背景・オブジェクト配列を持つ。オブジェクトは筆圧付きstroke、高lighter、shape、arrow、text、image。PNGやSVGは都度レンダリングし、編集データの代用にはしない。
@@ -39,6 +39,15 @@ flowchart LR
 - 複数Sketch、複数ページ、ページ背景、ズーム
 - 自動保存、Snapshot、論理削除
 - Note側からの参照埋め込み・再編集、Markdown + PNG / PNG / SVG、AI向けコピー
+
+## AIへ渡す
+
+Windowsでは同じクリップボードへ画像と文字列を同時に書いても、貼り付け先が片方だけを採用することがある。このためTaskenは画像と指示を混在させず、次の2操作に分ける。
+
+1. 「1. AIへ画像をコピー」を実行し、AIの入力欄へ貼り付ける。TaskenはPNGを書いた直後に画像の寸法を読み戻し、書き込みを確認する。
+2. 「2. AI向け指示をコピー」を実行し、画像を貼った同じ会話へ続けて貼り付ける。
+
+画像を扱えない入力欄ではPNG書き出しを添付し、「2. AI向け指示をコピー」だけを使う。失敗時は原因と再試行方法を画面に残す。
 
 ## 非交渉の互換条件
 
