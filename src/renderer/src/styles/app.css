@@ -993,7 +993,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .scratchpad-derived > div {
   display: flex;
   gap: var(--space-2);
-  overflow-x: auto;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .scratchpad-derived button {
@@ -3833,6 +3834,31 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   color: var(--color-accent-strong);
 }
 .sketch-tool-group button:disabled { opacity: .38; cursor: default; }
+.sketch-shape-picker { position: relative; }
+.sketch-shape-popover {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(116px, 1fr));
+  width: 256px;
+  gap: 2px;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+.sketch-shape-popover button {
+  justify-content: flex-start;
+  width: 100%;
+}
+.sketch-shape-popover button[aria-checked="true"] {
+  border-color: var(--color-accent-subtle-bd);
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-accent-strong);
+}
 .sketch-tool-group.is-colors { gap: var(--space-1); }
 .sketch-tool-group.is-colors button {
   width: 24px;

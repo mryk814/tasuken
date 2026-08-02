@@ -1,7 +1,18 @@
 export type SketchTool = "select" | "lasso" | "pen" | "highlighter" | "eraser" | "shape" | "arrow" | "text" | "image" | "pan";
 export type SketchBackground = "plain" | "dot" | "grid";
 export type SketchCanvasMode = "page" | "infinite";
-export type SketchShapeKind = "auto" | "line" | "rectangle" | "ellipse" | "triangle";
+export type SketchEraserMode = "partial" | "stroke";
+export type SketchShapeKind =
+  | "auto"
+  | "line"
+  | "rectangle"
+  | "rounded_rectangle"
+  | "ellipse"
+  | "triangle"
+  | "diamond"
+  | "sticky_note"
+  | "callout"
+  | "bidirectional_arrow";
 
 export interface SketchPoint {
   x: number;
@@ -299,10 +310,10 @@ function shapeHit(object: SketchShape, point: Pick<SketchPoint, "x" | "y">, tole
   const x2 = object.x + object.w;
   const y2 = object.y + object.h;
   const lineTolerance = Math.max(tolerance, object.width / 2 + 5);
-  if (object.shape === "line" || object.shape === "arrow") {
+  if (object.shape === "line" || object.shape === "arrow" || object.shape === "bidirectional_arrow") {
     return distanceToSegment(point, { x: object.x, y: object.y }, { x: x2, y: y2 }) <= lineTolerance;
   }
-  if (object.shape === "rectangle") {
+  if (object.shape === "rectangle" || object.shape === "rounded_rectangle" || object.shape === "sticky_note" || object.shape === "callout") {
     const left = Math.min(object.x, x2);
     const right = Math.max(object.x, x2);
     const top = Math.min(object.y, y2);
@@ -325,6 +336,18 @@ function shapeHit(object: SketchShape, point: Pick<SketchPoint, "x" | "y">, tole
       distanceToSegment(point, right, top),
     ) <= lineTolerance;
   }
+  if (object.shape === "diamond") {
+    const top = { x: object.x + object.w / 2, y: object.y };
+    const right = { x: x2, y: object.y + object.h / 2 };
+    const bottom = { x: object.x + object.w / 2, y: y2 };
+    const left = { x: object.x, y: object.y + object.h / 2 };
+    return Math.min(
+      distanceToSegment(point, top, right),
+      distanceToSegment(point, right, bottom),
+      distanceToSegment(point, bottom, left),
+      distanceToSegment(point, left, top),
+    ) <= lineTolerance;
+  }
   const centerX = object.x + object.w / 2;
   const centerY = object.y + object.h / 2;
   const radiusX = Math.max(1, Math.abs(object.w / 2));
@@ -341,6 +364,76 @@ function objectHit(object: SketchObject, point: Pick<SketchPoint, "x" | "y">, to
     return object.points.slice(1).some((entry, index) => distanceToSegment(point, object.points[index], entry) <= lineTolerance);
   }
   return boundsContainPoint(objectBounds(object), point, tolerance);
+}
+
+function samplePath(points: SketchPoint[], spacing: number): SketchPoint[] {
+  if (points.length < 2) return points.map((point) => ({ ...point }));
+  const sampled: SketchPoint[] = [{ ...points[0] }];
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    const steps = Math.max(1, Math.ceil(length / Math.max(1, spacing)));
+    for (let step = 1; step <= steps; step += 1) {
+      const ratio = step / steps;
+      sampled.push({
+        x: start.x + (end.x - start.x) * ratio,
+        y: start.y + (end.y - start.y) * ratio,
+        pressure: start.pressure + (end.pressure - start.pressure) * ratio,
+      });
+    }
+  }
+  return sampled;
+}
+
+function distanceToPath(point: Pick<SketchPoint, "x" | "y">, path: SketchPoint[]): number {
+  if (!path.length) return Number.POSITIVE_INFINITY;
+  if (path.length === 1) return Math.hypot(point.x - path[0].x, point.y - path[0].y);
+  let closest = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < path.length; index += 1) {
+    closest = Math.min(closest, distanceToSegment(point, path[index - 1], path[index]));
+  }
+  return closest;
+}
+
+function splitStrokeByEraser(stroke: SketchStroke, eraserPath: SketchPoint[], radius: number): SketchStroke[] {
+  const sampled = samplePath(stroke.points, Math.max(1.5, radius / 3));
+  const runs: SketchPoint[][] = [];
+  let current: SketchPoint[] = [];
+  const hitRadius = radius + stroke.width / 2;
+  for (const point of sampled) {
+    if (distanceToPath(point, eraserPath) <= hitRadius) {
+      if (current.length) runs.push(current);
+      current = [];
+    } else {
+      current.push(point);
+    }
+  }
+  if (current.length) runs.push(current);
+  return runs
+    .filter((run) => run.length > 1)
+    .map((points, index) => ({
+      ...stroke,
+      id: index === 0 ? stroke.id : crypto.randomUUID(),
+      points,
+    }));
+}
+
+export function eraseSketchObjects(
+  objects: SketchObject[],
+  eraserPath: SketchPoint[],
+  diameter: number,
+  mode: SketchEraserMode,
+): SketchObject[] {
+  if (!eraserPath.length) return objects;
+  const radius = Math.max(3, diameter / 2);
+  const hitSamples = samplePath(eraserPath, Math.max(2, radius / 2));
+  return objects.flatMap((object) => {
+    const isHit = hitSamples.some((point) => objectHit(object, point, radius));
+    if (!isHit) return [object];
+    if (mode === "stroke" || object.type !== "stroke") return [];
+    return splitStrokeByEraser(object, eraserPath, radius);
+  });
 }
 
 export function hitTest(
@@ -590,6 +683,10 @@ export function drawSketchObject(
     const y2 = object.y + object.h;
     context.beginPath();
     if (object.shape === "rectangle") context.rect(object.x, object.y, object.w, object.h);
+    else if (object.shape === "rounded_rectangle") {
+      const radius = Math.min(24, Math.abs(object.w) / 5, Math.abs(object.h) / 5);
+      context.roundRect(object.x, object.y, object.w, object.h, radius);
+    }
     else if (object.shape === "ellipse") context.ellipse(object.x + object.w / 2, object.y + object.h / 2, Math.abs(object.w / 2), Math.abs(object.h / 2), 0, 0, Math.PI * 2);
     else if (object.shape === "triangle") {
       context.moveTo(object.x + object.w / 2, object.y);
@@ -597,10 +694,41 @@ export function drawSketchObject(
       context.lineTo(x2, y2);
       context.closePath();
     }
+    else if (object.shape === "diamond") {
+      context.moveTo(object.x + object.w / 2, object.y);
+      context.lineTo(x2, object.y + object.h / 2);
+      context.lineTo(object.x + object.w / 2, y2);
+      context.lineTo(object.x, object.y + object.h / 2);
+      context.closePath();
+    }
+    else if (object.shape === "sticky_note") {
+      const fold = Math.min(28, Math.abs(object.w) / 4, Math.abs(object.h) / 4);
+      context.moveTo(object.x, object.y);
+      context.lineTo(x2 - fold, object.y);
+      context.lineTo(x2, object.y + fold);
+      context.lineTo(x2, y2);
+      context.lineTo(object.x, y2);
+      context.closePath();
+      context.moveTo(x2 - fold, object.y);
+      context.lineTo(x2 - fold, object.y + fold);
+      context.lineTo(x2, object.y + fold);
+    }
+    else if (object.shape === "callout") {
+      const tail = Math.min(32, Math.abs(object.w) / 4, Math.abs(object.h) / 3);
+      const radius = Math.min(20, Math.abs(object.w) / 6, Math.abs(object.h) / 6);
+      context.roundRect(object.x, object.y, object.w, object.h - tail, radius);
+      context.moveTo(object.x + object.w * 0.2, y2 - tail);
+      context.lineTo(object.x + object.w * 0.14, y2);
+      context.lineTo(object.x + object.w * 0.38, y2 - tail);
+    }
     else {
       context.moveTo(object.x, object.y);
       context.lineTo(x2, y2);
       if (object.shape === "arrow") drawArrowHead(context, object.x, object.y, x2, y2, Math.max(12, object.width * 5));
+      if (object.shape === "bidirectional_arrow") {
+        drawArrowHead(context, object.x, object.y, x2, y2, Math.max(12, object.width * 5));
+        drawArrowHead(context, x2, y2, object.x, object.y, Math.max(12, object.width * 5));
+      }
     }
     context.stroke();
   } else if (object.type === "text") {
@@ -642,10 +770,24 @@ export function sketchPageToSvg(page: SketchPage): string {
     }
     if (object.type === "shape") {
       if (object.shape === "rectangle") return `<rect x="${object.x}" y="${object.y}" width="${object.w}" height="${object.h}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
+      if (object.shape === "rounded_rectangle") {
+        const radius = Math.min(24, Math.abs(object.w) / 5, Math.abs(object.h) / 5);
+        return `<rect x="${object.x}" y="${object.y}" width="${object.w}" height="${object.h}" rx="${radius}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
+      }
       if (object.shape === "ellipse") return `<ellipse cx="${object.x + object.w / 2}" cy="${object.y + object.h / 2}" rx="${Math.abs(object.w / 2)}" ry="${Math.abs(object.h / 2)}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
       if (object.shape === "triangle") return `<polygon points="${object.x + object.w / 2},${object.y} ${object.x},${object.y + object.h} ${object.x + object.w},${object.y + object.h}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
-      const marker = object.shape === "arrow" ? ' marker-end="url(#arrow)"' : "";
-      return `<line x1="${object.x}" y1="${object.y}" x2="${object.x + object.w}" y2="${object.y + object.h}" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"${marker}/>`;
+      if (object.shape === "diamond") return `<polygon points="${object.x + object.w / 2},${object.y} ${object.x + object.w},${object.y + object.h / 2} ${object.x + object.w / 2},${object.y + object.h} ${object.x},${object.y + object.h / 2}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
+      if (object.shape === "sticky_note") {
+        const fold = Math.min(28, Math.abs(object.w) / 4, Math.abs(object.h) / 4);
+        return `<path d="M ${object.x} ${object.y} H ${object.x + object.w - fold} L ${object.x + object.w} ${object.y + fold} V ${object.y + object.h} H ${object.x} Z M ${object.x + object.w - fold} ${object.y} V ${object.y + fold} H ${object.x + object.w}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
+      }
+      if (object.shape === "callout") {
+        const tail = Math.min(32, Math.abs(object.w) / 4, Math.abs(object.h) / 3);
+        return `<path d="M ${object.x + 16} ${object.y} H ${object.x + object.w - 16} Q ${object.x + object.w} ${object.y} ${object.x + object.w} ${object.y + 16} V ${object.y + object.h - tail - 16} Q ${object.x + object.w} ${object.y + object.h - tail} ${object.x + object.w - 16} ${object.y + object.h - tail} H ${object.x + object.w * 0.38} L ${object.x + object.w * 0.14} ${object.y + object.h} L ${object.x + object.w * 0.2} ${object.y + object.h - tail} H ${object.x + 16} Q ${object.x} ${object.y + object.h - tail} ${object.x} ${object.y + object.h - tail - 16} V ${object.y + 16} Q ${object.x} ${object.y} ${object.x + 16} ${object.y} Z" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
+      }
+      const markerEnd = object.shape === "arrow" || object.shape === "bidirectional_arrow" ? ' marker-end="url(#arrow)"' : "";
+      const markerStart = object.shape === "bidirectional_arrow" ? ' marker-start="url(#arrow-start)"' : "";
+      return `<line x1="${object.x}" y1="${object.y}" x2="${object.x + object.w}" y2="${object.y + object.h}" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"${markerStart}${markerEnd}/>`;
     }
     if (object.type === "text") {
       const lines = object.text.split("\n").map((line, index) => (
@@ -655,7 +797,7 @@ export function sketchPageToSvg(page: SketchPage): string {
     }
     return `<image href="${escapeXml(object.data_url)}" x="${object.x}" y="${object.y}" width="${object.w}" height="${object.h}"/>`;
   }).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="context-stroke"/></marker></defs><rect width="100%" height="100%" fill="#fffdfb"/>${objects}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="context-stroke"/></marker><marker id="arrow-start" markerWidth="10" markerHeight="10" refX="1" refY="3" orient="auto"><path d="M9,0 L9,6 L0,3 z" fill="context-stroke"/></marker></defs><rect width="100%" height="100%" fill="#fffdfb"/>${objects}</svg>`;
 }
 
 export function sketchAiPrompt(title: string): string {
