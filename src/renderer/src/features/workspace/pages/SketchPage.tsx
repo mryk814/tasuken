@@ -5,6 +5,7 @@ import {
   IconChevronDown,
   IconEraser,
   IconGridDots,
+  IconHandMove,
   IconHighlight,
   IconLasso,
   IconMaximize,
@@ -27,9 +28,12 @@ import {
   cloneSketchDocument,
   createEmptySketchDocument,
   createSketchPage,
+  cropSketchPageToContent,
   drawSketchPage,
+  expandInfinitePage,
   renderSketchPageToDataUrl,
   sketchAiPrompt,
+  sketchCanvasMode,
   sketchPageToSvg,
   type SketchDocument,
   type SketchObject,
@@ -89,6 +93,7 @@ export function SketchPage({
   const [undoStack, setUndoStack] = useState<SketchDocument[]>([]);
   const [redoStack, setRedoStack] = useState<SketchDocument[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportRange, setExportRange] = useState<"drawing" | "canvas">("drawing");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
 
@@ -145,6 +150,7 @@ export function SketchPage({
   }, []);
 
   const activePage = document.pages.find((page) => page.id === activePageId) || document.pages[0];
+  const canvasMode = sketchCanvasMode(document);
   const selectedTheme = themes.find((theme) => theme.id === selected?.project_id);
 
   function changeDocument(next: SketchDocument) {
@@ -155,7 +161,8 @@ export function SketchPage({
   }
 
   function changePage(page: SketchPage) {
-    changeDocument({ ...document, pages: document.pages.map((entry) => entry.id === page.id ? page : entry) });
+    const nextPage = canvasMode === "infinite" ? expandInfinitePage(page) : page;
+    changeDocument({ ...document, pages: document.pages.map((entry) => entry.id === nextPage.id ? nextPage : entry) });
   }
 
   function undo() {
@@ -177,7 +184,7 @@ export function SketchPage({
   }
 
   function addPage() {
-    const page = createSketchPage(String(document.pages.length + 1));
+    const page = createSketchPage(String(document.pages.length + 1), "page");
     changeDocument({ ...document, pages: [...document.pages, page] });
     setActivePageId(page.id);
   }
@@ -224,12 +231,15 @@ export function SketchPage({
 
   async function exportPayload() {
     if (!selected || !activePage) throw new Error("出力するSketchがありません。");
-    const dataUrl = await renderSketchPageToDataUrl(activePage);
+    const exportPage = canvasMode === "infinite" && exportRange === "drawing"
+      ? cropSketchPageToContent(activePage)
+      : activePage;
+    const dataUrl = await renderSketchPageToDataUrl(exportPage);
     return {
       title: selected.title,
       themeId: selected.project_id || null,
       dataUrl,
-      svg: sketchPageToSvg(activePage),
+      svg: sketchPageToSvg(exportPage),
       markdown: `# ${selected.title}\n\n![${selected.title}]({{SKETCH_IMAGE}})\n\n> Tasken Sketchから書き出しました。`,
     };
   }
@@ -287,6 +297,7 @@ export function SketchPage({
           <button className="text-button compact" onClick={() => navigate("sketch")}>Sketch</button>
           <span aria-hidden="true">/</span>
           <strong className="sketch-editor-title">{selected.title || "無題のSketch"}</strong>
+          <span className="sketch-mode-badge">{canvasMode === "infinite" ? "Infinite" : "Page"}</span>
           <span>{selectedTheme?.name || "Theme未設定"}</span>
         </div>
         <div className="sketch-header-meta">
@@ -300,6 +311,15 @@ export function SketchPage({
                 <button role="menuitem" onClick={() => void exportSketch("markdown")}>Markdown + PNG</button>
                 <button role="menuitem" onClick={() => void exportSketch("png")}>PNG画像</button>
                 <button role="menuitem" onClick={() => void exportSketch("svg")}>SVG画像</button>
+                {canvasMode === "infinite" && (
+                  <label className="sketch-export-range">
+                    <span>出力範囲</span>
+                    <select value={exportRange} onChange={(event) => setExportRange(event.target.value as "drawing" | "canvas")}>
+                      <option value="drawing">描画範囲</option>
+                      <option value="canvas">キャンバス全体</option>
+                    </select>
+                  </label>
+                )}
                 <button role="menuitem" onClick={() => void copyImageForAi()}><IconSparkles size={15} />1. AIへ画像をコピー</button>
                 <button role="menuitem" onClick={() => void copyAiPrompt()}><IconSparkles size={15} />2. AI向け指示をコピー</button>
               </div>
@@ -310,7 +330,7 @@ export function SketchPage({
 
       <div className="sketch-toolbar" role="toolbar" aria-label="Sketchツール">
         <div className="sketch-tool-group">
-          {TOOL_ITEMS.map((item) => {
+          {[...TOOL_ITEMS, ...(canvasMode === "infinite" ? [{ id: "pan" as const, label: "移動", icon: IconHandMove }] : [])].map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -357,8 +377,8 @@ export function SketchPage({
         </div>
       </div>
 
-      <div className="sketch-workspace">
-        <aside className="sketch-page-rail" aria-label="Sketchページ">
+      <div className={`sketch-workspace is-${canvasMode}`}>
+        {canvasMode === "page" && <aside className="sketch-page-rail" aria-label="Sketchページ">
           <div className="sketch-page-rail-heading">
             <span>ページ</span>
           </div>
@@ -374,7 +394,7 @@ export function SketchPage({
             ))}
           </div>
           <button className="secondary-button compact sketch-add-page" onClick={addPage}><IconPlus size={15} />ページを追加</button>
-        </aside>
+        </aside>}
 
         <section className="sketch-canvas-area">
           <SketchCanvas
@@ -390,7 +410,7 @@ export function SketchPage({
             onPasteImage={(file, point) => void insertImage(file, point)}
           />
           <div className="sketch-bottom-controls">
-            <span>{document.pages.findIndex((page) => page.id === activePage.id) + 1} / {document.pages.length}</span>
+            <span>{canvasMode === "page" ? `${document.pages.findIndex((page) => page.id === activePage.id) + 1} / ${document.pages.length}` : `${activePage.width} × ${activePage.height}`}</span>
             <button onClick={() => setZoom((value) => Math.max(0.35, Number((value - 0.1).toFixed(2))))} aria-label="縮小"><IconZoomOut size={17} /></button>
             <span>{Math.round(zoom * 100)}%</span>
             <button onClick={() => setZoom((value) => Math.min(1.6, Number((value + 0.1).toFixed(2))))} aria-label="拡大"><IconZoomIn size={17} /></button>

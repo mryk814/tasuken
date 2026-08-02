@@ -23,6 +23,7 @@ import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { buildKnowledgeLinkContext, type KnowledgeLinkEntry } from "../lib/knowledgeLinks";
+import { sketchCanvasMode } from "../lib/sketch";
 import {
   escapeHtml,
   HEADING_NUMBER_LEVELS,
@@ -203,7 +204,10 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         onEdit={() => close({ type: "sketch", mode: "edit", entity })}
       >
         <div className="badge-row">
-          <StatusBadge value="neutral" label={`${sketch.document.pages.length}ページ`} />
+          <StatusBadge
+            value="neutral"
+            label={sketchCanvasMode(sketch.document) === "infinite" ? "Infinite Canvas" : `${sketch.document.pages.length}ページ`}
+          />
           {sketch.origin_capture_id && <StatusBadge value="neutral" label="Ink Capture" />}
         </div>
         <h2>{sketch.title || "無題のSketch"}</h2>
@@ -682,7 +686,11 @@ function EditDrawer({
             {entity.id && (
               <dl className="sketch-drawer-meta">
                 <dt>ページ</dt>
-                <dd>{(entity.document as Sketch["document"] | undefined)?.pages.length || 1}</dd>
+                <dd>
+                  {entity.document && sketchCanvasMode(entity.document as Sketch["document"]) === "infinite"
+                    ? "Infinite Canvas"
+                    : `${(entity.document as Sketch["document"] | undefined)?.pages.length || 1}ページ`}
+                </dd>
                 <dt>更新</dt>
                 <dd>{formatDate(entity.updated_at)}</dd>
               </dl>
