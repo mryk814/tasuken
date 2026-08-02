@@ -2415,6 +2415,41 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   font-size: var(--text-xs);
   text-align: center;
 }
+.markdown-preview .md-sketch-embed {
+  display: grid;
+  width: min(100%, 760px);
+  gap: var(--space-1);
+  margin: var(--space-3) auto;
+}
+.markdown-preview .md-sketch-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--markdown-paper-border);
+  border-radius: var(--radius-md);
+  background: var(--markdown-paper-subtle);
+  cursor: pointer;
+}
+.markdown-preview .md-sketch-open:hover { border-color: var(--color-accent); }
+.markdown-preview .md-sketch-open:active { background: var(--color-accent-subtle-bg); }
+.markdown-preview .md-sketch-open img { display: block; width: 100%; height: auto; }
+.markdown-preview .md-sketch-embed figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--markdown-paper-secondary);
+  font-size: var(--text-xs);
+}
+.markdown-preview .md-sketch-embed figcaption strong { color: var(--markdown-paper-text); }
+.markdown-preview .md-sketch-missing {
+  padding: var(--space-5);
+  border: 1px dashed var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-strong);
+  text-align: center;
+}
 /* MDXEditor が <u> で書き出した下線。PDF/Preview 共通で明示する（UA 依存にしない）。 */
 .markdown-preview u,
 .markdown-preview .md-underline,
@@ -3923,6 +3958,18 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .modal-card .section-heading { justify-content: space-between; }
 .modal-card .section-heading h2 { margin: 0; font-size: var(--text-lg); }
 .modal-card label { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-sm); }
+.note-sketch-dialog { width: min(560px, calc(100vw - 32px)); }
+.note-sketch-dialog .modal-card-header { display: flex; align-items: center; justify-content: space-between; }
+.note-sketch-dialog .modal-card-header h2 { margin: 0; }
+.note-sketch-dialog select { width: 100%; }
+.note-sketch-picker-preview {
+  max-height: 320px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+.note-sketch-picker-preview canvas { display: block; width: 100%; height: auto; background: white; }
 
 @media (max-width: 1180px) {
   .sketch-header-meta > span:first-child { display: none; }

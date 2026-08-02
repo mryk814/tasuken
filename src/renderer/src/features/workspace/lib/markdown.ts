@@ -34,6 +34,7 @@ import { KATEX_DOCUMENT_CSS } from "./katexDocumentCss";
 import { parseWikiLinks } from "./knowledgeLinks";
 import { MARKDOWN_DOCUMENT_SURFACES_CSS } from "./markdownDocumentSurfaces";
 import { mermaidWidthFromMeta } from "./mermaidWidth";
+import { parseSketchEmbedUrl, type SketchEmbedPreview } from "./sketchEmbed";
 
 /** MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。 */
 function parseMarkdownBody(body: string): Root {
@@ -116,7 +117,7 @@ function safeMarkdownUrl(value: string, kind: "image" | "link"): string {
   try {
     const parsed = new URL(trimmed);
     const allowed = kind === "image"
-      ? ["https:", "http:", "tasken-attachment:"]
+      ? ["https:", "http:", "tasken-attachment:", "tasken-sketch:"]
       : ["https:", "http:", "mailto:"];
     return allowed.includes(parsed.protocol) ? parsed.toString() : "";
   } catch {
@@ -477,6 +478,14 @@ function renderPhrasing(nodes: PhrasingContent[] | undefined, ctx: MarkdownRende
         const url = safeMarkdownUrl(image.url || "", "image");
         const label = (image.alt || "").trim() || "貼り付け画像";
         if (!url) return escapeHtml(`[画像: ${label}]`);
+        const sketchRef = parseSketchEmbedUrl(url);
+        if (sketchRef) {
+          const preview = ctx.sketchEmbeds?.[sketchRef.key];
+          if (!preview?.dataUrl) {
+            return `<figure class="md-sketch-embed is-missing" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><div class="md-sketch-missing">参照先のSketchまたはページが見つかりません。</div><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+          }
+          return `<figure class="md-sketch-embed" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><button type="button" class="md-sketch-open" aria-label="${escapeHtml(preview.title)}をSketchで開く"><img src="${escapeHtml(preview.dataUrl)}" alt="${escapeHtml(label)}" loading="lazy" /></button><figcaption><strong>${escapeHtml(preview.title)}</strong><span>Sketchで編集</span></figcaption></figure>`;
+        }
         return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="max-width:100%;height:auto;display:block" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
       }
       case "inlineMath":
@@ -666,6 +675,7 @@ type MarkdownRenderContext = {
   footnotes: Map<string, number>;
   footnoteDefinitions: Map<string, string>;
   nextFootnote: number;
+  sketchEmbeds?: Record<string, SketchEmbedPreview>;
 };
 
 function renderBlock(
@@ -779,6 +789,8 @@ export type MarkdownRenderOptions = {
    * 編集プレビューでは true（既定）、PDF / 文書ビュー（previewDocument）では false。
    */
   showFrontmatter?: boolean;
+  /** Tasken Sketch参照を表示するための、現在の正本から生成したPreview。 */
+  sketchEmbeds?: Record<string, SketchEmbedPreview>;
 };
 
 export const HEADING_NUMBER_START_LEVELS = [1, 2, 3, 4] as const;
@@ -1095,6 +1107,11 @@ body{
   padding:var(--md-space-3);border:1px dashed var(--markdown-paper-border);border-radius:var(--md-radius-md);
   background:var(--markdown-paper-subtle);color:var(--markdown-paper-secondary)
 }
+.markdown-document .md-sketch-embed{display:grid;width:min(100%,760px);gap:var(--md-space-1);margin:var(--md-space-3) auto;break-inside:avoid}
+.markdown-document .md-sketch-open{display:block;width:100%;padding:0;border:1px solid var(--markdown-paper-border);border-radius:var(--md-radius-md);background:var(--markdown-paper-subtle)}
+.markdown-document .md-sketch-open img{display:block;width:100%;height:auto}
+.markdown-document .md-sketch-embed figcaption{display:flex;justify-content:space-between;gap:var(--md-space-2);color:var(--markdown-paper-secondary);font-size:var(--md-text-xs)}
+.markdown-document .md-sketch-missing{padding:var(--md-space-4);border:1px dashed #ce3b3b;border-radius:var(--md-radius-md);background:#fff0f0;color:#8f2525;text-align:center}
 .markdown-document .md-math-block{overflow:visible;break-inside:avoid}
 `;
 
@@ -1107,6 +1124,7 @@ export function renderMarkdownPreview(value: string, options: MarkdownRenderOpti
     footnotes: new Map(),
     footnoteDefinitions: definitions,
     nextFootnote: 1,
+    sketchEmbeds: options.sketchEmbeds,
   };
   const tree = parseMarkdownBody(body);
   const parts: string[] = [];

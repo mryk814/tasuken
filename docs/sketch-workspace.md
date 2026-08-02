@@ -12,7 +12,8 @@
 4. 変更は短い遅延で自動保存され、再起動後も編集可能なオブジェクトとして復元する。
 5. 必要に応じてMarkdown + PNG、PNG、SVGへ書き出すか、画像と説明用プロンプトをクリップボードへコピーして外部AIへ渡す。
 6. Sketchのタイトル・Theme変更と削除は詳細ドロワーから行う。削除は論理削除し、undoできる。
-7. Note埋め込みはNote側から既存Sketchを選び、埋め込みから元Sketchを再編集できる経路へ置換する（#216）。置換までは既存のPNG添付＋Reference経路を維持する。
+7. Note埋め込みはNote Edit側のカーソル位置から既存Sketchとページを選ぶ。本文には`tasken-sketch:<sketch-id>/<page-id>`参照だけを保存し、Edit・Preview・PDFの画像は現在のSketch正本から生成する。
+8. Note Previewの埋め込みを押すと同じSketch・ページを編集面で開く。Sketchまたはページを削除してもNote本文は残し、参照切れを明示する。
 
 ## 正本と派生物
 
@@ -20,7 +21,7 @@
 flowchart LR
   Capture["Ink Capture"] --> Sketch["Sketch document<br/>editable source of truth"]
   Library["Sketch library"] --> Sketch
-  Sketch --> Note["Note attachment + Reference"]
+  Sketch --> Note["Note embed reference<br/>Sketch ID + page ID"]
   Sketch --> Export["Markdown / PNG / SVG"]
   Sketch --> AI["Clipboard image + prompt"]
 ```
@@ -37,7 +38,7 @@ flowchart LR
 - Undo / Redo、Delete、Ctrl+A、Ctrl+C/V、Ctrl+D、Ctrl+Z/Y
 - 複数Sketch、複数ページ、ページ背景、ズーム
 - 自動保存、Snapshot、論理削除
-- Note挿入、Markdown + PNG / PNG / SVG、AI向けコピー
+- Note側からの参照埋め込み・再編集、Markdown + PNG / PNG / SVG、AI向けコピー
 
 ## 非交渉の互換条件
 
