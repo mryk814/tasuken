@@ -499,7 +499,7 @@ flowchart LR
       if (!sketchClipboardContext) throw new Error("Sketch clipboard smoke canvas is unavailable.");
       sketchClipboardContext.fillStyle = "#8a2f3b";
       sketchClipboardContext.fillRect(0, 0, 8, 8);
-      const sketchClipboardWritten = await window.api.clipboard.writeSketch({
+      const sketchClipboardWritten = await window.api.clipboard.writeImage({
         dataUrl: sketchClipboardCanvas.toDataURL("image/png")
       });
 

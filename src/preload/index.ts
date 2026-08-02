@@ -17,7 +17,7 @@ const api: ResearchDeskApi = {
   clipboard: {
     writeText: (text) => ipcRenderer.invoke(IPC.clipboardWriteText, text),
     writeHtml: (payload) => ipcRenderer.invoke(IPC.clipboardWriteHtml, payload),
-    writeSketch: (payload) => ipcRenderer.invoke(IPC.clipboardWriteSketch, payload),
+    writeImage: (payload) => ipcRenderer.invoke(IPC.clipboardWriteImage, payload),
   },
   files: {
     openPath: (filePath) => ipcRenderer.invoke(IPC.fileOpen, filePath),
@@ -80,6 +80,7 @@ const api: ResearchDeskApi = {
     markdownFile: (request) => ipcRenderer.invoke(IPC.markdownFileExport, request),
     markdownPdf: (request) => ipcRenderer.invoke(IPC.markdownPdfExport, request),
     sketch: (request) => ipcRenderer.invoke(IPC.sketchExport, request),
+    slideTimeline: (request) => ipcRenderer.invoke(IPC.slideTimelineExport, request),
   },
 };
 

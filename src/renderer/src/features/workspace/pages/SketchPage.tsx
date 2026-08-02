@@ -312,7 +312,7 @@ export function SketchPage({
   async function copyImageForAi() {
     if (!selected || !activePage) return;
     try {
-      await workspaceApi.copySketch({
+      await workspaceApi.copyImage({
         dataUrl: await renderSketchPageToDataUrl(activePage),
       });
       setToast("1/2 Sketch画像をコピーしました。AIの入力欄へ貼り付けてください。", "success");

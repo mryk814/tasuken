@@ -9,7 +9,8 @@ import type {
 } from "../types/workspace";
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
-import type { SketchClipboardRequest, SketchExportRequest, SketchExportResult } from "../sketchExport";
+import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
+import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../slideTimelineExport";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -19,7 +20,7 @@ export const IPC = {
   preferenceSet: "preference:set",
   clipboardWriteText: "clipboard:write-text",
   clipboardWriteHtml: "clipboard:write-html",
-  clipboardWriteSketch: "clipboard:write-sketch",
+  clipboardWriteImage: "clipboard:write-image",
   fileOpen: "file:open",
   fileShowInFolder: "file:show-in-folder",
   filePathExists: "file:path-exists",
@@ -49,6 +50,7 @@ export const IPC = {
   markdownFileExport: "markdown-file:export",
   markdownPdfExport: "markdown-pdf:export",
   sketchExport: "sketch:export",
+  slideTimelineExport: "slide-timeline:export",
 } as const;
 
 export interface WorkspaceChangePayload {
@@ -124,7 +126,7 @@ export interface ResearchDeskApi {
   clipboard: {
     writeText(text: string): Promise<boolean>;
     writeHtml(payload: { html: string; text: string }): Promise<boolean>;
-    writeSketch(payload: SketchClipboardRequest): Promise<boolean>;
+    writeImage(payload: ImageClipboardRequest): Promise<boolean>;
   };
   files: {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
@@ -180,5 +182,6 @@ export interface ResearchDeskApi {
     markdownFile(request: MarkdownFileExportRequest): Promise<MarkdownFileExportResult>;
     markdownPdf(request: MarkdownPdfExportRequest): Promise<MarkdownPdfExportResult>;
     sketch(request: SketchExportRequest): Promise<SketchExportResult>;
+    slideTimeline(request: SlideTimelineExportRequest): Promise<SlideTimelineExportResult>;
   };
 }
