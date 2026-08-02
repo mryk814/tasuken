@@ -5,6 +5,11 @@ import { randomUUID } from "node:crypto";
 import { localDateString, localDateTimeString } from "./dateTime";
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
+import {
+  firstCaptureUrl,
+  quickCaptureContentType,
+  quickCaptureTitle,
+} from "../shared/quickCapture.mjs";
 
 export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
@@ -143,10 +148,14 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
         });
         return saved[0];
       }
+      const contentType = quickCaptureContentType(trimmed);
       const saved = options.repository.save("capture_entry", {
         text: trimmed,
-        title: mode === "micro-memo" ? null : trimmed,
+        title: mode === "micro-memo" ? null : quickCaptureTitle(trimmed),
         kind: mode === "micro-memo" ? "micro_memo" : "inbox",
+        content_type: contentType,
+        url: contentType === "url" ? firstCaptureUrl(trimmed) : null,
+        project_id: themeId || null,
         captured_at: localDateTimeString(),
         state: "untriaged",
       }, { source: "quick-capture" });

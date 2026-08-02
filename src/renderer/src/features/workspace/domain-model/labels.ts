@@ -63,6 +63,7 @@ export const ARTIFACT_SOURCE_TYPE_LABELS: Record<string, string> = {
   note: "メモ",
   report: "報告",
   theme: "Theme",
+  capture_entry: "Inbox",
 };
 
 export const ARTIFACT_GENERATED_BY_LABELS: Record<string, string> = {

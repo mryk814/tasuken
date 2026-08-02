@@ -109,7 +109,7 @@ const scheduleOwnerTypes = new Set(["task", "waiting", "plan_node"]);
 const scheduleDateKinds = new Set(["point", "deadline", "range", "unknown"]);
 const scheduleConfidenceValues = new Set(["rough", "tentative", "fixed"]);
 const scheduleGranularityValues = new Set(["day", "week", "month"]);
-const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch"]);
+const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact"]);
 const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
 const changeSources = new Set(["manual", "import", "ai", "migration"]);
@@ -122,6 +122,7 @@ export const artifactSourceEntityTypes = {
   note: "note",
   report: "note",
   theme: "theme",
+  capture_entry: "capture_entry",
 };
 const artifactSourceTypes = new Set(Object.keys(artifactSourceEntityTypes));
 const artifactGeneratedByValues = new Set(["chatgpt", "claude", "copilot", "gemini", "manual"]);

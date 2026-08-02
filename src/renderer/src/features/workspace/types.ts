@@ -190,7 +190,7 @@ export interface KnowledgeNode extends BaseRecord {
   status?: "active" | "resolved" | "deprecated" | "rejected";
 }
 
-export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "theme";
+export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "theme" | "capture_entry";
 export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "manual";
 
 export type ArtifactStorageMode = "managed" | "linked";

@@ -236,6 +236,83 @@ test("ink capture atomically creates its sketch before linking the capture", () 
   }
 });
 
+test("file capture keeps its Artifact valid while it is retargeted to a Note", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-file-capture-test-"));
+  const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    repo.saveMany([
+      {
+        action: "save",
+        type: "capture_entry",
+        entity: {
+          id: "capture-file",
+          title: "chart.png",
+          text: "chart.png",
+          kind: "file_capture",
+          content_type: "image",
+          captured_at: "2026-08-02T00:00:00.000Z",
+          state: "untriaged",
+        },
+      },
+      {
+        action: "save",
+        type: "artifact",
+        entity: {
+          id: "artifact-file",
+          title: "chart",
+          filename: "chart.png",
+          stored_path: "",
+          storage_mode: "linked",
+          link_type: "local_path",
+          target: "C:/data/chart.png",
+          link_status: "unknown",
+          source_type: "capture_entry",
+          source_id: "capture-file",
+        },
+      },
+    ]);
+
+    repo.saveMany([
+      {
+        action: "save",
+        type: "note",
+        entity: {
+          id: "note-from-capture",
+          title: "Chart note",
+          body_markdown: "chart.png",
+          content_format: "markdown",
+        },
+      },
+      {
+        action: "save",
+        type: "artifact",
+        entity: {
+          ...repo.get("artifact", "artifact-file"),
+          source_type: "note",
+          source_id: "note-from-capture",
+        },
+      },
+      {
+        action: "save",
+        type: "capture_entry",
+        entity: {
+          ...repo.get("capture_entry", "capture-file"),
+          state: "triaged",
+          triaged_to_type: "note",
+          triaged_to_id: "note-from-capture",
+        },
+      },
+    ]);
+
+    assert.equal(repo.get("artifact", "artifact-file").source_type, "note");
+    assert.equal(repo.get("artifact", "artifact-file").source_id, "note-from-capture");
+    assert.equal(repo.get("capture_entry", "capture-file").triaged_to_id, "note-from-capture");
+  } finally {
+    repo.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("directional knowledge edges reject cycles but weak relations do not", () => {
   const repo = fakeGraphRepository({
     knowledge_edge: [
