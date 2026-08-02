@@ -124,6 +124,38 @@ interface EntityDrawerProps {
   openContentViewer?: OpenContentViewer;
 }
 
+function DerivedSourceReference({
+  data,
+  entityType,
+  entityId,
+  openSource,
+}: {
+  data: WorkspaceData;
+  entityType: "task" | "note";
+  entityId: string;
+  openSource: (note: Note) => void;
+}) {
+  const reference = ((data.references || []) as unknown as Reference[]).find((entry) => (
+    entry.source_type === entityType
+    && entry.source_id === entityId
+    && entry.target_type === "note"
+    && entry.relation_type === "derived_from"
+  ));
+  if (!reference) return null;
+  const source = data.notes.find((note) => note.id === reference.target_id);
+  if (!source) return null;
+  return (
+    <section className="derived-source-card">
+      <span>元の文書</span>
+      <button type="button" className="text-button compact" onClick={() => openSource(source)}>
+        {source.title || "無題"}
+      </button>
+      {reference.source_heading && <small>見出し: {reference.source_heading}</small>}
+      {reference.source_excerpt && <blockquote>{reference.source_excerpt}</blockquote>}
+    </section>
+  );
+}
+
 export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, openContentViewer }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") {
@@ -326,6 +358,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>Theme</dt><dd>{themeName}</dd>
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
+          <DerivedSourceReference
+            data={data}
+            entityType="task"
+            entityId={task.id}
+            openSource={(source) => close({ type: "note", entity: source })}
+          />
           <section className="task-learning-section">
             <div className="section-heading">
               <h3>気づき・学び</h3>
@@ -1270,6 +1308,12 @@ function NoteDetailDrawer({
       <div className="drawer-content">
         <StatusBadge value="neutral" label={NOTE_TYPE_LABELS[note.note_type ?? ""] || note.note_type} />
         <h2>{note.title}</h2>
+        <DerivedSourceReference
+          data={data}
+          entityType="note"
+          entityId={note.id}
+          openSource={(source) => close({ type: "note", entity: source })}
+        />
         <section className={`document-rule-strip ${publishEnabled ? "is-export-target" : "is-export-muted"}`}>
           <div>
             <strong>{publishEnabled ? "一括出力対象" : "一括出力対象外"}</strong>
