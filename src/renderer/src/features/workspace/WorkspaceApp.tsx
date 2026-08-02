@@ -39,6 +39,8 @@ import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPalette";
 import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
+import { FocusSessionDialog } from "./components/FocusSessionDialog";
+import { findActiveFocusSession, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -112,6 +114,7 @@ export function WorkspaceApp() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [contextPackThemeId, setContextPackThemeId] = useState<string | null>(null);
   const [scratchpadDate, setScratchpadDate] = useState<string | null>(null);
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const closeContextPack = useCallback(() => setContextPackThemeId(null), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("shell:sidebar-collapsed:v1", false);
   const [zoomFactor, setZoomFactor] = usePersistentState("shell:zoom-factor:v1", 1);
@@ -338,6 +341,21 @@ export function WorkspaceApp() {
   const notes = data.notes;
   const links = data.links;
   const activeTheme = themes.find((theme) => theme.id === activeThemeId) || themes[0] || null;
+  const activeFocusSession = useMemo(
+    () => findActiveFocusSession(fullData.notes as unknown as Array<Record<string, unknown>>) as BaseRecord | null,
+    [fullData.notes],
+  );
+  const activeFocusTask = fullDomain.tasks.find((task) => task.id === focusSessionTaskId(activeFocusSession)) || null;
+
+  function startFocusSession(taskId: string) {
+    const activeTaskId = focusSessionTaskId(activeFocusSession);
+    if (activeTaskId && activeTaskId !== taskId) {
+      setFocusTaskId(activeTaskId);
+      setToast(`進行中のFocus Session「${activeFocusTask?.title || "Task"}」を再開しました。終了後に別のTaskを開始できます。`, "info");
+      return;
+    }
+    setFocusTaskId(taskId);
+  }
 
   useEffect(() => {
     if (loadState !== "success") return undefined;
@@ -846,6 +864,13 @@ export function WorkspaceApp() {
     window.dispatchEvent(new CustomEvent("tasken:notes-command", { detail: command }));
   };
   const commandPaletteEntries: CommandPaletteEntry[] = [
+    ...(activeFocusSession ? [{
+      id: "focus:resume",
+      label: `Focus Sessionを再開: ${activeFocusTask?.title || "Task"}`,
+      keywords: ["集中", "再開", "focus", "session"],
+      category: "Commands" as const,
+      execute: () => setFocusTaskId(focusSessionTaskId(activeFocusSession)),
+    }] : []),
     {
       id: "open:daily-scratchpad",
       label: "今日のDaily Scratchpadを開く",
@@ -934,6 +959,15 @@ export function WorkspaceApp() {
         } as Record<string, unknown>,
       }),
     })),
+    ...domain.tasks
+      .filter((task) => task.state !== "done" && task.state !== "cancelled")
+      .map((task) => ({
+        id: `focus:${task.id}`,
+        label: `集中して作業する: ${task.title}`,
+        keywords: ["focus", "session", "集中", task.title, themes.find((theme) => theme.id === task.project_id)?.name || ""],
+        category: "Commands" as const,
+        execute: () => startFocusSession(task.id),
+      })),
     ...domain.notes.map((note) => ({
       id: `note:${note.id}`,
       label: note.title,
@@ -1056,6 +1090,7 @@ export function WorkspaceApp() {
               saveEntities={saveEntities}
               setToast={setToast}
               openContentViewer={openContentViewer}
+              startFocusSession={startFocusSession}
             />
           ) : route !== "sketch" ? (
             <ContextPane
@@ -1118,6 +1153,25 @@ export function WorkspaceApp() {
               openDrawer={openDrawer}
               setToast={setToast}
               close={() => setScratchpadDate(null)}
+            />
+          )}
+          {activeFocusSession && !focusTaskId && activeFocusTask && (
+            <button className="focus-resume-chip" onClick={() => setFocusTaskId(activeFocusTask.id)}>
+              <span>FOCUS</span>{activeFocusTask.title}を再開
+            </button>
+          )}
+          {focusTaskId && fullDomain.tasks.find((task) => task.id === focusTaskId) && (
+            <FocusSessionDialog
+              task={fullDomain.tasks.find((task) => task.id === focusTaskId) as typeof fullDomain.tasks[number]}
+              session={activeFocusSession}
+              data={fullData}
+              domain={fullDomain}
+              saveEntity={saveEntity}
+              saveEntities={saveEntities}
+              openDrawer={openDrawer}
+              openContentViewer={openContentViewer}
+              setToast={setToast}
+              close={() => setFocusTaskId(null)}
             />
           )}
         </div>

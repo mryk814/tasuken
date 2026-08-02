@@ -2847,11 +2847,305 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .content-viewer-overlay {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 1300;
   display: grid;
   place-items: center;
   padding: var(--space-4);
   background: color-mix(in srgb, #1a1214 52%, transparent);
+}
+
+.focus-resume-chip {
+  position: fixed;
+  z-index: 35;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+}
+
+.focus-resume-chip span {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.focus-session-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--color-text) 52%, transparent);
+}
+
+.focus-session-dialog {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1460px, 98vw);
+  height: min(900px, 96vh);
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.focus-session-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.focus-session-heading {
+  min-width: 0;
+}
+
+.focus-session-heading > span,
+.focus-session-context section > span,
+.focus-session-end .section-heading span {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.focus-session-heading h2,
+.focus-session-end h3 {
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--font-size-lg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-session-meta {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.focus-session-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.focus-session-meta > span.is-error {
+  color: var(--color-danger);
+}
+
+.focus-session-layout {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.focus-session-context {
+  min-height: 0;
+  padding: var(--space-3);
+  overflow-y: auto;
+  background: var(--color-surface-subtle);
+  border-right: 1px solid var(--color-border);
+}
+
+.focus-session-context section {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.focus-session-context section:last-child {
+  border-bottom: 0;
+}
+
+.focus-session-context p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.focus-session-context section > button,
+.focus-session-context section > a {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  overflow: hidden;
+  color: var(--color-text);
+  text-align: left;
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-session-context section > button:hover,
+.focus-session-context section > a:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.focus-session-context section > button:active,
+.focus-session-context section > a:active {
+  transform: translateY(1px);
+}
+
+.focus-session-context section > button.is-active {
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-accent) 44%, var(--color-border));
+}
+
+.focus-session-activity p {
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--color-border-strong);
+}
+
+.focus-session-work {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.focus-session-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.focus-session-toolbar > div {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.focus-session-toolbar > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.focus-session-work > textarea {
+  width: 100%;
+  min-height: 0;
+  resize: none;
+  padding: clamp(24px, 5vw, 64px);
+  color: var(--color-text);
+  font: 500 var(--font-size-md)/1.75 var(--font-family);
+  background: var(--color-surface);
+  border: 0;
+  outline: 0;
+  tab-size: 2;
+}
+
+.focus-session-work > textarea:focus {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.focus-session-end {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--color-text) 34%, transparent);
+}
+
+.focus-session-end > section {
+  display: grid;
+  width: min(620px, 96%);
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.focus-session-end .section-heading,
+.focus-session-end footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.focus-session-end label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+}
+
+.focus-session-end label:has(input[type="text"]),
+.focus-session-end label:has(input:not([type])) {
+  display: grid;
+}
+
+.focus-session-end label > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.focus-session-end label > input:not([type="checkbox"]) {
+  width: 100%;
+}
+
+.focus-session-end footer {
+  justify-content: flex-end;
+  padding-top: var(--space-2);
+}
+
+@media (max-width: 900px) {
+  .focus-session-backdrop {
+    padding: 0;
+  }
+
+  .focus-session-dialog {
+    width: 100vw;
+    height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .focus-session-layout {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .focus-session-meta > span:first-child {
+    display: none;
+  }
+
+  .focus-session-toolbar > div {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 .content-viewer-overlay.is-image {
   background: color-mix(in srgb, #120c0e 72%, transparent);

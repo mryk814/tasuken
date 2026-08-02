@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { IconArrowsMaximize, IconCopyPlus, IconFileTypePdf, IconFolder, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconClock, IconCopyPlus, IconFileTypePdf, IconFolder, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -122,6 +122,7 @@ interface EntityDrawerProps {
   saveEntities: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   openContentViewer?: OpenContentViewer;
+  startFocusSession?: (taskId: string) => void;
 }
 
 function DerivedSourceReference({
@@ -156,7 +157,7 @@ function DerivedSourceReference({
   );
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, openContentViewer }: EntityDrawerProps) {
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, openContentViewer, startFocusSession }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") {
     return (
@@ -170,6 +171,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         saveEntities={saveEntities}
         setToast={setToast}
         openContentViewer={openContentViewer}
+        startFocusSession={startFocusSession}
       />
     );
   }
@@ -413,9 +415,10 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             setToast={setToast}
           />
           <div className="drawer-actions">
+            <button className="primary-button" onClick={() => startFocusSession?.(task.id)}><IconClock size={16} />集中して作業する</button>
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             <button className="secondary-button" onClick={copyTask}><IconCopyPlus size={16} />複製する</button>
-            <button className="primary-button" onClick={async () => {
+            <button className="secondary-button" onClick={async () => {
               const nextState = task.state === "done" ? "todo" : "done";
               const message = nextState === "done" && task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
               await saveEntities(buildCompleteTaskOperations(task, schedule), message);
@@ -543,6 +546,7 @@ function EditDrawer({
   saveEntities,
   setToast,
   openContentViewer,
+  startFocusSession,
 }: {
   drawer: DrawerConfig;
   data: WorkspaceData;
@@ -553,6 +557,7 @@ function EditDrawer({
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   openContentViewer?: OpenContentViewer;
+  startFocusSession?: (taskId: string) => void;
 }) {
   const type = drawer.type;
   const entity = drawer.entity;
@@ -599,6 +604,11 @@ function EditDrawer({
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
       <form ref={registerEditForm} className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${entityId || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
+        {type === "task" && entityId && (
+          <button className="secondary-button" type="button" onClick={() => startFocusSession?.(entityId)}>
+            <IconClock size={16} />集中して作業する
+          </button>
+        )}
         {type === "theme" && (
           <>
             <Field label="テーマ名"><input name="name" autoFocus defaultValue={str(entity.name)} /></Field>
