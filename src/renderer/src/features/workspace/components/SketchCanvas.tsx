@@ -1,3 +1,4 @@
+import { IconEdit, IconStackBack, IconStackFront } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -12,11 +13,11 @@ import {
 import { clipboardImageFile } from "../lib/clipboardImage";
 import { anchoredSketchScroll, sketchZoomFromWheel } from "../lib/sketchNavigation";
 import {
-  boundsContainPoint,
   combinedObjectBounds,
   drawSketchPage,
   hitTest,
   lassoSelection,
+  moveSketchObjectsToLayer,
   objectBounds,
   recognizeShape,
   resizeObject,
@@ -28,6 +29,8 @@ import {
   type SketchObject,
   type SketchPage,
   type SketchPoint,
+  type SketchShape,
+  type SketchShapeKind,
   type SketchTool,
 } from "../lib/sketch";
 
@@ -36,6 +39,7 @@ interface SketchCanvasProps {
   tool: SketchTool;
   color: string;
   strokeWidth: number;
+  shapeKind: SketchShapeKind;
   zoom: number;
   onZoom(zoom: number): void;
   onChange(page: SketchPage): void;
@@ -77,11 +81,39 @@ function selectionBounds(page: SketchPage, selectedIds: string[]): SketchBounds 
   return combinedObjectBounds(page.objects.filter((object) => selectedIds.includes(object.id)));
 }
 
+function shapeFromPoints(
+  points: SketchPoint[],
+  shapeKind: SketchShapeKind,
+  color: string,
+  width: number,
+  id = "draft",
+): SketchShape {
+  const bounds = objectBounds({ id: "", type: "stroke", tool: "pen", color, width, points });
+  const first = points[0];
+  const last = points.at(-1) || first;
+  const shape = shapeKind === "auto" ? recognizeShape(points) : shapeKind;
+  if (shape === "line") {
+    return { id, type: "shape", shape, color, width, x: first.x, y: first.y, w: last.x - first.x, h: last.y - first.y };
+  }
+  return {
+    id,
+    type: "shape",
+    shape,
+    color,
+    width,
+    x: bounds.x,
+    y: bounds.y,
+    w: Math.max(12, bounds.w),
+    h: Math.max(12, bounds.h),
+  };
+}
+
 export function SketchCanvas({
   page,
   tool,
   color,
   strokeWidth,
+  shapeKind,
   zoom,
   onZoom,
   onChange,
@@ -104,7 +136,16 @@ export function SketchCanvas({
   const [draftPoints, setDraftPoints] = useState<SketchPoint[]>([]);
   const [previewObjects, setPreviewObjects] = useState<SketchObject[] | null>(null);
   const [alignmentGuides, setAlignmentGuides] = useState<SketchAlignmentGuides>({ vertical: [], horizontal: [] });
-  const [textEditor, setTextEditor] = useState<{ x: number; y: number; value: string } | null>(null);
+  const [textEditor, setTextEditor] = useState<{
+    id?: string;
+    x: number;
+    y: number;
+    value: string;
+    color: string;
+    fontSize: number;
+  } | null>(null);
+  const [hoverIntent, setHoverIntent] = useState<"move" | "resize" | null>(null);
+  const [eraserPoint, setEraserPoint] = useState<SketchPoint | null>(null);
   const [temporaryPanReady, setTemporaryPanReady] = useState(false);
   const [panning, setPanning] = useState(false);
 
@@ -112,18 +153,25 @@ export function SketchCanvas({
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
-    const renderedPage = previewObjects ? { ...page, objects: previewObjects } : page;
-    const draftWidth = tool === "highlighter" ? Math.max(12, strokeWidth * 5) : strokeWidth;
+    const sourceObjects = previewObjects || page.objects;
+    const renderedPage = {
+      ...page,
+      objects: textEditor?.id ? sourceObjects.filter((object) => object.id !== textEditor.id) : sourceObjects,
+    };
+    const draftShape = tool === "shape" && draftPoints.length
+      ? shapeFromPoints(draftPoints, shapeKind, color, strokeWidth)
+      : undefined;
     drawSketchPage(context, renderedPage, {
       selectedIds,
-      draftObject: tool === "lasso" || !draftPoints.length ? undefined : {
+      draftObject: tool === "lasso" || tool === "shape" || !draftPoints.length ? undefined : {
         id: "draft",
         type: "stroke",
         tool: tool === "highlighter" ? "highlighter" : "pen",
         color,
-        width: draftWidth,
+        width: strokeWidth,
         points: draftPoints,
       },
+      draftShape,
       lassoPoints: tool === "lasso" ? draftPoints : undefined,
     });
     context.save();
@@ -143,7 +191,7 @@ export function SketchCanvas({
       context.stroke();
     }
     context.restore();
-  }, [alignmentGuides, color, draftPoints, page, previewObjects, selectedIds, strokeWidth, tool]);
+  }, [alignmentGuides, color, draftPoints, page, previewObjects, selectedIds, shapeKind, strokeWidth, textEditor?.id, tool]);
 
   useEffect(() => render(), [render]);
   useEffect(() => setSelectedIds((current) => current.filter((id) => page.objects.some((object) => object.id === id))), [page.objects]);
@@ -234,6 +282,18 @@ export function SketchCanvas({
     onChange({ ...page, objects });
   }
 
+  function startTextEditing(object: Extract<SketchObject, { type: "text" }>) {
+    textCommitRef.current = false;
+    setTextEditor({
+      id: object.id,
+      x: object.x,
+      y: object.y,
+      value: object.text,
+      color: object.color,
+      fontSize: object.font_size,
+    });
+  }
+
   function onPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
     if (event.button !== 0 && event.button !== 1) return;
     const point = pointerPoint(event, page);
@@ -254,24 +314,14 @@ export function SketchCanvas({
       return;
     }
 
-    if (["shape", "arrow", "text"].includes(tool)) {
+    if (tool === "text") {
       const hit = hitTest(page.objects, point);
-      if (hit) {
+      if (hit?.type === "text") {
         event.currentTarget.focus();
-        event.currentTarget.setPointerCapture(event.pointerId);
         setSelectedIds([hit.id]);
-        onToolChange("select");
-        pointerModeRef.current = {
-          kind: "move",
-          start: point,
-          ids: [hit.id],
-          originObjects: structuredClone(page.objects),
-        };
+        startTextEditing(hit);
         return;
       }
-    }
-
-    if (tool === "text") {
       pointerModeRef.current = { kind: "text", point };
       return;
     }
@@ -279,7 +329,7 @@ export function SketchCanvas({
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "eraser") {
-      const hit = hitTest(page.objects, point);
+      const hit = hitTest(page.objects, point, Math.max(6, strokeWidth / 2));
       if (hit) commitObjects(page.objects.filter((object) => object.id !== hit.id));
       return;
     }
@@ -352,6 +402,7 @@ export function SketchCanvas({
   function onPointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
     const point = pointerPoint(event, page);
     lastPointerRef.current = point;
+    if (tool === "eraser") setEraserPoint(point);
     const mode = pointerModeRef.current;
     if (mode?.kind === "pan") {
       const scroll = scrollRef.current;
@@ -361,7 +412,7 @@ export function SketchCanvas({
       return;
     }
     if (tool === "eraser" && event.buttons === 1) {
-      const hit = hitTest(page.objects, point);
+      const hit = hitTest(page.objects, point, Math.max(6, strokeWidth / 2));
       if (hit) commitObjects(page.objects.filter((object) => object.id !== hit.id));
       return;
     }
@@ -382,6 +433,18 @@ export function SketchCanvas({
       if (!preview) return;
       setPreviewObjects(preview.objects);
       setAlignmentGuides(preview.guides);
+      return;
+    }
+    if (!mode && tool === "select") {
+      const selectedBounds = selectionBounds(page, selectedIds);
+      if (selectedIds.length === 1 && selectedBounds) {
+        const handle = { x: selectedBounds.x + selectedBounds.w + 6, y: selectedBounds.y + selectedBounds.h + 6 };
+        if (Math.hypot(point.x - handle.x, point.y - handle.y) <= 18) {
+          setHoverIntent("resize");
+          return;
+        }
+      }
+      setHoverIntent(hitTest(page.objects, point) ? "move" : null);
     }
   }
 
@@ -398,7 +461,13 @@ export function SketchCanvas({
 
     if (mode.kind === "text") {
       textCommitRef.current = false;
-      setTextEditor({ x: mode.point.x, y: mode.point.y, value: "" });
+      setTextEditor({
+        x: mode.point.x,
+        y: mode.point.y + strokeWidth,
+        value: "",
+        color,
+        fontSize: strokeWidth,
+      });
       return;
     }
     if (mode.kind === "move") {
@@ -426,25 +495,14 @@ export function SketchCanvas({
         type: "stroke",
         tool,
         color,
-        width: tool === "highlighter" ? Math.max(12, strokeWidth * 5) : strokeWidth,
+        width: strokeWidth,
         points,
       };
       commitObjects([...page.objects, object]);
       return;
     }
     if (tool === "shape") {
-      const bounds = objectBounds({ id: "", type: "stroke", tool: "pen", color, width: strokeWidth, points });
-      const object: SketchObject = {
-        id: crypto.randomUUID(),
-        type: "shape",
-        shape: recognizeShape(points),
-        color,
-        width: strokeWidth,
-        x: bounds.x,
-        y: bounds.y,
-        w: Math.max(12, bounds.w),
-        h: Math.max(12, bounds.h),
-      };
+      const object = shapeFromPoints(points, shapeKind, color, strokeWidth, crypto.randomUUID());
       commitObjects([...page.objects, object]);
       setSelectedIds([object.id]);
       return;
@@ -473,6 +531,7 @@ export function SketchCanvas({
     setDraftPoints([]);
     setPreviewObjects(null);
     setAlignmentGuides({ vertical: [], horizontal: [] });
+    setPanning(false);
   }
 
   function commitText() {
@@ -482,16 +541,21 @@ export function SketchCanvas({
     const text = editor.value.trim();
     if (text) {
       const object: SketchObject = {
-        id: crypto.randomUUID(),
+        id: editor.id || crypto.randomUUID(),
         type: "text",
-        color,
+        color: editor.color,
         x: editor.x,
-        y: editor.y + 24,
+        y: editor.y,
         text,
-        font_size: 24,
+        font_size: editor.fontSize,
       };
-      commitObjects([...page.objects, object]);
+      commitObjects(editor.id
+        ? page.objects.map((entry) => entry.id === editor.id ? object : entry)
+        : [...page.objects, object]);
       setSelectedIds([object.id]);
+    } else if (editor.id) {
+      commitObjects(page.objects.filter((object) => object.id !== editor.id));
+      setSelectedIds([]);
     }
     setTextEditor(null);
   }
@@ -527,12 +591,25 @@ export function SketchCanvas({
     }
   }
 
+  function onDoubleClick(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (tool !== "select") return;
+    const hit = hitTest(page.objects, pointerPoint(event, page));
+    if (hit?.type !== "text") return;
+    setSelectedIds([hit.id]);
+    startTextEditing(hit);
+  }
+
+  const selectedBounds = selectionBounds(page, selectedIds);
+  const selectedText = selectedIds.length === 1
+    ? page.objects.find((object): object is Extract<SketchObject, { type: "text" }> => object.id === selectedIds[0] && object.type === "text")
+    : undefined;
+
   return (
     <div className="sketch-canvas-scroll" ref={scrollRef} onWheel={onWheel}>
       <div className="sketch-canvas-stage" style={{ width: `${page.width * zoom}px`, height: `${page.height * zoom}px` }}>
         <canvas
           ref={canvasRef}
-          className={`sketch-canvas is-${tool}${temporaryPanReady ? " is-temporary-pan" : ""}${panning ? " is-panning" : ""}`}
+          className={`sketch-canvas is-${tool}${temporaryPanReady ? " is-temporary-pan" : ""}${panning ? " is-panning" : ""}${hoverIntent ? ` has-${hoverIntent}-target` : ""}`}
           width={page.width}
           height={page.height}
           tabIndex={0}
@@ -540,20 +617,74 @@ export function SketchCanvas({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
+          onDoubleClick={onDoubleClick}
           onPointerEnter={() => {
             pointerOverCanvasRef.current = true;
           }}
           onPointerLeave={() => {
             pointerOverCanvasRef.current = false;
+            setHoverIntent(null);
+            setEraserPoint(null);
           }}
           onAuxClick={(event) => event.preventDefault()}
           onPaste={onPaste}
           aria-label="Sketchキャンバス"
         />
+        {tool === "eraser" && eraserPoint && (
+          <span
+            className="sketch-eraser-preview"
+            style={{
+              left: `${eraserPoint.x * zoom}px`,
+              top: `${eraserPoint.y * zoom}px`,
+              width: `${strokeWidth * zoom}px`,
+              height: `${strokeWidth * zoom}px`,
+            }}
+            aria-hidden="true"
+          />
+        )}
+        {selectedBounds && selectedIds.length > 0 && !textEditor && (
+          <div
+            className="sketch-selection-actions"
+            style={{
+              left: `${Math.max(4, selectedBounds.x * zoom)}px`,
+              top: `${Math.max(4, selectedBounds.y * zoom - 42)}px`,
+            }}
+            role="toolbar"
+            aria-label="選択オブジェクトの操作"
+          >
+            {selectedText && (
+              <button onClick={() => startTextEditing(selectedText)} title="テキストを編集" aria-label="テキストを編集">
+                <IconEdit size={16} />
+              </button>
+            )}
+            <button
+              onClick={() => commitObjects(moveSketchObjectsToLayer(page.objects, selectedIds, "front"))}
+              title="最前面へ"
+              aria-label="最前面へ"
+            >
+              <IconStackFront size={16} />
+            </button>
+            <button
+              onClick={() => commitObjects(moveSketchObjectsToLayer(page.objects, selectedIds, "back"))}
+              title="最背面へ"
+              aria-label="最背面へ"
+            >
+              <IconStackBack size={16} />
+            </button>
+          </div>
+        )}
         {textEditor && (
           <textarea
             className="sketch-inline-text"
-            style={{ left: `${textEditor.x * zoom}px`, top: `${textEditor.y * zoom}px`, fontSize: `${24 * zoom}px` }}
+            style={{
+              left: `${textEditor.x * zoom}px`,
+              top: `${(textEditor.y - textEditor.fontSize) * zoom}px`,
+              width: `${Math.max(120, Math.max(...textEditor.value.split("\n").map((line) => line.length), 5) * textEditor.fontSize * 0.68) * zoom}px`,
+              height: `${Math.max(textEditor.fontSize * 1.35, textEditor.value.split("\n").length * textEditor.fontSize * 1.35) * zoom}px`,
+              color: textEditor.color,
+              fontSize: `${textEditor.fontSize * zoom}px`,
+              lineHeight: 1.35,
+            }}
             autoFocus
             value={textEditor.value}
             onChange={(event) => setTextEditor({ ...textEditor, value: event.target.value })}

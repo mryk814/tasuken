@@ -3859,6 +3859,10 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .sketch-width-options button:active { background: var(--color-surface-subtle); }
 .sketch-width-options button.is-active { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
 .sketch-width-options button span { display: block; width: 22px; min-height: 1px; border-radius: var(--radius-pill); background: currentColor; }
+.sketch-width-options.is-eraser button span {
+  border: 1.5px solid currentColor;
+  background: transparent;
+}
 .sketch-tool-group.is-history { margin-left: auto; border-right: 0; }
 
 .sketch-workspace {
@@ -3934,24 +3938,61 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .sketch-canvas.is-text { cursor: text; }
 .sketch-canvas.is-select,
 .sketch-canvas.is-lasso { cursor: default; }
+.sketch-canvas.has-move-target { cursor: move; }
+.sketch-canvas.has-resize-target { cursor: nwse-resize; }
 .sketch-canvas.is-pan { cursor: grab; }
 .sketch-canvas.is-pan:active { cursor: grabbing; }
 .sketch-canvas.is-temporary-pan { cursor: grab; }
 .sketch-canvas.is-panning { cursor: grabbing; }
 .sketch-inline-text {
   position: absolute;
-  z-index: 2;
-  min-width: 180px;
-  min-height: 64px;
-  padding: var(--space-2);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, white 94%, transparent);
-  color: #20232a;
-  font: 20px/1.45 var(--font-sans);
-  resize: both;
-  box-shadow: var(--focus-ring);
+  z-index: 4;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 2px;
+  overflow: hidden;
+  border: 1px dashed var(--color-accent);
+  border-radius: 2px;
+  outline: 0;
+  background: color-mix(in srgb, white 20%, transparent);
+  font-family: var(--font-sans);
+  resize: none;
+  box-shadow: none;
 }
+.sketch-inline-text:focus { box-shadow: var(--focus-ring); }
+.sketch-eraser-preview {
+  position: absolute;
+  z-index: 3;
+  border: 1.5px solid color-mix(in srgb, var(--color-text) 68%, transparent);
+  border-radius: var(--radius-pill);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.sketch-selection-actions {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.sketch-selection-actions button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.sketch-selection-actions button:hover { border-color: var(--color-border); background: var(--color-surface-muted); color: var(--color-text); }
+.sketch-selection-actions button:active { background: var(--color-surface-subtle); }
+.sketch-selection-actions button:focus-visible { box-shadow: var(--focus-ring); }
 .sketch-bottom-controls {
   position: absolute;
   z-index: 2;
@@ -4015,7 +4056,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 }
 .note-sketch-picker-preview canvas { display: block; width: 100%; height: auto; background: white; }
 
-@media (max-width: 1180px) {
+@media (max-width: 1420px) {
   .sketch-header-meta > span:first-child { display: none; }
   .sketch-tool-group button span { display: none; }
   .sketch-workspace { grid-template-columns: 136px minmax(0, 1fr); }

@@ -1,6 +1,7 @@
 export type SketchTool = "select" | "lasso" | "pen" | "highlighter" | "eraser" | "shape" | "arrow" | "text" | "image" | "pan";
 export type SketchBackground = "plain" | "dot" | "grid";
 export type SketchCanvasMode = "page" | "infinite";
+export type SketchShapeKind = "auto" | "line" | "rectangle" | "ellipse" | "triangle";
 
 export interface SketchPoint {
   x: number;
@@ -22,7 +23,7 @@ export interface SketchStroke extends SketchObjectBase {
 
 export interface SketchShape extends SketchObjectBase {
   type: "shape";
-  shape: "rectangle" | "ellipse" | "line" | "arrow";
+  shape: Exclude<SketchShapeKind, "auto"> | "arrow";
   width: number;
   x: number;
   y: number;
@@ -153,7 +154,13 @@ export function objectBounds(object: SketchObject): SketchBounds {
     return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
   }
   if (object.type === "text") {
-    return { x: object.x, y: object.y - object.font_size, w: Math.max(36, object.text.length * object.font_size * 0.72), h: object.font_size * 1.4 };
+    const lines = object.text.split("\n");
+    return {
+      x: object.x,
+      y: object.y - object.font_size,
+      w: Math.max(36, Math.max(...lines.map((line) => line.length), 1) * object.font_size * 0.72),
+      h: Math.max(1.4, 1 + (lines.length - 1) * 1.3) * object.font_size,
+    };
   }
   return { x: Math.min(object.x, object.x + object.w), y: Math.min(object.y, object.y + object.h), w: Math.abs(object.w), h: Math.abs(object.h) };
 }
@@ -275,11 +282,86 @@ export function boundsContainPoint(bounds: SketchBounds, point: Pick<SketchPoint
     && point.y <= bounds.y + bounds.h + padding;
 }
 
-export function hitTest(objects: SketchObject[], point: Pick<SketchPoint, "x" | "y">): SketchObject | null {
+function distanceToSegment(
+  point: Pick<SketchPoint, "x" | "y">,
+  start: Pick<SketchPoint, "x" | "y">,
+  end: Pick<SketchPoint, "x" | "y">,
+): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
+  const ratio = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - (start.x + ratio * dx), point.y - (start.y + ratio * dy));
+}
+
+function shapeHit(object: SketchShape, point: Pick<SketchPoint, "x" | "y">, tolerance: number): boolean {
+  const x2 = object.x + object.w;
+  const y2 = object.y + object.h;
+  const lineTolerance = Math.max(tolerance, object.width / 2 + 5);
+  if (object.shape === "line" || object.shape === "arrow") {
+    return distanceToSegment(point, { x: object.x, y: object.y }, { x: x2, y: y2 }) <= lineTolerance;
+  }
+  if (object.shape === "rectangle") {
+    const left = Math.min(object.x, x2);
+    const right = Math.max(object.x, x2);
+    const top = Math.min(object.y, y2);
+    const bottom = Math.max(object.y, y2);
+    if (!boundsContainPoint({ x: left, y: top, w: right - left, h: bottom - top }, point, lineTolerance)) return false;
+    return Math.min(
+      Math.abs(point.x - left),
+      Math.abs(point.x - right),
+      Math.abs(point.y - top),
+      Math.abs(point.y - bottom),
+    ) <= lineTolerance;
+  }
+  if (object.shape === "triangle") {
+    const top = { x: object.x + object.w / 2, y: object.y };
+    const left = { x: object.x, y: y2 };
+    const right = { x: x2, y: y2 };
+    return Math.min(
+      distanceToSegment(point, top, left),
+      distanceToSegment(point, left, right),
+      distanceToSegment(point, right, top),
+    ) <= lineTolerance;
+  }
+  const centerX = object.x + object.w / 2;
+  const centerY = object.y + object.h / 2;
+  const radiusX = Math.max(1, Math.abs(object.w / 2));
+  const radiusY = Math.max(1, Math.abs(object.h / 2));
+  const normalized = Math.hypot((point.x - centerX) / radiusX, (point.y - centerY) / radiusY);
+  return Math.abs(normalized - 1) <= lineTolerance / Math.max(1, Math.min(radiusX, radiusY));
+}
+
+function objectHit(object: SketchObject, point: Pick<SketchPoint, "x" | "y">, tolerance: number): boolean {
+  if (object.type === "shape") return shapeHit(object, point, tolerance);
+  if (object.type === "stroke") {
+    const lineTolerance = Math.max(tolerance, object.width / 2 + 4);
+    if (object.points.length === 1) return Math.hypot(point.x - object.points[0].x, point.y - object.points[0].y) <= lineTolerance;
+    return object.points.slice(1).some((entry, index) => distanceToSegment(point, object.points[index], entry) <= lineTolerance);
+  }
+  return boundsContainPoint(objectBounds(object), point, tolerance);
+}
+
+export function hitTest(
+  objects: SketchObject[],
+  point: Pick<SketchPoint, "x" | "y">,
+  tolerance = 6,
+): SketchObject | null {
   for (let index = objects.length - 1; index >= 0; index -= 1) {
-    if (boundsContainPoint(objectBounds(objects[index]), point)) return objects[index];
+    if (objectHit(objects[index], point, tolerance)) return objects[index];
   }
   return null;
+}
+
+export function moveSketchObjectsToLayer(
+  objects: SketchObject[],
+  selectedIds: string[],
+  layer: "front" | "back",
+): SketchObject[] {
+  const selected = objects.filter((object) => selectedIds.includes(object.id));
+  const rest = objects.filter((object) => !selectedIds.includes(object.id));
+  return layer === "front" ? [...rest, ...selected] : [...selected, ...rest];
 }
 
 export function pointInPolygon(point: Pick<SketchPoint, "x" | "y">, polygon: SketchPoint[]): boolean {
@@ -367,7 +449,7 @@ function drawArrowHead(context: CanvasRenderingContext2D, x1: number, y1: number
 export function drawSketchPage(
   context: CanvasRenderingContext2D,
   page: SketchPage,
-  options: { selectedIds?: string[]; draftObject?: SketchStroke; lassoPoints?: SketchPoint[] } = {},
+  options: { selectedIds?: string[]; draftObject?: SketchStroke; draftShape?: SketchShape; lassoPoints?: SketchPoint[] } = {},
 ) {
   context.clearRect(0, 0, page.width, page.height);
   context.fillStyle = "#fffdfb";
@@ -406,6 +488,7 @@ export function drawSketchPage(
     drawSketchObject(context, object, () => drawSketchPage(context, page, options));
   }
   if (options.draftObject?.points.length) drawSketchObject(context, options.draftObject);
+  if (options.draftShape) drawSketchObject(context, options.draftShape);
   if (options.lassoPoints?.length) {
     context.save();
     context.strokeStyle = "#2f6fa6";
@@ -427,10 +510,10 @@ export function drawSketchPage(
     context.setLineDash([7, 5]);
     context.strokeRect(bounds.x - 6, bounds.y - 6, bounds.w + 12, bounds.h + 12);
     context.setLineDash([]);
-    for (const [x, y] of [[bounds.x - 6, bounds.y - 6], [bounds.x + bounds.w + 6, bounds.y + bounds.h + 6]]) {
-      context.fillRect(x - 5, y - 5, 10, 10);
-      context.strokeRect(x - 5, y - 5, 10, 10);
-    }
+    const handleX = bounds.x + bounds.w + 6;
+    const handleY = bounds.y + bounds.h + 6;
+    context.fillRect(handleX - 5, handleY - 5, 10, 10);
+    context.strokeRect(handleX - 5, handleY - 5, 10, 10);
     context.restore();
   }
 }
@@ -508,6 +591,12 @@ export function drawSketchObject(
     context.beginPath();
     if (object.shape === "rectangle") context.rect(object.x, object.y, object.w, object.h);
     else if (object.shape === "ellipse") context.ellipse(object.x + object.w / 2, object.y + object.h / 2, Math.abs(object.w / 2), Math.abs(object.h / 2), 0, 0, Math.PI * 2);
+    else if (object.shape === "triangle") {
+      context.moveTo(object.x + object.w / 2, object.y);
+      context.lineTo(object.x, y2);
+      context.lineTo(x2, y2);
+      context.closePath();
+    }
     else {
       context.moveTo(object.x, object.y);
       context.lineTo(x2, y2);
@@ -554,10 +643,16 @@ export function sketchPageToSvg(page: SketchPage): string {
     if (object.type === "shape") {
       if (object.shape === "rectangle") return `<rect x="${object.x}" y="${object.y}" width="${object.w}" height="${object.h}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
       if (object.shape === "ellipse") return `<ellipse cx="${object.x + object.w / 2}" cy="${object.y + object.h / 2}" rx="${Math.abs(object.w / 2)}" ry="${Math.abs(object.h / 2)}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
+      if (object.shape === "triangle") return `<polygon points="${object.x + object.w / 2},${object.y} ${object.x},${object.y + object.h} ${object.x + object.w},${object.y + object.h}" fill="none" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"/>`;
       const marker = object.shape === "arrow" ? ' marker-end="url(#arrow)"' : "";
       return `<line x1="${object.x}" y1="${object.y}" x2="${object.x + object.w}" y2="${object.y + object.h}" stroke="${escapeXml(object.color)}" stroke-width="${object.width}"${marker}/>`;
     }
-    if (object.type === "text") return `<text x="${object.x}" y="${object.y}" fill="${escapeXml(object.color)}" font-family="Nunito, Yu Gothic UI, sans-serif" font-size="${object.font_size}">${escapeXml(object.text)}</text>`;
+    if (object.type === "text") {
+      const lines = object.text.split("\n").map((line, index) => (
+        `<tspan x="${object.x}" dy="${index === 0 ? 0 : object.font_size * 1.3}">${escapeXml(line)}</tspan>`
+      )).join("");
+      return `<text x="${object.x}" y="${object.y}" fill="${escapeXml(object.color)}" font-family="Nunito, Yu Gothic UI, sans-serif" font-size="${object.font_size}">${lines}</text>`;
+    }
     return `<image href="${escapeXml(object.data_url)}" x="${object.x}" y="${object.y}" width="${object.w}" height="${object.h}"/>`;
   }).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="context-stroke"/></marker></defs><rect width="100%" height="100%" fill="#fffdfb"/>${objects}</svg>`;
