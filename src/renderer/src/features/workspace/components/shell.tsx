@@ -347,14 +347,18 @@ export function Sidebar({
 export function ShortcutDialog({ close }: { close: () => void }) {
   return (
     <div className="shortcut-overlay" onClick={close}>
-      <div className="shortcut-dialog" role="dialog" aria-label="キーボードショートカット" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><strong>キーボードショートカット</strong><button onClick={close}>閉じる</button></div>
+      <div className="shortcut-dialog" role="dialog" aria-label="ショートカット" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-header"><strong>ショートカット</strong><button onClick={close}>閉じる</button></div>
         <dl className="shortcut-list">
           <dt><kbd>?</kbd></dt><dd>この一覧を表示</dd>
           <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>クイック記録</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd></dt><dd>Inbox記録</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd></dt><dd>付箋メモ</dd>
           <dt>トレイ</dt><dd>今日のタスク / やったこと / 付箋メモ</dd>
+          <dt>中ボタン+ドラッグ</dt><dd>Sketchの表示位置を移動</dd>
+          <dt><kbd>Space</kbd>+ドラッグ</dt><dd>Sketchを一時的に移動</dd>
+          <dt><kbd>Ctrl</kbd>+ホイール</dt><dd>カーソル位置を基準にSketchを拡大縮小</dd>
+          <dt><kbd>Shift</kbd>+ホイール</dt><dd>Sketchを横スクロール</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>検索へ移動</dd>
           <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる</dd>
         </dl>

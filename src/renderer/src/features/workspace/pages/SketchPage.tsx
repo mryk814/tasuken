@@ -42,6 +42,7 @@ import {
   type SketchTool,
 } from "../lib/sketch";
 import { ACTIVE_SKETCH_ID_KEY, ACTIVE_SKETCH_PAGE_KEY } from "../lib/sketchEmbed";
+import { clampSketchZoom } from "../lib/sketchNavigation";
 import type { BaseRecord, PageProps, Sketch } from "../types";
 
 const SKETCH_COLORS = ["#211e1d", "#2f6fa6", "#3f7a4f", "#8a2f3b", "#c47a18"];
@@ -338,6 +339,7 @@ export function SketchPage({
                 className={tool === item.id ? "is-active" : ""}
                 aria-pressed={tool === item.id}
                 onClick={() => setTool(item.id)}
+                title={item.id === "pan" ? "移動（中ボタン / Space+ドラッグ）" : undefined}
               >
                 <Icon size={17} />
                 <span>{item.label}</span>
@@ -403,6 +405,7 @@ export function SketchPage({
             color={color}
             strokeWidth={strokeWidth}
             zoom={zoom}
+            onZoom={setZoom}
             onChange={changePage}
             onToolChange={setTool}
             onUndo={undo}
@@ -411,9 +414,9 @@ export function SketchPage({
           />
           <div className="sketch-bottom-controls">
             <span>{canvasMode === "page" ? `${document.pages.findIndex((page) => page.id === activePage.id) + 1} / ${document.pages.length}` : `${activePage.width} × ${activePage.height}`}</span>
-            <button onClick={() => setZoom((value) => Math.max(0.35, Number((value - 0.1).toFixed(2))))} aria-label="縮小"><IconZoomOut size={17} /></button>
+            <button onClick={() => setZoom((value) => clampSketchZoom(value - 0.1))} aria-label="縮小" title="縮小（Ctrl+ホイール）"><IconZoomOut size={17} /></button>
             <span>{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom((value) => Math.min(1.6, Number((value + 0.1).toFixed(2))))} aria-label="拡大"><IconZoomIn size={17} /></button>
+            <button onClick={() => setZoom((value) => clampSketchZoom(value + 0.1))} aria-label="拡大" title="拡大（Ctrl+ホイール）"><IconZoomIn size={17} /></button>
             <button onClick={() => setZoom(0.82)} aria-label="ページ全体を表示"><IconMaximize size={17} /></button>
             <button
               onClick={() => {

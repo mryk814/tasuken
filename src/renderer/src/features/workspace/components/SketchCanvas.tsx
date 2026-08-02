@@ -1,13 +1,16 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ClipboardEvent as ReactClipboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 
 import { clipboardImageFile } from "../lib/clipboardImage";
+import { anchoredSketchScroll, sketchZoomFromWheel } from "../lib/sketchNavigation";
 import {
   boundsContainPoint,
   combinedObjectBounds,
@@ -34,6 +37,7 @@ interface SketchCanvasProps {
   color: string;
   strokeWidth: number;
   zoom: number;
+  onZoom(zoom: number): void;
   onChange(page: SketchPage): void;
   onToolChange(tool: SketchTool): void;
   onUndo(): void;
@@ -79,6 +83,7 @@ export function SketchCanvas({
   color,
   strokeWidth,
   zoom,
+  onZoom,
   onChange,
   onToolChange,
   onUndo,
@@ -92,11 +97,16 @@ export function SketchCanvas({
   const pasteGenerationRef = useRef(0);
   const lastPointerRef = useRef<SketchPoint>({ x: page.width / 2, y: page.height / 2, pressure: 0.5 });
   const textCommitRef = useRef(false);
+  const pointerOverCanvasRef = useRef(false);
+  const spacePressedRef = useRef(false);
+  const zoomAnchorRef = useRef<{ left: number; top: number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [draftPoints, setDraftPoints] = useState<SketchPoint[]>([]);
   const [previewObjects, setPreviewObjects] = useState<SketchObject[] | null>(null);
   const [alignmentGuides, setAlignmentGuides] = useState<SketchAlignmentGuides>({ vertical: [], horizontal: [] });
   const [textEditor, setTextEditor] = useState<{ x: number; y: number; value: string } | null>(null);
+  const [temporaryPanReady, setTemporaryPanReady] = useState(false);
+  const [panning, setPanning] = useState(false);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -137,11 +147,27 @@ export function SketchCanvas({
 
   useEffect(() => render(), [render]);
   useEffect(() => setSelectedIds((current) => current.filter((id) => page.objects.some((object) => object.id === id))), [page.objects]);
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    const anchor = zoomAnchorRef.current;
+    if (!scroll || !anchor) return;
+    scroll.scrollLeft = anchor.left;
+    scroll.scrollTop = anchor.top;
+    zoomAnchorRef.current = null;
+  }, [zoom]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (event.code === "Space" && (pointerOverCanvasRef.current || document.activeElement === canvasRef.current)) {
+        event.preventDefault();
+        if (!spacePressedRef.current) {
+          spacePressedRef.current = true;
+          setTemporaryPanReady(true);
+        }
+        return;
+      }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.length) {
         event.preventDefault();
         onChange({ ...page, objects: page.objects.filter((object) => !selectedIds.includes(object.id)) });
@@ -184,8 +210,24 @@ export function SketchCanvas({
         onRedo();
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      spacePressedRef.current = false;
+      setTemporaryPanReady(false);
+    };
+    const resetTemporaryPan = () => {
+      spacePressedRef.current = false;
+      setTemporaryPanReady(false);
+      setPanning(false);
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", resetTemporaryPan);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", resetTemporaryPan);
+    };
   }, [onChange, onRedo, onUndo, page, selectedIds]);
 
   function commitObjects(objects: SketchObject[]) {
@@ -196,7 +238,7 @@ export function SketchCanvas({
     if (event.button !== 0 && event.button !== 1) return;
     const point = pointerPoint(event, page);
     lastPointerRef.current = point;
-    if (tool === "pan" || event.button === 1) {
+    if (tool === "pan" || event.button === 1 || (event.button === 0 && spacePressedRef.current)) {
       const scroll = scrollRef.current;
       if (!scroll) return;
       event.preventDefault();
@@ -208,6 +250,7 @@ export function SketchCanvas({
         scrollLeft: scroll.scrollLeft,
         scrollTop: scroll.scrollTop,
       };
+      setPanning(true);
       return;
     }
 
@@ -346,6 +389,7 @@ export function SketchCanvas({
     const point = pointerPoint(event, page);
     const mode = pointerModeRef.current;
     pointerModeRef.current = null;
+    setPanning(false);
     setDraftPoints([]);
     setPreviewObjects(null);
     setAlignmentGuides({ vertical: [], horizontal: [] });
@@ -459,12 +503,36 @@ export function SketchCanvas({
     onPasteImage(image, lastPointerRef.current);
   }
 
+  function onWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const nextZoom = sketchZoomFromWheel(zoom, event.deltaY);
+      if (nextZoom === zoom) return;
+      const rect = scroll.getBoundingClientRect();
+      const pointerX = event.clientX - rect.left;
+      const pointerY = event.clientY - rect.top;
+      const nextScroll = anchoredSketchScroll({
+        zoom,
+        nextZoom,
+        scrollLeft: scroll.scrollLeft,
+        scrollTop: scroll.scrollTop,
+        pointerX,
+        pointerY,
+      });
+      zoomAnchorRef.current = nextScroll;
+      onZoom(nextZoom);
+      return;
+    }
+  }
+
   return (
-    <div className="sketch-canvas-scroll" ref={scrollRef}>
+    <div className="sketch-canvas-scroll" ref={scrollRef} onWheel={onWheel}>
       <div className="sketch-canvas-stage" style={{ width: `${page.width * zoom}px`, height: `${page.height * zoom}px` }}>
         <canvas
           ref={canvasRef}
-          className={`sketch-canvas is-${tool}`}
+          className={`sketch-canvas is-${tool}${temporaryPanReady ? " is-temporary-pan" : ""}${panning ? " is-panning" : ""}`}
           width={page.width}
           height={page.height}
           tabIndex={0}
@@ -472,6 +540,13 @@ export function SketchCanvas({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
+          onPointerEnter={() => {
+            pointerOverCanvasRef.current = true;
+          }}
+          onPointerLeave={() => {
+            pointerOverCanvasRef.current = false;
+          }}
+          onAuxClick={(event) => event.preventDefault()}
           onPaste={onPaste}
           aria-label="Sketchキャンバス"
         />
