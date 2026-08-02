@@ -103,6 +103,8 @@ type MarkdownRichEditorProps = {
   onDirty?: () => void;
   headingNumberOptions?: MarkdownRenderOptions;
   markdownSourceRef?: { current: (() => string) | null };
+  markdownInsertRef?: { current: ((markdown: string) => void) | null };
+  onImagePreview?: (src: string) => Promise<string>;
   onExtractSelection?: (
     kind: SelectionExtractionKind,
     selection: MarkdownTextSelection,
@@ -381,6 +383,8 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onDirty,
   headingNumberOptions,
   markdownSourceRef,
+  markdownInsertRef,
+  onImagePreview,
   onExtractSelection,
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
@@ -403,10 +407,12 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const [extracting, setExtracting] = useState(false);
   const lastInternalMarkdown = useRef(markdown);
   const onImageUploadRef = useRef(onImageUpload);
+  const onImagePreviewRef = useRef(onImagePreview);
   const mountedRef = useRef(false);
   const editorMarkdown = escapeAmbiguousMarkdownComparisons(markdown);
   const spellCheck = markdown.length < LONG_DOCUMENT_SPELLCHECK_LIMIT;
   onImageUploadRef.current = onImageUpload;
+  onImagePreviewRef.current = onImagePreview;
 
   useEffect(() => {
     if (!markdownSourceRef) return;
@@ -417,6 +423,16 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
       markdownSourceRef.current = null;
     };
   }, [markdownSourceRef]);
+
+  useEffect(() => {
+    if (!markdownInsertRef) return;
+    markdownInsertRef.current = (nextMarkdown) => {
+      editorRef.current?.focus(() => editorRef.current?.insertMarkdown(nextMarkdown), { preventScroll: true });
+    };
+    return () => {
+      markdownInsertRef.current = null;
+    };
+  }, [markdownInsertRef]);
 
   const plugins = useMemo(() => [
     toolbarPlugin({
@@ -461,6 +477,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     markdownMathPlugin(),
     imagePlugin({
       imageUploadHandler: (image) => onImageUploadRef.current(image),
+      imagePreviewHandler: async (src) => onImagePreviewRef.current ? onImagePreviewRef.current(src) : src,
       // クリック選択 + ハンドルで幅変更。設定ダイアログでは数値指定・解除（空欄=既定）も可。
       disableImageResize: false,
       disableImageSettingsButton: false,

@@ -7,6 +7,7 @@ import {
   IconPrompt,
   IconReport,
   IconSparkles,
+  IconWriting,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -52,7 +53,17 @@ import {
 } from "../lib/markdown";
 import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
-import type { BaseRecord, NoteComment, PageProps } from "../types";
+import { drawSketchPage, renderSketchPageToDataUrl, type SketchPage } from "../lib/sketch";
+import {
+  ACTIVE_SKETCH_ID_KEY,
+  ACTIVE_SKETCH_PAGE_KEY,
+  extractSketchEmbedRefs,
+  findSketchPage,
+  parseSketchEmbedUrl,
+  sketchEmbedMarkdown,
+  type SketchEmbedPreview,
+} from "../lib/sketchEmbed";
+import type { BaseRecord, NoteComment, PageProps, Sketch } from "../types";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { compactNotesBodyPreview, DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
 import {
@@ -71,6 +82,15 @@ const loadMarkdownRichEditor = async () => {
   return { default: module.MarkdownRichEditor };
 };
 const MarkdownRichEditor = lazy(loadMarkdownRichEditor);
+
+function SketchPickerPreview({ page }: { page: SketchPage }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const context = ref.current?.getContext("2d");
+    if (context) drawSketchPage(context, page);
+  }, [page]);
+  return <canvas ref={ref} width={page.width} height={page.height} aria-label={`${page.title}のSketch Preview`} />;
+}
 
 function NotesKindIcon({ kind, size = 15 }: { kind: NotesKind; size?: number }) {
   const props = { size, stroke: 1.75, "aria-hidden": true as const };
@@ -135,6 +155,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   // Notesへ入った瞬間は読む面だけを出し、重いMDXEditorはEditを選んだ時に初めて起動する。
   const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
   const [prefs, setPrefs] = usePersistentState<NotesPreferences>("notes:prefs:v1", DEFAULT_NOTES_PREFS);
+  const sketches = useMemo(() => data.sketches as Sketch[], [data.sketches]);
   const scope = prefs.scope;
   const sortOrder = prefs.sortOrder;
   const records = useMemo<Combined[]>(() => [
@@ -172,6 +193,10 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const [draftWorkspaceTarget, setDraftWorkspaceTarget] = useState<BaseRecord | null | undefined>(undefined);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
+  const [sketchPickerOpen, setSketchPickerOpen] = useState(false);
+  const [pickerSketchId, setPickerSketchId] = useState("");
+  const [pickerPageId, setPickerPageId] = useState("");
+  const [sketchEmbeds, setSketchEmbeds] = useState<Record<string, SketchEmbedPreview>>({});
   const [recentExtraction, setRecentExtraction] = useState<{
     type: SelectionExtractionKind;
     title: string;
@@ -183,6 +208,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const previewPanelRef = useRef<HTMLElement | null>(null);
   const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
+  const mdxMarkdownInsertRef = useRef<((markdown: string) => void) | null>(null);
   const selectedBodyRef = useRef(selectedBody);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
   const commandActionsRef = useRef<Record<string, () => void | Promise<void>>>({});
@@ -192,6 +218,8 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const selectedTheme = selected
     ? themes.find((theme) => theme.id === (selected.theme_id || selected.project_id))
     : null;
+  const pickerSketch = sketches.find((entry) => entry.id === pickerSketchId) || null;
+  const pickerPage = pickerSketch?.document.pages.find((entry) => entry.id === pickerPageId) || null;
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
   const selectedUrl = selected ? str(selected.url || selected.source_url) : "";
   const selectedProperties = selected ? noteProperties(selected) : {};
@@ -220,6 +248,43 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const deferredDraftBody = useDeferredValue(draftBody);
   const [indexedDraftBody, setIndexedDraftBody] = useState(draftBody);
   const markdownHeadings = useMemo(() => extractMarkdownHeadings(indexedDraftBody), [indexedDraftBody]);
+  const sketchEmbedRefs = useMemo(() => extractSketchEmbedRefs(draftBody), [draftBody]);
+  const sketchEmbedVersionKey = useMemo(
+    () => sketchEmbedRefs.map((ref) => {
+      const sketch = sketches.find((entry) => entry.id === ref.sketchId);
+      return `${ref.key}:${sketch?.version || 0}:${sketch?.updated_at || "missing"}`;
+    }).join("|"),
+    [sketchEmbedRefs, sketches],
+  );
+  useEffect(() => {
+    let active = true;
+    void Promise.all(sketchEmbedRefs.map(async (ref): Promise<SketchEmbedPreview> => {
+      const sketch = sketches.find((entry) => entry.id === ref.sketchId);
+      const page = sketch ? findSketchPage(sketch.document, ref.pageId) : null;
+      if (!sketch || !page) {
+        return { ...ref, title: sketch?.title || "参照切れのSketch", missing: true };
+      }
+      return {
+        ...ref,
+        title: sketch.title.trim() || "無題のSketch",
+        dataUrl: await renderSketchPageToDataUrl(page),
+      };
+    })).then((previews) => {
+      if (!active) return;
+      setSketchEmbeds(Object.fromEntries(previews.map((preview) => [preview.key, preview])));
+    });
+    return () => {
+      active = false;
+    };
+  }, [sketchEmbedVersionKey]);
+  const previewRenderOptions = useMemo(
+    () => ({ ...headingNumberOptions.preview, sketchEmbeds }),
+    [headingNumberOptions.preview, sketchEmbeds],
+  );
+  const publishRenderOptions = useMemo(
+    () => ({ ...headingNumberOptions.publish, sketchEmbeds }),
+    [headingNumberOptions.publish, sketchEmbeds],
+  );
   const searchMatches = useMemo(
     () => searchOpen && searchQuery.trim() ? findMarkdownMatches(deferredDraftBody, searchQuery) : [],
     [deferredDraftBody, searchOpen, searchQuery],
@@ -635,6 +700,58 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     }, 0);
   }
 
+  function showSketchPicker() {
+    const sketch = sketches.find((entry) => entry.id === pickerSketchId) || sketches[0];
+    setPickerSketchId(sketch?.id || "");
+    setPickerPageId(sketch?.document.pages[0]?.id || "");
+    setSketchPickerOpen(true);
+  }
+
+  function insertSelectedSketch() {
+    const sketch = sketches.find((entry) => entry.id === pickerSketchId);
+    const page = sketch?.document.pages.find((entry) => entry.id === pickerPageId);
+    if (!sketch || !page) {
+      setDraftState("挿入するSketchとページを選んでください。");
+      return;
+    }
+    const markdown = `\n\n${sketchEmbedMarkdown(sketch, page)}\n\n`;
+    if (mdxMarkdownInsertRef.current) {
+      mdxMarkdownInsertRef.current(markdown);
+    } else {
+      const textarea = textareaRef.current;
+      const start = textarea?.selectionStart ?? draftBody.length;
+      const end = textarea?.selectionEnd ?? start;
+      insertDraftMarkdown(markdown, start, end);
+    }
+    setRichEditorDirty(true);
+    setDraftState(`Sketch「${sketch.title || "無題"}」を挿入しました。`);
+    setSketchPickerOpen(false);
+  }
+
+  const previewSketchImage = useCallback(async (src: string): Promise<string> => {
+    const ref = parseSketchEmbedUrl(src);
+    if (!ref) return src;
+    const cached = sketchEmbeds[ref.key]?.dataUrl;
+    if (cached) return cached;
+    const sketch = sketches.find((entry) => entry.id === ref.sketchId);
+    const page = sketch ? findSketchPage(sketch.document, ref.pageId) : null;
+    if (page) return renderSketchPageToDataUrl(page);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="240"><rect width="100%" height="100%" fill="#f6f1ed"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#746a65" font-family="sans-serif" font-size="22">参照先のSketchが見つかりません</text></svg>`;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }, [sketchEmbeds, sketches]);
+
+  function openEmbeddedSketch(event: MouseEvent<HTMLDivElement>) {
+    const target = (event.target as HTMLElement).closest<HTMLElement>("[data-sketch-id]");
+    if (!target) return;
+    const sketchId = target.dataset.sketchId;
+    const pageId = target.dataset.sketchPageId;
+    if (!sketchId || !sketches.some((entry) => entry.id === sketchId)) return;
+    event.preventDefault();
+    localStorage.setItem(ACTIVE_SKETCH_ID_KEY, sketchId);
+    if (pageId) localStorage.setItem(ACTIVE_SKETCH_PAGE_KEY, pageId);
+    navigate("sketch-editor");
+  }
+
   async function handleDraftPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     const image = clipboardImageFile(event.clipboardData);
     if (!image) return;
@@ -895,7 +1012,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
       const content = publishMarkdownContent(selected, selectedTheme?.name || "", currentDraftBody() || selectedBody);
       const result = await workspaceApi.exportMarkdownPdf({
         title: str(selected.title),
-        html: await renderMermaidDocumentForPdf(previewDocument(content, "markdown", headingNumberOptions.publish)),
+        html: await renderMermaidDocumentForPdf(previewDocument(content, "markdown", publishRenderOptions)),
         chooseDirectory: true,
         fileName: `${str(selected.title) || "markdown-document"}.pdf`,
         themeId: str(selected.project_id || selected.theme_id) || null,
@@ -1142,6 +1259,15 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                   </div>
                   <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
                   <button
+                    className="secondary-button compact"
+                    disabled={previewMode !== "edit" || !sketches.length}
+                    onClick={showSketchPicker}
+                    title={sketches.length ? "カーソル位置に既存Sketchを挿入" : "先にSketchを作成してください"}
+                  >
+                    <IconWriting size={15} stroke={1.8} aria-hidden />
+                    Sketch
+                  </button>
+                  <button
                     className={`secondary-button compact ${diffOpen ? "is-active" : ""}`}
                     disabled={!draftDirty}
                     aria-pressed={diffOpen}
@@ -1271,18 +1397,23 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                     <Suspense fallback={<div className="note-editor-loading" role="status">エディタを読み込んでいます…</div>}>
                       <MarkdownRichEditor
                         markdown={draftBody}
-                        headingNumberOptions={headingNumberOptions.preview}
+                        headingNumberOptions={previewRenderOptions}
                         markdownSourceRef={mdxMarkdownSourceRef}
+                        markdownInsertRef={mdxMarkdownInsertRef}
                         onChange={updateRichEditorDraft}
                         onDirty={markRichEditorDirty}
                         onImageUpload={uploadEditorImage}
+                        onImagePreview={previewSketchImage}
                         onError={reportRichEditorError}
                         onExtractSelection={selected.recordType === "note" ? extractSelection : undefined}
                       />
                     </Suspense>
                   </MarkdownEditorBoundary>
                 ) : previewMode === "preview" ? (
-                  <MarkdownPreview className="note-main-preview markdown-preview" html={previewHtml(draftBody, "markdown", headingNumberOptions.preview)} />
+                  <MarkdownPreview className="note-main-preview markdown-preview"
+                    html={previewHtml(draftBody, "markdown", previewRenderOptions)}
+                    onClick={openEmbeddedSketch}
+                  />
                 ) : (
                   <textarea
                     ref={textareaRef}
@@ -1302,6 +1433,40 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
           )}
         </section>
       </div>
+      {sketchPickerOpen && (
+        <div className="modal-backdrop" onMouseDown={() => setSketchPickerOpen(false)}>
+          <section className="modal-card note-sketch-dialog" role="dialog" aria-modal="true" aria-labelledby="note-sketch-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-card-header">
+              <h2 id="note-sketch-title">Sketchを挿入</h2>
+              <button className="text-button compact" type="button" onClick={() => setSketchPickerOpen(false)}>閉じる</button>
+            </div>
+            <label>
+              Sketch
+              <select
+                value={pickerSketchId}
+                onChange={(event) => {
+                  const next = sketches.find((entry) => entry.id === event.target.value);
+                  setPickerSketchId(event.target.value);
+                  setPickerPageId(next?.document.pages[0]?.id || "");
+                }}
+              >
+                {sketches.map((sketch) => <option key={sketch.id} value={sketch.id}>{sketch.title || "無題のSketch"}</option>)}
+              </select>
+            </label>
+            <label>
+              ページ
+              <select value={pickerPageId} onChange={(event) => setPickerPageId(event.target.value)}>
+                {pickerSketch?.document.pages.map((page, index) => <option key={page.id} value={page.id}>{index + 1}. {page.title}</option>)}
+              </select>
+            </label>
+            {pickerPage && <div className="note-sketch-picker-preview"><SketchPickerPreview page={pickerPage} /></div>}
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setSketchPickerOpen(false)}>取消</button>
+              <button className="primary-button" type="button" onClick={insertSelectedSketch}>カーソル位置へ挿入</button>
+            </div>
+          </section>
+        </div>
+      )}
       {draftWorkspaceTarget !== undefined && (
         <DraftWorkspaceDialog
           note={draftWorkspaceTarget}

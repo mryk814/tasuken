@@ -3,13 +3,11 @@ import {
   IconArrowForwardUp,
   IconArrowUpRight,
   IconChevronDown,
-  IconDots,
   IconEraser,
   IconGridDots,
   IconHighlight,
   IconLasso,
   IconMaximize,
-  IconNotes,
   IconPhoto,
   IconPointer,
   IconPlus,
@@ -39,9 +37,9 @@ import {
   type SketchPoint,
   type SketchTool,
 } from "../lib/sketch";
+import { ACTIVE_SKETCH_ID_KEY, ACTIVE_SKETCH_PAGE_KEY } from "../lib/sketchEmbed";
 import type { BaseRecord, PageProps, Sketch } from "../types";
 
-const ACTIVE_SKETCH_KEY = "tasken:sketch:active-id";
 const SKETCH_COLORS = ["#211e1d", "#2f6fa6", "#3f7a4f", "#8a2f3b", "#c47a18"];
 const TOOL_ITEMS: Array<{ id: SketchTool; label: string; icon: typeof IconPointer }> = [
   { id: "select", label: "選択", icon: IconPointer },
@@ -75,14 +73,13 @@ export function SketchPage({
   navigate,
   openDrawer,
   saveEntity,
-  saveEntities,
   setToast,
 }: PageProps) {
   const sketches = useMemo(() => data.sketches.map(sketchRecord), [data.sketches]);
-  const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_SKETCH_KEY) || sketches[0]?.id || "");
+  const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_SKETCH_ID_KEY) || sketches[0]?.id || "");
   const selected = sketches.find((entry) => entry.id === activeId) || sketches[0] || null;
   const [document, setDocument] = useState<SketchDocument>(selected?.document || createEmptySketchDocument());
-  const [activePageId, setActivePageId] = useState(document.pages[0]?.id || "");
+  const [activePageId, setActivePageId] = useState(() => localStorage.getItem(ACTIVE_SKETCH_PAGE_KEY) || document.pages[0]?.id || "");
   const [tool, setTool] = useState<SketchTool>("pen");
   const [color, setColor] = useState(SKETCH_COLORS[0]);
   const [strokeWidth, setStrokeWidth] = useState(2);
@@ -92,22 +89,27 @@ export function SketchPage({
   const [undoStack, setUndoStack] = useState<SketchDocument[]>([]);
   const [redoStack, setRedoStack] = useState<SketchDocument[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
-  const [insertOpen, setInsertOpen] = useState(false);
-  const [targetNoteId, setTargetNoteId] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!selected) return;
-    localStorage.setItem(ACTIVE_SKETCH_KEY, selected.id);
+    localStorage.setItem(ACTIVE_SKETCH_ID_KEY, selected.id);
     setActiveId(selected.id);
     setDocument(selected.document);
-    setActivePageId(selected.document.pages[0]?.id || "");
+    const requestedPageId = localStorage.getItem(ACTIVE_SKETCH_PAGE_KEY);
+    setActivePageId(selected.document.pages.some((page) => page.id === requestedPageId)
+      ? requestedPageId || ""
+      : selected.document.pages[0]?.id || "");
     setDirty(false);
     setSaveState("保存済み");
     setUndoStack([]);
     setRedoStack([]);
   }, [selected?.id]);
+
+  useEffect(() => {
+    if (activePageId) localStorage.setItem(ACTIVE_SKETCH_PAGE_KEY, activePageId);
+  }, [activePageId]);
 
   useEffect(() => {
     if (!selected || !dirty) return;
@@ -259,47 +261,6 @@ export function SketchPage({
     }
   }
 
-  async function insertIntoNote() {
-    if (!selected || !activePage) return;
-    try {
-      const attachment = await workspaceApi.saveMarkdownImageAttachment({
-        fileName: `${selected.title}.png`,
-        mimeType: "image/png",
-        dataUrl: await renderSketchPageToDataUrl(activePage),
-      });
-      const existing = data.notes.find((note) => note.id === targetNoteId);
-      const noteId = existing?.id || crypto.randomUUID();
-      const body = [String(existing?.body_markdown || ""), `![${selected.title}](${attachment.url})`].filter(Boolean).join("\n\n");
-      const note = existing || {
-        id: noteId,
-        title: selected.title,
-        note_type: "note",
-        content_format: "markdown",
-        theme_id: selected.project_id || null,
-      };
-      await saveEntities([
-        { action: "save", type: "note", entity: { ...note, body_markdown: body } },
-        {
-          action: "save",
-          type: "reference",
-          entity: {
-            id: crypto.randomUUID(),
-            source_type: "note",
-            source_id: noteId,
-            target_type: "sketch",
-            target_id: selected.id,
-            relation_type: "derived_from",
-            note: `Sketch「${selected.title}」の${document.pages.findIndex((page) => page.id === activePage.id) + 1}ページ目`,
-          },
-        },
-      ], existing ? "NoteへSketchを挿入しました。" : "SketchからNoteを作成しました。");
-      setInsertOpen(false);
-      setTargetNoteId("");
-    } catch (error) {
-      setToast(`Noteへ挿入できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
-    }
-  }
-
   if (!selected || !activePage) {
     return (
       <div className="page sketch-empty">
@@ -323,7 +284,6 @@ export function SketchPage({
           {selected.origin_capture_id && <span>Ink Captureから</span>}
           <span className={saveState.includes("できません") ? "is-error" : ""} role="status">{saveState}</span>
           <button className="secondary-button" onClick={() => openDrawer({ type: "sketch", entity: selected })}>情報</button>
-          <button className="primary-button" onClick={() => setInsertOpen(true)}><IconNotes size={16} />Noteへ挿入</button>
           <div className="sketch-menu">
             <button className="secondary-button" onClick={() => setExportOpen((value) => !value)}>エクスポート <IconChevronDown size={15} /></button>
             {exportOpen && (
@@ -450,28 +410,6 @@ export function SketchPage({
         }}
       />
 
-      {insertOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.currentTarget === event.target) setInsertOpen(false);
-        }}>
-          <section className="modal-card sketch-note-dialog" role="dialog" aria-modal="true" aria-labelledby="sketch-note-title">
-            <div className="section-heading">
-              <h2 id="sketch-note-title">Noteへ挿入</h2>
-              <button className="row-action-button" onClick={() => setInsertOpen(false)} aria-label="閉じる"><IconDots size={16} /></button>
-            </div>
-            <label>挿入先
-              <select value={targetNoteId} onChange={(event) => setTargetNoteId(event.target.value)}>
-                <option value="">新しいNoteを作る</option>
-                {data.notes.map((note) => <option key={note.id} value={note.id}>{String(note.title || "無題")}</option>)}
-              </select>
-            </label>
-            <div className="form-actions">
-              <button className="secondary-button" onClick={() => setInsertOpen(false)}>閉じる</button>
-              <button className="primary-button" onClick={() => void insertIntoNote()}>挿入する</button>
-            </div>
-          </section>
-        </div>
-      )}
     </div>
   );
 }
