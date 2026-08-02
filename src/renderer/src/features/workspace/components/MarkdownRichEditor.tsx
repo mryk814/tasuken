@@ -52,6 +52,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
@@ -61,6 +62,11 @@ import { clipboardImageFile } from "../lib/clipboardImage";
 import { markdownMathPlugin } from "./markdownMathPlugin";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { markdownTableKeyboardPlugin } from "./markdownTableKeyboardPlugin";
+import {
+  selectionTitleCandidate,
+  type MarkdownTextSelection,
+  type SelectionExtractionKind,
+} from "../lib/selectionExtraction";
 import {
   MERMAID_WIDTH_MAX,
   MERMAID_WIDTH_MIN,
@@ -97,9 +103,15 @@ type MarkdownRichEditorProps = {
   onDirty?: () => void;
   headingNumberOptions?: MarkdownRenderOptions;
   markdownSourceRef?: { current: (() => string) | null };
+  onExtractSelection?: (
+    kind: SelectionExtractionKind,
+    selection: MarkdownTextSelection,
+    title: string,
+  ) => Promise<void>;
 };
 
 const LONG_DOCUMENT_SPELLCHECK_LIMIT = 20_000;
+type FloatingTextSelection = MarkdownTextSelection & { top: number; left: number };
 
 function InsertMemoCalloutButton({ onInsert }: { onInsert: () => void }) {
   return (
@@ -369,6 +381,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onDirty,
   headingNumberOptions,
   markdownSourceRef,
+  onExtractSelection,
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
@@ -383,6 +396,11 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const [hoverLink, setHoverLink] = useState<HoverLinkCard | null>(null);
   const [linkEditMode, setLinkEditMode] = useState(false);
   const [linkEditUrl, setLinkEditUrl] = useState("");
+  const [textSelection, setTextSelection] = useState<FloatingTextSelection | null>(null);
+  const [extractionKind, setExtractionKind] = useState<SelectionExtractionKind | null>(null);
+  const [extractionTitle, setExtractionTitle] = useState("");
+  const [extractionError, setExtractionError] = useState("");
+  const [extracting, setExtracting] = useState(false);
   const lastInternalMarkdown = useRef(markdown);
   const onImageUploadRef = useRef(onImageUpload);
   const mountedRef = useRef(false);
@@ -486,6 +504,119 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     lastInternalMarkdown.current = markdown;
     setEditorFailed(false);
   }, [markdown]);
+
+  useEffect(() => {
+    if (!onExtractSelection) return;
+    const scope = editorScopeRef.current;
+    if (!scope) return;
+    let frame = 0;
+
+    const refreshSelection = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (extractionKind) return;
+        const selection = window.getSelection();
+        const content = scope.querySelector<HTMLElement>(".note-mdx-content");
+        if (!selection || !content || selection.rangeCount === 0 || selection.isCollapsed) {
+          setTextSelection(null);
+          return;
+        }
+        const range = selection.getRangeAt(0);
+        const container = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+          ? range.commonAncestorContainer.parentElement
+          : range.commonAncestorContainer as Element;
+        if (!container || !content.contains(container)) {
+          setTextSelection(null);
+          return;
+        }
+        const text = selection.toString().trim();
+        if (!text) {
+          setTextSelection(null);
+          return;
+        }
+        const anchorNode = selection.anchorNode;
+        let heading: string | null = null;
+        if (anchorNode) {
+          for (const candidate of content.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")) {
+            const position = candidate.compareDocumentPosition(anchorNode);
+            if (position & Node.DOCUMENT_POSITION_FOLLOWING || candidate.contains(anchorNode)) {
+              heading = candidate.textContent?.trim() || null;
+            } else if (heading) {
+              break;
+            }
+          }
+        }
+        const rangeRect = range.getBoundingClientRect();
+        const panelWidth = Math.min(360, window.innerWidth - 16);
+        const panelHeight = 176;
+        const nextSelection = {
+          text,
+          heading,
+          top: rangeRect.bottom + panelHeight <= window.innerHeight
+            ? rangeRect.bottom + 6
+            : Math.max(8, rangeRect.top - panelHeight - 6),
+          left: Math.max(8, Math.min(window.innerWidth - panelWidth - 8, rangeRect.left)),
+        };
+        setTextSelection((current) => (
+          current
+          && current.text === nextSelection.text
+          && current.heading === nextSelection.heading
+          && current.top === nextSelection.top
+          && current.left === nextSelection.left
+            ? current
+            : nextSelection
+        ));
+      });
+    };
+
+    document.addEventListener("selectionchange", refreshSelection);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("selectionchange", refreshSelection);
+    };
+  }, [extractionKind, onExtractSelection]);
+
+  useEffect(() => {
+    if (!textSelection) return;
+    const closeOnViewportChange = () => {
+      if (!extractionKind) setTextSelection(null);
+    };
+    window.addEventListener("resize", closeOnViewportChange);
+    window.addEventListener("scroll", closeOnViewportChange, true);
+    return () => {
+      window.removeEventListener("resize", closeOnViewportChange);
+      window.removeEventListener("scroll", closeOnViewportChange, true);
+    };
+  }, [extractionKind, textSelection]);
+
+  function beginSelectionExtraction(kind: SelectionExtractionKind) {
+    if (!textSelection) return;
+    setExtractionKind(kind);
+    setExtractionTitle(selectionTitleCandidate(textSelection.text));
+    setExtractionError("");
+  }
+
+  async function submitSelectionExtraction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onExtractSelection || !textSelection || !extractionKind) return;
+    if (!extractionTitle.trim()) {
+      setExtractionError("タイトルを入力してください。");
+      return;
+    }
+    setExtracting(true);
+    setExtractionError("");
+    try {
+      await onExtractSelection(extractionKind, textSelection, extractionTitle);
+      setTextSelection(null);
+      setExtractionKind(null);
+      setExtractionTitle("");
+      editorRef.current?.focus(() => {}, { preventScroll: true });
+    } catch (error) {
+      setExtractionError(`作成できませんでした。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   // Windows IME は contenteditable の EditContext や祖先スクロールを基準に候補位置を決める。
   // 変換開始時に従来の caret 基準へ戻し、候補が入力文字へ重ならないだけの表示領域を確保する。
@@ -742,6 +873,68 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
         plugins={plugins}
         spellCheck={spellCheck}
       />
+      {textSelection && onExtractSelection && (
+        <div
+          className={`note-selection-extract-panel ${extractionKind ? "is-composing" : ""}`}
+          style={{ top: textSelection.top, left: textSelection.left }}
+          role={extractionKind ? "group" : "toolbar"}
+          aria-label={extractionKind ? "選択範囲から作成" : "選択範囲の操作"}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {extractionKind ? (
+            <form onSubmit={submitSelectionExtraction}>
+              <label>
+                <span>{extractionKind === "task" ? "Taskのタイトル" : "Noteのタイトル"}</span>
+                <input
+                  value={extractionTitle}
+                  onChange={(event) => setExtractionTitle(event.target.value)}
+                  autoFocus
+                  aria-invalid={Boolean(extractionError)}
+                  aria-describedby={extractionError ? "selection-extraction-error" : undefined}
+                />
+              </label>
+              {textSelection.heading && <small>元の見出し: {textSelection.heading}</small>}
+              {extractionError && <p id="selection-extraction-error" role="alert">{extractionError}</p>}
+              <div>
+                <button type="submit" className="primary-button compact" disabled={extracting}>
+                  {extracting ? "作成中" : `${extractionKind === "task" ? "Task" : "Note"}を作る`}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button compact"
+                  disabled={extracting}
+                  onClick={() => {
+                    setExtractionKind(null);
+                    setExtractionError("");
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <span>選択範囲から</span>
+              <button
+                type="button"
+                className="secondary-button compact"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => beginSelectionExtraction("task")}
+              >
+                Task
+              </button>
+              <button
+                type="button"
+                className="secondary-button compact"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => beginSelectionExtraction("note")}
+              >
+                Note
+              </button>
+            </>
+          )}
+        </div>
+      )}
       {hoverLink && (
         <div
           className={`note-link-hover-card ${linkEditMode ? "is-editing" : ""}`}

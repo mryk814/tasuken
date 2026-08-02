@@ -220,6 +220,8 @@ export interface Reference {
   target_id: string;
   relation_type: "related_to" | "derived_from" | "mentions" | "blocks" | "supports";
   note?: string | null;
+  source_heading?: string | null;
+  source_excerpt?: string | null;
 }
 
 export interface TaskDependency {

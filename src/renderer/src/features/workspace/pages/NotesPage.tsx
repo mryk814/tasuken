@@ -55,6 +55,11 @@ import type { BaseRecord, NoteComment, PageProps } from "../types";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { compactNotesBodyPreview, DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
 import { createSketchDraft } from "../lib/sketch";
+import {
+  buildSelectionExtractionOperations,
+  type MarkdownTextSelection,
+  type SelectionExtractionKind,
+} from "../lib/selectionExtraction";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
@@ -124,7 +129,7 @@ function isWorkbenchRecord(record: Combined): boolean {
   return record.recordType === "note";
 }
 
-export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navigate, saveEntity, setToast }: PageProps) {
+export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navigate, saveEntity, saveEntities, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Notesへ入った瞬間は読む面だけを出し、重いMDXEditorはEditを選んだ時に初めて起動する。
@@ -164,6 +169,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const [diffOpen, setDiffOpen] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
+  const [recentExtraction, setRecentExtraction] = useState<{
+    type: SelectionExtractionKind;
+    title: string;
+    entity: BaseRecord;
+  } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -346,6 +356,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     setDraftState("");
     setDiffOpen(false);
     setSearchIndex(0);
+    setRecentExtraction(null);
   }, [selected?.id, selectedBody]);
 
   ctxRef.current = { selected, draftBody, draftDirty };
@@ -692,6 +703,40 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     setDraftState(`Markdownを読み込めませんでした。${message}`);
   }, []);
 
+  const extractSelection = useCallback(async (
+    kind: SelectionExtractionKind,
+    selection: MarkdownTextSelection,
+    title: string,
+  ) => {
+    const source = ctxRef.current.selected;
+    if (!source || source.recordType !== "note") {
+      throw new Error("元のNoteを確認できません。Noteを開き直して再度選択してください。");
+    }
+    const result = buildSelectionExtractionOperations(
+      {
+        kind,
+        title,
+        selection,
+        source: {
+          id: source.id,
+          title: str(source.title) || "無題",
+          projectId: str(source.project_id || source.theme_id) || null,
+        },
+      },
+      { entityId: crypto.randomUUID(), referenceId: crypto.randomUUID() },
+    );
+    await saveEntities(
+      result.operations,
+      `${kind === "task" ? "Task" : "Note"}「${result.entity.title}」を作成しました。`,
+    );
+    setRecentExtraction({
+      type: result.entityType,
+      title: result.entity.title,
+      entity: result.entity as unknown as BaseRecord,
+    });
+    setDraftState("選択範囲を切り出しました。元の本文は変更していません。");
+  }, [saveEntities]);
+
   async function saveSelectedDraft() {
     const liveBody = mdxMarkdownSourceRef.current?.();
     const body = typeof liveBody === "string" ? liveBody : draftBody;
@@ -1010,6 +1055,18 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                       {selected.created_at && <span>追加 {noteDateLabel(selected.created_at)}</span>}
                       {selected.updated_at && <span>更新 {noteDateLabel(selected.updated_at)}</span>}
                       {draftState && <span className="note-draft-state" role="status" aria-live="polite">{draftState}</span>}
+                      {recentExtraction && (
+                        <button
+                          type="button"
+                          className="note-extraction-result"
+                          onClick={() => openDrawer({
+                            type: recentExtraction.type,
+                            entity: recentExtraction.entity as Record<string, unknown>,
+                          })}
+                        >
+                          {recentExtraction.type === "task" ? "Task" : "Note"}「{recentExtraction.title}」を開く
+                        </button>
+                      )}
                     </div>
                   )}
                   {selectedUrl && (
@@ -1207,6 +1264,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                         onDirty={markRichEditorDirty}
                         onImageUpload={uploadEditorImage}
                         onError={reportRichEditorError}
+                        onExtractSelection={selected.recordType === "note" ? extractSelection : undefined}
                       />
                     </Suspense>
                   </MarkdownEditorBoundary>
