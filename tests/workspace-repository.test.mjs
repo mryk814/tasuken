@@ -167,6 +167,13 @@ test("sketch validation preserves editable page objects and rejects broken docum
   assert.doesNotThrow(() => validateEntity("sketch", valid));
   assert.throws(() => validateEntity("sketch", { ...valid, document: { schema_version: 2, pages: valid.document.pages } }), /schema_version/);
   assert.throws(() => validateEntity("sketch", { ...valid, document: { schema_version: 1, pages: [] } }), /1件以上/);
+  assert.throws(() => validateEntity("sketch", {
+    ...valid,
+    document: {
+      schema_version: 1,
+      pages: [{ ...valid.document.pages[0], width: 0 }],
+    },
+  }), /ページ幅・高さ/);
 });
 
 test("saved sketches reload under the canonical sketches collection", () => {

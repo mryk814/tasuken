@@ -7,25 +7,36 @@ const sketch = read("src/renderer/src/features/workspace/lib/sketch.ts");
 const library = read("src/renderer/src/features/workspace/pages/SketchLibraryPage.tsx");
 const editor = read("src/renderer/src/features/workspace/pages/SketchPage.tsx");
 const canvas = read("src/renderer/src/features/workspace/components/SketchCanvas.tsx");
+const pageSizePicker = read("src/renderer/src/features/workspace/components/SketchPageSizePicker.tsx");
 const domain = read("src/main/repositories/domain.mjs");
 const comparison = read("docs/sketch-canvas-modes.md");
 
 test("new Sketch chooses Page or Infinite while legacy data remains Page", () => {
-  assert.match(library, /createSketch\("page"\)/);
-  assert.match(library, /createSketch\("infinite"\)/);
+  assert.match(library, /setCreateMode\("page"\)/);
+  assert.match(library, /setCreateMode\("infinite"\)/);
+  assert.match(library, /createSketchDraft\("新しいSketch"[\s\S]*createMode/);
   assert.match(sketch, /document\.mode === "infinite" \? "infinite" : "page"/);
   assert.match(domain, /\["page", "infinite"\]\.includes\(document\.mode\)/);
 });
 
 test("Page keeps multiple fixed pages and Infinite grows one pannable surface", () => {
-  assert.match(sketch, /DEFAULT_PAGE_WIDTH = 1200/);
-  assert.match(sketch, /DEFAULT_PAGE_HEIGHT = 850/);
+  assert.match(sketch, /landscape: \{ width: 1200, height: 850 \}/);
   assert.match(editor, /canvasMode === "page" && <aside/);
-  assert.match(editor, /createSketchPage\(String\(document\.pages\.length \+ 1\), "page"\)/);
+  assert.match(editor, /createSketchPage\([\s\S]*String\(document\.pages\.length \+ 1\),[\s\S]*"page"/);
   assert.match(sketch, /expandInfinitePage/);
   assert.match(sketch, /INFINITE_GROW_STEP = 800/);
   assert.match(canvas, /kind: "pan"/);
   assert.match(canvas, /scroll\.scrollLeft = mode\.scrollLeft/);
+});
+
+test("Page chooses landscape portrait square or custom size and new pages inherit it", () => {
+  assert.match(pageSizePicker, /\"landscape\" \| \"portrait\" \| \"square\" \| \"custom\"/);
+  assert.match(pageSizePicker, /幅と高さは/);
+  assert.match(library, /<SketchPageSizePicker value=\{pageSize\}/);
+  assert.match(library, /createSketchDraft\(\"新しいSketch\"[\s\S]*resolvedPageSize\)/);
+  assert.match(editor, /width: activePage\.width, height: activePage\.height/);
+  assert.match(editor, /minimumSketchPageSize\(activePage\)/);
+  assert.match(editor, /用紙: \{sketchPageSizeLabel\(activePage\)\}/);
 });
 
 test("both modes use one tool canvas and Infinite exports an explicit range", () => {

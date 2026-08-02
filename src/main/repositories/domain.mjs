@@ -214,6 +214,16 @@ function validateSketchDocument(document) {
     if (!isPlainObject(page) || typeof page.id !== "string" || !page.id.trim()) {
       throw new Error("sketch.document.pagesの形式が不正です。");
     }
+    if (
+      !Number.isInteger(page.width)
+      || !Number.isInteger(page.height)
+      || page.width <= 0
+      || page.height <= 0
+      || page.width > 100000
+      || page.height > 100000
+    ) {
+      throw new Error("sketchのページ幅・高さが不正です。");
+    }
     if (!Array.isArray(page.objects) || page.objects.length > 5000) {
       throw new Error("sketchの1ページは5000要素以内にしてください。");
     }

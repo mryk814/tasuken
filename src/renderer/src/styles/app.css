@@ -3712,23 +3712,71 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .sketch-library-number { font-family: var(--font-mono); }
 .sketch-mode-dialog .modal-card-header { display: flex; align-items: center; justify-content: space-between; }
 .sketch-mode-dialog .modal-card-header h2 { margin: 0; }
-.sketch-mode-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
-.sketch-mode-options > button {
+.sketch-mode-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.sketch-mode-switch > button {
   display: grid;
-  align-content: start;
-  min-height: 156px;
-  gap: var(--space-2);
-  padding: var(--space-4);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 68px;
+  gap: 2px var(--space-2);
+  padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text);
   text-align: left;
 }
-.sketch-mode-options > button:hover { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); }
-.sketch-mode-options > button:active { background: var(--color-surface-subtle); }
-.sketch-mode-options > button svg { color: var(--color-accent); }
-.sketch-mode-options > button span { color: var(--color-text-secondary); font-size: var(--text-sm); line-height: 1.5; }
+.sketch-mode-switch > button:hover { border-color: var(--color-border-strong); background: var(--color-surface-muted); }
+.sketch-mode-switch > button:active { background: var(--color-surface-subtle); }
+.sketch-mode-switch > button.is-active { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); }
+.sketch-mode-switch > button svg { grid-row: 1 / 3; color: var(--color-accent); }
+.sketch-mode-switch > button span { color: var(--color-text-secondary); font-size: var(--text-xs); }
+.sketch-page-create-options { display: grid; gap: var(--space-2); }
+.sketch-page-create-options .field-label { color: var(--color-text-secondary); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.sketch-mode-description { min-height: 88px; margin: 0; padding: var(--space-3); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-muted); color: var(--color-text-secondary); font-size: var(--text-sm); }
+
+.sketch-page-size-picker { display: grid; gap: var(--space-2); }
+.sketch-page-size-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.sketch-page-size-presets > button {
+  display: grid;
+  min-height: 68px;
+  place-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.sketch-page-size-presets > button:hover { border-color: var(--color-border-strong); background: var(--color-surface-muted); }
+.sketch-page-size-presets > button:active { background: var(--color-surface-subtle); }
+.sketch-page-size-presets > button.is-active { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
+.sketch-paper-sample {
+  display: grid;
+  width: 30px;
+  height: 22px;
+  place-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  background: white;
+  color: inherit;
+  font-size: var(--text-xs);
+}
+.sketch-paper-sample.is-portrait { width: 22px; height: 30px; }
+.sketch-paper-sample.is-square { width: 26px; height: 26px; }
+.sketch-paper-sample.is-custom { border-style: dashed; }
+.sketch-page-size-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+.sketch-page-size-fields label { display: grid; gap: var(--space-1); }
+.sketch-page-size-fields input { width: 100%; font-family: var(--font-mono); }
+.sketch-page-size-fields > span { padding-bottom: 9px; color: var(--color-text-tertiary); }
+.sketch-page-size-fields .sketch-page-size-unit { font-family: var(--font-mono); font-size: var(--text-xs); }
+.sketch-page-size-picker .field-error { margin: 0; color: var(--color-danger); font-size: var(--text-xs); }
 
 .sketch-page {
   display: grid;
@@ -4038,7 +4086,22 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   background: color-mix(in srgb, var(--color-surface) 92%, transparent);
   box-shadow: var(--shadow-sm);
 }
-.sketch-bottom-controls > span { min-width: 48px; color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-align: center; }
+.sketch-bottom-controls > span { min-width: 48px; color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-align: center; white-space: nowrap; }
+.sketch-page-size-menu { position: relative; }
+.sketch-page-size-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  display: grid;
+  width: 360px;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+.sketch-page-size-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 .sketch-export-range {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -4213,7 +4276,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 }
 
 @media (max-width: 640px) {
-  .sketch-mode-options { grid-template-columns: 1fr; }
+  .sketch-mode-switch { grid-template-columns: 1fr; }
+  .sketch-page-size-popover { width: min(360px, calc(100vw - 24px)); }
 }
 
 @media (max-width: 760px) {
