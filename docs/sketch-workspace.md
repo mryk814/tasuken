@@ -32,8 +32,8 @@ flowchart LR
 - ペン入力と筆圧、蛍光ペン、ストローク消去
 - 矩形・楕円・直線の手書き認識、矢印
 - テキスト、画像挿入
-- 選択、投げ縄選択、移動、リサイズ、複製
-- Undo / Redo
+- 選択、投げ縄選択、操作中から追従する移動・リサイズ、辺・中心の整列ガイド、複数選択、複製
+- Undo / Redo、Delete、Ctrl+A、Ctrl+C/V、Ctrl+D、Ctrl+Z/Y
 - 複数Sketch、複数ページ、ページ背景、ズーム
 - 自動保存、Snapshot、論理削除
 - Note挿入、Markdown + PNG / PNG / SVG、AI向けコピー

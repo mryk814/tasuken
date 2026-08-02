@@ -88,6 +88,11 @@ export interface SketchBounds {
   h: number;
 }
 
+export interface SketchAlignmentGuides {
+  vertical: number[];
+  horizontal: number[];
+}
+
 const DEFAULT_PAGE_WIDTH = 1200;
 const DEFAULT_PAGE_HEIGHT = 850;
 
@@ -136,6 +141,85 @@ export function objectBounds(object: SketchObject): SketchBounds {
     return { x: object.x, y: object.y - object.font_size, w: Math.max(36, object.text.length * object.font_size * 0.72), h: object.font_size * 1.4 };
   }
   return { x: Math.min(object.x, object.x + object.w), y: Math.min(object.y, object.y + object.h), w: Math.abs(object.w), h: Math.abs(object.h) };
+}
+
+export function combinedObjectBounds(objects: SketchObject[]): SketchBounds | null {
+  if (!objects.length) return null;
+  const bounds = objects.map(objectBounds);
+  const x = Math.min(...bounds.map((entry) => entry.x));
+  const y = Math.min(...bounds.map((entry) => entry.y));
+  const x2 = Math.max(...bounds.map((entry) => entry.x + entry.w));
+  const y2 = Math.max(...bounds.map((entry) => entry.y + entry.h));
+  return { x, y, w: x2 - x, h: y2 - y };
+}
+
+function closestAlignment(source: number[], targets: number[], threshold: number) {
+  let closest: { delta: number; guide: number } | null = null;
+  for (const sourceValue of source) {
+    for (const target of targets) {
+      const delta = target - sourceValue;
+      if (Math.abs(delta) > threshold) continue;
+      if (!closest || Math.abs(delta) < Math.abs(closest.delta)) closest = { delta, guide: target };
+    }
+  }
+  return closest;
+}
+
+export function snapObjectTranslation(
+  objects: SketchObject[],
+  selectedIds: string[],
+  dx: number,
+  dy: number,
+  threshold = 8,
+): { dx: number; dy: number; guides: SketchAlignmentGuides } {
+  const selectedBounds = combinedObjectBounds(objects.filter((object) => selectedIds.includes(object.id)));
+  const otherBounds = objects.filter((object) => !selectedIds.includes(object.id)).map(objectBounds);
+  if (!selectedBounds || !otherBounds.length) return { dx, dy, guides: { vertical: [], horizontal: [] } };
+  const targetXs = otherBounds.flatMap((bounds) => [bounds.x, bounds.x + bounds.w / 2, bounds.x + bounds.w]);
+  const targetYs = otherBounds.flatMap((bounds) => [bounds.y, bounds.y + bounds.h / 2, bounds.y + bounds.h]);
+  const xMatch = closestAlignment(
+    [selectedBounds.x + dx, selectedBounds.x + selectedBounds.w / 2 + dx, selectedBounds.x + selectedBounds.w + dx],
+    targetXs,
+    threshold,
+  );
+  const yMatch = closestAlignment(
+    [selectedBounds.y + dy, selectedBounds.y + selectedBounds.h / 2 + dy, selectedBounds.y + selectedBounds.h + dy],
+    targetYs,
+    threshold,
+  );
+  return {
+    dx: dx + (xMatch?.delta || 0),
+    dy: dy + (yMatch?.delta || 0),
+    guides: {
+      vertical: xMatch ? [xMatch.guide] : [],
+      horizontal: yMatch ? [yMatch.guide] : [],
+    },
+  };
+}
+
+export function snapObjectResize(
+  bounds: SketchBounds,
+  objects: SketchObject[],
+  excludedId: string,
+  threshold = 8,
+): { bounds: SketchBounds; guides: SketchAlignmentGuides } {
+  const otherBounds = objects.filter((object) => object.id !== excludedId).map(objectBounds);
+  if (!otherBounds.length) return { bounds, guides: { vertical: [], horizontal: [] } };
+  const targetXs = otherBounds.flatMap((entry) => [entry.x, entry.x + entry.w / 2, entry.x + entry.w]);
+  const targetYs = otherBounds.flatMap((entry) => [entry.y, entry.y + entry.h / 2, entry.y + entry.h]);
+  const xMatch = closestAlignment([bounds.x + bounds.w], targetXs, threshold);
+  const yMatch = closestAlignment([bounds.y + bounds.h], targetYs, threshold);
+  return {
+    bounds: {
+      ...bounds,
+      w: Math.max(16, bounds.w + (xMatch?.delta || 0)),
+      h: Math.max(16, bounds.h + (yMatch?.delta || 0)),
+    },
+    guides: {
+      vertical: xMatch ? [xMatch.guide] : [],
+      horizontal: yMatch ? [yMatch.guide] : [],
+    },
+  };
 }
 
 export function boundsContainPoint(bounds: SketchBounds, point: Pick<SketchPoint, "x" | "y">, padding = 8): boolean {
