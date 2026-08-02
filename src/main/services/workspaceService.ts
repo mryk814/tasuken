@@ -6,7 +6,8 @@ import path from "node:path";
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult, FilePreviewReadResult } from "../../shared/ipc/contracts";
-import type { SketchClipboardRequest, SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
+import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
+import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
 import type { Workspace } from "../../shared/types/workspace";
 import {
   artifactFileTypeOf,
@@ -239,17 +240,17 @@ export class WorkspaceService {
     return true;
   }
 
-  writeClipboardSketch(payloadValue: unknown): boolean {
+  writeClipboardImage(payloadValue: unknown): boolean {
     if (!payloadValue || typeof payloadValue !== "object" || Array.isArray(payloadValue)) {
-      throw new Error("AIへ渡すSketchの形式が不正です。画面を再読み込みしてください。");
+      throw new Error("コピーする画像の形式が不正です。画面を再読み込みしてください。");
     }
-    const payload = payloadValue as Partial<SketchClipboardRequest>;
+    const payload = payloadValue as Partial<ImageClipboardRequest>;
     if (typeof payload.dataUrl !== "string" || !payload.dataUrl.startsWith("data:image/png;base64,")) {
-      throw new Error("Sketch画像を作成できませんでした。描画面を開き直して、もう一度試してください。");
+      throw new Error("コピーするPNG画像を作成できませんでした。画面を開き直して、もう一度試してください。");
     }
     const image = nativeImage.createFromDataURL(payload.dataUrl);
     if (image.isEmpty()) {
-      throw new Error("Sketch画像を読み取れませんでした。描画面を開き直して、もう一度試してください。");
+      throw new Error("コピーする画像を読み取れませんでした。画面を開き直して、もう一度試してください。");
     }
     clipboard.clear();
     clipboard.writeImage(image);
@@ -822,6 +823,25 @@ export class WorkspaceService {
     const markdown = request.markdown.replace("{{SKETCH_IMAGE}}", path.basename(companionFilePath));
     fs.writeFileSync(result.filePath, markdown, "utf8");
     return { canceled: false, filePath: result.filePath, companionFilePath };
+  }
+
+  async exportSlideTimeline(requestValue: unknown): Promise<SlideTimelineExportResult> {
+    if (!requestValue || typeof requestValue !== "object" || Array.isArray(requestValue)) {
+      throw new Error("スライド用タイムラインの出力内容が不正です。画面を再読み込みしてください。");
+    }
+    const request = requestValue as Partial<SlideTimelineExportRequest>;
+    if (typeof request.svg !== "string" || !request.svg.startsWith("<svg")) {
+      throw new Error("タイムラインのSVGを作成できませんでした。期間と項目を確認してください。");
+    }
+    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Timeline");
+    const result = await dialog.showSaveDialog({
+      title: "スライド用タイムラインをSVGで書き出す",
+      defaultPath: path.join(app.getPath("documents"), `${safeTitle || "Timeline"}.svg`),
+      filters: [{ name: "SVG", extensions: ["svg"] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    fs.writeFileSync(result.filePath, request.svg, "utf8");
+    return { canceled: false, filePath: result.filePath };
   }
 
   applySnapshot(token: string, decisions: SnapshotDecisions): Workspace {

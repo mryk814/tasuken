@@ -14,7 +14,3 @@ export interface SketchExportResult {
   filePath?: string;
   companionFilePath?: string;
 }
-
-export interface SketchClipboardRequest {
-  dataUrl: string;
-}

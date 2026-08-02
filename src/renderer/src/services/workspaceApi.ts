@@ -8,7 +8,8 @@ import type {
 import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
 import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
-import type { SketchClipboardRequest, SketchExportRequest } from "../../../shared/sketchExport";
+import type { SketchExportRequest } from "../../../shared/sketchExport";
+import type { ImageClipboardRequest, SlideTimelineExportRequest } from "../../../shared/slideTimelineExport";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
@@ -52,8 +53,8 @@ export const workspaceApi = {
   copyHtml(html: string, text: string) {
     return desktopApi().clipboard.writeHtml({ html, text });
   },
-  copySketch(payload: SketchClipboardRequest) {
-    return desktopApi().clipboard.writeSketch(payload);
+  copyImage(payload: ImageClipboardRequest) {
+    return desktopApi().clipboard.writeImage(payload);
   },
   openPath(filePath: string) {
     return desktopApi().files.openPath(filePath);
@@ -129,5 +130,8 @@ export const workspaceApi = {
   },
   exportSketch(request: SketchExportRequest) {
     return desktopApi().exports.sketch(request);
+  },
+  exportSlideTimeline(request: SlideTimelineExportRequest) {
+    return desktopApi().exports.slideTimeline(request);
   },
 };

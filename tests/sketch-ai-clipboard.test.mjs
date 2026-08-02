@@ -28,7 +28,7 @@ test("AI handoff is an explicit image-then-prompt flow", () => {
 test("desktop smoke crosses the native Sketch clipboard boundary", () => {
   assert.match(smoke, /sketchClipboardWritten/);
   assert.match(smoke, /sketchClipboardPasted/);
-  assert.match(smoke, /window\.api\.clipboard\.writeSketch/);
+  assert.match(smoke, /window\.api\.clipboard\.writeImage/);
   assert.match(smoke, /window\.webContents\.paste\(\)/);
   assert.match(smoke, /target\?\.querySelector\("img"\)/);
   assert.match(smoke, /&& result\.sketchClipboardWritten/);

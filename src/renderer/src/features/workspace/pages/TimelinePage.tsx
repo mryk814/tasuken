@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { IconCalendarPlus, IconGripVertical, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconCalendarPlus, IconGripVertical, IconPlus, IconPresentationAnalytics, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePersistentState } from "../../../utils/usePersistentState";
@@ -9,6 +9,7 @@ import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
 import { buildTimelineRows, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttGridBackground, ganttRowHeight } from "../components/gantt";
 import { PageHeader, StatusBadge } from "../components/common";
+import { SlideTimelineDialog } from "../components/SlideTimelineDialog";
 import {
   isTimelineCompleted,
   legacyTimelineWorkspace,
@@ -125,6 +126,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
   const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
   const [dropSortTargetId, setDropSortTargetId] = useState<string | null>(null);
+  const [slideTimelineOpen, setSlideTimelineOpen] = useState(false);
   const [optimisticTimelineItems, setOptimisticTimelineItems] = useState<Record<string, Item>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -577,6 +579,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   return (
     <div className="page timeline-wide">
       <PageHeader title="Timeline" subtitle="実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。">
+        <button className="secondary-button" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</button>
       </PageHeader>
       <section className="timeline-toolbar panel">
@@ -755,6 +758,18 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         </div>
       </section>
       {outsideCount > 0 && <div className="timeline-range-note">表示範囲外の計画が {outsideCount} 件あります。前後期間を広げると確認できます。</div>}
+      {slideTimelineOpen && (
+        <SlideTimelineDialog
+          domain={v2}
+          statusUpdates={data.status_updates}
+          themes={themes}
+          initialThemeId={themeFilter}
+          initialStart={range.start}
+          initialEnd={range.end}
+          onClose={() => setSlideTimelineOpen(false)}
+          setToast={setToast}
+        />
+      )}
     </div>
   );
 }
