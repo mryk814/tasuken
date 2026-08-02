@@ -24,6 +24,7 @@ import {
 } from "react";
 
 import { noteExportSignature } from "../../../../../shared/fileExport";
+import { isFocusSession } from "../../../../../shared/focusSession.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { DraftWorkspaceDialog } from "../components/DraftWorkspaceDialog";
@@ -139,7 +140,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const scope = prefs.scope;
   const sortOrder = prefs.sortOrder;
   const records = useMemo<Combined[]>(() => [
-    ...domain.notes.map((note) => ({ ...note, recordType: "note" as const } as Combined)),
+    ...domain.notes
+      .filter((note) => !isFocusSession(note as unknown as Record<string, unknown>))
+      .map((note) => ({ ...note, recordType: "note" as const } as Combined)),
     ...domain.resources
       .filter((resource) => !isChatReference(resource))
       .map((resource) => ({ ...resource, recordType: "resource" as const } as Combined)),
