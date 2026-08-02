@@ -13,7 +13,7 @@ export const routeParent: Record<string, string> = {
   waiting: "today",
   "micro-memos": "inbox",
   notes: "knowledge",
-  sketch: "notes",
+  "sketch-editor": "sketch",
   prompts: "notes",
   "chat-refs": "knowledge",
   artifacts: "knowledge",
@@ -35,6 +35,7 @@ export const todayHubTabs = [
 export const knowledgeHubTabs = [
   ["knowledge", "Knowledge"],
   ["notes", "Notes"],
+  ["sketch", "Sketch"],
   ["chat-refs", "Chat Refs"],
   ["artifacts", "Artifacts"],
 ] as const;
@@ -51,6 +52,7 @@ export type RouteId =
   | "themes"
   | "notes"
   | "sketch"
+  | "sketch-editor"
   | "prompts"
   | "knowledge"
   | "waiting"

@@ -28,7 +28,8 @@ const ImportExportPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("ai-io
 const InboxPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("inbox"), "InboxPage");
 const KnowledgePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("knowledge"), "KnowledgePage");
 const NotesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("notes"), "NotesPage");
-const SketchPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch"), "SketchPage");
+const SketchLibraryPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch"), "SketchLibraryPage");
+const SketchPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch-editor"), "SketchPage");
 const SettingsPage = lazyNamedPage<SettingsPageProps>(() => loadWorkspacePage("settings"), "SettingsPage");
 const ThemePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("theme"), "ThemePage");
 const ThemesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("themes"), "ThemesPage");
@@ -82,6 +83,9 @@ export function WorkspacePageRouter({
       page = <NotesPage {...common} />;
       break;
     case "sketch":
+      page = <SketchLibraryPage {...common} />;
+      break;
+    case "sketch-editor":
       page = <SketchPage {...common} />;
       break;
     case "knowledge":

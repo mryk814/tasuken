@@ -27,7 +27,7 @@
 ## Sketchの境界契約
 
 1. Ink Captureは素早い入口であり、保存後は通常のSketchとして同じ編集面に到達する。
-2. SketchはNotes配下に置くが、Markdown本文へ生の軌跡データを埋め込まない。
-3. Noteへ挿入する際はPNGを添付し、Sketchへの`derived_from`参照を残す。
+2. SketchはSidebarのKnowledge配下に独立した棚と編集面を持ち、Markdown本文へ生の軌跡データを埋め込まない。
+3. NoteはSketchの派生画像を参照する利用側とし、編集可能な正本はSketch棚へ残す。現在のPNG添付＋`derived_from`参照は、Note側から埋め込んで再編集できる経路へ置換するまでの既存契約とする。
 4. AI連携は画像と説明用テキストのクリップボード往復を既定とし、APIキーを内蔵しない。
 5. 既存のNotes・Snapshot・Import/Export形式を壊さず、Sketchを追加コレクションとして扱う。

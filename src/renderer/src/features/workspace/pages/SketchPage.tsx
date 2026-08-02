@@ -27,7 +27,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { SketchCanvas } from "../components/SketchCanvas";
 import {
   cloneSketchDocument,
-  createSketchDraft,
+  createEmptySketchDocument,
   createSketchPage,
   drawSketchPage,
   renderSketchPageToDataUrl,
@@ -71,19 +71,16 @@ function sketchRecord(record: BaseRecord): Sketch {
 export function SketchPage({
   data,
   themes,
-  activeTheme,
   navigate,
+  openDrawer,
   saveEntity,
   saveEntities,
-  removeEntity,
   setToast,
 }: PageProps) {
   const sketches = useMemo(() => data.sketches.map(sketchRecord), [data.sketches]);
   const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_SKETCH_KEY) || sketches[0]?.id || "");
   const selected = sketches.find((entry) => entry.id === activeId) || sketches[0] || null;
-  const [title, setTitle] = useState(selected?.title || "");
-  const [projectId, setProjectId] = useState(selected?.project_id || activeTheme?.id || "");
-  const [document, setDocument] = useState<SketchDocument>(selected?.document || createSketchDraft().document);
+  const [document, setDocument] = useState<SketchDocument>(selected?.document || createEmptySketchDocument());
   const [activePageId, setActivePageId] = useState(document.pages[0]?.id || "");
   const [tool, setTool] = useState<SketchTool>("pen");
   const [color, setColor] = useState(SKETCH_COLORS[0]);
@@ -103,8 +100,6 @@ export function SketchPage({
     if (!selected) return;
     localStorage.setItem(ACTIVE_SKETCH_KEY, selected.id);
     setActiveId(selected.id);
-    setTitle(selected.title);
-    setProjectId(selected.project_id || "");
     setDocument(selected.document);
     setActivePageId(selected.document.pages[0]?.id || "");
     setDirty(false);
@@ -120,8 +115,6 @@ export function SketchPage({
     saveTimerRef.current = window.setTimeout(() => {
       void saveEntity("sketch", {
         ...selected,
-        title: title.trim() || "無題のSketch",
-        project_id: projectId || null,
         document,
       }).then(() => {
         setDirty(false);
@@ -134,13 +127,14 @@ export function SketchPage({
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [dirty, document, projectId, saveEntity, selected, setToast, title]);
+  }, [dirty, document, saveEntity, selected, setToast]);
 
   useEffect(() => {
     if (tool === "image") fileInputRef.current?.click();
   }, [tool]);
 
   const activePage = document.pages.find((page) => page.id === activePageId) || document.pages[0];
+  const selectedTheme = themes.find((theme) => theme.id === selected?.project_id);
 
   function changeDocument(next: SketchDocument) {
     setUndoStack((current) => [...current.slice(-49), cloneSketchDocument(document)]);
@@ -171,14 +165,6 @@ export function SketchPage({
     setDirty(true);
   }
 
-  async function createSketch(originCaptureId: string | null = null) {
-    const draft = createSketchDraft("新しいSketch", activeTheme?.id || null, originCaptureId);
-    const saved = await saveEntity("sketch", draft);
-    localStorage.setItem(ACTIVE_SKETCH_KEY, saved.id);
-    setActiveId(saved.id);
-    setToast("Sketchを作成しました。", "success");
-  }
-
   function addPage() {
     const page = createSketchPage(String(document.pages.length + 1));
     changeDocument({ ...document, pages: [...document.pages, page] });
@@ -194,19 +180,6 @@ export function SketchPage({
     const pages = document.pages.filter((page) => page.id !== pageId);
     changeDocument({ ...document, pages });
     setActivePageId(pages[Math.max(0, index - 1)]?.id || pages[0].id);
-  }
-
-  async function deleteSketch() {
-    if (!selected) return;
-    await removeEntity("sketch", selected);
-    const next = sketches.find((entry) => entry.id !== selected.id);
-    if (next) {
-      localStorage.setItem(ACTIVE_SKETCH_KEY, next.id);
-      setActiveId(next.id);
-    } else {
-      localStorage.removeItem(ACTIVE_SKETCH_KEY);
-      navigate("notes");
-    }
   }
 
   async function insertImage(file: File) {
@@ -320,9 +293,8 @@ export function SketchPage({
     return (
       <div className="page sketch-empty">
         <IconWriting size={48} aria-hidden="true" />
-        <h1>Sketchはまだありません</h1>
-        <button className="primary-button" onClick={() => void createSketch()}>Sketchを作る</button>
-        <button className="text-button" onClick={() => navigate("notes")}>Notesへ戻る</button>
+        <h1>Sketchを選択できません</h1>
+        <button className="primary-button" onClick={() => navigate("sketch")}>Sketch一覧へ</button>
       </div>
     );
   }
@@ -331,35 +303,15 @@ export function SketchPage({
     <div className="sketch-page">
       <header className="sketch-header">
         <div className="sketch-title-group">
-          <button className="text-button compact" onClick={() => navigate("notes")}>Notes</button>
+          <button className="text-button compact" onClick={() => navigate("sketch")}>Sketch</button>
           <span aria-hidden="true">/</span>
-          <span>Sketch</span>
-          <input
-            className="sketch-title-input"
-            value={title}
-            onChange={(event) => {
-              setTitle(event.target.value);
-              setDirty(true);
-            }}
-            onBlur={() => !title.trim() && setTitle("無題のSketch")}
-            aria-label="Sketchタイトル"
-          />
-          <select
-            className="sketch-theme-select"
-            value={projectId}
-            onChange={(event) => {
-              setProjectId(event.target.value);
-              setDirty(true);
-            }}
-            aria-label="SketchのTheme"
-          >
-            <option value="">Theme未設定</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-          </select>
+          <strong className="sketch-editor-title">{selected.title || "無題のSketch"}</strong>
+          <span>{selectedTheme?.name || "Theme未設定"}</span>
         </div>
         <div className="sketch-header-meta">
           {selected.origin_capture_id && <span>Ink Captureから</span>}
           <span className={saveState.includes("できません") ? "is-error" : ""} role="status">{saveState}</span>
+          <button className="secondary-button" onClick={() => openDrawer({ type: "sketch", entity: selected })}>情報</button>
           <button className="primary-button" onClick={() => setInsertOpen(true)}><IconNotes size={16} />Noteへ挿入</button>
           <div className="sketch-menu">
             <button className="secondary-button" onClick={() => setExportOpen((value) => !value)}>エクスポート <IconChevronDown size={15} /></button>
@@ -369,7 +321,6 @@ export function SketchPage({
                 <button role="menuitem" onClick={() => void exportSketch("png")}>PNG画像</button>
                 <button role="menuitem" onClick={() => void exportSketch("svg")}>SVG画像</button>
                 <button role="menuitem" onClick={() => void copyForAi()}><IconSparkles size={15} />AIへ貼り付け</button>
-                <button className="is-danger" role="menuitem" onClick={() => void deleteSketch()}><IconTrash size={15} />Sketchを削除</button>
               </div>
             )}
           </div>
@@ -423,19 +374,7 @@ export function SketchPage({
         <aside className="sketch-page-rail" aria-label="Sketchページ">
           <div className="sketch-page-rail-heading">
             <span>ページ</span>
-            <button className="row-action-button" onClick={() => void createSketch()} aria-label="別のSketchを作る" title="別のSketchを作る"><IconPlus size={16} /></button>
           </div>
-          <select
-            className="sketch-document-select"
-            value={selected.id}
-            onChange={(event) => {
-              localStorage.setItem(ACTIVE_SKETCH_KEY, event.target.value);
-              setActiveId(event.target.value);
-            }}
-            aria-label="Sketchを切り替える"
-          >
-            {sketches.map((sketch) => <option key={sketch.id} value={sketch.id}>{sketch.title}</option>)}
-          </select>
           <div className="sketch-thumbnails">
             {document.pages.map((page, index) => (
               <div className={`sketch-thumbnail ${page.id === activePage.id ? "is-active" : ""}`} key={page.id}>

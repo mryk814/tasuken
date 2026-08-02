@@ -483,7 +483,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
     if (!type || !id) return;
     if (type === "sketch") {
       localStorage.setItem("tasken:sketch:active-id", id);
-      navigate("sketch");
+      navigate("sketch-editor");
       return;
     }
     if (type === "artifact") {
@@ -531,7 +531,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
         buildChangeEventOperation("sketch", sketch.id, "created"),
       ], "Ink Captureを開始しました。");
       localStorage.setItem("tasken:sketch:active-id", sketch.id);
-      navigate("sketch");
+      navigate("sketch-editor");
     } catch (error) {
       setToast(`Ink Captureを開始できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     }

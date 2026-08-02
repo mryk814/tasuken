@@ -14,6 +14,7 @@ import type {
   SaveEntities,
   SaveEntity,
   SaveOperation,
+  Sketch,
   WorkspaceData,
 } from "../types";
 import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, relatedEntityTitle, uiNoteType } from "../lib/domain";
@@ -123,6 +124,7 @@ interface EntityDrawerProps {
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   openContentViewer?: OpenContentViewer;
   startFocusSession?: (taskId: string) => void;
+  navigate: (route: string) => void;
 }
 
 function DerivedSourceReference({
@@ -157,7 +159,7 @@ function DerivedSourceReference({
   );
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, openContentViewer, startFocusSession }: EntityDrawerProps) {
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, openContentViewer, startFocusSession, navigate }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") {
     return (
@@ -191,6 +193,40 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
     );
   }
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} saveEntities={saveEntities} />;
+  if (type === "sketch") {
+    const sketch = entity as unknown as Sketch;
+    const theme = data.themes.find((entry) => entry.id === sketch.project_id);
+    return (
+      <DetailDrawer
+        title="Sketch詳細"
+        close={close}
+        onEdit={() => close({ type: "sketch", mode: "edit", entity })}
+      >
+        <div className="badge-row">
+          <StatusBadge value="neutral" label={`${sketch.document.pages.length}ページ`} />
+          {sketch.origin_capture_id && <StatusBadge value="neutral" label="Ink Capture" />}
+        </div>
+        <h2>{sketch.title || "無題のSketch"}</h2>
+        <dl>
+          <dt>Theme</dt><dd>{theme?.name || "未設定"}</dd>
+          <dt>作成</dt><dd>{formatDate(sketch.created_at)}</dd>
+          <dt>更新</dt><dd>{formatDate(sketch.updated_at)}</dd>
+        </dl>
+        <div className="drawer-actions">
+          <button
+            className="primary-button"
+            onClick={() => {
+              localStorage.setItem("tasken:sketch:active-id", sketch.id);
+              close();
+              navigate("sketch-editor");
+            }}
+          >
+            <IconArrowsMaximize size={16} />Sketchを開く
+          </button>
+        </div>
+      </DetailDrawer>
+    );
+  }
   if (type === "resource") {
     const isChatRef = isChatReferenceEntity(entity);
     const service = resolveChatService({ link_type: entity.link_type, url: entity.url });
@@ -573,6 +609,7 @@ function EditDrawer({
     waiting: "待ち",
     plan_node: "計画ノード",
     capture_entry: "キャプチャ",
+    sketch: "Sketch",
   };
   const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
@@ -638,6 +675,20 @@ function EditDrawer({
         {type === "waiting" && <WaitingFields entity={entity} data={data} />}
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
         {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
+        {type === "sketch" && (
+          <>
+            <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+            <ThemeSelect themes={data.themes} value={str(entity.project_id)} fieldName="project_id" />
+            {entity.id && (
+              <dl className="sketch-drawer-meta">
+                <dt>ページ</dt>
+                <dd>{(entity.document as Sketch["document"] | undefined)?.pages.length || 1}</dd>
+                <dt>更新</dt>
+                <dd>{formatDate(entity.updated_at)}</dd>
+              </dl>
+            )}
+          </>
+        )}
         <button className="primary-button" type="submit">保存する</button>
       </form>
       {(artifactSource || (entityId && removeEntity)) && (
@@ -953,7 +1004,7 @@ function DetailDrawer({
   title: string;
   close: CloseDrawer;
   onEdit: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -963,7 +1014,7 @@ function DetailDrawer({
         {children}
         <div className="drawer-actions">
           <button className="primary-button" onClick={onEdit}><IconPencil size={16} />編集する</button>
-          <button className="danger-button" onClick={onDelete}><IconTrash size={16} />削除する</button>
+          {onDelete && <button className="danger-button" onClick={onDelete}><IconTrash size={16} />削除する</button>}
         </div>
       </div>
     </aside>

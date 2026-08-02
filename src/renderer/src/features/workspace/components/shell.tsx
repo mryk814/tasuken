@@ -18,6 +18,7 @@ import {
   IconSparkles,
   IconSun,
   IconTimeline,
+  IconWriting,
 } from "@tabler/icons-react";
 
 import { crossNavigation, knowledgeHubTabs, todayHubTabs, toolNavigation } from "../../../pages/routes";
@@ -229,6 +230,7 @@ export function Sidebar({
     timeline: IconTimeline,
     knowledge: IconBulb,
     notes: IconNotes,
+    sketch: IconWriting,
     "chat-refs": IconMessageCircle,
     artifacts: IconPaperclip,
     "ai-io": IconSparkles,
