@@ -3,18 +3,22 @@ import {
   IconArrowForwardUp,
   IconArrowUpRight,
   IconChevronDown,
+  IconCircle,
   IconEraser,
   IconGridDots,
   IconHandMove,
   IconHighlight,
   IconLasso,
+  IconLine,
   IconMaximize,
   IconPhoto,
   IconPointer,
   IconPlus,
+  IconRectangle,
   IconShape,
   IconSparkles,
   IconTextSize,
+  IconTriangle,
   IconTrash,
   IconWriting,
   IconZoomIn,
@@ -23,6 +27,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { usePersistentState } from "../../../utils/usePersistentState";
 import { SketchCanvas } from "../components/SketchCanvas";
 import {
   cloneSketchDocument,
@@ -39,13 +44,29 @@ import {
   type SketchObject,
   type SketchPage,
   type SketchPoint,
+  type SketchShapeKind,
   type SketchTool,
 } from "../lib/sketch";
 import { ACTIVE_SKETCH_ID_KEY, ACTIVE_SKETCH_PAGE_KEY } from "../lib/sketchEmbed";
 import { clampSketchZoom } from "../lib/sketchNavigation";
+import {
+  DEFAULT_SKETCH_TOOL_PRESETS,
+  isSketchPresetTool,
+  normalizeSketchToolPresets,
+  SKETCH_TOOL_WIDTHS,
+  type SketchPresetTool,
+  type SketchToolPresets,
+} from "../lib/sketchToolPresets";
 import type { BaseRecord, PageProps, Sketch } from "../types";
 
 const SKETCH_COLORS = ["#211e1d", "#2f6fa6", "#3f7a4f", "#8a2f3b", "#c47a18"];
+const SHAPE_ITEMS: Array<{ id: SketchShapeKind; label: string; icon: typeof IconShape }> = [
+  { id: "auto", label: "自動", icon: IconSparkles },
+  { id: "line", label: "線", icon: IconLine },
+  { id: "rectangle", label: "四角", icon: IconRectangle },
+  { id: "ellipse", label: "円・楕円", icon: IconCircle },
+  { id: "triangle", label: "三角", icon: IconTriangle },
+];
 const TOOL_ITEMS: Array<{ id: SketchTool; label: string; icon: typeof IconPointer }> = [
   { id: "select", label: "選択", icon: IconPointer },
   { id: "lasso", label: "投げ縄", icon: IconLasso },
@@ -86,8 +107,15 @@ export function SketchPage({
   const [document, setDocument] = useState<SketchDocument>(selected?.document || createEmptySketchDocument());
   const [activePageId, setActivePageId] = useState(() => localStorage.getItem(ACTIVE_SKETCH_PAGE_KEY) || document.pages[0]?.id || "");
   const [tool, setTool] = useState<SketchTool>("pen");
-  const [color, setColor] = useState(SKETCH_COLORS[0]);
-  const [strokeWidth, setStrokeWidth] = useState(2);
+  const [storedPresets, setStoredPresets] = usePersistentState<SketchToolPresets>(
+    "sketch:tool-presets:v1",
+    DEFAULT_SKETCH_TOOL_PRESETS,
+  );
+  const toolPresets = useMemo(() => normalizeSketchToolPresets(storedPresets), [storedPresets]);
+  const activePresetTool: SketchPresetTool = isSketchPresetTool(tool) ? tool : "pen";
+  const activePreset = toolPresets[activePresetTool];
+  const [storedShapeKind, setShapeKind] = usePersistentState<SketchShapeKind>("sketch:shape-kind:v1", "auto");
+  const shapeKind = SHAPE_ITEMS.some((item) => item.id === storedShapeKind) ? storedShapeKind : "auto";
   const [zoom, setZoom] = useState(0.82);
   const [saveState, setSaveState] = useState("保存済み");
   const [dirty, setDirty] = useState(false);
@@ -153,6 +181,14 @@ export function SketchPage({
   const activePage = document.pages.find((page) => page.id === activePageId) || document.pages[0];
   const canvasMode = sketchCanvasMode(document);
   const selectedTheme = themes.find((theme) => theme.id === selected?.project_id);
+
+  function updateActivePreset(next: Partial<{ color: string; width: number }>) {
+    if (!isSketchPresetTool(tool)) return;
+    setStoredPresets((current) => {
+      const normalized = normalizeSketchToolPresets(current);
+      return { ...normalized, [tool]: { ...normalized[tool], ...next } };
+    });
+  }
 
   function changeDocument(next: SketchDocument) {
     setUndoStack((current) => [...current.slice(-49), cloneSketchDocument(document)]);
@@ -347,32 +383,63 @@ export function SketchPage({
             );
           })}
         </div>
-        <div className="sketch-tool-group is-colors" aria-label="線の色">
-          {SKETCH_COLORS.map((entry) => (
-            <button
-              key={entry}
-              className={color === entry ? "is-active" : ""}
-              style={{ "--ink-color": entry } as React.CSSProperties}
-              onClick={() => setColor(entry)}
-              aria-label={`色 ${entry}`}
-            />
-          ))}
-        </div>
-        <div className="sketch-width-options" role="radiogroup" aria-label="線の太さ">
-          {[1, 2, 4, 7].map((width) => (
-            <button
-              key={width}
-              className={strokeWidth === width ? "is-active" : ""}
-              role="radio"
-              aria-checked={strokeWidth === width}
-              aria-label={`${width}px`}
-              onClick={() => setStrokeWidth(width)}
-              title={`${width}px`}
-            >
-              <span style={{ height: `${Math.max(1, tool === "highlighter" ? width * 2 : width)}px` }} />
-            </button>
-          ))}
-        </div>
+        {tool === "shape" && (
+          <div className="sketch-tool-group is-shapes" aria-label="図形の種類">
+            {SHAPE_ITEMS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  className={shapeKind === item.id ? "is-active" : ""}
+                  aria-pressed={shapeKind === item.id}
+                  onClick={() => setShapeKind(item.id)}
+                  title={item.label}
+                >
+                  <Icon size={18} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {isSketchPresetTool(tool) && tool !== "eraser" && (
+          <div className="sketch-tool-group is-colors" aria-label={`${TOOL_ITEMS.find((item) => item.id === tool)?.label || "道具"}の色`}>
+            {SKETCH_COLORS.map((entry) => (
+              <button
+                key={entry}
+                className={activePreset.color === entry ? "is-active" : ""}
+                style={{ "--ink-color": entry } as React.CSSProperties}
+                onClick={() => updateActivePreset({ color: entry })}
+                aria-label={`色 ${entry}`}
+              />
+            ))}
+          </div>
+        )}
+        {isSketchPresetTool(tool) && (
+          <div
+            className={`sketch-width-options is-${tool}`}
+            role="radiogroup"
+            aria-label={tool === "eraser" ? "消しゴムの大きさ" : tool === "text" ? "文字サイズ" : `${TOOL_ITEMS.find((item) => item.id === tool)?.label || "線"}の太さ`}
+          >
+            {SKETCH_TOOL_WIDTHS[tool].map((width) => (
+              <button
+                key={width}
+                className={activePreset.width === width ? "is-active" : ""}
+                role="radio"
+                aria-checked={activePreset.width === width}
+                aria-label={`${width}px`}
+                onClick={() => updateActivePreset({ width })}
+                title={`${width}px`}
+              >
+                <span style={tool === "eraser"
+                  ? { width: `${Math.min(22, width / 2)}px`, height: `${Math.min(22, width / 2)}px` }
+                  : tool === "text"
+                    ? { height: `${Math.max(2, Math.min(12, width / 3))}px` }
+                    : { height: `${Math.max(1, Math.min(12, width))}px` }}
+                />
+              </button>
+            ))}
+          </div>
+        )}
         <div className="sketch-tool-group is-history">
           <button disabled={!undoStack.length} onClick={undo} title="元に戻す"><IconArrowBackUp size={18} /><span>戻す</span></button>
           <button disabled={!redoStack.length} onClick={redo} title="やり直す"><IconArrowForwardUp size={18} /><span>やり直す</span></button>
@@ -402,8 +469,9 @@ export function SketchPage({
           <SketchCanvas
             page={activePage}
             tool={tool}
-            color={color}
-            strokeWidth={strokeWidth}
+            color={activePreset.color}
+            strokeWidth={activePreset.width}
+            shapeKind={shapeKind}
             zoom={zoom}
             onZoom={setZoom}
             onChange={changePage}

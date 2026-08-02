@@ -14,15 +14,18 @@ test("Shape Arrow and Text remain active after creating an object", () => {
   assert.doesNotMatch(textCommit, /onToolChange\("select"\)/);
 });
 
-test("creation tools switch to Select when an existing object is directly picked", () => {
-  assert.match(canvas, /\["shape", "arrow", "text"\]\.includes\(tool\)/);
-  assert.match(canvas, /const hit = hitTest\(page\.objects, point\)/);
-  assert.match(canvas, /setSelectedIds\(\[hit\.id\]\)/);
-  assert.match(canvas, /onToolChange\("select"\)/);
+test("creation tools keep creating over existing objects", () => {
+  assert.doesNotMatch(canvas, /\["shape", "arrow", "text"\]\.includes\(tool\)/);
+  const shapeBranch = canvas.match(/if \(tool === "shape"\)([\s\S]*?)if \(tool === "arrow"\)/)?.[1] || "";
+  assert.doesNotMatch(shapeBranch, /hitTest/);
+  assert.doesNotMatch(shapeBranch, /onToolChange/);
 });
 
-test("Text visibly edits and commits with Enter or blur", () => {
+test("Text visibly edits in place and commits with Enter or blur", () => {
   assert.match(canvas, /className="sketch-inline-text"/);
+  assert.match(canvas, /function startTextEditing/);
+  assert.match(canvas, /onDoubleClick=\{onDoubleClick\}/);
+  assert.match(canvas, /page\.objects\.map\(\(entry\) => entry\.id === editor\.id \? object : entry\)/);
   assert.match(canvas, /onBlur=\{commitText\}/);
   assert.match(canvas, /if \(!textEditor \|\| textCommitRef\.current\) return/);
   assert.match(canvas, /textCommitRef\.current = true/);

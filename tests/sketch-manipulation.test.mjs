@@ -64,3 +64,26 @@ test("canvas previews manipulation and owns expected keyboard shortcuts", () => 
   assert.match(pageSource, /onUndo=\{undo\}/);
   assert.match(pageSource, /onRedo=\{redo\}/);
 });
+
+test("hollow shapes are hit on their outline rather than their empty center", () => {
+  const rectangle = [{ id: "rect", type: "shape", shape: "rectangle", color: "#000", width: 2, x: 10, y: 10, w: 100, h: 80 }];
+  assert.equal(sketch.hitTest(rectangle, { x: 60, y: 50 }), null);
+  assert.equal(sketch.hitTest(rectangle, { x: 10, y: 50 })?.id, "rect");
+});
+
+test("selected objects can move to the front or back without changing data", () => {
+  const layered = [
+    { ...objects[0], id: "a" },
+    { ...objects[0], id: "b" },
+    { ...objects[0], id: "c" },
+  ];
+  assert.deepEqual(sketch.moveSketchObjectsToLayer(layered, ["b"], "front").map((object) => object.id), ["a", "c", "b"]);
+  assert.deepEqual(sketch.moveSketchObjectsToLayer(layered, ["b"], "back").map((object) => object.id), ["b", "a", "c"]);
+});
+
+test("canvas exposes layer actions and resize or move cursor intent", () => {
+  assert.match(canvasSource, /moveSketchObjectsToLayer/);
+  assert.match(canvasSource, /has-\$\{hoverIntent\}-target/);
+  assert.match(canvasSource, /IconStackFront/);
+  assert.match(canvasSource, /IconStackBack/);
+});

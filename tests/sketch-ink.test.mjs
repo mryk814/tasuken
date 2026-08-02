@@ -41,13 +41,14 @@ test("canvas consumes coalesced pointer samples and previews final ink style", (
   assert.match(canvasSource, /getCoalescedEvents/);
   assert.match(canvasSource, /draftObject:/);
   assert.match(canvasSource, /tool === "highlighter" \? "highlighter" : "pen"/);
-  assert.match(canvasSource, /Math\.max\(12, strokeWidth \* 5\)/);
+  assert.doesNotMatch(canvasSource, /Math\.max\(12, strokeWidth \* 5\)/);
+  assert.match(canvasSource, /width: strokeWidth/);
   assert.doesNotMatch(canvasSource, /draftPoints: tool === "lasso"/);
 });
 
-test("stroke width is selected from visual samples", () => {
-  assert.match(pageSource, /className="sketch-width-options"/);
+test("tool-specific width is selected from visual samples", () => {
+  assert.match(pageSource, /className=\{`sketch-width-options is-\$\{tool\}`\}/);
   assert.match(pageSource, /role="radiogroup"/);
-  assert.match(pageSource, /style=\{\{ height:/);
+  assert.match(pageSource, /SKETCH_TOOL_WIDTHS\[tool\]/);
   assert.doesNotMatch(pageSource, /<option value=\{1\}>1 px/);
 });

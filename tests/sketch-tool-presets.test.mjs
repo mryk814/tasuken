@@ -1,0 +1,44 @@
+import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { build } from "esbuild";
+
+async function importBundled(relativePath) {
+  const result = await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString("base64")}`);
+}
+
+const presets = await importBundled("src/renderer/src/features/workspace/lib/sketchToolPresets.ts");
+const pageSource = readFileSync("src/renderer/src/features/workspace/pages/SketchPage.tsx", "utf8");
+
+test("pen highlighter and eraser start with independent practical defaults", () => {
+  assert.deepEqual(presets.DEFAULT_SKETCH_TOOL_PRESETS.pen, { color: "#211e1d", width: 2 });
+  assert.deepEqual(presets.DEFAULT_SKETCH_TOOL_PRESETS.highlighter, { color: "#2f6fa6", width: 20 });
+  assert.deepEqual(presets.DEFAULT_SKETCH_TOOL_PRESETS.eraser, { color: "#211e1d", width: 28 });
+});
+
+test("invalid stored presets fall back per tool without overwriting valid peers", () => {
+  const result = presets.normalizeSketchToolPresets({
+    pen: { color: "#8a2f3b", width: 7 },
+    highlighter: { color: "blue", width: 999 },
+  });
+  assert.deepEqual(result.pen, { color: "#8a2f3b", width: 7 });
+  assert.deepEqual(result.highlighter, presets.DEFAULT_SKETCH_TOOL_PRESETS.highlighter);
+  assert.deepEqual(result.eraser, presets.DEFAULT_SKETCH_TOOL_PRESETS.eraser);
+});
+
+test("tool presets and shape choice persist as UI state", () => {
+  assert.match(pageSource, /usePersistentState<SketchToolPresets>/);
+  assert.match(pageSource, /"sketch:tool-presets:v1"/);
+  assert.match(pageSource, /"sketch:shape-kind:v1"/);
+  assert.match(pageSource, /tool !== "eraser"/);
+});
