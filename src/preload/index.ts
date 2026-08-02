@@ -39,6 +39,7 @@ const api: ResearchDeskApi = {
     checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),
     openReleasePage: (url) => ipcRenderer.invoke(IPC.appReleasePageOpen, url),
     setTitleBarTheme: (theme) => ipcRenderer.invoke(IPC.appTitleBarTheme, theme),
+    getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
     showTodayMiniWindow: () => ipcRenderer.invoke("today-mini:show"),
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {

@@ -44,6 +44,43 @@ test("AI Import accepts items, notes, and mailto links with create and merge act
   assert.doesNotThrow(() => preview.candidates.forEach(assertImportCandidateSavable));
 });
 
+test("MCP Note edit targets one version and becomes ignore after the Note changes", () => {
+  const current = {
+    id: "note-1",
+    title: "方針",
+    body_markdown: "現在の本文",
+    note_type: "memo",
+    theme_id: "theme-1",
+    version: 4,
+  };
+  const matching = parseAiImportPayload({
+    notes: [{
+      action: "merge",
+      target_id: current.id,
+      base_version: 4,
+      title: "方針",
+      body: "変更後の本文",
+      reason: "表現を整理",
+    }],
+  }, themes, { items: [], notes: [current], links: [] });
+  assert.equal(matching.candidates[0].action, "merge");
+  assert.equal(matching.candidates[0].duplicate.id, current.id);
+  assert.doesNotThrow(() => assertImportCandidateSavable(matching.candidates[0]));
+
+  const stale = parseAiImportPayload({
+    notes: [{
+      action: "merge",
+      target_id: current.id,
+      base_version: 3,
+      title: "方針",
+      body: "古い内容を元にした本文",
+      reason: "表現を整理",
+    }],
+  }, themes, { items: [], notes: [current], links: [] });
+  assert.equal(stale.candidates[0].action, "ignore");
+  assert.match(stale.candidates[0].issues.join(" / "), /提案 3 \/ 現在 4/);
+});
+
 test("AI Import accepts knowledge nodes and relation candidates through preview", () => {
   const preview = parseAiImportPayload(JSON.stringify({
     knowledge_nodes: [

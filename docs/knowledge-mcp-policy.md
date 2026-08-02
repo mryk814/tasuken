@@ -248,7 +248,7 @@ Knowledge Healthでは以下を検出する。
 
 ## MCP Server
 
-Taskenを外部AIから参照できるようにする。最初はread-onlyのMCP Serverを作る。Tasken本体と同じプロセスに無理に入れなくてよく、別プロセス / CLI / localhost serverのいずれかでよい。
+Taskenを外部AIから参照できるようにする。インストール版はSettingsの「設定をコピー」が生成する、同梱MCP Bridge用のstdio設定を使う。開発版は`npm run mcp`を使う。
 
 Phase 1のread-only toolsは以下とする。
 
@@ -304,15 +304,23 @@ Read-only MCPは以下を守る。
 
 MCP経由のwriteは直接保存しない。Tasken側のpreview inboxに「提案」として送る。
 
-Phase 2 toolsは以下とする。
+実装境界は以下で固定する。
+
+1. MCP BridgeはSQLiteへ書き込まない
+2. write toolは`%APPDATA%\Tasken\mcp-inbox`へ1MB以下のProposal envelopeをatomic writeする
+3. Tasken Main Processが起動時と起動中にInboxを検証する
+4. Main ProcessだけがWorkspace Repository経由で`ai_proposal`へ保存する
+5. 不正なEnvelopeは`mcp-inbox/rejected`へ隔離する
+6. Note編集は`target_id`と`base_version`を必須にし、現在versionが違えば既定で無視する
+
+write toolsは以下とする。
 
 ```ts
 tools:
-  - tasken.propose_items
-  - tasken.propose_notes
-  - tasken.propose_links
-  - tasken.propose_knowledge_nodes
-  - tasken.propose_status_update
+  - tasken.propose_task
+  - tasken.propose_note
+  - tasken.propose_note_edit
+  - tasken.propose_knowledge
 ```
 
 ```ts
@@ -416,7 +424,7 @@ Knowledge一覧は高度なグラフビュー不要とし、node_type、title、
 - unresolved question / claim without evidenceを出す
 - Markdown / JSON export対応
 
-### Phase 4: Read-only MCP
+### Phase 4: Read-only MCP（実装済み）
 
 - MCP Server追加
 - `search_items`
@@ -426,14 +434,14 @@ Knowledge一覧は高度なグラフビュー不要とし、node_type、title、
 - `get_knowledge_context`
 - `export_ai_context`
 
-### Phase 5: Safe Write Proposal
+### Phase 5: Safe Write Proposal（実装済み）
 
-- `ai_proposal` entity追加
-- `propose_items`
-- `propose_notes`
-- `propose_knowledge_nodes`
-- Tasken側preview inbox
-- accept / reject / partial accept
+- `ai_proposal` entity
+- インストール版MCP Bridge
+- Task / Note / Note編集 / KnowledgeのProposal tools
+- Main ProcessによるProposal Inbox取り込み
+- Tasken側preview / accept / reject / partial accept
+- Note version競合検出とMarkdown差分
 
 ### Phase 6: VS Code / Copilot連携
 

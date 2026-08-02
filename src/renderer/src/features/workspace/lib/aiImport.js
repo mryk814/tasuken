@@ -157,9 +157,15 @@ function candidateBase(type, entry, themes, collection) {
   const issues = [];
   const title = text(entry.title);
   const theme = resolveTheme(entry.theme, themes);
-  const duplicate = findDuplicate(collection, title);
+  const targetId = text(entry.target_id);
+  const targeted = targetId ? collection.find((candidate) => candidate.id === targetId) : undefined;
+  const duplicate = targeted || findDuplicate(collection, title);
   if (!title) issues.push("titleがありません");
   if (text(entry.theme) && !theme) issues.push("Themeを解決できません");
+  if (targetId && !targeted) issues.push("編集対象が見つかりません");
+  if (targeted && entry.base_version != null && Number(entry.base_version) !== Number(targeted.version)) {
+    issues.push(`編集対象が更新されています（提案 ${Number(entry.base_version)} / 現在 ${Number(targeted.version)}）`);
+  }
   if (duplicate && ["done", "archived"].includes(text(duplicate.status))) {
     issues.push("完了済みまたはarchivedの既存候補への更新です");
   }
@@ -192,6 +198,8 @@ function normalizeNote(entry, themes, collection) {
     action: enumValue(entry.action, IMPORT_ACTIONS, "", base.issues, "action"),
     reason: text(entry.reason),
     title: text(entry.title),
+    target_id: text(entry.target_id),
+    base_version: entry.base_version == null ? null : Number(entry.base_version),
     theme: text(entry.theme),
     note_type: enumValue(entry.note_type, NOTE_TYPES, "memo", base.issues, "note_type"),
     body: text(entry.body),

@@ -33,6 +33,7 @@ export const IPC = {
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
   appTitleBarTheme: "app:titlebar-theme",
+  mcpBridgeInfo: "mcp:bridge-info",
   entityList: "entity:list",
   entityGet: "entity:get",
   entitySave: "entity:save",
@@ -79,6 +80,15 @@ export interface AppUpdateCheckResult {
   releaseUrl: string;
   publishedAt?: string;
   error?: string;
+}
+
+export interface McpBridgeInfo {
+  command: string;
+  args: string[];
+  configJson: string;
+  inboxPath: string;
+  pendingFileCount: number;
+  packaged: boolean;
 }
 
 export interface SharedSyncConflict {
@@ -150,6 +160,7 @@ export interface ResearchDeskApi {
     checkForUpdates(): Promise<AppUpdateCheckResult>;
     openReleasePage(url?: string): Promise<boolean>;
     setTitleBarTheme(theme: "light" | "dark"): Promise<boolean>;
+    getMcpBridgeInfo(): Promise<McpBridgeInfo>;
     showTodayMiniWindow(): Promise<boolean>;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
