@@ -44,6 +44,15 @@ test("tool presets and shape choice persist as UI state", () => {
   assert.match(pageSource, /tool !== "eraser"/);
 });
 
+test("highlighter width samples remain visually distinct", () => {
+  assert.deepEqual(
+    presets.SKETCH_TOOL_WIDTHS.highlighter.map((width) => presets.sketchToolWidthSampleSize("highlighter", width)),
+    [3, 5, 8, 12],
+  );
+  assert.match(pageSource, /background: tool === "highlighter" \? activePreset\.color/);
+  assert.match(pageSource, /opacity: tool === "highlighter" \? 0\.38/);
+});
+
 test("eraser modes and the compact diagram palette are visible toolbar choices", () => {
   assert.match(pageSource, />部分消し</);
   assert.match(pageSource, />線ごと</);
