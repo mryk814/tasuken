@@ -26,6 +26,7 @@ import {
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { DraftWorkspaceDialog } from "../components/DraftWorkspaceDialog";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
 import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
@@ -167,6 +168,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
   const [diffOpen, setDiffOpen] = useState(false);
+  const [draftWorkspaceTarget, setDraftWorkspaceTarget] = useState<BaseRecord | null | undefined>(undefined);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [recentExtraction, setRecentExtraction] = useState<{
@@ -212,6 +214,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const markdownExportStale = Boolean(str(markdownExport?.bodySignature) && str(markdownExport?.bodySignature) !== currentExportSignature);
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && (richEditorDirty || draftBody !== selectedBody));
+  const closeDraftWorkspace = useCallback(() => setDraftWorkspaceTarget(undefined), []);
   // Editのキー入力を最優先し、見出し索引など全文走査が必要な派生表示は後続レンダーへ送る。
   const deferredDraftBody = useDeferredValue(draftBody);
   const [indexedDraftBody, setIndexedDraftBody] = useState(draftBody);
@@ -924,6 +927,14 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     }
   }
 
+  function handleDraftWorkspaceSaved(saved: BaseRecord, body: string) {
+    setSelectedId(saved.id);
+    setDraftBody(body);
+    setIndexedDraftBody(body);
+    setRichEditorDirty(false);
+    setPreviewMode("edit");
+  }
+
   commandActionsRef.current = {
     save: () => selected ? saveSelectedDraft() : setToast("保存する文書を選択してください。", "warning"),
     edit: () => selected ? switchPreviewMode("edit") : setToast("編集する文書を選択してください。", "warning"),
@@ -933,6 +944,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     folder: () => markdownExportOpenPath
       ? openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)
       : setToast("先にMarkdownを出力して保存先を決めてください。", "warning"),
+    draft: () => selected?.recordType === "note"
+      ? setDraftWorkspaceTarget(selected)
+      : setToast("Draft Workspaceで扱うNoteまたはMarkdown文書を選択してください。", "warning"),
   };
 
   useEffect(() => {
@@ -949,6 +963,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
       <PageHeader title="Notes" subtitle="Note / Resource / Report / Prompt。書く・読む・リンクを見ながらメモする場所">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => void addSketch()}><IconWriting size={16} />新しいSketch</button>
+        <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
         <button className="primary-button" onClick={() => addNote("note")}>Note</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } })}>Resource</button>
         <button className="primary-button" onClick={() => addNote("report")}>Report</button>
@@ -1096,6 +1111,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                 </div>
                 <div className="note-preview-actions">
                   <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
+                  {selected.recordType === "note" && (
+                    <button className="secondary-button compact" onClick={() => setDraftWorkspaceTarget(selected)}><IconSparkles size={15} />Draft Workspace</button>
+                  )}
                   <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
                     setDraftBody(selectedBody);
                     setRichEditorDirty(false);
@@ -1310,6 +1328,17 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
           )}
         </section>
       </div>
+      {draftWorkspaceTarget !== undefined && (
+        <DraftWorkspaceDialog
+          note={draftWorkspaceTarget}
+          themes={themes}
+          activeThemeId={activeTheme?.id || null}
+          saveEntity={saveEntity}
+          setToast={setToast}
+          onSaved={handleDraftWorkspaceSaved}
+          close={closeDraftWorkspace}
+        />
+      )}
     </div>
   );
 }

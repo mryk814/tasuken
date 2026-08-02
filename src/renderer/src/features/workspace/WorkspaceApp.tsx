@@ -904,6 +904,7 @@ export function WorkspaceApp() {
       execute: () => setContextPackThemeId(activeTheme.id),
     }] : []),
     ...(route === "notes" ? [
+      { id: "notes:draft-workspace", label: "現在の文書をDraft Workspaceで開く", keywords: ["AI", "source", "diff", "原稿"], category: "Commands" as const, execute: () => dispatchNotesCommand("draft") },
       { id: "notes:save", label: "現在の文書を保存", keywords: ["save", "保存"], category: "Commands" as const, shortcut: "Ctrl+S", execute: () => dispatchNotesCommand("save") },
       { id: "notes:edit", label: "現在の文書をEditで表示", keywords: ["編集", "markdown"], category: "Commands" as const, execute: () => dispatchNotesCommand("edit") },
       { id: "notes:preview", label: "現在の文書をPreviewで表示", keywords: ["表示", "render"], category: "Commands" as const, execute: () => dispatchNotesCommand("preview") },

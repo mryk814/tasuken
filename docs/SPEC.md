@@ -476,6 +476,15 @@ Theme内のTask / Note / Resource / Artifactから利用者が選んだ項目だ
 保存時はPrompt Noteとして出力時点のMarkdownとEntity ID一覧をSnapshot保持し、AI回答用Markdown Noteから出典を辿れるようにする。
 長文Noteは抜粋し、Artifact本文や資格情報を自動収集しない。
 
+### AI Draft Workspace
+
+AI生成MarkdownはNoteの付帯情報にSource Draftとして保持し、通常本文のWorking Draftと分離する。
+NotesのSource / Edit / Diff / 履歴を切り替え、変更ブロック単位でSource側を採用できる。
+部分採用、全文置換、Snapshot復元は保存前にUndoでき、全文置換だけは影響を明示して再確認する。
+AIサービス名、元チャットURL、元指示は任意項目とし、AI APIは必須にしない。
+新しいAI返答はSource Draft候補として追加し、既存Working Draftを黙って上書きしない。
+Working Draftは通常のMarkdown Noteとして保存し、既存Preview・Markdown保存・PDF出力を使う。
+
 ## 5.9 Stats
 
 統計量は最初から作り込みすぎない。
