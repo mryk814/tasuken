@@ -321,7 +321,7 @@ function drawArrowHead(context: CanvasRenderingContext2D, x1: number, y1: number
 export function drawSketchPage(
   context: CanvasRenderingContext2D,
   page: SketchPage,
-  options: { selectedIds?: string[]; draftPoints?: SketchPoint[]; lassoPoints?: SketchPoint[] } = {},
+  options: { selectedIds?: string[]; draftObject?: SketchStroke; lassoPoints?: SketchPoint[] } = {},
 ) {
   context.clearRect(0, 0, page.width, page.height);
   context.fillStyle = "#fffdfb";
@@ -359,9 +359,7 @@ export function drawSketchPage(
   for (const object of page.objects) {
     drawSketchObject(context, object, () => drawSketchPage(context, page, options));
   }
-  if (options.draftPoints?.length) {
-    drawSketchObject(context, { id: "draft", type: "stroke", tool: "pen", color: "#8A2F3B", width: 2, points: options.draftPoints });
-  }
+  if (options.draftObject?.points.length) drawSketchObject(context, options.draftObject);
   if (options.lassoPoints?.length) {
     context.save();
     context.strokeStyle = "#2f6fa6";
@@ -391,6 +389,31 @@ export function drawSketchPage(
   }
 }
 
+export function smoothSketchPoints(points: SketchPoint[], passes = 2): SketchPoint[] {
+  if (points.length < 3 || passes <= 0) return points;
+  let smoothed = points.map((point) => ({ ...point }));
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next: SketchPoint[] = [{ ...smoothed[0] }];
+    for (let index = 0; index < smoothed.length - 1; index += 1) {
+      const current = smoothed[index];
+      const following = smoothed[index + 1];
+      next.push({
+        x: current.x * 0.75 + following.x * 0.25,
+        y: current.y * 0.75 + following.y * 0.25,
+        pressure: current.pressure * 0.75 + following.pressure * 0.25,
+      });
+      next.push({
+        x: current.x * 0.25 + following.x * 0.75,
+        y: current.y * 0.25 + following.y * 0.75,
+        pressure: current.pressure * 0.25 + following.pressure * 0.75,
+      });
+    }
+    next.push({ ...smoothed.at(-1)! });
+    smoothed = next;
+  }
+  return smoothed;
+}
+
 export function drawSketchObject(
   context: CanvasRenderingContext2D,
   object: SketchObject,
@@ -403,8 +426,9 @@ export function drawSketchObject(
   context.lineJoin = "round";
 
   if (object.type === "stroke") {
-    if (object.points.length < 2) {
-      const point = object.points[0];
+    const points = smoothSketchPoints(object.points);
+    if (points.length < 2) {
+      const point = points[0];
       if (point) {
         context.beginPath();
         context.arc(point.x, point.y, object.width / 2, 0, Math.PI * 2);
@@ -412,14 +436,24 @@ export function drawSketchObject(
       }
     } else {
       context.globalAlpha = object.tool === "highlighter" ? 0.3 : 1;
-      context.beginPath();
-      context.moveTo(object.points[0].x, object.points[0].y);
-      for (let index = 1; index < object.points.length; index += 1) {
-        const point = object.points[index];
-        context.lineWidth = object.width * (object.tool === "pen" ? 0.65 + point.pressure * 0.7 : 1);
-        context.lineTo(point.x, point.y);
+      if (object.tool === "highlighter") {
+        context.beginPath();
+        context.moveTo(points[0].x, points[0].y);
+        context.lineWidth = object.width;
+        for (let index = 1; index < points.length; index += 1) context.lineTo(points[index].x, points[index].y);
+        context.stroke();
+        context.restore();
+        return;
       }
-      context.stroke();
+      for (let index = 1; index < points.length; index += 1) {
+        const previous = points[index - 1];
+        const point = points[index];
+        context.beginPath();
+        context.moveTo(previous.x, previous.y);
+        context.lineWidth = object.width * (0.65 + (previous.pressure + point.pressure) * 0.35);
+        context.lineTo(point.x, point.y);
+        context.stroke();
+      }
     }
   } else if (object.type === "shape") {
     context.lineWidth = object.width;

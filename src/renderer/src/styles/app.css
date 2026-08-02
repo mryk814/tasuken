@@ -3790,8 +3790,21 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   background-clip: content-box;
 }
 .sketch-tool-group.is-colors button.is-active { border-color: var(--color-accent); box-shadow: var(--focus-ring); }
-.sketch-width-field { flex: 0 0 auto; }
-.sketch-width-field select { width: 68px; padding: var(--space-1) var(--space-2); font-size: var(--text-xs); }
+.sketch-width-options { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; padding-right: var(--space-2); border-right: 1px solid var(--color-border); }
+.sketch-width-options button {
+  display: grid;
+  width: 36px;
+  min-height: 34px;
+  place-items: center;
+  padding: var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+.sketch-width-options button:hover { border-color: var(--color-border); background: var(--color-surface); }
+.sketch-width-options button:active { background: var(--color-surface-subtle); }
+.sketch-width-options button.is-active { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
+.sketch-width-options button span { display: block; width: 22px; min-height: 1px; border-radius: var(--radius-pill); background: currentColor; }
 .sketch-tool-group.is-history { margin-left: auto; border-right: 0; }
 
 .sketch-workspace {

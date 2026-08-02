@@ -47,6 +47,17 @@ function pointerPoint(event: ReactPointerEvent<HTMLCanvasElement>, page: SketchP
   };
 }
 
+function coalescedPointerPoints(event: ReactPointerEvent<HTMLCanvasElement>, page: SketchPage): SketchPoint[] {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const coalescedEvents = event.nativeEvent.getCoalescedEvents?.() || [];
+  const events = coalescedEvents.length ? coalescedEvents : [event.nativeEvent];
+  return events.map((entry) => ({
+    x: (entry.clientX - rect.left) * page.width / rect.width,
+    y: (entry.clientY - rect.top) * page.height / rect.height,
+    pressure: entry.pressure > 0 ? entry.pressure : entry.pointerType === "mouse" ? 0.5 : 0.35,
+  }));
+}
+
 function selectionBounds(page: SketchPage, selectedIds: string[]): SketchBounds | null {
   return combinedObjectBounds(page.objects.filter((object) => selectedIds.includes(object.id)));
 }
@@ -67,9 +78,17 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
     const renderedPage = previewObjects ? { ...page, objects: previewObjects } : page;
+    const draftWidth = tool === "highlighter" ? Math.max(12, strokeWidth * 5) : strokeWidth;
     drawSketchPage(context, renderedPage, {
       selectedIds,
-      draftPoints: tool === "lasso" ? undefined : draftPoints,
+      draftObject: tool === "lasso" || !draftPoints.length ? undefined : {
+        id: "draft",
+        type: "stroke",
+        tool: tool === "highlighter" ? "highlighter" : "pen",
+        color,
+        width: draftWidth,
+        points: draftPoints,
+      },
       lassoPoints: tool === "lasso" ? draftPoints : undefined,
     });
     context.save();
@@ -89,7 +108,7 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
       context.stroke();
     }
     context.restore();
-  }, [alignmentGuides, draftPoints, page, previewObjects, selectedIds, tool]);
+  }, [alignmentGuides, color, draftPoints, page, previewObjects, selectedIds, strokeWidth, tool]);
 
   useEffect(() => render(), [render]);
   useEffect(() => setSelectedIds((current) => current.filter((id) => page.objects.some((object) => object.id === id))), [page.objects]);
@@ -237,7 +256,7 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
       return;
     }
     if (mode?.kind === "draw") {
-      const points = [...mode.points, point];
+      const points = [...mode.points, ...coalescedPointerPoints(event, page)];
       pointerModeRef.current = { ...mode, points };
       setDraftPoints(points);
       return;
@@ -277,7 +296,8 @@ export function SketchCanvas({ page, tool, color, strokeWidth, zoom, onChange, o
       return;
     }
 
-    const points = mode.points.length > 1 ? mode.points : [...mode.points, point];
+    const releasePoints = coalescedPointerPoints(event, page);
+    const points = mode.points.length > 1 ? [...mode.points, ...releasePoints] : [...mode.points, point];
     if (tool === "lasso") {
       setSelectedIds(lassoSelection(page.objects, points));
       onToolChange("select");
