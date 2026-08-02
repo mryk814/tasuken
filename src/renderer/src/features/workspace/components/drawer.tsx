@@ -196,7 +196,6 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
   if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} saveEntities={saveEntities} />;
   if (type === "sketch") {
     const sketch = entity as unknown as Sketch;
-    const theme = data.themes.find((entry) => entry.id === sketch.project_id);
     return (
       <DetailDrawer
         title="Sketch詳細"
@@ -211,23 +210,35 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           {sketch.origin_capture_id && <StatusBadge value="neutral" label="Ink Capture" />}
         </div>
         <h2>{sketch.title || "無題のSketch"}</h2>
+        <Field label="Theme">
+          <select
+            defaultValue={sketch.project_id || ""}
+            onChange={async (event) => {
+              const select = event.currentTarget;
+              const previousValue = sketch.project_id || "";
+              select.disabled = true;
+              try {
+                await saveEntity("sketch", {
+                  ...sketch,
+                  project_id: select.value || null,
+                });
+                setToast("SketchのThemeを更新しました。", "success");
+              } catch (error) {
+                select.value = previousValue;
+                setToast(`Themeを更新できませんでした。もう一度選択してください。${error instanceof Error ? ` ${error.message}` : ""}`, "danger");
+              } finally {
+                select.disabled = false;
+              }
+            }}
+          >
+            <option value="">Theme未設定</option>
+            {data.themes.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </select>
+        </Field>
         <dl>
-          <dt>Theme</dt><dd>{theme?.name || "未設定"}</dd>
           <dt>作成</dt><dd>{formatDate(sketch.created_at)}</dd>
           <dt>更新</dt><dd>{formatDate(sketch.updated_at)}</dd>
         </dl>
-        <div className="drawer-actions">
-          <button
-            className="primary-button"
-            onClick={() => {
-              localStorage.setItem("tasken:sketch:active-id", sketch.id);
-              close();
-              navigate("sketch-editor");
-            }}
-          >
-            <IconArrowsMaximize size={16} />Sketchを開く
-          </button>
-        </div>
       </DetailDrawer>
     );
   }

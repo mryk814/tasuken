@@ -94,6 +94,7 @@ export function SketchLibraryPage({
   function openSketch(sketch: Sketch) {
     localStorage.setItem(ACTIVE_SKETCH_KEY, sketch.id);
     navigate("sketch-editor");
+    openDrawer({ type: "sketch", entity: sketch });
   }
 
   return (
@@ -142,7 +143,6 @@ export function SketchLibraryPage({
             <span>Theme</span>
             <span>ページ</span>
             <span>更新</span>
-            <span />
           </div>
           {sketches.map((sketch) => {
             const theme = themes.find((entry) => entry.id === sketch.project_id);
@@ -150,8 +150,8 @@ export function SketchLibraryPage({
               <article className="sketch-library-row" key={sketch.id}>
                 <button
                   className="sketch-library-main"
-                  onClick={() => openDrawer({ type: "sketch", entity: sketch })}
-                  aria-label={`${sketch.title}の詳細を開く`}
+                  onClick={() => openSketch(sketch)}
+                  aria-label={`${sketch.title}を開く`}
                 >
                   <SketchPreview page={sketch.document.pages[0]} />
                   <strong>{sketch.title || "無題のSketch"}</strong>
@@ -161,7 +161,6 @@ export function SketchLibraryPage({
                   {sketchCanvasMode(sketch.document) === "infinite" ? "Infinite" : `Page · ${sketch.document.pages.length}`}
                 </span>
                 <time dateTime={String(sketch.updated_at || sketch.created_at || "")}>{updatedLabel(sketch)}</time>
-                <button className="secondary-button compact" onClick={() => openSketch(sketch)}>開く</button>
               </article>
             );
           })}
