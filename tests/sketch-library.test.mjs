@@ -30,11 +30,15 @@ test("Sketch library owns discovery creation and opening", () => {
   assert.match(library, /openDrawer\(\{[\s\S]*?type: "sketch",[\s\S]*?mode: "edit"/);
   assert.match(library, /entity: \{ \.\.\.draft, id: undefined \}/);
   assert.match(library, /navigate\("sketch-editor"\)/);
+  assert.match(library, /navigate\("sketch-editor"\);\s*openDrawer\(\{ type: "sketch", entity: sketch \}\)/);
+  assert.doesNotMatch(library, />開く<\/button>/);
 });
 
 test("Sketch metadata and deletion live in the detail-edit drawer", () => {
   assert.match(drawer, /type === "sketch"/);
-  assert.match(drawer, /Sketchを開く/);
+  assert.doesNotMatch(drawer, /Sketchを開く/);
+  assert.match(drawer, /SketchのThemeを更新しました/);
+  assert.match(drawer, /saveEntity\("sketch",[\s\S]*?project_id: select\.value \|\| null/);
   assert.match(drawer, /fieldName="project_id"/);
   assert.match(drawer, /entityId && removeEntity[\s\S]*?removeEntity\(type as Parameters<RemoveEntity>\[0\], entity\)/);
   assert.doesNotMatch(editor, /Sketchを削除|deleteSketch/);

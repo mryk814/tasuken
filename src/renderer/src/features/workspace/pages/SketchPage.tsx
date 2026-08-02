@@ -535,6 +535,7 @@ export function SketchPage({
             tool={tool}
             color={activePreset.color}
             strokeWidth={activePreset.width}
+            temporaryEraserWidth={toolPresets.eraser.width}
             shapeKind={shapeKind}
             eraserMode={eraserMode}
             zoom={zoom}

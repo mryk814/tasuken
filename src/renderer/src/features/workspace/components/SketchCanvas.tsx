@@ -41,6 +41,7 @@ interface SketchCanvasProps {
   tool: SketchTool;
   color: string;
   strokeWidth: number;
+  temporaryEraserWidth: number;
   shapeKind: SketchShapeKind;
   eraserMode: SketchEraserMode;
   zoom: number;
@@ -54,7 +55,7 @@ interface SketchCanvasProps {
 
 type PointerMode =
   | { kind: "draw"; points: SketchPoint[] }
-  | { kind: "erase"; points: SketchPoint[]; originObjects: SketchObject[] }
+  | { kind: "erase"; points: SketchPoint[]; originObjects: SketchObject[]; width: number }
   | { kind: "text"; point: SketchPoint }
   | { kind: "pan"; clientX: number; clientY: number; scrollLeft: number; scrollTop: number }
   | { kind: "move"; start: SketchPoint; ids: string[]; originObjects: SketchObject[] }
@@ -117,6 +118,7 @@ export function SketchCanvas({
   tool,
   color,
   strokeWidth,
+  temporaryEraserWidth,
   shapeKind,
   eraserMode,
   zoom,
@@ -130,6 +132,8 @@ export function SketchCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pointerModeRef = useRef<PointerMode>(null);
+  const draftPointsRef = useRef<SketchPoint[]>([]);
+  const renderFrameRef = useRef<number | null>(null);
   const copiedObjectsRef = useRef<SketchObject[]>([]);
   const pasteGenerationRef = useRef(0);
   const lastPointerRef = useRef<SketchPoint>({ x: page.width / 2, y: page.height / 2, pressure: 0.5 });
@@ -138,7 +142,6 @@ export function SketchCanvas({
   const spacePressedRef = useRef(false);
   const zoomAnchorRef = useRef<{ left: number; top: number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [draftPoints, setDraftPoints] = useState<SketchPoint[]>([]);
   const [previewObjects, setPreviewObjects] = useState<SketchObject[] | null>(null);
   const [alignmentGuides, setAlignmentGuides] = useState<SketchAlignmentGuides>({ vertical: [], horizontal: [] });
   const [textEditor, setTextEditor] = useState<{
@@ -153,6 +156,7 @@ export function SketchCanvas({
   const [eraserPoint, setEraserPoint] = useState<SketchPoint | null>(null);
   const [temporaryPanReady, setTemporaryPanReady] = useState(false);
   const [panning, setPanning] = useState(false);
+  const [temporaryErasing, setTemporaryErasing] = useState(false);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -163,6 +167,7 @@ export function SketchCanvas({
       ...page,
       objects: textEditor?.id ? sourceObjects.filter((object) => object.id !== textEditor.id) : sourceObjects,
     };
+    const draftPoints = draftPointsRef.current;
     const draftShape = tool === "shape" && draftPoints.length
       ? shapeFromPoints(draftPoints, shapeKind, color, strokeWidth)
       : undefined;
@@ -196,9 +201,20 @@ export function SketchCanvas({
       context.stroke();
     }
     context.restore();
-  }, [alignmentGuides, color, draftPoints, page, previewObjects, selectedIds, shapeKind, strokeWidth, textEditor?.id, tool]);
+  }, [alignmentGuides, color, page, previewObjects, selectedIds, shapeKind, strokeWidth, textEditor?.id, tool]);
+
+  const scheduleRender = useCallback(() => {
+    if (renderFrameRef.current !== null) return;
+    renderFrameRef.current = window.requestAnimationFrame(() => {
+      renderFrameRef.current = null;
+      render();
+    });
+  }, [render]);
 
   useEffect(() => render(), [render]);
+  useEffect(() => () => {
+    if (renderFrameRef.current !== null) window.cancelAnimationFrame(renderFrameRef.current);
+  }, []);
   useEffect(() => setSelectedIds((current) => current.filter((id) => page.objects.some((object) => object.id === id))), [page.objects]);
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
@@ -300,7 +316,7 @@ export function SketchCanvas({
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
-    if (event.button !== 0 && event.button !== 1) return;
+    if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
     const point = pointerPoint(event, page);
     lastPointerRef.current = point;
     if (tool === "pan" || event.button === 1 || (event.button === 0 && spacePressedRef.current)) {
@@ -319,6 +335,22 @@ export function SketchCanvas({
       return;
     }
 
+    if (event.button === 2) {
+      event.preventDefault();
+      event.currentTarget.focus();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerModeRef.current = {
+        kind: "erase",
+        points: [point],
+        originObjects: structuredClone(page.objects),
+        width: temporaryEraserWidth,
+      };
+      setTemporaryErasing(true);
+      setEraserPoint(point);
+      setPreviewObjects(eraseSketchObjects(page.objects, [point], temporaryEraserWidth, eraserMode));
+      return;
+    }
+
     if (tool === "text") {
       const hit = hitTest(page.objects, point);
       if (hit?.type === "text") {
@@ -334,13 +366,14 @@ export function SketchCanvas({
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "eraser") {
-      pointerModeRef.current = { kind: "erase", points: [point], originObjects: structuredClone(page.objects) };
+      pointerModeRef.current = { kind: "erase", points: [point], originObjects: structuredClone(page.objects), width: strokeWidth };
       setPreviewObjects(eraseSketchObjects(page.objects, [point], strokeWidth, eraserMode));
       return;
     }
     if (["pen", "highlighter", "shape", "arrow", "lasso"].includes(tool)) {
       pointerModeRef.current = { kind: "draw", points: [point] };
-      setDraftPoints([point]);
+      draftPointsRef.current = [point];
+      scheduleRender();
       return;
     }
     if (tool === "select") {
@@ -407,8 +440,8 @@ export function SketchCanvas({
   function onPointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
     const point = pointerPoint(event, page);
     lastPointerRef.current = point;
-    if (tool === "eraser") setEraserPoint(point);
     const mode = pointerModeRef.current;
+    if (tool === "eraser" || mode?.kind === "erase") setEraserPoint(point);
     if (mode?.kind === "pan") {
       const scroll = scrollRef.current;
       if (!scroll) return;
@@ -419,13 +452,13 @@ export function SketchCanvas({
     if (mode?.kind === "erase") {
       const points = [...mode.points, ...coalescedPointerPoints(event, page)];
       pointerModeRef.current = { ...mode, points };
-      setPreviewObjects(eraseSketchObjects(mode.originObjects, points, strokeWidth, eraserMode));
+      setPreviewObjects(eraseSketchObjects(mode.originObjects, points, mode.width, eraserMode));
       return;
     }
     if (mode?.kind === "draw") {
-      const points = [...mode.points, ...coalescedPointerPoints(event, page)];
-      pointerModeRef.current = { ...mode, points };
-      setDraftPoints(points);
+      mode.points.push(...coalescedPointerPoints(event, page));
+      draftPointsRef.current = mode.points;
+      scheduleRender();
       return;
     }
     if (mode?.kind === "move") {
@@ -459,14 +492,15 @@ export function SketchCanvas({
     const mode = pointerModeRef.current;
     pointerModeRef.current = null;
     setPanning(false);
-    setDraftPoints([]);
+    draftPointsRef.current = [];
     setPreviewObjects(null);
     setAlignmentGuides({ vertical: [], horizontal: [] });
+    setTemporaryErasing(false);
     if (!mode) return;
     if (mode.kind === "pan") return;
     if (mode.kind === "erase") {
       const points = [...mode.points, ...coalescedPointerPoints(event, page)];
-      const objects = eraseSketchObjects(mode.originObjects, points, strokeWidth, eraserMode);
+      const objects = eraseSketchObjects(mode.originObjects, points, mode.width, eraserMode);
       const changed = objects.length !== mode.originObjects.length
         || objects.some((object, index) => object !== mode.originObjects[index]);
       if (changed) commitObjects(objects);
@@ -542,10 +576,12 @@ export function SketchCanvas({
 
   function onPointerCancel() {
     pointerModeRef.current = null;
-    setDraftPoints([]);
+    draftPointsRef.current = [];
     setPreviewObjects(null);
     setAlignmentGuides({ vertical: [], horizontal: [] });
     setPanning(false);
+    setTemporaryErasing(false);
+    scheduleRender();
   }
 
   function commitText() {
@@ -623,7 +659,7 @@ export function SketchCanvas({
       <div className="sketch-canvas-stage" style={{ width: `${page.width * zoom}px`, height: `${page.height * zoom}px` }}>
         <canvas
           ref={canvasRef}
-          className={`sketch-canvas is-${tool}${temporaryPanReady ? " is-temporary-pan" : ""}${panning ? " is-panning" : ""}${hoverIntent ? ` has-${hoverIntent}-target` : ""}`}
+          className={`sketch-canvas is-${tool}${temporaryPanReady ? " is-temporary-pan" : ""}${panning ? " is-panning" : ""}${temporaryErasing ? " is-temporary-erasing" : ""}${hoverIntent ? ` has-${hoverIntent}-target` : ""}`}
           width={page.width}
           height={page.height}
           tabIndex={0}
@@ -641,17 +677,18 @@ export function SketchCanvas({
             setEraserPoint(null);
           }}
           onAuxClick={(event) => event.preventDefault()}
+          onContextMenu={(event) => event.preventDefault()}
           onPaste={onPaste}
           aria-label="Sketchキャンバス"
         />
-        {tool === "eraser" && eraserPoint && (
+        {(tool === "eraser" || temporaryErasing) && eraserPoint && (
           <span
             className="sketch-eraser-preview"
             style={{
               left: `${eraserPoint.x * zoom}px`,
               top: `${eraserPoint.y * zoom}px`,
-              width: `${strokeWidth * zoom}px`,
-              height: `${strokeWidth * zoom}px`,
+              width: `${(temporaryErasing ? temporaryEraserWidth : strokeWidth) * zoom}px`,
+              height: `${(temporaryErasing ? temporaryEraserWidth : strokeWidth) * zoom}px`,
             }}
             aria-hidden="true"
           />
