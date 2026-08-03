@@ -110,6 +110,7 @@ type MarkdownRichEditorProps = {
     selection: MarkdownTextSelection,
     title: string,
   ) => Promise<void>;
+  onAiEditSelection?: (selection: MarkdownTextSelection) => void;
 };
 
 const LONG_DOCUMENT_SPELLCHECK_LIMIT = 20_000;
@@ -386,6 +387,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   markdownInsertRef,
   onImagePreview,
   onExtractSelection,
+  onAiEditSelection,
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
@@ -523,7 +525,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   }, [markdown]);
 
   useEffect(() => {
-    if (!onExtractSelection) return;
+    if (!onExtractSelection && !onAiEditSelection) return;
     const scope = editorScopeRef.current;
     if (!scope) return;
     let frame = 0;
@@ -591,7 +593,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
       window.cancelAnimationFrame(frame);
       document.removeEventListener("selectionchange", refreshSelection);
     };
-  }, [extractionKind, onExtractSelection]);
+  }, [extractionKind, onAiEditSelection, onExtractSelection]);
 
   useEffect(() => {
     if (!textSelection) return;
@@ -890,7 +892,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
         plugins={plugins}
         spellCheck={spellCheck}
       />
-      {textSelection && onExtractSelection && (
+      {textSelection && (onExtractSelection || onAiEditSelection) && (
         <div
           className={`note-selection-extract-panel ${extractionKind ? "is-composing" : ""}`}
           style={{ top: textSelection.top, left: textSelection.left }}
@@ -948,6 +950,16 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
               >
                 Note
               </button>
+              {onAiEditSelection && (
+                <button
+                  type="button"
+                  className="primary-button compact"
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => onAiEditSelection(textSelection)}
+                >
+                  AIで編集
+                </button>
+              )}
             </>
           )}
         </div>

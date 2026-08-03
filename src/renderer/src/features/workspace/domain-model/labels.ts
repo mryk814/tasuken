@@ -64,6 +64,7 @@ export const ARTIFACT_SOURCE_TYPE_LABELS: Record<string, string> = {
   report: "報告",
   theme: "Theme",
   capture_entry: "Inbox",
+  ai_proposal: "AI Proposal",
 };
 
 export const ARTIFACT_GENERATED_BY_LABELS: Record<string, string> = {
@@ -71,6 +72,7 @@ export const ARTIFACT_GENERATED_BY_LABELS: Record<string, string> = {
   claude: "Claude",
   copilot: "Copilot",
   gemini: "Gemini",
+  openai: "OpenAI",
   manual: "手動",
 };
 

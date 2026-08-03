@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { AppUpdateCheckResult, McpBridgeInfo, SharedSyncStatus } from "../../../../../shared/ipc/contracts";
+import type { AiProviderConfig } from "../../../../../shared/ai";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
@@ -22,6 +23,10 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [syncStatus, setSyncStatus] = useState<SharedSyncStatus | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
+  const [aiConfig, setAiConfig] = useState<AiProviderConfig | null>(null);
+  const [aiModel, setAiModel] = useState("gpt-5.6");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     workspaceApi.getPreference("artifactDirectory")
@@ -36,6 +41,17 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
       .then(setMcpInfo)
       .catch((error) => {
         setToast(`MCP Bridgeの情報を取得できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      });
+  }, [setToast]);
+
+  useEffect(() => {
+    workspaceApi.getAiConfig()
+      .then((config) => {
+        setAiConfig(config);
+        setAiModel(config.model);
+      })
+      .catch((error) => {
+        setToast(`AI設定を取得できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
       });
   }, [setToast]);
 
@@ -208,6 +224,26 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
     if (!result.ok) setToast(`MCP Inboxを開けませんでした。${result.error || ""}`, "danger");
   }
 
+  async function saveAiSettings(clearApiKey = false) {
+    setAiBusy(true);
+    try {
+      const config = await workspaceApi.saveAiConfig({
+        provider: "openai",
+        model: aiModel,
+        apiKey: aiApiKey || undefined,
+        clearApiKey,
+      });
+      setAiConfig(config);
+      setAiModel(config.model);
+      setAiApiKey("");
+      setToast(clearApiKey ? "OpenAI APIキーを削除しました。" : "AI設定を安全に保存しました。", "success");
+    } catch (error) {
+      setToast(`AI設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   const updateStatusLabel = updateInfo
     ? updateInfo.status === "available"
       ? `Tasken ${updateInfo.latestVersion} が公開されています。`
@@ -342,6 +378,38 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           <div className="settings-action-row">
             <button className="primary-button" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</button>
             <button className="secondary-button" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</button>
+          </div>
+        </section>
+        <section className="panel settings-form ai-provider-settings-panel">
+          <div className="settings-section-heading">
+            <h2>AI Provider</h2>
+            <span className={`sync-state ${aiConfig?.hasApiKey ? "sync-state-idle" : "sync-state-off"}`}>
+              {aiConfig?.hasApiKey ? "設定済み" : "未設定"}
+            </span>
+          </div>
+          <p className="field-help">OpenAIへの送信は明示操作時だけです。返答はNoteを直接変更せず、Pending Proposalとして差分確認します。</p>
+          <label>Provider
+            <select value="openai" disabled><option value="openai">OpenAI</option></select>
+          </label>
+          <label>Model
+            <input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="gpt-5.6" />
+          </label>
+          <label>API key
+            <input
+              type="password"
+              autoComplete="off"
+              value={aiApiKey}
+              onChange={(event) => setAiApiKey(event.target.value)}
+              placeholder={aiConfig?.hasApiKey ? "保存済み（変更時だけ入力）" : "sk-..."}
+            />
+          </label>
+          <div className="settings-action-row">
+            <button className="primary-button" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
+              {aiBusy ? "保存中" : "設定を保存"}
+            </button>
+            {aiConfig?.hasApiKey && (
+              <button className="danger-button" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</button>
+            )}
           </div>
         </section>
         <section className="panel settings-form update-panel">

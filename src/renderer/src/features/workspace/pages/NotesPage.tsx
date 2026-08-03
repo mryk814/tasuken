@@ -32,6 +32,7 @@ import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
 import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
 import { MarkdownPreview } from "../components/MarkdownPreview";
+import { NoteAiDialog, type NoteAiTarget } from "../components/NoteAiDialog";
 import { clipboardImageFile, readFileAsDataUrl } from "../lib/clipboardImage";
 import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
@@ -194,6 +195,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [sketchPickerOpen, setSketchPickerOpen] = useState(false);
+  const [aiTarget, setAiTarget] = useState<NoteAiTarget | null>(null);
   const [pickerSketchId, setPickerSketchId] = useState("");
   const [pickerPageId, setPickerPageId] = useState("");
   const [sketchEmbeds, setSketchEmbeds] = useState<Record<string, SketchEmbedPreview>>({});
@@ -208,6 +210,28 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const previewPanelRef = useRef<HTMLElement | null>(null);
   const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
+
+  function openSelectionAi(selection: MarkdownTextSelection) {
+    const source = mdxMarkdownSourceRef.current?.() || draftBody;
+    const first = source.indexOf(selection.text);
+    const second = first >= 0 ? source.indexOf(selection.text, first + selection.text.length) : -1;
+    if (first < 0 || second >= 0) {
+      setToast("選択範囲をMarkdown本文上で一意に特定できません。Rawで選び直すか文書全体を指定してください。", "warning");
+      return;
+    }
+    setAiTarget({ scope: "selection", start: first, end: first + selection.text.length, text: selection.text });
+  }
+
+  function openNoteAi() {
+    const textarea = textareaRef.current;
+    if (textarea && (previewMode === "raw" || hasMarkdownFootnotes(draftBody)) && textarea.selectionEnd > textarea.selectionStart) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      setAiTarget({ scope: "selection", start, end, text: draftBody.slice(start, end) });
+      return;
+    }
+    setAiTarget({ scope: "document" });
+  }
   const mdxMarkdownInsertRef = useRef<((markdown: string) => void) | null>(null);
   const selectedBodyRef = useRef(selectedBody);
   const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
@@ -1205,6 +1229,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                   {selected.recordType === "note" && (
                     <button className="secondary-button compact" onClick={() => setDraftWorkspaceTarget(selected)}><IconSparkles size={15} />Draft Workspace</button>
                   )}
+                  {selected.recordType === "note" && (
+                    <button className="secondary-button compact" onClick={openNoteAi}><IconSparkles size={15} />AI編集</button>
+                  )}
                   <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
                     setDraftBody(selectedBody);
                     setRichEditorDirty(false);
@@ -1406,6 +1433,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                         onImagePreview={previewSketchImage}
                         onError={reportRichEditorError}
                         onExtractSelection={selected.recordType === "note" ? extractSelection : undefined}
+                        onAiEditSelection={selected.recordType === "note" ? openSelectionAi : undefined}
                       />
                     </Suspense>
                   </MarkdownEditorBoundary>
@@ -1476,6 +1504,16 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
           setToast={setToast}
           onSaved={handleDraftWorkspaceSaved}
           close={closeDraftWorkspace}
+        />
+      )}
+      {selected && selected.recordType === "note" && aiTarget && (
+        <NoteAiDialog
+          note={selected}
+          body={mdxMarkdownSourceRef.current?.() || draftBody}
+          target={aiTarget}
+          saveEntity={saveEntity}
+          setToast={setToast}
+          onClose={() => setAiTarget(null)}
         />
       )}
     </div>

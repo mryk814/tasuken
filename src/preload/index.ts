@@ -14,6 +14,11 @@ const api: ResearchDeskApi = {
     get: (key) => ipcRenderer.invoke(IPC.preferenceGet, key),
     set: (key, value) => ipcRenderer.invoke(IPC.preferenceSet, key, value),
   },
+  ai: {
+    getConfig: () => ipcRenderer.invoke(IPC.aiConfigGet),
+    saveConfig: (update) => ipcRenderer.invoke(IPC.aiConfigSave, update),
+    generateNote: (request) => ipcRenderer.invoke(IPC.aiNoteGenerate, request),
+  },
   clipboard: {
     writeText: (text) => ipcRenderer.invoke(IPC.clipboardWriteText, text),
     writeHtml: (payload) => ipcRenderer.invoke(IPC.clipboardWriteHtml, payload),
@@ -33,6 +38,7 @@ const api: ResearchDeskApi = {
   attachments: {
     saveMarkdownImage: (request) => ipcRenderer.invoke(IPC.markdownImageSave, request),
     importArtifactFiles: (request) => ipcRenderer.invoke(IPC.artifactFilesImport, request),
+    materializeArtifactProposal: (request) => ipcRenderer.invoke(IPC.artifactProposalMaterialize, request),
   },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),

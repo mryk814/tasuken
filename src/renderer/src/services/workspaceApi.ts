@@ -47,6 +47,15 @@ export const workspaceApi = {
   getPreference(key: string) {
     return desktopApi().preferences.get(key);
   },
+  getAiConfig() {
+    return desktopApi().ai.getConfig();
+  },
+  saveAiConfig(update: import("../../../shared/ai").AiProviderConfigUpdate) {
+    return desktopApi().ai.saveConfig(update);
+  },
+  generateNoteWithAi(request: import("../../../shared/ai").AiNoteGenerateRequest) {
+    return desktopApi().ai.generateNote(request);
+  },
   copyText(text: string) {
     return desktopApi().clipboard.writeText(text);
   },
@@ -82,6 +91,9 @@ export const workspaceApi = {
   },
   importArtifactFiles(request: ArtifactFileImportRequest) {
     return desktopApi().attachments.importArtifactFiles(request);
+  },
+  materializeArtifactProposal(request: import("../../../shared/attachments").ArtifactProposalMaterializeRequest) {
+    return desktopApi().attachments.materializeArtifactProposal(request);
   },
   reload() {
     return desktopApi().app.reload();

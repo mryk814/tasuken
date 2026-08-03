@@ -49,7 +49,7 @@ $env:TASKEN_DB_PATH="C:\path\to\research-desk.sqlite"
 npm run mcp
 ```
 
-MCP toolは読み取り専用です。Note本文の全文は`include_raw_body: true`を明示した場合だけ返します。
+MCPの検索・文脈取得toolは読み取り専用です。Note本文の全文は`include_raw_body: true`を明示した場合だけ返します。Task / Note / Knowledge / Sketch / Artifactのwrite toolはSQLiteへ直接書かず、TaskenのPending Proposalへ送ります。
 
 Windowsインストーラーとportable版を作成:
 
@@ -86,10 +86,10 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 - ToDo: 未完了、Inbox、期限超過、日程未確定の整理
 - Timeline: テーマ横断の長期ガントとマイルストーン一覧
 - Themes / Notes（URL・コメントを含む）/ Waiting
-- AI Import / Export: JSON / YAMLの取り込みと、JSON / YAML / Markdownの書き出し
+- AI Import / Export: JSON / YAMLの取り込み、Note内OpenAI編集、Proposal差分確認、JSON / YAML / Markdownの書き出し
 - Workspace Snapshot: ZIPによるバックアップ、差分プレビュー、競合選択付きImport
 - Theme Status / Plan Revision / 情報源管理 / Settings
-- Knowledge / MCP: 思考・根拠・問い・決定をAIが安全に参照するためのKnowledge一覧とread-only MCP
+- Knowledge / MCP: 思考・根拠・問い・決定をAIが安全に参照するKnowledge一覧、read-only context、Preview必須のSafe Write Proposal
 
 ## 使い始める流れ
 

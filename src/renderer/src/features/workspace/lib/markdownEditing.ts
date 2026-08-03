@@ -171,6 +171,33 @@ export function buildMarkdownDiffHunks(lines: MarkdownDiffLine[], context = 2): 
 }
 
 /**
+ * 差分のうち採用したhunkだけを元本文へ適用する。
+ * Proposalの部分採用用。変更のない行は常に保持する。
+ */
+export function applyMarkdownDiffHunks(before: string, after: string, acceptedHunks: number[]): string {
+  const accepted = new Set(acceptedHunks);
+  const lines = diffMarkdownLines(before, after);
+  const output: string[] = [];
+  let hunkIndex = -1;
+  let inChange = false;
+  for (const line of lines) {
+    if (line.kind === "same") {
+      inChange = false;
+      output.push(line.text);
+      continue;
+    }
+    if (!inChange) {
+      hunkIndex += 1;
+      inChange = true;
+    }
+    if (accepted.has(hunkIndex) ? line.kind === "added" : line.kind === "removed") {
+      output.push(line.text);
+    }
+  }
+  return output.join("\n");
+}
+
+/**
  * 本文左端へ置く変更マーカー。表示中の本文側の行番号へ寄せ、削除だけの変更は直前の行に置く。
  */
 export function buildMarkdownDiffMarkers(lines: MarkdownDiffLine[], context = 2): MarkdownDiffMarker[] {

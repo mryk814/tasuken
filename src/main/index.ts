@@ -17,6 +17,7 @@ import { createTrayController, type TrayController } from "./trayController";
 import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
+import { AiProviderService } from "./services/aiProviderService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 
@@ -765,6 +766,7 @@ async function startDesktopApp(): Promise<void> {
     workspaceRepository,
     new WorkspaceService(workspaceRepository, app.getPath("userData")),
     sharedFolderSyncService,
+    new AiProviderService(app.getPath("userData")),
   );
   mcpProposalInboxService = new McpProposalInboxService(
     workspaceRepository,

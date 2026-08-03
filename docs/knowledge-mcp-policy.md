@@ -6,7 +6,7 @@ TaskenはElectron + React + SQLiteのローカルデスクトップアプリと�
 
 ## 基本方針
 
-TaskenにGitHub Copilot serviceを直接埋め込むことは優先しない。TaskenをAIが参照できる「思考と作業の文脈DB」にする。
+TaskenにGitHub Copilotの非公式serviceを直接埋め込むことはしない。外部AIが参照できる「思考と作業の文脈DB」を基本にしつつ、利用者が明示設定したOpenAI APIだけはNote編集の短い経路として使う。どちらの書き込みもSafe Write Proposalへ合流する。
 
 優先順は以下とする。
 
@@ -15,6 +15,7 @@ TaskenにGitHub Copilot serviceを直接埋め込むことは優先しない。T
 3. Read-only MCP Serverを追加する
 4. Safe Write Proposalを追加する
 5. VS Code / Copilot / Cursor連携はMCP経由で行う
+6. Note内AI編集も同じProposal Previewへ合流する
 
 現時点では以下をやらない。
 
@@ -303,6 +304,8 @@ Read-only MCPは以下を守る。
 ## MCP Safe Write Proposal
 
 MCP経由のwriteは直接保存しない。Tasken側のpreview inboxに「提案」として送る。
+
+Note、Knowledgeに加えてSketchとArtifactを対象にする。Sketchは安全性を検証したinline SVGを編集可能なSketch文書内の画像オブジェクトとして取り込み、ArtifactはSVG / Markdown / text / JSONのinline contentだけをmanaged保存先へ作る。MCPから任意のローカルパスやURLを指定する操作は提供しない。
 
 実装境界は以下で固定する。
 

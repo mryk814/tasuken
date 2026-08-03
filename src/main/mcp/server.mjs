@@ -267,6 +267,60 @@ export function createTaskenMcpServer() {
     request: { tool: "tasken.propose_knowledge" },
   })));
 
+  server.registerTool("tasken.propose_sketch", {
+    description: "Queue a safe inline SVG as a Sketch proposal. Tasken only saves it after user preview and acceptance.",
+    inputSchema: {
+      title: z.string().trim().min(1).max(200),
+      svg: z.string().min(1).max(500000),
+      theme: optionalText,
+      reason: z.string().max(2000).optional(),
+      source_app: z.string().trim().min(1).max(120).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => toolResult(queueMcpProposal({
+    payloadType: "sketches",
+    sourceApp: sourceApp(args),
+    payload: {
+      sketches: [{
+        action: "create",
+        title: args.title,
+        svg: args.svg,
+        theme: args.theme || "",
+        reason: args.reason || "",
+      }],
+    },
+    request: { tool: "tasken.propose_sketch" },
+  })));
+
+  server.registerTool("tasken.propose_artifact", {
+    description: "Queue an inline SVG, Markdown, text, or JSON Artifact. Paths and external URLs are not accepted.",
+    inputSchema: {
+      title: z.string().trim().min(1).max(200),
+      file_name: z.string().trim().min(1).max(180),
+      media_type: z.enum(["image/svg+xml", "text/markdown", "text/plain", "application/json"]),
+      content: z.string().min(1).max(1000000),
+      theme: optionalText,
+      reason: z.string().max(2000).optional(),
+      source_app: z.string().trim().min(1).max(120).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => toolResult(queueMcpProposal({
+    payloadType: "artifacts",
+    sourceApp: sourceApp(args),
+    payload: {
+      artifacts: [{
+        action: "create",
+        title: args.title,
+        file_name: args.file_name,
+        media_type: args.media_type,
+        content: args.content,
+        theme: args.theme || "",
+        reason: args.reason || "",
+      }],
+    },
+    request: { tool: "tasken.propose_artifact" },
+  })));
+
   return server;
 }
 
