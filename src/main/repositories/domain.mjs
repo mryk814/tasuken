@@ -123,9 +123,10 @@ export const artifactSourceEntityTypes = {
   report: "note",
   theme: "theme",
   capture_entry: "capture_entry",
+  ai_proposal: "ai_proposal",
 };
 const artifactSourceTypes = new Set(Object.keys(artifactSourceEntityTypes));
-const artifactGeneratedByValues = new Set(["chatgpt", "claude", "copilot", "gemini", "manual"]);
+const artifactGeneratedByValues = new Set(["chatgpt", "claude", "copilot", "gemini", "openai", "manual"]);
 const artifactStorageModes = new Set(["managed", "linked"]);
 const artifactLinkTypes = new Set(["url", "local_path", "shared_path", "onedrive", "sharepoint", "teams"]);
 const artifactLinkStatuses = new Set(["unknown", "ok", "broken", "inaccessible"]);

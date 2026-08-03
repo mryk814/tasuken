@@ -3,9 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { validateArtifactProposal, validateSafeSvg } from "../../shared/proposalMedia.mjs";
+
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 1024 * 1024;
-const PAYLOAD_TYPES = new Set(["items", "notes", "links", "knowledge_nodes", "status_update"]);
+const PAYLOAD_TYPES = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update"]);
 
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -32,6 +34,8 @@ function validatePayload(payloadType, payload) {
     if (payloadType === "links" && !text(entry.url)) throw new Error("linksにはurlが必要です。");
     if (payloadType !== "links" && !text(entry.title)) throw new Error(`${payloadType}にはtitleが必要です。`);
     if (payloadType === "notes" && typeof entry.body !== "string") throw new Error("notesにはbodyが必要です。");
+    if (payloadType === "sketches") validateSafeSvg(entry.svg);
+    if (payloadType === "artifacts") validateArtifactProposal(entry);
   }
 }
 

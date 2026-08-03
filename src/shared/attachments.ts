@@ -31,3 +31,15 @@ export interface ImportedArtifactFile {
 export type ArtifactFileImportResult =
   | { status: "needs_directory" }
   | { status: "ok"; directory: string; files: ImportedArtifactFile[] };
+
+export interface ArtifactProposalMaterializeRequest {
+  title: string;
+  fileName: string;
+  mediaType: string;
+  content: string;
+  themeId?: string | null;
+}
+
+export type ArtifactProposalMaterializeResult =
+  | { status: "needs_directory" }
+  | { status: "ok"; directory: string; file: ImportedArtifactFile };

@@ -30,6 +30,14 @@
 1. Ink Captureは素早い入口であり、保存後は通常のSketchとして同じ編集面に到達する。
 2. SketchはSidebarのKnowledge配下に独立した棚と編集面を持ち、Markdown本文へ生の軌跡データを埋め込まない。
 3. NoteはSketchの派生画像を参照する利用側とし、編集可能な正本はSketch棚へ残す。現在のPNG添付＋`derived_from`参照は、Note側から埋め込んで再編集できる経路へ置換するまでの既存契約とする。
-4. AI連携は画像と説明用テキストのクリップボード往復を既定とし、APIキーを内蔵しない。
+4. AI連携はクリップボード往復を無設定の既定として残す。利用者が明示的にOpenAI APIキーを設定した場合だけNote内AI編集を有効にし、キーはElectron Main Processの`safeStorage`で暗号化してRenderer・DB・ログへ出さない。
 5. 既存のNotes・Snapshot・Import/Export形式を壊さず、Sketchを追加コレクションとして扱う。
 6. PageとInfiniteは同じ編集可能オブジェクト文書の表示モードであり、ライフサイクルが分かれるまでは別テーブル・別エンティティへ分裂させない。
+
+## AI書き込みの境界契約
+
+1. 内蔵LLM、MCP、手動Importのいずれも正式Entityを直接変更せず、`ai_proposal`を作る。
+2. Note編集は対象IDと`base_version`を固定し、文書全体または選択範囲を明示する。採用は差分hunk単位で選べる。
+3. Sketch/SVG/ArtifactはPreview後だけ保存する。SVGは許可要素だけのinline内容とし、script・event属性・外部参照を拒否する。
+4. Artifact Proposalは任意パスを受け取らず、許可したinline contentをmanaged保存先へ新規ファイルとして作る。
+5. API失敗、Proposal検証失敗、保存失敗では既存Noteと入力途中の指示を変更しない。

@@ -4,6 +4,7 @@ import { IPC } from "../../shared/ipc/contracts";
 import { entityTypes, type EntityType } from "../../shared/types/workspace";
 import type { WorkspaceService } from "../services/workspaceService";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
+import type { AiProviderService } from "../services/aiProviderService";
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -44,12 +45,16 @@ export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
   sharedSync: SharedFolderSyncService,
+  aiProvider: AiProviderService,
 ): void {
   ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => repository.setPreference(requireId(key), value));
+  ipcMain.handle(IPC.aiConfigGet, () => aiProvider.getConfig());
+  ipcMain.handle(IPC.aiConfigSave, (_event, update) => aiProvider.saveConfig(update));
+  ipcMain.handle(IPC.aiNoteGenerate, (_event, request) => aiProvider.generateNote(request));
   ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
   ipcMain.handle(IPC.clipboardWriteHtml, (_event, payload) => service.writeClipboardHtml(payload));
   ipcMain.handle(IPC.clipboardWriteImage, (_event, payload) => service.writeClipboardImage(payload));
@@ -61,6 +66,7 @@ export function registerIpc(
   ipcMain.handle(IPC.dialogChooseFiles, (_event, title) => service.chooseFiles(title));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
   ipcMain.handle(IPC.artifactFilesImport, (_event, request) => service.importArtifactFiles(request));
+  ipcMain.handle(IPC.artifactProposalMaterialize, (_event, request) => service.materializeArtifactProposal(request));
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());
   ipcMain.handle(IPC.appReleasePageOpen, (_event, url) => service.openReleasePage(typeof url === "string" ? url : undefined));

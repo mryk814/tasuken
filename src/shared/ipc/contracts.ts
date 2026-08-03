@@ -7,10 +7,11 @@ import type {
   Workspace,
   WorkspaceMeta,
 } from "../types/workspace";
-import type { ArtifactFileImportRequest, ArtifactFileImportResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
+import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../slideTimelineExport";
+import type { AiNoteGenerateRequest, AiNoteGenerateResult, AiProviderConfig, AiProviderConfigUpdate } from "../ai";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -29,6 +30,7 @@ export const IPC = {
   dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
+  artifactProposalMaterialize: "artifact:proposal-materialize",
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
@@ -52,6 +54,9 @@ export const IPC = {
   markdownPdfExport: "markdown-pdf:export",
   sketchExport: "sketch:export",
   slideTimelineExport: "slide-timeline:export",
+  aiConfigGet: "ai:config-get",
+  aiConfigSave: "ai:config-save",
+  aiNoteGenerate: "ai:note-generate",
 } as const;
 
 export interface WorkspaceChangePayload {
@@ -133,6 +138,11 @@ export interface ResearchDeskApi {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<boolean>;
   };
+  ai: {
+    getConfig(): Promise<AiProviderConfig>;
+    saveConfig(update: AiProviderConfigUpdate): Promise<AiProviderConfig>;
+    generateNote(request: AiNoteGenerateRequest): Promise<AiNoteGenerateResult>;
+  };
   clipboard: {
     writeText(text: string): Promise<boolean>;
     writeHtml(payload: { html: string; text: string }): Promise<boolean>;
@@ -154,6 +164,7 @@ export interface ResearchDeskApi {
   attachments: {
     saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
     importArtifactFiles(request: ArtifactFileImportRequest): Promise<ArtifactFileImportResult>;
+    materializeArtifactProposal(request: ArtifactProposalMaterializeRequest): Promise<ArtifactProposalMaterializeResult>;
   };
   app: {
     reload(): Promise<boolean>;

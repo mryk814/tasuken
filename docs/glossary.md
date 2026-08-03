@@ -18,6 +18,8 @@
 | Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
 | Import/Export | `ImportExportPage.tsx` | 「AI Import」。検証→プレビュー→採用の取り込み導線 |
+| Note AI | `NoteAiDialog.tsx` / `AiProposalPanel.tsx` | Noteの「AI編集」「選択範囲をAIで編集」。OpenAIの返答を直接保存せずPending Proposalへ入れ、差分hunkを選んで採用する |
+| AI Proposal | `AiProposalPanel.tsx` / `McpProposalInboxService` | 内蔵LLM・MCP・手動Importから届く安全な書き込み候補。Note / Knowledge / Sketch / Artifactの正式保存前にPreviewする |
 
 ## エンティティと状態
 

@@ -3,12 +3,14 @@ import { useMemo, useState } from "react";
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import { str, uuid } from "../lib/format";
 import { assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
-import { buildMarkdownDiffHunks, diffMarkdownLines } from "../lib/markdownEditing";
+import { applyMarkdownDiffHunks, buildMarkdownDiffHunks, diffMarkdownLines } from "../lib/markdownEditing";
 import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTaskOperations, buildSaveWaitingOperations } from "../domain-model/persistence";
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
+import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
+import { workspaceApi } from "../../../services/workspaceApi";
 
-type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "status_update";
-type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge";
+type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update";
+type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact";
 
 interface ProposalCandidate {
   type: CandidateType;
@@ -17,6 +19,7 @@ interface ProposalCandidate {
   duplicate?: BaseRecord;
   action: string;
   issues: string[];
+  acceptedHunks?: number[];
 }
 
 interface ProposalPreview {
@@ -24,7 +27,7 @@ interface ProposalPreview {
   payloadIssues: string[];
 }
 
-const PAYLOAD_TYPES: ProposalPayloadType[] = ["items", "notes", "links", "knowledge_nodes", "status_update"];
+const PAYLOAD_TYPES: ProposalPayloadType[] = ["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update"];
 
 function parsePayload(raw: unknown, payloadType: ProposalPayloadType): Record<string, unknown> {
   if (typeof raw === "string") return JSON.parse(raw);
@@ -44,13 +47,39 @@ function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data" | "the
     return { candidates: [], payloadIssues: ["status_updateは内容確認後にProposalの状態だけ更新します"] };
   }
   const payload = wrapPayload(parsePayload(proposal.payload, payloadType), payloadType);
-  return parseAiImportPayload(payload, props.themes, {
+  if (payloadType === "sketches" || payloadType === "artifacts") {
+    const entries = Array.isArray(payload[payloadType]) ? payload[payloadType] as Record<string, unknown>[] : [];
+    if (!entries.length) throw new Error(`${payloadType}がありません。`);
+    return {
+      candidates: entries.map((entry) => {
+        if (payloadType === "sketches") validateSafeSvg(entry.svg);
+        else validateArtifactProposal(entry);
+        const themeName = str(entry.theme);
+        return {
+          type: payloadType === "sketches" ? "sketch" : "artifact",
+          entry,
+          theme: props.themes.find((theme) => theme.id === themeName || str(theme.name) === themeName),
+          action: "create",
+          issues: themeName && !props.themes.some((theme) => theme.id === themeName || str(theme.name) === themeName)
+            ? ["Themeを解決できないため未設定で保存します"]
+            : [],
+        };
+      }),
+      payloadIssues: [],
+    };
+  }
+  const preview = parseAiImportPayload(payload, props.themes, {
     items: props.items,
     notes: props.data.notes || [],
     links: props.data.links || [],
     knowledge_nodes: props.data.knowledge_nodes || [],
     knowledge_edges: props.data.knowledge_edges || [],
+  }) as ProposalPreview;
+  preview.candidates = preview.candidates.map((candidate) => {
+    const hunks = noteDiffHunks(candidate);
+    return hunks.length ? { ...candidate, acceptedHunks: hunks.map((_, index) => index) } : candidate;
   });
+  return preview;
 }
 
 function compact(value: unknown, limit = 220) {
@@ -151,6 +180,12 @@ function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperatio
         operations.push(...buildSaveScheduleOperations(schedule, { source: "import" }));
       }
     } else if (candidate.type === "note") {
+      const proposedBody = str(entry.body_markdown) || str(entry.body);
+      const acceptedBody = candidate.action === "merge"
+        && candidate.duplicate
+        && candidate.acceptedHunks
+        ? applyMarkdownDiffHunks(str(candidate.duplicate.body_markdown), proposedBody, candidate.acceptedHunks)
+        : proposedBody;
       operations.push({
         action: "save",
         type: "note",
@@ -158,7 +193,7 @@ function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperatio
           ...base,
           id: str(base.id) || uuid(),
           title: str(entry.title) || "無題",
-          body_markdown: str(entry.body_markdown) || str(entry.body),
+          body_markdown: acceptedBody,
           note_type: str(entry.note_type) || str(base.note_type) || "memo",
           theme_id: candidate.theme?.id || str(base.theme_id) || null,
           source_url: str(entry.source_url) || str(base.source_url),
@@ -179,6 +214,40 @@ function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperatio
           description: str(entry.description) || str(base.description),
         },
         options: { source: "imported" },
+      });
+    } else if (candidate.type === "sketch") {
+      const svg = validateSafeSvg(entry.svg);
+      operations.push({
+        action: "save",
+        type: "sketch",
+        entity: {
+          id: uuid(),
+          title: str(entry.title) || "AI Sketch",
+          project_id: candidate.theme?.id || null,
+          origin_capture_id: null,
+          document: {
+            schema_version: 1,
+            mode: "page",
+            pages: [{
+              id: uuid(),
+              title: "1",
+              width: 1200,
+              height: 850,
+              background: "dot",
+              objects: [{
+                id: uuid(),
+                type: "image",
+                color: "#000000",
+                x: 40,
+                y: 40,
+                w: 1120,
+                h: 770,
+                data_url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+              }],
+            }],
+          },
+        },
+        options: { source: "ai_proposal" },
       });
     } else if (candidate.type === "knowledge_edge") {
       const sourceNodeId = str(entry.source_node_id) || acceptedKnowledgeNodeIds.get(str(entry.source_temp_id)) || "";
@@ -257,9 +326,46 @@ export function AiProposalPanel(props: PageProps) {
       return;
     }
     try {
-      preview.candidates.forEach(assertImportCandidateSavable);
+      preview.candidates
+        .filter((candidate) => candidate.type !== "sketch" && candidate.type !== "artifact")
+        .forEach(assertImportCandidateSavable);
       const accepted = preview.candidates.filter((candidate) => candidate.action !== "ignore");
       const operations = buildCandidateOperations(preview.candidates);
+      for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
+        const normalized = validateArtifactProposal(candidate.entry);
+        const result = await workspaceApi.materializeArtifactProposal({
+          title: normalized.title,
+          fileName: normalized.fileName,
+          mediaType: normalized.mediaType,
+          content: normalized.content,
+          themeId: candidate.theme?.id || null,
+        });
+        if (result.status === "needs_directory") {
+          throw new Error("Artifact保存先が未設定です。Settingsで保存先を選んでください。");
+        }
+        operations.push({
+          action: "save",
+          type: "artifact",
+          entity: {
+            id: uuid(),
+            title: normalized.title,
+            filename: result.file.filename,
+            file_type: result.file.fileType,
+            mime_type: result.file.mimeType,
+            file_size: result.file.fileSize,
+            stored_path: result.file.storedPath,
+            original_path: null,
+            storage_mode: "managed",
+            copied_at: result.file.copiedAt,
+            source_type: "ai_proposal",
+            source_id: proposal.id,
+            theme_id: candidate.theme?.id || null,
+            description: str(candidate.entry.reason),
+            generated_by: str(proposal.source) === "embedded_llm" ? "openai" : "manual",
+          },
+          options: { source: "ai_proposal" },
+        });
+      }
       const status = accepted.length && accepted.length < preview.candidates.length ? "partially_accepted" : accepted.length ? "accepted" : "rejected";
       await saveEntities([
         ...operations,
@@ -317,12 +423,38 @@ export function AiProposalPanel(props: PageProps) {
                 {candidate.duplicate && <option value="merge">既存を更新</option>}
                 <option value="ignore">無視</option>
               </select>
+              {(candidate.type === "sketch" || (candidate.type === "artifact" && str(candidate.entry.media_type) === "image/svg+xml")) && (
+                <img
+                  className="proposal-svg-preview"
+                  src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(validateSafeSvg(candidate.type === "sketch" ? candidate.entry.svg : candidate.entry.content))}`}
+                  alt={`${str(candidate.entry.title) || "SVG"} Preview`}
+                />
+              )}
+              {candidate.type === "artifact" && str(candidate.entry.media_type) !== "image/svg+xml" && (
+                <pre className="proposal-artifact-preview">{str(candidate.entry.content).slice(0, 4000)}</pre>
+              )}
               {noteDiffHunks(candidate).length > 0 && (
                 <div className="proposal-note-diff" aria-label="Note変更差分">
                   {noteDiffHunks(candidate).map((hunk, hunkIndex) => (
-                    <pre key={`${index}-${hunkIndex}`}>
-                      {hunk.lines.map((line) => `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`).join("\n")}
-                    </pre>
+                    <label className="proposal-diff-hunk" key={`${index}-${hunkIndex}`}>
+                      <span>
+                        <input
+                          type="checkbox"
+                          checked={(candidate.acceptedHunks || []).includes(hunkIndex)}
+                          onChange={(event) => setPreview((current) => current ? {
+                            ...current,
+                            candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? {
+                              ...entry,
+                              acceptedHunks: event.target.checked
+                                ? [...(entry.acceptedHunks || []), hunkIndex].sort((a, b) => a - b)
+                                : (entry.acceptedHunks || []).filter((value) => value !== hunkIndex),
+                            } : entry),
+                          } : current)}
+                        />
+                        この変更を採用
+                      </span>
+                      <pre>{hunk.lines.map((line) => `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`).join("\n")}</pre>
+                    </label>
                   ))}
                 </div>
               )}

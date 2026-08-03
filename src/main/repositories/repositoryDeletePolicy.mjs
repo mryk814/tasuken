@@ -34,6 +34,7 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   if (type === "task") repository.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
   if (type === "resource") repository.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
   if (type === "capture_entry") repository.cascadeWhere("artifact", (entry) => entry.source_type === "capture_entry" && entry.source_id === id, type, id);
+  if (type === "ai_proposal") repository.cascadeWhere("artifact", (entry) => entry.source_type === "ai_proposal" && entry.source_id === id, type, id);
   if (type === "sketch") {
     repository.cascadeWhere(
       "reference",

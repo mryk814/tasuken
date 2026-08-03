@@ -3,12 +3,13 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { ArtifactFileImportRequest, ArtifactFileImportResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
+import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult, FilePreviewReadResult, McpBridgeInfo } from "../../shared/ipc/contracts";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
 import type { Workspace } from "../../shared/types/workspace";
+import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
 import {
   artifactFileTypeOf,
   artifactMimeTypeOf,
@@ -502,6 +503,42 @@ export class WorkspaceService {
       });
     }
     return { status: "ok", directory, files };
+  }
+
+  materializeArtifactProposal(requestValue: unknown): ArtifactProposalMaterializeResult {
+    if (!requestValue || typeof requestValue !== "object" || Array.isArray(requestValue)) {
+      throw new Error("Artifact Proposalの形式が不正です。Previewを開き直してください。");
+    }
+    const request = requestValue as Partial<ArtifactProposalMaterializeRequest>;
+    const normalized = validateArtifactProposal({
+      title: request.title,
+      file_name: request.fileName,
+      media_type: request.mediaType,
+      content: request.content,
+    });
+    const location = this.resolveThemeContentDirectory(request.themeId || null, "artifacts");
+    if (location.kind === "needs_directory") return { status: "needs_directory" };
+    fs.mkdirSync(location.directory, { recursive: true });
+    const filename = resolveUniqueArtifactFileName(
+      normalized.fileName,
+      (candidate: string) => fs.existsSync(path.join(location.directory, candidate)),
+    );
+    const storedPath = path.join(location.directory, filename);
+    fs.writeFileSync(storedPath, normalized.content, { encoding: "utf8", flag: "wx" });
+    return {
+      status: "ok",
+      directory: location.directory,
+      file: {
+        filename,
+        storedPath,
+        originalPath: "",
+        fileSize: fs.statSync(storedPath).size,
+        mimeType: normalized.mediaType,
+        fileType: artifactFileTypeOf(filename),
+        copiedAt: new Date().toISOString(),
+        storageMode: "managed",
+      },
+    };
   }
 
   reload(sender: WebContents): boolean {
