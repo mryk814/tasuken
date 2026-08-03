@@ -2374,6 +2374,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-mermaid-preview-frame { cursor: text; }
 .note-mermaid-preview-frame:hover { background: var(--markdown-paper-subtle); }
 .note-mermaid-preview-frame:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+.note-mermaid-preview-frame.is-custom-width .md-mermaid-block { overflow: hidden; }
+.note-mermaid-preview-frame.is-custom-width .md-mermaid-svg svg { width: 100% !important; max-width: 100% !important; height: auto; }
 .note-mermaid-preview.markdown-preview { min-height: 0; max-height: none; overflow: hidden; padding: var(--space-2); border: 0; border-radius: inherit; }
 .note-mermaid-preview pre { margin: 0; padding: 0; border: 0; background: transparent; }
 .note-mermaid-width-control { min-height: 34px; display: grid; grid-template-columns: auto minmax(100px, 220px) 48px auto; align-items: center; justify-content: end; gap: var(--space-2); padding: var(--space-1) var(--space-2); border-top: 1px solid var(--markdown-paper-border); background: var(--markdown-paper-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }

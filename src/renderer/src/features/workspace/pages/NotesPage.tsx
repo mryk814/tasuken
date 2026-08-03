@@ -53,6 +53,11 @@ import {
   type MarkdownHeadingItem,
 } from "../lib/markdown";
 import { renderMermaidDocumentForPdf } from "../lib/mermaid";
+import {
+  captureNoteModeScroll,
+  restoreNoteModeScroll,
+  type NoteModeScrollAnchor,
+} from "../lib/noteModeScroll";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import { drawSketchPage, renderSketchPageToDataUrl, type SketchPage } from "../lib/sketch";
 import {
@@ -210,6 +215,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const previewPanelRef = useRef<HTMLElement | null>(null);
   const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
+  const modeScrollRestoreCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => modeScrollRestoreCleanupRef.current?.(), []);
 
   function openSelectionAi(selection: MarkdownTextSelection) {
     const source = mdxMarkdownSourceRef.current?.() || draftBody;
@@ -637,59 +645,75 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
       || panel.querySelector<HTMLElement>("textarea.note-main-editor-raw");
   }
 
-  function scrollRatio(element: HTMLElement | null): number {
-    if (!element) return 0;
-    const scrollable = element.scrollHeight - element.clientHeight;
-    return scrollable > 0 ? element.scrollTop / scrollable : 0;
-  }
-
-  type ModeScrollState = {
-    ratio: number;
-    headingIndex: number | null;
-    headingOffset: number;
-  };
-
-  function captureModeScroll(mode: PreviewMode): ModeScrollState {
-    const element = modeScroller(mode);
-    const state: ModeScrollState = { ratio: scrollRatio(element), headingIndex: null, headingOffset: 0 };
-    if (!element || mode === "raw") return state;
-    const headings = Array.from(element.querySelectorAll<HTMLElement>("h1, h2, h3, h4"));
-    if (!headings.length) return state;
-    const scrollTop = element.getBoundingClientRect().top;
-    let headingIndex = 0;
-    for (let index = 0; index < headings.length; index += 1) {
-      if (headings[index].getBoundingClientRect().top - scrollTop > 8) break;
-      headingIndex = index;
+  function modeHeadingPositions(mode: PreviewMode, element: HTMLElement): number[] {
+    if (mode === "raw") {
+      const lineCount = Math.max(1, draftBody.split(/\r?\n/).length);
+      const lineExtent = Math.max(1, lineCount - 1);
+      return markdownHeadings.map((heading) => (heading.sourceLine / lineExtent) * element.scrollHeight);
     }
-    state.headingIndex = headingIndex;
-    state.headingOffset = headings[headingIndex].getBoundingClientRect().top - scrollTop;
-    return state;
+    const elementTop = element.getBoundingClientRect().top;
+    return Array.from(element.querySelectorAll<HTMLElement>("h1, h2, h3, h4"))
+      .map((heading) => element.scrollTop + heading.getBoundingClientRect().top - elementTop);
   }
 
-  // EditとPreviewではMermaid等のブロック高が異なるため、比率より見出し位置を優先して復元する。
-  // MDXEditorはマウント直後に本文の高さが伸びるので、高さが安定するまで数フレーム続ける。
-  function restoreModeScroll(mode: PreviewMode, state: ModeScrollState) {
-    let frames = 0;
-    let lastHeight = -1;
+  function captureModeScroll(mode: PreviewMode): NoteModeScrollAnchor {
+    const element = modeScroller(mode);
+    if (!element) return { ratio: 0, headingIndex: null, sectionProgress: 0 };
+    return captureNoteModeScroll(
+      element.scrollTop,
+      Math.max(0, element.scrollHeight - element.clientHeight),
+      element.scrollHeight,
+      modeHeadingPositions(mode, element),
+    );
+  }
+
+  // モードごとの描画高ではなく、見出し間の相対位置を引き継ぐ。
+  // Mermaid・画像は遅れて高さが確定するため、DOM更新も監視して同じアンカーへ戻す。
+  function restoreModeScroll(mode: PreviewMode, state: NoteModeScrollAnchor) {
+    modeScrollRestoreCleanupRef.current?.();
+    let active = true;
+    let observer: MutationObserver | null = null;
+    const timers: number[] = [];
     const apply = () => {
-      frames += 1;
+      if (!active) return;
       const target = modeScroller(mode);
-      if (target) {
-        const scrollable = target.scrollHeight - target.clientHeight;
-        const headings = mode === "raw" ? [] : Array.from(target.querySelectorAll<HTMLElement>("h1, h2, h3, h4"));
-        const anchor = state.headingIndex == null ? null : headings[state.headingIndex];
-        if (anchor) {
-          const offset = anchor.getBoundingClientRect().top - target.getBoundingClientRect().top;
-          target.scrollTop = Math.max(0, Math.min(scrollable, target.scrollTop + offset - state.headingOffset));
-        } else if (scrollable > 0) {
-          target.scrollTop = state.ratio * scrollable;
-        }
-        if (scrollable > 0 && target.scrollHeight === lastHeight) return;
-        lastHeight = target.scrollHeight;
-      }
-      if (frames < 20) window.requestAnimationFrame(apply);
+      if (!target) return;
+      target.scrollTop = restoreNoteModeScroll(
+        state,
+        Math.max(0, target.scrollHeight - target.clientHeight),
+        target.scrollHeight,
+        modeHeadingPositions(mode, target),
+      );
     };
-    window.requestAnimationFrame(apply);
+    const cleanup = () => {
+      if (!active) return;
+      active = false;
+      observer?.disconnect();
+      timers.forEach((timer) => window.clearTimeout(timer));
+      const target = modeScroller(mode);
+      target?.removeEventListener("wheel", cleanup);
+      target?.removeEventListener("pointerdown", cleanup);
+      target?.removeEventListener("touchstart", cleanup);
+      target?.removeEventListener("keydown", cleanup);
+      if (modeScrollRestoreCleanupRef.current === cleanup) modeScrollRestoreCleanupRef.current = null;
+    };
+    modeScrollRestoreCleanupRef.current = cleanup;
+    window.requestAnimationFrame(() => {
+      if (!active) return;
+      const target = modeScroller(mode);
+      if (!target) return;
+      apply();
+      observer = new MutationObserver(() => window.requestAnimationFrame(apply));
+      observer.observe(target, { childList: true, subtree: true });
+      target.addEventListener("wheel", cleanup, { passive: true });
+      target.addEventListener("pointerdown", cleanup);
+      target.addEventListener("touchstart", cleanup, { passive: true });
+      target.addEventListener("keydown", cleanup);
+    });
+    [50, 150, 350, 600, 1_000, 1_600].forEach((delay) => {
+      timers.push(window.setTimeout(apply, delay));
+    });
+    timers.push(window.setTimeout(cleanup, 2_000));
   }
 
   function switchPreviewMode(nextMode: PreviewMode) {

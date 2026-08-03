@@ -215,28 +215,90 @@ function handleCalloutMarkerEnter(
   });
 }
 
+function editorScrollContainer(element: HTMLElement | null): HTMLElement | null {
+  let current = element?.parentElement || null;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    if (
+      (style.overflowY === "auto" || style.overflowY === "scroll")
+      && current.scrollHeight > current.clientHeight
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function preserveEditorViewport(anchor: HTMLElement | null, update: () => void): void {
+  const scroller = editorScrollContainer(anchor);
+  if (!scroller) {
+    update();
+    return;
+  }
+
+  const scrollTop = scroller.scrollTop;
+  const scrollLeft = scroller.scrollLeft;
+  const anchorTop = anchor?.getBoundingClientRect().top ?? null;
+  const previousOverflowAnchor = scroller.style.overflowAnchor;
+  scroller.style.overflowAnchor = "none";
+  update();
+
+  let frames = 0;
+  const restore = () => {
+    frames += 1;
+    if (!scroller.isConnected) return;
+    if (anchor?.isConnected && anchorTop !== null) {
+      scroller.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+    } else {
+      scroller.scrollTop = scrollTop;
+    }
+    scroller.scrollLeft = scrollLeft;
+    if (frames < 4) {
+      window.requestAnimationFrame(restore);
+      return;
+    }
+    scroller.style.overflowAnchor = previousOverflowAnchor;
+  };
+  restore();
+}
+
+const StableMermaidPreview = memo(MarkdownPreview, () => true);
+
 function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   const [editing, setEditing] = useState(false);
-  const editorRootRef = useRef<HTMLDivElement | null>(null);
-  const { parentEditor, setMeta } = useCodeBlockEditorContext();
   const savedWidth = mermaidWidthFromMeta(props.meta);
-  const rangeWidth = savedWidth ?? MERMAID_WIDTH_MAX;
-  const updateWidth = (width: number | null): void => {
-    setMeta(withMermaidWidthMeta(props.meta, width));
-    // MDXEditor 4.0.4 の setMeta は root の onChange を通知しないため、
-    // コード本文の更新と同じ nested-editor command を明示的に送る。
-    window.setTimeout(() => {
-      parentEditor.dispatchCommand(NESTED_EDITOR_UPDATED_COMMAND, undefined);
-    }, 0);
+  const [draftWidth, setDraftWidth] = useState<number | null>(savedWidth);
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const resizingRef = useRef(false);
+  const { parentEditor, setMeta } = useCodeBlockEditorContext();
+  const rangeWidth = draftWidth ?? MERMAID_WIDTH_MAX;
+  const previewMeta = withMermaidWidthMeta(props.meta, null);
+
+  const commitWidth = (width: number | null): void => {
+    if (width === savedWidth) return;
+    preserveEditorViewport(editorRootRef.current, () => {
+      setMeta(withMermaidWidthMeta(props.meta, width));
+      // MDXEditor 4.0.4 の setMeta は root の onChange を通知しないため、
+      // コード本文の更新と同じ nested-editor command を明示的に送る。
+      window.setTimeout(() => {
+        parentEditor.dispatchCommand(NESTED_EDITOR_UPDATED_COMMAND, undefined);
+      }, 0);
+    });
   };
+
   const rendered = useMemo(
-    () => renderMarkdownPreview(`\`\`\`mermaid${props.meta ? ` ${props.meta}` : ""}\n${props.code}\n\`\`\``),
-    [props.code, props.meta],
+    () => renderMarkdownPreview(`\`\`\`mermaid${previewMeta ? ` ${previewMeta}` : ""}\n${props.code}\n\`\`\``),
+    [props.code, previewMeta],
   );
 
   useEffect(() => {
     props.focusEmitter.subscribe(() => setEditing(true));
   }, [props.focusEmitter]);
+
+  useEffect(() => {
+    if (!resizingRef.current) setDraftWidth(savedWidth);
+  }, [savedWidth]);
 
   useEffect(() => {
     if (!editing) return;
@@ -267,10 +329,12 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   return (
     <div className="note-mermaid-code-block is-preview">
       <div
-        className="note-mermaid-preview-frame"
+        ref={editorRootRef}
+        className={`note-mermaid-preview-frame${draftWidth === null ? "" : " is-custom-width"}`}
         role="button"
         tabIndex={0}
         aria-label="Mermaidを編集"
+        style={{ width: `${rangeWidth}%`, marginInline: "auto" }}
         onClick={() => setEditing(true)}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -278,7 +342,7 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
           setEditing(true);
         }}
       >
-        <MarkdownPreview className="note-mermaid-preview markdown-preview" html={rendered} />
+        <StableMermaidPreview key={rendered} className="note-mermaid-preview markdown-preview" html={rendered} />
       </div>
       <div className="note-mermaid-width-control" aria-label="Mermaidの表示幅">
         <span>幅</span>
@@ -289,16 +353,38 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
           step={MERMAID_WIDTH_STEP}
           value={rangeWidth}
           aria-label="Mermaidの表示幅"
-          onPointerDown={() => {
-            if (savedWidth === null) updateWidth(MERMAID_WIDTH_MAX);
+          onPointerDown={(event) => {
+            resizingRef.current = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            if (draftWidth === null) setDraftWidth(MERMAID_WIDTH_MAX);
           }}
-          onChange={(event) => updateWidth(Number(event.target.value))}
+          onChange={(event) => setDraftWidth(Number(event.target.value))}
+          onPointerUp={(event) => {
+            const width = Number(event.currentTarget.value);
+            resizingRef.current = false;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            commitWidth(width);
+          }}
+          onPointerCancel={() => {
+            resizingRef.current = false;
+            setDraftWidth(savedWidth);
+          }}
+          onKeyUp={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) return;
+            commitWidth(Number(event.currentTarget.value));
+          }}
+          onBlur={(event) => commitWidth(Number(event.currentTarget.value))}
         />
-        <output>{savedWidth === null ? "自動" : `${savedWidth}%`}</output>
+        <output>{draftWidth === null ? "自動" : `${draftWidth}%`}</output>
         <button
           type="button"
           disabled={savedWidth === null}
-          onClick={() => updateWidth(null)}
+          onClick={() => {
+            setDraftWidth(null);
+            commitWidth(null);
+          }}
         >
           自動
         </button>
