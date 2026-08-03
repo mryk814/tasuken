@@ -599,10 +599,23 @@ test("notes editor exposes persisted Mermaid width controls", () => {
     path.resolve("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx"),
     "utf8",
   );
+  const styles = readFileSync(
+    path.resolve("src/renderer/src/styles/app.css"),
+    "utf8",
+  );
   assert.match(source, /useCodeBlockEditorContext/);
   assert.match(source, /type="range"/);
   assert.match(source, /setMeta\(withMermaidWidthMeta/);
   assert.match(source, /Mermaidの表示幅/);
+  assert.match(source, /onChange=\{\(event\) => setDraftWidth\(Number\(event\.target\.value\)\)\}/);
+  assert.match(source, /onPointerUp=\{\(event\) => \{[\s\S]*commitWidth\(width\);/);
+  assert.match(source, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(source, /preserveEditorViewport\(editorRootRef\.current/);
+  assert.match(source, /const previewMeta = withMermaidWidthMeta\(props\.meta, null\)/);
+  assert.match(source, /const StableMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
+  assert.match(source, /<StableMermaidPreview key=\{rendered\}/);
+  assert.match(source, /draftWidth === null \? "" : " is-custom-width"/);
+  assert.match(styles, /\.note-mermaid-preview-frame\.is-custom-width \.md-mermaid-svg svg \{ width: 100% !important;/);
 });
 
 test("markdown preview rejects unsafe html img tags", () => {
@@ -786,7 +799,10 @@ test("notes page keeps scroll position when switching edit, preview, and raw mod
   assert.match(source, /function captureModeScroll/);
   assert.match(source, /function restoreModeScroll/);
   assert.match(source, /headingIndex/);
-  assert.match(source, /headingOffset/);
+  assert.match(source, /sectionProgress/);
+  assert.match(source, /captureNoteModeScroll/);
+  assert.match(source, /restoreNoteModeScroll/);
+  assert.match(source, /new MutationObserver/);
   // Edit 面は contenteditable の外枠がスクロールし、末尾余白を選択範囲から分離する。
   assert.match(source, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
   assert.match(source, /switchPreviewMode\("edit"\)/);
@@ -1141,10 +1157,10 @@ title: t
 `);
 
   assert.deepEqual(headings, [
-    { index: 0, level: 1, text: "概要", id: "md-h-0" },
-    { index: 1, level: 2, text: "背景", id: "md-h-1" },
-    { index: 2, level: 3, text: "詳細", id: "md-h-2" },
-    { index: 3, level: 4, text: "補足", id: "md-h-3" },
+    { index: 0, level: 1, text: "概要", id: "md-h-0", sourceLine: 3 },
+    { index: 1, level: 2, text: "背景", id: "md-h-1", sourceLine: 9 },
+    { index: 2, level: 3, text: "詳細", id: "md-h-2", sourceLine: 10 },
+    { index: 3, level: 4, text: "補足", id: "md-h-3", sourceLine: 11 },
   ]);
   assert.equal(markdown.HEADING_INDEX_MIN_COUNT, 2);
   assert.equal(markdown.markdownHeadingId(2), "md-h-2");

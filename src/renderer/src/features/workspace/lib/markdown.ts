@@ -745,6 +745,7 @@ export type MarkdownHeadingItem = {
   level: number;
   text: string;
   id: string;
+  sourceLine: number;
 };
 
 /** 本文の見出し一覧。コードフェンス内の # は無視。frontmatter は除く。 */
@@ -752,8 +753,12 @@ export function extractMarkdownHeadings(source: string): MarkdownHeadingItem[] {
   const { body } = splitFrontmatter(source);
   const headings: MarkdownHeadingItem[] = [];
   const lines = body.split(/\r?\n/);
+  const bodyStart = source.indexOf(body);
+  const sourceLineOffset = bodyStart > 0
+    ? source.slice(0, bodyStart).split(/\r?\n/).length - 1
+    : 0;
   let inCode = false;
-  for (const line of lines) {
+  for (const [lineIndex, line] of lines.entries()) {
     if (line.trim().startsWith("```")) {
       inCode = !inCode;
       continue;
@@ -769,6 +774,7 @@ export function extractMarkdownHeadings(source: string): MarkdownHeadingItem[] {
       level: match[1].length,
       text,
       id: markdownHeadingId(index),
+      sourceLine: sourceLineOffset + lineIndex,
     });
   }
   return headings;
