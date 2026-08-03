@@ -1187,6 +1187,9 @@ title: t
   assert.match(indexSource, /activeBarIndex|is-active/);
   assert.match(indexSource, /addEventListener\("scroll"/);
   assert.match(indexSource, /resolveActiveIndex/);
+  assert.match(indexSource, /rawHeadingScrollTop\(heading\.sourceLine, sourceLineCount, scroller\.scrollHeight\)/);
+  assert.match(notesSource, /sourceLineCount=\{indexedLineCount\}/);
+  assert.match(notesSource, /mode=\{previewMode\}/);
   // Edit 面は contenteditable 外側のスクロールラッパへ追従する。
   assert.match(indexSource, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
   assert.match(indexSource, /computeHeadingNumberLabels/);

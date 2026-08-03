@@ -55,6 +55,7 @@ import {
 import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import {
   captureNoteModeScroll,
+  rawHeadingScrollTop,
   restoreNoteModeScroll,
   type NoteModeScrollAnchor,
 } from "../lib/noteModeScroll";
@@ -280,6 +281,10 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const deferredDraftBody = useDeferredValue(draftBody);
   const [indexedDraftBody, setIndexedDraftBody] = useState(draftBody);
   const markdownHeadings = useMemo(() => extractMarkdownHeadings(indexedDraftBody), [indexedDraftBody]);
+  const indexedLineCount = useMemo(
+    () => indexedDraftBody.replace(/\r\n?/g, "\n").split("\n").length,
+    [indexedDraftBody],
+  );
   const sketchEmbedRefs = useMemo(() => extractSketchEmbedRefs(draftBody), [draftBody]);
   const sketchEmbedVersionKey = useMemo(
     () => sketchEmbedRefs.map((ref) => {
@@ -648,8 +653,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   function modeHeadingPositions(mode: PreviewMode, element: HTMLElement): number[] {
     if (mode === "raw") {
       const lineCount = Math.max(1, draftBody.split(/\r?\n/).length);
-      const lineExtent = Math.max(1, lineCount - 1);
-      return markdownHeadings.map((heading) => (heading.sourceLine / lineExtent) * element.scrollHeight);
+      return markdownHeadings.map((heading) => rawHeadingScrollTop(
+        heading.sourceLine,
+        lineCount,
+        element.scrollHeight,
+      ));
     }
     const elementTop = element.getBoundingClientRect().top;
     return Array.from(element.querySelectorAll<HTMLElement>("h1, h2, h3, h4"))
@@ -1421,6 +1429,8 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                 )}
                 <MarkdownHeadingIndex
                   headings={markdownHeadings}
+                  mode={previewMode}
+                  sourceLineCount={indexedLineCount}
                   headingNumberOptions={headingNumberOptions.preview}
                   onSelect={jumpToMarkdownHeading}
                 />

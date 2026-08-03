@@ -4,6 +4,15 @@ export type NoteModeScrollAnchor = {
   sectionProgress: number;
 };
 
+export function rawHeadingScrollTop(
+  sourceLine: number,
+  sourceLineCount: number,
+  scrollHeight: number,
+): number {
+  const lineExtent = Math.max(1, sourceLineCount - 1);
+  return (Math.max(0, sourceLine) / lineExtent) * Math.max(0, scrollHeight);
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
