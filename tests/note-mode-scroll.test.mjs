@@ -45,3 +45,17 @@ test("Note mode scroll falls back to document ratio before the first heading", (
   assert.equal(anchor.headingIndex, null);
   assert.equal(scroll.restoreNoteModeScroll(anchor, 1_200, 1_600, [240, 900]), 120);
 });
+
+test("Raw heading positions follow source lines instead of evenly dividing heading count", () => {
+  const lineCount = 101;
+  const scrollHeight = 2_000;
+
+  assert.deepEqual(
+    [4, 8, 12, 80, 96].map((sourceLine) => scroll.rawHeadingScrollTop(
+      sourceLine,
+      lineCount,
+      scrollHeight,
+    )),
+    [80, 160, 240, 1_600, 1_920],
+  );
+});

@@ -8,10 +8,13 @@ import {
   type MarkdownHeadingItem,
   type MarkdownRenderOptions,
 } from "../lib/markdown";
+import { rawHeadingScrollTop } from "../lib/noteModeScroll";
 
 type MarkdownHeadingIndexProps = {
   headings: MarkdownHeadingItem[];
+  mode: "edit" | "preview" | "raw";
   onSelect: (heading: MarkdownHeadingItem) => void;
+  sourceLineCount: number;
   /** 見出し番号 ON のとき一覧にも同じ番号を出す */
   headingNumberOptions?: MarkdownRenderOptions;
   /** 狭い画面で非表示にする場合など */
@@ -33,7 +36,7 @@ function findScrollContainer(surface: HTMLElement | null): HTMLElement | null {
 /** スクロール位置から「いま読んでいる」見出しインデックスを求める。 */
 function resolveActiveIndex(
   scrollEl: HTMLElement,
-  targets: Array<{ el: HTMLElement | null }>,
+  targets: Array<{ el: HTMLElement | null; top?: number }>,
 ): number {
   if (!targets.length) return 0;
   const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
@@ -44,17 +47,20 @@ function resolveActiveIndex(
   const marker = scrollEl.scrollTop + Math.min(96, scrollEl.clientHeight * 0.22);
 
   let active = 0;
-  let sawDom = false;
+  let sawPosition = false;
   for (let i = 0; i < targets.length; i += 1) {
-    const el = targets[i].el;
-    if (!el) continue;
-    sawDom = true;
-    const rect = el.getBoundingClientRect();
-    const topInScroll = rect.top - scrollRect.top + scrollEl.scrollTop;
+    const { el, top } = targets[i];
+    let topInScroll = top;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      topInScroll = rect.top - scrollRect.top + scrollEl.scrollTop;
+    }
+    if (topInScroll == null || !Number.isFinite(topInScroll)) continue;
+    sawPosition = true;
     if (topInScroll <= marker) active = i;
   }
 
-  if (sawDom) return active;
+  if (sawPosition) return active;
 
   // Raw など DOM 見出しが無いとき: スクロール比率で近似
   const ratio = scrollEl.scrollTop / maxScroll;
@@ -67,7 +73,9 @@ function resolveActiveIndex(
  */
 export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
   headings,
+  mode,
   onSelect,
+  sourceLineCount,
   headingNumberOptions,
   hidden = false,
 }: MarkdownHeadingIndexProps) {
@@ -144,6 +152,7 @@ export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
       const scroller = findScrollContainer(surface);
       if (!scroller || !surface) return;
       const preview = surface.querySelector<HTMLElement>(".note-main-preview");
+      const raw = scroller.matches("textarea.note-main-editor-raw");
       const editHeadings = preview
         ? null
         : surface.querySelectorAll<HTMLElement>(".note-mdx-content h1, .note-mdx-content h2, .note-mdx-content h3, .note-mdx-content h4");
@@ -154,16 +163,18 @@ export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
         }
         return editHeadings?.[heading.index] || null;
       };
-
-      const barTargets = barHeadings.map((heading) => ({
+      const headingTarget = (heading: MarkdownHeadingItem) => ({
         el: findHeading(heading),
-      }));
+        top: raw
+          ? rawHeadingScrollTop(heading.sourceLine, sourceLineCount, scroller.scrollHeight)
+          : undefined,
+      });
+
+      const barTargets = barHeadings.map(headingTarget);
       const nextBar = resolveActiveIndex(scroller, barTargets);
       setActiveBarIndex((prev) => (prev === nextBar ? prev : nextBar));
 
-      const allTargets = headings.map((heading) => ({
-        el: findHeading(heading),
-      }));
+      const allTargets = headings.map(headingTarget);
       const nextHeading = resolveActiveIndex(scroller, allTargets);
       setActiveHeadingIndex((prev) => (prev === nextHeading ? prev : nextHeading));
     };
@@ -208,7 +219,7 @@ export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
       observer?.disconnect();
       scrollEl?.removeEventListener("scroll", onScroll);
     };
-  }, [hidden, headings, barHeadings, headingsKey]);
+  }, [hidden, headings, barHeadings, headingsKey, mode, sourceLineCount]);
 
   if (hidden || headings.length < HEADING_INDEX_MIN_COUNT) return null;
 
