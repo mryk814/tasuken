@@ -70,8 +70,13 @@ button:active { transform: scale(0.98); }
 .titlebar-zoom-row button:hover:not(:disabled) { border-color: var(--color-border); background: var(--color-surface-muted); }
 .app-content-viewport { min-width: 0; min-height: 0; overflow: hidden; }
 .app-content-viewport > .app-shell,
-.app-content-viewport > .standalone-state { width: calc(100% / var(--app-content-zoom)); height: calc(100% / var(--app-content-zoom)); zoom: var(--app-content-zoom); }
-.app-shell { height: 100%; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr) 390px; overflow: hidden; background: var(--color-bg); }
+.app-content-viewport > .standalone-state {
+  width: calc(100% / var(--app-content-zoom));
+  height: calc(100% / var(--app-content-zoom));
+  transform: scale(var(--app-content-zoom));
+  transform-origin: top left;
+}
+.app-shell { position: relative; height: 100%; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr) 390px; overflow: hidden; background: var(--color-bg); }
 .app-shell.is-sidebar-collapsed { grid-template-columns: 64px minmax(0, 1fr) 390px; }
 .sidebar { position: sticky; top: 0; height: 100%; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border-right: 1px solid var(--color-border); overflow-x: hidden; overflow-y: auto; }
 .primary-nav { display: grid; gap: var(--space-1); }
@@ -502,7 +507,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-row-meta { display: flex; align-items: center; gap: var(--space-2); min-width: 0; color: var(--color-text-secondary); font-size: var(--text-xs); }
 .note-row-meta .theme-inline { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-row-open { flex-shrink: 0; text-decoration: none; }
-.notes-page { width: min(1600px, 100%); height: 100vh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.notes-page { width: min(1600px, 100%); height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .notes-page .header-actions { flex-wrap: wrap; justify-content: flex-end; }
 .notes-page .header-actions > button { flex: 0 0 auto; white-space: nowrap; }
 .notes-page > .filter-bar { flex: 0 0 auto; }
@@ -1990,7 +1995,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .spinner { width: 20px; height: 20px; border: 2px solid var(--color-border); border-top-color: var(--color-accent); border-radius: var(--radius-pill); animation: spin var(--duration-base) linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.drawer { position: sticky; z-index: 10; top: 0; width: 390px; height: 100vh; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); overflow: hidden; }
+.drawer { position: sticky; z-index: 10; top: 0; width: 390px; height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); overflow: hidden; }
 .drawer-header { flex: 0 0 auto; min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); }
 .drawer-header button { min-height: 32px; border: 0; background: transparent; color: var(--color-text-secondary); }
 /* 編集項目だけが伸びてスクロール。Artifact / 削除は drawer-edit-footer で下に固定する */
@@ -2601,7 +2606,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .long-knowledge-source { display: grid; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-warning-bd); border-radius: var(--radius-md); background: var(--color-warning-bg); }
 .long-knowledge-source strong, .long-knowledge-source span { display: block; }
 .long-knowledge-source span { color: var(--color-text-secondary); font-size: var(--text-sm); }
-.context-pane { position: sticky; z-index: 9; top: 0; height: 100vh; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); }
+.context-pane { position: sticky; z-index: 9; top: 0; height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); }
 .context-pane-header { min-height: 44px; display: grid; align-content: center; gap: 1px; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); }
 .context-pane-header span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-transform: uppercase; letter-spacing: 0; }
 .context-pane-header strong { overflow: hidden; color: var(--color-accent-strong); text-overflow: ellipsis; white-space: nowrap; }
@@ -3493,7 +3498,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .app-shell.is-canvas-route.has-drawer { grid-template-columns: 200px minmax(0, 1fr); }
   .app-shell.is-sidebar-collapsed.is-canvas-route.has-drawer { grid-template-columns: 64px minmax(0, 1fr); }
   .context-pane { display: none; }
-  .drawer { position: fixed; inset: 0 0 0 auto; width: min(390px, 100vw); box-shadow: var(--shadow-lg); }
+  .drawer { position: absolute; inset: 0 0 0 auto; width: min(390px, 100vw); box-shadow: var(--shadow-lg); }
 }
 
 @media (max-width: 1400px) {
@@ -3540,7 +3545,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .app-shell { display: block; }
   .app-shell.is-sidebar-collapsed .nav-label,
   .app-shell.is-sidebar-collapsed .sidebar .count { display: inline; }
-  .drawer { position: fixed; inset: 0 0 0 auto; width: min(390px, 100vw); box-shadow: var(--shadow-lg); }
+  .drawer { position: absolute; inset: 0 0 0 auto; width: min(390px, 100vw); box-shadow: var(--shadow-lg); }
   .context-pane { display: none; }
   .sidebar { position: static; width: 100%; height: auto; flex-direction: row; align-items: center; padding: var(--space-2); overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); }
   .theme-nav, .utility-nav, .secondary-nav, .profile, .sidebar .nav-heading { display: none; }
@@ -4327,7 +4332,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .app-shell.is-canvas-route .sidebar { display: none; }
   .sketch-page,
   .sketch-page.is-infinite {
-    height: 100vh;
+    height: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
   .sketch-header { align-items: stretch; flex-direction: column; padding: var(--space-2); }
