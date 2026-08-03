@@ -13,6 +13,8 @@ npm run dev
 
 `npm run dev`はelectron-viteでMain / Preload / Rendererを起動し、Renderer HMRを有効にします。
 ブラウザ単体での起動と`localStorage`保存には対応していません。
+Taskenは同じユーザーデータを使う二重起動を防ぎます。インストール版はウィンドウを閉じても
+トレイに常駐するため、`npm run dev`の前にトレイメニューからTaskenを終了してください。
 
 ## ビルド
 
