@@ -26,7 +26,12 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   }
 
   if (type === "note") {
-    repository.nullifyReferences(type, [["link", "note_id"], ["knowledge_node", "source_note_id"], ["log_entry", "related_note_id"]], id);
+    repository.nullifyReferences(type, [
+      ["link", "note_id"],
+      ["knowledge_node", "source_note_id"],
+      ["log_entry", "related_note_id"],
+      ["artifact", "origin_note_id"],
+    ], id);
     repository.cascadeWhere("artifact", (entry) => (entry.source_type === "note" || entry.source_type === "report") && entry.source_id === id, type, id);
   }
 

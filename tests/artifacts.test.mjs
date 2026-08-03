@@ -33,6 +33,9 @@ const workspacePageRouterSource = readFileSync(
 );
 const artifactsComponentSource = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
 const artifactEntitiesSource = readFileSync("src/renderer/src/features/workspace/lib/artifactEntities.ts", "utf8");
+const noteExportArtifactsSource = readFileSync("src/renderer/src/features/workspace/lib/noteExportArtifacts.ts", "utf8");
+const chatRefArtifactDialogSource = readFileSync("src/renderer/src/features/workspace/components/ChatRefArtifactLinkDialog.tsx", "utf8");
+const notesPageSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 const artifactsPageSource = readFileSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx", "utf8");
 const themePageSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
 const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
@@ -76,6 +79,9 @@ test("artifactのvalidateEntityが必須項目とenumを検証する", () => {
   assert.throws(() => validateEntity("artifact", artifact({ file_size: -1 })), /file_size/);
   validateEntity("artifact", artifact({ generated_by: "claude" }));
   validateEntity("artifact", artifact({ generated_by: null }));
+  validateEntity("artifact", artifact({ origin_note_id: "note-1", export_format: "markdown" }));
+  assert.throws(() => validateEntity("artifact", artifact({ origin_note_id: 1 })), /origin_note_id/);
+  assert.throws(() => validateEntity("artifact", artifact({ export_format: "docx" })), /export_format/);
 });
 
 test("managed / linked の validation と normalize", () => {
@@ -294,11 +300,12 @@ test("Theme 編集に storage_root があり import に themeId を渡す", () =
 
 function fakeDeletePolicyRepository(artifacts) {
   const removed = [];
+  const nullified = [];
   const repo = Object.create(WorkspaceDatabase.prototype);
   repo.list = (type) => (type === "artifact" ? artifacts : []);
   repo.markRemoved = (type, id, cascade) => removed.push({ type, id, cascade });
-  repo.nullifyReferences = () => {};
-  return { repo, removed };
+  repo.nullifyReferences = (_parentType, targets) => nullified.push(...targets.map(([entityType, field]) => `${entityType}.${field}`));
+  return { repo, removed, nullified };
 }
 
 test("親タスク削除でartifactがcascade論理削除される", () => {
@@ -320,6 +327,15 @@ test("メモ削除でnote/report由来のartifactがcascadeされる", () => {
   repo.applyDeletePolicy("note", "note-1");
   assert.deepEqual(removed.map((entry) => entry.id), ["a1", "a2"]);
   assert.deepEqual(removed[0].cascade, { parentType: "note", parentId: "note-1" });
+});
+
+test("チャット由来の書き出しArtifactは元Note削除時に残して参照だけnullifyする", () => {
+  const { repo, removed, nullified } = fakeDeletePolicyRepository([
+    artifact({ id: "a1", source_type: "chat_ref", source_id: "res-1", origin_note_id: "note-1" }),
+  ]);
+  repo.applyDeletePolicy("note", "note-1");
+  assert.deepEqual(removed, []);
+  assert.equal(nullified.includes("artifact.origin_note_id"), true);
 });
 
 test("Chat参照（resource）削除でchat_ref由来のartifactがcascadeされる", () => {
@@ -385,6 +401,19 @@ test("Artifact の追加入口と元Entity往復がUIにある", () => {
   assert.match(drawerSource, /sourceType="task"/);
   assert.match(drawerSource, /sourceType=\{isReport \? "report" : "note"\}/);
   assert.match(contractsSource, /dialogChooseFiles/);
+});
+
+test("Note書き出しをChat Ref Artifactへ双方向に接続する", () => {
+  assert.match(notesPageSource, /Chat Refへ紐づける/);
+  assert.match(notesPageSource, /withNoteDocumentExport/);
+  assert.match(artifactsComponentSource, /NoteからArtifactを追加/);
+  assert.match(artifactsComponentSource, /originNoteId/);
+  assert.match(artifactsComponentSource, /元Noteへ/);
+  assert.match(drawerSource, /themeId=\{artifactSource\.themeId\}[\s\S]{0,240}openDrawer=\{\(next\) => close\(next\)\}/);
+  assert.match(chatRefArtifactDialogSource, /Artifactとして紐づける/);
+  assert.match(noteExportArtifactsSource, /origin_note_id: exported\.noteId/);
+  assert.match(noteExportArtifactsSource, /artifact\.origin_note_id === exported\.noteId/);
+  assert.match(noteExportArtifactsSource, /rankChatRefsForNote/);
 });
 
 test("Artifactカードは前面操作を主操作1つ＋メニューに整理する", () => {

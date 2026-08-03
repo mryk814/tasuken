@@ -477,6 +477,7 @@ export class WorkspaceDatabase {
     if (type === "artifact") {
       const sourceEntityType = artifactSourceEntityTypes[entity.source_type];
       requireV2(sourceEntityType, entity.source_id, "source_id");
+      requireV2("note", entity.origin_note_id, "origin_note_id");
     }
   }
 
@@ -570,6 +571,7 @@ export class WorkspaceDatabase {
         }
         if (type === "artifact") {
           requireV2Ref(artifactSourceEntityTypes[record.source_type], record.source_id, "source_id");
+          requireV2Ref("note", record.origin_note_id, "origin_note_id");
         }
       }
     }

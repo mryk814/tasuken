@@ -319,6 +319,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             themeId={str(entity.project_id || entity.theme_id) || null}
             artifacts={data.artifacts || []}
             data={data}
+            openDrawer={(next) => close(next)}
             openContentViewer={openContentViewer}
             saveEntities={saveEntities}
             removeEntity={removeEntity}
@@ -719,6 +720,7 @@ function EditDrawer({
               themeId={artifactSource.themeId}
               artifacts={data.artifacts || []}
               data={data}
+              openDrawer={(next) => close(next)}
               openContentViewer={openContentViewer}
               saveEntities={saveEntities}
               removeEntity={removeEntity}
@@ -1539,9 +1541,11 @@ function NoteDetailDrawer({
         <ArtifactSection
           sourceType={isReport ? "report" : "note"}
           sourceId={str(note.id)}
+          originNoteId={str(note.id)}
           themeId={note.theme_id || null}
           artifacts={data.artifacts || []}
           data={data}
+          openDrawer={(next) => close(next)}
           openContentViewer={openContentViewer}
           saveEntities={saveEntities}
           removeEntity={removeEntity}

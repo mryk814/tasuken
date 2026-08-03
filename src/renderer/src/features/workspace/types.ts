@@ -218,6 +218,11 @@ export interface Artifact extends BaseRecord {
   theme_id?: string | null;
   description?: string | null;
   generated_by?: ArtifactGeneratedBy | null;
+  /** Chat Refを出所に持つ書き出しArtifactの編集元Note */
+  origin_note_id?: string | null;
+  origin_note_title?: string | null;
+  export_format?: "markdown" | "pdf" | null;
+  exported_at?: string | null;
 }
 
 export interface Sketch extends BaseRecord {
