@@ -38,7 +38,8 @@ test("custom titlebar keeps native window controls and lightweight display help 
   assert.match(shellSource, /設定を開く/);
   assert.match(workspaceSource, /usePersistentState\("shell:zoom-factor:v1", 1\)/);
   assert.match(workspaceSource, /"--app-content-zoom": zoomFactor/);
-  assert.match(cssSource, /\.app-content-viewport > \.app-shell,[\s\S]*zoom: var\(--app-content-zoom\);/);
+  assert.match(cssSource, /\.app-content-viewport > \.app-shell,[\s\S]*transform: scale\(var\(--app-content-zoom\)\);[\s\S]*transform-origin: top left;/);
+  assert.doesNotMatch(cssSource, /zoom: var\(--app-content-zoom\)/);
   assert.doesNotMatch(preloadSource, /webFrame\.setZoomFactor/);
   assert.match(ipcSource, /window\.setTitleBarOverlay\(/);
 });
@@ -46,7 +47,7 @@ test("custom titlebar keeps native window controls and lightweight display help 
 test("compact desktop layout protects the main work area", () => {
   assert.match(cssSource, /@media \(max-width: 1680px\)/);
   assert.match(cssSource, /\.context-pane \{ display: none; \}/);
-  assert.match(cssSource, /\.drawer \{ position: fixed;/);
+  assert.match(cssSource, /\.drawer \{ position: absolute;/);
   assert.match(cssSource, /\.notes-workbench \{[^}]*minmax\(0, 1\.82fr\)/);
   assert.match(cssSource, /\.notes-page \{ width: min\(1600px, 100%\);/);
   assert.match(cssSource, /\.chat-refs-page \{ width: min\(1600px, 100%\);/);
@@ -55,6 +56,16 @@ test("compact desktop layout protects the main work area", () => {
   assert.match(workspaceSource, /document\.addEventListener\("pointerdown", onPointerDown, true\)/);
   assert.match(workspaceSource, /document\.addEventListener\("focusin", onFocusIn, true\)/);
   assert.match(workspaceSource, /if \(!\(await saveDirtyDrawerForm\(\)\) \|\| generation !== drawerGeneration\.current\) return;/);
+});
+
+test("titlebar content owns one bounded height contract without nested viewport overflow", () => {
+  assert.match(cssSource, /\.app-shell \{ position: relative; height: 100%; min-height: 0;/);
+  assert.match(cssSource, /\.notes-page \{[^}]*height: 100%; min-height: 0;/);
+  assert.match(cssSource, /\.drawer \{[^}]*height: 100%; min-height: 0;/);
+  assert.match(cssSource, /\.context-pane \{[^}]*height: 100%; min-height: 0;/);
+  assert.doesNotMatch(cssSource, /\.notes-page \{[^}]*height: 100vh;/);
+  assert.doesNotMatch(cssSource, /\.drawer \{[^}]*height: 100vh;/);
+  assert.doesNotMatch(cssSource, /\.context-pane \{[^}]*height: 100vh;/);
 });
 
 test("Sketch keeps the page rail separate from canvas tools and inside the titlebar viewport", () => {
