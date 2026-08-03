@@ -35,6 +35,7 @@ let todayMiniController: TodayMiniController | null = null;
 let reminderController: ReminderController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let mcpProposalInboxService: McpProposalInboxService | null = null;
+const readyMainWindows = new WeakSet<BrowserWindow>();
 registerAttachmentScheme();
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
@@ -94,9 +95,17 @@ function findMainWindow(): BrowserWindow | null {
 
 function showMainWindow(): BrowserWindow {
   const win = findMainWindow() || createWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
+  const reveal = () => {
+    if (win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  };
+  if (readyMainWindows.has(win)) {
+    reveal();
+  } else {
+    win.once("ready-to-show", reveal);
+  }
   return win;
 }
 
@@ -691,7 +700,7 @@ function createWindow(): BrowserWindow {
     height: MAIN_WINDOW_DEFAULT_HEIGHT,
     minWidth: 980,
     minHeight: 680,
-    show: !isSmokeTest,
+    show: false,
     backgroundColor: "#F4EEEC",
     title: APP_NAME,
     icon: getAppIconPath(),
@@ -712,7 +721,10 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  if (!isSmokeTest) window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    readyMainWindows.add(window);
+    if (!isSmokeTest) window.show();
+  });
   window.webContents.once("did-finish-load", () => {
     if (isSmokeTest) {
       runSmokeTest(window).catch((error: unknown) => {
@@ -826,11 +838,20 @@ async function startDesktopApp(): Promise<void> {
   });
 }
 
-void startDesktopApp().catch((error: unknown) => {
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  console.warn("Tasken is already running. Reusing the existing application instance.");
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (app.isReady()) showMainWindow();
+  });
+  void startDesktopApp().catch((error: unknown) => {
     console.error("Tasken failed to start.", error);
     recordSmoke("startup-failed", { error: String(error) });
     app.exit(1);
-});
+  });
+}
 
 app.on("window-all-closed", () => {
     // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
