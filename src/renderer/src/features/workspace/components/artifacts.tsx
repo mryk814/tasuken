@@ -55,6 +55,8 @@ import {
   resolveArtifactThemeId,
 } from "../lib/artifactEntities";
 import { markArtifactOpened, readRecentArtifactIds } from "../lib/artifactRecent";
+import { str } from "../lib/format";
+import { ChatRefArtifactLinkDialog } from "./ChatRefArtifactLinkDialog";
 import { ContextMenu, type ContextMenuItem } from "./common";
 
 const SPREADSHEET_TYPES = new Set(["xlsx", "xls", "csv", "tsv"]);
@@ -187,6 +189,14 @@ export function openArtifactSource(artifact: Artifact, data: WorkspaceData, open
   return false;
 }
 
+export function openArtifactOriginNote(artifact: Artifact, data: WorkspaceData, openDrawer: OpenDrawer): boolean {
+  if (!artifact.origin_note_id) return false;
+  const note = (data.notes || []).find((entry) => entry.id === artifact.origin_note_id);
+  if (!note) return false;
+  openDrawer({ type: "note", entity: note });
+  return true;
+}
+
 export function themeNameOf(artifact: Artifact, data: WorkspaceData): string {
   if (!artifact.theme_id) return "未設定";
   return (data.themes || []).find((theme) => theme.id === artifact.theme_id)?.name || "未設定";
@@ -209,6 +219,10 @@ export function artifactCardMetaParts(artifact: Artifact, data?: WorkspaceData, 
     const sourceLabel = resolveArtifactSourceLabel(artifact, data);
     const sourceType = ARTIFACT_SOURCE_TYPE_LABELS[artifact.source_type] || artifact.source_type;
     if (sourceLabel) parts.push(`${sourceType}: ${sourceLabel}`);
+  }
+  if (artifact.origin_note_id) {
+    const note = data?.notes.find((entry) => entry.id === artifact.origin_note_id);
+    parts.push(`元Note: ${str(note?.title || artifact.origin_note_title) || "削除済み"}`);
   }
   return parts;
 }
@@ -499,6 +513,16 @@ export function ArtifactCard({
       },
     });
   }
+  if (artifact.origin_note_id && openDrawer && data) {
+    menuItems.push({
+      label: "元Noteへ",
+      onSelect: () => {
+        if (!openArtifactOriginNote(artifact, data, openDrawer)) {
+          setToast("元Noteが見つかりませんでした。削除済みの可能性があります。", "warning");
+        }
+      },
+    });
+  }
   if (mode === "linked" && saveEntities) {
     menuItems.push({
       label: "リンクを確認",
@@ -665,6 +689,7 @@ export function ArtifactSection({
   removeEntity,
   setToast,
   headingExtra,
+  originNoteId,
 }: {
   sourceType: ArtifactSourceType;
   sourceId: string;
@@ -677,16 +702,22 @@ export function ArtifactSection({
   removeEntity: RemoveEntity;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   headingExtra?: ReactNode;
+  /** Chat Refを主出所に持つ書き出しArtifactを元Note側にも表示する */
+  originNoteId?: string;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
   const [needsDirectory, setNeedsDirectory] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
   const [urlFormOpen, setUrlFormOpen] = useState(false);
+  const [noteExportPickerOpen, setNoteExportPickerOpen] = useState(false);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const sectionRef = useRef<HTMLElement | null>(null);
   const attached = artifacts
-    .filter((entry) => entry.source_type === sourceType && entry.source_id === sourceId)
+    .filter((entry) => (
+      (entry.source_type === sourceType && entry.source_id === sourceId)
+      || Boolean(originNoteId && entry.origin_note_id === originNoteId)
+    ))
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 
   useEffect(() => {
@@ -885,6 +916,18 @@ export function ArtifactSection({
           >
             <IconLink size={14} />URL
           </button>
+          {sourceType === "chat_ref" && data && (
+            <button
+              type="button"
+              className="secondary-button compact"
+              disabled={importing}
+              onClick={() => setNoteExportPickerOpen(true)}
+              title="Noteの最近の書き出しから追加"
+              aria-label="NoteからArtifactを追加"
+            >
+              <IconFileText size={14} />Noteから
+            </button>
+          )}
         </div>
       </div>
 
@@ -980,6 +1023,15 @@ export function ArtifactSection({
           参照のみ
         </button>
       </div>
+      {noteExportPickerOpen && data && (
+        <ChatRefArtifactLinkDialog
+          data={data}
+          initialChatRefId={sourceId}
+          saveEntities={saveEntities}
+          setToast={setToast}
+          close={() => setNoteExportPickerOpen(false)}
+        />
+      )}
     </section>
   );
 }

@@ -15,7 +15,7 @@
 | Sketch | `SketchLibraryPage.tsx` / `SketchPage.tsx` | 「手書き」「キャンバス」「GoodNotesみたいなやつ」。SidebarのKnowledge配下に独立した棚と専用編集面を持つ。編集可能なペン軌跡・図形・文字・画像を正本として持ち、Note / Markdown / PNG / SVG / AI向けコピーへ派生させる |
 | Knowledge | `KnowledgePage.tsx` | 「ナレッジ」。グラフ表示あり。Note=素材置き場、Knowledge=構造化された知見、と責務を分ける |
 | Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」。サイドバー表記は英語 Chat Refs。外部AIチャットのURL整理 |
-| Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から |
+| Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から。NoteのMarkdown/PDF書き出しはChat Refを主な出所、元Noteを追跡情報として持てる |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
 | Import/Export | `ImportExportPage.tsx` | 「AI Import」。検証→プレビュー→採用の取り込み導線 |
 | Note AI | `NoteAiDialog.tsx` / `AiProposalPanel.tsx` | Noteの「AI編集」「選択範囲をAIで編集」。OpenAIの返答を直接保存せずPending Proposalへ入れ、差分hunkを選んで採用する |
@@ -37,7 +37,7 @@
 | Resource | 外部URL・参照資料。Notes 内の Resource フィルタ。Chat参照とは別 | body_markdown でリンク横メモ可 |
 | KnowledgeNode / KnowledgeEdge | ナレッジ、つながり | — |
 | Reference / ChatRef | チャットリンク、リンク | — |
-| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme。`storage_mode`: `managed`（コピー）/ `linked`（URL・パス参照）。Theme 保存ルート配下は `Artifacts/` / `Notes/`（Markdown既定）/ `Exports/`（PDF候補）。未設定 Theme は `Themes/{code\|id}/…`、Theme なしは `Inbox/`（#146）。方針正本は `docs/artifact-redesign.md` |
+| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme。`storage_mode`: `managed`（コピー）/ `linked`（URL・パス参照）。Note書き出しをChat Refへ紐づける場合は `source_type=chat_ref` と `source_id` を主な出所、`origin_note_id` を元Noteとして保持し、どちらからも同じArtifactへ辿る。Theme 保存ルート配下は `Artifacts/` / `Notes/`（Markdown既定）/ `Exports/`（PDF候補）。未設定 Theme は `Themes/{code\|id}/…`、Theme なしは `Inbox/`（#146）。方針正本は `docs/artifact-redesign.md` |
 
 ## 頻出の UI 部品・機能語
 

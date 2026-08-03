@@ -27,6 +27,7 @@ import { noteExportSignature } from "../../../../../shared/fileExport";
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { ChatRefArtifactLinkDialog } from "../components/ChatRefArtifactLinkDialog";
 import { DraftWorkspaceDialog } from "../components/DraftWorkspaceDialog";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
@@ -73,6 +74,11 @@ import {
 import type { BaseRecord, NoteComment, PageProps, Sketch } from "../types";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { compactNotesBodyPreview, DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
+import {
+  createNoteDocumentExport,
+  withNoteDocumentExport,
+  type NoteDocumentExport,
+} from "../lib/noteExportArtifacts";
 import {
   buildSelectionExtractionOperations,
   type MarkdownTextSelection,
@@ -200,6 +206,8 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const [draftWorkspaceTarget, setDraftWorkspaceTarget] = useState<BaseRecord | null | undefined>(undefined);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
+  const [recentExport, setRecentExport] = useState<NoteDocumentExport | null>(null);
+  const [exportLinkDialogOpen, setExportLinkDialogOpen] = useState(false);
   const [sketchPickerOpen, setSketchPickerOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState<NoteAiTarget | null>(null);
   const [pickerSketchId, setPickerSketchId] = useState("");
@@ -1041,18 +1049,29 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         setToast("Markdown出力をキャンセルしました。", "info");
         return;
       }
+      const exported = createNoteDocumentExport(selected, {
+        format: "markdown",
+        filePath: str(result.filePath),
+        directory: str(result.directory),
+        exportedAt: str(result.exportedAt) || new Date().toISOString(),
+        storageMode: chooseDirectory
+          ? "linked"
+          : str(markdownExport?.storageMode) === "linked" ? "linked" : "managed",
+      });
       await saveEntity("note", {
         ...selected,
-        properties_json: {
+        properties_json: withNoteDocumentExport({
           ...selectedProperties,
           markdown_export: {
             directory: result.directory,
             filePath: result.filePath,
             exportedAt: result.exportedAt,
             bodySignature: noteExportSignature(bodyForExport),
+            storageMode: exported.storageMode,
           },
-        },
+        }, exported),
       });
+      setRecentExport(exported);
       setToast(`Markdownを保存しました。${result.filePath || ""}`, "success");
     } catch (error) {
       setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
@@ -1077,6 +1096,18 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         setToast("PDF出力をキャンセルしました。", "info");
         return;
       }
+      const exported = createNoteDocumentExport(selected, {
+        format: "pdf",
+        filePath: str(result.filePath),
+        directory: str(result.directory),
+        exportedAt: str(result.exportedAt) || new Date().toISOString(),
+        storageMode: "linked",
+      });
+      await saveEntity("note", {
+        ...selected,
+        properties_json: withNoteDocumentExport(selectedProperties, exported),
+      }, { quiet: true });
+      setRecentExport(exported);
       const warningText = result.warnings?.length ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）` : "";
       setToast(`PDFを出力しました。${result.filePath || ""}${warningText}`, result.warnings?.length ? "warning" : "success");
     } catch (error) {
@@ -1390,6 +1421,25 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                   )}
                 </div>
               </div>
+              {recentExport?.noteId === selected.id && (
+                <div className="note-export-handoff" role="status">
+                  <span>{recentExport.format === "pdf" ? "PDF" : "Markdown"}を書き出しました。</span>
+                  <button
+                    type="button"
+                    className="secondary-button compact"
+                    onClick={() => setExportLinkDialogOpen(true)}
+                  >
+                    Chat Refへ紐づける
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button compact"
+                    onClick={() => setRecentExport(null)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+              )}
               {searchOpen && (
                 <div className="markdown-search-bar" role="search" aria-label="Markdown本文を検索">
                   <input
@@ -1548,6 +1598,16 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
           saveEntity={saveEntity}
           setToast={setToast}
           onClose={() => setAiTarget(null)}
+        />
+      )}
+      {exportLinkDialogOpen && recentExport && (
+        <ChatRefArtifactLinkDialog
+          data={data}
+          initialExport={recentExport}
+          saveEntities={saveEntities}
+          setToast={setToast}
+          onLinked={() => setRecentExport(null)}
+          close={() => setExportLinkDialogOpen(false)}
         />
       )}
     </div>

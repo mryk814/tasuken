@@ -414,6 +414,12 @@ export function validateEntity(type, input) {
     if (input.link_status != null && input.link_status !== "" && !artifactLinkStatuses.has(input.link_status)) {
       throw new Error("artifact.link_statusが不正です。");
     }
+    if (input.origin_note_id != null && typeof input.origin_note_id !== "string") {
+      throw new Error("artifact.origin_note_idが不正です。");
+    }
+    if (input.export_format != null && input.export_format !== "" && !["markdown", "pdf"].includes(input.export_format)) {
+      throw new Error("artifact.export_formatが不正です。");
+    }
   }
 
   return input;

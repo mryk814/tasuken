@@ -1,5 +1,18 @@
 # Artifact 再整理方針（#136）
 
+## Note書き出しとChat Refの接続（#259）
+
+NoteのMarkdown/PDF書き出しは、書き出した直後またはChat Ref詳細からArtifactとして紐づけられる。
+Artifactの主な出所はChat Ref（`source_type: "chat_ref"` / `source_id`）、追跡情報は元Note
+（`origin_note_id` / `origin_note_title`）として分けて持つ。これによりNoteとArtifactを同一エンティティへ
+畳まず、Chat Refから成果物、Artifactから元Note、Noteから関連Artifactへ双方向に辿れる。
+
+- 同じChat Ref・元Note・ファイルパスの組み合わせは既存Artifactを更新し、重複作成しない
+- Note削除時は`origin_note_id`を切り離し、Chat Ref側のArtifactとファイル実体は残す
+- Chat Ref削除時は従来どおり、そのChat Refを出所とするArtifactを論理削除する
+- 書き出しや紐づけの失敗はNote本文と書き出し済みファイルを変更しない
+- Note本文の同期や、全書き出しの自動Artifact化は行わない
+
 standard-version 参照: 2026-07.3  
 決定日: 2026-07-10  
 親 Issue: #136
