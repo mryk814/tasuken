@@ -6,8 +6,9 @@ const canvas = readFileSync("src/renderer/src/features/workspace/components/Sket
 const page = readFileSync("src/renderer/src/features/workspace/pages/SketchPage.tsx", "utf8");
 
 test("Shape Arrow and Text remain active after creating an object", () => {
-  const shapeBranch = canvas.match(/if \(tool === "shape"\)([\s\S]*?)if \(tool === "arrow"\)/)?.[1] || "";
-  const arrowBranch = canvas.match(/if \(tool === "arrow"\)([\s\S]*?)function onPointerCancel/)?.[1] || "";
+  const pointerUp = canvas.match(/function onPointerUp\([\s\S]*?function onPointerCancel/)?.[0] || "";
+  const shapeBranch = pointerUp.match(/if \(tool === "shape"\)([\s\S]*?)if \(tool === "arrow"\)/)?.[1] || "";
+  const arrowBranch = pointerUp.match(/if \(tool === "arrow"\)([\s\S]*?)function onPointerCancel/)?.[1] || "";
   const textCommit = canvas.match(/function commitText\(\)([\s\S]*?)function onPaste/)?.[1] || "";
   assert.doesNotMatch(shapeBranch, /onToolChange\("select"\)/);
   assert.doesNotMatch(arrowBranch, /onToolChange\("select"\)/);
@@ -16,7 +17,8 @@ test("Shape Arrow and Text remain active after creating an object", () => {
 
 test("creation tools keep creating over existing objects", () => {
   assert.doesNotMatch(canvas, /\["shape", "arrow", "text"\]\.includes\(tool\)/);
-  const shapeBranch = canvas.match(/if \(tool === "shape"\)([\s\S]*?)if \(tool === "arrow"\)/)?.[1] || "";
+  const pointerUp = canvas.match(/function onPointerUp\([\s\S]*?function onPointerCancel/)?.[0] || "";
+  const shapeBranch = pointerUp.match(/if \(tool === "shape"\)([\s\S]*?)if \(tool === "arrow"\)/)?.[1] || "";
   assert.doesNotMatch(shapeBranch, /hitTest/);
   assert.doesNotMatch(shapeBranch, /onToolChange/);
 });

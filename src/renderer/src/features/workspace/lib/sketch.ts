@@ -77,6 +77,11 @@ export interface SketchPage {
 export interface SketchDocument {
   schema_version: 1;
   mode?: SketchCanvasMode;
+  viewport?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
   pages: SketchPage[];
 }
 
@@ -133,8 +138,6 @@ export const SKETCH_PAGE_SIZE_LIMITS = {
 
 const INFINITE_PAGE_WIDTH = 2400;
 const INFINITE_PAGE_HEIGHT = 1600;
-const INFINITE_GROW_MARGIN = 240;
-const INFINITE_GROW_STEP = 800;
 
 export function createSketchPage(
   title = "1",
@@ -155,7 +158,12 @@ export function createEmptySketchDocument(
   mode: SketchCanvasMode = "page",
   pageSize: SketchPageSize = SKETCH_PAGE_PRESETS.landscape,
 ): SketchDocument {
-  return { schema_version: 1, mode, pages: [createSketchPage("1", mode, pageSize)] };
+  return {
+    schema_version: 1,
+    mode,
+    ...(mode === "infinite" ? { viewport: { x: 0, y: 0, zoom: 0.82 } } : {}),
+    pages: [createSketchPage("1", mode, pageSize)],
+  };
 }
 
 export function createSketchDraft(
@@ -215,29 +223,28 @@ export function objectBounds(object: SketchObject): SketchBounds {
   return { x: Math.min(object.x, object.x + object.w), y: Math.min(object.y, object.y + object.h), w: Math.abs(object.w), h: Math.abs(object.h) };
 }
 
-export function expandInfinitePage(page: SketchPage): SketchPage {
-  if (!page.objects.length) return page;
-  const bounds = combinedObjectBounds(page.objects);
-  if (!bounds) return page;
-  const requiredWidth = bounds.x + bounds.w + INFINITE_GROW_MARGIN;
-  const requiredHeight = bounds.y + bounds.h + INFINITE_GROW_MARGIN;
-  const width = requiredWidth > page.width
-    ? Math.ceil(requiredWidth / INFINITE_GROW_STEP) * INFINITE_GROW_STEP
-    : page.width;
-  const height = requiredHeight > page.height
-    ? Math.ceil(requiredHeight / INFINITE_GROW_STEP) * INFINITE_GROW_STEP
-    : page.height;
-  return width === page.width && height === page.height ? page : { ...page, width, height };
-}
-
 export function cropSketchPageToContent(page: SketchPage, padding = 80): SketchPage {
   if (!page.objects.length) return page;
   const bounds = combinedObjectBounds(page.objects);
   if (!bounds) return page;
-  const minX = Math.max(0, bounds.x - padding);
-  const minY = Math.max(0, bounds.y - padding);
-  const maxX = Math.min(page.width, bounds.x + bounds.w + padding);
-  const maxY = Math.min(page.height, bounds.y + bounds.h + padding);
+  const minX = bounds.x - padding;
+  const minY = bounds.y - padding;
+  const maxX = bounds.x + bounds.w + padding;
+  const maxY = bounds.y + bounds.h + padding;
+  return {
+    ...page,
+    width: Math.max(240, Math.ceil(maxX - minX)),
+    height: Math.max(180, Math.ceil(maxY - minY)),
+    objects: page.objects.map((object) => translateObject(object, -minX, -minY)),
+  };
+}
+
+export function infiniteCanvasExportPage(page: SketchPage, padding = 80): SketchPage {
+  const content = combinedObjectBounds(page.objects);
+  const minX = Math.min(0, (content?.x ?? 0) - padding);
+  const minY = Math.min(0, (content?.y ?? 0) - padding);
+  const maxX = Math.max(page.width, (content ? content.x + content.w : 0) + padding);
+  const maxY = Math.max(page.height, (content ? content.y + content.h : 0) + padding);
   return {
     ...page,
     width: Math.max(240, Math.ceil(maxX - minX)),

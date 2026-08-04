@@ -10,6 +10,7 @@ import {
   type SketchPageSizeValue,
 } from "../components/SketchPageSizePicker";
 import {
+  cropSketchPageToContent,
   createSketchDraft,
   drawSketchPage,
   SKETCH_PAGE_PRESETS,
@@ -170,7 +171,11 @@ export function SketchLibraryPage({
                   onClick={() => openSketch(sketch)}
                   aria-label={`${sketch.title}を開く`}
                 >
-                  <SketchPreview page={sketch.document.pages[0]} />
+                  <SketchPreview
+                    page={sketchCanvasMode(sketch.document) === "infinite"
+                      ? cropSketchPageToContent(sketch.document.pages[0])
+                      : sketch.document.pages[0]}
+                  />
                   <strong>{sketch.title || "無題のSketch"}</strong>
                 </button>
                 <span>{theme?.name || "Theme未設定"}</span>

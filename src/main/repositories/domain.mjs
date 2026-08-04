@@ -207,6 +207,18 @@ function validateSketchDocument(document) {
   if (document.mode != null && !["page", "infinite"].includes(document.mode)) {
     throw new Error("sketch.document.modeが不正です。");
   }
+  if (document.viewport != null) {
+    if (
+      !isPlainObject(document.viewport)
+      || !Number.isFinite(document.viewport.x)
+      || !Number.isFinite(document.viewport.y)
+      || !Number.isFinite(document.viewport.zoom)
+      || document.viewport.zoom < 0.1
+      || document.viewport.zoom > 8
+    ) {
+      throw new Error("sketch.document.viewportが不正です。");
+    }
+  }
   if (!Array.isArray(document.pages) || !document.pages.length) {
     throw new Error("sketch.document.pagesを1件以上指定してください。");
   }
