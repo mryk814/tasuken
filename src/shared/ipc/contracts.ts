@@ -120,6 +120,9 @@ export interface SharedSyncStatus {
   pendingCount: number;
   conflictCount: number;
   conflicts: SharedSyncConflict[];
+  markdownImageCount: number;
+  lastMarkdownImagesPublished: number;
+  lastMarkdownImagesReceived: number;
 }
 
 /** アプリ内ビューア用のローカルファイル読み取り結果。 */

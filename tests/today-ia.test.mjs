@@ -94,4 +94,6 @@ test("Settings exposes shared-folder sync status, manual sync, and conflict reso
   assert.match(settingsSource, /runSharedSync/);
   assert.match(settingsSource, /resolveSharedSyncConflict/);
   assert.match(settingsSource, /同じデータが両端末で変更されています/);
+  assert.match(settingsSource, /Note内のMarkdown画像を交換します/);
+  assert.match(settingsSource, /lastMarkdownImagesReceived/);
 });

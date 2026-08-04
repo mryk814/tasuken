@@ -773,7 +773,11 @@ async function startDesktopApp(): Promise<void> {
   migrateLegacyUserDataIfNeeded();
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
-  sharedFolderSyncService = new SharedFolderSyncService(workspaceRepository, notifyMainWindowRefresh);
+  sharedFolderSyncService = new SharedFolderSyncService(
+    workspaceRepository,
+    notifyMainWindowRefresh,
+    path.join(app.getPath("userData"), "attachments", "markdown-images"),
+  );
   registerIpc(
     workspaceRepository,
     new WorkspaceService(workspaceRepository, app.getPath("userData")),

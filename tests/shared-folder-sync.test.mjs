@@ -20,13 +20,19 @@ function task(id, title, overrides = {}) {
 function createPair() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-sync-test-"));
   const shared = path.join(root, "shared");
-  const first = new WorkspaceDatabase(path.join(root, "first", "research-desk.sqlite"));
-  const second = new WorkspaceDatabase(path.join(root, "second", "research-desk.sqlite"));
-  const firstSync = new SharedFolderSyncService(first);
-  const secondSync = new SharedFolderSyncService(second);
+  const firstRoot = path.join(root, "first");
+  const secondRoot = path.join(root, "second");
+  const firstAttachments = path.join(firstRoot, "attachments", "markdown-images");
+  const secondAttachments = path.join(secondRoot, "attachments", "markdown-images");
+  const first = new WorkspaceDatabase(path.join(firstRoot, "research-desk.sqlite"));
+  const second = new WorkspaceDatabase(path.join(secondRoot, "research-desk.sqlite"));
+  const firstSync = new SharedFolderSyncService(first, () => {}, firstAttachments);
+  const secondSync = new SharedFolderSyncService(second, () => {}, secondAttachments);
   return {
     root,
     shared,
+    firstAttachments,
+    secondAttachments,
     first,
     second,
     firstSync,
@@ -37,6 +43,11 @@ function createPair() {
       fs.rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+function writeMarkdownImage(directory, fileName, content = "tasken-image") {
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, fileName), Buffer.from(content));
 }
 
 test("shared folder sync bootstraps an empty second device and exchanges later changes", async () => {
@@ -58,6 +69,128 @@ test("shared folder sync bootstraps an empty second device and exchanges later c
     await pair.secondSync.syncNow();
     await pair.firstSync.syncNow();
     assert.ok(pair.first.get("task", "task-b", true).deleted_at);
+  } finally {
+    pair.close();
+  }
+});
+
+test("shared folder sync publishes existing Markdown images and caches them on another device", async () => {
+  const pair = createPair();
+  const fileName = "123e4567-e89b-42d3-a456-426614174000.png";
+  const orphanFileName = "123e4567-e89b-42d3-a456-426614174099.png";
+  try {
+    writeMarkdownImage(pair.firstAttachments, fileName);
+    writeMarkdownImage(pair.firstAttachments, orphanFileName, "unreferenced");
+    pair.first.save("note", {
+      id: "note-with-image",
+      title: "Image note",
+      body_markdown: `![diagram](tasken-attachment://local/${fileName}/diagram)`,
+    });
+
+    const firstStatus = await pair.firstSync.configure(pair.shared);
+    const secondStatus = await pair.secondSync.configure(pair.shared);
+
+    assert.equal(firstStatus.lastMarkdownImagesPublished, 1);
+    assert.equal(secondStatus.lastMarkdownImagesReceived, 1);
+    assert.equal(secondStatus.markdownImageCount, 1);
+    assert.equal(
+      fs.readFileSync(path.join(pair.secondAttachments, fileName), "utf8"),
+      "tasken-image",
+    );
+    assert.match(pair.second.get("note", "note-with-image").body_markdown, /tasken-attachment:\/\/local\//);
+    assert.equal(
+      fs.existsSync(path.join(
+        pair.shared,
+        "devices",
+        pair.first.deviceId,
+        "attachments",
+        "markdown-images",
+        orphanFileName,
+      )),
+      false,
+    );
+
+    await pair.secondSync.syncNow();
+    assert.equal(
+      fs.existsSync(path.join(
+        pair.shared,
+        "devices",
+        pair.second.deviceId,
+        "attachments",
+        "markdown-images",
+        fileName,
+      )),
+      false,
+    );
+
+    const descriptorPath = path.join(
+      pair.shared,
+      "devices",
+      pair.first.deviceId,
+      "attachments",
+      "markdown-images",
+      `${fileName}.json`,
+    );
+    fs.unlinkSync(descriptorPath);
+    const repaired = await pair.firstSync.syncNow();
+    assert.equal(repaired.lastMarkdownImagesPublished, 1);
+    assert.equal(fs.existsSync(descriptorPath), true);
+  } finally {
+    pair.close();
+  }
+});
+
+test("shared folder sync never confirms an incomplete or corrupted Markdown image", async () => {
+  const pair = createPair();
+  const fileName = "123e4567-e89b-42d3-a456-426614174001.png";
+  try {
+    writeMarkdownImage(pair.firstAttachments, fileName, "complete-image");
+    pair.first.save("note", {
+      id: "corrupt-image-note",
+      title: "Corrupt image test",
+      body_markdown: `![diagram](tasken-attachment://local/${fileName}/diagram)`,
+    });
+    await pair.firstSync.configure(pair.shared);
+
+    const remoteImagePath = path.join(
+      pair.shared,
+      "devices",
+      pair.first.deviceId,
+      "attachments",
+      "markdown-images",
+      fileName,
+    );
+    fs.writeFileSync(remoteImagePath, "partial");
+
+    await assert.rejects(
+      () => pair.secondSync.configure(pair.shared),
+      /同期途中か破損しています/,
+    );
+    assert.equal(fs.existsSync(path.join(pair.secondAttachments, fileName)), false);
+  } finally {
+    pair.close();
+  }
+});
+
+test("Markdown images remain local when the shared folder is unavailable and publish after recovery", async () => {
+  const pair = createPair();
+  const fileName = "123e4567-e89b-42d3-a456-426614174002.webp";
+  try {
+    await pair.firstSync.configure(pair.shared);
+    writeMarkdownImage(pair.firstAttachments, fileName, "offline-image");
+    pair.first.save("note", {
+      id: "offline-image-note",
+      title: "Offline image",
+      body_markdown: `![offline](tasken-attachment://local/${fileName}/offline)`,
+    });
+    fs.renameSync(pair.shared, `${pair.shared}-offline`);
+
+    await assert.rejects(() => pair.firstSync.syncNow(), /Tasken設定が見つかりません/);
+    assert.equal(fs.readFileSync(path.join(pair.firstAttachments, fileName), "utf8"), "offline-image");
+
+    fs.renameSync(`${pair.shared}-offline`, pair.shared);
+    const recovered = await pair.firstSync.syncNow();
+    assert.equal(recovered.lastMarkdownImagesPublished, 1);
   } finally {
     pair.close();
   }

@@ -311,7 +311,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                     : syncStatus?.enabled ? "有効" : "停止"}
             </span>
           </div>
-          <p className="field-help">各端末のSQLiteはローカルに保ち、選択したOneDriveまたは共有フォルダで変更だけを交換します。</p>
+          <p className="field-help">各端末のSQLiteはローカルに保ち、選択したOneDriveまたは共有フォルダで変更とNote内のMarkdown画像を交換します。画像は各端末にもキャッシュするため、同期後はオフラインでも表示できます。</p>
           <dl className="settings-meta-list">
             <div>
               <dt>同期先</dt>
@@ -324,6 +324,15 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             <div>
               <dt>端末</dt>
               <dd className="mono-value">{syncStatus?.deviceId ? syncStatus.deviceId.slice(0, 8) : "—"}</dd>
+            </div>
+            <div>
+              <dt>Markdown画像</dt>
+              <dd>
+                {syncStatus ? `${syncStatus.markdownImageCount}件` : "—"}
+                {syncStatus && (syncStatus.lastMarkdownImagesPublished || syncStatus.lastMarkdownImagesReceived)
+                  ? `（送信 ${syncStatus.lastMarkdownImagesPublished}・受信 ${syncStatus.lastMarkdownImagesReceived}）`
+                  : ""}
+              </dd>
             </div>
           </dl>
           {syncStatus?.lastError && <p className="form-error">同期エラー: {syncStatus.lastError}</p>}
