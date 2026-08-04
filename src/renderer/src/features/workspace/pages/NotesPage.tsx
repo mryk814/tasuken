@@ -61,7 +61,13 @@ import {
   type NoteModeScrollAnchor,
 } from "../lib/noteModeScroll";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
-import { drawSketchPage, renderSketchPageToDataUrl, type SketchPage } from "../lib/sketch";
+import {
+  cropSketchPageToContent,
+  drawSketchPage,
+  renderSketchPageToDataUrl,
+  sketchCanvasMode,
+  type SketchPage,
+} from "../lib/sketch";
 import {
   ACTIVE_SKETCH_ID_KEY,
   ACTIVE_SKETCH_PAGE_KEY,
@@ -312,7 +318,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
       return {
         ...ref,
         title: sketch.title.trim() || "無題のSketch",
-        dataUrl: await renderSketchPageToDataUrl(page),
+        dataUrl: await renderSketchPageToDataUrl(
+          sketchCanvasMode(sketch.document) === "infinite" ? cropSketchPageToContent(page) : page,
+        ),
       };
     })).then((previews) => {
       if (!active) return;
@@ -799,7 +807,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     if (cached) return cached;
     const sketch = sketches.find((entry) => entry.id === ref.sketchId);
     const page = sketch ? findSketchPage(sketch.document, ref.pageId) : null;
-    if (page) return renderSketchPageToDataUrl(page);
+    if (page && sketch) {
+      return renderSketchPageToDataUrl(
+        sketchCanvasMode(sketch.document) === "infinite" ? cropSketchPageToContent(page) : page,
+      );
+    }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="240"><rect width="100%" height="100%" fill="#f6f1ed"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#746a65" font-family="sans-serif" font-size="22">参照先のSketchが見つかりません</text></svg>`;
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }, [sketchEmbeds, sketches]);

@@ -41,9 +41,29 @@ test("anchored zoom preserves the canvas point below the cursor", () => {
   assert.equal((before.scrollTop + before.pointerY) / before.zoom, (next.top + before.pointerY) / nextZoom);
 });
 
+test("Infinite camera converts negative world coordinates without moving objects", () => {
+  const camera = { x: -420, y: -260, zoom: 0.8 };
+  const screen = navigation.sketchWorldToScreen(camera, -220, -60);
+  assert.deepEqual(screen, { x: 160, y: 160 });
+  assert.deepEqual(navigation.screenToSketchWorld(camera, screen.x, screen.y), { x: -220, y: -60 });
+
+  const panned = navigation.panSketchViewport(camera, 160, 80);
+  assert.deepEqual(panned, { x: -620, y: -360, zoom: 0.8 });
+});
+
+test("Infinite anchored zoom keeps the world point under the cursor", () => {
+  const camera = { x: -300, y: 120, zoom: 0.75 };
+  const pointer = { x: 420, y: 260 };
+  const before = navigation.screenToSketchWorld(camera, pointer.x, pointer.y);
+  const next = navigation.anchoredSketchViewportZoom(camera, 1.25, pointer.x, pointer.y);
+  assert.deepEqual(navigation.screenToSketchWorld(next, pointer.x, pointer.y), before);
+});
+
 test("Sketch canvas connects common mouse navigation without changing tools", () => {
   assert.match(canvasSource, /event\.button === 1/);
   assert.match(canvasSource, /event\.button === 0 && spacePressedRef\.current/);
+  assert.match(canvasSource, /panSketchViewport/);
+  assert.match(canvasSource, /onViewportChange\(viewportRef\.current\)/);
   assert.match(canvasSource, /event\.ctrlKey \|\| event\.metaKey/);
   assert.match(shellSource, /中ボタン\+ドラッグ/);
   assert.match(shellSource, /Ctrl[\s\S]*ホイール/);

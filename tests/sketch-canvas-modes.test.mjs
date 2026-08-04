@@ -19,14 +19,16 @@ test("new Sketch chooses Page or Infinite while legacy data remains Page", () =>
   assert.match(domain, /\["page", "infinite"\]\.includes\(document\.mode\)/);
 });
 
-test("Page keeps multiple fixed pages and Infinite grows one pannable surface", () => {
+test("Page keeps multiple fixed pages and Infinite uses one camera-driven world", () => {
   assert.match(sketch, /landscape: \{ width: 1200, height: 850 \}/);
   assert.match(editor, /canvasMode === "page" && <aside/);
   assert.match(editor, /createSketchPage\([\s\S]*String\(document\.pages\.length \+ 1\),[\s\S]*"page"/);
-  assert.match(sketch, /expandInfinitePage/);
-  assert.match(sketch, /INFINITE_GROW_STEP = 800/);
+  assert.match(sketch, /viewport\?:/);
+  assert.match(editor, /onViewportChange=\{changeViewport\}/);
   assert.match(canvas, /kind: "pan"/);
-  assert.match(canvas, /scroll\.scrollLeft = mode\.scrollLeft/);
+  assert.match(canvas, /panSketchViewport/);
+  assert.match(canvas, /screenToSketchWorld/);
+  assert.match(canvas, /sketchWorldToScreen/);
 });
 
 test("Page chooses landscape portrait square or custom size and new pages inherit it", () => {
@@ -44,11 +46,12 @@ test("both modes use one tool canvas and Infinite exports an explicit range", ()
   assert.match(editor, /描画範囲/);
   assert.match(editor, /キャンバス全体/);
   assert.match(editor, /cropSketchPageToContent\(activePage\)/);
+  assert.match(editor, /infiniteCanvasExportPage\(activePage\)/);
 });
 
 test("comparison uses one sample and concrete evaluation criteria", () => {
   assert.match(comparison, /実験判断フロー/);
   assert.match(comparison, /Pageでは内容が収まらなければ2ページ目/);
-  assert.match(comparison, /Infiniteでは右方向へ続け/);
+  assert.match(comparison, /Infiniteでは原点から上下左右へ続け/);
   assert.match(comparison, /1（つらい）〜5（自然）/);
 });

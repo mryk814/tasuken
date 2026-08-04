@@ -28,7 +28,7 @@ test("Sketch embed keeps canonical Sketch and page ids", () => {
 test("Edit Preview and PDF resolve the latest Sketch preview", () => {
   assert.match(richEditor, /imagePreviewHandler:/);
   assert.match(notes, /onImagePreview=\{previewSketchImage\}/);
-  assert.match(notes, /renderSketchPageToDataUrl\(page\)/);
+  assert.match(notes, /renderSketchPageToDataUrl\([\s\S]*?cropSketchPageToContent\(page\)/);
   assert.match(notes, /previewHtml\(draftBody, "markdown", previewRenderOptions\)/);
   assert.match(notes, /previewDocument\(content, "markdown", publishRenderOptions\)/);
 });

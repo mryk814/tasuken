@@ -39,7 +39,7 @@ test("stroke smoothing preserves endpoints and reduces the longest jump", () => 
 
 test("canvas consumes coalesced pointer samples and previews final ink style", () => {
   assert.match(canvasSource, /getCoalescedEvents/);
-  assert.match(canvasSource, /draftObject:/);
+  assert.match(canvasSource, /drawSketchObject\(context, \{/);
   assert.match(canvasSource, /tool === "highlighter" \? "highlighter" : "pen"/);
   assert.doesNotMatch(canvasSource, /Math\.max\(12, strokeWidth \* 5\)/);
   assert.match(canvasSource, /width: strokeWidth/);

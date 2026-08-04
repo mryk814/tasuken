@@ -17,8 +17,19 @@ test("right mouse button temporarily erases with the saved eraser width", () => 
 test("live strokes render on animation frames without React point state", () => {
   assert.match(canvas, /draftPointsRef = useRef<SketchPoint\[\]>/);
   assert.match(canvas, /window\.requestAnimationFrame/);
-  assert.match(canvas, /mode\.points\.push\(\.\.\.coalescedPointerPoints/);
+  assert.match(canvas, /pointerMode\.points\.push\(\.\.\.coalescedPointerPoints/);
   assert.doesNotMatch(canvas, /useState<SketchPoint\[\]>\(\[\]\)/);
+});
+
+test("live ink uses a separate transparent surface and reports input latency", () => {
+  assert.match(canvas, /baseCanvasRef = useRef<HTMLCanvasElement/);
+  assert.match(canvas, /const renderBase = useCallback/);
+  assert.match(canvas, /const renderLive = useCallback/);
+  assert.match(canvas, /className="sketch-canvas-base"/);
+  assert.match(canvas, /sketch-canvas-interaction/);
+  assert.match(canvas, /pendingInputAtRef\.current = performance\.now\(\)/);
+  assert.match(canvas, /Input \{latencyMetrics\.latest\.toFixed\(1\)\}ms/);
+  assert.match(styles, /\.sketch-canvas \{ background: transparent; touch-action: none; \}/);
 });
 
 test("drawing tools use a persistent circular cursor", () => {

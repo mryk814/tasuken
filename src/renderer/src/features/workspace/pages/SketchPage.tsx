@@ -49,7 +49,7 @@ import {
   createSketchPage,
   cropSketchPageToContent,
   drawSketchPage,
-  expandInfinitePage,
+  infiniteCanvasExportPage,
   minimumSketchPageSize,
   renderSketchPageToDataUrl,
   sketchAiPrompt,
@@ -64,7 +64,7 @@ import {
   type SketchTool,
 } from "../lib/sketch";
 import { ACTIVE_SKETCH_ID_KEY, ACTIVE_SKETCH_PAGE_KEY } from "../lib/sketchEmbed";
-import { clampSketchZoom } from "../lib/sketchNavigation";
+import { clampSketchZoom, normalizeSketchViewport, type SketchViewport } from "../lib/sketchNavigation";
 import {
   DEFAULT_SKETCH_TOOL_PRESETS,
   isSketchPresetTool,
@@ -157,6 +157,7 @@ export function SketchPage({
     localStorage.setItem(ACTIVE_SKETCH_ID_KEY, selected.id);
     setActiveId(selected.id);
     setDocument(selected.document);
+    setZoom(normalizeSketchViewport(selected.document.viewport).zoom);
     const requestedPageId = localStorage.getItem(ACTIVE_SKETCH_PAGE_KEY);
     setActivePageId(selected.document.pages.some((page) => page.id === requestedPageId)
       ? requestedPageId || ""
@@ -207,6 +208,7 @@ export function SketchPage({
 
   const activePage = document.pages.find((page) => page.id === activePageId) || document.pages[0];
   const canvasMode = sketchCanvasMode(document);
+  const viewport = normalizeSketchViewport(document.viewport, zoom);
   const selectedTheme = themes.find((theme) => theme.id === selected?.project_id);
 
   function updateActivePreset(next: Partial<{ color: string; width: number }>) {
@@ -225,8 +227,19 @@ export function SketchPage({
   }
 
   function changePage(page: SketchPage) {
-    const nextPage = canvasMode === "infinite" ? expandInfinitePage(page) : page;
-    changeDocument({ ...document, pages: document.pages.map((entry) => entry.id === nextPage.id ? nextPage : entry) });
+    changeDocument({ ...document, pages: document.pages.map((entry) => entry.id === page.id ? page : entry) });
+  }
+
+  function changeViewport(next: SketchViewport) {
+    setZoom(next.zoom);
+    setDocument((current) => ({ ...current, viewport: next }));
+    setDirty(true);
+  }
+
+  function changeZoom(next: number) {
+    const clamped = clampSketchZoom(next);
+    if (canvasMode === "infinite") changeViewport({ ...viewport, zoom: clamped });
+    else setZoom(clamped);
   }
 
   function undo() {
@@ -304,8 +317,12 @@ export function SketchPage({
       id: crypto.randomUUID(),
       type: "image",
       color: "#211e1d",
-      x: point ? Math.max(0, Math.min(activePage.width - width, point.x - width / 2)) : 80,
-      y: point ? Math.max(0, Math.min(activePage.height - height, point.y - height / 2)) : 80,
+      x: point
+        ? (canvasMode === "infinite" ? point.x - width / 2 : Math.max(0, Math.min(activePage.width - width, point.x - width / 2)))
+        : 80,
+      y: point
+        ? (canvasMode === "infinite" ? point.y - height / 2 : Math.max(0, Math.min(activePage.height - height, point.y - height / 2)))
+        : 80,
       w: width,
       h: height,
       data_url: dataUrl,
@@ -318,7 +335,9 @@ export function SketchPage({
     if (!selected || !activePage) throw new Error("出力するSketchがありません。");
     const exportPage = canvasMode === "infinite" && exportRange === "drawing"
       ? cropSketchPageToContent(activePage)
-      : activePage;
+      : canvasMode === "infinite"
+        ? infiniteCanvasExportPage(activePage)
+        : activePage;
     const dataUrl = await renderSketchPageToDataUrl(exportPage);
     return {
       title: selected.title,
@@ -347,7 +366,9 @@ export function SketchPage({
     if (!selected || !activePage) return;
     try {
       await workspaceApi.copyImage({
-        dataUrl: await renderSketchPageToDataUrl(activePage),
+        dataUrl: await renderSketchPageToDataUrl(
+          canvasMode === "infinite" ? cropSketchPageToContent(activePage) : activePage,
+        ),
       });
       setToast("1/2 Sketch画像をコピーしました。AIの入力欄へ貼り付けてください。", "success");
     } catch (error) {
@@ -566,6 +587,8 @@ export function SketchPage({
         <section className="sketch-canvas-area">
           <SketchCanvas
             page={activePage}
+            mode={canvasMode}
+            viewport={viewport}
             tool={tool}
             color={activePreset.color}
             strokeWidth={activePreset.width}
@@ -573,7 +596,8 @@ export function SketchPage({
             shapeKind={shapeKind}
             eraserMode={eraserMode}
             zoom={zoom}
-            onZoom={setZoom}
+            onZoom={changeZoom}
+            onViewportChange={changeViewport}
             onChange={changePage}
             onToolChange={setTool}
             onUndo={undo}
@@ -583,11 +607,16 @@ export function SketchPage({
           <div className="sketch-bottom-controls">
             <span>{canvasMode === "page"
               ? `${document.pages.findIndex((page) => page.id === activePage.id) + 1} / ${document.pages.length} · ${activePage.width} × ${activePage.height}`
-              : `${activePage.width} × ${activePage.height}`}</span>
-            <button onClick={() => setZoom((value) => clampSketchZoom(value - 0.1))} aria-label="縮小" title="縮小（Ctrl+ホイール）"><IconZoomOut size={17} /></button>
+              : `World ${Math.round(viewport.x)}, ${Math.round(viewport.y)}`}</span>
+            <button onClick={() => changeZoom(zoom - 0.1)} aria-label="縮小" title="縮小（Ctrl+ホイール）"><IconZoomOut size={17} /></button>
             <span>{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom((value) => clampSketchZoom(value + 0.1))} aria-label="拡大" title="拡大（Ctrl+ホイール）"><IconZoomIn size={17} /></button>
-            <button onClick={() => setZoom(0.82)} aria-label="ページ全体を表示"><IconMaximize size={17} /></button>
+            <button onClick={() => changeZoom(zoom + 0.1)} aria-label="拡大" title="拡大（Ctrl+ホイール）"><IconZoomIn size={17} /></button>
+            <button
+              onClick={() => canvasMode === "infinite" ? changeViewport({ x: 0, y: 0, zoom: 0.82 }) : setZoom(0.82)}
+              aria-label={canvasMode === "infinite" ? "原点へ戻る" : "ページ全体を表示"}
+            >
+              <IconMaximize size={17} />
+            </button>
             {canvasMode === "page" && (
               <div className="sketch-page-size-menu">
                 <button onClick={openPageSize} aria-haspopup="dialog" aria-expanded={pageSizeOpen}>

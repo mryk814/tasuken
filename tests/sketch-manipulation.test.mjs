@@ -153,3 +153,33 @@ test("diagram shape set renders to SVG without changing the document schema", ()
   assert.match(svg, /marker-start="url\(#arrow-start\)"/);
   assert.ok(shapes.every((shape) => page.objects.some((object) => object.shape === shape)));
 });
+
+test("Infinite export keeps negative objects in drawing and whole-canvas ranges", () => {
+  const page = {
+    id: "world",
+    title: "world",
+    width: 2400,
+    height: 1600,
+    background: "dot",
+    objects: [{
+      id: "left",
+      type: "shape",
+      shape: "rectangle",
+      color: "#211e1d",
+      width: 2,
+      x: -420,
+      y: -260,
+      w: 120,
+      h: 80,
+    }],
+  };
+  const drawing = sketch.cropSketchPageToContent(page);
+  assert.ok(drawing.objects[0].x >= 0);
+  assert.ok(drawing.objects[0].y >= 0);
+
+  const whole = sketch.infiniteCanvasExportPage(page);
+  assert.ok(whole.width > page.width);
+  assert.ok(whole.height > page.height);
+  assert.ok(whole.objects[0].x >= 0);
+  assert.ok(whole.objects[0].y >= 0);
+});
