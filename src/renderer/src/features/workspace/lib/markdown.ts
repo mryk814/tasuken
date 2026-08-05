@@ -4,7 +4,8 @@ import { gfmStrikethroughFromMarkdown } from "mdast-util-gfm-strikethrough";
 import { gfmTableFromMarkdown } from "mdast-util-gfm-table";
 import { mathFromMarkdown } from "mdast-util-math";
 import { toString as mdastToString } from "mdast-util-to-string";
-import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough";
+import { cjkFriendlyExtension } from "micromark-extension-cjk-friendly";
+import { gfmStrikethroughCjkFriendly } from "micromark-extension-cjk-friendly-gfm-strikethrough";
 import { gfmTable } from "micromark-extension-gfm-table";
 import { math as micromarkMath } from "micromark-extension-math";
 import type {
@@ -36,13 +37,21 @@ import { MARKDOWN_DOCUMENT_SURFACES_CSS } from "./markdownDocumentSurfaces";
 import { mermaidWidthFromMeta } from "./mermaidWidth";
 import { parseSketchEmbedUrl, type SketchEmbedPreview } from "./sketchEmbed";
 
-/** MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。 */
+/**
+ * MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。
+ *
+ * cjkFriendlyExtension は CommonMark の flanking 判定を CJK 向けに緩める（#285）。
+ * 素の CommonMark では `文章中の**（重要）**です` のように約物が `**` の内側、
+ * 日本語文字が外側に来ると開始・終了デリミタのどちらにもならず強調にならない。
+ * 取り消し線も同じ判定を使うため、GFM版ではなく CJK 対応版を入れる。
+ */
 function parseMarkdownBody(body: string): Root {
   return fromMarkdown(body, {
     extensions: [
       gfmTable(),
-      gfmStrikethrough(),
+      gfmStrikethroughCjkFriendly(),
       micromarkMath({ singleDollarTextMath: true }),
+      cjkFriendlyExtension(),
     ],
     mdastExtensions: [
       gfmTableFromMarkdown(),

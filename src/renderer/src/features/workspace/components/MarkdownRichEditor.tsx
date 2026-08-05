@@ -57,6 +57,7 @@ import {
   type MouseEvent,
 } from "react";
 
+import { markdownCjkFriendlyPlugin } from "./markdownCjkFriendlyPlugin";
 import { MarkdownCodeBlockNavigation, markdownCodeBlockDescriptor } from "./markdownCodeBlockEditor";
 import { clipboardImageFile } from "../lib/clipboardImage";
 import { markdownMathPlugin } from "./markdownMathPlugin";
@@ -593,6 +594,8 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     }),
     frontmatterPlugin(),
     markdownShortcutPlugin(),
+    // 強調・取り消し線のCJK判定をPreview / PDFと揃える（#285）
+    markdownCjkFriendlyPlugin(),
   ], []);
 
   useEffect(() => {

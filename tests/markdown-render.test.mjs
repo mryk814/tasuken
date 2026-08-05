@@ -1200,3 +1200,57 @@ title: t
   assert.match(css, /md-heading-index-item-number/);
   assert.match(css, /max-height: min\(640px, 78vh\)/);
 });
+
+test("CJK隣接の強調が Preview で太字になる（#285）", () => {
+  // 素の CommonMark では約物が ** の内側・日本語が外側だと強調にならない。
+  const cases = [
+    "文章中の**（重要）**です",
+    "これは**（重要）**です",
+    "本文の**「引用」**が続く",
+    "見出しの**【要点】**を読む",
+    "**重要。**続く",
+    "項目**・一覧**です",
+  ];
+  for (const source of cases) {
+    const html = markdown.previewHtml(source, "markdown");
+    assert.match(html, /<strong>/, `強調にならなかった: ${source}`);
+  }
+});
+
+test("既存の強調・非強調の判定が変わらない（#285）", () => {
+  const strong = [
+    "This is **bold** text",
+    "(**important**)",
+    "**（重要）**",
+    "（**重要**）",
+    "これは**重要**です",
+    "日本語**bold English**日本語",
+    "[**リンク文字**](https://example.com)",
+  ];
+  for (const source of strong) {
+    assert.match(markdown.previewHtml(source, "markdown"), /<strong>/, `強調が消えた: ${source}`);
+  }
+  // 閉じていない ** は強調にしない。
+  assert.doesNotMatch(markdown.previewHtml("**未閉じ", "markdown"), /<strong>/);
+});
+
+test("CJK隣接の取り消し線が Preview で反映される（#285）", () => {
+  const cases = [
+    "文章中の~~（削除）~~です",
+    "これは~~取り消し。~~続く",
+    "本文の~~「引用」~~が続く",
+  ];
+  for (const source of cases) {
+    assert.match(markdown.previewHtml(source, "markdown"), /<del>/, `取り消し線にならなかった: ${source}`);
+  }
+  assert.match(markdown.previewHtml("This is ~~struck~~ text", "markdown"), /<del>/);
+});
+
+test("Editor も Preview と同じ CJK 拡張を使う（#285）", () => {
+  const pluginSource = readFileSync("src/renderer/src/features/workspace/components/markdownCjkFriendlyPlugin.ts", "utf8");
+  assert.match(pluginSource, /cjkFriendlyExtension/);
+  assert.match(pluginSource, /gfmStrikethroughCjkFriendly/);
+  assert.match(pluginSource, /addSyntaxExtension\$/);
+  const editorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  assert.match(editorSource, /markdownCjkFriendlyPlugin\(\)/);
+});
