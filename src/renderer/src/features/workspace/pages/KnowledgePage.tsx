@@ -13,7 +13,7 @@ import {
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { KnowledgeNode, PageProps } from "../types";
-import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS } from "../lib/domain";
+import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, allResourceRecords } from "../lib/domain";
 import { str, uuid } from "../lib/format";
 import { buildKnowledgeHealth, type KnowledgeHealthIssue } from "../lib/knowledgeHealth";
 import { parseWikiLinks } from "../lib/knowledgeLinks";
@@ -82,8 +82,7 @@ type PositionedKnowledgeNode = KnowledgeNode & {
 type GraphRect = { x: number; y: number; width: number; height: number };
 
 function resolveSourceName(node: KnowledgeNode, data: PageProps["data"]): string {
-  const resourceIds = new Set((data.resources || []).map((r) => r.id));
-  const allResources = [...(data.resources || []), ...(data.links || []).filter((l) => !resourceIds.has(l.id))];
+  const allResources = allResourceRecords(data);
   const allEntities = [...(data.tasks || []), ...(data.waitings || []), ...(data.plan_nodes || [])];
   if (node.source_type && node.source_id) {
     if (node.source_type === "note") return data.notes.find((n) => n.id === node.source_id)?.title || node.source_id;

@@ -55,6 +55,7 @@ import {
   resolveArtifactThemeId,
 } from "../lib/artifactEntities";
 import { markArtifactOpened, readRecentArtifactIds } from "../lib/artifactRecent";
+import { allResourceRecords } from "../lib/domain";
 import { str } from "../lib/format";
 import { ChatRefArtifactLinkDialog } from "./ChatRefArtifactLinkDialog";
 import { ContextMenu, type ContextMenuItem } from "./common";
@@ -138,7 +139,7 @@ export function resolveArtifactSourceLabel(artifact: Artifact, data: WorkspaceDa
     return note ? String(note.title || "メモ") : ARTIFACT_SOURCE_TYPE_LABELS[sourceType];
   }
   if (sourceType === "chat_ref") {
-    const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
+    const resource = allResourceRecords(data).find((entry) => entry.id === sourceId);
     return resource ? String(resource.title || resource.url || "Chat参照") : ARTIFACT_SOURCE_TYPE_LABELS.chat_ref;
   }
   if (sourceType === "theme") {
@@ -169,7 +170,7 @@ export function openArtifactSource(artifact: Artifact, data: WorkspaceData, open
     return true;
   }
   if (sourceType === "chat_ref") {
-    const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
+    const resource = allResourceRecords(data).find((entry) => entry.id === sourceId);
     if (!resource) return false;
     openDrawer({ type: "resource", entity: resource });
     return true;

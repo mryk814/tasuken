@@ -173,6 +173,23 @@ export function themeColor(theme: Theme | null | undefined, index = 0): string {
   return CHART_COLORS[safeIndex];
 }
 
+/**
+ * Resource（正本）と、まだ Resource へ移行していない旧 Link の和集合を返す。
+ *
+ * 旧 Link は移行時に「同じ id の Resource」として保存されるため（legacyAdapter の migrateResource）、
+ * data.resources と data.links を単純結合すると同一エンティティが2件並び、
+ * React の key 重複や find の当たり方の揺れを生む。id で正本（resources）を優先して1件に畳む。
+ */
+export function allResourceRecords(
+  data: Partial<Pick<WorkspaceData, "resources" | "links">>,
+): BaseRecord[] {
+  const resources = (data.resources || []) as BaseRecord[];
+  const resourceIds = new Set(resources.map((resource) => resource.id));
+  const legacyOnly = ((data.links || []) as unknown as BaseRecord[])
+    .filter((link) => !resourceIds.has(link.id));
+  return [...resources, ...legacyOnly];
+}
+
 export function relatedEntityTitle(data: WorkspaceData, type: string, id?: string): string {
   const keys: Record<string, keyof WorkspaceData> = {
     item: "items",

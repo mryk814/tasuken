@@ -11,6 +11,7 @@ import type {
   SaveOperation,
   WorkspaceData,
 } from "../types";
+import { allResourceRecords } from "./domain";
 import { uuid } from "./format";
 
 export function buildManagedArtifactOperations(
@@ -177,7 +178,7 @@ export function resolveArtifactThemeId(options: {
       return String(note?.theme_id || "").trim() || null;
     }
     if (sourceType === "chat_ref") {
-      const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
+      const resource = allResourceRecords(data).find((entry) => entry.id === sourceId);
       return String(resource?.project_id || resource?.theme_id || "").trim() || null;
     }
   }

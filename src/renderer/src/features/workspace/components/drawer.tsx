@@ -17,7 +17,7 @@ import type {
   Sketch,
   WorkspaceData,
 } from "../types";
-import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, relatedEntityTitle, uiNoteType } from "../lib/domain";
+import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, allResourceRecords, relatedEntityTitle, uiNoteType } from "../lib/domain";
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
@@ -844,7 +844,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
 
 function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const isChatRef = isChatReferenceEntity(entity);
-  const allResources = [...(data.resources || []), ...data.links];
+  const allResources = allResourceRecords(data);
   const [projectId, setProjectId] = useState(str(entity.project_id || entity.theme_id));
   const [url, setUrl] = useState(str(entity.url));
   const [linkType, setLinkType] = useState(initialChatLinkType(entity.link_type));
@@ -959,13 +959,9 @@ function resolveSourceId(entity: DrawerConfig["entity"]): string {
 
 function KnowledgeSourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const [sourceType, setSourceType] = useState(resolveSourceType(entity));
-  const resourceIds = new Set((data.resources || []).map((r) => r.id));
   const candidates: Record<string, { id: string; title: string }[]> = {
     note: (data.notes || []).map((n) => ({ id: n.id, title: n.title })),
-    resource: [
-      ...(data.resources || []).map((r) => ({ id: r.id, title: str(r.title) })),
-      ...(data.links || []).filter((l) => !resourceIds.has(l.id)).map((l) => ({ id: l.id, title: l.title })),
-    ],
+    resource: allResourceRecords(data).map((r) => ({ id: r.id, title: str(r.title) })),
     task: (data.tasks || []).map((t) => ({ id: t.id, title: str(t.title) })),
     waiting: (data.waitings || []).map((w) => ({ id: w.id, title: str(w.title) })),
     plan_node: (data.plan_nodes || []).map((p) => ({ id: p.id, title: str(p.title) })),
@@ -1648,8 +1644,7 @@ function KnowledgeNodeDetailDrawer({
     notes: data.notes as unknown as BaseRecord[],
     knowledge_nodes: data.knowledge_nodes as unknown as BaseRecord[],
   });
-  const resourceIds = new Set((data.resources || []).map((r) => r.id));
-  const allResources = [...(data.resources || []), ...(data.links || []).filter((l) => !resourceIds.has(l.id))];
+  const allResources = allResourceRecords(data);
   const allTasks = [...(data.tasks || []), ...(data.waitings || []), ...(data.plan_nodes || [])];
   const sourceLabel = (() => {
     if (node.source_type && node.source_id) {
