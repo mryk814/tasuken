@@ -32,3 +32,16 @@ test("Notes preview keeps one scroll owner and bounded document-end spacing", ()
     "the document end inset must not scale with viewport height",
   );
 });
+
+test("Notes images preserve their aspect ratio without a viewport-height ceiling", () => {
+  assert.match(
+    notesLayoutCss,
+    /\.note-preview-panel\s+\.note-mdx-content\s+img,\s*\.note-preview-panel\s+\.note-main-preview\s+\.md-image\s+img\s*\{[^}]*height:\s*auto;[^}]*max-height:\s*none;[^}]*object-fit:\s*contain;/s,
+    "editor and preview images should share the full-height rendering contract",
+  );
+  assert.doesNotMatch(
+    notesLayoutCss,
+    /(?:height|max-height):\s*[^;]*(?:vh|dvh|svh|lvh)/,
+    "Notes image height must not be capped by viewport units",
+  );
+});
