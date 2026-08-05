@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { installMarkdownDocumentSurfaces } from "./features/workspace/lib/markdownDocumentSurfaces";
 import "./styles/app.css";
+import "./styles/notes-layout.css";
 
 installMarkdownDocumentSurfaces(document);
 
