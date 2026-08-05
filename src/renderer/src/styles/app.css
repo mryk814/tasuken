@@ -4405,6 +4405,97 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .sketch-bottom-controls button:last-child { display: none; }
 }
 
+/* --- Conversation Import Dialog --- */
+.conversation-import-dialog { width: min(560px, calc(100vw - 32px)); }
+.conversation-import-dialog .modal-card-header { display: flex; align-items: center; justify-content: space-between; }
+.conversation-import-dialog .modal-card-header h2 { margin: 0; }
+.conversation-import-source { display: flex; gap: var(--space-2); justify-content: center; padding: var(--space-6) var(--space-4); }
+.conversation-import-loading { text-align: center; padding: var(--space-6); color: var(--color-text-secondary); }
+.conversation-import-error { display: grid; gap: var(--space-3); padding: var(--space-4); text-align: center; }
+.conversation-import-error p { color: var(--color-danger); }
+.conversation-import-preview { display: grid; gap: var(--space-3); }
+.conversation-import-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.conversation-import-stats { display: flex; gap: var(--space-2); align-items: center; }
+.conversation-import-stats .badge { font-size: var(--text-xs); padding: var(--space-half) var(--space-1); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-text-secondary); }
+.conversation-import-stats .badge-secondary { background: var(--color-surface); border: 1px solid var(--color-border); }
+.conversation-import-messages { max-height: 320px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-2); display: grid; gap: var(--space-2); }
+.conversation-import-ellipsis { text-align: center; color: var(--color-text-tertiary); font-size: var(--text-sm); padding: var(--space-2); }
+.conversation-import-message { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); }
+.conversation-import-role-user { background: var(--color-surface-muted); }
+.conversation-import-role { font-size: var(--text-xs); font-weight: 600; color: var(--color-text-tertiary); }
+.conversation-import-message .markdown-preview {
+  min-height: 0;
+  max-height: 9rem;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--text-sm);
+}
+
+/* --- Conversation Viewer --- */
+.conversation-view { display: grid; gap: var(--space-2); }
+.conversation-message-count { font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: var(--space-1); }
+
+/* 会話スレッド: 主要AIチャットに倣い、中央1カラムに縦へ流す。
+   user は淡い吹き出しで右寄せ、assistant は地の文として全幅に置く。 */
+.conversation-thread {
+  display: grid;
+  gap: var(--space-6);
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+}
+.conversation-turn { display: grid; gap: var(--space-2); }
+.conversation-turn-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-tertiary);
+}
+.conversation-turn-label svg { flex: none; }
+.conversation-turn-body { min-width: 0; }
+.conversation-turn .markdown-preview {
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--text-base);
+}
+
+.conversation-role-user { justify-items: end; }
+.conversation-role-user .conversation-turn-body {
+  max-width: 85%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+.conversation-role-user .markdown-preview { font-size: var(--text-sm); }
+
+.conversation-role-system .conversation-turn-body,
+.conversation-role-tool .conversation-turn-body {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+.conversation-role-system .markdown-preview,
+.conversation-role-tool .markdown-preview { font-size: var(--text-sm); }
+
+.content-viewer-conversation.conversation-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+  padding: var(--space-6) var(--space-6) var(--space-8);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

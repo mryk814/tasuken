@@ -41,7 +41,9 @@ import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
+import { isConversationMarkdown } from "../lib/conversationParser";
 import { ArtifactSection } from "./artifacts";
+import { ConversationPreview } from "./ConversationPreview";
 import {
   CaptureEntryFields,
   findSchedule,
@@ -309,8 +311,10 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           )}
         </dl>
         {Boolean(entity.description) && <p>{str(entity.description)}</p>}
-        {!isChatRef && Boolean(entity.body_markdown) && (
-          <MarkdownPreview className="markdown-preview" html={previewHtml(str(entity.body_markdown), "markdown")} />
+        {Boolean(entity.body_markdown) && (
+          isChatRef && isConversationMarkdown(str(entity.body_markdown))
+            ? <ConversationPreview body={str(entity.body_markdown)} />
+            : <MarkdownPreview className="markdown-preview" html={previewHtml(str(entity.body_markdown), "markdown")} />
         )}
         {isChatRef && (
           <ArtifactSection

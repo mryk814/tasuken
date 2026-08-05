@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 
 import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { Artifact, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
+import type { Artifact, BaseRecord, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
 import {
   headingNumberOptionsFromProperties,
   openSafeMarkdownLink,
@@ -30,6 +30,8 @@ import {
   showArtifactInFolder,
 } from "./artifacts";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { ConversationPreview } from "./ConversationPreview";
+import { parseConversation } from "../lib/conversationParser";
 
 export type { ContentViewerTarget };
 
@@ -54,6 +56,15 @@ type LoadState =
       src: string;
       artifact?: Artifact;
       filePath?: string;
+    }
+  | {
+      status: "ready";
+      mode: "conversation";
+      title: string;
+      body: string;
+      messageCount: number;
+      sourceUrl: string;
+      resource: BaseRecord;
     };
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -94,6 +105,27 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
       contentFormat: noteContentFormat(note),
       headingOptions,
       note,
+    };
+  }
+
+  if (target.type === "chat_log") {
+    const resource = [...(data.resources || []), ...data.links]
+      .find((entry) => str((entry as BaseRecord).id) === target.resourceId) as BaseRecord | undefined;
+    if (!resource) {
+      return { status: "error", message: "チャット参照が見つかりません。削除済みの可能性があります。" };
+    }
+    const body = str(resource.body_markdown);
+    if (!body) {
+      return { status: "error", message: "この参照には会話ログが保存されていません。取り込み直してください。" };
+    }
+    return {
+      status: "ready",
+      mode: "conversation",
+      title: str(resource.title) || "会話ログ",
+      body,
+      messageCount: parseConversation(body).messageCount,
+      sourceUrl: str(resource.url),
+      resource,
     };
   }
 
@@ -249,6 +281,23 @@ export function ContentViewer({
     openDrawer({ type: "note", mode: "edit", entity: load.note });
   }
 
+  async function copyConversationMarkdown() {
+    if (load.status !== "ready" || load.mode !== "conversation") return;
+    await workspaceApi.copyText(load.body);
+    setToast("会話ログをコピーしました。", "success");
+  }
+
+  function openConversationSource() {
+    if (load.status !== "ready" || load.mode !== "conversation" || !load.sourceUrl) return;
+    openSafeMarkdownLink(load.sourceUrl);
+  }
+
+  function editConversationRef() {
+    if (load.status !== "ready" || load.mode !== "conversation") return;
+    onClose();
+    openDrawer({ type: "resource", mode: "edit", entity: load.resource });
+  }
+
   async function openExternal() {
     if (load.status !== "ready") return;
     if (load.artifact) {
@@ -394,6 +443,9 @@ export function ContentViewer({
             {load.status === "ready" && load.mode === "image" && (
               <span className="content-viewer-badge">画像</span>
             )}
+            {load.status === "ready" && load.mode === "conversation" && (
+              <span className="content-viewer-badge">会話ログ / {load.messageCount}件</span>
+            )}
           </div>
           <div className="content-viewer-actions">
             {canEditNote && (
@@ -409,6 +461,21 @@ export function ContentViewer({
                 <button type="button" className="text-button compact" onClick={() => { void copyPreviewText(); }}>
                   表示をコピー
                 </button>
+              </>
+            )}
+            {load.status === "ready" && load.mode === "conversation" && (
+              <>
+                <button type="button" className="secondary-button compact" onClick={editConversationRef}>
+                  <IconPencil size={15} />参照を編集
+                </button>
+                <button type="button" className="secondary-button compact" onClick={() => { void copyConversationMarkdown(); }}>
+                  <IconCopy size={15} />会話ログをコピー
+                </button>
+                {Boolean(load.sourceUrl) && (
+                  <button type="button" className="secondary-button compact" onClick={openConversationSource}>
+                    <IconExternalLink size={15} />元チャットを開く
+                  </button>
+                )}
               </>
             )}
             {canOpenExternal && (
@@ -486,6 +553,9 @@ export function ContentViewer({
               html={html}
               onClick={handlePreviewClick}
             />
+          )}
+          {load.status === "ready" && load.mode === "conversation" && (
+            <ConversationPreview className="content-viewer-conversation" body={load.body} showCount={false} />
           )}
           {load.status === "ready" && load.mode === "image" && (
             <div

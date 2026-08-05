@@ -9,10 +9,12 @@ import {
   IconChevronRight,
   IconCopy,
   IconExternalLink,
+  IconFileImport,
   IconFoldDown,
   IconFoldUp,
   IconGripVertical,
   IconLinkPlus,
+  IconMessage,
   IconMessageCircleQuestion,
   IconPencil,
   IconStar,
@@ -25,6 +27,8 @@ import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type Keyb
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { ConversationImportDialog } from "../components/ConversationImportDialog";
+import { isConversationMarkdown } from "../lib/conversationParser";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
 import type { Resource } from "../domain-model/types";
 import {
@@ -103,6 +107,7 @@ export function ChatRefsPage({
   activeThemeId,
   setActiveThemeId,
   openDrawer,
+  openContentViewer,
   saveEntities,
   setToast,
 }: PageProps) {
@@ -127,6 +132,7 @@ export function ChatRefsPage({
   /** Electron では window.prompt が使えないため、グループ名変更はインライン編集にする */
   const [renamingGroupKey, setRenamingGroupKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
@@ -479,7 +485,10 @@ export function ChatRefsPage({
         <button className="secondary-button" onClick={copyUrls} disabled={!visibleResources.length}><IconCopy size={16} />URLをコピー</button>
         <button className="secondary-button" onClick={copyList} disabled={!visibleResources.length}><IconCopy size={16} />一覧をコピー</button>
         {!isArchiveView && (
-          <button className="primary-button" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</button>
+          <>
+            <button className="secondary-button" onClick={() => setImportDialogOpen(true)}><IconFileImport size={16} />会話ログを取り込む</button>
+            <button className="primary-button" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</button>
+          </>
         )}
       </PageHeader>
 
@@ -811,17 +820,32 @@ export function ChatRefsPage({
                           <IconLinkPlus size={15} />
                         </button>
                       )}
-                      <a
-                        className="row-action-button chat-link-open"
-                        href={r.url || ""}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={stopRowClick}
-                        aria-label={`${r.title || "リンク"}を開く`}
-                        title="開く"
-                      >
-                        <IconExternalLink size={16} />
-                      </a>
+                      {isConversationMarkdown(String(r.body_markdown || "")) && (
+                        <button
+                          className="row-action-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openContentViewer({ type: "chat_log", resourceId: String(r.id) });
+                          }}
+                          aria-label={`${r.title || "チャットリンク"}の会話ログを読む`}
+                          title="会話ログを読む"
+                        >
+                          <IconMessage size={15} />
+                        </button>
+                      )}
+                      {Boolean(r.url) && (
+                        <a
+                          className="row-action-button chat-link-open"
+                          href={r.url || ""}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={stopRowClick}
+                          aria-label={`${r.title || "リンク"}を開く`}
+                          title="開く"
+                        >
+                          <IconExternalLink size={16} />
+                        </a>
+                      )}
                       {archived ? (
                         <button
                           className="row-action-button chat-link-restore"
@@ -879,6 +903,16 @@ export function ChatRefsPage({
         </section>
       )}
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
+      {importDialogOpen && (
+        <ConversationImportDialog
+          themes={themes}
+          resources={domain.resources}
+          initialThemeId={selectedThemeId}
+          saveEntities={saveEntities}
+          setToast={setToast}
+          close={() => setImportDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }

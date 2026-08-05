@@ -294,14 +294,17 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const title = formText(values, "title");
     const url = formText(values, "url");
     if (!title) return { kind: "invalid", field: "title", message: "タイトルを入力してください。" };
-    if (!url) return { kind: "invalid", field: "url", message: "URLを入力してください。" };
+    const bodyMarkdown = hasField("body_markdown")
+      ? formText(values, "body_markdown")
+      : String(base.body_markdown || "");
+    if (!url && !bodyMarkdown) return { kind: "invalid", field: "url", message: "URLまたは会話ログを入力してください。" };
     const submittedLinkType = formText(values, "link_type");
     const inferredLinkType = inferChatServiceFromUrl(url);
     const sortOrder = Number(formText(values, "sort_order") || base.sort_order || 0);
     const resource: Resource = {
       id: (base.id as string) || uuid(),
       title,
-      url,
+      url: url || null,
       project_id: formText(values, "project_id") || formText(values, "theme_id") || null,
       description: formText(values, "description") || null,
       body_markdown: hasField("body_markdown")
@@ -326,6 +329,10 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       parent_resource_id: formText(values, "parent_resource_id") || null,
       sort_order: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : null,
       archived_at: (base.archived_at as string | null | undefined) ?? null,
+      source_format: (base.source_format as string | null) ?? null,
+      fidelity: (base.fidelity as string | null) ?? null,
+      parser_version: (base.parser_version as string | null) ?? null,
+      message_count: typeof base.message_count === "number" ? base.message_count : null,
     };
     return {
       kind: "operations",

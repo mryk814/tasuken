@@ -326,7 +326,8 @@ export type OpenDrawer = (config: DrawerConfig) => void;
 /** Notes以外から本文・画像を読むためのモーダルビューア対象（#130）。 */
 export type ContentViewerTarget =
   | { type: "note"; noteId: string }
-  | { type: "artifact"; artifactId: string };
+  | { type: "artifact"; artifactId: string }
+  | { type: "chat_log"; resourceId: string };
 
 export type OpenContentViewer = (target: ContentViewerTarget) => void;
 export type OpenContextPack = (themeId: string) => void;

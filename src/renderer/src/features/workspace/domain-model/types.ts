@@ -171,6 +171,10 @@ export interface Resource {
    * 削除・グループ解除とは別。Theme / chat_group / reference_status は保持する。
    */
   archived_at?: string | null;
+  source_format?: string | null;
+  fidelity?: string | null;
+  parser_version?: string | null;
+  message_count?: number | null;
 }
 
 export interface Sketch {
