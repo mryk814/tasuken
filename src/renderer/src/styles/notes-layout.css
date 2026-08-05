@@ -1,0 +1,10 @@
+/*
+ * Notes-specific layout corrections that must win after the shared app stylesheet.
+ *
+ * The preview already owns the vertical scroll area. Keep a small, bounded end
+ * inset so the final block is comfortable to read without adding a second
+ * viewport-sized blank region after the document.
+ */
+.note-preview-panel .note-main-preview {
+  padding-bottom: calc(var(--space-4) + var(--space-3));
+}
