@@ -45,6 +45,26 @@ test("Notes UI persists filter and sort preferences and exposes save-folder acti
   assert.doesNotMatch(source, /整形を戻す|formatUndoBody/);
 });
 
+test("Notes theme filter, resizable list pane, and collapse are wired", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(source, /aria-label="Themeで絞り込み"/);
+  assert.match(source, /value="none">Themeなし/);
+  assert.match(source, /themeId === "none"/);
+  assert.match(source, /notes-resize-handle/);
+  assert.match(source, /is-list-collapsed/);
+  assert.match(source, /onPointerDown=\{handleResize\}/);
+  assert.match(source, /toggleListCollapsed/);
+  assert.match(source, /aria-orientation="vertical"/);
+
+  assert.equal(notes.DEFAULT_NOTES_PREFS.themeId, "all");
+  assert.equal(notes.DEFAULT_NOTES_PREFS.listWidth, null);
+  assert.equal(notes.DEFAULT_NOTES_PREFS.listCollapsed, false);
+
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(styles, /\.notes-resize-handle/);
+  assert.match(styles, /\.notes-workbench\.is-list-collapsed/);
+});
+
 test("Notes opens directly in Edit while filling a large list in idle batches", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   assert.match(source, /useState<PreviewMode>\("edit"\)/);

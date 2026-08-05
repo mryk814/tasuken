@@ -185,14 +185,21 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
       .filter((resource) => !isChatReference(resource))
       .map((resource) => ({ ...resource, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => compareNotesRecords(a, b, sortOrder)), [domain.notes, domain.resources, sortOrder]);
+  const themeId = prefs.themeId && prefs.themeId !== "all" && prefs.themeId !== "none"
+    && !themes.some((t) => t.id === prefs.themeId) ? "all" : (prefs.themeId || "all");
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visible = useMemo(() => records.filter((record) => {
     if (scope !== "all" && recordKind(record) !== scope) return false;
+    if (themeId === "none") {
+      if (str(record.project_id || record.theme_id)) return false;
+    } else if (themeId !== "all") {
+      if (str(record.project_id || record.theme_id) !== themeId) return false;
+    }
     if (!normalizedQuery) return true;
     return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
       .toLocaleLowerCase()
       .includes(normalizedQuery);
-  }), [normalizedQuery, records, scope]);
+  }), [normalizedQuery, records, scope, themeId]);
   const [visibleLimit, setVisibleLimit] = useState(NOTES_RENDER_BATCH_SIZE);
   const renderedRecords = visible.slice(0, visibleLimit);
   const workbenchRecords = useMemo(() => visible.filter(isWorkbenchRecord), [visible]);
@@ -225,6 +232,51 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     entity: BaseRecord;
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const listWidth = prefs.listWidth;
+  const listCollapsed = prefs.listCollapsed;
+  const workbenchRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+  const handleResize = useCallback((event: React.PointerEvent) => {
+    event.preventDefault();
+    draggingRef.current = true;
+    const target = event.currentTarget as HTMLElement;
+    target.setPointerCapture(event.pointerId);
+    const workbench = workbenchRef.current;
+    if (!workbench) return;
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!draggingRef.current) return;
+      const rect = workbench.getBoundingClientRect();
+      const x = moveEvent.clientX - rect.left;
+      const MIN_WIDTH = 180;
+      const COLLAPSE_THRESHOLD = 100;
+      if (x < COLLAPSE_THRESHOLD) {
+        updatePrefs({ listCollapsed: true, listWidth: MIN_WIDTH });
+      } else {
+        const clamped = Math.max(MIN_WIDTH, Math.min(x, rect.width * 0.6));
+        updatePrefs({ listCollapsed: false, listWidth: clamped });
+      }
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  }, [updatePrefs]);
+  const toggleListCollapsed = useCallback(() => {
+    updatePrefs({ listCollapsed: !listCollapsed });
+  }, [listCollapsed, updatePrefs]);
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key === "b" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        toggleListCollapsed();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleListCollapsed]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const previewPanelRef = useRef<HTMLElement | null>(null);
@@ -1185,6 +1237,24 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
             </button>
           ))}
         </div>
+        <select
+          value={themeId}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (next !== "all" && !themes.some((t) => t.id === next) && next !== "none") {
+              updatePrefs({ themeId: "all" });
+            } else {
+              updatePrefs({ themeId: next });
+            }
+          }}
+          aria-label="Themeで絞り込み"
+        >
+          <option value="all">Theme: すべて</option>
+          <option value="none">Themeなし</option>
+          {themes.map((theme) => (
+            <option key={theme.id} value={theme.id}>{theme.name}</option>
+          ))}
+        </select>
         <label className="notes-sort-field">
           <span className="sr-only">Notesの並び順</span>
           <select
@@ -1200,7 +1270,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         </label>
         <span>{visible.length}件</span>
       </div>
-      <div className="notes-workbench">
+      <div
+        className={`notes-workbench${listCollapsed ? " is-list-collapsed" : ""}`}
+        ref={workbenchRef}
+        style={!listCollapsed && listWidth ? { "--notes-list-width": `${listWidth}px` } as React.CSSProperties : undefined}
+      >
         <section className="panel list-page notes-list-panel">
           {renderedRecords.map((record) => {
             const comments = record.comments as NoteComment[] | undefined;
@@ -1269,6 +1343,20 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
           })}
           {!visible.length && <EmptyState title="一致する項目はありません" action="Noteを書く" onAction={() => addNote("note")} />}
         </section>
+        <div
+          className="notes-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="一覧と本文の境界"
+          tabIndex={0}
+          onPointerDown={handleResize}
+          onDoubleClick={toggleListCollapsed}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleListCollapsed(); }
+            if (event.key === "ArrowLeft") { event.preventDefault(); updatePrefs({ listWidth: Math.max(180, (listWidth || 280) - 40), listCollapsed: false }); }
+            if (event.key === "ArrowRight") { event.preventDefault(); updatePrefs({ listWidth: Math.min(800, (listWidth || 280) + 40), listCollapsed: false }); }
+          }}
+        />
         {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
         <section className="panel note-preview-panel" ref={previewPanelRef}>
           {selected ? (

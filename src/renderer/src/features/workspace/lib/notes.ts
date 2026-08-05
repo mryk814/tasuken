@@ -11,11 +11,17 @@ export type NotesScope = "all" | "note" | "resource" | "report" | "prompt";
 export type NotesPreferences = {
   scope: NotesScope;
   sortOrder: NotesSortOrder;
+  themeId: string;
+  listWidth: number | null;
+  listCollapsed: boolean;
 };
 
 export const DEFAULT_NOTES_PREFS: NotesPreferences = {
   scope: "note",
   sortOrder: "updated_desc",
+  themeId: "all",
+  listWidth: null,
+  listCollapsed: false,
 };
 
 export function compactNotesBodyPreview(value: unknown, limit = 180): string {

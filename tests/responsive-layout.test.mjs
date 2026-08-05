@@ -48,7 +48,7 @@ test("compact desktop layout protects the main work area", () => {
   assert.match(cssSource, /@media \(max-width: 1680px\)/);
   assert.match(cssSource, /\.context-pane \{ display: none; \}/);
   assert.match(cssSource, /\.drawer \{ position: absolute;/);
-  assert.match(cssSource, /\.notes-workbench \{[^}]*minmax\(0, 1\.82fr\)/);
+  assert.match(cssSource, /\.notes-workbench \{[^}]*minmax\(0, 1fr\)/);
   assert.match(cssSource, /\.notes-page \{ width: min\(1600px, 100%\);/);
   assert.match(cssSource, /\.chat-refs-page \{ width: min\(1600px, 100%\);/);
   assert.match(cssSource, /\.sketch-library-page,[\s\S]*\.artifacts-page \{ width: min\(1600px, 100%\); \}/);
