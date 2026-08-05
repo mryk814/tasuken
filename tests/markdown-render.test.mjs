@@ -572,7 +572,8 @@ test("notes editor hides north-south only image resizers", () => {
   const imgRule = (css.match(/\.note-mdx-content img \{[^}]+\}/s)?.[0] || "").replace(/\/\*[\s\S]*?\*\//g, "");
   assert.match(imgRule, /height:\s*auto\s*!important/);
   // max-width は可。width プロパティ自体は不可（HTML width 属性を潰す）
-  assert.match(imgRule, /max-width:\s*100%/);
+  // gutter を引いた calc も max-width の一種として許容する（#287）
+  assert.match(imgRule, /max-width:\s*(100%|calc\(100% - )/);
   assert.doesNotMatch(imgRule, /(?<!max-)width\s*:/);
 });
 
@@ -1284,4 +1285,31 @@ test("画像は width 指定がなければ元幅を超えない（#289）", () 
   const withoutWidth = markdown.previewHtml('<img src="https://example.com/a.png" alt="x">', "markdown");
   assert.match(withoutWidth, /max-width:100%/);
   assert.match(withoutWidth, /height:auto/);
+});
+
+test("画像の左右にリサイズ用の余白を残す（#287）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  // gutter と既定幅はトークン変数から取る。
+  assert.match(css, /--image-resize-gutter:\s*var\(--space-\d+\)/);
+  assert.match(css, /--image-default-width:\s*\d+%/);
+  assert.match(css, /--image-resize-hit-slop:\s*var\(--space-\d+\)/);
+
+  const editorImg = css.match(/\.note-mdx-content img \{[\s\S]*?\}/);
+  assert.ok(editorImg, "note-mdx-content の画像ルールが見つからない");
+  // 幅いっぱいだとハンドルが編集領域の端に張り付く。
+  assert.match(editorImg[0], /max-width:\s*calc\(100% - var\(--image-resize-gutter\) \* 2\)/);
+});
+
+test("幅未指定の画像は本文幅より狭く置く（#287）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  // 挿入直後（width 属性なし）は既定幅。利用者が決めた幅は尊重する。
+  assert.match(css, /\.note-mdx-content img:not\(\[width\]\) \{[^}]*max-width:\s*var\(--image-default-width\)/);
+  assert.match(css, /\.markdown-preview \.md-image:not\(\.has-display-width\) img \{[^}]*max-width:\s*var\(--image-default-width\)/);
+});
+
+test("リサイズハンドルがクリップされない（#287）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(css, /\[class\*="_imageResizer_"\]::before \{[\s\S]*?inset:\s*calc\(var\(--image-resize-hit-slop\) \* -1\)/);
+  const overflowRule = css.match(/\.note-mdx-content \[class\*="_imageWrapper_"\] > div \{\s*\n\s*overflow: visible;/);
+  assert.ok(overflowRule || /overflow:\s*visible/.test(css), "wrapper に overflow: visible がない");
 });

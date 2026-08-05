@@ -41,6 +41,10 @@ html, body, #root { height: 100%; min-height: 0; margin: 0; overflow: hidden; }
   --markdown-link: #0B6BCB;
   --markdown-link-hover: #084F96;
   --markdown-link-underline: #7BB4E3;
+  /* 画像の左右へ常に残す操作用の余白と、挿入直後の既定幅（#287） */
+  --image-resize-gutter: var(--space-4);
+  --image-default-width: 86%;
+  --image-resize-hit-slop: var(--space-1);
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -1663,7 +1667,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .note-mdx-content img {
   display: block;
-  max-width: 100%;
+  /* 幅いっぱいまで広げるとリサイズハンドルが編集領域の端に張り付いて掴めない。
+     左右へ操作用の余白（gutter）を必ず残す（#287）。 */
+  max-width: calc(100% - var(--image-resize-gutter) * 2);
   /* width は指定しない → <img width="N"> がそのまま効く（width:auto だと属性が無効になる） */
   height: auto !important;
   margin-left: auto;
@@ -1673,12 +1679,17 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   border-radius: var(--radius-md);
   background: var(--markdown-paper-subtle);
 }
+/* 幅未指定（挿入直後）は本文幅より一段狭く置き、最初からハンドルが見える状態にする。
+   width 属性が付いた画像は利用者が決めた幅なので、gutter の分だけを引く。 */
+.note-mdx-content img:not([width]) {
+  max-width: var(--image-default-width);
+}
 .note-mdx-content p:has([class*="_imageWrapper_"]) { margin: var(--space-2) 0; }
 .note-mdx-content [class*="_imageWrapper_"] {
   display: block !important;
   position: relative;
   width: fit-content !important;
-  max-width: 100%;
+  max-width: calc(100% - var(--image-resize-gutter) * 2);
   margin: var(--space-2) auto;
   line-height: 0;
 }
@@ -1690,13 +1701,29 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   margin-right: auto;
   line-height: 0;
 }
-/* 上下だけのハンドルは非表示（幅固定のまま高さだけ変わり、意図とずれる） */
+/* 上下だけのハンドルは非表示。
+   N/S ドラッグは height を width と無関係に書き換えるため、保存される
+   width/height の比が元画像と合わなくなる（表示は height:auto に救われるが、
+   外部のMarkdownビューアでは崩れる）。掴みやすさは gutter 側で担保する（#287）。 */
 .note-mdx-content [class*="_imageResizerN_"]:not([class*="_imageResizerNe_"]):not([class*="_imageResizerNw_"]),
 .note-mdx-content [class*="_imageResizerS_"]:not([class*="_imageResizerSe_"]):not([class*="_imageResizerSw_"]) {
   display: none !important;
 }
 .note-mdx-content [class*="_imageResizer_"] {
   z-index: 2;
+}
+/* ハンドルの hit area を見た目より広げる（高DPI・タッチでも掴めるように、#287）。
+   ::before は当たり判定だけを担い、見た目は元のハンドルのまま。 */
+.note-mdx-content [class*="_imageResizer_"]::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--image-resize-hit-slop) * -1);
+}
+/* 画像がクリップされてハンドルが消えないようにする。 */
+.note-mdx-content p:has([class*="_imageWrapper_"]),
+.note-mdx-content [class*="_imageWrapper_"],
+.note-mdx-content [class*="_imageWrapper_"] > div {
+  overflow: visible;
 }
 .note-mdx-content ul { margin: var(--space-2) 0; padding-left: 1.55rem; list-style-type: disc; }
 .note-mdx-content ol { margin: var(--space-2) 0; padding-left: 1.55rem; list-style-type: decimal; }
@@ -2440,7 +2467,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .markdown-preview .md-image:not(.has-display-width) img {
   width: auto;
-  max-width: 100%;
+  /* 幅未指定は Edit と同じ既定幅に揃える（#287） */
+  max-width: var(--image-default-width);
 }
 .markdown-preview .md-image figcaption {
   margin-top: var(--space-1);
