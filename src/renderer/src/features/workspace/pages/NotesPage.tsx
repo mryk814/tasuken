@@ -39,7 +39,7 @@ import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
 import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
-import { buildMarkdownDiffHunks, buildMarkdownDiffMarkers, diffMarkdownLines, findMarkdownMatches, formatMarkdown, restoreMarkdownDiffHunk, type MarkdownDiffMarker } from "../lib/markdownEditing";
+import { buildMarkdownDiffHunks, buildMarkdownDiffMarkers, diffMarkdownLines, findMarkdownMatches, formatMarkdown, replaceAllMarkdownMatches, replaceMarkdownMatch, restoreMarkdownDiffHunk, type MarkdownDiffMarker } from "../lib/markdownEditing";
 import {
   extractMarkdownHeadings,
   HEADING_NUMBER_LEVELS,
@@ -215,6 +215,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState("");
+  // 置換直前の本文。Rich Editorへは setMarkdown で流し込むためEditorのUndo履歴に残らず、
+  // 置換バー上の「元に戻す」を復旧経路にする。
+  const [replaceUndo, setReplaceUndo] = useState<{ body: string; label: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [draftWorkspaceTarget, setDraftWorkspaceTarget] = useState<BaseRecord | null | undefined>(undefined);
   const [pdfExporting, setPdfExporting] = useState(false);
@@ -279,6 +284,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   }, [toggleListCollapsed]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement | null>(null);
   const previewPanelRef = useRef<HTMLElement | null>(null);
   const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
@@ -394,6 +400,15 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     () => searchOpen && searchQuery.trim() ? findMarkdownMatches(deferredDraftBody, searchQuery) : [],
     [deferredDraftBody, searchOpen, searchQuery],
   );
+  // Previewは保存済み本文の表示面なので、置換はEdit / Rawだけで実行できる。
+  const replaceEnabled = replaceOpen && previewMode !== "preview" && searchMatches.length > 0;
+  const replaceHint = previewMode === "preview"
+    ? "Preview表示中は置換できません。Edit または Raw へ切り替えてください。"
+    : !searchQuery.trim()
+      ? "検索語を入力すると置換できます。"
+      : !searchMatches.length
+        ? "一致がないため置換できません。検索語を確認してください。"
+        : "";
   const markdownDiff = useMemo(
     () => diffOpen && draftDirty ? diffMarkdownLines(selectedBody, deferredDraftBody) : [],
     [deferredDraftBody, diffOpen, draftDirty, selectedBody],
@@ -470,8 +485,82 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     window.requestAnimationFrame(() => focusSearchMatch(next));
   }
 
+  /** Rich Editor編集中は、stateより新しいEditor本文を正とする。 */
+  function currentDraftSource(): string {
+    return previewMode === "edit" ? mdxMarkdownSourceRef.current?.() || draftBody : draftBody;
+  }
+
+  function focusMarkdownEditorSurface() {
+    if (previewMode === "raw" || hasMarkdownFootnotes(draftBody)) {
+      textareaRef.current?.focus();
+      return;
+    }
+    previewPanelRef.current?.querySelector<HTMLElement>(".note-mdx-content")?.focus();
+  }
+
+  function closeMarkdownSearch() {
+    setSearchOpen(false);
+    setReplaceOpen(false);
+    setReplaceUndo(null);
+    window.requestAnimationFrame(() => focusMarkdownEditorSurface());
+  }
+
+  function openMarkdownReplace() {
+    const liveBody = mdxMarkdownSourceRef.current?.();
+    if (typeof liveBody === "string") setDraftBody(liveBody);
+    setSearchOpen(true);
+    setReplaceOpen(true);
+    window.requestAnimationFrame(() => {
+      if (searchQuery.trim()) replaceInputRef.current?.focus();
+      else searchInputRef.current?.focus();
+    });
+  }
+
+  // window keydownは再登録を避けているため、最新の操作をrefで参照する。
+  const openReplaceRef = useRef(openMarkdownReplace);
+  const closeSearchRef = useRef(closeMarkdownSearch);
+  const searchOpenRef = useRef(searchOpen);
+  openReplaceRef.current = openMarkdownReplace;
+  closeSearchRef.current = closeMarkdownSearch;
+  searchOpenRef.current = searchOpen;
+
+  function replaceCurrentMatch() {
+    const source = currentDraftSource();
+    const result = replaceMarkdownMatch(source, searchQuery, searchIndex, replaceQuery);
+    if (!result.count) {
+      setDraftState("置換できる一致がありません。検索語を確認してください。");
+      return;
+    }
+    setReplaceUndo({ body: source, label: "1件の置換" });
+    setDraftBody(result.text);
+    setSearchIndex(result.nextIndex);
+    setDraftState("1件置換しました。");
+    window.requestAnimationFrame(() => focusSearchMatch(result.nextIndex));
+  }
+
+  function replaceAllMatches() {
+    const source = currentDraftSource();
+    const result = replaceAllMarkdownMatches(source, searchQuery, replaceQuery);
+    if (!result.count) {
+      setDraftState("置換できる一致がありません。検索語を確認してください。");
+      return;
+    }
+    setReplaceUndo({ body: source, label: `${result.count}件の一括置換` });
+    setDraftBody(result.text);
+    setSearchIndex(0);
+    setDraftState(`${result.count}件を置換しました。`);
+  }
+
+  function undoReplace() {
+    if (!replaceUndo) return;
+    setDraftBody(replaceUndo.body);
+    setSearchIndex(0);
+    setDraftState(`${replaceUndo.label}を元に戻しました。`);
+    setReplaceUndo(null);
+  }
+
   function formatSelectedDraft() {
-    const current = previewMode === "edit" ? mdxMarkdownSourceRef.current?.() || draftBody : draftBody;
+    const current = currentDraftSource();
     const formatted = formatMarkdown(current);
     if (formatted === current) {
       setDraftState("整形できる変更はありません。");
@@ -531,6 +620,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     setDraftState("");
     setDiffOpen(false);
     setSearchIndex(0);
+    setReplaceUndo(null);
     setRecentExtraction(null);
   }, [selected?.id, selectedBody]);
 
@@ -576,6 +666,17 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         if (typeof liveBody === "string") setDraftBody(liveBody);
         setSearchOpen(true);
         window.requestAnimationFrame(() => searchInputRef.current?.focus());
+        return;
+      }
+      // 置換ボタンへfocusが移った後もEscで閉じられるようにする。
+      if (event.key === "Escape" && searchOpenRef.current) {
+        closeSearchRef.current();
+        return;
+      }
+      // Ctrl+R は既定では画面再読み込み。未保存本文を失わないよう置換UIを優先する（#286）。
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        openReplaceRef.current();
         return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
@@ -1541,30 +1642,64 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                 </div>
               )}
               {searchOpen && (
-                <div className="markdown-search-bar" role="search" aria-label="Markdown本文を検索">
-                  <input
-                    ref={searchInputRef}
-                    value={searchQuery}
-                    onChange={(event) => {
-                      setSearchQuery(event.target.value);
-                      setSearchIndex(0);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        moveSearchMatch(event.shiftKey ? -1 : 1);
-                      }
-                      if (event.key === "Escape") setSearchOpen(false);
-                    }}
-                    placeholder="本文を検索"
-                    aria-label="本文を検索"
-                  />
-                  <span className="markdown-search-count" aria-live="polite">
-                    {searchMatches.length ? `${searchIndex + 1}/${searchMatches.length}` : searchQuery.trim() ? "一致なし" : "検索語を入力"}
-                  </span>
-                  <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(-1)}>前へ</button>
-                  <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(1)}>次へ</button>
-                  <button type="button" className="secondary-button compact" onClick={() => setSearchOpen(false)}>閉じる</button>
+                <div className="markdown-search-bar" role="search" aria-label="Markdown本文を検索・置換">
+                  <div className="markdown-search-row">
+                    <input
+                      ref={searchInputRef}
+                      value={searchQuery}
+                      onChange={(event) => {
+                        setSearchQuery(event.target.value);
+                        setSearchIndex(0);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                          event.preventDefault();
+                          moveSearchMatch(event.shiftKey ? -1 : 1);
+                        }
+                        if (event.key === "Escape") closeMarkdownSearch();
+                      }}
+                      placeholder="本文を検索"
+                      aria-label="本文を検索"
+                    />
+                    <span className="markdown-search-count" aria-live="polite">
+                      {searchMatches.length ? `${searchIndex + 1}/${searchMatches.length}` : searchQuery.trim() ? "一致なし" : "検索語を入力"}
+                    </span>
+                    <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(-1)}>前へ</button>
+                    <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(1)}>次へ</button>
+                    <button
+                      type="button"
+                      className="secondary-button compact"
+                      aria-expanded={replaceOpen}
+                      onClick={() => (replaceOpen ? setReplaceOpen(false) : openMarkdownReplace())}
+                    >
+                      置換
+                    </button>
+                    <button type="button" className="secondary-button compact" onClick={closeMarkdownSearch}>閉じる</button>
+                  </div>
+                  {replaceOpen && (
+                    <div className="markdown-search-row">
+                      <input
+                        ref={replaceInputRef}
+                        value={replaceQuery}
+                        onChange={(event) => setReplaceQuery(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                            event.preventDefault();
+                            if (replaceEnabled) replaceCurrentMatch();
+                          }
+                          if (event.key === "Escape") closeMarkdownSearch();
+                        }}
+                        placeholder="置換後の文字列"
+                        aria-label="置換後の文字列"
+                      />
+                      <button type="button" className="secondary-button compact" disabled={!replaceEnabled} onClick={replaceCurrentMatch}>置換</button>
+                      <button type="button" className="secondary-button compact" disabled={!replaceEnabled} onClick={replaceAllMatches}>すべて置換</button>
+                      {replaceUndo && (
+                        <button type="button" className="text-button compact" onClick={undoReplace}>元に戻す</button>
+                      )}
+                    </div>
+                  )}
+                  {replaceOpen && replaceHint && <p className="field-help">{replaceHint}</p>}
                 </div>
               )}
               <div ref={markdownSurfaceRef} className="note-markdown-surface">

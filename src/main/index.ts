@@ -74,6 +74,40 @@ function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenu
   Menu.buildFromTemplate(template).popup({ window });
 }
 
+/**
+ * 既定メニューの Ctrl+R（再読み込み）を外し、Markdown Editorの置換へ譲る（#286）。
+ * 再読み込みは Ctrl+Shift+R、開発者ツールは F12 の開発者向け操作として残す。
+ */
+function applyApplicationMenu(): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: "編集",
+      submenu: [
+        { role: "undo", label: "元に戻す" },
+        { role: "redo", label: "やり直す" },
+        { type: "separator" },
+        { role: "cut", label: "切り取り" },
+        { role: "copy", label: "コピー" },
+        { role: "paste", label: "貼り付け" },
+        { role: "selectAll", label: "すべて選択" },
+      ],
+    },
+    {
+      label: "表示",
+      submenu: [
+        { role: "forceReload", accelerator: "CmdOrCtrl+Shift+R", label: "再読み込み" },
+        { role: "toggleDevTools", accelerator: "F12", label: "開発者ツール" },
+        { type: "separator" },
+        { role: "resetZoom", label: "拡大率をリセット" },
+        { role: "zoomIn", label: "拡大" },
+        { role: "zoomOut", label: "縮小" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: "全画面表示" },
+      ],
+    },
+  ]));
+}
+
 function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
   const captureWindow = quickCaptureController?.getWindow();
   const todayMiniWindow = todayMiniController?.getWindow();
@@ -827,6 +861,7 @@ async function startDesktopApp(): Promise<void> {
     },
   });
   recordSmoke("app-ready");
+  applyApplicationMenu();
   createWindow();
 
   if (!isSmokeTest) {

@@ -2617,7 +2617,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .document-publish-open:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
 .document-publish-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-1); justify-content: flex-end; }
 .document-publish-actions .is-active { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
-.markdown-search-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-accent-subtle-bd); border-top: 0; background: var(--color-accent-subtle-bg); }
+.markdown-search-bar { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-accent-subtle-bd); border-top: 0; background: var(--color-accent-subtle-bg); }
+.markdown-search-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); }
 .markdown-search-bar input { flex: 1 1 220px; min-width: 120px; min-height: 30px; padding: 0 var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); }
 .markdown-search-count { min-width: 64px; color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); text-align: center; }
 .note-mdx-content::highlight(tasken-markdown-search) { background: var(--color-warning-bg); color: var(--color-warning-strong); text-decoration: underline; text-decoration-color: var(--color-warning); text-decoration-thickness: 2px; }

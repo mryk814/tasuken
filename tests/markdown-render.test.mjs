@@ -502,6 +502,46 @@ test("markdown editing helpers format safely, find matches, and build a line dif
   ]);
 });
 
+test("markdown replace updates one match or every match without rescanning inserted text", () => {
+  const source = "旧名称はAlpha、alphaも旧名称。";
+
+  const single = markdownEditing.replaceMarkdownMatch(source, "旧名称", 0, "新名称");
+  assert.equal(single.text, "新名称はAlpha、alphaも旧名称。");
+  assert.equal(single.count, 1);
+  // 置換文字列より後ろの一致へ進む（自分自身を選び直さない）。
+  assert.equal(single.nextIndex, 0);
+  assert.deepEqual(markdownEditing.findMarkdownMatches(single.text, "旧名称"), [{ index: 16, length: 3 }]);
+
+  // 置換後の文字列が検索語を含んでも、次の一致は挿入部分より後ろから探す。
+  const growing = markdownEditing.replaceMarkdownMatch("aa", "a", 0, "aa");
+  assert.equal(growing.text, "aaa");
+  assert.equal(growing.nextIndex, 2);
+
+  const all = markdownEditing.replaceAllMarkdownMatches(source, "旧名称", "新名称");
+  assert.equal(all.text, "新名称はAlpha、alphaも新名称。");
+  assert.equal(all.count, 2);
+  assert.equal(markdownEditing.replaceAllMarkdownMatches("aaa", "a", "aa").text, "aaaaaa");
+
+  // 一致が無い・検索語が空の場合は本文を変えない。
+  assert.deepEqual(markdownEditing.replaceMarkdownMatch(source, "存在しない語", 0, "x"), { text: source, count: 0, nextIndex: 0 });
+  assert.deepEqual(markdownEditing.replaceAllMarkdownMatches(source, "  ", "x"), { text: source, count: 0, nextIndex: 0 });
+
+  // 大文字・小文字を区別せずに一致し、置換文字列はそのまま入る（検索の挙動と揃える）。
+  assert.equal(markdownEditing.replaceAllMarkdownMatches("Alpha alpha", "ALPHA", "Beta").text, "Beta Beta");
+});
+
+test("notes search bar exposes replace controls and reload-safe Ctrl+R", () => {
+  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(notesSource, /event\.key\.toLowerCase\(\) === "r"[\s\S]*?openReplaceRef\.current\(\)/);
+  assert.match(notesSource, /すべて置換/);
+  assert.match(notesSource, /元に戻す/);
+  const mainSource = readFileSync("src/main/index.ts", "utf8");
+  // 既定メニューのCtrl+R再読み込みを外し、Ctrl+Shift+Rへ分離していること。
+  assert.match(mainSource, /Menu\.setApplicationMenu/);
+  assert.match(mainSource, /role: "forceReload", accelerator: "CmdOrCtrl\+Shift\+R"/);
+  assert.doesNotMatch(mainSource, /role: "reload"/);
+});
+
 test("markdown preview does not render unsafe image urls", () => {
   const html = markdown.renderMarkdownPreview("![bad](javascript:alert(1))");
 

@@ -3,6 +3,13 @@ export type MarkdownSearchMatch = {
   length: number;
 };
 
+export type MarkdownReplaceResult = {
+  text: string;
+  count: number;
+  /** 置換後の本文で次に選ぶべき一致の番号。一致が無くなった場合は0。 */
+  nextIndex: number;
+};
+
 export type MarkdownDiffLine = {
   kind: "same" | "added" | "removed";
   text: string;
@@ -86,6 +93,50 @@ export function findMarkdownMatches(source: string, query: string): MarkdownSear
     cursor = index + needle.length;
   }
   return matches;
+}
+
+/**
+ * 現在選んでいる一致1件だけを置換する。
+ * 置換文字列が検索語を含んでも同じ位置を選び直さないよう、
+ * 次の一致は置換後の文字列より後ろから探す。
+ */
+export function replaceMarkdownMatch(
+  source: string,
+  query: string,
+  matchIndex: number,
+  replacement: string,
+): MarkdownReplaceResult {
+  const matches = findMarkdownMatches(source, query);
+  const target = matches[matchIndex];
+  if (!target) return { text: source, count: 0, nextIndex: 0 };
+
+  const text = `${source.slice(0, target.index)}${replacement}${source.slice(target.index + target.length)}`;
+  const resumeFrom = target.index + replacement.length;
+  const nextMatches = findMarkdownMatches(text, query);
+  const nextIndex = nextMatches.findIndex((match) => match.index >= resumeFrom);
+  return { text, count: 1, nextIndex: nextIndex < 0 ? 0 : nextIndex };
+}
+
+/**
+ * 文書内のすべての一致を一度に置換する。
+ * 置換前の一致位置だけを使い、挿入した文字列を再走査しない。
+ */
+export function replaceAllMarkdownMatches(
+  source: string,
+  query: string,
+  replacement: string,
+): MarkdownReplaceResult {
+  const matches = findMarkdownMatches(source, query);
+  if (!matches.length) return { text: source, count: 0, nextIndex: 0 };
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const match of matches) {
+    parts.push(source.slice(cursor, match.index), replacement);
+    cursor = match.index + match.length;
+  }
+  parts.push(source.slice(cursor));
+  return { text: parts.join(""), count: matches.length, nextIndex: 0 };
 }
 
 /**
