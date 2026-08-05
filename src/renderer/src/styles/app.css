@@ -2571,10 +2571,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .note-preview-panel .note-mdx-content {
   max-height: none;
 }
-/* 幅指定を潰さない。極端に縦長な画像だけ画面内に収める。 */
+/* 画像は幅を正本にし、高さは元画像の比率へ委ねる（#289）。
+   max-height で縦を切ると、縦長のスクリーンショットや図が縮んで
+   左右に余白が出たり、全体を確認できなくなる。 */
 .note-preview-panel .note-mdx-content img,
 .note-preview-panel .note-main-preview .md-image img {
-  max-height: min(70vh, 720px);
+  max-height: none;
 }
 .markdown-frontmatter-note { width: fit-content; margin: 0; padding: 2px var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .document-publish-panel { flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-subtle); }

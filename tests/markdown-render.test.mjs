@@ -1254,3 +1254,34 @@ test("Editor も Preview と同じ CJK 拡張を使う（#285）", () => {
   const editorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
   assert.match(editorSource, /markdownCjkFriendlyPlugin\(\)/);
 });
+
+test("縦長画像を max-height で切らない（#289）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  // Notes の preview panel は以前 max-height: min(70vh, 720px) で縦を切っていた。
+  const block = css.match(/\.note-preview-panel \.note-mdx-content img,[\s\S]*?\}/);
+  assert.ok(block, "note-preview-panel の画像ルールが見つからない");
+  assert.match(block[0], /max-height:\s*none/);
+  assert.doesNotMatch(block[0], /max-height:\s*min\(/);
+  assert.doesNotMatch(css, /\.note-preview-panel[^{]*img[^{]*\{[^}]*max-height:\s*\d+px/);
+});
+
+test("Markdown 画像は幅を正本にして高さを自動計算する（#289）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  const previewImg = css.match(/\.markdown-preview \.md-image img \{[\s\S]*?\}/);
+  assert.ok(previewImg, "markdown-preview の画像ルールが見つからない");
+  assert.match(previewImg[0], /height:\s*auto/);
+  assert.doesNotMatch(previewImg[0], /object-fit:\s*cover/);
+  // PDF / document 面も同じ契約にする。
+  const docCss = readFileSync("src/renderer/src/features/workspace/lib/markdown.ts", "utf8");
+  assert.match(docCss, /\.markdown-document \.md-image img\{[^}]*height:auto/);
+  assert.doesNotMatch(docCss, /\.markdown-document \.md-image img\{[^}]*object-fit:cover/);
+});
+
+test("画像は width 指定がなければ元幅を超えない（#289）", () => {
+  const withWidth = markdown.previewHtml('<img src="https://example.com/a.png" alt="x" width="300">', "markdown");
+  assert.match(withWidth, /width:min\(100%, 300px\)/);
+  assert.match(withWidth, /height:auto/);
+  const withoutWidth = markdown.previewHtml('<img src="https://example.com/a.png" alt="x">', "markdown");
+  assert.match(withoutWidth, /max-width:100%/);
+  assert.match(withoutWidth, /height:auto/);
+});
