@@ -89,6 +89,12 @@ const api: ResearchDeskApi = {
     sketch: (request) => ipcRenderer.invoke(IPC.sketchExport, request),
     slideTimeline: (request) => ipcRenderer.invoke(IPC.slideTimelineExport, request),
   },
+  calendar: {
+    getStatus: () => ipcRenderer.invoke(IPC.calendarStatus),
+    connect: (request) => ipcRenderer.invoke(IPC.calendarConnect, request),
+    disconnect: (request) => ipcRenderer.invoke(IPC.calendarDisconnect, request),
+    getEvents: (date) => ipcRenderer.invoke(IPC.calendarEvents, date),
+  },
 };
 
 contextBridge.exposeInMainWorld("api", api);

@@ -12,6 +12,7 @@ import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfEx
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../slideTimelineExport";
 import type { AiNoteGenerateRequest, AiNoteGenerateResult, AiProviderConfig, AiProviderConfigUpdate } from "../ai";
+import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -57,6 +58,10 @@ export const IPC = {
   aiConfigGet: "ai:config-get",
   aiConfigSave: "ai:config-save",
   aiNoteGenerate: "ai:note-generate",
+  calendarStatus: "calendar:status",
+  calendarConnect: "calendar:connect",
+  calendarDisconnect: "calendar:disconnect",
+  calendarEvents: "calendar:events",
 } as const;
 
 export interface WorkspaceChangePayload {
@@ -208,5 +213,11 @@ export interface ResearchDeskApi {
     markdownPdf(request: MarkdownPdfExportRequest): Promise<MarkdownPdfExportResult>;
     sketch(request: SketchExportRequest): Promise<SketchExportResult>;
     slideTimeline(request: SlideTimelineExportRequest): Promise<SlideTimelineExportResult>;
+  };
+  calendar: {
+    getStatus(): Promise<CalendarConnectionStatus>;
+    connect(request: CalendarConnectRequest): Promise<CalendarConnectionStatus>;
+    disconnect(request: CalendarDisconnectRequest): Promise<CalendarConnectionStatus>;
+    getEvents(date: string): Promise<CalendarEventsResult>;
   };
 }

@@ -10,6 +10,7 @@ import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
 import type { SketchExportRequest } from "../../../shared/sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest } from "../../../shared/slideTimelineExport";
+import type { CalendarConnectRequest, CalendarDisconnectRequest } from "../../../shared/calendar";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
@@ -148,5 +149,17 @@ export const workspaceApi = {
   },
   exportSlideTimeline(request: SlideTimelineExportRequest) {
     return desktopApi().exports.slideTimeline(request);
+  },
+  calendarStatus() {
+    return desktopApi().calendar.getStatus();
+  },
+  calendarConnect(request: CalendarConnectRequest) {
+    return desktopApi().calendar.connect(request);
+  },
+  calendarDisconnect(request: CalendarDisconnectRequest) {
+    return desktopApi().calendar.disconnect(request);
+  },
+  calendarEvents(date: string) {
+    return desktopApi().calendar.getEvents(date);
   },
 };

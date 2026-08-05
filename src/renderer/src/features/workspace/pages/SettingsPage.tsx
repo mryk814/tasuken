@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { AppUpdateCheckResult, McpBridgeInfo, SharedSyncStatus } from "../../../../../shared/ipc/contracts";
 import type { AiProviderConfig } from "../../../../../shared/ai";
+import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
@@ -27,6 +28,14 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [aiModel, setAiModel] = useState("gpt-5.6");
   const [aiApiKey, setAiApiKey] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+
+  useEffect(() => {
+    workspaceApi.calendarStatus()
+      .then(setCalendarStatus)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     workspaceApi.getPreference("artifactDirectory")
@@ -244,6 +253,32 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
     }
   }
 
+  async function connectCalendar() {
+    setCalendarBusy(true);
+    try {
+      const status = await workspaceApi.calendarConnect({ provider: "microsoft" });
+      setCalendarStatus(status);
+      setToast("カレンダーを接続しました。", "success");
+    } catch (error) {
+      setToast(`カレンダーの接続に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
+  async function disconnectCalendar() {
+    setCalendarBusy(true);
+    try {
+      const status = await workspaceApi.calendarDisconnect({ provider: "microsoft" });
+      setCalendarStatus(status);
+      setToast("カレンダーの接続を解除しました。", "info");
+    } catch (error) {
+      setToast(`カレンダーの切断に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
   const updateStatusLabel = updateInfo
     ? updateInfo.status === "available"
       ? `Tasken ${updateInfo.latestVersion} が公開されています。`
@@ -388,6 +423,44 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             <button className="primary-button" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</button>
             <button className="secondary-button" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</button>
           </div>
+        </section>
+        <section className="panel settings-form calendar-settings-panel">
+          <div className="settings-section-heading">
+            <h2>カレンダー連携</h2>
+            <span className={`sync-state ${calendarStatus?.connected ? "sync-state-idle" : "sync-state-off"}`}>
+              {calendarStatus?.connected ? "接続済み" : "未接続"}
+            </span>
+          </div>
+          <p className="field-help">Outlook / Microsoft 365のカレンダーを読み取り専用で表示します。メールや連絡先にはアクセスしません。</p>
+          {calendarStatus?.connected ? (
+            <>
+              <dl className="settings-meta-list">
+                <div>
+                  <dt>アカウント</dt>
+                  <dd>{calendarStatus.accountName}</dd>
+                </div>
+                <div>
+                  <dt>最終取得</dt>
+                  <dd>
+                    {calendarStatus.lastFetchedAt
+                      ? new Date(calendarStatus.lastFetchedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })
+                      : "未取得"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="settings-action-row">
+                <button className="danger-button" disabled={calendarBusy} onClick={disconnectCalendar}>
+                  {calendarBusy ? "処理中" : "接続を解除"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="settings-action-row">
+              <button className="primary-button" disabled={calendarBusy} onClick={connectCalendar}>
+                {calendarBusy ? "接続中…" : "Microsoftアカウントで接続"}
+              </button>
+            </div>
+          )}
         </section>
         <section className="panel settings-form ai-provider-settings-panel">
           <div className="settings-section-heading">

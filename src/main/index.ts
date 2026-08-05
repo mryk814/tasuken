@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Menu, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, Menu, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +18,7 @@ import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
+import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 
@@ -783,6 +784,7 @@ async function startDesktopApp(): Promise<void> {
     new WorkspaceService(workspaceRepository, app.getPath("userData")),
     sharedFolderSyncService,
     new AiProviderService(app.getPath("userData")),
+    new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
   );
   mcpProposalInboxService = new McpProposalInboxService(
     workspaceRepository,

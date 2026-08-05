@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  IconCalendar,
   IconCalendarCheck,
   IconCalendarPlus,
   IconCheck,
@@ -8,8 +9,10 @@ import {
   IconClock,
   IconNotebook,
   IconPlus,
+  IconRefresh,
 } from "@tabler/icons-react";
 
+import type { CalendarConnectionStatus, CalendarEvent, CalendarEventsResult } from "../../../../../shared/calendar";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
@@ -422,6 +425,152 @@ function CandidateTaskRows({
   );
 }
 
+function formatEventTime(iso: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function isEventPast(endTime: string, isAllDay: boolean): boolean {
+  if (isAllDay) return false;
+  return new Date(endTime).getTime() < Date.now();
+}
+
+function findNextEvent(events: CalendarEvent[]): string | null {
+  const now = Date.now();
+  for (const event of events) {
+    if (event.isAllDay) continue;
+    if (new Date(event.startTime).getTime() >= now) return event.id;
+    if (new Date(event.endTime).getTime() > now) return event.id;
+  }
+  return null;
+}
+
+function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }) {
+  const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
+  const [calendarResult, setCalendarResult] = useState<CalendarEventsResult | null>(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const today = todayIso();
+
+  const fetchEvents = useCallback(async () => {
+    setCalendarLoading(true);
+    try {
+      const result = await workspaceApi.calendarEvents(today);
+      setCalendarResult(result);
+    } catch (error) {
+      setCalendarResult({
+        provider: "microsoft",
+        events: [],
+        fetchedAt: "",
+        stale: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, [today]);
+
+  useEffect(() => {
+    workspaceApi.calendarStatus()
+      .then((status) => {
+        setCalendarStatus(status);
+        if (status.connected) fetchEvents();
+      })
+      .catch(() => setCalendarStatus(buildDisconnectedCalendarStatus()));
+  }, [fetchEvents]);
+
+  if (!calendarStatus) return null;
+
+  if (!calendarStatus.connected) {
+    return (
+      <section className="panel today-calendar-section">
+        <div className="section-heading">
+          <h2><IconCalendar size={16} /> 今日の予定</h2>
+        </div>
+        <div className="today-calendar-empty">
+          <p>外部カレンダーが未接続です。</p>
+          <button className="secondary-button compact" onClick={() => navigate("settings")}>
+            Settingsで接続
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  const events = calendarResult?.events || [];
+  const allDayEvents = events.filter((e) => e.isAllDay);
+  const timedEvents = events.filter((e) => !e.isAllDay);
+  const nextEventId = findNextEvent(timedEvents);
+  const hasError = calendarResult?.error && !calendarResult.stale;
+
+  return (
+    <section className="panel today-calendar-section">
+      <div className="section-heading">
+        <h2><IconCalendar size={16} /> 今日の予定</h2>
+        <div className="inline-actions">
+          {calendarResult?.fetchedAt && (
+            <span className="today-calendar-meta">
+              {calendarResult.stale && "前回取得分 "}
+              {new Date(calendarResult.fetchedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}更新
+            </span>
+          )}
+          <button
+            className="secondary-button compact"
+            onClick={fetchEvents}
+            disabled={calendarLoading}
+            aria-label="カレンダーを更新"
+          >
+            <IconRefresh size={14} /> {calendarLoading ? "取得中" : "更新"}
+          </button>
+        </div>
+      </div>
+      {calendarResult?.stale && calendarResult.error && (
+        <p className="form-warning">取得に失敗しました。前回の予定を表示しています。{calendarResult.error}</p>
+      )}
+      {hasError ? (
+        <div className="today-calendar-error">
+          <p>{calendarResult!.error}</p>
+          <button className="secondary-button compact" onClick={fetchEvents}>再試行</button>
+        </div>
+      ) : calendarLoading && !calendarResult ? (
+        <p className="today-calendar-loading">予定を取得中…</p>
+      ) : events.length === 0 ? (
+        <EmptyState title="今日の予定はありません" />
+      ) : (
+        <div className="today-calendar-list">
+          {allDayEvents.map((event) => (
+            <div key={event.id} className="today-calendar-event is-allday">
+              <span className="today-calendar-time today-calendar-allday">終日</span>
+              <span className="today-calendar-title">
+                {event.sensitivity === "private" ? "予定あり" : event.title}
+              </span>
+              {event.location && <span className="today-calendar-location">{event.location}</span>}
+            </div>
+          ))}
+          {timedEvents.map((event) => (
+            <div
+              key={event.id}
+              className={`today-calendar-event${isEventPast(event.endTime, false) ? " is-past" : ""}${event.id === nextEventId ? " is-next" : ""}`}
+            >
+              <span className="today-calendar-time">
+                {formatEventTime(event.startTime)}–{formatEventTime(event.endTime)}
+              </span>
+              <span className="today-calendar-title">
+                {event.sensitivity === "private" ? "予定あり" : event.title}
+              </span>
+              {event.location && <span className="today-calendar-location">{event.location}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function buildDisconnectedCalendarStatus(): CalendarConnectionStatus {
+  return { provider: null, accountName: "", connected: false, lastFetchedAt: "" };
+}
+
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, openDailyScratchpad, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
@@ -810,6 +959,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           </div>
         </section>
       )}
+
+      <TodayCalendarSection navigate={navigate} />
 
       <section className="panel today-focus-panel">
         <div className="section-heading">

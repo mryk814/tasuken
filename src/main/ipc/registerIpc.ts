@@ -5,6 +5,7 @@ import { entityTypes, type EntityType } from "../../shared/types/workspace";
 import type { WorkspaceService } from "../services/workspaceService";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { AiProviderService } from "../services/aiProviderService";
+import type { CalendarService } from "../services/calendarService";
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -46,6 +47,7 @@ export function registerIpc(
   service: WorkspaceService,
   sharedSync: SharedFolderSyncService,
   aiProvider: AiProviderService,
+  calendar: CalendarService,
 ): void {
   ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
@@ -118,4 +120,8 @@ export function registerIpc(
   ipcMain.handle(IPC.markdownPdfExport, (_event, request) => service.exportMarkdownPdf(request));
   ipcMain.handle(IPC.sketchExport, (_event, request) => service.exportSketch(request));
   ipcMain.handle(IPC.slideTimelineExport, (_event, request) => service.exportSlideTimeline(request));
+  ipcMain.handle(IPC.calendarStatus, () => calendar.getStatus());
+  ipcMain.handle(IPC.calendarConnect, (_event, request) => calendar.connect(request));
+  ipcMain.handle(IPC.calendarDisconnect, (_event, request) => calendar.disconnect(request));
+  ipcMain.handle(IPC.calendarEvents, (_event, date) => calendar.getEvents(requireText(date, "取得する日付")));
 }
