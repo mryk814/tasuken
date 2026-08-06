@@ -230,6 +230,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [draftBody, setDraftBody] = useState(() => normalizeRichEditorMarkdown(selectedBody));
   const [richEditorDirty, setRichEditorDirty] = useState(false);
   const [draftState, setDraftState] = useState("");
+  // 直近の正本Markdown同期の結果（#291）。署名比較では分からない外部変更・失敗を保持する。
+  const [canonicalSyncState, setCanonicalSyncState] = useState<CanonicalMarkdownFileState | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
@@ -717,6 +719,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const canonicalFileState: CanonicalMarkdownFileState = (() => {
     const canonicalPath = str(markdownExport?.filePath);
     if (!canonicalPath) return "none";
+    // 直近の同期結果があればそれを優先する。外部変更や失敗は署名比較では分からない。
+    if (canonicalSyncState && canonicalSyncState !== "synced") return canonicalSyncState;
     const written = str(markdownExport?.bodySignature);
     if (!written) return "pending";
     return written === noteExportSignature(currentDraftBody() || selectedBody) ? "synced" : "pending";
@@ -749,6 +753,82 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
     } catch (error: unknown) {
       setToastRef.current(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    // 自動保存も手動保存も同じ経路で正本Markdownを更新する（#291）。
+    await syncCanonicalMarkdown(previous, body);
+  }
+
+  /**
+   * 正本Markdownを、Tasken内部の保存に続けて更新する（#291）。
+   *
+   * 正本パスを持つNoteだけが対象。自動保存から呼ばれるので、外部変更を見つけても
+   * ここでは確認を出さず、書き込みを見送って状態だけ伝える。上書きするかどうかは
+   * 手動保存（確認あり）で選ばせる。ファイル側が失敗しても内部の保存は残す。
+   */
+  async function syncCanonicalMarkdown(note: Combined, body: string): Promise<void> {
+    const properties = noteProperties(note);
+    const exportState = properties.markdown_export && typeof properties.markdown_export === "object" && !Array.isArray(properties.markdown_export)
+      ? properties.markdown_export as Record<string, unknown>
+      : null;
+    const canonicalPath = str(exportState?.filePath);
+    const directory = str(exportState?.directory);
+    if (!canonicalPath || !directory) return;
+
+    const themeName = themes.find((theme) => theme.id === str(note.project_id || note.theme_id))?.name || "";
+    const content = publishMarkdownContent(note, themeName, body);
+    const preview = await workspaceApi.readFilePreview(canonicalPath).catch(() => null);
+    const plan = planCanonicalMarkdownWrite({
+      canonicalPath,
+      nextContent: content,
+      lastWrittenSignature: str(exportState?.fileSignature),
+      currentFileSignature: preview?.ok && preview.kind === "text" ? markdownSignature(preview.text) : null,
+      fileExists: Boolean(preview?.ok),
+    });
+    if (plan.action === "skip") {
+      setCanonicalSyncState("synced");
+      return;
+    }
+    if (plan.action === "confirm") {
+      // 黙って上書きしない。手動保存で内容を確認してから決めてもらう。
+      setCanonicalSyncState("external_change");
+      return;
+    }
+    if (plan.action === "unavailable") {
+      setCanonicalSyncState("pending");
+      return;
+    }
+    try {
+      const result = await workspaceApi.exportMarkdownFile({
+        title: str(note.title),
+        content,
+        directory,
+        chooseDirectory: false,
+        fileName: `${str(note.title) || "markdown-document"}.md`,
+        themeId: str(note.project_id || note.theme_id) || null,
+      });
+      if (result.canceled) return;
+      const { recordType: _recordType, ...entity } = note;
+      await saveEntityRef.current("note", {
+        ...entity,
+        body_markdown: body,
+        properties_json: {
+          ...properties,
+          markdown_export: {
+            ...exportState,
+            directory: result.directory,
+            filePath: result.filePath,
+            exportedAt: result.exportedAt,
+            bodySignature: noteExportSignature(body),
+            fileSignature: markdownSignature(content),
+          },
+        },
+      });
+      setCanonicalSyncState("synced");
+    } catch {
+      // ルートが一時的に見えない場合もここへ来る。内部の保存は残っているので
+      // 失敗として示し、次の保存で再試行できるようにする。
+      setCanonicalSyncState("failed");
     }
   }
 
@@ -756,6 +836,11 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     return () => {
       void autoSaveDraft();
     };
+  }, [selected?.id]);
+
+  // Noteを切り替えたら、前のNoteの同期結果を持ち越さない（#291）。
+  useEffect(() => {
+    setCanonicalSyncState(null);
   }, [selected?.id]);
 
   useEffect(() => {
@@ -1382,7 +1467,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
    */
   async function confirmCanonicalMarkdownOverwrite(nextContent: string): Promise<boolean> {
     const canonicalPath = str(markdownExport?.filePath);
-    const lastWritten = str(markdownExport?.bodySignature);
+    const lastWritten = str(markdownExport?.fileSignature);
     if (!canonicalPath || !lastWritten) return true;
 
     const preview = await workspaceApi.readFilePreview(canonicalPath).catch(() => null);
@@ -1442,16 +1527,20 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             filePath: result.filePath,
             exportedAt: result.exportedAt,
             bodySignature: noteExportSignature(bodyForExport),
+            // 外部変更の判定は「前回書いたファイル内容」と比べる。本文の署名とは別物（#291）。
+            fileSignature: markdownSignature(content),
             storageMode: exported.storageMode,
           },
         }, exported),
       });
       setToast(`Markdownを保存しました。${result.filePath || ""}`, "success");
       // 保存済み表示は内部とファイルの両方を反映する（#291）。
+      setCanonicalSyncState("synced");
       setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "synced" }));
       await autoLinkExportArtifacts(exported);
     } catch (error) {
       // Tasken内部は保存済みでもファイルだけ失敗しうる。片方だけの失敗を区別して示す。
+      setCanonicalSyncState("failed");
       setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "failed" }));
       setToast(`Markdownを更新できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
