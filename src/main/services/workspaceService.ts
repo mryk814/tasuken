@@ -10,6 +10,7 @@ import type { SketchExportRequest, SketchExportResult } from "../../shared/sketc
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
 import type { Workspace } from "../../shared/types/workspace";
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
+import { THEME_FOLDER_MANIFEST, buildThemeFolderManifest } from "../../shared/storageResolver.mjs";
 import {
   artifactFileTypeOf,
   artifactMimeTypeOf,
@@ -458,7 +459,41 @@ export class WorkspaceService {
       contentKind,
     });
     if (location.kind === "needs_directory") return { kind: "needs_directory" };
-    return { kind: "ok", directory: path.join(location.root, ...location.segments) };
+    const directory = path.join(location.root, ...location.segments);
+    // Theme名を変えてもフォルダとThemeの対応を見失わないよう、markerを置く（#306）。
+    // 生成は遅延・idempotentで、失敗しても保存自体は止めない。
+    if (themeId) this.writeThemeFolderManifest(location, themeId);
+    return { kind: "ok", directory };
+  }
+
+  /**
+   * Themeフォルダの直下へ `.tasken-theme.json` を置く（#306）。
+   * Theme名の変更でフォルダを黙ってrename・moveしないため、対応の正本をIDで残す。
+   */
+  private writeThemeFolderManifest(
+    location: { root: string; segments: string[] },
+    themeId: string,
+  ): void {
+    try {
+      // Theme専用ルートはroot直下、共通ルートは Themes/<folder> がTheme単位のフォルダ。
+      const themeFolder = location.segments[0] === "Themes"
+        ? path.join(location.root, location.segments[0], location.segments[1] || "")
+        : location.segments.length === 1
+          ? location.root
+          : "";
+      if (!themeFolder) return;
+      const manifestPath = path.join(themeFolder, THEME_FOLDER_MANIFEST);
+      if (fs.existsSync(manifestPath)) return;
+      const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+      fs.mkdirSync(themeFolder, { recursive: true });
+      fs.writeFileSync(
+        manifestPath,
+        `${JSON.stringify(buildThemeFolderManifest({ themeId, displayName: String(theme?.name || theme?.title || "") }), null, 2)}\n`,
+        "utf8",
+      );
+    } catch {
+      // markerは対応を辿るための補助情報。書けなくても保存自体は成立させる。
+    }
   }
 
   importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {

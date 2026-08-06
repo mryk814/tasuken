@@ -386,13 +386,14 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           </div>
         </section>
         <section className="panel settings-form">
-          <h2>Artifact保存先</h2>
+          {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}
+          <h2>同期ストレージ</h2>
           <p className="field-help">
-            managed Artifact と Note Markdown 書き出しの共通ルートです。Theme 未設定は <code>Inbox/</code>（Note は <code>Inbox/Notes/</code>）、Theme ありで保存ルート未設定は <code>Themes/識別子/Artifacts|Notes|Exports/</code> です。Theme 編集の保存ルートがあればそれを優先します。PDF は都度選択（初期位置は Exports）。linked Artifact は対象外です。
+            OneDrive等のTasken同期ルートを一度だけ設定します。配下の <code>Inbox/</code> と <code>Themes/識別子/</code>、その中の <code>Notes|Artifacts|Exports/</code> はTaskenが必要になった時点で自動生成します。用途ごとの保存先設定は増やしません。Themeだけは編集画面で専用ルートを指定でき、その場合も標準サブフォルダは自動生成します。PDF等の明示的な書き出しは都度選択（初期位置は Exports）、linked Artifact は移動しません。
           </p>
           <dl className="settings-meta-list">
             <div>
-              <dt>保存先</dt>
+              <dt>同期ルート</dt>
               <dd>{artifactDirectory || "未設定"}</dd>
             </div>
           </dl>

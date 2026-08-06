@@ -205,7 +205,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       artifactDirectory: "C:/tasken",
       themeId: null,
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Inbox"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Inbox"], source: "app_default" },
   );
   assert.deepEqual(
     resolveManagedArtifactDirectoryParts({
@@ -213,7 +213,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeId: "theme-1",
       themeCode: "MAT-A",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Artifacts"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Artifacts"], source: "app_default" },
   );
   // code がなければ id。名前変更で追従しない。
   assert.deepEqual(
@@ -222,7 +222,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeId: "theme-uuid",
       themeCode: "",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "theme-uuid", "Artifacts"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "theme-uuid", "Artifacts"], source: "app_default" },
   );
   // Theme 専用ルートがあれば共通ルートは不要。
   assert.deepEqual(
@@ -232,7 +232,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeCode: "MAT-A",
       themeStorageRoot: "D:/themes/mat-a",
     }),
-    { kind: "ok", root: "D:/themes/mat-a", segments: ["Artifacts"] },
+    { kind: "ok", root: "D:/themes/mat-a", segments: ["Artifacts"], source: "theme_override" },
   );
   assert.equal(safeThemeFolderSegment('a/b:c*?"'), "a-b-c-");
 });
@@ -245,7 +245,7 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
       themeCode: "MAT-A",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Notes"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Notes"], source: "app_default" },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
@@ -254,21 +254,21 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
       themeCode: "MAT-A",
       contentKind: "exports",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Exports"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Exports"], source: "app_default" },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
       artifactDirectory: "C:/tasken",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Inbox", "Notes"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Inbox", "Notes"], source: "app_default" },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
       themeStorageRoot: "D:/themes/mat-a",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "D:/themes/mat-a", segments: ["Notes"] },
+    { kind: "ok", root: "D:/themes/mat-a", segments: ["Notes"], source: "theme_override" },
   );
 
   const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
@@ -294,7 +294,9 @@ test("Theme 編集に storage_root があり import に themeId を渡す", () =
   assert.match(workspaceAppSource, /storage_root:\s*formText\(values,\s*"storage_root"\)/);
   assert.match(artifactsComponentSource, /themeId:\s*parentThemeId/);
   assert.match(artifactsComponentSource, /themeId:\s*artifact\.theme_id/);
-  assert.match(settingsSource, /Themes\/識別子\/Artifacts/);
+  // #306で「同期ストレージ」表記へ集約。標準フォルダの説明は残す。
+  assert.match(settingsSource, /Themes\/識別子\//);
+  assert.match(settingsSource, /Notes\|Artifacts\|Exports\//);
   assert.match(settingsSource, /Inbox\//);
 });
 
