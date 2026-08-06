@@ -67,6 +67,15 @@ type LoadState =
       resource: BaseRecord;
     };
 
+// conversationモードはファイル実体を持たないため、ファイル系の操作は他モードだけへ絞る。
+function loadedArtifact(load: LoadState): Artifact | undefined {
+  return load.status === "ready" && load.mode !== "conversation" ? load.artifact : undefined;
+}
+
+function loadedFilePath(load: LoadState): string | undefined {
+  return load.status === "ready" && load.mode !== "conversation" ? load.filePath : undefined;
+}
+
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const FIT_ZOOM = 0; // 0 = 画面に合わせる
 
@@ -299,38 +308,41 @@ export function ContentViewer({
   }
 
   async function openExternal() {
-    if (load.status !== "ready") return;
-    if (load.artifact) {
-      await openArtifactFile(load.artifact, setToast);
+    const artifact = loadedArtifact(load);
+    if (artifact) {
+      await openArtifactFile(artifact, setToast);
       return;
     }
-    if (load.filePath) {
-      const result = await workspaceApi.openPath(load.filePath);
+    const filePath = loadedFilePath(load);
+    if (filePath) {
+      const result = await workspaceApi.openPath(filePath);
       if (!result.ok) setToast(`ファイルを開けませんでした。${result.error || ""}`, "danger");
     }
   }
 
   async function openFolder() {
-    if (load.status !== "ready") return;
-    if (load.artifact) {
-      await showArtifactInFolder(load.artifact, setToast);
+    const artifact = loadedArtifact(load);
+    if (artifact) {
+      await showArtifactInFolder(artifact, setToast);
       return;
     }
-    if (load.filePath && !isHttpUrl(load.filePath)) {
-      const result = await workspaceApi.showItemInFolder(load.filePath);
+    const filePath = loadedFilePath(load);
+    if (filePath && !isHttpUrl(filePath)) {
+      const result = await workspaceApi.showItemInFolder(filePath);
       if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
     }
   }
 
   async function copyPath() {
-    if (load.status !== "ready") return;
-    if (load.artifact) {
-      await copyArtifactPath(load.artifact, setToast);
+    const artifact = loadedArtifact(load);
+    if (artifact) {
+      await copyArtifactPath(artifact, setToast);
       return;
     }
-    if (load.filePath) {
-      await workspaceApi.copyText(load.filePath);
-      setToast(isHttpUrl(load.filePath) ? "URLをコピーしました。" : "パスをコピーしました。", "success");
+    const filePath = loadedFilePath(load);
+    if (filePath) {
+      await workspaceApi.copyText(filePath);
+      setToast(isHttpUrl(filePath) ? "URLをコピーしました。" : "パスをコピーしました。", "success");
     }
   }
 
@@ -392,13 +404,15 @@ export function ContentViewer({
 
   const title = load.status === "ready" ? load.title : "プレビュー";
   const isImage = load.status === "ready" && load.mode === "image";
-  const canOpenFolder = load.status === "ready" && Boolean(
-    load.artifact
-      ? !isHttpUrl(String(artifactOpenTarget(load.artifact) || ""))
-      : load.filePath && !isHttpUrl(load.filePath),
+  const loadArtifact = loadedArtifact(load);
+  const loadFilePath = loadedFilePath(load);
+  const canOpenFolder = Boolean(
+    loadArtifact
+      ? !isHttpUrl(String(artifactOpenTarget(loadArtifact) || ""))
+      : loadFilePath && !isHttpUrl(loadFilePath),
   );
-  const canCopyPath = load.status === "ready" && Boolean(load.filePath || load.artifact);
-  const canOpenExternal = load.status === "ready" && Boolean(load.filePath || load.artifact);
+  const canCopyPath = Boolean(loadFilePath || loadArtifact);
+  const canOpenExternal = Boolean(loadFilePath || loadArtifact);
   const canEditNote = load.status === "ready" && load.mode === "markdown" && Boolean(load.note);
 
   function trapFocus(event: ReactKeyboardEvent<HTMLDivElement>) {

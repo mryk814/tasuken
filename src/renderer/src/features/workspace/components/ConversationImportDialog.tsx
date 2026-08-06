@@ -67,7 +67,7 @@ export function ConversationImportDialog({
       }
       const file = result.files[0];
       const preview = await workspaceApi.readFilePreview(file.path);
-      if (!preview?.text) {
+      if (!preview?.ok || preview.kind !== "text" || !preview.text) {
         setState({ step: "error", message: "ファイルを読み取れませんでした。テキストファイルを選択してください。" });
         return;
       }
