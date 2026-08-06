@@ -42,12 +42,25 @@ function requireText(value: unknown, label: string): string {
   return value;
 }
 
+function saveManyTypes(operations: unknown[]): EntityType[] {
+  const types: EntityType[] = [];
+  for (const operation of operations) {
+    if (!operation || typeof operation !== "object") continue;
+    const type = (operation as { type?: unknown }).type;
+    if (typeof type === "string" && entityTypes.includes(type as EntityType)) {
+      types.push(type as EntityType);
+    }
+  }
+  return types;
+}
+
 export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
   sharedSync: SharedFolderSyncService,
   aiProvider: AiProviderService,
   calendar: CalendarService,
+  notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
 ): void {
   ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
@@ -92,16 +105,29 @@ export function registerIpc(
     if (!entity || typeof entity !== "object" || Array.isArray(entity)) {
       throw new Error("保存内容が不正です。入力内容を確認してください。");
     }
-    return repository.save(requireEntityType(type), entity, options);
+    const entityType = requireEntityType(type);
+    const saved = repository.save(entityType, entity, options);
+    notifyEntitiesChanged([entityType]);
+    return saved;
   });
   ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {
     if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
-    return repository.saveMany(operations);
+    const saved = repository.saveMany(operations);
+    notifyEntitiesChanged(saveManyTypes(operations));
+    return saved;
   });
-  ipcMain.handle(IPC.entityRemove, (_event, type, id) =>
-    repository.remove(requireEntityType(type), requireId(id)));
-  ipcMain.handle(IPC.entityRestore, (_event, type, id) =>
-    repository.restore(requireEntityType(type), requireId(id)));
+  ipcMain.handle(IPC.entityRemove, (_event, type, id) => {
+    const entityType = requireEntityType(type);
+    const removed = repository.remove(entityType, requireId(id));
+    notifyEntitiesChanged([entityType]);
+    return removed;
+  });
+  ipcMain.handle(IPC.entityRestore, (_event, type, id) => {
+    const entityType = requireEntityType(type);
+    const restored = repository.restore(entityType, requireId(id));
+    notifyEntitiesChanged([entityType]);
+    return restored;
+  });
   ipcMain.handle(IPC.snapshotExport, () => service.exportSnapshot());
   ipcMain.handle(IPC.snapshotInspect, () => service.inspectSnapshot());
   ipcMain.handle(IPC.snapshotApply, (_event, token, decisions) =>

@@ -307,9 +307,20 @@
       const addTaskForm = document.querySelector("#add-task-form");
       const addTaskInput = document.querySelector("#add-task-input");
 
-      const now = new Date();
-      const todayKey = localDateKey(now);
-      todayDate.textContent = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" }).format(now);
+      // 日付は起動時に固定せず、日付をまたいでも表示が古くならないよう都度更新する。
+      const dateFormat = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" });
+      let todayKey = "";
+
+      function applyToday() {
+        const now = new Date();
+        const key = localDateKey(now);
+        const changed = key !== todayKey;
+        todayKey = key;
+        if (changed) todayDate.textContent = dateFormat.format(now);
+        return changed;
+      }
+
+      applyToday();
 
       function localDateKey(date) {
         const year = date.getFullYear();
@@ -406,7 +417,31 @@
         }
         await window.todayMiniApi.openTask(taskId);
       });
-      window.todayMiniApi.onRefresh(() => render(window.todayMiniApi.refresh));
+      // 変更通知が届かない経路（外部プロセスの書き込み・スリープ復帰・日付またぎ）でも
+      // 表示が古いまま残らないよう、focus復帰・日付変更・定期確認を併用する。
+      const CONSISTENCY_INTERVAL_MS = 60000;
+      let syncing = false;
+
+      async function syncNow() {
+        if (syncing) return;
+        syncing = true;
+        try {
+          applyToday();
+          await render(window.todayMiniApi.refresh);
+        } finally {
+          syncing = false;
+        }
+      }
+
+      window.todayMiniApi.onRefresh(() => { void syncNow(); });
+      window.addEventListener("focus", () => { void syncNow(); });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") void syncNow();
+      });
+      setInterval(() => {
+        const dayChanged = applyToday();
+        if (dayChanged || document.visibilityState === "visible") void syncNow();
+      }, CONSISTENCY_INTERVAL_MS);
       render();
     </script>
   </body>

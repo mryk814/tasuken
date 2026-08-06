@@ -121,6 +121,17 @@ function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } |
   }
 }
 
+// 「今日やること」の一覧結果へ影響しうるEntity。ここに載らない種類では前面ウィンドウを更新しない。
+const TODAY_MINI_ENTITY_TYPES = new Set<EntityType>(["task", "schedule", "theme", "project"]);
+
+function notifyTodayMiniRefresh(types: EntityType[]): void {
+  if (!types.some((type) => TODAY_MINI_ENTITY_TYPES.has(type))) return;
+  const todayMiniWindow = todayMiniController?.getWindow();
+  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) return;
+  if (todayMiniWindow.webContents.isLoading()) return;
+  todayMiniWindow.webContents.send("today-mini:refresh");
+}
+
 function findMainWindow(): BrowserWindow | null {
   const captureWindow = quickCaptureController?.getWindow();
   const todayMiniWindow = todayMiniController?.getWindow();
@@ -819,6 +830,7 @@ async function startDesktopApp(): Promise<void> {
     sharedFolderSyncService,
     new AiProviderService(app.getPath("userData")),
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
+    notifyTodayMiniRefresh,
   );
   mcpProposalInboxService = new McpProposalInboxService(
     workspaceRepository,
