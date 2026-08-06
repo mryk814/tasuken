@@ -24,6 +24,13 @@ import {
 } from "react";
 
 import { noteExportSignature } from "../../../../../shared/fileExport";
+import {
+  markdownSignature,
+  noteSaveStateLabel,
+  planCanonicalMarkdownWrite,
+  shouldCreateExportArtifact,
+  type CanonicalMarkdownFileState,
+} from "../../../../../shared/canonicalMarkdown.mjs";
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
@@ -702,6 +709,19 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     return () => window.removeEventListener("tasken:select-note", onSelect);
   }, []);
 
+  /**
+   * 正本Markdownの状態（#291）。
+   * Tasken内部の保存と、OneDrive等にある `.md` の更新は別の事実なので、
+   * 「保存しました」の一言に混ぜない。本文を変えた直後はファイルが古いので pending。
+   */
+  const canonicalFileState: CanonicalMarkdownFileState = (() => {
+    const canonicalPath = str(markdownExport?.filePath);
+    if (!canonicalPath) return "none";
+    const written = str(markdownExport?.bodySignature);
+    if (!written) return "pending";
+    return written === noteExportSignature(currentDraftBody() || selectedBody) ? "synced" : "pending";
+  })();
+
   /** 選択中のNoteが、この画面ではない別ウィンドウで編集中か（#290）。 */
   const detachedElsewhere = !detachedNoteId && Boolean(selected && openNoteWindowIds.includes(selected.id));
 
@@ -777,7 +797,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
               selectedBodyRef.current = body;
               setDraftBody(body);
               setRichEditorDirty(false);
-              setDraftState("保存しました。");
+              setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
             })
             .catch((error: unknown) => setDraftState(error instanceof Error ? error.message : "保存できませんでした。"));
         }
@@ -1171,7 +1191,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       selectedBodyRef.current = body;
       setDraftBody(body);
       setRichEditorDirty(false);
-      setDraftState("保存しました。");
+      setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
     } catch (error) {
       setDraftState(error instanceof Error ? error.message : "保存できませんでした。");
     }
@@ -1281,6 +1301,12 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
    * 追加に失敗しても書き出したファイルと文書は触らず、通常の紐づけ導線へ戻す。
    */
   async function autoLinkExportArtifacts(exported: NoteDocumentExport) {
+    // 正本Markdownは保存のたびに更新される同じファイルなので、Artifactを増やさない（#291）。
+    // 派生出力（PDF・SVG等）だけをChatRefへ追加する。
+    if (!shouldCreateExportArtifact(exported.format)) {
+      setRecentExport(exported);
+      return;
+    }
     if (!exportTargets.length) {
       setRecentExport(exported);
       return;
@@ -1347,12 +1373,45 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     setToast("自動追加先を解除しました。次回の書き出しでは紐づけ先を選び直します。", "success");
   }
 
+  /**
+   * 正本Markdownを上書きしてよいか確かめる（#291）。
+   *
+   * 前回Taskenが書いた署名と、いまのファイルの署名を比べる。食い違えば外部変更なので
+   * 利用者へ選ばせる。ファイルを読めない場合は保存自体は止めず、そのまま書き込む
+   * （読めない理由がFiles On-Demand等の一時的なものでも、保存を失わせない）。
+   */
+  async function confirmCanonicalMarkdownOverwrite(nextContent: string): Promise<boolean> {
+    const canonicalPath = str(markdownExport?.filePath);
+    const lastWritten = str(markdownExport?.bodySignature);
+    if (!canonicalPath || !lastWritten) return true;
+
+    const preview = await workspaceApi.readFilePreview(canonicalPath).catch(() => null);
+    if (!preview?.ok || preview.kind !== "text") return true;
+
+    const plan = planCanonicalMarkdownWrite({
+      canonicalPath,
+      nextContent,
+      lastWrittenSignature: lastWritten,
+      currentFileSignature: markdownSignature(preview.text),
+    });
+    if (plan.action !== "confirm") return true;
+    return window.confirm(
+      `${canonicalPath}\n\nこのMarkdownはTaskenの外で変更されています。Taskenの内容で上書きすると、外部の変更は失われます。\n\n上書きしますか。中止すると、ファイルを確認してから保存し直せます。`,
+    );
+  }
+
   async function exportSelectedMarkdown(chooseDirectory: boolean) {
     if (!selected || !showDocumentPublish) return;
     setMarkdownExporting(true);
     try {
       const bodyForExport = currentDraftBody() || selectedBody;
       const content = publishMarkdownContent(selected, selectedTheme?.name || "", bodyForExport);
+      // 正本Markdownは同じファイルを更新し続ける。Tasken外（別端末・エディタ・
+      // OneDriveの競合コピー）で変わっていたら、黙って上書きしない（#291）。
+      if (!chooseDirectory && !(await confirmCanonicalMarkdownOverwrite(content))) {
+        setToast("Markdownの更新を中止しました。ファイルの内容を確認してください。", "warning");
+        return;
+      }
       const result = await workspaceApi.exportMarkdownFile({
         title: str(selected.title),
         content,
