@@ -17,6 +17,7 @@ import { ROUTE_ICONS } from "../../../pages/routeIcons";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { KnowledgeNode as WorkspaceKnowledgeNode, OpenDrawer, Theme } from "../types";
 import type { KnowledgeEdge, WorkspaceDomain } from "../domain-model/types";
+import { isPersonalDefaultTheme } from "../../../../../shared/personalTheme.mjs";
 import { themeColor } from "../lib/domain";
 import { preloadWorkspacePage } from "../workspacePageLoaders";
 import { buildKnowledgeHealth } from "../lib/knowledgeHealth";
@@ -492,10 +493,12 @@ export function Sidebar({
         </button>
         {themes.map((theme, index) => {
           const current = route === "theme" && theme.id === activeThemeId;
+          // 既定Themeは先頭に固定し、装飾を強くせず区切りだけで「常設」を示す（#282）。
+          const isDefault = isPersonalDefaultTheme(theme);
           return (
             <button
               key={theme.id}
-              className={current ? "is-active" : ""}
+              className={`${current ? "is-active" : ""}${isDefault ? " is-default-theme" : ""}`}
               aria-current={current ? "page" : undefined}
               aria-label={theme.name}
               title={collapsed ? theme.name : undefined}

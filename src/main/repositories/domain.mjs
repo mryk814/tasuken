@@ -112,6 +112,9 @@ const scheduleGranularityValues = new Set(["day", "week", "month"]);
 // 日付範囲の意味（#309）。start/endの値からは推定せず、明示された値だけを信じる。
 // 未設定は「未分類の既存範囲」を意味し、#95の既存Today表示規則をそのまま使う。
 const scheduleRangeSemantics = new Set(["once_within_window", "ongoing"]);
+// Themeの種別（#282）。personal_default は常設の既定Themeで、削除・アーカイブ・改名できない。
+// 表示名の文字列比較で特別扱いせず、この値と安定IDで識別する。
+const themeSystemKinds = new Set(["personal_default"]);
 const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact"]);
 const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
@@ -361,6 +364,10 @@ export function validateEntity(type, input) {
   if (type === "plan_node") {
     if (!planNodeTypes.has(input.type)) throw new Error("plan_node.typeが不正です。");
     if (!planNodeStates.has(input.state)) throw new Error("plan_node.stateが不正です。");
+  }
+  // 既定Themeの識別子（#282）。未知の種別を保存させない。
+  if (type === "theme" && input.system_kind != null && input.system_kind !== "" && !themeSystemKinds.has(input.system_kind)) {
+    throw new Error("theme.system_kindが不正です。");
   }
   if (type === "schedule") {
     if (!scheduleOwnerTypes.has(input.owner_type)) throw new Error("schedule.owner_typeが不正です。");

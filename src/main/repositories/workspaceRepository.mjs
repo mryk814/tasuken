@@ -14,6 +14,7 @@ import {
   workspaceEntityTypes,
 } from "./domain.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
+import { isThemeDeletable, planPersonalDefaultTheme } from "../../shared/personalTheme.mjs";
 import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
 
 const SCHEMA_VERSION = 2;
@@ -314,7 +315,18 @@ export class WorkspaceDatabase {
     return this.db.prepare(sql).all(type).map(parseRow);
   }
 
+  /**
+   * 常設の既定Theme「個人業務」を1件だけ用意する（#282）。
+   * 起動のたびに呼ばれるので、存在すれば何もしない。既存データは書き換えない。
+   */
+  ensurePersonalDefaultTheme() {
+    const plan = planPersonalDefaultTheme(this.list("theme"), now());
+    if (!plan.create) return null;
+    return this.save("theme", plan.create, { source: "system" });
+  }
+
   loadWorkspace(includeDeleted = false) {
+    this.ensurePersonalDefaultTheme();
     const result = {};
     for (const type of workspaceEntityTypes) result[collectionKey(type)] = this.list(type, includeDeleted);
     result.plan_revisions = this.db.prepare(
@@ -691,6 +703,10 @@ export class WorkspaceDatabase {
     const transaction = this.db.transaction(() => {
       const existing = this.get(type, id);
       if (!existing) return null;
+      // 常設の既定Themeは削除させない。消えるとTheme未設定の解決先が失われる（#282）。
+      if (type === "theme" && !isThemeDeletable(existing)) {
+        throw new Error("既定Theme「個人業務」は削除できません。");
+      }
       this.applyDeletePolicy(type, String(id));
       this.markRemoved(type, String(id));
       return this.get(type, id, true);

@@ -38,6 +38,7 @@ import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 import { currentWindowMode } from "./lib/windowMode";
+import { isPersonalDefaultTheme, sortThemesWithDefaultFirst } from "../../../../shared/personalTheme.mjs";
 import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPalette";
 import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
@@ -305,8 +306,14 @@ export function WorkspaceApp() {
 
   const fullData = useMemo(() => projectWorkspace(workspace as Record<string, unknown> | null), [workspace]);
   const fullDomain = useMemo(() => buildWorkspaceDomain(fullData), [fullData]);
-  const allThemes = fullData.themes;
-  const themes = activeGroups.length > 0 ? allThemes.filter((t) => activeGroups.includes(t.group || "")) : allThemes;
+  // 常設の既定Themeは並びの先頭へ固定し、グループ絞り込みでも消さない（#282）。
+  // Themeが0件に見える状態でも個人業務は残る。
+  const allThemes = useMemo(() => sortThemesWithDefaultFirst(fullData.themes) as Theme[], [fullData.themes]);
+  const themes = useMemo(() => (
+    activeGroups.length > 0
+      ? allThemes.filter((theme) => activeGroups.includes(theme.group || "") || isPersonalDefaultTheme(theme))
+      : allThemes
+  ), [activeGroups, allThemes]);
   const groupThemeIds = useMemo(() => new Set(themes.map((t) => t.id)), [themes]);
   const hasGroupFilter = activeGroups.length > 0;
 
