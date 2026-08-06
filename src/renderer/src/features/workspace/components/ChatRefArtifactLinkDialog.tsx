@@ -31,7 +31,7 @@ export function ChatRefArtifactLinkDialog({
   initialExport?: NoteDocumentExport;
   saveEntities: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
-  onLinked?: () => void;
+  onLinked?: (chatRefId: string) => void;
   close: () => void;
 }) {
   const notes = data.notes as BaseRecord[];
@@ -84,7 +84,7 @@ export function ChatRefArtifactLinkDialog({
         [operation],
         reused ? "既存Artifactの書き出し情報を更新しました。" : "書き出しファイルをチャット参照へ紐づけました。",
       );
-      onLinked?.();
+      onLinked?.(selectedChatRef.id);
       close();
     } catch (error) {
       setToast(`チャット参照へ紐づけられませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");

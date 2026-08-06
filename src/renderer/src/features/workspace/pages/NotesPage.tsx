@@ -77,12 +77,17 @@ import {
   sketchEmbedMarkdown,
   type SketchEmbedPreview,
 } from "../lib/sketchEmbed";
-import type { BaseRecord, NoteComment, PageProps, Sketch } from "../types";
+import type { Artifact, BaseRecord, Entity, NoteComment, PageProps, SaveOperation, Sketch } from "../types";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { compactNotesBodyPreview, DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
 import {
+  buildNoteExportArtifactOperation,
   createNoteDocumentExport,
+  noteArtifactExportTargetIds,
+  resolveNoteExportTargets,
+  withNoteArtifactExportTargets,
   withNoteDocumentExport,
+  type ChatRefRecord,
   type NoteDocumentExport,
 } from "../lib/noteExportArtifacts";
 import {
@@ -163,12 +168,15 @@ function canCreateKnowledge(record: Combined): boolean {
   return record.recordType === "note" && recordKind(record) === "note";
 }
 
+type AutoLinkUndoEntry = { artifactId: string; previous: Artifact | null };
+type AutoLinkResult = { exported: NoteDocumentExport; chatRefs: ChatRefRecord[]; undo: AutoLinkUndoEntry[] };
+
 function isWorkbenchRecord(record: Combined): boolean {
   if (record.recordType === "resource") return true;
   return record.recordType === "note";
 }
 
-export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navigate, saveEntity, saveEntities, setToast }: PageProps) {
+export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navigate, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Notesは書く場所としてEditを初期表示にする。Preview / Rawは必要なときだけ切り替える。
@@ -225,6 +233,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [recentExport, setRecentExport] = useState<NoteDocumentExport | null>(null);
+  const [autoLinked, setAutoLinked] = useState<AutoLinkResult | null>(null);
   const [exportLinkDialogOpen, setExportLinkDialogOpen] = useState(false);
   const [sketchPickerOpen, setSketchPickerOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState<NoteAiTarget | null>(null);
@@ -331,6 +340,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const headingNumberOptions = useMemo(
     () => headingNumberOptionsFromProperties(selectedProperties),
     [selectedProperties],
+  );
+  // 書き出しArtifactの自動追加先。記憶済みで今も存在するChatRefだけを対象にする（#288）。
+  const exportTargets = useMemo(
+    () => selected ? resolveNoteExportTargets(selected, data.resources as unknown as ChatRefRecord[]) : [],
+    [data.resources, selected],
   );
   const headingNumbersEnabled = headingNumberOptions.preview.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions.preview.headingNumberStart);
@@ -621,6 +635,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     setDiffOpen(false);
     setSearchIndex(0);
     setReplaceUndo(null);
+    setAutoLinked(null);
     setRecentExtraction(null);
   }, [selected?.id, selectedBody]);
 
@@ -1196,6 +1211,77 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     return `${metadata}${bodyMarkdown.trim()}\n`;
   }
 
+  /**
+   * 出力先ChatRefが確定済みなら、書き出したArtifactを確認なしで同じ参照へ追加する（#288）。
+   * 追加に失敗しても書き出したファイルと文書は触らず、通常の紐づけ導線へ戻す。
+   */
+  async function autoLinkExportArtifacts(exported: NoteDocumentExport) {
+    if (!exportTargets.length) {
+      setRecentExport(exported);
+      return;
+    }
+    const operations: SaveOperation[] = [];
+    const undo: AutoLinkUndoEntry[] = [];
+    for (const chatRef of exportTargets) {
+      const { operation } = buildNoteExportArtifactOperation({ exported, chatRef, artifacts: data.artifacts });
+      const artifactId = str((operation.entity as Record<string, unknown>).id);
+      operations.push(operation);
+      undo.push({ artifactId, previous: data.artifacts.find((artifact) => artifact.id === artifactId) || null });
+    }
+
+    try {
+      await saveEntities(operations, `${exported.format === "pdf" ? "PDF" : "Markdown"}を保存し、Chat Refへ追加しました。`);
+      setRecentExport(null);
+      setAutoLinked({ exported, chatRefs: exportTargets, undo });
+    } catch (error) {
+      setToast(
+        `Chat Refへ自動追加できませんでした。書き出したファイルはそのまま残っています。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+      setRecentExport(exported);
+    }
+  }
+
+  async function undoAutoLink() {
+    if (!autoLinked) return;
+    const restored = autoLinked.undo.filter((entry) => entry.previous);
+    try {
+      if (restored.length) {
+        await saveEntities(
+          restored.map((entry) => ({ action: "save" as const, type: "artifact" as const, entity: entry.previous as Entity })),
+          "自動追加を取り消しました。",
+        );
+      }
+      for (const entry of autoLinked.undo) {
+        if (!entry.previous) await removeEntityQuiet("artifact", entry.artifactId);
+      }
+      if (!restored.length) setToast("自動追加を取り消しました。", "success");
+      setRecentExport(autoLinked.exported);
+      setAutoLinked(null);
+    } catch (error) {
+      setToast(`自動追加を取り消せませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  /** 明示的に選ばれたChatRefだけを、次回以降の出力先として記憶する。 */
+  async function rememberExportTarget(chatRefId: string) {
+    if (!selected || !chatRefId) return;
+    const next = [...new Set([...noteArtifactExportTargetIds(selected), chatRefId])];
+    await saveEntity("note", {
+      ...selected,
+      properties_json: withNoteArtifactExportTargets(noteProperties(selected), next),
+    }, { quiet: true });
+  }
+
+  async function clearExportTargets() {
+    if (!selected) return;
+    await saveEntity("note", {
+      ...selected,
+      properties_json: withNoteArtifactExportTargets(noteProperties(selected), []),
+    }, { quiet: true });
+    setToast("自動追加先を解除しました。次回の書き出しでは紐づけ先を選び直します。", "success");
+  }
+
   async function exportSelectedMarkdown(chooseDirectory: boolean) {
     if (!selected || !showDocumentPublish) return;
     setMarkdownExporting(true);
@@ -1236,8 +1322,8 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
           },
         }, exported),
       });
-      setRecentExport(exported);
       setToast(`Markdownを保存しました。${result.filePath || ""}`, "success");
+      await autoLinkExportArtifacts(exported);
     } catch (error) {
       setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
@@ -1272,9 +1358,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         ...selected,
         properties_json: withNoteDocumentExport(selectedProperties, exported),
       }, { quiet: true });
-      setRecentExport(exported);
       const warningText = result.warnings?.length ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）` : "";
       setToast(`PDFを出力しました。${result.filePath || ""}${warningText}`, result.warnings?.length ? "warning" : "success");
+      await autoLinkExportArtifacts(exported);
     } catch (error) {
       setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
@@ -1622,6 +1708,14 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                   )}
                 </div>
               </div>
+              {showDocumentPublish && exportTargets.length > 0 && (
+                <p className="note-export-target" role="status">
+                  <span>
+                    書き出しはChat Ref「{exportTargets.map((chatRef) => str(chatRef.title) || "無題").join("」「")}」へ自動追加します。
+                  </span>
+                  <button type="button" className="text-button compact" onClick={() => void clearExportTargets()}>解除</button>
+                </p>
+              )}
               {recentExport?.noteId === selected.id && (
                 <div className="note-export-handoff" role="status">
                   <span>{recentExport.format === "pdf" ? "PDF" : "Markdown"}を書き出しました。</span>
@@ -1639,6 +1733,38 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                   >
                     閉じる
                   </button>
+                </div>
+              )}
+              {autoLinked?.exported.noteId === selected.id && (
+                <div className="note-export-handoff" role="status">
+                  <span>
+                    {autoLinked.exported.format === "pdf" ? "PDF" : "Markdown"}を保存し、Chat Ref「
+                    {autoLinked.chatRefs.map((chatRef) => str(chatRef.title) || "無題").join("」「")}
+                    」へ追加しました。
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary-button compact"
+                    onClick={() => openDrawer({
+                      type: "resource",
+                      mode: "edit",
+                      entity: autoLinked.chatRefs[0] as unknown as Record<string, unknown>,
+                    })}
+                  >
+                    Chat Refを開く
+                  </button>
+                  <button type="button" className="secondary-button compact" onClick={undoAutoLink}>取り消す</button>
+                  <button
+                    type="button"
+                    className="text-button compact"
+                    onClick={() => {
+                      setRecentExport(autoLinked.exported);
+                      setExportLinkDialogOpen(true);
+                    }}
+                  >
+                    紐づけ先を変更
+                  </button>
+                  <button type="button" className="text-button compact" onClick={() => setAutoLinked(null)}>閉じる</button>
                 </div>
               )}
               {searchOpen && (
@@ -1841,7 +1967,12 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
           initialExport={recentExport}
           saveEntities={saveEntities}
           setToast={setToast}
-          onLinked={() => setRecentExport(null)}
+          onLinked={(chatRefId) => {
+            setRecentExport(null);
+            setAutoLinked(null);
+            // 明示的に選ばれた紐づけ先だけを、次回以降の自動追加先として記憶する。
+            void rememberExportTarget(chatRefId);
+          }}
           close={() => setExportLinkDialogOpen(false)}
         />
       )}

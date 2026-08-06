@@ -63,3 +63,58 @@ test("document publish uses Markdown as primary output and removes Word", () => 
   assert.doesNotMatch(contractsSource, /noteWordExport|WordExport|markdownNoteToWord/);
   assert.doesNotMatch(workspaceApiSource, /exportMarkdownNoteToWord|WordExport|wordExport/);
 });
+
+test("export artifacts auto-link only to explicitly remembered chat refs", async () => {
+  const exportArtifacts = await importBundled("src/renderer/src/features/workspace/lib/noteExportArtifacts.ts");
+  const chatRefs = [
+    { id: "ref-1", title: "設計相談", link_type: "chatgpt", url: "https://chatgpt.com/c/1" },
+    { id: "ref-2", title: "別の相談", link_type: "claude", url: "https://claude.ai/chat/2" },
+    { id: "ref-3", title: "削除済み", link_type: "chatgpt", url: "https://chatgpt.com/c/3", deleted_at: "2026-08-01T00:00:00.000Z" },
+  ];
+
+  // 記憶がなければ自動追加しない（Theme一致や推定関係を根拠にしない）。
+  const plain = { id: "note-1", title: "設計メモ", theme_id: "theme-1" };
+  assert.deepEqual(exportArtifacts.noteArtifactExportTargetIds(plain), []);
+  assert.deepEqual(exportArtifacts.resolveNoteExportTargets(plain, chatRefs), []);
+
+  const properties = exportArtifacts.withNoteArtifactExportTargets({ markdown_export: { directory: "D:/out" } }, ["ref-1", "ref-1", ""]);
+  assert.deepEqual(properties.artifact_export_targets, ["ref-1"]);
+  assert.deepEqual(properties.markdown_export, { directory: "D:/out" });
+
+  const remembered = { ...plain, properties_json: properties };
+  assert.deepEqual(exportArtifacts.resolveNoteExportTargets(remembered, chatRefs).map((ref) => ref.id), ["ref-1"]);
+
+  // 削除済みChatRefは自動追加先にしない。
+  const stale = { ...plain, properties_json: { artifact_export_targets: ["ref-3", "ref-2"] } };
+  assert.deepEqual(exportArtifacts.resolveNoteExportTargets(stale, chatRefs).map((ref) => ref.id), ["ref-2"]);
+
+  // 解除するとキー自体を残さない。
+  assert.deepEqual(exportArtifacts.withNoteArtifactExportTargets(properties, []), { markdown_export: { directory: "D:/out" } });
+
+  // 同じファイルを同じChatRefへ2度出しても既存Artifactを更新する（重複を作らない）。
+  const exported = {
+    id: "exp-1", format: "pdf", filePath: "D:/out/設計メモ.pdf", directory: "D:/out",
+    exportedAt: "2026-08-06T00:00:00.000Z", storageMode: "linked",
+    noteId: "note-1", noteTitle: "設計メモ", themeId: "theme-1",
+  };
+  const first = exportArtifacts.buildNoteExportArtifactOperation({ exported, chatRef: chatRefs[0], artifacts: [] });
+  assert.equal(first.reused, false);
+  const second = exportArtifacts.buildNoteExportArtifactOperation({
+    exported,
+    chatRef: chatRefs[0],
+    artifacts: [first.operation.entity],
+  });
+  assert.equal(second.reused, true);
+  assert.equal(second.operation.entity.id, first.operation.entity.id);
+  assert.equal(second.operation.entity.origin_note_id, "note-1");
+});
+
+test("Notes export shows the auto-link target and keeps undo reachable", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(source, /autoLinkExportArtifacts/);
+  assert.match(source, /へ自動追加します。/);
+  assert.match(source, /取り消す/);
+  assert.match(source, /紐づけ先を変更/);
+  // 自動追加に失敗しても書き出したファイルは残す。
+  assert.match(source, /書き出したファイルはそのまま残っています/);
+});

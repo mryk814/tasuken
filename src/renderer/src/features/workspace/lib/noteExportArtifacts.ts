@@ -113,6 +113,43 @@ export function listRecentNoteExports(notes: BaseRecord[]): NoteDocumentExport[]
     .sort((left, right) => right.exportedAt.localeCompare(left.exportedAt));
 }
 
+/**
+ * 書き出しArtifactの自動追加先ChatRef。利用者が明示的に選んだ出力先だけを記憶し、
+ * Theme一致や本文中の言及のような推定関係は根拠にしない（#288）。
+ */
+export function noteArtifactExportTargetIds(note: BaseRecord): string[] {
+  const value = propertiesOf(note).artifact_export_targets;
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((entry) => str(entry)).filter(Boolean))];
+}
+
+export function withNoteArtifactExportTargets(
+  properties: Record<string, unknown>,
+  ids: string[],
+): Record<string, unknown> {
+  const unique = [...new Set(ids.map((id) => str(id)).filter(Boolean))];
+  if (!unique.length) {
+    const { artifact_export_targets: _removed, ...rest } = properties;
+    return rest;
+  }
+  return { ...properties, artifact_export_targets: unique };
+}
+
+/** 記憶済みの出力先のうち、今も参照できるChatRefだけを記憶した順で返す。 */
+export function resolveNoteExportTargets(
+  note: BaseRecord,
+  resources: ChatRefRecord[],
+): ChatRefRecord[] {
+  const ids = noteArtifactExportTargetIds(note);
+  if (!ids.length) return [];
+  const byId = new Map(
+    resources
+      .filter((resource) => isChatReference(resource) && !str((resource as BaseRecord).deleted_at))
+      .map((resource) => [str(resource.id), resource] as const),
+  );
+  return ids.map((id) => byId.get(id)).filter((resource): resource is ChatRefRecord => Boolean(resource));
+}
+
 function draftChatUrls(note: BaseRecord): Set<string> {
   const workspace = propertiesOf(note).draft_workspace;
   if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) return new Set();
