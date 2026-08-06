@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld("memoStickyApi", {
   copy: (): Promise<boolean> => ipcRenderer.invoke("memo-sticky:copy"),
   close: (): Promise<boolean> => ipcRenderer.invoke("memo-sticky:close"),
   openInMain: (): Promise<boolean> => ipcRenderer.invoke("memo-sticky:open-in-main"),
+  // 付箋を閉じることとは別の操作。実行するとMemo自体の状態が変わる。
+  archive: (): Promise<boolean> => ipcRenderer.invoke("memo-sticky:archive"),
+  remove: (): Promise<boolean> => ipcRenderer.invoke("memo-sticky:delete"),
   isAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke("memo-sticky:is-always-on-top"),
   setAlwaysOnTop: (pinned: boolean): Promise<boolean> => ipcRenderer.invoke("memo-sticky:set-always-on-top", pinned),
   // 本体や他のウィンドウでの変更を受けて、同じMemoの表示を追従させる。

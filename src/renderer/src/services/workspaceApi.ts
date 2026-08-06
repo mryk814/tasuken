@@ -117,6 +117,18 @@ export const workspaceApi = {
   showMemoStickyWindow(memoId: string) {
     return desktopApi().app.showMemoStickyWindow(memoId);
   },
+  listOpenMemoStickies() {
+    return desktopApi().app.listOpenMemoStickies();
+  },
+  showAllMemoStickies() {
+    return desktopApi().app.showAllMemoStickies();
+  },
+  closeAllMemoStickies() {
+    return desktopApi().app.closeAllMemoStickies();
+  },
+  onMemoStickyOpenChanged(callback: (memoIds: string[]) => void) {
+    return desktopApi().app.onMemoStickyOpenChanged(callback);
+  },
   exportSnapshot() {
     return desktopApi().snapshots.exportFile();
   },

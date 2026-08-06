@@ -31,6 +31,8 @@ interface MemoStickyControllerOptions {
 
 export interface MemoStickyController {
   open: (memoId: string) => boolean;
+  /** いま浮いているMemoのID。本体側で「付箋表示中」を区別するために使う。 */
+  openMemoIds: () => string[];
   registerIpc: () => void;
 }
 
@@ -77,6 +79,10 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
       skipTaskbar: true,
     });
     return true;
+  }
+
+  function openMemoIds(): string[] {
+    return options.satelliteWindows.list("memo").map((entry) => entry.entityId);
   }
 
   /** IPCの送り元ウィンドウから対象Memoを特定する。renderer側のIDを信用しない。 */
@@ -153,10 +159,42 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
     });
 
     // 本体側からの状態確認（付箋になっているMemoを一覧で区別する）。
-    ipcMain.handle("memo-sticky:list-open", () => (
-      options.satelliteWindows.list("memo").map((entry) => entry.entityId)
-    ));
+    ipcMain.handle("memo-sticky:list-open", () => openMemoIds());
+
+    // 「開いている付箋」の一括操作。すべて閉じてもMemoは削除しない。
+    ipcMain.handle("memo-sticky:show-all", () => {
+      const ids = openMemoIds();
+      for (const memoId of ids) options.satelliteWindows.focus({ kind: "memo", entityId: memoId });
+      return ids.length;
+    });
+    ipcMain.handle("memo-sticky:close-all", () => {
+      const ids = openMemoIds();
+      for (const memoId of ids) options.satelliteWindows.close({ kind: "memo", entityId: memoId });
+      return ids.length;
+    });
+
+    // 付箋を閉じることとは別の操作として、Memo自体をアーカイブ・削除する（#298）。
+    ipcMain.handle("memo-sticky:archive", (event) => {
+      const memoId = memoIdOf(event);
+      if (!memoId) return false;
+      const memo = readMemo(memoId);
+      if (!memo) return false;
+      const saved = options.repository.save("capture_entry", { ...memo, state: "archived" }, { source: "memo-sticky" }) as Entity;
+      options.notifyWorkspaceChanged({ type: "capture_entry", entity: saved });
+      options.satelliteWindows.close({ kind: "memo", entityId: memoId });
+      return true;
+    });
+    ipcMain.handle("memo-sticky:delete", (event) => {
+      const memoId = memoIdOf(event);
+      if (!memoId) return false;
+      const memo = readMemo(memoId);
+      if (!memo) return false;
+      options.repository.remove("capture_entry", memoId);
+      options.notifyWorkspaceChanged({ type: "capture_entry", entity: { ...memo, deleted_at: new Date().toISOString() } as Entity });
+      options.satelliteWindows.close({ kind: "memo", entityId: memoId });
+      return true;
+    });
   }
 
-  return { open, registerIpc };
+  return { open, openMemoIds, registerIpc };
 }

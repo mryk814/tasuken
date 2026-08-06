@@ -3816,6 +3816,15 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .micro-memo-card > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .micro-memo-card-meta { min-height: 18px; justify-content: flex-start !important; }
 .micro-memo-card time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
+/* 付箋として浮いているMemoを本体からも見分ける（#298）。色だけに頼らず語でも示す。 */
+.micro-memo-card.is-floating { border-left-color: var(--color-status-active-fg); }
+.micro-memo-floating-badge {
+  margin-left: auto; padding: 1px var(--space-2);
+  border: 1px solid var(--color-status-active-bd); border-radius: var(--radius-sm);
+  background: var(--color-status-active-bg); color: var(--color-status-active-fg);
+  font-size: var(--text-xs); white-space: nowrap; word-break: keep-all;
+}
+.sticky-open-count { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 
 .activity-log-strip { display: grid; gap: var(--space-2); scroll-margin-top: var(--space-4); }
 .activity-log-strip > span, .chat-thread-meta { display: block; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.4; }

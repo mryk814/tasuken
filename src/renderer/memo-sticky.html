@@ -97,6 +97,21 @@
         font-size: 11px;
         -webkit-app-region: drag;
       }
+      .menu-anchor { position: relative; display: inline-flex; -webkit-app-region: no-drag; }
+      .menu {
+        position: absolute; top: calc(100% + 2px); right: 0; z-index: 10;
+        min-width: 128px; display: grid; gap: 2px; padding: var(--space-1);
+        border: 1px solid var(--color-paper-edge); border-radius: var(--radius-md);
+        background: #fff; box-shadow: 0 6px 18px rgba(47, 41, 39, .18);
+      }
+      .menu[hidden] { display: none; }
+      .menu button {
+        min-height: 28px; padding: 0 var(--space-2);
+        border: 0; border-radius: var(--radius-sm);
+        background: transparent; text-align: left; white-space: nowrap;
+      }
+      .menu button:hover { background: var(--color-paper); }
+      .menu button.danger { color: var(--color-danger); }
       footer .state { font-variant-numeric: tabular-nums; }
       footer .state.is-error { color: var(--color-danger); font-weight: 700; }
       footer a { -webkit-app-region: no-drag; color: var(--color-accent); }
@@ -116,6 +131,16 @@
         <button class="icon-button" id="open-main" type="button" title="Taskenで開く" aria-label="Taskenで開く">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6" /><path d="M20 4 10 14" /><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" /></svg>
         </button>
+        <span class="menu-anchor">
+          <button class="icon-button" id="menu" type="button" title="メモの操作" aria-label="メモの操作" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+          </button>
+          <!-- 付箋を閉じることと、Memo自体のアーカイブ・削除を混同させない（#298）。 -->
+          <span class="menu" id="menu-panel" role="menu" aria-label="メモの操作" hidden>
+            <button type="button" role="menuitem" id="archive">アーカイブ</button>
+            <button type="button" role="menuitem" id="delete" class="danger">メモを削除</button>
+          </span>
+        </span>
         <button class="icon-button" id="close" type="button" title="付箋を閉じる（メモは残ります）" aria-label="付箋を閉じる。メモは残ります">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
         </button>
@@ -226,6 +251,35 @@
         const applied = await api.setAlwaysOnTop(next);
         pinButton.setAttribute("aria-pressed", String(applied));
         pinButton.classList.toggle("is-active", applied);
+      });
+
+      const menuButton = document.querySelector("#menu");
+      const menuPanel = document.querySelector("#menu-panel");
+
+      function setMenuOpen(open) {
+        menuPanel.hidden = !open;
+        menuButton.setAttribute("aria-expanded", String(open));
+      }
+
+      menuButton.addEventListener("click", () => setMenuOpen(menuPanel.hidden));
+      document.addEventListener("pointerdown", (event) => {
+        if (!event.target.closest(".menu-anchor")) setMenuOpen(false);
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") setMenuOpen(false);
+      });
+      document.querySelector("#archive").addEventListener("click", async () => {
+        setMenuOpen(false);
+        if (dirty) await save();
+        const done = await api.archive();
+        if (!done) setState("アーカイブできません", "is-error");
+      });
+      document.querySelector("#delete").addEventListener("click", async () => {
+        setMenuOpen(false);
+        // 付箋を閉じるのと違い、削除は取り消しの効かない位置にあるので確認する。
+        if (!window.confirm("このメモを削除しますか。付箋を閉じるだけならウィンドウの×を使ってください。")) return;
+        const done = await api.remove();
+        if (!done) setState("削除できません", "is-error");
       });
 
       // Escでは閉じない。付箋は開いたまま参照する用途なので、閉じるのは明示操作だけにする。

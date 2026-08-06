@@ -183,6 +183,12 @@ export interface ResearchDeskApi {
     showTodayMiniWindow(): Promise<boolean>;
     /** Memoをデスクトップ付箋として浮かせる。既に開いていれば前面へ出す（#298）。 */
     showMemoStickyWindow(memoId: string): Promise<boolean>;
+    /** いま付箋として浮いているMemoのID（#298）。 */
+    listOpenMemoStickies(): Promise<string[]>;
+    showAllMemoStickies(): Promise<number>;
+    /** すべて閉じる。Memoは削除しない。 */
+    closeAllMemoStickies(): Promise<number>;
+    onMemoStickyOpenChanged(callback: (memoIds: string[]) => void): () => void;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
   };

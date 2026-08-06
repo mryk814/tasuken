@@ -123,6 +123,15 @@ function isAuxiliaryWindow(win: BrowserWindow): boolean {
   return satelliteWindows?.has(win) === true;
 }
 
+/** 開いている付箋の一覧を本体へ配る。本体側で「付箋表示中」を区別するために使う（#298）。 */
+function notifyMemoStickyWindowsChanged(): void {
+  const openMemoIds = memoStickyController?.openMemoIds() || [];
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (isAuxiliaryWindow(win) || win.isDestroyed() || win.webContents.isLoading()) continue;
+    win.webContents.send("memo-sticky:open-changed", openMemoIds);
+  }
+}
+
 function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
   const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
@@ -859,6 +868,8 @@ async function startDesktopApp(): Promise<void> {
   satelliteWindows = createSatelliteWindowRegistry({
     stateFilePath: path.join(app.getPath("userData"), "satellite-windows.json"),
     getAppIconPath,
+    // 付箋の開閉を本体の一覧へ即時反映する（#298）。
+    onChanged: () => notifyMemoStickyWindowsChanged(),
     resolvePageUrl: (page) => (
       process.env.ELECTRON_RENDERER_URL
         ? { url: `${process.env.ELECTRON_RENDERER_URL}/${page}.html` }

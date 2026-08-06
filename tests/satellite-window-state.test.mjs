@@ -156,9 +156,11 @@ test("付箋は同じMemoの表示状態であり、別Entityを作らない（#
   // 対象Memoはrenderer側の申告ではなく、ウィンドウの登録情報から特定する。
   assert.match(memoStickySource, /function memoIdOf\(event: Electron\.IpcMainInvokeEvent\): string \| null/);
   assert.match(memoStickySource, /options\.satelliteWindows\.keyOf\(window\)/);
-  // ×は表示を閉じるだけで、Memoは削除しない。
-  assert.match(memoStickySource, /return options\.satelliteWindows\.close\(\{ kind: "memo", entityId: memoId \}\)/);
-  assert.doesNotMatch(memoStickySource, /repository\.remove/);
+  // ×は表示を閉じるだけで、Memoは削除しない。削除は memo-sticky:delete という別の操作。
+  const closeHandler = memoStickySource.slice(memoStickySource.indexOf('ipcMain.handle("memo-sticky:close"'));
+  const closeBody = closeHandler.slice(0, closeHandler.indexOf("\n    });"));
+  assert.match(closeBody, /return options\.satelliteWindows\.close\(\{ kind: "memo", entityId: memoId \}\)/);
+  assert.doesNotMatch(closeBody, /repository\.remove/);
 });
 
 test("付箋ウィンドウは保存失敗でも入力を失わない（#298）", () => {
@@ -176,4 +178,45 @@ test("付箋ウィンドウは保存失敗でも入力を失わない（#298）"
 test("付箋ウィンドウがビルド対象に登録されている（#298）", () => {
   assert.match(viteConfig, /memoSticky: resolve\(__dirname, "src\/preload\/memoSticky\.ts"\)/);
   assert.match(viteConfig, /memoSticky: resolve\(__dirname, "src\/renderer\/memo-sticky\.html"\)/);
+});
+
+test("付箋を閉じる・アーカイブ・削除を別の操作として区別する（#298）", () => {
+  const inboxSource = readFileSync("src/renderer/src/features/workspace/pages/InboxPage.tsx", "utf8");
+
+  // 付箋ウィンドウ側: ×は閉じるだけ、アーカイブと削除はメニューへ。
+  assert.match(stickyHtml, /aria-label="メモの操作"/);
+  assert.match(stickyHtml, /role="menuitem" id="archive">アーカイブ</);
+  assert.match(stickyHtml, /role="menuitem" id="delete" class="danger">メモを削除</);
+  // 削除は取り消せないので確認する。閉じる操作には確認を出さない。
+  assert.match(stickyHtml, /window\.confirm\("このメモを削除しますか。/);
+  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:archive"/);
+  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:delete"/);
+
+  // Inbox側: アーカイブと削除を別ボタンで並べる。
+  assert.match(inboxSource, /aria-label="付箋メモをアーカイブ"/);
+  assert.match(inboxSource, /aria-label="付箋メモを削除"/);
+  // すべて閉じてもMemoは削除しない。
+  assert.match(inboxSource, /メモは残っています/);
+});
+
+test("付箋で開いているMemoを本体から区別できる（#298）", () => {
+  const inboxSource = readFileSync("src/renderer/src/features/workspace/pages/InboxPage.tsx", "utf8");
+  const cssSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
+
+  // 開閉状態の正本はMainのregistry。画面は購読するだけで自前に持たない。
+  assert.match(inboxSource, /workspaceApi\.listOpenMemoStickies\(\)/);
+  assert.match(inboxSource, /return workspaceApi\.onMemoStickyOpenChanged\(setOpenStickyIds\);/);
+  assert.match(registrySource, /options\.onChanged\?\.\(\);/);
+
+  // 色だけに頼らず語でも示す。
+  assert.match(inboxSource, /micro-memo-floating-badge">付箋表示中/);
+  assert.match(cssSource, /\.micro-memo-floating-badge \{/);
+  // 既に浮いているMemoはボタンの意味が「前面へ出す」に変わる。
+  assert.match(inboxSource, /openStickyIds\.includes\(memo\.id\) \? "付箋を前面に表示" : "付箋として表示"/);
+
+  // 開いている付箋の一括操作。
+  assert.match(inboxSource, /すべて前面へ/);
+  assert.match(inboxSource, /すべて閉じる/);
+  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:show-all"/);
+  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:close-all"/);
 });

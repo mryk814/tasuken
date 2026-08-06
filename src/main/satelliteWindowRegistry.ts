@@ -72,6 +72,8 @@ interface RegistryOptions {
   stateFilePath: string;
   getAppIconPath: () => string;
   resolvePageUrl: (page: string) => { url: string } | { file: string };
+  /** 開閉が変わったとき。本体側の「開いている一覧」を追従させるために使う。 */
+  onChanged?: () => void;
 }
 
 interface Entry {
@@ -144,6 +146,7 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
 
     const entry: Entry = { key, window, title: spec.title, saveTimer: null };
     entries.set(satelliteWindowKeyOf(key), entry);
+    options.onChanged?.();
 
     window.once("ready-to-show", () => reveal(window));
     window.on("move", () => scheduleSaveBounds(entry));
@@ -160,6 +163,7 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     window.on("closed", () => {
       const current = entries.get(satelliteWindowKeyOf(key));
       if (current?.window === window) entries.delete(satelliteWindowKeyOf(key));
+      options.onChanged?.();
     });
     return window;
   }

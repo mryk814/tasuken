@@ -48,6 +48,16 @@ const api: ResearchDeskApi = {
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
     showTodayMiniWindow: () => ipcRenderer.invoke("today-mini:show"),
     showMemoStickyWindow: (memoId) => ipcRenderer.invoke("memo-sticky:open", memoId),
+    listOpenMemoStickies: () => ipcRenderer.invoke("memo-sticky:list-open"),
+    showAllMemoStickies: () => ipcRenderer.invoke("memo-sticky:show-all"),
+    closeAllMemoStickies: () => ipcRenderer.invoke("memo-sticky:close-all"),
+    onMemoStickyOpenChanged: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, memoIds: unknown): void => {
+        callback(Array.isArray(memoIds) ? memoIds.map(String) : []);
+      };
+      ipcRenderer.on("memo-sticky:open-changed", handler);
+      return () => { ipcRenderer.removeListener("memo-sticky:open-changed", handler); };
+    },
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {
         callback(change as Parameters<typeof callback>[0]);
