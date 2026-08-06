@@ -38,6 +38,7 @@ import {
 } from "../domain-model/persistence";
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
+import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
 import {
@@ -78,7 +79,6 @@ interface InboxRow {
   entry: CaptureEntry;
 }
 
-type InboxLane = "untriaged" | "processed" | "micro";
 
 type OrganizedTargetType = "task" | "waiting" | "note" | "resource";
 type OrganizedEntity = Task | Waiting | DomainNote | Resource;
@@ -162,7 +162,9 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
     () => allMicroMemoRows.filter((entry) => captureMatchesQuery(entry, query)),
     [allMicroMemoRows, query],
   );
-  const [lane, setLane] = useState<InboxLane>("untriaged");
+  // レーン選択はStore側に持ち、上部バーのMemoランチャーから開いたときも同じ面へ着地する（#299）。
+  const lane = useUiStore((state) => state.inboxLane);
+  const setLane = useUiStore((state) => state.setInboxLane);
   const [drafts, setDrafts] = useState<Record<string, InboxDraft>>({});
   const [selected, setSelected] = useState<string[]>([]);
   const [organizing, setOrganizing] = useState<Record<string, boolean>>({});

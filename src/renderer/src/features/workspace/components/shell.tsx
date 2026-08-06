@@ -33,6 +33,166 @@ interface AppTitleBarProps {
   openShortcuts: () => void;
   openSettings: () => void;
   openCommandPalette: () => void;
+  launcher?: TitleBarLauncherData;
+}
+
+export interface TitleBarLauncherData {
+  memos: Array<{ id: string; text: string }>;
+  untriagedMemoCount: number;
+  todayTasks: Array<{ id: string; title: string; done: boolean }>;
+  todayTaskCount: number;
+  createMemo(text: string): Promise<void>;
+  toggleTaskDone(taskId: string): Promise<void>;
+  openMemo(memoId: string): void;
+  openMemos(): void;
+  openTask(taskId: string): void;
+  openToday(): void;
+  openTodayWindow(): void;
+  openScratchpad(): void;
+}
+
+/**
+ * 上部バーの常用ランチャー（#299）。既存のMemo・今日のTaskを別データにせず、
+ * 現在の画面・編集状態を保ったままPopoverで確認・入力する。
+ */
+function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
+  const [openPanel, setOpenPanel] = useState<"memo" | "today" | null>(null);
+  const [memoText, setMemoText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openPanel) return undefined;
+    const close = (event: PointerEvent) => {
+      if (!anchorRef.current?.contains(event.target as Node)) setOpenPanel(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenPanel(null);
+    };
+    addEventListener("pointerdown", close);
+    addEventListener("keydown", closeOnEscape);
+    return () => {
+      removeEventListener("pointerdown", close);
+      removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openPanel]);
+
+  async function submitMemo() {
+    const text = memoText.trim();
+    if (!text || saving) return;
+    setSaving(true);
+    try {
+      await launcher.createMemo(text);
+      setMemoText("");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const go = (action: () => void) => {
+    setOpenPanel(null);
+    action();
+  };
+
+  return (
+    <div className="titlebar-launcher" ref={anchorRef}>
+      <div className="titlebar-launcher-anchor">
+        <button
+          type="button"
+          className={openPanel === "memo" ? "is-active" : ""}
+          aria-haspopup="dialog"
+          aria-expanded={openPanel === "memo"}
+          onClick={() => setOpenPanel((current) => current === "memo" ? null : "memo")}
+        >
+          Memo
+          {launcher.untriagedMemoCount > 0 && (
+            <span className="count" title={`未処理のMemo ${launcher.untriagedMemoCount}件`}>{launcher.untriagedMemoCount}</span>
+          )}
+        </button>
+        {openPanel === "memo" && (
+          <div className="titlebar-popover" role="dialog" aria-label="Memo">
+            <form
+              className="titlebar-popover-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitMemo();
+              }}
+            >
+              <input
+                autoFocus
+                value={memoText}
+                onChange={(event) => setMemoText(event.target.value)}
+                placeholder="新しいMemo"
+                aria-label="新しいMemo"
+              />
+              <button type="submit" className="primary-button compact" disabled={!memoText.trim() || saving}>
+                {saving ? "記録中" : "記録"}
+              </button>
+            </form>
+            {launcher.memos.length ? (
+              <ul className="titlebar-popover-list">
+                {launcher.memos.map((memo) => (
+                  <li key={memo.id}>
+                    <button type="button" className="text-button compact" onClick={() => go(() => launcher.openMemo(memo.id))}>
+                      {memo.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="titlebar-popover-empty">Memoはまだありません。</p>
+            )}
+            <div className="titlebar-popover-actions">
+              <button type="button" className="text-button compact" onClick={() => go(launcher.openMemos)}>すべてのMemoを開く</button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="titlebar-launcher-anchor">
+        <button
+          type="button"
+          className={openPanel === "today" ? "is-active" : ""}
+          aria-haspopup="dialog"
+          aria-expanded={openPanel === "today"}
+          onClick={() => setOpenPanel((current) => current === "today" ? null : "today")}
+        >
+          Today
+          {launcher.todayTaskCount > 0 && (
+            <span className="count" title={`今日のTask ${launcher.todayTaskCount}件`}>{launcher.todayTaskCount}</span>
+          )}
+        </button>
+        {openPanel === "today" && (
+          <div className="titlebar-popover" role="dialog" aria-label="今日のTask">
+            {launcher.todayTasks.length ? (
+              <ul className="titlebar-popover-list">
+                {launcher.todayTasks.map((task) => (
+                  <li key={task.id}>
+                    <label className="titlebar-popover-check">
+                      <input
+                        type="checkbox"
+                        checked={task.done}
+                        onChange={() => void launcher.toggleTaskDone(task.id)}
+                        aria-label={`${task.title}を${task.done ? "未完了に戻す" : "完了にする"}`}
+                      />
+                      <span className={task.done ? "is-done" : ""}>{task.title}</span>
+                    </label>
+                    <button type="button" className="text-button compact" onClick={() => go(() => launcher.openTask(task.id))}>開く</button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="titlebar-popover-empty">今日のTaskはありません。</p>
+            )}
+            <div className="titlebar-popover-actions">
+              <button type="button" className="text-button compact" onClick={() => go(launcher.openTodayWindow)}>別ウィンドウで表示</button>
+              <button type="button" className="text-button compact" onClick={() => go(launcher.openScratchpad)}>Daily Scratchpad</button>
+              <button type="button" className="text-button compact" onClick={() => go(launcher.openToday)}>Today画面を開く</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function AppTitleBar({
@@ -45,6 +205,7 @@ export function AppTitleBar({
   openShortcuts,
   openSettings,
   openCommandPalette,
+  launcher,
 }: AppTitleBarProps) {
   const [openMenu, setOpenMenu] = useState<"view" | "help" | null>(null);
   const controlsRef = useRef<HTMLDivElement | null>(null);
@@ -88,6 +249,7 @@ export function AppTitleBar({
         <img src={taskenIconUrl} alt="" aria-hidden="true" />
         <strong>Tasken</strong>
       </div>
+      {launcher && <TitleBarLauncher launcher={launcher} />}
       <div className="titlebar-drag-space" />
       <div className="titlebar-controls" ref={controlsRef}>
         <button

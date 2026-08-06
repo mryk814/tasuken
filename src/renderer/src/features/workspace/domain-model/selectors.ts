@@ -1,4 +1,4 @@
-import type { CaptureEntry, PlanNode, Schedule, WorkspaceDomain } from "./types";
+import type { CaptureEntry, PlanNode, Schedule, Task, WorkspaceDomain } from "./types";
 import type { InboxView, MicroMemoView, OngoingPeriodTaskRow, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
 
 function todayString(): string {
@@ -88,6 +88,16 @@ export function buildMicroMemoView(domain: WorkspaceDomain): MicroMemoView {
       .filter((entry) => entry.kind === "micro_memo" && entry.state !== "archived")
       .sort(compareCapturesNewestFirst),
   };
+}
+
+/**
+ * 上部バーのTodayパネル用（#299）。今日の予定を持つTaskを、完了済みも含めて返す。
+ * パネルを開いたまま完了を取り消せるよう、完了で行を消さないのが目的。
+ */
+export function buildTodayTaskShortlist(domain: WorkspaceDomain, date = todayString()): Task[] {
+  const schedules = schedulesByOwner(domain);
+  return domain.tasks
+    .filter((task) => task.state !== "cancelled" && scheduleHasExplicitDate(schedules.get(scheduleKey("task", task.id)), date));
 }
 
 export function buildWaitingView(domain: WorkspaceDomain): WaitingView {
