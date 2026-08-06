@@ -279,3 +279,24 @@ test("Noteウィンドウから本体へ表示を渡せる（#290）", () => {
   // 受け側は本体だけ。切り離しウィンドウは自分で自分を移動させない。
   assert.match(workspaceAppSource, /if \(detachedNoteId \|\| loadState !== "success"\) return undefined;/);
 });
+
+test("上部バーのランチャーが切り離しウィンドウと連携する（#299）", () => {
+  const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+
+  // 浮かせている付箋を一覧し、前面へ出せる。開閉状態の正本はMainのregistry。
+  assert.match(shellSource, /stickyMemos: Array<\{ id: string; text: string \}>;/);
+  assert.match(shellSource, /titlebar-popover-group">付箋 \{launcher\.stickyMemos\.length\}/);
+  assert.match(shellSource, /onClick=\{\(\) => go\(\(\) => launcher\.floatMemo\(memo\.id\)\)\}/);
+  assert.match(shellSource, /付箋をすべて閉じる/);
+  assert.match(workspaceAppSource, /return workspaceApi\.onMemoStickyOpenChanged\(setOpenStickyMemoIds\);/);
+  // 既に浮いていれば前面へ出すだけなので、重複ウィンドウを作らない。
+  assert.match(workspaceAppSource, /floatMemo: \(memoId\) => \{ void workspaceApi\.showMemoStickyWindow\(memoId\); \}/);
+
+  // Activity / Scratchpad はボタンを増やさず日次メニューへまとめる。
+  assert.match(shellSource, /titlebar-popover-group">日次</);
+  assert.match(shellSource, /onClick=\{\(\) => go\(launcher\.openScratchpad\)\}>Daily Scratchpad</);
+  assert.match(shellSource, /onClick=\{\(\) => go\(launcher\.openActivity\)\}>今日のActivity</);
+  // Activityは既存のToday画面の面を使い、別実装を作らない。
+  assert.match(workspaceAppSource, /document\.getElementById\("daily-activity"\)\?\.scrollIntoView/);
+});

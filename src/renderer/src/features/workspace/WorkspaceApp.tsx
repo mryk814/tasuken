@@ -117,6 +117,8 @@ export function WorkspaceApp() {
   const activeGroups = useUiStore((state) => state.activeGroups);
   const setActiveGroups = useUiStore((state) => state.setActiveGroups);
   const setInboxLane = useUiStore((state) => state.setInboxLane);
+  // 上部バーから浮かせている付箋を一覧するため、開閉状態を購読する（#298 / #299）。
+  const [openStickyMemoIds, setOpenStickyMemoIds] = useState<string[]>([]);
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
@@ -192,6 +194,12 @@ export function WorkspaceApp() {
       void refreshWorkspace();
     });
   }, [applyExternalSave, applyExternalSaves, refreshWorkspace, setToast]);
+
+  useEffect(() => {
+    if (detachedNoteId) return undefined;
+    void workspaceApi.listOpenMemoStickies().then(setOpenStickyMemoIds).catch(() => setOpenStickyMemoIds([]));
+    return workspaceApi.onMemoStickyOpenChanged(setOpenStickyMemoIds);
+  }, [detachedNoteId]);
 
   useEffect(() => {
     const onHash = () => setRoute(normalizeRoute(location.hash.slice(1) || "today"));
@@ -1081,8 +1089,16 @@ export function WorkspaceApp() {
       .map((task) => ({ id: str(task.id), title: str(task.title) || "無題のTask", done: task.state === "done" })),
     [domain],
   );
+  const launcherStickyMemos = useMemo(
+    () => openStickyMemoIds
+      .map((memoId) => domain.capture_entries.find((entry) => entry.id === memoId))
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      .map((entry) => ({ id: str(entry.id), text: (str(entry.text) || str(entry.title) || "無題のMemo").slice(0, 70) })),
+    [domain.capture_entries, openStickyMemoIds],
+  );
   const titleBarLauncher: TitleBarLauncherData = {
     memos: launcherMemos,
+    stickyMemos: launcherStickyMemos,
     untriagedMemoCount: domain.capture_entries.filter((entry) => entry.kind === "micro_memo" && entry.state === "untriaged").length,
     todayTasks: launcherTodayTasks,
     todayTaskCount: launcherTodayTasks.filter((task) => !task.done).length,
@@ -1109,6 +1125,9 @@ export function WorkspaceApp() {
       setInboxLane("micro");
       navigate("inbox");
     },
+    // 既に浮いていればMain側が前面へ出すだけなので、重複ウィンドウにならない（#298 / #299）。
+    floatMemo: (memoId) => { void workspaceApi.showMemoStickyWindow(memoId); },
+    closeStickyMemos: () => { void workspaceApi.closeAllMemoStickies(); },
     openTask: (taskId) => {
       const task = domain.tasks.find((entry) => entry.id === taskId);
       if (task) openDrawer({ type: "task", mode: "edit", entity: task as unknown as Record<string, unknown> });
@@ -1118,6 +1137,13 @@ export function WorkspaceApp() {
       void workspaceApi.showTodayMiniWindow();
     },
     openScratchpad: () => setScratchpadDate(todayIso()),
+    // Activityは既存のToday画面の面をそのまま使い、別実装を作らない（#299）。
+    openActivity: () => {
+      navigate("today");
+      window.requestAnimationFrame(() => {
+        document.getElementById("daily-activity")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+    },
   };
 
   const titleBar = (

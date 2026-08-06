@@ -38,6 +38,8 @@ interface AppTitleBarProps {
 
 export interface TitleBarLauncherData {
   memos: Array<{ id: string; text: string }>;
+  /** いま付箋として浮いているMemo（#298 / #299）。一覧して前面へ出せる。 */
+  stickyMemos: Array<{ id: string; text: string }>;
   untriagedMemoCount: number;
   todayTasks: Array<{ id: string; title: string; done: boolean }>;
   todayTaskCount: number;
@@ -45,10 +47,16 @@ export interface TitleBarLauncherData {
   toggleTaskDone(taskId: string): Promise<void>;
   openMemo(memoId: string): void;
   openMemos(): void;
+  /** 付箋として浮かせる。既に浮いていれば前面へ出す（重複ウィンドウを作らない）。 */
+  floatMemo(memoId: string): void;
+  /** すべての付箋を閉じる。Memoは削除しない。 */
+  closeStickyMemos(): void;
   openTask(taskId: string): void;
   openToday(): void;
   openTodayWindow(): void;
   openScratchpad(): void;
+  /** 今日のActivityを開く（#299）。 */
+  openActivity(): void;
 }
 
 /**
@@ -142,8 +150,25 @@ function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
             ) : (
               <p className="titlebar-popover-empty">Memoはまだありません。</p>
             )}
+            {/* 浮かせている付箋をここから再表示できるようにする（#298 / #299）。 */}
+            {launcher.stickyMemos.length > 0 && (
+              <>
+                <div className="titlebar-popover-group">付箋 {launcher.stickyMemos.length}</div>
+                <ul className="titlebar-popover-list">
+                  {launcher.stickyMemos.map((memo) => (
+                    <li key={memo.id}>
+                      <span className="titlebar-popover-sticky-text">{memo.text}</span>
+                      <button type="button" className="text-button compact" onClick={() => go(() => launcher.floatMemo(memo.id))}>表示</button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
             <div className="titlebar-popover-actions">
               <button type="button" className="text-button compact" onClick={() => go(launcher.openMemos)}>すべてのMemoを開く</button>
+              {launcher.stickyMemos.length > 0 && (
+                <button type="button" className="text-button compact" onClick={() => go(launcher.closeStickyMemos)}>付箋をすべて閉じる</button>
+              )}
             </div>
           </div>
         )}
@@ -185,8 +210,13 @@ function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
             )}
             <div className="titlebar-popover-actions">
               <button type="button" className="text-button compact" onClick={() => go(launcher.openTodayWindow)}>別ウィンドウで表示</button>
-              <button type="button" className="text-button compact" onClick={() => go(launcher.openScratchpad)}>Daily Scratchpad</button>
               <button type="button" className="text-button compact" onClick={() => go(launcher.openToday)}>Today画面を開く</button>
+            </div>
+            {/* 日次の面はボタンを増やさず、ここへまとめる（#299）。 */}
+            <div className="titlebar-popover-group">日次</div>
+            <div className="titlebar-popover-actions">
+              <button type="button" className="text-button compact" onClick={() => go(launcher.openScratchpad)}>Daily Scratchpad</button>
+              <button type="button" className="text-button compact" onClick={() => go(launcher.openActivity)}>今日のActivity</button>
             </div>
           </div>
         )}

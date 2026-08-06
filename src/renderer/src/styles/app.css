@@ -4722,3 +4722,12 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   background: var(--color-status-active-bg); color: var(--color-status-active-fg);
   font-size: var(--text-sm);
 }
+/* 上部バーPopover内のグループ見出しと付箋行（#299）。 */
+.titlebar-popover-group {
+  padding-top: var(--space-1); border-top: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: var(--weight-medium);
+}
+.titlebar-popover-sticky-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--color-text); font-size: var(--text-sm);
+}
