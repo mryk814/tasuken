@@ -137,3 +137,20 @@ test("最小ウィンドウ幅を実装と文書の両方で固定する（#300�
   assert.match(responsiveGuide, /最小ウィンドウ幅/);
   assert.match(responsiveGuide, /980/);
 });
+
+test("作業領域の内側にも不要な横スクロールを作らない（#300）", () => {
+  // grid/flexの子は min-content 未満に縮まないため、min-width: 0 がないと
+  // 中の固定幅要素が画面全体の横スクロールを引き起こす。
+  assert.match(cssSource, /\.page \{[^}]*min-width: 0;/);
+  assert.match(cssSource, /\.header-actions \{ display: flex; flex-wrap: wrap;/);
+
+  // 段組みの切り替えはウィンドウ幅ではなく実際のpanel幅を基準にする。
+  assert.match(cssSource, /\.page \{ container: page \/ inline-size;/);
+  assert.match(cssSource, /@container page \(max-width: 760px\) \{[\s\S]*?\.sketch-library-row \{ grid-template-columns: 1fr; \}/);
+  assert.match(cssSource, /@container page \(max-width: 720px\) \{[\s\S]*?\.settings-form label \{ grid-template-columns: minmax\(0, 1fr\);/);
+
+  // 監査スクリプトは画面全体だけでなく内側のはみ出しも検出する。
+  const auditSource = readFileSync("scripts/responsive-audit.mjs", "utf8");
+  assert.match(auditSource, /INTENTIONAL_SCROLL/);
+  assert.match(auditSource, /horizontalScroll: doc\.scrollWidth > doc\.clientWidth \+ 1 \|\| overflowing\.length > 0/);
+});

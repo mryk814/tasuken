@@ -134,7 +134,9 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-pill); background: var(--color-text-secondary); color: var(--color-surface); font-weight: var(--weight-bold); }
 
 .main-area { min-width: 0; min-height: 0; overflow: auto; }
-.page { width: min(1280px, 100%); margin: 0 auto; padding: var(--space-3) var(--space-4); }
+/* grid/flexの子は既定で min-content 未満に縮まない。min-width: 0 を入れないと、
+   中の固定幅要素が画面全体の横スクロールを引き起こす（#300）。 */
+.page { container: page / inline-size; width: min(1280px, 100%); min-width: 0; margin: 0 auto; padding: var(--space-3) var(--space-4); }
 .page-header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); min-height: 44px; }
 /* 見出しはSidebarと同じアイコンを添えるが、意味はテキストで伝える（#301）。 */
 .page-header h1 { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xl); white-space: nowrap; }
@@ -147,7 +149,8 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .page-info-button:active { transform: translateY(1px); }
 .page-info-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .page-info-popover { position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 20; width: max-content; max-width: min(30rem, 70vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-md); color: var(--color-text-secondary); font-size: var(--text-sm); font-weight: var(--weight-normal); line-height: var(--lh-base); }
-.header-actions { display: flex; align-items: center; gap: var(--space-2); }
+/* 操作が増えても一列に押し込まず行送りする。ラベルを潰さないための逃げ道（#300）。 */
+.header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-2); }
 .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 .section-heading { min-height: 34px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
 .section-heading h2 { font-size: var(--text-base); }
@@ -2122,7 +2125,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .stats-row { display: grid; grid-template-columns: 160px 1fr 48px; align-items: center; gap: var(--space-2); min-height: 38px; padding: 0 var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
 .stats-row .num { text-align: right; }
 .settings-form { display: grid; gap: var(--space-3); max-width: 680px; padding: var(--space-4); }
-.settings-form label { display: grid; grid-template-columns: 180px 1fr; align-items: center; gap: var(--space-3); }
+.settings-form label { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: center; gap: var(--space-3); }
+/* 作業領域が狭いときは、固定幅の見出し列をやめてラベルを上へ積む（#300）。
+   ウィンドウ幅ではなく実際のpanel幅で切り替えるので、表示倍率を上げても同じ形になる。 */
+@container page (max-width: 720px) {
+  .settings-form label { grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: var(--space-1); }
+}
 .settings-section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .settings-section-heading h2 { margin: 0; }
 .sync-state { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 2px 7px; color: var(--color-text-muted); font-size: var(--font-size-xs); }
@@ -4514,7 +4522,9 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .sketch-page-size-popover { width: min(360px, calc(100vw - 24px)); }
 }
 
-@media (max-width: 760px) {
+/* Sketch一覧の段組みはウィンドウ幅ではなく実際の作業領域幅で切り替える（#300）。
+   Sidebarの開閉や表示倍率で実効幅が変わっても、同じ幅で同じ形になる。 */
+@container page (max-width: 760px) {
   .sketch-library-filters,
   .sketch-library-list-header,
   .sketch-library-row { grid-template-columns: 1fr; }
@@ -4523,6 +4533,9 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .sketch-library-row > span,
   .sketch-library-row > time { padding-left: 94px; }
   .sketch-library-row > .secondary-button { justify-self: end; }
+}
+
+@media (max-width: 760px) {
   .app-shell.is-canvas-route { display: block; }
   .app-shell.is-canvas-route .sidebar { display: none; }
   .sketch-page,

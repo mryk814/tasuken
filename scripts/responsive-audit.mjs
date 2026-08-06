@@ -53,8 +53,25 @@ function detectLayoutBreakage() {
     }
     node = walker.nextNode();
   }
+  // 画面全体だけでなく、作業領域の内側に生まれる横スクロールも拾う。
+  // Timelineや表のように本質的に横幅が必要なものは、意図した局所スクロールとして除く。
+  const INTENTIONAL_SCROLL = ["gantt-scroll", "full-gantt", "todo-table-scroll", "knowledge-selector-list"];
+  const overflowing = [];
+  for (const element of document.querySelectorAll(".main-area, .main-area *")) {
+    if (element.clientWidth <= 0 || element.scrollWidth <= element.clientWidth + 1) continue;
+    const overflowX = getComputedStyle(element).overflowX;
+    if (overflowX !== "auto" && overflowX !== "scroll") continue;
+    const className = element.className?.toString?.() || element.tagName;
+    if (INTENTIONAL_SCROLL.some((allowed) => className.includes(allowed))) continue;
+    overflowing.push({ selector: className.slice(0, 60), scrollWidth: element.scrollWidth, clientWidth: element.clientWidth });
+  }
+
   const doc = document.scrollingElement;
-  return { stacked, horizontalScroll: doc.scrollWidth > doc.clientWidth + 1 };
+  return {
+    stacked,
+    overflowing,
+    horizontalScroll: doc.scrollWidth > doc.clientWidth + 1 || overflowing.length > 0,
+  };
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
@@ -92,6 +109,9 @@ for (const zoom of ZOOMS) {
       console.log(`NG   ${label}: 横スクロール=${result.horizontalScroll} 縦積み=${result.stacked.length}`);
       for (const item of result.stacked) {
         console.log(`       "${item.text}" ${item.lines}行 最大幅${item.widest}px / 文字${item.fontSize}px  ${item.selector}`);
+      }
+      for (const item of result.overflowing) {
+        console.log(`       横あふれ ${item.selector} ${item.scrollWidth}px > ${item.clientWidth}px`);
       }
       await page.screenshot({ path: `${OUT_DIR}/${width}-x${zoom}-${route.replace(/\W+/g, "")}.png` });
     }
