@@ -149,7 +149,7 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .page-info-popover { position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 20; width: max-content; max-width: min(30rem, 70vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-md); color: var(--color-text-secondary); font-size: var(--text-sm); font-weight: var(--weight-normal); line-height: var(--lh-base); }
 .header-actions { display: flex; align-items: center; gap: var(--space-2); }
 .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
-.section-heading { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
+.section-heading { min-height: 34px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
 .section-heading h2 { font-size: var(--text-base); }
 .section-heading > span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 
@@ -165,6 +165,46 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .text-button:hover { background: var(--color-accent-subtle-bg); }
 .compact { min-height: 32px; padding: var(--space-1) var(--space-3); font-size: var(--text-sm); }
 .icon-only { padding: var(--space-1) var(--space-2); }
+
+/* 狭幅レスポンシブ契約（#300）
+   flex/grid の子は既定で内容幅より小さく潰れるため、日本語ラベルは
+   一文字ずつ縦積みになる。keep-all はCJKの行内改行だけを止め、
+   英字は語間で折り返すので、ラベルを短くする対応と両立する。
+   幅が足りない場合はここで潰さず、ツールバー側を段組み（.toolbar-row）か
+   overflow menu（.toolbar-overflow）へ逃がす。 */
+.primary-button, .secondary-button, .danger-button, .text-button,
+.segmented button, .toggle, .tab, .chip, .badge,
+.page-header h1, .section-heading h2, .panel > h2, .panel > h3 {
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+/* ツールバー内の操作は折り返さず、行ごと送る。 */
+.toolbar-row > .primary-button, .toolbar-row > .secondary-button,
+.toolbar-row > .danger-button, .toolbar-row > .text-button,
+.toolbar-row .segmented button, .toolbar-row > .toggle {
+  white-space: nowrap;
+}
+.toolbar-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.toolbar-row > * { flex: 0 0 auto; }
+/* 低頻度操作の受け皿。幅で出し入れせず常設し、操作の位置を変えない。 */
+.toolbar-overflow { position: relative; display: inline-flex; }
+.toolbar-overflow-menu {
+  position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: 30;
+  min-width: 200px; display: grid; gap: var(--space-1); padding: var(--space-2);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); box-shadow: var(--shadow-md);
+}
+.toolbar-overflow-menu > button, .toolbar-overflow-menu > label {
+  min-height: 32px; display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-text); font-size: var(--text-sm);
+  white-space: nowrap; text-align: left;
+}
+.toolbar-overflow-menu > button:hover, .toolbar-overflow-menu > label:hover { background: var(--color-surface-muted); }
+.toolbar-overflow-menu hr { height: 1px; margin: var(--space-1) 0; border: 0; background: var(--color-border-subtle); }
+/* 空状態のボタンは列幅が狭くても文字を潰さない（Chat RefsのTheme列など）。 */
+.empty-state { min-width: 0; padding: var(--space-3); text-align: center; }
+.empty-state > .secondary-button { max-width: 100%; white-space: nowrap; }
 .row-action-button { flex-shrink: 0; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); }
 .row-action-button:hover { border-color: var(--color-border); background: var(--color-surface-muted); color: var(--color-accent-strong); }
 .row-action-button.danger:hover { border-color: var(--color-danger-bd); background: var(--color-danger-bg); color: var(--color-danger-strong); }
@@ -469,7 +509,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .artifact-grid button:hover { border-color: var(--color-border-strong); background: var(--color-surface-subtle); }
 .artifact-grid small { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); white-space: nowrap; }
 
-.timeline-toolbar { display: flex; align-items: flex-end; gap: var(--space-3); padding: var(--pad-card); margin-bottom: var(--space-3); }
+.timeline-toolbar { padding: var(--pad-card); margin-bottom: var(--space-3); row-gap: var(--space-2); }
 .timeline-toolbar label { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .timeline-quick-add { display: grid; grid-template-columns: minmax(180px, 1fr) 180px 140px 140px auto; align-items: end; gap: var(--space-3); padding: var(--pad-card); margin-bottom: var(--space-3); }
 .timeline-quick-add label { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
@@ -505,7 +545,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .wide-row, .waiting-row { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--pad-card); border: 0; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface); text-align: left; }
 .wide-row:hover, .waiting-row:hover { background: var(--color-surface-muted); }
 .wide-row span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
-.inline-actions, .form-actions { display: flex; align-items: center; gap: var(--space-2); }
+.inline-actions, .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .inline-add-panel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--pad-card); }
 .inline-add-panel input, .inline-add-panel select { min-width: 0; }
 .inline-add-title { flex: 1 1 220px; }

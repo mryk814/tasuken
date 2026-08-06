@@ -16,6 +16,7 @@
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
     "smoke:desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing . --smoke-test",
     "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
+    "audit:responsive": "node scripts/responsive-audit.mjs",
     "bench:notes": "npm run build && node scripts/notes-performance.mjs",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
     "mcp": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/mcp-server.mjs",

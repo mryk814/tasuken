@@ -89,3 +89,51 @@ test("viewport contract records physical and effective Windows sizes", () => {
     assert.match(responsiveGuide, new RegExp(size));
   }
 });
+
+test("狭幅でも日本語ラベルを一文字ずつ縦積みにしない共通契約がある（#300）", () => {
+  // flex/gridの子は内容幅より小さく潰れるため、CJKの行内改行だけを止める。
+  assert.match(
+    cssSource,
+    /\.primary-button, \.secondary-button, \.danger-button, \.text-button,\s*\n\.segmented button, \.toggle, \.tab, \.chip, \.badge,[\s\S]*?word-break: keep-all;\s*\n\s*overflow-wrap: normal;/,
+  );
+  // ツールバーは詰め込まず行送りする。
+  assert.match(cssSource, /\.toolbar-row \{ display: flex; flex-wrap: wrap;/);
+  assert.match(cssSource, /\.toolbar-row > \* \{ flex: 0 0 auto; \}/);
+  // 見出しと操作が同じ行に収まらない場合も潰さず折り返す。
+  assert.match(cssSource, /\.section-heading \{[^}]*flex-wrap: wrap;/);
+  assert.match(cssSource, /\.inline-actions, \.form-actions \{ display: flex; flex-wrap: wrap;/);
+  // 列幅が狭い空状態のボタンも潰れない。
+  assert.match(cssSource, /\.empty-state > \.secondary-button \{[^}]*white-space: nowrap;/);
+});
+
+test("低頻度操作は常設のoverflow menuへ畳み、幅で位置を入れ替えない（#300）", () => {
+  const commonSource = readFileSync("src/renderer/src/features/workspace/components/common.tsx", "utf8");
+  const timelineSource = readFileSync("src/renderer/src/features/workspace/pages/TimelinePage.tsx", "utf8");
+
+  // 共通コンポーネントとして1箇所に持つ。
+  assert.match(commonSource, /export function ToolbarOverflow\(\{ label, ariaLabel, children \}/);
+  assert.match(commonSource, /aria-haspopup="menu"/);
+  assert.match(commonSource, /aria-expanded=\{open\}/);
+  assert.match(commonSource, /role="menu"\s*\n\s*aria-label=\{ariaLabel\}/);
+  // Escと外側クリックで閉じる。
+  assert.match(commonSource, /if \(event\.key === "Escape"\) setOpen\(false\);/);
+  assert.match(commonSource, /\?\.closest\("\.toolbar-overflow"\)\) setOpen\(false\)/);
+  // 一度きりの操作だけ閉じ、表示切替は開いたままにする。
+  assert.match(commonSource, /closest\("\[role=\\"menuitem\\"\]"\)\) setOpen\(false\)/);
+
+  // Timelineは表示切替と一括開閉をメニューへ移し、主要な絞り込み・倍率は出したままにする。
+  assert.match(timelineSource, /<section className="timeline-toolbar toolbar-row panel">/);
+  assert.match(timelineSource, /<ToolbarOverflow label="表示" ariaLabel="タイムラインの表示切替">/);
+  for (const label of ["完了タスク", "依存線", "イナズマ線", "すべて展開", "すべて折りたたむ"]) {
+    assert.match(timelineSource, new RegExp(label));
+  }
+  assert.match(timelineSource, /<div className="segmented" aria-label="表示範囲">/);
+  assert.match(timelineSource, /<div className="segmented" aria-label="表示倍率">/);
+  assert.match(cssSource, /\.toolbar-overflow-menu \{/);
+});
+
+test("最小ウィンドウ幅を実装と文書の両方で固定する（#300）", () => {
+  assert.match(mainSource, /minWidth: 980,/);
+  assert.match(responsiveGuide, /最小ウィンドウ幅/);
+  assert.match(responsiveGuide, /980/);
+});

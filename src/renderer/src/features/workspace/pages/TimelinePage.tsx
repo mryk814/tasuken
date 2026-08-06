@@ -8,7 +8,7 @@ import { themeColor } from "../lib/domain";
 import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
 import { buildTimelineRows, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttGridBackground, ganttRowHeight } from "../components/gantt";
-import { PageHeader, StatusBadge } from "../components/common";
+import { PageHeader, StatusBadge, ToolbarOverflow } from "../components/common";
 import { SlideTimelineDialog } from "../components/SlideTimelineDialog";
 import {
   isTimelineCompleted,
@@ -582,7 +582,9 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         <button className="secondary-button" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</button>
       </PageHeader>
-      <section className="timeline-toolbar panel">
+      {/* 狭幅では横一列に詰め込まず、意味単位で行送りする。表示切替と一括開閉は
+          利用頻度が低いのでメニューへ畳み、幅が変わっても位置を動かさない（#300）。 */}
+      <section className="timeline-toolbar toolbar-row panel">
         <label>Theme
           <select value={themeFilter} onChange={(event) => updatePrefs({ themeFilter: event.target.value })}>
             <option value="all">すべて</option>
@@ -592,10 +594,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         <div className="segmented" aria-label="表示範囲">
           {RANGE_BUFFER_OPTIONS.map((option) => <button key={option.value} className={rangeBufferMonths === option.value ? "is-active" : ""} onClick={() => updatePrefs({ rangeBufferMonths: option.value })}>{option.label}</button>)}
         </div>
-        <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { cursorDayOffset: (scroll.scrollLeft + cx) / dayWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
-        <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
-        <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
-        <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => updatePrefs({ showLightning: event.target.checked })} />イナズマ線</label>
+        <div className="segmented" aria-label="表示倍率">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { cursorDayOffset: (scroll.scrollLeft + cx) / dayWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
         <button
           className={`secondary-button compact ${connectMode || connecting ? "is-active" : ""}`}
           onClick={() => {
@@ -607,8 +606,14 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         >
           依存をつなぐ
         </button>
-        <button className="secondary-button compact" onClick={() => setCollapsedThemes([])}>全展開</button>
-        <button className="secondary-button compact" onClick={() => setCollapsedThemes(groupKeys)}>全折りたたみ</button>
+        <ToolbarOverflow label="表示" ariaLabel="タイムラインの表示切替">
+          <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
+          <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
+          <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => updatePrefs({ showLightning: event.target.checked })} />イナズマ線</label>
+          <hr />
+          <button type="button" role="menuitem" onClick={() => setCollapsedThemes([])}>すべて展開</button>
+          <button type="button" role="menuitem" onClick={() => setCollapsedThemes(groupKeys)}>すべて折りたたむ</button>
+        </ToolbarOverflow>
       </section>
       <section className="timeline-quick-add panel">
         <label>期間

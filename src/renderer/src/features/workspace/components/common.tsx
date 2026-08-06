@@ -1,4 +1,4 @@
-import { IconInfoCircle } from "@tabler/icons-react";
+import { IconChevronDown, IconInfoCircle } from "@tabler/icons-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 
 import { ROUTE_ICONS } from "../../../pages/routeIcons";
@@ -81,6 +81,66 @@ export function PageHeader({ route, title, subtitle, info, children }: {
       </div>
       <div className="header-actions">{children}</div>
     </header>
+  );
+}
+
+/**
+ * ツールバーの低頻度操作をまとめる共通メニュー（#300）。
+ * 幅によって出し入れせず常設し、主要操作の位置が幅で入れ替わらないようにする。
+ */
+export function ToolbarOverflow({ label, ariaLabel, children }: {
+  label: string;
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest(".toolbar-overflow")) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <span className="toolbar-overflow">
+      <button
+        type="button"
+        className={`secondary-button compact ${open ? "is-active" : ""}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {label}
+        <IconChevronDown size={14} stroke={1.8} aria-hidden="true" />
+      </button>
+      {/* 表示切替（checkbox）は続けて操作できるよう開いたままにし、
+          一度きりの操作（menuitem）は実行したら閉じる。 */}
+      {open && (
+        <span
+          className="toolbar-overflow-menu"
+          id={id}
+          role="menu"
+          aria-label={ariaLabel}
+          onClick={(event) => {
+            if ((event.target as HTMLElement | null)?.closest("[role=\"menuitem\"]")) setOpen(false);
+          }}
+        >
+          {children}
+        </span>
+      )}
+    </span>
   );
 }
 
