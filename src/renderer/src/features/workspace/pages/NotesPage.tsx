@@ -1447,9 +1447,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         }, exported),
       });
       setToast(`Markdownを保存しました。${result.filePath || ""}`, "success");
+      // 保存済み表示は内部とファイルの両方を反映する（#291）。
+      setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "synced" }));
       await autoLinkExportArtifacts(exported);
     } catch (error) {
-      setToast(`Markdown出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+      // Tasken内部は保存済みでもファイルだけ失敗しうる。片方だけの失敗を区別して示す。
+      setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "failed" }));
+      setToast(`Markdownを更新できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
       setMarkdownExporting(false);
     }
