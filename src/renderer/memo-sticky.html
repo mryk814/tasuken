@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>付箋メモ</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --color-paper: #FFFBF0;
+        --color-paper-edge: #F2E7CE;
+        --color-text: #2f2927;
+        --color-text-secondary: #70615d;
+        --color-accent: #8a2f3b;
+        --color-danger: #ce3b3b;
+        --radius-sm: 5px;
+        --radius-md: 7px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --font-base: "Nunito", "Yu Gothic UI", "Meiryo", sans-serif;
+        --font-mono: "Cascadia Mono", "Consolas", monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        background: var(--color-paper);
+        color: var(--color-text);
+        font-family: var(--font-base);
+        font-size: 13px;
+      }
+      button, textarea { font: inherit; color: inherit; }
+      button { cursor: pointer; }
+      button:focus-visible, textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+      .sticky {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        background: linear-gradient(180deg, var(--color-paper-edge) 0%, var(--color-paper) 26%);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+        padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+        -webkit-app-region: drag;
+      }
+      header .title {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      header button { -webkit-app-region: no-drag; }
+      .icon-button {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        color: var(--color-text-secondary);
+      }
+      .icon-button:hover { border-color: var(--color-paper-edge); background: #fff; color: var(--color-accent); }
+      .icon-button.is-active { border-color: var(--color-accent); color: var(--color-accent); }
+      .icon-button.danger:hover { color: var(--color-danger); }
+      .icon-button svg {
+        width: 15px; height: 15px;
+        stroke: currentColor; stroke-width: 2; fill: none;
+        stroke-linecap: round; stroke-linejoin: round;
+      }
+      textarea {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        padding: 0 var(--space-3);
+        border: 0;
+        background: transparent;
+        resize: none;
+        line-height: 1.7;
+        -webkit-app-region: no-drag;
+      }
+      footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+        padding: var(--space-1) var(--space-3) var(--space-2);
+        color: var(--color-text-secondary);
+        font-size: 11px;
+        -webkit-app-region: drag;
+      }
+      footer .state { font-variant-numeric: tabular-nums; }
+      footer .state.is-error { color: var(--color-danger); font-weight: 700; }
+      footer a { -webkit-app-region: no-drag; color: var(--color-accent); }
+      .link-row { -webkit-app-region: no-drag; }
+    </style>
+  </head>
+  <body>
+    <div class="sticky">
+      <header>
+        <span class="title" id="title">付箋メモ</span>
+        <button class="icon-button" id="pin" type="button" title="常に手前に表示" aria-label="常に手前に表示" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z" /><path d="M12 15v5" /></svg>
+        </button>
+        <button class="icon-button" id="copy" type="button" title="全文をコピー" aria-label="全文をコピー">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+        </button>
+        <button class="icon-button" id="open-main" type="button" title="Taskenで開く" aria-label="Taskenで開く">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6" /><path d="M20 4 10 14" /><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" /></svg>
+        </button>
+        <button class="icon-button" id="close" type="button" title="付箋を閉じる（メモは残ります）" aria-label="付箋を閉じる。メモは残ります">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+        </button>
+      </header>
+      <textarea id="text" aria-label="付箋メモの内容" spellcheck="false"></textarea>
+      <footer>
+        <span class="state" id="state">読み込み中</span>
+        <span class="link-row" id="link-row"></span>
+      </footer>
+    </div>
+    <script type="module">
+      const api = window.memoStickyApi;
+      const titleEl = document.querySelector("#title");
+      const textEl = document.querySelector("#text");
+      const stateEl = document.querySelector("#state");
+      const linkRow = document.querySelector("#link-row");
+      const pinButton = document.querySelector("#pin");
+
+      const AUTOSAVE_DELAY_MS = 600;
+      let saveTimer = null;
+      let lastSavedText = "";
+      let dirty = false;
+
+      function setState(message, tone = "") {
+        stateEl.textContent = message;
+        stateEl.className = `state ${tone}`;
+      }
+
+      function renderLink(url) {
+        linkRow.textContent = "";
+        if (!url) return;
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.textContent = "リンクを開く";
+        anchor.rel = "noreferrer";
+        linkRow.append(anchor);
+      }
+
+      function apply(content) {
+        if (!content) {
+          setState("メモが見つかりません", "is-error");
+          textEl.disabled = true;
+          return;
+        }
+        titleEl.textContent = content.title || content.text.split(/\r?\n/, 1)[0] || "付箋メモ";
+        // 編集中の内容は上書きしない。保存に失敗しても入力を失わないための最低条件。
+        if (!dirty) {
+          textEl.value = content.text;
+          lastSavedText = content.text;
+        }
+        renderLink(content.url);
+        if (!dirty) setState("保存済み");
+      }
+
+      async function load() {
+        try {
+          apply(await api.load());
+        } catch (error) {
+          setState(error instanceof Error ? error.message : String(error), "is-error");
+        }
+      }
+
+      async function save() {
+        const text = textEl.value;
+        if (text === lastSavedText) {
+          dirty = false;
+          setState("保存済み");
+          return;
+        }
+        setState("保存中…");
+        try {
+          const content = await api.save(text);
+          lastSavedText = content.text;
+          dirty = false;
+          titleEl.textContent = content.title || content.text.split(/\r?\n/, 1)[0] || "付箋メモ";
+          renderLink(content.url);
+          setState("保存済み");
+        } catch (error) {
+          // 保存できなくても入力は残す。次の入力か再試行で保存し直せる。
+          dirty = true;
+          setState(`保存できません: ${error instanceof Error ? error.message : String(error)}`, "is-error");
+        }
+      }
+
+      textEl.addEventListener("input", () => {
+        dirty = true;
+        setState("編集中");
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => { saveTimer = null; void save(); }, AUTOSAVE_DELAY_MS);
+      });
+
+      // 閉じる・フォーカスを失う時点で未保存を残さない。
+      window.addEventListener("blur", () => { if (dirty) void save(); });
+      window.addEventListener("beforeunload", () => { if (dirty) void save(); });
+
+      document.querySelector("#copy").addEventListener("click", async () => {
+        if (dirty) await save();
+        const copied = await api.copy();
+        setState(copied ? "コピーしました" : "コピーできません", copied ? "" : "is-error");
+      });
+      document.querySelector("#open-main").addEventListener("click", () => { void api.openInMain(); });
+      document.querySelector("#close").addEventListener("click", async () => {
+        if (dirty) await save();
+        void api.close();
+      });
+      pinButton.addEventListener("click", async () => {
+        const next = pinButton.getAttribute("aria-pressed") !== "true";
+        const applied = await api.setAlwaysOnTop(next);
+        pinButton.setAttribute("aria-pressed", String(applied));
+        pinButton.classList.toggle("is-active", applied);
+      });
+
+      // Escでは閉じない。付箋は開いたまま参照する用途なので、閉じるのは明示操作だけにする。
+      api.onWorkspaceChanged(() => { void load(); });
+      void (async () => {
+        const pinned = await api.isAlwaysOnTop();
+        pinButton.setAttribute("aria-pressed", String(pinned));
+        pinButton.classList.toggle("is-active", pinned);
+        await load();
+        textEl.focus();
+      })();
+    </script>
+  </body>
+</html>

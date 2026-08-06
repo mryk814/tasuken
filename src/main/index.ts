@@ -13,6 +13,8 @@ import {
 } from "./quickCaptureController";
 import { createReminderController, type ReminderController } from "./reminderController";
 import { createTodayMiniController, type TodayMiniController } from "./todayMiniController";
+import { createSatelliteWindowRegistry, type SatelliteWindowRegistry } from "./satelliteWindowRegistry";
+import { createMemoStickyController, type MemoStickyController } from "./memoStickyController";
 import { createTrayController, type TrayController } from "./trayController";
 import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
@@ -34,6 +36,8 @@ let trayController: TrayController | null = null;
 let quickCaptureController: QuickCaptureController | null = null;
 let todayMiniController: TodayMiniController | null = null;
 let reminderController: ReminderController | null = null;
+let satelliteWindows: SatelliteWindowRegistry | null = null;
+let memoStickyController: MemoStickyController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let mcpProposalInboxService: McpProposalInboxService | null = null;
 const readyMainWindows = new WeakSet<BrowserWindow>();
@@ -108,14 +112,26 @@ function applyApplicationMenu(): void {
   ]));
 }
 
+/**
+ * 本体ウィンドウ以外の補助ウィンドウか。
+ * 補助ウィンドウを増やすたびに各所の除外条件へ書き足すと漏れるので、判定はここだけに置く。
+ * 切り離しウィンドウ（#290 / #298）は registry へ問い合わせる。
+ */
+function isAuxiliaryWindow(win: BrowserWindow): boolean {
+  if (win === quickCaptureController?.getWindow()) return true;
+  if (win === todayMiniController?.getWindow()) return true;
+  return satelliteWindows?.has(win) === true;
+}
+
 function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
-  const captureWindow = quickCaptureController?.getWindow();
   const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) {
+    if (!isAuxiliaryWindow(win) && !win.isDestroyed()) {
       win.webContents.send("workspace:changed", change);
     }
   }
+  // 切り離したウィンドウも同じ正本を見ているので、同じ変更を配る（#290）。
+  satelliteWindows?.broadcast("workspace:changed", change);
   if (todayMiniWindow && !todayMiniWindow.isDestroyed()) {
     todayMiniWindow.webContents.send("today-mini:refresh");
   }
@@ -133,10 +149,8 @@ function notifyTodayMiniRefresh(types: EntityType[]): void {
 }
 
 function findMainWindow(): BrowserWindow | null {
-  const captureWindow = quickCaptureController?.getWindow();
-  const todayMiniWindow = todayMiniController?.getWindow();
   return BrowserWindow.getAllWindows()
-    .find((win) => win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) || null;
+    .find((win) => !isAuxiliaryWindow(win) && !win.isDestroyed()) || null;
 }
 
 function showMainWindow(): BrowserWindow {
@@ -840,6 +854,24 @@ async function startDesktopApp(): Promise<void> {
     }),
   );
   mcpProposalInboxService.start();
+  // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので
+  // 正本DBではなくuserData配下のJSONへ置き、別端末へ同期させない。
+  satelliteWindows = createSatelliteWindowRegistry({
+    stateFilePath: path.join(app.getPath("userData"), "satellite-windows.json"),
+    getAppIconPath,
+    resolvePageUrl: (page) => (
+      process.env.ELECTRON_RENDERER_URL
+        ? { url: `${process.env.ELECTRON_RENDERER_URL}/${page}.html` }
+        : { file: path.join(__dirname, `../renderer/${page}.html`) }
+    ),
+  });
+  memoStickyController = createMemoStickyController({
+    repository: workspaceRepository,
+    satelliteWindows,
+    showMainWindow,
+    notifyWorkspaceChanged: notifyMainWindowRefresh,
+  });
+  memoStickyController.registerIpc();
   quickCaptureController = createQuickCaptureController({
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,

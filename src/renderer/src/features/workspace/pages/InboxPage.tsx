@@ -5,6 +5,7 @@ import {
   IconCalendarCheck,
   IconCheck,
   IconCopy,
+  IconPin,
   IconExternalLink,
   IconFile,
   IconFlag,
@@ -247,6 +248,15 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
     workspaceApi.copyText(body)
       .then(() => setToast("付箋メモをコピーしました。"))
       .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  /**
+   * Memoをデスクトップ付箋として浮かせる（#298）。
+   * 同じMemoが既に浮いていれば新しい窓を作らず前面へ出すので、押し直しても複製されない。
+   */
+  async function floatMicroMemo(memo: CaptureEntry) {
+    const opened = await workspaceApi.showMemoStickyWindow(memo.id);
+    if (!opened) setToast("付箋として表示できませんでした。メモが見つかりません。", "danger");
   }
 
   async function sendMicroMemoToInbox(memo: CaptureEntry) {
@@ -878,6 +888,8 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
                   <p>{memo.text}</p>
                 </> : <p>{memo.text}</p>}
                 <div className="micro-memo-actions">
+                  {/* 付箋化は同じMemoの表示状態でしかない。複製も別Entityも作らない（#298）。 */}
+                  <button className="row-action-button" onClick={() => void floatMicroMemo(memo)} aria-label="付箋として表示" title="付箋として表示"><IconPin size={15} /></button>
                   <button className="row-action-button" onClick={() => copyMicroMemo(memo)} aria-label="付箋メモをコピー" title="コピー"><IconCopy size={15} /></button>
                   <button className="row-action-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })} aria-label="付箋メモを編集" title="編集"><IconPencil size={15} /></button>
                   <button className="row-action-button" onClick={() => void sendMicroMemoToInbox(memo)} aria-label="付箋メモをInboxへ送る" title="Inboxへ送る"><IconInbox size={15} /></button>

@@ -47,6 +47,7 @@ const api: ResearchDeskApi = {
     setTitleBarTheme: (theme) => ipcRenderer.invoke(IPC.appTitleBarTheme, theme),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
     showTodayMiniWindow: () => ipcRenderer.invoke("today-mini:show"),
+    showMemoStickyWindow: (memoId) => ipcRenderer.invoke("memo-sticky:open", memoId),
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {
         callback(change as Parameters<typeof callback>[0]);

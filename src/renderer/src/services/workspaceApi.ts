@@ -114,6 +114,9 @@ export const workspaceApi = {
   showTodayMiniWindow() {
     return desktopApi().app.showTodayMiniWindow();
   },
+  showMemoStickyWindow(memoId: string) {
+    return desktopApi().app.showMemoStickyWindow(memoId);
+  },
   exportSnapshot() {
     return desktopApi().snapshots.exportFile();
   },

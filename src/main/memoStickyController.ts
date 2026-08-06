@@ -1,0 +1,162 @@
+import { BrowserWindow, clipboard, ipcMain } from "electron";
+import path from "node:path";
+
+import type { SatelliteWindowRegistry } from "./satelliteWindowRegistry";
+import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
+import type { MemoStickyContent } from "../shared/ipc/contracts";
+import type { Entity, EntityType } from "../shared/types/workspace";
+
+/**
+ * InboxのMemoをデスクトップ付箋として浮かせる（#298）。
+ *
+ * 付箋は別Entityではなく、同じMemo（capture_entry / kind: micro_memo）の表示状態でしかない。
+ * したがってここには「付箋用のデータ」を作らず、常に同じMemo IDへ読み書きする。
+ * ウィンドウの一意性・位置記憶・変更配信は satelliteWindowRegistry が受け持つ。
+ */
+
+const MEMO_KIND = "micro_memo";
+const STICKY_DEFAULT_WIDTH = 300;
+const STICKY_DEFAULT_HEIGHT = 260;
+const STICKY_MIN_WIDTH = 220;
+const STICKY_MIN_HEIGHT = 160;
+
+interface MemoStickyControllerOptions {
+  repository: InstanceType<typeof WorkspaceDatabase>;
+  satelliteWindows: SatelliteWindowRegistry;
+  showMainWindow: () => BrowserWindow;
+  notifyWorkspaceChanged: (
+    change: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> },
+  ) => void;
+}
+
+export interface MemoStickyController {
+  open: (memoId: string) => boolean;
+  registerIpc: () => void;
+}
+
+function memoTitle(memo: Entity): string {
+  const title = typeof memo.title === "string" ? memo.title.trim() : "";
+  if (title) return title;
+  const text = typeof memo.text === "string" ? memo.text.trim() : "";
+  const firstLine = text.split(/\r?\n/, 1)[0] || "";
+  return firstLine.slice(0, 40) || "付箋メモ";
+}
+
+function toContent(memo: Entity): MemoStickyContent {
+  return {
+    id: String(memo.id),
+    title: typeof memo.title === "string" ? memo.title : "",
+    text: typeof memo.text === "string" ? memo.text : "",
+    url: typeof memo.url === "string" ? memo.url : "",
+    capturedAt: String(memo.captured_at || ""),
+  };
+}
+
+export function createMemoStickyController(options: MemoStickyControllerOptions): MemoStickyController {
+  function readMemo(memoId: string): Entity | null {
+    const memo = options.repository.get("capture_entry", memoId) as Entity | null;
+    if (!memo || memo.kind !== MEMO_KIND) return null;
+    return memo;
+  }
+
+  function open(memoId: string): boolean {
+    const memo = readMemo(memoId);
+    if (!memo) return false;
+    // 同じMemoの二枚目は作らない。既に浮いていれば前面へ出すだけ（#298）。
+    options.satelliteWindows.open({ kind: "memo", entityId: memoId }, {
+      title: memoTitle(memo),
+      width: STICKY_DEFAULT_WIDTH,
+      height: STICKY_DEFAULT_HEIGHT,
+      minWidth: STICKY_MIN_WIDTH,
+      minHeight: STICKY_MIN_HEIGHT,
+      page: "memo-sticky",
+      preload: path.join(__dirname, "../preload/memoSticky.mjs"),
+      // 付箋アプリの用途上、既定で手前に置く。ウィンドウごとに切り替えられる。
+      alwaysOnTop: true,
+      frame: false,
+      skipTaskbar: true,
+    });
+    return true;
+  }
+
+  /** IPCの送り元ウィンドウから対象Memoを特定する。renderer側のIDを信用しない。 */
+  function memoIdOf(event: Electron.IpcMainInvokeEvent): string | null {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return null;
+    const key = options.satelliteWindows.keyOf(window);
+    return key?.kind === "memo" ? key.entityId : null;
+  }
+
+  function registerIpc(): void {
+    ipcMain.handle("memo-sticky:open", (_event, memoId: unknown) => {
+      if (typeof memoId !== "string" || !memoId.trim()) return false;
+      return open(memoId);
+    });
+
+    ipcMain.handle("memo-sticky:load", (event) => {
+      const memoId = memoIdOf(event);
+      if (!memoId) return null;
+      const memo = readMemo(memoId);
+      return memo ? toContent(memo) : null;
+    });
+
+    // 付箋上の編集は同じMemo IDへ保存する。別コピーを作らない（#298）。
+    ipcMain.handle("memo-sticky:save", (event, text: unknown) => {
+      const memoId = memoIdOf(event);
+      if (!memoId) throw new Error("対象の付箋メモがありません。");
+      if (typeof text !== "string") throw new Error("メモの内容を入力してください。");
+      const memo = readMemo(memoId);
+      if (!memo) throw new Error("メモが見つかりません。");
+      const saved = options.repository.save("capture_entry", { ...memo, text }, { source: "memo-sticky" }) as Entity;
+      options.notifyWorkspaceChanged({ type: "capture_entry", entity: saved });
+      return toContent(saved);
+    });
+
+    ipcMain.handle("memo-sticky:copy", (event) => {
+      const memoId = memoIdOf(event);
+      const memo = memoId ? readMemo(memoId) : null;
+      if (!memo) return false;
+      clipboard.writeText(typeof memo.text === "string" ? memo.text : "");
+      return true;
+    });
+
+    // ×は表示を閉じるだけ。Memo本体は消さない（削除は明示操作）。
+    ipcMain.handle("memo-sticky:close", (event) => {
+      const memoId = memoIdOf(event);
+      if (!memoId) return false;
+      return options.satelliteWindows.close({ kind: "memo", entityId: memoId });
+    });
+
+    ipcMain.handle("memo-sticky:set-always-on-top", (event, pinned: unknown) => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window || !options.satelliteWindows.has(window)) return false;
+      window.setAlwaysOnTop(pinned === true);
+      return window.isAlwaysOnTop();
+    });
+
+    ipcMain.handle("memo-sticky:is-always-on-top", (event) => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      return window ? window.isAlwaysOnTop() : false;
+    });
+
+    // 付箋から本体を開く。付箋自身は閉じず、編集位置も保つ。
+    ipcMain.handle("memo-sticky:open-in-main", (event) => {
+      const memoId = memoIdOf(event);
+      if (!memoId) return false;
+      const mainWindow = options.showMainWindow();
+      const send = (): void => {
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:open-memo", memoId);
+      };
+      if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
+      else send();
+      return true;
+    });
+
+    // 本体側からの状態確認（付箋になっているMemoを一覧で区別する）。
+    ipcMain.handle("memo-sticky:list-open", () => (
+      options.satelliteWindows.list("memo").map((entry) => entry.entityId)
+    ));
+  }
+
+  return { open, registerIpc };
+}

@@ -181,6 +181,8 @@ export interface ResearchDeskApi {
     setTitleBarTheme(theme: "light" | "dark"): Promise<boolean>;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
     showTodayMiniWindow(): Promise<boolean>;
+    /** Memoをデスクトップ付箋として浮かせる。既に開いていれば前面へ出す（#298）。 */
+    showMemoStickyWindow(memoId: string): Promise<boolean>;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
   };
@@ -220,4 +222,13 @@ export interface ResearchDeskApi {
     disconnect(request: CalendarDisconnectRequest): Promise<CalendarConnectionStatus>;
     getEvents(date: string): Promise<CalendarEventsResult>;
   };
+}
+
+/** デスクトップ付箋として浮かせたMemoの内容（#298）。正本は capture_entry。 */
+export interface MemoStickyContent {
+  id: string;
+  title: string;
+  text: string;
+  url: string;
+  capturedAt: string;
 }
