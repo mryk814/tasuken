@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { IconAlertTriangle, IconCheck, IconInfoCircle, IconTrash } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../services/workspaceApi";
-import { routeAliases } from "../../pages/routes";
+import { routeAliases, routeLabel } from "../../pages/routes";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
@@ -890,13 +890,13 @@ export function WorkspaceApp() {
       category: "Commands",
       execute: () => setScratchpadDate(todayIso()),
     },
-    { id: "navigate:today", label: "Todayへ移動", keywords: ["今日", "home"], category: "Commands", execute: () => navigate("today") },
-    { id: "navigate:todo", label: "ToDoへ移動", keywords: ["task", "タスク"], category: "Commands", execute: () => navigate("todo") },
-    { id: "navigate:inbox", label: "Inboxへ移動", keywords: ["capture", "記録"], category: "Commands", execute: () => navigate("inbox") },
-    { id: "navigate:notes", label: "Notesへ移動", keywords: ["note", "markdown", "文書"], category: "Commands", execute: () => navigate("notes") },
-    { id: "navigate:sketch", label: "Sketchへ移動", keywords: ["手書き", "図解", "canvas"], category: "Commands", execute: () => navigate("sketch") },
-    { id: "navigate:themes", label: "All Themesへ移動", keywords: ["theme", "テーマ"], category: "Commands", execute: () => navigate("themes") },
-    { id: "navigate:artifacts", label: "Artifactsへ移動", keywords: ["file", "成果物"], category: "Commands", execute: () => navigate("artifacts") },
+    { id: "navigate:today", label: `${routeLabel("today")}へ移動`, keywords: ["今日", "home"], category: "Commands", execute: () => navigate("today") },
+    { id: "navigate:todo", label: `${routeLabel("todo")}へ移動`, keywords: ["task", "タスク"], category: "Commands", execute: () => navigate("todo") },
+    { id: "navigate:inbox", label: `${routeLabel("inbox")}へ移動`, keywords: ["capture", "記録"], category: "Commands", execute: () => navigate("inbox") },
+    { id: "navigate:notes", label: `${routeLabel("notes")}へ移動`, keywords: ["note", "markdown", "文書"], category: "Commands", execute: () => navigate("notes") },
+    { id: "navigate:sketch", label: `${routeLabel("sketch")}へ移動`, keywords: ["手書き", "図解", "canvas"], category: "Commands", execute: () => navigate("sketch") },
+    { id: "navigate:themes", label: `All ${routeLabel("themes")}へ移動`, keywords: ["theme", "テーマ"], category: "Commands", execute: () => navigate("themes") },
+    { id: "navigate:artifacts", label: `${routeLabel("artifacts")}へ移動`, keywords: ["file", "成果物"], category: "Commands", execute: () => navigate("artifacts") },
     {
       id: "create:task",
       label: "Taskを作る",

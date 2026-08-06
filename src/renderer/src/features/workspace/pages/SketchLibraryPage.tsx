@@ -117,7 +117,7 @@ export function SketchLibraryPage({
 
   return (
     <div className="page sketch-library-page">
-      <PageHeader title="Sketch">
+      <PageHeader route="sketch">
         <button className="primary-button" onClick={openCreateDialog}>
           <IconPlus size={16} />新しいSketch
         </button>

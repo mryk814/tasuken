@@ -588,7 +588,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
 
   return (
     <div className="page knowledge-page">
-      <PageHeader title="Knowledge" info="後から判断に使う問い・主張・根拠・決定を整理します">
+      <PageHeader route="knowledge">
         {knowledgePrompt && <button className="secondary-button" onClick={copyKnowledgePrompt}>Knowledgeプロンプトをコピー</button>}
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: { node_type: "question" } })}>問いを追加</button>

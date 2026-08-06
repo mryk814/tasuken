@@ -459,7 +459,7 @@ export function ImportExportPage(props: PageProps) {
 
   return (
     <div className="page">
-      <PageHeader title="AI連携" info="外部AIへ渡し、戻ってきた候補を確認してTaskenに取り込みます。" />
+      <PageHeader route="ai-io" />
       <section className="panel ai-handoff-panel">
         <div className="section-heading"><h2>AIに整理を頼む</h2></div>
         <div className="prompt-mode-grid">

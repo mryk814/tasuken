@@ -372,7 +372,8 @@ test("Theme削除でtheme由来のartifactがcascadeされる", () => {
 
 test("Artifacts 一覧が知識整理ナビとルートに接続されている", () => {
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
-  assert.match(routesSource, /\["artifacts", "Artifacts"\]/);
+  assert.match(routesSource, /artifacts: \{ label: "Artifacts"/);
+  assert.match(routesSource, /knowledgeHubTabs = \[[^\]]*"artifacts"/);
   assert.match(routesSource, /artifacts:\s*"knowledge"/);
   assert.match(workspacePageRouterSource, /ArtifactsPage/);
   assert.match(workspacePageRouterSource, /case "artifacts":/);
@@ -394,7 +395,7 @@ test("Artifact の追加入口と元Entity往復がUIにある", () => {
   assert.match(artifactsPageSource, /Notes/);
   assert.match(artifactsPageSource, /Chat Refs/);
   assert.match(artifactsPageSource, /Artifacts/);
-  assert.match(artifactsPageSource, /title="Artifacts"/);
+  assert.match(artifactsPageSource, /PageHeader route="artifacts"/);
   assert.match(themePageSource, /ArtifactSection/);
   assert.match(themePageSource, /sourceType="theme"/);
   assert.match(drawerSource, /sourceType="chat_ref"/);

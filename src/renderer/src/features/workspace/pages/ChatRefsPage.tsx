@@ -477,10 +477,8 @@ export function ChatRefsPage({
   return (
     <div className="page chat-refs-page">
       <PageHeader
-        title="チャット参照"
-        info={isArchiveView
-          ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。"
-          : "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。"}
+        route="chat-refs"
+        info={isArchiveView ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。" : undefined}
       >
         <button className="secondary-button" onClick={copyUrls} disabled={!visibleResources.length}><IconCopy size={16} />URLをコピー</button>
         <button className="secondary-button" onClick={copyList} disabled={!visibleResources.length}><IconCopy size={16} />一覧をコピー</button>

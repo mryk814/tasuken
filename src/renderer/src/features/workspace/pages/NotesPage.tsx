@@ -1401,7 +1401,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
 
   return (
     <div className="page notes-page">
-      <PageHeader title="Notes" info="Note・Resource・Report・Promptをまとめて扱います。Markdownを書き、関連資料を参照しながら整理できます。">
+      <PageHeader route="notes">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
         <button className="primary-button" onClick={() => addNote("note")}>Note</button>

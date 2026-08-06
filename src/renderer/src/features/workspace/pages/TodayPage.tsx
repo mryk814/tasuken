@@ -913,7 +913,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
 
   return (
     <div className="page today-page">
-      <PageHeader title="Today" info="今日見るものを一か所に集めます。">
+      <PageHeader route="today">
         <button className="primary-button" onClick={() => openDailyScratchpad(today)}>
           <IconNotebook size={16} /> 今日のScratchpad
         </button>

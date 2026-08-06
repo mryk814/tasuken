@@ -111,3 +111,33 @@ test("page headers move purpose copy into an info popover instead of a permanent
   // Theme詳細の説明は利用者が書いたデータなので常時表示のまま残す。
   assert.match(readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8"), /subtitle=\{theme\.description\}/);
 });
+
+test("navigation, page headings and command palette share one canonical label", () => {
+  const routes = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
+  const shell = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+  const common = readFileSync("src/renderer/src/features/workspace/components/common.tsx", "utf8");
+  const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+
+  // 名称の正本は ROUTE_META だけ。Sidebarもページ見出しもここを引く。
+  assert.match(routes, /export const ROUTE_META/);
+  assert.match(routes, /"chat-refs": \{ label: "Chat Refs"/);
+  assert.match(routes, /inbox: \{ label: "Inbox"/);
+  assert.match(routes, /"ai-io": \{ label: "AI IO"/);
+  assert.match(shell, /const label = routeLabel\(id\);/);
+  assert.match(common, /routeLabel\(route\)/);
+  assert.match(common, /ROUTE_ICONS\[route\]/);
+  assert.match(app, /routeLabel\("inbox"\)/);
+
+  // 説明語をページ名へ混ぜない。
+  for (const forbidden of ["Inbox整理", "チャット参照", "AI連携"]) {
+    for (const file of ["pages/InboxPage.tsx", "pages/ChatRefsPage.tsx", "pages/ImportExportPage.tsx"]) {
+      const source = readFileSync(`src/renderer/src/features/workspace/${file}`, "utf8");
+      const header = source.slice(source.indexOf("<PageHeader"), source.indexOf("<PageHeader") + 300);
+      assert.doesNotMatch(header, new RegExp(forbidden), `${file} の見出しに ${forbidden} を書かない`);
+    }
+  }
+
+  // 表示名を変えてもrouteとdeep linkは触らない。
+  assert.match(routes, /"todo-done": "todo"/);
+  assert.match(routes, /"chat-refs": "knowledge"/);
+});

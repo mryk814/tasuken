@@ -1,27 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  IconBulb,
   IconChevronDown,
-  IconChecklist,
-  IconInbox,
   IconKeyboard,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconMessageCircle,
   IconMinus,
   IconMoon,
-  IconNotes,
-  IconPaperclip,
   IconPlus,
   IconSearch,
   IconSettings,
-  IconSparkles,
   IconSun,
-  IconTimeline,
-  IconWriting,
 } from "@tabler/icons-react";
 
-import { crossNavigation, knowledgeHubTabs, todayHubTabs, toolNavigation } from "../../../pages/routes";
+import { crossNavigation, knowledgeHubTabs, routeLabel, todayHubTabs, toolNavigation } from "../../../pages/routes";
+import { ROUTE_ICONS } from "../../../pages/routeIcons";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { KnowledgeNode as WorkspaceKnowledgeNode, OpenDrawer, Theme } from "../types";
 import type { KnowledgeEdge, WorkspaceDomain } from "../domain-model/types";
@@ -223,19 +215,7 @@ export function Sidebar({
   domain,
   openDrawer,
 }: SidebarProps) {
-  const navIconByRoute = {
-    today: IconSun,
-    todo: IconChecklist,
-    inbox: IconInbox,
-    timeline: IconTimeline,
-    knowledge: IconBulb,
-    notes: IconNotes,
-    sketch: IconWriting,
-    "chat-refs": IconMessageCircle,
-    artifacts: IconPaperclip,
-    "ai-io": IconSparkles,
-    settings: IconSettings,
-  } as const;
+  const navIconByRoute = ROUTE_ICONS;
   const inbox = domain.capture_entries.filter((e) => e.state === "untriaged" && e.kind !== "micro_memo").length;
   const today = todayIso();
   const schedulesByOwner = new Map(domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
@@ -268,9 +248,10 @@ export function Sidebar({
     knowledge: knowledgeHealthIssueCount,
     "ai-io": proposalCount,
   };
-  const renderNavButton = ([id, label]: readonly [string, string]) => {
+  const renderNavButton = (id: string) => {
+    const label = routeLabel(id);
     const count = countByRoute[id] || 0;
-    const NavIcon = navIconByRoute[id as keyof typeof navIconByRoute];
+    const NavIcon = navIconByRoute[id];
     return (
       <button
         key={id}

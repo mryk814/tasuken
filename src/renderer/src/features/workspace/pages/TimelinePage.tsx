@@ -578,7 +578,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
 
   return (
     <div className="page timeline-wide">
-      <PageHeader title="Timeline" info="実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。">
+      <PageHeader route="timeline">
         <button className="secondary-button" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</button>
       </PageHeader>

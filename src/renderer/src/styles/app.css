@@ -117,7 +117,9 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .main-area { min-width: 0; min-height: 0; overflow: auto; }
 .page { width: min(1280px, 100%); margin: 0 auto; padding: var(--space-3) var(--space-4); }
 .page-header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); min-height: 44px; }
-.page-header h1 { font-size: var(--text-xl); }
+/* 見出しはSidebarと同じアイコンを添えるが、意味はテキストで伝える（#301）。 */
+.page-header h1 { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xl); white-space: nowrap; }
+.page-header-icon { flex: none; color: var(--color-accent-strong); }
 .page-subtitle { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
 /* 画面の用途説明はinfoから開く。ヘッダーの高さを増やさないよう見出し行に収める（#302）。 */
 .page-info { position: relative; display: inline-flex; margin-left: var(--space-1); vertical-align: middle; }

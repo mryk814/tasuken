@@ -564,7 +564,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
 
   return (
     <div className="page inbox-page">
-      <PageHeader title="Inbox整理" info="クイック記録を行の中で分類し、今日の作業やThemeへ接続します。">
+      <PageHeader route="inbox">
         <button className="secondary-button" onClick={() => void startInkCapture()}><IconWriting size={16} />手書きで記録</button>
         <button className="secondary-button" onClick={() => void captureFiles()}><IconPaperclip size={16} />ファイルを記録</button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>

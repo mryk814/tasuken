@@ -9,7 +9,8 @@ const aiProposalPanelSource = readFileSync("src/renderer/src/features/workspace/
 
 test("AI proposals are folded into the AI integration page", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
-  assert.match(routesSource, /\["ai-io", "AI IO"\]/);
+  assert.match(routesSource, /"ai-io": \{ label: "AI IO"/);
+  assert.match(routesSource, /toolNavigation = \["ai-io", "settings"\]/);
   assert.match(routesSource, /"proposal-inbox": "ai-io"/);
   assert.match(workspaceAppSource, /route === "proposal-inbox" \? "ai-io"/);
   assert.doesNotMatch(workspaceAppSource, /ProposalInboxPage/);
@@ -17,7 +18,7 @@ test("AI proposals are folded into the AI integration page", () => {
 });
 
 test("AI integration page includes handoff and proposal review lanes", () => {
-  assert.match(importExportPageSource, /PageHeader title="AI連携"/);
+  assert.match(importExportPageSource, /PageHeader route="ai-io"/);
   assert.match(importExportPageSource, /AiProposalPanel/);
   assert.match(aiProposalPanelSource, /export function AiProposalPanel/);
   assert.doesNotMatch(aiProposalPanelSource, /PageHeader/);

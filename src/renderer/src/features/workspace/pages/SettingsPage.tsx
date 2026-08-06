@@ -289,7 +289,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
 
   return (
     <div className="page">
-      <PageHeader title="Settings" />
+      <PageHeader route="settings" />
       <div className="settings-grid">
         <section className="panel settings-form">
           <h2>表示</h2>

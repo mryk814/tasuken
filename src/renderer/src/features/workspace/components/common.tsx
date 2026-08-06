@@ -1,6 +1,8 @@
 import { IconInfoCircle } from "@tabler/icons-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 
+import { ROUTE_ICONS } from "../../../pages/routeIcons";
+import { routeDescription, routeLabel } from "../../../pages/routes";
 import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
 
@@ -53,18 +55,27 @@ export function PageInfo({ text }: { text: string }) {
   );
 }
 
-export function PageHeader({ title, subtitle, info, children }: {
-  title: string;
+/**
+ * routeを渡すと画面名・用途説明・アイコンを正本（ROUTE_META / ROUTE_ICONS）から取る（#301）。
+ * titleを直接渡すのは、Theme詳細のように利用者データを見出しにする画面だけにする。
+ */
+export function PageHeader({ route, title, subtitle, info, children }: {
+  route?: string;
+  title?: string;
   subtitle?: string;
   info?: string;
   children?: ReactNode;
 }) {
+  const heading = title || (route ? routeLabel(route) : "");
+  const description = info ?? (route ? routeDescription(route) : undefined);
+  const HeadingIcon = route ? ROUTE_ICONS[route] : undefined;
   return (
     <header className="page-header">
       <div>
         <h1>
-          {title}
-          {info && <PageInfo text={info} />}
+          {HeadingIcon && <HeadingIcon className="page-header-icon" size={20} stroke={1.8} aria-hidden="true" />}
+          {heading}
+          {description && <PageInfo text={description} />}
         </h1>
         {subtitle && <p className="page-subtitle">{subtitle}</p>}
       </div>

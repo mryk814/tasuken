@@ -91,7 +91,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
 
   return (
     <div className="page">
-      <PageHeader title="Waiting" info="誰を、何を、いつまで待っているかを確認します。">
+      <PageHeader route="waiting">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="primary-button" onClick={() => setShowAdd((c) => !c)}><IconPlus size={16} /> 待ちを追加</button>
       </PageHeader>

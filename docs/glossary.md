@@ -4,20 +4,22 @@
 
 ## 画面（ページ）
 
+画面名の正本は `src/renderer/src/pages/routes.ts` の `ROUTE_META`（アイコンは `routeIcons.ts` の `ROUTE_ICONS`）。Sidebar・ページ見出し・Command Paletteはすべてここを参照するので、画面名を変えるときはこの表と `ROUTE_META` を同じ変更で直す。用途説明は見出しへ混ぜず `description`（infoから開く）に置く。
+
 | 画面 | ファイル | ユーザーの別称・文脈 |
 |---|---|---|
 | Today | `TodayPage.tsx` | 「今日」。今日やるタスク＋当日の予定。進行中の期間タスクとは区別される |
 | ToDo | `TodoPage.tsx` | タスク一覧。Themeカラーの識別性の話題が出る場所 |
-| Inbox整理 | `InboxPage.tsx` | 「Inbox」「インボックス」。クイック記録の行き先。ここで種類とThemeを付けて各所へ接続する |
+| Inbox | `InboxPage.tsx` | 「Inbox」「インボックス」「Inbox整理」（旧見出し）。クイック記録の行き先。ここで種類とThemeを付けて各所へ接続する |
 | Timeline | `TimelinePage.tsx` | 「ガントチャート」「ガント」。左表＝実施事項/計画、右＝タイムライン描画 |
 | Themes / Theme詳細 | `ThemesPage.tsx` / `ThemePage.tsx` | 「テーマ」。研究テーマ単位。識別子（社内で一意の記号）を別途持つ |
 | Notes | `NotesPage.tsx` | 「ノート」「メモ」。表示種別は Note / Resource / Report / Prompt の4つ。初期種別と作成日・更新日の並び順はNotes画面の設定として保存する。Markdown編集・プレビュー・Markdown出力 / PDF固定表示の話題はここ。Resource は外部URL＋見ながら書くメモ（body_markdown）。見出し番号（`heading_numbers` + `heading_number_levels`、旧 `heading_number_start` は互換読み込み、既定はh2〜h4）はNote文書ごと。ONなら編集/Preview/PDFに番号、Markdownファイル出力には含めない。軽量 Callout は `> [!INSIGHT]`（表示名「MEMO」、オレンジ系、Edit/Preview/PDF）。見出しインデックスは文書中央右の線だけのフロートをホバーすると一覧 |
 | Sketch | `SketchLibraryPage.tsx` / `SketchPage.tsx` | 「手書き」「キャンバス」「GoodNotesみたいなやつ」。SidebarのKnowledge配下に独立した棚と専用編集面を持つ。編集可能なペン軌跡・図形・文字・画像を正本として持ち、Note / Markdown / PNG / SVG / AI向けコピーへ派生させる |
 | Knowledge | `KnowledgePage.tsx` | 「ナレッジ」。グラフ表示あり。Note=素材置き場、Knowledge=構造化された知見、と責務を分ける |
-| Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」。サイドバー表記は英語 Chat Refs。外部AIチャットのURL整理 |
+| Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」「チャット参照」（旧見出し）。Sidebarとページ見出しはどちらも Chat Refs。外部AIチャットのURL整理 |
 | Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から。NoteのMarkdown/PDF書き出しはChat Refを主な出所、元Noteを追跡情報として持てる |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
-| Import/Export | `ImportExportPage.tsx` | 「AI Import」。検証→プレビュー→採用の取り込み導線 |
+| AI IO | `ImportExportPage.tsx` | 「AI Import」「AI連携」（旧見出し）。検証→プレビュー→採用の取り込み導線 |
 | Note AI | `NoteAiDialog.tsx` / `AiProposalPanel.tsx` | Noteの「AI編集」「選択範囲をAIで編集」。OpenAIの返答を直接保存せずPending Proposalへ入れ、差分hunkを選んで採用する |
 | AI Proposal | `AiProposalPanel.tsx` / `McpProposalInboxService` | 内蔵LLM・MCP・手動Importから届く安全な書き込み候補。Note / Knowledge / Sketch / Artifactの正式保存前にPreviewする |
 

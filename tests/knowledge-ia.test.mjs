@@ -31,7 +31,7 @@ test("Notes owns prompt inventory and creation", () => {
 });
 
 test("Notes kinds are simplified to Note Resource Report Prompt", () => {
-  assert.match(notesPageSource, /title="Notes"/);
+  assert.match(notesPageSource, /PageHeader route="notes"/);
   assert.doesNotMatch(notesPageSource, /Notes & Resources/);
   assert.match(notesPageSource, /primary-button[\s\S]*?>Note</);
   assert.match(notesPageSource, /primary-button[\s\S]*?>Resource</);
