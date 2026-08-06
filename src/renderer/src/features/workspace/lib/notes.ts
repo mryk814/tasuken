@@ -14,6 +14,8 @@ export type NotesPreferences = {
   themeId: string;
   listWidth: number | null;
   listCollapsed: boolean;
+  /** 本文へ集中する表示。一覧と上部の補助行を畳み、縦方向をすべて本文へ回す（#292）。 */
+  documentFocus: boolean;
 };
 
 export const DEFAULT_NOTES_PREFS: NotesPreferences = {
@@ -22,6 +24,7 @@ export const DEFAULT_NOTES_PREFS: NotesPreferences = {
   themeId: "all",
   listWidth: null,
   listCollapsed: false,
+  documentFocus: false,
 };
 
 export function compactNotesBodyPreview(value: unknown, limit = 180): string {

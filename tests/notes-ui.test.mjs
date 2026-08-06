@@ -141,3 +141,20 @@ test("navigation, page headings and command palette share one canonical label", 
   assert.match(routes, /"todo-done": "todo"/);
   assert.match(routes, /"chat-refs": "knowledge"/);
 });
+
+test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本文へ回す（#292）", () => {
+  const page = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
+
+  assert.equal(notes.DEFAULT_NOTES_PREFS.documentFocus, false);
+  // 切替状態は保存して次回も同じ表示で開く。
+  assert.match(page, /documentFocus: !documentFocus/);
+  assert.match(page, /is-document-focus/);
+  // 集中表示では一覧ペインも畳む。
+  assert.match(page, /listCollapsed \|\| documentFocus \? " is-list-collapsed"/);
+  // Escで元へ戻せる。入力中は横取りしない。
+  assert.match(page, /event\.key !== "Escape" \|\| target\?\.closest\("input, textarea, \[contenteditable=true\]"\)/);
+  // ページ見出し・フィルタ・日付や出力先の補助行を畳む。
+  assert.match(styles, /\.notes-page\.is-document-focus > \.page-header/);
+  assert.match(styles, /\.notes-page\.is-document-focus \.note-export-handoff \{ display: none; \}/);
+});

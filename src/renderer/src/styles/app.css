@@ -577,6 +577,18 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .notes-workbench.is-list-collapsed .notes-resize-handle { cursor: e-resize; }
 .notes-workbench.is-list-collapsed .notes-resize-handle::before { background: var(--color-border); }
 .note-preview-panel { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--space-2); overflow: hidden; padding: var(--space-2); }
+/* 本文集中表示（#292）。一覧・ページ見出し・日付や出力先の補助行を畳み、
+   残る縦領域をすべて本文へ回す。切替とEscで元へ戻せる。 */
+.notes-page.is-document-focus > .page-header,
+.notes-page.is-document-focus > .filter-bar,
+.notes-page.is-document-focus .note-date-meta,
+.notes-page.is-document-focus .note-preview-url,
+.notes-page.is-document-focus .note-export-target,
+.notes-page.is-document-focus .note-export-handoff { display: none; }
+.notes-page.is-document-focus .note-preview-panel { padding: var(--space-1) var(--space-2) 0; gap: var(--space-1); }
+.notes-page.is-document-focus .note-preview-header { padding-bottom: var(--space-1); }
+.notes-page.is-document-focus .note-preview-header h2 { font-size: var(--text-base); }
+.notes-page.is-document-focus .document-publish-strip { min-height: 34px; padding: var(--space-1) var(--space-2); }
 .note-preview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--color-border-subtle); }
 .note-preview-header h2 { margin: 0; font-size: var(--text-xl); line-height: var(--lh-tight); }
 .note-date-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); color: var(--color-text-tertiary); font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -2608,6 +2620,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .note-preview-panel .note-main-preview {
   overflow: auto;
+  /* Edit と Preview のスクロール位置を揃えるため、末尾の余走りは両モードで同じにする。
+     縦領域を広げる要求（#292）は .is-document-focus 側で扱い、この契約は変えない。 */
   padding-bottom: 60vh;
 }
 .note-preview-panel .note-mdx-content {

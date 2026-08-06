@@ -281,6 +281,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   const toggleListCollapsed = useCallback(() => {
     updatePrefs({ listCollapsed: !listCollapsed });
   }, [listCollapsed, updatePrefs]);
+  // 本文集中表示。Taskenのウィンドウ内で使える縦領域を本文へ回す（#292）。
+  const documentFocus = prefs.documentFocus;
+  const toggleDocumentFocus = useCallback(() => {
+    updatePrefs({ documentFocus: !documentFocus });
+  }, [documentFocus, updatePrefs]);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key === "b" && !event.shiftKey && !event.altKey) {
@@ -291,6 +296,18 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [toggleListCollapsed]);
+  useEffect(() => {
+    if (!documentFocus) return;
+    function onEscape(event: KeyboardEvent) {
+      // 入力中のEscはエディタ側の操作を優先する。
+      const target = event.target as HTMLElement | null;
+      if (event.key !== "Escape" || target?.closest("input, textarea, [contenteditable=true]")) return;
+      event.preventDefault();
+      updatePrefs({ documentFocus: false });
+    }
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [documentFocus, updatePrefs]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const replaceInputRef = useRef<HTMLInputElement | null>(null);
@@ -1400,7 +1417,7 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   }, []);
 
   return (
-    <div className="page notes-page">
+    <div className={`page notes-page${documentFocus ? " is-document-focus" : ""}`}>
       <PageHeader route="notes">
         <button className="secondary-button" onClick={copy}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
@@ -1458,9 +1475,9 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         <span>{visible.length}件</span>
       </div>
       <div
-        className={`notes-workbench${listCollapsed ? " is-list-collapsed" : ""}`}
+        className={`notes-workbench${listCollapsed || documentFocus ? " is-list-collapsed" : ""}`}
         ref={workbenchRef}
-        style={!listCollapsed && listWidth ? { "--notes-list-width": `${listWidth}px` } as React.CSSProperties : undefined}
+        style={!listCollapsed && !documentFocus && listWidth ? { "--notes-list-width": `${listWidth}px` } as React.CSSProperties : undefined}
       >
         <section className="panel list-page notes-list-panel">
           {renderedRecords.map((record) => {
@@ -1634,6 +1651,14 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
                     <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
                   </div>
+                  <button
+                    className="secondary-button compact"
+                    aria-pressed={documentFocus}
+                    onClick={toggleDocumentFocus}
+                    title={documentFocus ? "元の表示へ戻す（Esc）" : "一覧と補助行を畳んで本文を縦いっぱいに広げます"}
+                  >
+                    {documentFocus ? "表示を戻す" : "本文を広げる"}
+                  </button>
                   <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
                   <button
                     className="secondary-button compact"
