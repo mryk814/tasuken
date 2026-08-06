@@ -349,7 +349,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
 
   return (
     <div className="page">
-      <PageHeader title="ToDo" subtitle="今日の作業と予定なしの仕事を整理します。">
+      <PageHeader title="ToDo" info="今日の作業と予定なしの仕事を整理します。">
         <button className="secondary-button" onClick={copyRows}>一覧をコピー</button>
         <button className="secondary-button" onClick={() => setShowPaste((current) => !current)}>表から追加</button>
         <button className="primary-button" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</button>

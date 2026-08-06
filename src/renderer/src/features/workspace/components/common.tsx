@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { IconInfoCircle } from "@tabler/icons-react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 
 import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
@@ -11,11 +12,60 @@ export type ContextMenuItem = {
   disabled?: boolean;
 };
 
-export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: string; children?: ReactNode }) {
+/**
+ * 画面の用途説明は常時表示せず、見出し横のinfoから必要なときだけ開く（#302）。
+ * subtitleは「今の状態」を示す短い文だけに使う。
+ */
+export function PageInfo({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest(".page-info")) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <span className="page-info">
+      <button
+        type="button"
+        className="page-info-button"
+        aria-label="この画面について"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <IconInfoCircle size={16} stroke={1.8} aria-hidden />
+      </button>
+      {open && <span className="page-info-popover" id={id} role="note">{text}</span>}
+    </span>
+  );
+}
+
+export function PageHeader({ title, subtitle, info, children }: {
+  title: string;
+  subtitle?: string;
+  info?: string;
+  children?: ReactNode;
+}) {
   return (
     <header className="page-header">
       <div>
-        <h1>{title}</h1>
+        <h1>
+          {title}
+          {info && <PageInfo text={info} />}
+        </h1>
         {subtitle && <p className="page-subtitle">{subtitle}</p>}
       </div>
       <div className="header-actions">{children}</div>

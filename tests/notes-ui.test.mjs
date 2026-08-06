@@ -85,3 +85,29 @@ test("micro memo date is a labeled top-level time element", () => {
   assert.match(source, />記録 \{formatDate\(memo\.captured_at\)\}</);
   assert.match(styles, /\.micro-memo-card-meta[^\n]*justify-content: flex-start/);
 });
+
+test("page headers move purpose copy into an info popover instead of a permanent subtitle", () => {
+  const common = readFileSync("src/renderer/src/features/workspace/components/common.tsx", "utf8");
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
+
+  // click / keyboardで開き、Escと外側クリックで閉じる。screen readerからも到達できる。
+  assert.match(common, /export function PageInfo/);
+  assert.match(common, /aria-label="この画面について"/);
+  assert.match(common, /aria-expanded=\{open\}/);
+  assert.match(common, /aria-controls=\{id\}/);
+  assert.match(common, /event\.key === "Escape"/);
+  assert.match(common, /closest\("\.page-info"\)/);
+  assert.match(styles, /\.page-info-button:focus-visible \{ outline: 2px solid var\(--color-focus\)/);
+
+  const boilerplate = [
+    "ArtifactsPage", "ChatRefsPage", "ImportExportPage", "InboxPage", "KnowledgePage",
+    "NotesPage", "ThemesPage", "TimelinePage", "TodayPage", "TodoPage", "WaitingPage",
+  ];
+  for (const page of boilerplate) {
+    const source = readFileSync(`src/renderer/src/features/workspace/pages/${page}.tsx`, "utf8");
+    const header = source.slice(source.indexOf("<PageHeader"));
+    assert.doesNotMatch(header.slice(0, 400), /subtitle=/, `${page} は用途説明を常時表示しない`);
+  }
+  // Theme詳細の説明は利用者が書いたデータなので常時表示のまま残す。
+  assert.match(readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8"), /subtitle=\{theme\.description\}/);
+});

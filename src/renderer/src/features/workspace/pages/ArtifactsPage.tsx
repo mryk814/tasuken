@@ -120,7 +120,7 @@ export function ArtifactsPage({
     <div className="page artifacts-page">
       <PageHeader
         title="Artifacts"
-        subtitle="AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。"
+        info="AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。"
       >
         <button className="secondary-button" onClick={copyList} disabled={!artifacts.length}>一覧をコピー</button>
       </PageHeader>

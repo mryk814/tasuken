@@ -478,7 +478,7 @@ export function ChatRefsPage({
     <div className="page chat-refs-page">
       <PageHeader
         title="チャット参照"
-        subtitle={isArchiveView
+        info={isArchiveView
           ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。"
           : "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。"}
       >
