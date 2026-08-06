@@ -29,7 +29,7 @@
 
 | エンティティ | ユーザーの呼び方 | 状態値 |
 |---|---|---|
-| Theme (Project) | テーマ | 構想 / 進行中 / 保留 / 終了。 の「個人業務」は常設の既定Themeで、削除・アーカイブできず一覧の先頭に固定される（#282）。判定は表示名ではなく  の  |
+| Theme (Project) | テーマ | 構想 / 進行中 / 保留 / 終了。`system_kind: personal_default` の「個人業務」は常設の既定Themeで、削除・アーカイブできず一覧の先頭に固定される（#282）。判定は表示名ではなく `shared/personalTheme.mjs` の `isPersonalDefaultTheme` で行う。`project_id` 未設定は `resolveThemeId` でこのThemeへ解決し、既存データは書き換えない |
 | CaptureEntry | クイック記録、Inboxのやつ。文字・Markdown・URL・ファイル・画像・手書きを分類せず受け取る正本 | 未整理 / 整理済み / アーカイブ |
 | Task | タスク | 未着手 / 進行中 / 待ち / 確認待ち / 完了 / 中止 |
 | Waiting | 待ち | 待ち / 受領 / 中止 |
