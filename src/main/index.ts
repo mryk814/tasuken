@@ -15,6 +15,7 @@ import { createReminderController, type ReminderController } from "./reminderCon
 import { createTodayMiniController, type TodayMiniController } from "./todayMiniController";
 import { createSatelliteWindowRegistry, type SatelliteWindowRegistry } from "./satelliteWindowRegistry";
 import { createMemoStickyController, type MemoStickyController } from "./memoStickyController";
+import { createNoteWindowController, type NoteWindowController } from "./noteWindowController";
 import { createTrayController, type TrayController } from "./trayController";
 import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
@@ -38,6 +39,7 @@ let todayMiniController: TodayMiniController | null = null;
 let reminderController: ReminderController | null = null;
 let satelliteWindows: SatelliteWindowRegistry | null = null;
 let memoStickyController: MemoStickyController | null = null;
+let noteWindowController: NoteWindowController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let mcpProposalInboxService: McpProposalInboxService | null = null;
 const readyMainWindows = new WeakSet<BrowserWindow>();
@@ -126,9 +128,11 @@ function isAuxiliaryWindow(win: BrowserWindow): boolean {
 /** 開いている付箋の一覧を本体へ配る。本体側で「付箋表示中」を区別するために使う（#298）。 */
 function notifyMemoStickyWindowsChanged(): void {
   const openMemoIds = memoStickyController?.openMemoIds() || [];
+  const openNoteIds = noteWindowController?.openNoteIds() || [];
   for (const win of BrowserWindow.getAllWindows()) {
     if (isAuxiliaryWindow(win) || win.isDestroyed() || win.webContents.isLoading()) continue;
     win.webContents.send("memo-sticky:open-changed", openMemoIds);
+    win.webContents.send("note-window:open-changed", openNoteIds);
   }
 }
 
@@ -883,6 +887,12 @@ async function startDesktopApp(): Promise<void> {
     notifyWorkspaceChanged: notifyMainWindowRefresh,
   });
   memoStickyController.registerIpc();
+  noteWindowController = createNoteWindowController({
+    repository: workspaceRepository,
+    satelliteWindows,
+    showMainWindow,
+  });
+  noteWindowController.registerIpc();
   quickCaptureController = createQuickCaptureController({
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,

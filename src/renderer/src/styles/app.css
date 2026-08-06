@@ -4707,3 +4707,18 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* 切り離しウィンドウ（#290）。Sidebarを持たないので、本文だけの一列にする。 */
+.app-shell.is-detached-window { grid-template-columns: minmax(0, 1fr); }
+.app-shell.is-detached-window .notes-page > .filter-bar { display: none; }
+/* 一覧は is-list-collapsed が畳む。ハンドルは display:none にすると grid の列がずれるので、
+   幅だけ潰して列構成を保つ。 */
+.app-shell.is-detached-window .notes-page .notes-resize-handle { visibility: hidden; width: 0; }
+/* 別ウィンドウが編集主体であることの明示（#290）。色だけでなく文でも伝える。 */
+.note-detached-notice {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--space-2); padding: var(--space-2) var(--pad-card);
+  border-bottom: 1px solid var(--color-status-active-bd);
+  background: var(--color-status-active-bg); color: var(--color-status-active-fg);
+  font-size: var(--text-sm);
+}

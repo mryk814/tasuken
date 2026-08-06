@@ -150,8 +150,8 @@ test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本
   // 切替状態は保存して次回も同じ表示で開く。
   assert.match(page, /documentFocus: !documentFocus/);
   assert.match(page, /is-document-focus/);
-  // 集中表示では一覧ペインも畳む。
-  assert.match(page, /listCollapsed \|\| documentFocus \? " is-list-collapsed"/);
+  // 集中表示では一覧ペインも畳む。切り離しNoteウィンドウ（#290）も同じ畳み方を使う。
+  assert.match(page, /listCollapsed \|\| documentFocus \|\| detachedNoteId \? " is-list-collapsed"/);
   // Escで元へ戻せる。入力中は横取りしない。
   assert.match(page, /event\.key !== "Escape" \|\| target\?\.closest\("input, textarea, \[contenteditable=true\]"\)/);
   // ページ見出し・フィルタ・日付や出力先の補助行を畳む。

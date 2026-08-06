@@ -189,6 +189,17 @@ export interface ResearchDeskApi {
     /** すべて閉じる。Memoは削除しない。 */
     closeAllMemoStickies(): Promise<number>;
     onMemoStickyOpenChanged(callback: (memoIds: string[]) => void): () => void;
+    /** Noteを別ウィンドウで開く。既に開いていれば前面へ出す（#290）。 */
+    openNoteWindow(noteId: string): Promise<boolean>;
+    listOpenNoteWindows(): Promise<string[]>;
+    /** 切り離しウィンドウを閉じ、本体で同じNoteを開き直す。 */
+    returnNoteWindowToMain(): Promise<boolean>;
+    /** 切り離しウィンドウは閉じずに本体を前面へ出す。 */
+    openNoteWindowInMain(route?: string): Promise<boolean>;
+    onNoteWindowOpenChanged(callback: (noteIds: string[]) => void): () => void;
+    onOpenNote(callback: (noteId: string) => void): () => void;
+    onOpenMemo(callback: (memoId: string) => void): () => void;
+    onNavigate(callback: (route: string) => void): () => void;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
   };

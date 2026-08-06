@@ -255,3 +255,25 @@ export const IPC = {
 ### 追加するとき
 
 新しい切り離し面を足すときは `SatelliteWindowKind` へ種類を追加し、`electron.vite.config.ts` の preload / renderer 両方の入力へエントリを登録する。
+
+### 切り離しウィンドウでEditorを二重に実装しない（#290）
+
+Note編集のように本体と同じ編集面が要る切り離しウィンドウは、専用のrendererを作らず**本体と同じ `index.html` をクエリ付きで開く**。
+
+```
+index.html?window=note&noteId=<id>
+```
+
+- 判定は `features/workspace/lib/windowMode.ts` の `parseWindowMode` に集約する
+- 切り離しモードでは外枠（Sidebar・Context Pane・ナビゲーション・一覧・絞り込み）だけを落とし、Editor本体には触らない
+- これにより Edit / Preview / Raw、検索・置換、画像、Mermaid、autosave が本体と同じ実装のまま動き、保存経路も同じ正本を通る
+
+**一覧を畳むときは `display: none` を使わない。** grid の列がずれて本文が潰れる。既存の `is-list-collapsed`（幅0）を使い、リサイズハンドルも `visibility: hidden; width: 0` で列構成を保つ。
+
+### 同じEntityを二つのEditorで同時編集させない
+
+registry が二枚目のウィンドウを作らないだけでは足りない。本体側も編集主体を譲る必要がある。
+
+- 本体は「別ウィンドウで編集中」を明示し、Preview へ固定して Edit / Raw を無効にする
+- 切り離しボタンは、既に開いていれば「前面へ出す」に意味が変わる
+- 切り離す直前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする

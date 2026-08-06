@@ -51,6 +51,17 @@ const api: ResearchDeskApi = {
     listOpenMemoStickies: () => ipcRenderer.invoke("memo-sticky:list-open"),
     showAllMemoStickies: () => ipcRenderer.invoke("memo-sticky:show-all"),
     closeAllMemoStickies: () => ipcRenderer.invoke("memo-sticky:close-all"),
+    openNoteWindow: (noteId) => ipcRenderer.invoke("note-window:open", noteId),
+    listOpenNoteWindows: () => ipcRenderer.invoke("note-window:list-open"),
+    returnNoteWindowToMain: () => ipcRenderer.invoke("note-window:return-to-main"),
+    openNoteWindowInMain: (route) => ipcRenderer.invoke("note-window:open-in-main", route),
+    onNoteWindowOpenChanged: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, noteIds: unknown): void => {
+        callback(Array.isArray(noteIds) ? noteIds.map(String) : []);
+      };
+      ipcRenderer.on("note-window:open-changed", handler);
+      return () => { ipcRenderer.removeListener("note-window:open-changed", handler); };
+    },
     onMemoStickyOpenChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, memoIds: unknown): void => {
         callback(Array.isArray(memoIds) ? memoIds.map(String) : []);
@@ -64,6 +75,22 @@ const api: ResearchDeskApi = {
       };
       ipcRenderer.on("workspace:changed", handler);
       return () => { ipcRenderer.removeListener("workspace:changed", handler); };
+    },
+    // 切り離しウィンドウから本体へ表示を渡す（#290 / #298）。
+    onOpenNote: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, noteId: string): void => callback(noteId);
+      ipcRenderer.on("workspace:open-note", handler);
+      return () => { ipcRenderer.removeListener("workspace:open-note", handler); };
+    },
+    onOpenMemo: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, memoId: string): void => callback(memoId);
+      ipcRenderer.on("workspace:open-memo", handler);
+      return () => { ipcRenderer.removeListener("workspace:open-memo", handler); };
+    },
+    onNavigate: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, route: string): void => callback(route);
+      ipcRenderer.on("workspace:navigate", handler);
+      return () => { ipcRenderer.removeListener("workspace:navigate", handler); };
     },
     onOpenTaskDetail: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, taskId: string): void => {

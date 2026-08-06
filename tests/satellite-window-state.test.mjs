@@ -123,6 +123,7 @@ const memoStickySource = readFileSync("src/main/memoStickyController.ts", "utf8"
 const mainSource = readFileSync("src/main/index.ts", "utf8");
 const stickyHtml = readFileSync("src/renderer/memo-sticky.html", "utf8");
 const viteConfig = readFileSync("electron.vite.config.ts", "utf8");
+const cssSourceForNotes = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
 test("同じEntityの切り離しウィンドウを二枚作らない（#290 / #298）", () => {
   // 既にあれば作らずに前面へ出す。黙って別Editorを開かないための契約。
@@ -219,4 +220,62 @@ test("付箋で開いているMemoを本体から区別できる（#298）", () 
   assert.match(inboxSource, /すべて閉じる/);
   assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:show-all"/);
   assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:close-all"/);
+});
+
+// --- 切り離しNote編集ウィンドウ（#290） ---
+const windowModeSource = await importBundled("src/renderer/src/features/workspace/lib/windowMode.ts");
+
+test("切り離しNoteウィンドウはクエリで判定する（#290）", () => {
+  assert.deepEqual(windowModeSource.parseWindowMode("?window=note&noteId=abc"), { kind: "note", noteId: "abc" });
+  // 本体はクエリなし。不完全な指定を切り離しとして扱わない。
+  assert.deepEqual(windowModeSource.parseWindowMode(""), { kind: "main" });
+  assert.deepEqual(windowModeSource.parseWindowMode("?window=note"), { kind: "main" });
+  assert.deepEqual(windowModeSource.parseWindowMode("?noteId=abc"), { kind: "main" });
+  assert.deepEqual(windowModeSource.parseWindowMode("?window=note&noteId=%20%20"), { kind: "main" });
+});
+
+test("Note編集ウィンドウはEditorを二重に実装せず本体と同じrendererを使う（#290）", () => {
+  const noteWindowSource = readFileSync("src/main/noteWindowController.ts", "utf8");
+  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+
+  // 本体と同じindexを別モードで開く。専用Editorを作らない。
+  assert.match(noteWindowSource, /page: "index",\s*\n\s*query: \{ window: "note", noteId \}/);
+  assert.match(registrySource, /const search = spec\.query \? new URLSearchParams\(spec\.query\)\.toString\(\) : "";/);
+
+  // 切り離しウィンドウは外枠だけ落とす。
+  assert.match(workspaceAppSource, /const route = detachedNoteId \? "notes" : storedRoute;/);
+  assert.match(workspaceAppSource, /\{!detachedNoteId && \(\s*\n\s*<Sidebar/);
+  assert.match(workspaceAppSource, /route !== "sketch-editor" && !detachedNoteId \? \(/);
+  assert.match(cssSourceForNotes, /\.app-shell\.is-detached-window \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  // 一覧はgridの列を保ったまま畳む。display:noneにすると本文の列がずれる。
+  assert.match(cssSourceForNotes, /\.app-shell\.is-detached-window \.notes-page \.notes-resize-handle \{ visibility: hidden; width: 0; \}/);
+});
+
+test("同じNoteを二つのEditorで黙って同時編集させない（#290）", () => {
+  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+
+  // 別ウィンドウが編集主体のあいだ、本体はPreviewへ固定して書き込ませない。
+  assert.match(notesSource, /const detachedElsewhere = !detachedNoteId && Boolean\(selected && openNoteWindowIds\.includes\(selected\.id\)\)/);
+  assert.match(notesSource, /if \(detachedElsewhere\) setPreviewMode\("preview"\);/);
+  assert.match(notesSource, /このノートは別ウィンドウで編集中です。/);
+  assert.match(notesSource, /disabled=\{detachedElsewhere\}/);
+  // 既に開いていればボタンの意味が「前面へ出す」に変わる。
+  assert.match(notesSource, /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを表示" : "別ウィンドウで開く"/);
+  // 切り離す前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする。
+  assert.match(notesSource, /await autoSaveDraft\(\);\s*\n\s*const opened = await workspaceApi\.openNoteWindow\(selected\.id\)/);
+});
+
+test("Noteウィンドウから本体へ表示を渡せる（#290）", () => {
+  const noteWindowSource = readFileSync("src/main/noteWindowController.ts", "utf8");
+  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+
+  // 本体へ戻すと、本体で同じNoteを開き直してからウィンドウを閉じる。
+  assert.match(noteWindowSource, /ipcMain\.handle\("note-window:return-to-main"/);
+  assert.match(noteWindowSource, /mainWindow\.webContents\.send\("workspace:open-note", noteId\)/);
+  // 関連Entityは本体側で開き、Noteウィンドウ自体は閉じない。
+  assert.match(noteWindowSource, /ipcMain\.handle\("note-window:open-in-main"/);
+  assert.match(workspaceAppSource, /window\.api\?\.app\?\.onOpenNote\?\.\(/);
+  assert.match(workspaceAppSource, /window\.api\?\.app\?\.onNavigate\?\.\(/);
+  // 受け側は本体だけ。切り離しウィンドウは自分で自分を移動させない。
+  assert.match(workspaceAppSource, /if \(detachedNoteId \|\| loadState !== "success"\) return undefined;/);
 });

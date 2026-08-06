@@ -176,9 +176,12 @@ function isWorkbenchRecord(record: Combined): boolean {
   return record.recordType === "note";
 }
 
-export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navigate, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
+export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, openDrawer, navigate, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 切り離しウィンドウは対象Noteが決まっているので、選択をそこへ固定する（#290）。
+  const [selectedId, setSelectedId] = useState<string | null>(detachedNoteId ?? null);
+  // 別ウィンドウで開いているNote。正本はMainのwindow registryなので購読するだけ。
+  const [openNoteWindowIds, setOpenNoteWindowIds] = useState<string[]>([]);
   // Notesは書く場所としてEditを初期表示にする。Preview / Rawは必要なときだけ切り替える。
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const [prefs, setPrefs] = usePersistentState<NotesPreferences>("notes:prefs:v1", DEFAULT_NOTES_PREFS);
@@ -590,6 +593,18 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
     setReplaceUndo(null);
   }
 
+  /**
+   * 選択中のNoteを別ウィンドウへ切り離す（#290）。
+   * 既に開いていればMain側が前面へ出すだけなので、押し直しても二枚目にならない。
+   */
+  async function detachSelectedNote() {
+    if (!selected || selected.recordType !== "note") return;
+    // 切り離す前に、この画面の未保存分を確定させる。別ウィンドウが古い本文を読まないようにする。
+    await autoSaveDraft();
+    const opened = await workspaceApi.openNoteWindow(selected.id);
+    if (!opened) setToast("別ウィンドウで開けませんでした。ノートが見つかりません。", "danger");
+  }
+
   function formatSelectedDraft() {
     const current = currentDraftSource();
     const formatted = formatMarkdown(current);
@@ -668,6 +683,31 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   useEffect(() => {
     autosaveRef.current = { selected, draftBody, draftDirty };
   });
+
+  // 本体へ戻すときに、対象Noteを選び直す（#290）。
+  useEffect(() => {
+    const onSelect = (event: Event) => {
+      const noteId = (event as CustomEvent<string>).detail;
+      if (typeof noteId === "string" && noteId) setSelectedId(noteId);
+    };
+    window.addEventListener("tasken:select-note", onSelect);
+    return () => window.removeEventListener("tasken:select-note", onSelect);
+  }, []);
+
+  /** 選択中のNoteが、この画面ではない別ウィンドウで編集中か（#290）。 */
+  const detachedElsewhere = !detachedNoteId && Boolean(selected && openNoteWindowIds.includes(selected.id));
+
+  // 別ウィンドウが編集主体のあいだ、本体はPreviewへ落として書き込ませない。
+  useEffect(() => {
+    if (detachedElsewhere) setPreviewMode("preview");
+  }, [detachedElsewhere]);
+
+  // 別ウィンドウで開いているNoteを本体から把握する（#290）。
+  useEffect(() => {
+    if (detachedNoteId) return;
+    void workspaceApi.listOpenNoteWindows().then(setOpenNoteWindowIds).catch(() => setOpenNoteWindowIds([]));
+    return workspaceApi.onNoteWindowOpenChanged(setOpenNoteWindowIds);
+  }, [detachedNoteId]);
 
   async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
     const previous = snapshot.selected;
@@ -1417,14 +1457,24 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
   }, []);
 
   return (
-    <div className={`page notes-page${documentFocus ? " is-document-focus" : ""}`}>
-      <PageHeader route="notes">
-        <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-        <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
-        <button className="primary-button" onClick={() => addNote("note")}>Note</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } })}>Resource</button>
-        <button className="primary-button" onClick={() => addNote("report")}>Report</button>
-        <button className="primary-button" onClick={() => addPrompt()}>Prompt</button>
+    <div className={`page notes-page${documentFocus ? " is-document-focus" : ""}${detachedNoteId ? " is-detached-note" : ""}`}>
+      {/* 切り離しウィンドウでは新規作成や一覧操作を出さず、この文書の操作だけにする（#290）。 */}
+      <PageHeader route="notes" title={detachedNoteId ? str(selected?.title) || "無題のノート" : undefined}>
+        {detachedNoteId ? (
+          <>
+            <button className="secondary-button" onClick={() => void workspaceApi.openNoteWindowInMain("notes")}>Taskenを表示</button>
+            <button className="primary-button" onClick={() => void workspaceApi.returnNoteWindowToMain()}>本体へ戻す</button>
+          </>
+        ) : (
+          <>
+            <button className="secondary-button" onClick={copy}>一覧をコピー</button>
+            <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
+            <button className="primary-button" onClick={() => addNote("note")}>Note</button>
+            <button className="primary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } })}>Resource</button>
+            <button className="primary-button" onClick={() => addNote("report")}>Report</button>
+            <button className="primary-button" onClick={() => addPrompt()}>Prompt</button>
+          </>
+        )}
       </PageHeader>
       <div className="filter-bar panel">
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" />
@@ -1475,10 +1525,11 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         <span>{visible.length}件</span>
       </div>
       <div
-        className={`notes-workbench${listCollapsed || documentFocus ? " is-list-collapsed" : ""}`}
+        className={`notes-workbench${listCollapsed || documentFocus || detachedNoteId ? " is-list-collapsed" : ""}`}
         ref={workbenchRef}
-        style={!listCollapsed && !documentFocus && listWidth ? { "--notes-list-width": `${listWidth}px` } as React.CSSProperties : undefined}
+        style={!listCollapsed && !documentFocus && !detachedNoteId && listWidth ? { "--notes-list-width": `${listWidth}px` } as React.CSSProperties : undefined}
       >
+        {/* 切り離しウィンドウでは一覧を畳む。gridの列を保つため要素自体は残す（#290）。 */}
         <section className="panel list-page notes-list-panel">
           {renderedRecords.map((record) => {
             const comments = record.comments as NoteComment[] | undefined;
@@ -1565,6 +1616,14 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
         <section className="panel note-preview-panel" ref={previewPanelRef}>
           {selected ? (
             <>
+              {/* 同じNoteを二つのEditorで黙って同時編集させない（#290）。
+                  別ウィンドウが編集主体のあいだ、本体はPreviewに固定して読むだけにする。 */}
+              {detachedElsewhere && (
+                <div className="note-detached-notice" role="status">
+                  <span>このノートは別ウィンドウで編集中です。ここでは内容の確認だけできます。</span>
+                  <button className="secondary-button compact" onClick={() => void detachSelectedNote()}>別ウィンドウを表示</button>
+                </div>
+              )}
               <div className="note-preview-header">
                 <div>
                   <h2>{str(selected.title) || (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}</h2>
@@ -1642,6 +1701,8 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                   <div className="segmented note-editor-mode-tabs" aria-label="Markdown表示">
                     <button
                       className={previewMode === "edit" ? "is-active" : ""}
+                      disabled={detachedElsewhere}
+                      title={detachedElsewhere ? "別ウィンドウで編集中です" : undefined}
                       onMouseEnter={() => { void loadMarkdownRichEditor(); }}
                       onFocus={() => { void loadMarkdownRichEditor(); }}
                       onClick={() => switchPreviewMode("edit")}
@@ -1649,16 +1710,35 @@ export function NotesPage({ data, themes, domain, activeTheme, openDrawer, navig
                       Edit
                     </button>
                     <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
-                    <button className={previewMode === "raw" ? "is-active" : ""} onClick={() => switchPreviewMode("raw")}>Raw</button>
+                    <button
+                      className={previewMode === "raw" ? "is-active" : ""}
+                      disabled={detachedElsewhere}
+                      title={detachedElsewhere ? "別ウィンドウで編集中です" : undefined}
+                      onClick={() => switchPreviewMode("raw")}
+                    >Raw</button>
                   </div>
-                  <button
-                    className="secondary-button compact"
-                    aria-pressed={documentFocus}
-                    onClick={toggleDocumentFocus}
-                    title={documentFocus ? "元の表示へ戻す（Esc）" : "一覧と補助行を畳んで本文を縦いっぱいに広げます"}
-                  >
-                    {documentFocus ? "表示を戻す" : "本文を広げる"}
-                  </button>
+                  {!detachedNoteId && (
+                    <button
+                      className="secondary-button compact"
+                      aria-pressed={documentFocus}
+                      onClick={toggleDocumentFocus}
+                      title={documentFocus ? "元の表示へ戻す（Esc）" : "一覧と補助行を畳んで本文を縦いっぱいに広げます"}
+                    >
+                      {documentFocus ? "表示を戻す" : "本文を広げる"}
+                    </button>
+                  )}
+                  {/* 同じNoteの二枚目は作らない。既に開いていれば前面へ出すだけ（#290）。 */}
+                  {!detachedNoteId && selected?.recordType === "note" && (
+                    <button
+                      className={`secondary-button compact ${openNoteWindowIds.includes(selected.id) ? "is-active" : ""}`}
+                      onClick={() => void detachSelectedNote()}
+                      title={openNoteWindowIds.includes(selected.id)
+                        ? "別ウィンドウを前面に表示します"
+                        : "本文を別ウィンドウへ切り離し、本体では別の画面へ移動できます"}
+                    >
+                      {openNoteWindowIds.includes(selected.id) ? "別ウィンドウを表示" : "別ウィンドウで開く"}
+                    </button>
+                  )}
                   <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
                   <button
                     className="secondary-button compact"

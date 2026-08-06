@@ -129,6 +129,21 @@ export const workspaceApi = {
   onMemoStickyOpenChanged(callback: (memoIds: string[]) => void) {
     return desktopApi().app.onMemoStickyOpenChanged(callback);
   },
+  openNoteWindow(noteId: string) {
+    return desktopApi().app.openNoteWindow(noteId);
+  },
+  listOpenNoteWindows() {
+    return desktopApi().app.listOpenNoteWindows();
+  },
+  returnNoteWindowToMain() {
+    return desktopApi().app.returnNoteWindowToMain();
+  },
+  openNoteWindowInMain(route?: string) {
+    return desktopApi().app.openNoteWindowInMain(route);
+  },
+  onNoteWindowOpenChanged(callback: (noteIds: string[]) => void) {
+    return desktopApi().app.onNoteWindowOpenChanged(callback);
+  },
   exportSnapshot() {
     return desktopApi().snapshots.exportFile();
   },

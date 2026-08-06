@@ -36,6 +36,8 @@ export interface SatelliteWindowSpec {
   minHeight: number;
   /** レンダラのエントリ（例: "memo-sticky"）。dev/本番のどちらでも同じ名前で解決する。 */
   page: string;
+  /** ページへ渡すクエリ。本体と同じindexを別モードで開くときに使う（#290）。 */
+  query?: Record<string, string>;
   preload: string;
   backgroundColor?: string;
   alwaysOnTop?: boolean;
@@ -141,8 +143,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     });
 
     const target = options.resolvePageUrl(spec.page);
-    if ("url" in target) void window.loadURL(target.url);
-    else void window.loadFile(target.file);
+    const search = spec.query ? new URLSearchParams(spec.query).toString() : "";
+    if ("url" in target) void window.loadURL(search ? `${target.url}?${search}` : target.url);
+    else void window.loadFile(target.file, search ? { search } : undefined);
 
     const entry: Entry = { key, window, title: spec.title, saveTimer: null };
     entries.set(satelliteWindowKeyOf(key), entry);

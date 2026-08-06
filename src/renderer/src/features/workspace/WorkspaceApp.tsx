@@ -37,6 +37,7 @@ import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
+import { currentWindowMode } from "./lib/windowMode";
 import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPalette";
 import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
@@ -97,7 +98,12 @@ export function WorkspaceApp() {
   const saveWorkspaceEntities = useWorkspaceStore((state) => state.saveMany);
   const removeWorkspaceEntity = useWorkspaceStore((state) => state.remove);
   const restoreWorkspaceEntity = useWorkspaceStore((state) => state.restore);
-  const route = useUiStore((state) => normalizeRoute(state.route));
+  // 切り離しNoteウィンドウは本体と同じrendererを別モードで動かす（#290）。
+  // Editorを二重に実装しないので、routeはNotesへ固定し外枠だけ落とす。
+  const windowMode = useMemo(() => currentWindowMode(), []);
+  const detachedNoteId = windowMode.kind === "note" ? windowMode.noteId : undefined;
+  const storedRoute = useUiStore((state) => normalizeRoute(state.route));
+  const route = detachedNoteId ? "notes" : storedRoute;
   const setRoute = useUiStore((state) => state.setRoute);
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
@@ -580,6 +586,30 @@ export function WorkspaceApp() {
       openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
     });
   }, [fullDomain, loadState, setRoute, setToast]);
+
+  // 切り離しウィンドウから本体へ表示を渡す（#290 / #298）。本体側だけが受ける。
+  useEffect(() => {
+    if (detachedNoteId || loadState !== "success") return undefined;
+    const unsubscribers = [
+      window.api?.app?.onOpenNote?.((noteId) => {
+        location.hash = "notes";
+        setRoute("notes");
+        // NotesPageは自分でこのイベントを拾って対象Noteを選ぶ。
+        window.dispatchEvent(new CustomEvent("tasken:select-note", { detail: noteId }));
+      }),
+      window.api?.app?.onOpenMemo?.(() => {
+        location.hash = "inbox";
+        setRoute("inbox");
+        setInboxLane("micro");
+      }),
+      window.api?.app?.onNavigate?.((next) => {
+        const normalized = normalizeRoute(next);
+        location.hash = normalized;
+        setRoute(normalized);
+      }),
+    ];
+    return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
+  }, [detachedNoteId, loadState, setInboxLane, setRoute]);
 
   const saveEntity: SaveEntity = async (type, entity, options = {}) => {
     try {
@@ -1129,6 +1159,7 @@ export function WorkspaceApp() {
     setActiveThemeId,
     route,
     navigate,
+    detachedNoteId,
     openDrawer,
     openContentViewer,
     openContextPack: setContextPackThemeId,
@@ -1146,17 +1177,20 @@ export function WorkspaceApp() {
     <div className="app-frame" style={frameStyle}>
       {titleBar}
       <div className="app-content-viewport">
-        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch-editor" ? "is-canvas-route" : ""}`}>
-          <Sidebar
-            route={route === "sketch-editor" ? "sketch" : route}
-            navigate={navigate}
-            collapsed={sidebarCollapsed}
-            themes={themes}
-            activeThemeId={activeThemeId}
-            setActiveThemeId={setActiveThemeId}
-            domain={domain}
-            openDrawer={openDrawer}
-          />
+        {/* 切り離しウィンドウはSidebarとContext Paneを出さず、文書編集へ集中させる（#290）。 */}
+        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch-editor" ? "is-canvas-route" : ""} ${detachedNoteId ? "is-detached-window" : ""}`}>
+          {!detachedNoteId && (
+            <Sidebar
+              route={route === "sketch-editor" ? "sketch" : route}
+              navigate={navigate}
+              collapsed={sidebarCollapsed}
+              themes={themes}
+              activeThemeId={activeThemeId}
+              setActiveThemeId={setActiveThemeId}
+              domain={domain}
+              openDrawer={openDrawer}
+            />
+          )}
           <main className="main-area">
             <WorkspacePageRouter
               route={route}
@@ -1183,7 +1217,7 @@ export function WorkspaceApp() {
               startFocusSession={startFocusSession}
               navigate={navigate}
             />
-          ) : route !== "sketch-editor" ? (
+          ) : route !== "sketch-editor" && !detachedNoteId ? (
             <ContextPane
               data={data}
               domain={domain}
