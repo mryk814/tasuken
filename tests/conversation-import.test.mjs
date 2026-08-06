@@ -260,3 +260,75 @@ test("ConversationPreview uses Tabler icons instead of emoji", () => {
   assert.match(source, /conversation-thread/);
   assert.doesNotMatch(source, /[\u{1F300}-\u{1FAFF}]/u);
 });
+
+const conversationCopy = await importBundled("src/renderer/src/features/workspace/lib/conversationCopy.ts");
+
+const COPY_MESSAGES = [
+  { role: "system", displayName: "System", content: "system prompt" },
+  { role: "user", displayName: "You", content: "重複を除くには？" },
+  { role: "tool", displayName: "Tool", content: "tool output" },
+  { role: "assistant", displayName: "Copilot", content: "Setを使います。" },
+  { role: "user", displayName: "You", content: "順序は保たれる？" },
+  { role: "assistant", displayName: "Copilot", content: "保たれます。" },
+];
+
+test("conversation copy renders a message with or without its speaker", () => {
+  assert.equal(
+    conversationCopy.conversationMessageMarkdown(COPY_MESSAGES[3]),
+    "## Copilot\n\nSetを使います。",
+  );
+  assert.equal(
+    conversationCopy.conversationMessageMarkdown(COPY_MESSAGES[3], { withSpeaker: false }),
+    "Setを使います。",
+  );
+});
+
+test("conversation turn range pairs a question with the following answer", () => {
+  // User起点でも、間のtool messageを跨いで直後のAssistant回答まで1組にする。
+  assert.deepEqual(conversationCopy.conversationTurnRange(COPY_MESSAGES, 1), { from: 1, to: 3 });
+  // Assistant起点でも同じ組を返す。
+  assert.deepEqual(conversationCopy.conversationTurnRange(COPY_MESSAGES, 3), { from: 1, to: 3 });
+  assert.deepEqual(conversationCopy.conversationTurnRange(COPY_MESSAGES, 4), { from: 4, to: 5 });
+  // 次のUser質問を越えて広がらない。
+  assert.deepEqual(conversationCopy.conversationTurnRange(COPY_MESSAGES, 5), { from: 4, to: 5 });
+  // 回答が続かない単独messageは1件のまま。
+  assert.deepEqual(conversationCopy.conversationTurnRange(COPY_MESSAGES, 0), { from: 0, to: 0 });
+  assert.equal(conversationCopy.conversationTurnRange(COPY_MESSAGES, 9), null);
+});
+
+test("conversation range copy excludes tool and system messages by default", () => {
+  const turn = conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 1, 3);
+  assert.equal(turn.markdown, "## You\n\n重複を除くには？\n\n## Copilot\n\nSetを使います。");
+  assert.equal(turn.count, 2);
+  assert.equal(turn.excluded, 1);
+
+  const withTools = conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 1, 3, { includeToolAndSystem: true });
+  assert.match(withTools.markdown, /## Tool\n\ntool output/);
+  assert.equal(withTools.excluded, 0);
+
+  // 逆向きに選んでも同じ範囲になる。
+  assert.equal(
+    conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 5, 4).markdown,
+    conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 4, 5).markdown,
+  );
+
+  // 本文のみの連結は区切りを入れ、話者名を混ぜない。
+  const bodies = conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 4, 5, { withSpeaker: false });
+  assert.equal(bodies.markdown, "順序は保たれる？\n\n---\n\n保たれます。");
+  assert.doesNotMatch(bodies.markdown, /##/);
+
+  assert.deepEqual(conversationCopy.conversationRangeMarkdown([], 0, 0), { markdown: "", count: 0, excluded: 0 });
+});
+
+test("Conversation Viewer offers message, turn, range and code block copy", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/components/ConversationPreview.tsx", "utf8");
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(source, /本文のみ/);
+  assert.match(source, /このやり取り/);
+  assert.match(source, /ここから選択/);
+  assert.match(source, /ここまでコピー/);
+  assert.match(source, /conversation-code-copy/);
+  // hoverだけに頼らず、focusでも操作が現れること。
+  assert.match(styles, /\.conversation-turn:focus-within \.conversation-turn-actions \{ opacity: 1; \}/);
+  assert.match(styles, /\.conversation-code-copy:focus-visible \{ outline: 2px solid var\(--color-focus\)/);
+});

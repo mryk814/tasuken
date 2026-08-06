@@ -4519,6 +4519,49 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .conversation-role-system .markdown-preview,
 .conversation-role-tool .markdown-preview { font-size: var(--text-sm); }
 
+/* コピー操作は本文の邪魔をしないよう、hoverとfocusのときだけ見せる。
+   要素自体は常にDOMへ置き、Tabだけでも到達できるようにする（#305）。 */
+.conversation-turn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease);
+}
+.conversation-turn:hover .conversation-turn-actions,
+.conversation-turn:focus-within .conversation-turn-actions { opacity: 1; }
+.conversation-role-user .conversation-turn-actions { justify-content: flex-end; }
+.conversation-range-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-accent-strong);
+  font-size: var(--text-xs);
+}
+.conversation-code-copy {
+  float: right;
+  /* pre自体がスクロール領域なので、stickyで縦横どちらのスクロール中も端に留める。 */
+  position: sticky;
+  top: 0;
+  right: 0;
+  margin-left: var(--space-2);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease);
+}
+.conversation-turn-body pre:hover .conversation-code-copy,
+.conversation-code-copy:focus-visible { opacity: 1; }
+.conversation-code-copy:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+.conversation-code-copy:active { transform: translateY(1px); }
+.conversation-code-copy:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+
 .content-viewer-conversation.conversation-view {
   flex: 1 1 auto;
   min-height: 0;
