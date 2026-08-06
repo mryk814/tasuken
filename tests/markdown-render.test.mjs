@@ -534,7 +534,13 @@ test("notes search bar exposes replace controls and reload-safe Ctrl+R", () => {
   const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   assert.match(notesSource, /event\.key\.toLowerCase\(\) === "r"[\s\S]*?openReplaceRef\.current\(\)/);
   assert.match(notesSource, /すべて置換/);
-  assert.match(notesSource, /元に戻す/);
+  // 置換はEditor標準のUndo/Redoで戻す（#286）。置換バー独自の「元に戻す」は持たない。
+  assert.doesNotMatch(notesSource, /onClick=\{undoReplace\}/);
+  assert.match(notesSource, /function applyReplacedBody\(nextBody: string\): void \{/);
+  // Rich Editorはroot入れ替えが1つのHISTORY_PUSHになる。Rawは制御値なので
+  // execCommandでブラウザのUndo履歴へ1手として乗せる。
+  assert.match(notesSource, /document\.execCommand\("insertText", false, nextBody\)/);
+  assert.match(notesSource, /Ctrl\+Zで一度に戻せます。/);
   const mainSource = readFileSync("src/main/index.ts", "utf8");
   // 既定メニューのCtrl+R再読み込みを外し、Ctrl+Shift+Rへ分離していること。
   assert.match(mainSource, /Menu\.setApplicationMenu/);

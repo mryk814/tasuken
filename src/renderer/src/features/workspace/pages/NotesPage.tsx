@@ -228,9 +228,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [searchIndex, setSearchIndex] = useState(0);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replaceQuery, setReplaceQuery] = useState("");
-  // 置換直前の本文。Rich Editorへは setMarkdown で流し込むためEditorのUndo履歴に残らず、
-  // 置換バー上の「元に戻す」を復旧経路にする。
-  const [replaceUndo, setReplaceUndo] = useState<{ body: string; label: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [draftWorkspaceTarget, setDraftWorkspaceTarget] = useState<BaseRecord | null | undefined>(undefined);
   const [pdfExporting, setPdfExporting] = useState(false);
@@ -535,7 +532,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   function closeMarkdownSearch() {
     setSearchOpen(false);
     setReplaceOpen(false);
-    setReplaceUndo(null);
     window.requestAnimationFrame(() => focusMarkdownEditorSurface());
   }
 
@@ -558,6 +554,29 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   closeSearchRef.current = closeMarkdownSearch;
   searchOpenRef.current = searchOpen;
 
+
+  /**
+   * 置換結果をEditorへ流す（#286）。
+   *
+   * Rich Editorへは setMarkdown で流し込むが、Lexicalはroot全体の入れ替えを
+   * 1つのHISTORY_PUSHとして積むため、一件置換も一括置換もCtrl+Zで一度に戻り、
+   * Ctrl+Yでやり直せる。
+   *
+   * Raw（textarea）はReactの制御値なので、setStateだけではブラウザのUndo履歴へ
+   * 入らない。全体を選択して execCommand("insertText") で書き換え、標準のUndoに
+   * 1手として乗せる。失敗した環境ではstate更新へ落とす（置換自体は成立させる）。
+   */
+  function applyReplacedBody(nextBody: string): void {
+    const textarea = textareaRef.current;
+    const usesTextarea = previewMode === "raw" || hasMarkdownFootnotes(draftBody);
+    if (usesTextarea && textarea) {
+      textarea.focus();
+      textarea.setSelectionRange(0, textarea.value.length);
+      if (document.execCommand("insertText", false, nextBody)) return;
+    }
+    setDraftBody(nextBody);
+  }
+
   function replaceCurrentMatch() {
     const source = currentDraftSource();
     const result = replaceMarkdownMatch(source, searchQuery, searchIndex, replaceQuery);
@@ -565,10 +584,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       setDraftState("置換できる一致がありません。検索語を確認してください。");
       return;
     }
-    setReplaceUndo({ body: source, label: "1件の置換" });
-    setDraftBody(result.text);
+    applyReplacedBody(result.text);
     setSearchIndex(result.nextIndex);
-    setDraftState("1件置換しました。");
+    setDraftState("1件置換しました。Ctrl+Zで戻せます。");
     window.requestAnimationFrame(() => focusSearchMatch(result.nextIndex));
   }
 
@@ -579,18 +597,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       setDraftState("置換できる一致がありません。検索語を確認してください。");
       return;
     }
-    setReplaceUndo({ body: source, label: `${result.count}件の一括置換` });
-    setDraftBody(result.text);
+    applyReplacedBody(result.text);
     setSearchIndex(0);
-    setDraftState(`${result.count}件を置換しました。`);
-  }
-
-  function undoReplace() {
-    if (!replaceUndo) return;
-    setDraftBody(replaceUndo.body);
-    setSearchIndex(0);
-    setDraftState(`${replaceUndo.label}を元に戻しました。`);
-    setReplaceUndo(null);
+    setDraftState(`${result.count}件を置換しました。Ctrl+Zで一度に戻せます。`);
   }
 
   /**
@@ -666,7 +675,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     setDraftState("");
     setDiffOpen(false);
     setSearchIndex(0);
-    setReplaceUndo(null);
     setAutoLinked(null);
     setRecentExtraction(null);
   }, [selected?.id, selectedBody]);
@@ -1925,9 +1933,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                       />
                       <button type="button" className="secondary-button compact" disabled={!replaceEnabled} onClick={replaceCurrentMatch}>置換</button>
                       <button type="button" className="secondary-button compact" disabled={!replaceEnabled} onClick={replaceAllMatches}>すべて置換</button>
-                      {replaceUndo && (
-                        <button type="button" className="text-button compact" onClick={undoReplace}>元に戻す</button>
-                      )}
                     </div>
                   )}
                   {replaceOpen && replaceHint && <p className="field-help">{replaceHint}</p>}
