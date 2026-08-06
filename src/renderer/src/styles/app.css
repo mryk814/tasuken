@@ -2695,8 +2695,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .note-preview-panel .note-main-preview {
   overflow: auto;
-  /* Edit と Preview のスクロール位置を揃えるため、末尾の余走りは両モードで同じにする。
-     縦領域を広げる要求（#292）は .is-document-focus 側で扱い、この契約は変えない。 */
+  /* 末尾の余走りは Edit と Preview で意図的に別にしている。
+     Edit は入力中に最終行が画面下へ張り付かないよう 60vh 分（下の ::after）を残す。
+     Preview は読むだけなので、文末のあとに画面一枚ぶんの空白を出さない（#293）。
+     この値は notes-layout.css が app.css の後に上書きするので、変えるならそちらを見る。
+     縦領域を広げる要求（#292）は .is-document-focus 側で扱う。 */
   padding-bottom: 60vh;
 }
 .note-preview-panel .note-mdx-content {
