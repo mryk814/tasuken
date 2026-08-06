@@ -13,6 +13,7 @@ import type {
   PlanNode,
   Resource,
   Schedule,
+  ScheduleRangeSemantics,
   Task,
   TaskChecklistItem,
   TaskRepeatRule,
@@ -97,6 +98,11 @@ function monthEnd(value: string): string | null {
   return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
 }
 
+/** フォームの選択値だけを信じる。未知の値と空欄は「未分類」に倒す（#309）。 */
+function normalizeRangeSemantics(value: string): ScheduleRangeSemantics | null {
+  return value === "once_within_window" || value === "ongoing" ? value : null;
+}
+
 function normalizeChatReferenceStatus(value: string): string {
   return value === "adopted" ? "adopted" : "inbox";
 }
@@ -140,6 +146,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const endDate = formText(values, "end_date") || null;
     const scheduleId = formText(values, "_schedule_id");
     if (startDate || endDate || scheduleId) {
+      const isRange = Boolean(startDate && endDate && endDate > startDate);
       const schedule: Schedule = {
         id: scheduleId || uuid(),
         owner_type: "task",
@@ -153,6 +160,9 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
             : startDate
               ? "point"
               : "unknown",
+        // 範囲の意味は値から推定せず、フォームで選ばれたものだけを保存する（#309）。
+        // 既存の未分類データは、編集画面で触られるまで未分類のまま残す。
+        range_semantics: isRange ? normalizeRangeSemantics(formText(values, "range_semantics")) : null,
         confidence: "fixed",
         granularity: "day",
       };

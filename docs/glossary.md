@@ -8,7 +8,7 @@
 
 | 画面 | ファイル | ユーザーの別称・文脈 |
 |---|---|---|
-| Today | `TodayPage.tsx` | 「今日」。今日やるタスク＋当日の予定。進行中の期間タスクとは区別される |
+| Today | `TodayPage.tsx` | 「今日」。今日やるタスク＋当日の予定。日付範囲を持つTaskは意味ごとに「期間内に対応」「継続中」へ分けて出す（#309） |
 | ToDo | `TodoPage.tsx` | タスク一覧。Themeカラーの識別性の話題が出る場所 |
 | Inbox | `InboxPage.tsx` | 「Inbox」「インボックス」「Inbox整理」（旧見出し）。クイック記録の行き先。ここで種類とThemeを付けて各所へ接続する |
 | Timeline | `TimelinePage.tsx` | 「ガントチャート」「ガント」。左表＝実施事項/計画、右＝タイムライン描画 |
@@ -33,6 +33,7 @@
 | CaptureEntry | クイック記録、Inboxのやつ。文字・Markdown・URL・ファイル・画像・手書きを分類せず受け取る正本 | 未整理 / 整理済み / アーカイブ |
 | Task | タスク | 未着手 / 進行中 / 待ち / 確認待ち / 完了 / 中止 |
 | Waiting | 待ち | 待ち / 受領 / 中止 |
+| Schedule | 予定。Task / Waiting / PlanNode へ日付を付ける | `date_kind`: point / deadline / range / unknown。範囲（開始日 < 終了日）は `range_semantics` で意味を分ける（#309）。判定の正本は `domain-model/scheduleSemantics.ts` の `getScheduleKind` |
 | PlanNode | **「実施事項」= 親を持たない計画ノード（旧称「大項目」）**、「計画」「計画ノード」= その内訳 | 計画中 / 進行中 / 完了 / 中止。type: フェーズ / マイルストーン / 成果物 |
 | Note | ノート、メモ。旧 memo/artifact/learning 等も Note 種別に畳む | note_type: note / report / prompt（旧値は表示上 Note または Prompt） |
 | Sketch | 手書き、下書き、図解。Noteに埋めた画像そのものではなく編集可能な元データ | `document.schema_version: 1`。複数ページと stroke / highlighter / shape / arrow / text / image を保持 |
@@ -55,6 +56,9 @@
 | Daily Scratchpad | 日付ごとに一枚だけ作る分類前の作業メモ。TodayまたはCommand Paletteから開き、通常Noteとして自動保存する。Activity Logへ全文を自動転記しない |
 | Focus Session | Taskを中心に関連Note / Artifact / Resource、作業中Scratchpad、経過時間を一面へ集める単一active session。終了時にTask状態・Note化・次Task・Activity要約を整理する |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
+| 期間内に一度 | 日付範囲の意味のひとつ（`range_semantics: once_within_window`）。「8/10〜8/15の間に住民票を取る」のように、期間内のどこかで一回やれば終わるTask。開始日は着手してよい日、終了日は遅くとも終える日。期間中は毎日「今日やること」へ出さず、Todayの「期間内に対応」から拾う |
+| 期間中継続 | 日付範囲のもうひとつの意味（`range_semantics: ongoing`）。「8月中は問い合わせ対応を続ける」のように、期間中ずっとactiveなTask。今日の実施記録（今日取り組んだ）とTask全体の完了（継続を終了）を分ける。終了日が来ただけでは自動完了せず、完了 / 期間を延長 / そのまま継続を選べる |
+| 期間未分類 | #309より前に作った、意味を決めていない日付範囲Task。黙って分類せず、#95の表示規則（終了日当日に今日やることへ出す）をそのまま保つ。編集画面で意味を選ぶと分類される |
 | イナズマ線 | Timelineの進捗折れ線。状態（未着手/進行中/完了）から到達度を導いて描く |
 | テーマチップス | Themeカラー付きの小さなタグ表示。ユーザー評価が高く、他所への展開候補 |
 | マイルストーンレーン | Themeヘッダー直下の節目専用行。タスク行にダイヤを散らさない |

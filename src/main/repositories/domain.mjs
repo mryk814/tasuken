@@ -109,6 +109,9 @@ const scheduleOwnerTypes = new Set(["task", "waiting", "plan_node"]);
 const scheduleDateKinds = new Set(["point", "deadline", "range", "unknown"]);
 const scheduleConfidenceValues = new Set(["rough", "tentative", "fixed"]);
 const scheduleGranularityValues = new Set(["day", "week", "month"]);
+// 日付範囲の意味（#309）。start/endの値からは推定せず、明示された値だけを信じる。
+// 未設定は「未分類の既存範囲」を意味し、#95の既存Today表示規則をそのまま使う。
+const scheduleRangeSemantics = new Set(["once_within_window", "ongoing"]);
 const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact"]);
 const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
@@ -367,6 +370,12 @@ export function validateEntity(type, input) {
     if (input.start_date && input.end_date && input.end_date < input.start_date) {
       throw new Error("schedule.end_dateはstart_date以降にしてください。");
     }
+    if (input.range_semantics != null && input.range_semantics !== "" && !scheduleRangeSemantics.has(input.range_semantics)) {
+      throw new Error("schedule.range_semanticsが不正です。");
+    }
+    if (input.range_semantics && !(input.start_date && input.end_date && input.end_date > input.start_date)) {
+      throw new Error("schedule.range_semanticsは開始日と終了日が異なる範囲にだけ設定できます。");
+    }
   }
   if (type === "reference") {
     if (!entityRefTypes.has(input.source_type) || !entityRefTypes.has(input.target_type)) throw new Error("referenceの参照先種別が不正です。");
@@ -479,6 +488,13 @@ export function normalizeEntity(type, input) {
         }))
         .filter((item) => item.title);
     }
+  }
+  if (type === "schedule") {
+    // 範囲でなくなったscheduleに範囲の意味を残さない（#309）。
+    // 例: 8/10〜8/15 の「期間内に一度」を 8/12 単日へ直したら point に戻す。
+    const isRange = Boolean(normalized.start_date && normalized.end_date && normalized.end_date > normalized.start_date);
+    // 未分類は「キーがない」ではなく null として明示的に持つ。
+    if (!isRange || !normalized.range_semantics) normalized.range_semantics = null;
   }
   if (type === "artifact") {
     // 既存データ互換: storage_mode 未設定は managed。物理パスは移動しない。

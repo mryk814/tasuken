@@ -31,9 +31,11 @@ import {
   PLAN_NODE_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   TASK_STATE_LABELS,
+  UNSPECIFIED_RANGE_LABEL,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
-import { buildOngoingPeriodTaskView, buildTodayView } from "../domain-model/selectors";
+import { buildExecutionWindowTaskView, buildOngoingPeriodTaskView, buildTodayView } from "../domain-model/selectors";
+import type { ExecutionWindowUrgency } from "../domain-model/scheduleSemantics";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
@@ -42,7 +44,10 @@ import {
 } from "../domain-model/persistence";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Schedule, Task, Waiting, WorkspaceDomain } from "../domain-model/types";
-import type { OngoingPeriodTaskRow, TodayEntry } from "../domain-model/viewModels";
+import type { ExecutionWindowTaskRow, OngoingPeriodTaskRow, TodayEntry } from "../domain-model/viewModels";
+
+// 終了予定日を過ぎた継続Taskを延ばす既定日数。無確認の自動完了を避けるための逃げ道（#309）。
+const EXTEND_ONGOING_PERIOD_DAYS = 7;
 
 type DomainRow =
   | { type: "task"; task: Task; schedule?: Schedule }
@@ -331,56 +336,135 @@ function WaitingListRows({
   );
 }
 
-function PeriodTaskRows({
+function themeChipStyle(themes: PageProps["themes"], projectId?: string | null) {
+  const themeIndex = themes.findIndex((entry) => entry.id === projectId);
+  const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
+  const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
+  return { theme, style: { "--chip-color": chipColor } as React.CSSProperties };
+}
+
+const EXECUTION_WINDOW_URGENCY_LABELS: Record<ExecutionWindowUrgency, string> = {
+  before_start: "開始前",
+  in_window: "期間内",
+  due_soon: "まもなく期限",
+  due_today: "今日まで",
+  overdue: "期限超過",
+};
+
+/**
+ * 期間内に一度やるTask（#309）。
+ * 期間に入っただけでは「今日やること」へ出さず、ここから拾う。
+ * 一回の完了でTask全体が終わるので、通常のcheckboxをそのまま使う。
+ */
+function ExecutionWindowTaskRows({
   rows,
   themes,
   onOpenDetail,
-  onCreateTodayTask,
-  onTogglePeriodComplete,
+  onComplete,
+  onMoveToday,
 }: {
-  rows: OngoingPeriodTaskRow[];
+  rows: ExecutionWindowTaskRow[];
   themes: PageProps["themes"];
-  onOpenDetail: (row: OngoingPeriodTaskRow) => void;
-  onCreateTodayTask: (row: OngoingPeriodTaskRow) => void;
-  onTogglePeriodComplete: (row: OngoingPeriodTaskRow) => void;
+  onOpenDetail: (row: ExecutionWindowTaskRow) => void;
+  onComplete: (row: ExecutionWindowTaskRow) => void;
+  onMoveToday: (row: ExecutionWindowTaskRow) => void;
 }) {
-  if (!rows.length) return <EmptyState title="期間中タスクはありません" />;
+  if (!rows.length) return <EmptyState title="期間内に対応するタスクはありません" />;
   return (
     <div className="today-task-list">
       {rows.map((row) => {
-        const themeIndex = themes.findIndex((entry) => entry.id === row.task.project_id);
-        const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
-        const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
+        const { theme, style } = themeChipStyle(themes, row.task.project_id);
+        const remaining = row.daysRemaining > 0
+          ? `あと${row.daysRemaining}日`
+          : row.daysRemaining === 0
+            ? "今日まで"
+            : `${Math.abs(row.daysRemaining)}日超過`;
         return (
           <div
-            className="today-task-row period-task-row is-clickable-row"
+            className={`today-task-row execution-window-row is-clickable-row urgency-${row.urgency}`}
             key={row.task.id}
-            style={{ "--chip-color": chipColor } as React.CSSProperties}
+            style={style}
             onClick={() => onOpenDetail(row)}
           >
             <span className="todo-theme-bar" />
             <button
               className="todo-check-circle"
               aria-label={`${row.task.title}を完了`}
-              onClick={(event) => { event.stopPropagation(); onTogglePeriodComplete(row); }}
+              onClick={(event) => { event.stopPropagation(); onComplete(row); }}
             />
-            <span className="period-progress-badge">{row.dayIndex}/{row.totalDays}</span>
+            {/* 色だけに頼らず、切迫度をラベルでも示す。 */}
+            <span className="range-semantics-badge">{EXECUTION_WINDOW_URGENCY_LABELS[row.urgency]}</span>
             <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
               <strong>{row.task.title}</strong>
-              <span>
-                {theme?.name || "個人業務"} / 期間中 {row.dayIndex}日目 / 終了まであと{row.daysRemaining}日
-              </span>
+              <span>{theme?.name || "個人業務"} / 期間内に一度 / {remaining}</span>
             </button>
             <time>{scheduleRangeLabel(row.schedule)}</time>
             <span className="today-postpone-actions">
               <button
                 className="postpone-button period-action-button"
-                onClick={(event) => { event.stopPropagation(); onCreateTodayTask(row); }}
-                title="今日の作業を作成"
-                aria-label={`${row.task.title}の今日の作業を作成`}
+                onClick={(event) => { event.stopPropagation(); onMoveToday(row); }}
+                title="今日やることへ追加"
+                aria-label={`${row.task.title}を今日やることへ追加`}
               >
                 <IconCalendarPlus size={14} />
               </button>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * 継続中Task（#309）。
+ * 一回のcheckboxでTask全体を完了させない。今日の実施記録と、継続そのものの終了を分ける。
+ */
+function OngoingPeriodTaskRows({
+  rows,
+  themes,
+  onOpenDetail,
+  onRecordToday,
+  onPlanToday,
+  onFinishPeriod,
+  onExtendPeriod,
+}: {
+  rows: OngoingPeriodTaskRow[];
+  themes: PageProps["themes"];
+  onOpenDetail: (row: OngoingPeriodTaskRow) => void;
+  onRecordToday: (row: OngoingPeriodTaskRow) => void;
+  onPlanToday: (row: OngoingPeriodTaskRow) => void;
+  onFinishPeriod: (row: OngoingPeriodTaskRow) => void;
+  onExtendPeriod: (row: OngoingPeriodTaskRow) => void;
+}) {
+  if (!rows.length) return <EmptyState title="継続中のタスクはありません" />;
+  return (
+    <div className="today-task-list">
+      {rows.map((row) => {
+        const { theme, style } = themeChipStyle(themes, row.task.project_id);
+        return (
+          <div
+            className={`today-task-row period-task-row is-clickable-row ${row.pastEnd ? "is-past-end" : ""}`}
+            key={row.task.id}
+            style={style}
+            onClick={() => onOpenDetail(row)}
+          >
+            <span className="todo-theme-bar" />
+            <span className="period-progress-badge">{row.dayIndex}/{row.totalDays}</span>
+            <span className="range-semantics-badge">{row.unspecified ? UNSPECIFIED_RANGE_LABEL : "継続中"}</span>
+            <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
+              <strong>{row.task.title}</strong>
+              <span>
+                {theme?.name || "個人業務"} / {row.pastEnd ? "継続予定期間が終了しました" : `${row.dayIndex}日目 / 終了まであと${row.daysRemaining}日`}
+              </span>
+            </button>
+            <time>{scheduleRangeLabel(row.schedule)}</time>
+            {/* 終了日が来ただけでは自動完了しない。完了・延長・そのまま継続を選べるようにする。 */}
+            <span className="period-row-actions" onClick={(event) => event.stopPropagation()}>
+              <button className="secondary-button compact" onClick={() => onRecordToday(row)}>今日取り組んだ</button>
+              <button className="secondary-button compact" onClick={() => onPlanToday(row)}>今日やる</button>
+              {row.pastEnd && <button className="secondary-button compact" onClick={() => onExtendPeriod(row)}>期間を延長</button>}
+              <button className="secondary-button compact" onClick={() => onFinishPeriod(row)}>継続を終了</button>
             </span>
           </div>
         );
@@ -585,6 +669,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   const schedules = schedulesByOwner(v2);
   const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   const periodRows = buildOngoingPeriodTaskView(v2, today);
+  const executionWindowRows = buildExecutionWindowTaskView(v2, today);
   const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({ task, schedule: schedules.get(`task:${task.id}`) }));
   const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
@@ -722,11 +807,73 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日の作業を作成しました。");
   }
 
-  async function handleTogglePeriodComplete(row: OngoingPeriodTaskRow) {
-    const nextState = row.task.state === "done" ? "todo" : "done";
-    if (nextState === "done") playCompleteSound();
-    const nextMessage = nextState === "done" && row.task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "期間タスクを完了しました。" : "未完了に戻しました。";
-    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), nextMessage);
+  /**
+   * 継続Taskの「今日取り組んだ」（#309）。
+   * 親Taskは継続中のまま、その日の実施だけを完了済みの子Taskとして残す。
+   * 実施記録のある日だけActivityへ出したいので、親Taskを毎日複製しない。
+   */
+  async function handleRecordOngoingWork(row: OngoingPeriodTaskRow) {
+    const taskId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const task: Task = {
+      id: taskId,
+      project_id: row.task.project_id || null,
+      plan_node_id: row.task.plan_node_id || null,
+      parent_task_id: row.task.id,
+      title: `${row.task.title}：${formatDate(today)}`,
+      state: "done",
+      priority: row.task.priority,
+      completed_at: now,
+      created_at: now,
+    };
+    const schedule: Schedule = {
+      id: crypto.randomUUID(),
+      owner_type: "task",
+      owner_id: taskId,
+      start_date: today,
+      end_date: today,
+      date_kind: "point",
+      confidence: "fixed",
+      granularity: "day",
+    };
+    playCompleteSound();
+    await saveEntities(
+      [...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)],
+      "今日の実施を記録しました。継続は終了していません。",
+    );
+  }
+
+  /** 継続そのものを終える操作。今日の実施記録とは別に扱う（#309）。 */
+  async function handleFinishOngoingPeriod(row: OngoingPeriodTaskRow) {
+    if (row.task.state !== "done") playCompleteSound();
+    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), "継続を終了しました。");
+  }
+
+  /** 終了予定日を過ぎた継続Taskを、完了させずに延ばす（#309）。 */
+  async function handleExtendOngoingPeriod(row: OngoingPeriodTaskRow) {
+    const nextEnd = addDays(today, EXTEND_ONGOING_PERIOD_DAYS);
+    await saveEntities(
+      buildSaveScheduleOperations({ ...row.schedule, end_date: nextEnd }),
+      `継続期間を${formatDate(nextEnd)}まで延長しました。`,
+    );
+  }
+
+  async function handleCompleteExecutionWindow(row: ExecutionWindowTaskRow) {
+    if (row.task.state !== "done") playCompleteSound();
+    const message = row.task.repeat_rule ? "完了しました。次のタスクを作成しました。" : "完了しました。";
+    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), message);
+  }
+
+  /** 期間内に一度やるTaskを、今日やることへ明示的に持ち上げる（#309）。 */
+  async function handleMoveExecutionWindowToday(row: ExecutionWindowTaskRow) {
+    await saveEntities(
+      buildSaveScheduleOperations({ ...row.schedule, start_date: today, end_date: today, date_kind: "point", range_semantics: null }),
+      "今日やることへ移しました。",
+    );
+  }
+
+  function handleOpenExecutionWindowTask(row: ExecutionWindowTaskRow) {
+    openDrawer({ type: "task", mode: "edit", entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown> });
   }
 
   function handleOpenDetail(row: TodayRow) {
@@ -991,12 +1138,35 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
         </div>
       </section>
 
+      {/* 日付範囲の意味で扱いを分ける（#309）。期間に入っただけで毎日督促しない。 */}
       <section className="panel today-focus-panel">
         <div className="section-heading">
-          <h2>進行中の期間タスク</h2>
+          <h2>期間内に対応</h2>
           <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
         </div>
-        <PeriodTaskRows rows={periodRows} themes={themes} onOpenDetail={handleOpenPeriodTask} onCreateTodayTask={handleCreateTodayTask} onTogglePeriodComplete={handleTogglePeriodComplete} />
+        <ExecutionWindowTaskRows
+          rows={executionWindowRows}
+          themes={themes}
+          onOpenDetail={handleOpenExecutionWindowTask}
+          onComplete={handleCompleteExecutionWindow}
+          onMoveToday={handleMoveExecutionWindowToday}
+        />
+      </section>
+
+      <section className="panel today-focus-panel">
+        <div className="section-heading">
+          <h2>継続中</h2>
+          <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
+        </div>
+        <OngoingPeriodTaskRows
+          rows={periodRows}
+          themes={themes}
+          onOpenDetail={handleOpenPeriodTask}
+          onRecordToday={handleRecordOngoingWork}
+          onPlanToday={handleCreateTodayTask}
+          onFinishPeriod={handleFinishOngoingPeriod}
+          onExtendPeriod={handleExtendOngoingPeriod}
+        />
       </section>
 
       <div className="today-grid">

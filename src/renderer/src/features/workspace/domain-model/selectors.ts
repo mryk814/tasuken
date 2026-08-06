@@ -1,9 +1,16 @@
+import {
+  daysUntil,
+  executionWindowUrgency,
+  getScheduleKind,
+  inclusiveDays,
+  isOngoingPeriodPastEnd,
+  todayIso,
+} from "./scheduleSemantics";
 import type { CaptureEntry, PlanNode, Schedule, Task, WorkspaceDomain } from "./types";
-import type { InboxView, MicroMemoView, OngoingPeriodTaskRow, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
+import type { ExecutionWindowTaskRow, InboxView, MicroMemoView, OngoingPeriodTaskRow, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
 
-function todayString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+// 日付境界はローカル日付で揃える（UTC変換で前日へずれるため toISOString は使わない）。
+const todayString = todayIso;
 
 function scheduleKey(ownerType: Schedule["owner_type"], ownerId: string): string {
   return `${ownerType}:${ownerId}`;
@@ -21,22 +28,30 @@ function isActiveTask(state: string): boolean {
   return !["done", "cancelled"].includes(state);
 }
 
+/**
+ * 「今日やること」へ出すか（#95 / #309）。
+ * 範囲に入っただけでは出さず、範囲の意味ごとに出し方を分ける。
+ * - 継続中Taskは専用セクションが受け持つので、ここには出さない
+ * - 期間内に一度やるTaskは終了日当日だけ、見逃さないようここへ出す
+ */
 function scheduleHasExplicitDate(schedule: Schedule | undefined, date: string): boolean {
   if (!schedule) return false;
+  if (getScheduleKind(schedule) === "ongoing_period") return false;
   if (schedule.start_date === date && schedule.end_date && schedule.end_date > date) return false;
   return schedule.start_date === date || schedule.end_date === date;
 }
 
-function isOngoingPeriod(schedule: Schedule | undefined, date: string): schedule is Schedule & { start_date: string; end_date: string } {
-  if (!schedule?.start_date || !schedule.end_date) return false;
-  if (schedule.start_date >= schedule.end_date) return false;
-  return schedule.start_date <= date && date < schedule.end_date;
-}
-
-function inclusiveDays(start: string, end: string): number {
-  const startTime = Date.parse(`${start}T00:00:00.000Z`);
-  const endTime = Date.parse(`${end}T00:00:00.000Z`);
-  return Math.floor((endTime - startTime) / 86400000) + 1;
+/**
+ * 「継続中」として扱う範囲（#309）。
+ * ongoing と、意味が未設定の既存範囲だけを対象にする。`期間内に一度`は
+ * 期間中ずっと継続しているわけではないので、ここには入れない。
+ */
+function isContinuingRange(schedule: Schedule | undefined, date: string): schedule is Schedule & { start_date: string; end_date: string } {
+  const kind = getScheduleKind(schedule);
+  if (kind !== "ongoing_period" && kind !== "unspecified_range") return false;
+  // 未分類の既存範囲は #95 の規則（終了日当日は今日やることへ出す）を維持する。
+  const openEnd = kind === "unspecified_range" ? date < String(schedule?.end_date) : date <= String(schedule?.end_date);
+  return String(schedule?.start_date) <= date && openEnd;
 }
 
 function compareScheduledRows<T extends { schedule?: Schedule }>(a: T, b: T): number {
@@ -134,21 +149,53 @@ export function buildTodayView(domain: WorkspaceDomain, date = todayString()): T
   return entries.sort((a, b) => todayEntryDate(a).localeCompare(todayEntryDate(b)));
 }
 
+/**
+ * 継続中Task（#309）。終了予定日を過ぎたものも、完了 / 延長 / 継続を選べるよう残す。
+ * 一回の完了で閉じるTaskはここに出さない（buildExecutionWindowTaskView が受け持つ）。
+ */
 export function buildOngoingPeriodTaskView(domain: WorkspaceDomain, date = todayString()): OngoingPeriodTaskRow[] {
   const schedules = schedulesByOwner(domain);
   return domain.tasks
     .map((task) => ({ task, schedule: schedules.get(scheduleKey("task", task.id)) }))
     .filter((row): row is { task: typeof row.task; schedule: Schedule & { start_date: string; end_date: string } } => (
-      isActiveTask(row.task.state) && isOngoingPeriod(row.schedule, date)
+      isActiveTask(row.task.state) && (isContinuingRange(row.schedule, date) || isOngoingPeriodPastEnd(row.schedule, date))
     ))
     .map(({ task, schedule }) => ({
       task,
       schedule,
       dayIndex: inclusiveDays(schedule.start_date, date),
       totalDays: inclusiveDays(schedule.start_date, schedule.end_date),
-      daysRemaining: Math.max(0, inclusiveDays(date, schedule.end_date) - 1),
+      daysRemaining: Math.max(0, daysUntil(date, schedule.end_date)),
+      unspecified: getScheduleKind(schedule) === "unspecified_range",
+      pastEnd: isOngoingPeriodPastEnd(schedule, date),
     }))
-    .sort((a, b) => a.dayIndex - b.dayIndex || a.schedule.end_date.localeCompare(b.schedule.end_date) || a.task.title.localeCompare(b.task.title, "ja"));
+    .sort((a, b) => Number(b.pastEnd) - Number(a.pastEnd)
+      || a.schedule.end_date.localeCompare(b.schedule.end_date)
+      || a.task.title.localeCompare(b.task.title, "ja"));
+}
+
+/**
+ * 期間内に一度やるTask（#309）。
+ * 期間に入っただけでは「今日必ずやること」にせず、この候補セクションから拾う。
+ * 終了日が近いものほど前に出し、超過は最優先で見せる。
+ */
+export function buildExecutionWindowTaskView(domain: WorkspaceDomain, date = todayString()): ExecutionWindowTaskRow[] {
+  const schedules = schedulesByOwner(domain);
+  return domain.tasks
+    .map((task) => ({ task, schedule: schedules.get(scheduleKey("task", task.id)) }))
+    .filter((row): row is { task: typeof row.task; schedule: Schedule & { start_date: string; end_date: string } } => (
+      isActiveTask(row.task.state)
+      && getScheduleKind(row.schedule) === "execution_window"
+      // 開始日前はTodayへ出さない。超過は見逃さないよう残す。
+      && String(row.schedule?.start_date) <= date
+    ))
+    .map(({ task, schedule }) => ({
+      task,
+      schedule,
+      urgency: executionWindowUrgency(schedule, date),
+      daysRemaining: daysUntil(date, schedule.end_date),
+    }))
+    .sort((a, b) => a.daysRemaining - b.daysRemaining || a.task.title.localeCompare(b.task.title, "ja"));
 }
 
 function comparePlanNodes(schedules: Map<string, Schedule>, a: PlanNode, b: PlanNode): number {

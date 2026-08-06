@@ -67,12 +67,28 @@ test("Today opens task rows directly in edit mode and shows lightweight reminder
   assert.match(todayPageSource, /type: "task", mode: "edit"/);
 });
 
-test("Today period tasks can be completed and spawn dated daily work", () => {
-  assert.match(todayPageSource, /onTogglePeriodComplete/);
-  assert.match(todayPageSource, /handleTogglePeriodComplete/);
+test("Todayは日付範囲の意味ごとに扱いを分ける（#309）", () => {
+  // 期間内に一度やるTaskと、継続中Taskを別のセクションで見せる。
+  assert.match(todayPageSource, /<h2>期間内に対応<\/h2>/);
+  assert.match(todayPageSource, /<h2>継続中<\/h2>/);
+  assert.match(todayPageSource, /buildExecutionWindowTaskView/);
+  assert.match(todayPageSource, /buildOngoingPeriodTaskView/);
+
+  // 期間内に一度やるTaskは、一回の完了でTask全体が終わるのでcheckboxを残す。
   assert.match(todayPageSource, /todo-check-circle/);
-  assert.match(todayPageSource, /buildCompleteTaskOperations\(row\.task, row\.schedule\)/);
+  assert.match(todayPageSource, /handleCompleteExecutionWindow/);
+
+  // 継続Taskは、今日の実施記録とTask全体の完了を別操作にする。
+  assert.match(todayPageSource, /今日取り組んだ/);
+  assert.match(todayPageSource, /継続を終了/);
+  assert.match(todayPageSource, /handleRecordOngoingWork/);
+  assert.match(todayPageSource, /handleFinishOngoingPeriod/);
   assert.match(todayPageSource, /title: `\$\{row\.task\.title\}：\$\{formatDate\(today\)\}`/);
+  // 終了予定日が来ただけで自動完了させず、延長という逃げ道を出す。
+  assert.match(todayPageSource, /期間を延長/);
+  assert.match(todayPageSource, /handleExtendOngoingPeriod/);
+  // 継続Taskの行に、Task全体を一度で完了させるcheckboxを置かない。
+  assert.doesNotMatch(todayPageSource, /handleTogglePeriodComplete/);
 });
 
 test("Today surfaces generated Activity and configures automatic daily export", () => {

@@ -3,6 +3,7 @@ import type {
   PlanNodeState,
   PlanNodeType,
   ProjectState,
+  ScheduleRangeSemantics,
   TaskShelf,
   TaskState,
   WaitingState,
@@ -37,6 +38,21 @@ export const TASK_SHELF_LABELS: Record<TaskShelf, string> = {
   someday: "いつか",
   backlog: "Backlog",
 };
+
+/** 日付範囲の意味（#309）。内部コードを画面へ出さないための対応表。 */
+export const SCHEDULE_RANGE_SEMANTICS_LABELS: Record<ScheduleRangeSemantics, string> = {
+  once_within_window: "期間内に一度",
+  ongoing: "期間中継続",
+};
+
+/** 選択肢の補助説明。常設の長文にせず、選択時の一行として使う。 */
+export const SCHEDULE_RANGE_SEMANTICS_HINTS: Record<ScheduleRangeSemantics, string> = {
+  once_within_window: "期間内に一回完了すれば終了します。",
+  ongoing: "今日の実施を記録してもTask全体は継続します。",
+};
+
+/** 意味が未設定の既存範囲。分類していないことが分かる語にする。 */
+export const UNSPECIFIED_RANGE_LABEL = "期間未分類";
 
 export const WAITING_STATE_LABELS: Record<WaitingState, string> = {
   waiting: "待ち",

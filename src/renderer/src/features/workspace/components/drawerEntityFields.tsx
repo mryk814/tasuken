@@ -10,11 +10,14 @@ import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
+  SCHEDULE_RANGE_SEMANTICS_HINTS,
+  SCHEDULE_RANGE_SEMANTICS_LABELS,
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
-import type { Schedule, Task } from "../domain-model/types";
+import { DEFAULT_RANGE_SEMANTICS } from "../domain-model/scheduleSemantics";
+import type { Schedule, ScheduleRangeSemantics, Task } from "../domain-model/types";
 import { Field, ThemeSelect } from "./common";
 
 const REPEAT_FREQUENCY_LABELS = {
@@ -23,6 +26,8 @@ const REPEAT_FREQUENCY_LABELS = {
   monthly: "毎月",
 };
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+// 期間内に一度を先に置き、新規の日付範囲の自然な既定にする（#309）。
+const RANGE_SEMANTICS_ORDER: ScheduleRangeSemantics[] = ["once_within_window", "ongoing"];
 
 export function findSchedule(
   data: WorkspaceData,
@@ -74,6 +79,13 @@ export function TaskFields({
     : [];
   const fallbackMonthDay = dateOnly(schedule?.end_date || schedule?.start_date || todayIso()).slice(-2);
   const canAutoSaveChecklist = Boolean(entity.id && saveEntities);
+  // 日付範囲の意味（#309）。既存の未分類データは編集で触るまで未分類のまま残す。
+  const [startDate, setStartDate] = useState(dateOnly(schedule?.start_date));
+  const [endDate, setEndDate] = useState(dateOnly(schedule?.end_date));
+  const [rangeSemantics, setRangeSemantics] = useState<ScheduleRangeSemantics>(
+    schedule?.range_semantics === "ongoing" ? "ongoing" : DEFAULT_RANGE_SEMANTICS,
+  );
+  const isDateRange = Boolean(startDate && endDate && endDate > startDate);
 
   async function saveChecklist(nextChecklist: ReturnType<typeof normalizeChecklistItems>) {
     setChecklist(nextChecklist);
@@ -133,9 +145,34 @@ export function TaskFields({
         <input name="reminder_at" type="datetime-local" defaultValue={normalizeReminderDateTime(entity.reminder_at) || ""} />
       </Field>
       <div className="form-grid">
-        <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>
-        <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
+        <Field label="開始">
+          <input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} onChange={(event) => setStartDate(event.target.value)} />
+        </Field>
+        <Field label="期限">
+          <input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} onChange={(event) => setEndDate(event.target.value)} />
+        </Field>
       </div>
+      {/* 日付範囲を指定したときだけ意味を尋ねる。単日には不要な選択を出さない（#309）。 */}
+      {isDateRange && (
+        <fieldset className="range-semantics-field">
+          <legend>この期間の意味</legend>
+          {RANGE_SEMANTICS_ORDER.map((value) => (
+            <label key={value} className="toggle range-semantics-choice">
+              <input
+                type="radio"
+                name="range_semantics"
+                value={value}
+                checked={rangeSemantics === value}
+                onChange={() => setRangeSemantics(value)}
+              />
+              <span>
+                <strong>{SCHEDULE_RANGE_SEMANTICS_LABELS[value]}</strong>
+                <small>{SCHEDULE_RANGE_SEMANTICS_HINTS[value]}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
       {/* 完了時のひとことは説明と混ぜず、完了の記録として別に持つ（#308）。 */}
       <Field label="完了時のひとこと"><input name="completion_note" defaultValue={str(entity.completion_note)} /></Field>

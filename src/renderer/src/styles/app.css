@@ -395,7 +395,34 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .today-task-list, .today-update-list { display: grid; }
 .today-task-row { min-height: 40px; display: grid; grid-template-columns: 8px 24px minmax(0, 1fr) 94px 52px; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
-.period-task-row { grid-template-columns: 8px 24px 48px minmax(0, 1fr) 158px 52px; }
+/* 継続中Task（#309）。checkboxは置かず、今日の実施記録と継続の終了を並べる。 */
+.period-task-row { grid-template-columns: 8px 48px minmax(84px, auto) minmax(0, 1fr) 158px auto; }
+/* 期間内に一度やるTask（#309）。一回の完了で終わるのでcheckboxを残す。 */
+.execution-window-row { grid-template-columns: 8px 24px minmax(84px, auto) minmax(0, 1fr) 158px 52px; }
+.period-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1); }
+/* 範囲の意味は色だけに頼らず、必ず語でも示す。 */
+.range-semantics-badge {
+  display: inline-flex; justify-content: center; padding: 1px var(--space-2);
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle); color: var(--color-text-secondary);
+  font-size: var(--text-xs); white-space: nowrap; word-break: keep-all;
+}
+.execution-window-row.urgency-due_soon .range-semantics-badge,
+.execution-window-row.urgency-due_today .range-semantics-badge {
+  border-color: var(--color-status-review-bd); background: var(--color-status-review-bg); color: var(--color-status-review-fg);
+}
+.execution-window-row.urgency-overdue .range-semantics-badge {
+  border-color: var(--color-danger-bd); background: var(--color-danger-bg); color: var(--color-danger-strong);
+}
+.period-task-row.is-past-end .range-semantics-badge {
+  border-color: var(--color-status-review-bd); background: var(--color-status-review-bg); color: var(--color-status-review-fg);
+}
+/* 日付範囲の意味を選ぶラジオ（#309）。選択肢ごとに一行の補助説明を添える。 */
+.range-semantics-field { display: grid; gap: var(--space-1); padding: var(--space-2) 0 0; border: 0; }
+.range-semantics-field legend { padding: 0 0 var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.range-semantics-choice { align-items: flex-start; min-height: 34px; }
+.range-semantics-choice span { display: grid; }
+.range-semantics-choice small { color: var(--color-text-secondary); font-size: var(--text-xs); }
 .today-task-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%, var(--color-surface-muted) 46%); }
 .today-task-row.is-due-today {
   background: linear-gradient(

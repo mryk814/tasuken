@@ -124,6 +124,12 @@ export interface PlanNode {
 
 export type ScheduleOwnerType = "task" | "waiting" | "plan_node";
 
+/**
+ * 日付範囲の意味（#309）。開始日と終了日が異なる範囲にだけ設定する。
+ * 未設定（null）は「意味を決めていない既存の範囲」で、#95の表示規則をそのまま使う。
+ */
+export type ScheduleRangeSemantics = "once_within_window" | "ongoing";
+
 export interface Schedule {
   id: string;
   owner_type: ScheduleOwnerType;
@@ -131,6 +137,7 @@ export interface Schedule {
   start_date?: string | null;
   end_date?: string | null;
   date_kind: "point" | "deadline" | "range" | "unknown";
+  range_semantics?: ScheduleRangeSemantics | null;
   confidence: "rough" | "tentative" | "fixed";
   granularity: "day" | "week" | "month";
   baseline_start?: string | null;
