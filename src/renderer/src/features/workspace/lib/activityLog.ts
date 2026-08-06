@@ -148,7 +148,13 @@ export function buildActivityLog(input: ActivityLogInput): string {
     ...(themeDetails.length ? themeDetails : ["- なし"]),
     "",
     "## 完了したタスク",
-    ...(completedTasks.length ? completedTasks.map((task) => `- [x] ${labelOf(task.project_id)} / ${task.title}`) : ["- なし"]),
+    ...(completedTasks.length
+      ? completedTasks.map((task) => {
+        // 完了時のひとことは本文と分けて保存しているので、記録側でも別項として出す（#308）。
+        const note = text(task.completion_note);
+        return `- [x] ${labelOf(task.project_id)} / ${task.title}${note ? ` — ${note}` : ""}`;
+      })
+      : ["- なし"]),
     "",
     "## 受け取ったWaiting",
     ...(receivedWaitings.length ? receivedWaitings.map((waiting) => `- ${labelOf(waiting.project_id)} / ${waiting.title} / ${waiting.waiting_for}`) : ["- なし"]),

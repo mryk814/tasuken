@@ -120,6 +120,9 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
       reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
       description: formText(values, "description") || null,
+      completion_note: hasField("completion_note")
+        ? formText(values, "completion_note") || null
+        : (base.completion_note as string | null) ?? null,
       repeat_rule: taskRepeatRuleFromForm(
         values,
         Number((formText(values, "end_date") || todayIso()).slice(-2)),

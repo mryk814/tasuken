@@ -7,11 +7,14 @@ import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import {
   firstCaptureUrl,
+  parseQuickCaptureDue,
   quickCaptureContentType,
+  quickCaptureDueLabel,
   quickCaptureTitle,
+  splitQuickCaptureInput,
 } from "../shared/quickCapture.mjs";
 
-export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
+export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task" | "due-task";
 
 interface QuickCaptureControllerOptions {
   repository: InstanceType<typeof WorkspaceDatabase>;
@@ -33,7 +36,8 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
   function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
       width: 420,
-      height: 228,
+      // 期限の解釈結果を出す1行ぶんを含めた高さ（#308）。
+      height: 252,
       show: false,
       frame: false,
       resizable: false,
@@ -103,23 +107,33 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
     ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string) => {
       const trimmed = (text || "").trim();
       if (!trimmed) throw new Error("入力が空です。");
-      if (mode === "today-task" || mode === "done-task") {
+      if (mode === "today-task" || mode === "done-task" || mode === "due-task") {
         const taskId = randomUUID();
         const today = localDateString();
         const now = new Date().toISOString();
         const isDoneTask = mode === "done-task";
+        // 「本体｜補足」の補足はmodeごとに意味が違う（#308）。
+        const { main, extra } = splitQuickCaptureInput(trimmed);
+        if (!main) throw new Error("タスク名を入力してください。");
+        const due = mode === "due-task" ? parseQuickCaptureDue(extra, today) : null;
+        if (due && !due.ok) throw new Error(due.message);
+        const scheduledDate = due?.ok ? due.date : today;
         const saved = options.repository.saveMany([
           {
             action: "save",
             type: "task",
             entity: {
               id: taskId,
-              title: trimmed,
-              description: null,
+              title: main,
+              // 期限modeの補足は日付として消費するので本文へは残さない。
+              description: mode === "today-task" && extra ? extra : null,
+              // やったことのひとことは本文と混ぜず、完了の記録として分けて保存する。
+              completion_note: isDoneTask && extra ? extra : null,
               project_id: themeId || null,
               state: isDoneTask ? "done" : "todo",
               priority: "normal",
               completed_at: isDoneTask ? now : null,
+              reminder_at: due?.ok && due.time ? `${due.date}T${due.time}` : null,
               created_at: now,
             },
             options: { source: "quick-capture" },
@@ -131,9 +145,9 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               id: randomUUID(),
               owner_type: "task",
               owner_id: taskId,
-              start_date: today,
-              end_date: today,
-              date_kind: "point",
+              start_date: scheduledDate,
+              end_date: scheduledDate,
+              date_kind: mode === "due-task" ? "deadline" : "point",
               confidence: "fixed",
               granularity: "day",
             },
@@ -165,6 +179,15 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
       return saved;
     });
 
+    // 期限は保存前に解釈結果を確認できるようにする（#308）。解釈はmain側の一箇所だけで行う。
+    ipcMain.handle("quick-capture:preview-due", (_event, text: unknown) => {
+      const { extra } = splitQuickCaptureInput(typeof text === "string" ? text : "");
+      if (!extra) return { state: "empty" as const };
+      const due = parseQuickCaptureDue(extra, localDateString());
+      if (!due.ok) return { state: "error" as const, message: due.message };
+      return { state: "ok" as const, label: quickCaptureDueLabel(due) };
+    });
+
     ipcMain.on("quick-capture:hide", () => {
       if (captureWindow && !captureWindow.isDestroyed()) captureWindow.hide();
     });
@@ -174,6 +197,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
     return [
       { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => show("inbox") },
       { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => show("today-task") },
+      { label: "期限つきタスクを追加", accelerator: "CmdOrCtrl+Shift+D", click: () => show("due-task") },
       { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+,", click: () => show("done-task") },
       { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => show("micro-memo") },
     ];

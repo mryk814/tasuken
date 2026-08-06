@@ -882,6 +882,7 @@ async function startDesktopApp(): Promise<void> {
     reminderController.start();
     globalShortcut.register("CmdOrCtrl+Shift+N", () => quickCaptureController?.show("inbox"));
     globalShortcut.register("CmdOrCtrl+Shift+M", () => quickCaptureController?.show("today-task"));
+    globalShortcut.register("CmdOrCtrl+Shift+D", () => quickCaptureController?.show("due-task"));
     globalShortcut.register("CmdOrCtrl+Shift+,", () => quickCaptureController?.show("done-task"));
     globalShortcut.register("CmdOrCtrl+Shift+.", () => quickCaptureController?.show("micro-memo"));
   }

@@ -93,6 +93,7 @@ export function TaskFields({
       planning_shelf: normalizeTaskShelf(entity.planning_shelf),
       reminder_at: normalizeReminderDateTime(entity.reminder_at),
       description: (entity.description as string | null) ?? null,
+      completion_note: (entity.completion_note as string | null) ?? null,
       repeat_rule: repeatRule as Task["repeat_rule"],
       repeat_series_id: (entity.repeat_series_id as string | null) ?? null,
       repeat_parent_task_id: (entity.repeat_parent_task_id as string | null) ?? null,
@@ -136,6 +137,8 @@ export function TaskFields({
         <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
       </div>
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      {/* 完了時のひとことは説明と混ぜず、完了の記録として別に持つ（#308）。 */}
+      <Field label="完了時のひとこと"><input name="completion_note" defaultValue={str(entity.completion_note)} /></Field>
       <section className="drawer-subsection">
         <div className="section-heading"><h2>繰り返し</h2></div>
         <div className="form-grid">

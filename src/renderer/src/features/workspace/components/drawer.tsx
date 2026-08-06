@@ -337,6 +337,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
     const task = entity as unknown as Task;
     const schedule = findSchedule(data, "task", task.id, entity._schedule);
     const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
+    const completionNote = str((entity as Record<string, unknown>).completion_note);
     const learningNotes = (data.notes || [])
       .filter((note) => note.item_id === task.id && note.note_type === "learning")
       .sort((a, b) => str(b.created_at || b.updated_at).localeCompare(str(a.created_at || a.updated_at)));
@@ -415,6 +416,8 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <dl>
             <dt>Theme</dt><dd>{themeName}</dd>
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
+            {/* 完了時のひとことは本文と分けて保存する（#308）。 */}
+            {completionNote && (<><dt>完了時のひとこと</dt><dd>{completionNote}</dd></>)}
           </dl>
           <DerivedSourceReference
             data={data}

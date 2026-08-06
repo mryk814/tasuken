@@ -7,7 +7,10 @@ import {
   fileCaptureContentType,
   firstCaptureUrl,
   quickCaptureContentType,
+  quickCaptureDueLabel,
   quickCaptureTitle,
+  parseQuickCaptureDue,
+  splitQuickCaptureInput,
 } from "../src/shared/quickCapture.mjs";
 
 const controllerSource = readFileSync("src/main/quickCaptureController.ts", "utf8");
@@ -57,4 +60,82 @@ test("Inboxはファイル・手書き・整理済み履歴を同じCaptureEntry
   assert.match(inboxSource, /Inboxへ戻す/);
   assert.match(inboxSource, /draft\.output === "document"/);
   assert.match(inboxSource, /draft\.output === "artifact"/);
+});
+
+test("Quick Captureの一行入力は全角・半角の区切りで本体と補足へ分かれる（#308）", () => {
+  assert.deepEqual(splitQuickCaptureInput("報告書の下書きを送った｜ひとまず形になった"), {
+    main: "報告書の下書きを送った",
+    extra: "ひとまず形になった",
+  });
+  assert.deepEqual(splitQuickCaptureInput("住民票を取る|金曜まで"), {
+    main: "住民票を取る",
+    extra: "金曜まで",
+  });
+  assert.deepEqual(splitQuickCaptureInput("測定データを整理した"), {
+    main: "測定データを整理した",
+    extra: "",
+  });
+  // 補足側の区切りは分割せずそのまま残す。
+  assert.equal(splitQuickCaptureInput("A｜B｜C").extra, "B｜C");
+});
+
+test("期限表現は相対語・曜日・日付・時刻を解釈する（#308）", () => {
+  const today = "2026-08-06"; // 木曜
+  const due = (text) => parseQuickCaptureDue(text, today);
+
+  assert.equal(due("今日").date, "2026-08-06");
+  assert.equal(due("明日").date, "2026-08-07");
+  assert.equal(due("あさって").date, "2026-08-08");
+  assert.equal(due("3日後").date, "2026-08-09");
+  assert.equal(due("2週間後").date, "2026-08-20");
+  assert.equal(due("金曜まで").date, "2026-08-07");
+  // 今日と同じ曜日は「今日」ではなく次週を指す。
+  assert.equal(due("木曜").date, "2026-08-13");
+  assert.equal(due("来週金曜").date, "2026-08-14");
+  assert.equal(due("今週末").date, "2026-08-08");
+  assert.equal(due("来週").date, "2026-08-13");
+  assert.equal(due("今月末").date, "2026-08-31");
+  assert.equal(due("8月15日").date, "2026-08-15");
+  assert.equal(due("8/15").date, "2026-08-15");
+  assert.equal(due("2026-09-01").date, "2026-09-01");
+  assert.equal(due("１５日").date, "2026-08-15");
+  // 過ぎた月日は翌年として読む。
+  assert.equal(due("1/5").date, "2027-01-05");
+
+  assert.deepEqual(
+    { date: due("明日17時まで").date, time: due("明日17時まで").time },
+    { date: "2026-08-07", time: "17:00" },
+  );
+  assert.equal(due("明日 9:30").time, "09:30");
+  assert.equal(due("明日午後3時").time, "15:00");
+  assert.equal(due("今日18時半").time, "18:30");
+  assert.equal(due("17時").date, "2026-08-06");
+});
+
+test("読み取れない期限は保存させずに直し方を返す（#308）", () => {
+  const failed = parseQuickCaptureDue("なるはやで", "2026-08-06");
+  assert.equal(failed.ok, false);
+  assert.match(failed.message, /読み取れませんでした/);
+  assert.match(failed.message, /8\/15/);
+  assert.equal(parseQuickCaptureDue("", "2026-08-06").ok, false);
+  assert.equal(parseQuickCaptureDue("13月40日", "2026-08-06").ok, false);
+});
+
+test("期限のラベルは曜日と時刻を添えて確認できる（#308）", () => {
+  assert.equal(quickCaptureDueLabel({ date: "2026-08-07", time: "" }), "2026-08-07（金）");
+  assert.equal(quickCaptureDueLabel({ date: "2026-08-07", time: "17:00" }), "2026-08-07（金） 17:00");
+  assert.equal(quickCaptureDueLabel(null), "");
+});
+
+test("Quick Captureはmodeごとに補足を解釈し、期限つきTaskを直接保存する（#308）", () => {
+  // 期限modeはdeadline scheduleで保存し、時刻があればリマインダーにする。
+  assert.match(controllerSource, /date_kind: mode === "due-task" \? "deadline" : "point"/);
+  assert.match(controllerSource, /reminder_at: due\?\.ok && due\.time/);
+  // 読めない期限は例外にして、期限なしのまま保存しない。
+  assert.match(controllerSource, /if \(due && !due\.ok\) throw new Error\(due\.message\)/);
+  // やったことのひとことは本文と分けて保存する。
+  assert.match(controllerSource, /completion_note: isDoneTask && extra \? extra : null/);
+  // 入口ごとにmodeを決めて開く。
+  assert.match(controllerSource, /期限つきタスクを追加/);
+  assert.match(captureWindowSource, /previewDue/);
 });

@@ -96,6 +96,8 @@ export function buildCompleteTaskOperations(task: Task, schedule?: Schedule, con
     id: nextTaskId,
     state: "todo",
     completed_at: null,
+    // 前回の完了時のひとことは次回へ持ち越さない（#308）。
+    completion_note: null,
     created_at: now,
     updated_at: undefined,
     repeat_series_id: task.repeat_series_id || task.id,

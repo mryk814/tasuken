@@ -43,6 +43,8 @@ export function duplicateTask(task: Task, schedule?: Schedule, now = new Date().
       id: taskId,
       state: "todo",
       completed_at: null,
+      // 完了時のひとことは元のTaskの記録なので複製へは引き継がない（#308）。
+      completion_note: null,
       created_at: now,
       updated_at: undefined,
       repeat_rule: cloneRepeatRule(task.repeat_rule),

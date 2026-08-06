@@ -74,6 +74,8 @@ export interface Task {
   planned_duration_minutes?: number | null;
   reminder_at?: string | null;
   completed_at?: string | null;
+  /** 完了時のひとこと。説明とは別に、完了の記録として保持する（#308）。 */
+  completion_note?: string | null;
   repeat_rule?: TaskRepeatRule | null;
   repeat_series_id?: string | null;
   repeat_parent_task_id?: string | null;
