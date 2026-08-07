@@ -143,3 +143,59 @@ test("domain form plans report the field that needs focus", () => {
     message: "相手を入力してください。",
   });
 });
+
+test("AI共通metadataは欄がある編集では保存され、欄が無い保存では消えない（#294）", () => {
+  const base = {
+    id: "task-1",
+    ai_summary: "既存の概要",
+    ai_summary_authority: "user_confirmed",
+    ai_authority: "user_confirmed",
+    ai_visibility: ["coding_agent"],
+    ai_source_refs: [{ kind: "url", locator: "https://example.com" }],
+  };
+
+  // 欄が無い保存経路（一覧からの状態変更など）は既存値をそのまま持ち回る。
+  const carried = plan("task", [["title", "解析する"], ["state", "doing"]], base);
+  const carriedTask = carried.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(carriedTask.ai_summary, "既存の概要");
+  assert.deepEqual(carriedTask.ai_visibility, ["coding_agent"]);
+  assert.deepEqual(carriedTask.ai_source_refs, [{ kind: "url", locator: "https://example.com" }]);
+
+  const edited = plan("task", [
+    ["title", "解析する"],
+    ["state", "doing"],
+    ["ai_context_present", "true"],
+    ["ai_summary", "新しい概要"],
+    ["ai_summary_authority", "user_confirmed"],
+    ["ai_freshness", "current"],
+    ["ai_authority", "user_confirmed"],
+    ["ai_last_verified_at", "2026-08-06"],
+    ["ai_visibility_override", "true"],
+    ["ai_visibility", "m365"],
+  ], base);
+  const editedTask = edited.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(editedTask.ai_summary, "新しい概要");
+  assert.equal(editedTask.ai_freshness, "current");
+  assert.equal(editedTask.ai_last_verified_at, "2026-08-06");
+  assert.deepEqual(editedTask.ai_visibility, ["m365"]);
+
+  // 個別設定を外したら未設定（null）へ戻し、Theme・全体の既定へ継承させる。
+  const inherited = plan("task", [
+    ["title", "解析する"],
+    ["state", "doing"],
+    ["ai_context_present", "true"],
+    ["ai_visibility", "m365"],
+  ], base);
+  const inheritedTask = inherited.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(inheritedTask.ai_visibility, null);
+
+  // 置き換え先が無いままsupersededにはしない。
+  const superseded = plan("task", [
+    ["title", "解析する"],
+    ["state", "doing"],
+    ["ai_context_present", "true"],
+    ["ai_freshness", "superseded"],
+  ], base);
+  const supersededTask = superseded.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(supersededTask.ai_freshness, null);
+});

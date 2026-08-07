@@ -4745,3 +4745,19 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .conversation-import-guide th, .conversation-import-guide td { padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--color-border-subtle); text-align: left; vertical-align: top; word-break: keep-all; overflow-wrap: anywhere; }
 .conversation-import-guide thead th { color: var(--color-text-secondary); font-weight: var(--weight-medium); white-space: nowrap; }
 .conversation-import-sample pre { max-height: 220px; overflow: auto; margin: 0 0 var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-subtle); font: var(--text-xs) var(--font-mono); white-space: pre-wrap; }
+
+/* AI・情報状態（#294）。通常編集を圧迫しないよう、詳細は控えめな面に置く。 */
+.ai-context-summary { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.ai-context-summary h3 { margin: 0; color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.04em; }
+.ai-context-summary dl { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin: 0; font-size: var(--text-sm); }
+.ai-context-summary dt { color: var(--color-text-secondary); white-space: nowrap; }
+.ai-context-summary dd { margin: 0; color: var(--color-text); }
+.ai-context-note { display: block; color: var(--color-text-secondary); font-size: var(--text-xs); }
+.ai-context-source-list { margin: 0; padding-left: var(--space-4); }
+.ai-context-fields { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.ai-context-fields summary { color: var(--color-text-secondary); font-size: var(--text-sm); cursor: pointer; }
+.ai-context-fields summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.ai-context-visibility { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.ai-context-visibility legend { padding: 0 var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.ai-context-visibility label { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-text); font-size: var(--text-sm); }
+.ai-context-visibility p { margin: 0; }

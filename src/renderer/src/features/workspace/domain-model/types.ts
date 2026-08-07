@@ -1,3 +1,11 @@
+import type { AiMetadataFields } from "../../../../../shared/aiMetadata.mjs";
+
+/**
+ * AI可読の共通metadata（#294）。本文schemaは種別ごとに別のまま、
+ * 概要・鮮度・根拠・公開範囲・出典だけを同じ意味で持つ。
+ */
+export type AiMetadata = Partial<AiMetadataFields>;
+
 export type ProjectState = "idea" | "active" | "paused" | "closed";
 
 export interface Project {
@@ -14,7 +22,7 @@ export interface Project {
 
 export type CaptureEntryState = "untriaged" | "triaged" | "archived";
 
-export interface CaptureEntry {
+export interface CaptureEntry extends AiMetadata {
   id: string;
   text: string;
   title?: string | null;
@@ -59,7 +67,7 @@ export interface TaskChecklistItem {
   completed_at?: string | null;
 }
 
-export interface Task {
+export interface Task extends AiMetadata {
   id: string;
   project_id?: string | null;
   plan_node_id?: string | null;
@@ -88,7 +96,7 @@ export interface Task {
 
 export type WaitingState = "waiting" | "received" | "cancelled";
 
-export interface Waiting {
+export interface Waiting extends AiMetadata {
   id: string;
   project_id?: string | null;
   task_id?: string | null;
@@ -107,7 +115,7 @@ export interface Waiting {
 export type PlanNodeType = "phase" | "milestone" | "deliverable";
 export type PlanNodeState = "planned" | "active" | "done" | "cancelled";
 
-export interface PlanNode {
+export interface PlanNode extends AiMetadata {
   id: string;
   project_id?: string | null;
   parent_plan_node_id?: string | null;
@@ -147,7 +155,7 @@ export interface Schedule {
   legacy_item_id?: string | null;
 }
 
-export interface Note {
+export interface Note extends AiMetadata {
   id: string;
   title: string;
   body_markdown?: string;
@@ -158,7 +166,7 @@ export interface Note {
   properties_json?: Record<string, unknown>;
 }
 
-export interface Resource {
+export interface Resource extends AiMetadata {
   id: string;
   title: string;
   url?: string | null;
@@ -186,7 +194,7 @@ export interface Resource {
   message_count?: number | null;
 }
 
-export interface Sketch {
+export interface Sketch extends AiMetadata {
   id: string;
   title: string;
   project_id?: string | null;

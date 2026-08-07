@@ -27,6 +27,8 @@ import { entityTitle } from "./lib/domain";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import { activityDatesToAutoExport, localDateAndTime, runActivityAutoExport } from "./lib/activityAutoExport";
 import { buildActivityLog } from "./lib/activityLog";
+import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
+import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
@@ -740,6 +742,8 @@ export function WorkspaceApp() {
         color: formText(values, "color") || (base.color as string) || "",
         group: formText(values, "group"),
         storage_root: formText(values, "storage_root") || null,
+        // 配下EntityのAI公開既定（#294）。未設定に戻すとworkspace既定を使う。
+        default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, (name) => Boolean(named(name))),
       };
     } else if (type === "sketch") {
       const title = formText(values, "title");
@@ -853,6 +857,7 @@ export function WorkspaceApp() {
         source_item_id: (sourceType === "task" || sourceType === "waiting" || sourceType === "plan_node") ? sourceId : (base.source_item_id as string | null) ?? null,
         confidence: formText(values, "confidence", "medium"),
         status: formText(values, "status", "active"),
+        ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))),
       };
       if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return false; }
       delete entity._auto_edge_target_id;
@@ -889,6 +894,11 @@ export function WorkspaceApp() {
     }
 
     if (!entity) return false;
+
+    // AI共通metadata（#294）。欄があるフォームからは読み、無い保存経路では既存値を保つ。
+    if (hasAiMetadataContract(type)) {
+      entity = { ...entity, ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))) };
+    }
 
     // Note の Theme 変更時は添付 Artifact の theme_id も揃える（ファイルは動かさない）。
     if (type === "note" && entity.id) {
