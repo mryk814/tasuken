@@ -1,3 +1,4 @@
+import { validateConversationImportSchema } from "../../../../../shared/conversationImportGuide.mjs";
 import { splitFrontmatter } from "./markdown";
 
 export interface ConversationMessage {
@@ -7,6 +8,8 @@ export interface ConversationMessage {
 }
 
 export interface ConversationFrontmatter {
+  /** Import Bundleのschema版数（#303）。validatorと同じ定義を使う。 */
+  schema?: string;
   provider?: string;
   source_url?: string;
   title?: string;
@@ -22,6 +25,8 @@ export interface ParsedConversation {
   messageCount: number;
   inferredTitle: string;
   inferredLinkType: string;
+  /** schema版数の検証結果（#303）。未知でも本文は読み込む。 */
+  schemaCheck: ReturnType<typeof validateConversationImportSchema>;
 }
 
 const PROVIDER_TO_LINK_TYPE: Record<string, string> = {
@@ -151,6 +156,7 @@ export function parseConversation(text: string): ParsedConversation {
   const fmRaw = fmText ? parseFlatYaml(fmText) : {};
 
   const frontmatter: ConversationFrontmatter = {
+    schema: fmRaw.schema || undefined,
     provider: fmRaw.provider || undefined,
     source_url: fmRaw.source_url || undefined,
     title: fmRaw.title || undefined,
@@ -178,6 +184,7 @@ export function parseConversation(text: string): ParsedConversation {
     messageCount: messages.length,
     inferredTitle,
     inferredLinkType,
+    schemaCheck: validateConversationImportSchema(frontmatter.schema),
   };
 }
 

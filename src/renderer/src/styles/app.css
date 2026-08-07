@@ -4733,3 +4733,15 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 }
 /* 常設の既定Theme（#282）。装飾を強くせず、区切りだけで「常設」を示す。 */
 .theme-nav > button.is-default-theme { margin-bottom: var(--space-1); padding-bottom: var(--space-1); border-bottom: 1px solid var(--color-border-subtle); }
+/* 取り込みガイド（#303）。既定は畳み、必要なときだけ広い表を出す。 */
+.conversation-import-destinations { margin: var(--space-2) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
+.conversation-import-guide { max-height: 46vh; overflow: auto; margin-top: var(--space-2); border-top: 1px solid var(--color-border-subtle); }
+/* 表は本質的に横幅が要る。列を潰さず、この中だけで横スクロールさせる（#300）。 */
+.conversation-import-guide table { min-width: 680px; }
+.conversation-import-guide tbody th { min-width: 9rem; white-space: nowrap; }
+.conversation-import-guide td { min-width: 6rem; }
+.conversation-import-guide table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+.conversation-import-guide caption { padding: var(--space-2) 0; color: var(--color-text-secondary); font-size: var(--text-xs); text-align: left; }
+.conversation-import-guide th, .conversation-import-guide td { padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--color-border-subtle); text-align: left; vertical-align: top; word-break: keep-all; overflow-wrap: anywhere; }
+.conversation-import-guide thead th { color: var(--color-text-secondary); font-weight: var(--weight-medium); white-space: nowrap; }
+.conversation-import-sample pre { max-height: 220px; overflow: auto; margin: 0 0 var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-subtle); font: var(--text-xs) var(--font-mono); white-space: pre-wrap; }

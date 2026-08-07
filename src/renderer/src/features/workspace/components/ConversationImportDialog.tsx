@@ -7,6 +7,13 @@ import type { Resource } from "../domain-model/types";
 import { listActiveChatGroupNames } from "../lib/chatRefs";
 import { CHAT_SERVICE_LABELS, type ChatServiceType } from "../lib/chatServices";
 import { parseConversation, type ParsedConversation } from "../lib/conversationParser";
+import {
+  CONVERSATION_IMPORT_DESTINATIONS,
+  CONVERSATION_IMPORT_MANIFEST_SAMPLE,
+  CONVERSATION_IMPORT_MARKDOWN_SAMPLE,
+  CONVERSATION_IMPORT_PRIVACY_NOTE,
+  CONVERSATION_IMPORT_PROVIDERS,
+} from "../../../../../shared/conversationImportGuide.mjs";
 import { uuid } from "../lib/format";
 import { previewHtml } from "../lib/markdown";
 import { MarkdownPreview } from "./MarkdownPreview";
@@ -41,6 +48,8 @@ export function ConversationImportDialog({
   const [chatGroup, setChatGroup] = useState("");
   const [capturedAt, setCapturedAt] = useState("");
   const [busy, setBusy] = useState(false);
+  // 対応形式ガイドの開閉（#303）。既定は閉じ、必要なときだけ出す。
+  const [guideOpen, setGuideOpen] = useState(false);
 
   function applyParsed(parsed: ParsedConversation, rawText: string) {
     if (!parsed.messageCount) {
@@ -130,6 +139,15 @@ export function ConversationImportDialog({
   }
 
   const groupNames = listActiveChatGroupNames(resources, themeId);
+
+  async function copySample(sample: string, label: string) {
+    try {
+      await workspaceApi.copyText(sample);
+      setToast(`${label}をコピーしました。`, "success");
+    } catch (error) {
+      setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
   const previewMessages = state.step === "preview" ? buildPreviewMessages(state.parsed) : [];
 
   return (
@@ -141,14 +159,59 @@ export function ConversationImportDialog({
         </header>
 
         {state.step === "source" && (
-          <div className="conversation-import-source">
-            <button type="button" className="secondary-button" onClick={pickFile}>
-              <IconFileImport size={16} />ファイルを選択
-            </button>
-            <button type="button" className="secondary-button" onClick={pasteClipboard}>
-              <IconClipboard size={16} />クリップボードから貼り付け
-            </button>
-          </div>
+          <>
+            <div className="conversation-import-source">
+              <button type="button" className="secondary-button" onClick={pickFile}>
+                <IconFileImport size={16} />ファイルを選択
+              </button>
+              <button type="button" className="secondary-button" onClick={pasteClipboard}>
+                <IconClipboard size={16} />クリップボードから貼り付け
+              </button>
+              <button type="button" className="text-button compact" aria-expanded={guideOpen} onClick={() => setGuideOpen((open) => !open)}>
+                対応形式・取り込み方法
+              </button>
+            </div>
+            {/* 何を投入できて、取り込んだ後どこへ入るのかを画面から確認できるようにする（#303）。 */}
+            <p className="conversation-import-destinations">
+              {CONVERSATION_IMPORT_DESTINATIONS.map((entry) => `${entry.label}: ${entry.value}`).join(" / ")}
+              <br />
+              <strong>{CONVERSATION_IMPORT_PRIVACY_NOTE}</strong>
+            </p>
+            {guideOpen && (
+              <div className="conversation-import-guide">
+                <table>
+                  <caption>取り込めるサービスと取得方法</caption>
+                  <thead>
+                    <tr><th>サービス</th><th>取得方法</th><th>忠実度</th><th>形式</th><th>保持</th><th>失われる可能性</th></tr>
+                  </thead>
+                  <tbody>
+                    {CONVERSATION_IMPORT_PROVIDERS.map((provider) => (
+                      <tr key={provider.id}>
+                        <th scope="row">{provider.name}</th>
+                        <td>{provider.method}</td>
+                        <td>{provider.fidelity}</td>
+                        <td>{provider.extensions.join(" ")}</td>
+                        <td>{provider.keeps}</td>
+                        <td>{provider.loses}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="conversation-import-sample">
+                  <div className="section-heading">
+                    <h3>Tasken標準のMarkdown Bundle</h3>
+                    <button type="button" className="text-button compact" onClick={() => void copySample(CONVERSATION_IMPORT_MARKDOWN_SAMPLE, "Markdown Bundle例")}>コピー</button>
+                  </div>
+                  <pre>{CONVERSATION_IMPORT_MARKDOWN_SAMPLE}</pre>
+                  <div className="section-heading">
+                    <h3>Manifest + transcript（ZIP Bundle）</h3>
+                    <button type="button" className="text-button compact" onClick={() => void copySample(CONVERSATION_IMPORT_MANIFEST_SAMPLE, "Manifest例")}>コピー</button>
+                  </div>
+                  <pre>{CONVERSATION_IMPORT_MANIFEST_SAMPLE}</pre>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {state.step === "loading" && (
