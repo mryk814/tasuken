@@ -27,12 +27,42 @@ test("Sketch library owns discovery creation and opening", () => {
   assert.match(library, /usePersistentState<SketchLibraryPreferences>/);
   assert.match(library, /タイトル・Themeで検索/);
   assert.match(library, /Sketchの並び順/);
-  assert.match(library, /openDrawer\(\{ type: "sketch", entity: sketch \}\)/);
-  assert.match(library, /openDrawer\(\{[\s\S]*?type: "sketch",[\s\S]*?mode: "edit"/);
-  assert.match(library, /entity: \{ \.\.\.draft, id: undefined \}/);
+  // 作成も行選択も編集canvasへ直行する。詳細drawerを経由しない（#320）。
   assert.match(library, /navigate\("sketch-editor"\)/);
-  assert.match(library, /navigate\("sketch-editor"\);\s*openDrawer\(\{ type: "sketch", entity: sketch \}\)/);
+  assert.doesNotMatch(library, /openDrawer\(\{ type: "sketch", entity: sketch \}\)/);
   assert.doesNotMatch(library, />開く<\/button>/);
+});
+
+test("Sketchは作って即描き始められる（#320）", () => {
+  const sketchLib = readFileSync("src/renderer/src/features/workspace/lib/sketch.ts", "utf8");
+
+  // 作成前にtitle / Themeを聞かない。既定titleを付けて保存し、canvasを開く。
+  assert.match(library, /async function startSketch\(mode: SketchCanvasMode, size: SketchPageSize\)/);
+  assert.match(library, /await saveEntity\("sketch", draft, \{ quiet: true \}\)/);
+  assert.match(library, /onClick=\{\(\) => void startSketch\("page", SKETCH_PAGE_PRESETS\.landscape\)\}/);
+  assert.match(library, /export function defaultSketchTitle/);
+  assert.match(sketchLib, /export const DEFAULT_SKETCH_TITLE = "無題のSketch"/);
+
+  // 空Sketchを増やさない契約。削除ではなく開き直しで抑える。
+  assert.match(sketchLib, /export function isDisposableSketch/);
+  assert.match(library, /const reusable = \(data\.sketches as Sketch\[\]\)\.find\(/);
+  assert.match(library, /if \(reusable\) \{/);
+
+  // 用紙選択とInfiniteはmenuへ回し、主操作を短くする。
+  assert.match(library, /label: "用紙を選んでPageを作成"/);
+  assert.match(library, /label: "Infinite Canvasを作成"/);
+});
+
+test("Sketch canvasからmetadataを触れて、AI専用UIを常設しない（#320）", () => {
+  const sketchPage = readFileSync("src/renderer/src/features/workspace/pages/SketchPage.tsx", "utf8");
+
+  // `情報`をprimaryにせず、canvasを閉じずに設定できるmenuへ置く。
+  assert.doesNotMatch(sketchPage, />情報<\/button>/);
+  assert.match(sketchPage, /label="この Sketch"/);
+  assert.match(sketchPage, /label: "タイトル・Themeを編集"/);
+
+  // AI向け指示UIはSketch主画面から撤去する。
+  assert.doesNotMatch(sketchPage, /AI向け指示/);
 });
 
 test("Sketch metadata and deletion live in the detail-edit drawer", () => {

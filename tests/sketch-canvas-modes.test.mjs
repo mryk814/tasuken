@@ -14,7 +14,8 @@ const comparison = read("docs/sketch-canvas-modes.md");
 test("new Sketch chooses Page or Infinite while legacy data remains Page", () => {
   assert.match(library, /setCreateMode\("page"\)/);
   assert.match(library, /setCreateMode\("infinite"\)/);
-  assert.match(library, /createSketchDraft\("新しいSketch"[\s\S]*createMode/);
+  // 既定titleは自動採番になった（#320）。modeとsizeの引き渡しだけを見る。
+  assert.match(library, /createSketchDraft\(defaultSketchTitle\([\s\S]*?mode, size\)/);
   assert.match(sketch, /document\.mode === "infinite" \? "infinite" : "page"/);
   assert.match(domain, /\["page", "infinite"\]\.includes\(document\.mode\)/);
 });
@@ -35,7 +36,7 @@ test("Page chooses landscape portrait square or custom size and new pages inheri
   assert.match(pageSizePicker, /\"landscape\" \| \"portrait\" \| \"square\" \| \"custom\"/);
   assert.match(pageSizePicker, /幅と高さは/);
   assert.match(library, /<SketchPageSizePicker value=\{pageSize\}/);
-  assert.match(library, /createSketchDraft\(\"新しいSketch\"[\s\S]*resolvedPageSize\)/);
+  assert.match(library, /void startSketch\(createMode, resolvedPageSize\)/);
   assert.match(editor, /width: activePage\.width, height: activePage\.height/);
   assert.match(editor, /minimumSketchPageSize\(activePage\)/);
   assert.match(editor, /用紙: \{sketchPageSizeLabel\(activePage\)\}/);
