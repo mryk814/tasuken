@@ -180,6 +180,26 @@ export function FocusSessionDialog({
     return () => window.clearInterval(timer);
   }, []);
 
+  /**
+   * Escで表示だけを閉じる（#316）。closeはsetFocusTaskId(null)なので、
+   * sessionは動いたまま残る。終了は「終了する」の明示操作だけが行う。
+   */
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // 終了確認を開いているときは、そちらを先に閉じる。
+      if (endOpen) {
+        event.preventDefault();
+        setEndOpen(false);
+        return;
+      }
+      event.preventDefault();
+      close();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [close, endOpen]);
+
   useEffect(() => {
     if (!session || scratchpad === text(session.body_markdown)) return;
     setSaveState("dirty");
@@ -369,7 +389,14 @@ export function FocusSessionDialog({
   const statusLabel = saveState === "saved" ? "保存済み" : saveState === "saving" ? "保存中" : saveState === "error" ? "保存エラー" : "保存待ち";
 
   return (
-    <div className="focus-session-backdrop">
+    // 表示だけを閉じる（#316）。sessionは動いたままで、終了は明示操作にする。
+    <div
+      className="focus-session-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
       <section className="focus-session-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-session-title">
         <header>
           <div className="focus-session-heading">

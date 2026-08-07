@@ -45,7 +45,7 @@ import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPa
 import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
 import { FocusSessionDialog } from "./components/FocusSessionDialog";
-import { findActiveFocusSession, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
+import { findActiveFocusSession, focusSessionProperties, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -142,6 +142,8 @@ export function WorkspaceApp() {
   const noteAutoSaveTimer = useRef<number | null>(null);
   const noteAutoSaveTriggerRef = useRef<() => void>(() => {});
   const updateCheckStarted = useRef(false);
+  /** 実行中Focusのtask id（#316）。global shortcutから最新値を読むため。 */
+  const activeFocusTaskIdRef = useRef<string>("");
   const activityAutoExportRunning = useRef(false);
   const activityAutoExportFailedTarget = useRef("");
 
@@ -300,6 +302,13 @@ export function WorkspaceApp() {
         event.preventDefault();
         (document.querySelector("[data-search]") as HTMLElement | null)?.focus();
       }
+      // 実行中のFocus Sessionをどの画面からでも開く（#316）。Alt+N（クイック記録）と同系列。
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "f") {
+        const taskId = activeFocusTaskIdRef.current;
+        if (!taskId) return;
+        event.preventDefault();
+        setFocusTaskId(taskId);
+      }
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
@@ -371,6 +380,8 @@ export function WorkspaceApp() {
     [fullData.notes],
   );
   const activeFocusTask = fullDomain.tasks.find((task) => task.id === focusSessionTaskId(activeFocusSession)) || null;
+  // global shortcutは登録時のclosureを見るので、最新のtask idはrefで渡す（#316）。
+  activeFocusTaskIdRef.current = activeFocusTask?.id || "";
 
   function startFocusSession(taskId: string) {
     const activeTaskId = focusSessionTaskId(activeFocusSession);
@@ -1237,6 +1248,13 @@ export function WorkspaceApp() {
               setActiveThemeId={setActiveThemeId}
               domain={domain}
               openDrawer={openDrawer}
+              activeFocus={activeFocusTask && activeFocusSession ? {
+                taskTitle: activeFocusTask.title,
+                // 開始時刻は properties_json 側が正本。共有helperを通す。
+                startedAt: str(focusSessionProperties(activeFocusSession).started_at)
+                  || str(activeFocusSession.created_at),
+              } : null}
+              openActiveFocus={activeFocusTask ? () => setFocusTaskId(activeFocusTask.id) : undefined}
             />
           )}
           <main className="main-area">
@@ -1328,11 +1346,7 @@ export function WorkspaceApp() {
               close={() => setScratchpadDate(null)}
             />
           )}
-          {activeFocusSession && !focusTaskId && activeFocusTask && (
-            <button className="focus-resume-chip" onClick={() => setFocusTaskId(activeFocusTask.id)}>
-              <span>FOCUS</span>{activeFocusTask.title}を再開
-            </button>
-          )}
+          {/* 実行中Focusの表示はSidebar下部へ移した（#316）。右下floatingは目に入りにくい。 */}
           {focusTaskId && fullDomain.tasks.find((task) => task.id === focusTaskId) && (
             <FocusSessionDialog
               task={fullDomain.tasks.find((task) => task.id === focusTaskId) as typeof fullDomain.tasks[number]}

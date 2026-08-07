@@ -2,11 +2,13 @@ import katex from "katex";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmStrikethroughFromMarkdown } from "mdast-util-gfm-strikethrough";
 import { gfmTableFromMarkdown } from "mdast-util-gfm-table";
+import { gfmTaskListItemFromMarkdown } from "mdast-util-gfm-task-list-item";
 import { mathFromMarkdown } from "mdast-util-math";
 import { toString as mdastToString } from "mdast-util-to-string";
 import { cjkFriendlyExtension } from "micromark-extension-cjk-friendly";
 import { gfmStrikethroughCjkFriendly } from "micromark-extension-cjk-friendly-gfm-strikethrough";
 import { gfmTable } from "micromark-extension-gfm-table";
+import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
 import { math as micromarkMath } from "micromark-extension-math";
 import type {
   BlockContent,
@@ -49,12 +51,15 @@ function parseMarkdownBody(body: string): Root {
   return fromMarkdown(body, {
     extensions: [
       gfmTable(),
+      // チェックリストはScratchpad・Noteの日常表記（#316）。`- [ ]` を文字のまま出さない。
+      gfmTaskListItem(),
       gfmStrikethroughCjkFriendly(),
       micromarkMath({ singleDollarTextMath: true }),
       cjkFriendlyExtension(),
     ],
     mdastExtensions: [
       gfmTableFromMarkdown(),
+      gfmTaskListItemFromMarkdown(),
       gfmStrikethroughFromMarkdown(),
       mathFromMarkdown(),
     ],

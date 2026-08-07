@@ -113,3 +113,76 @@ test("Settings exposes shared-folder sync status, manual sync, and conflict reso
   assert.match(settingsSource, /Note内のMarkdown画像を交換します/);
   assert.match(settingsSource, /lastMarkdownImagesReceived/);
 });
+
+test("Todayのprimary actionはTask追加ひとつにする（#316）", () => {
+  const header = todayPageSource.slice(
+    todayPageSource.indexOf("<PageHeader route=\"today\">"),
+    todayPageSource.indexOf("</PageHeader>"),
+  );
+
+  // 画面上部で強いのは「今日のTaskを追加」だけ。
+  const primaries = header.match(/className="primary-button"/g) || [];
+  assert.equal(primaries.length, 1);
+  assert.match(header, /className="primary-button" onClick=\{\(\) => setShowAdd\(\(v\) => !v\)\}/);
+  assert.match(header, /今日のTaskを追加/);
+
+  // コピーとActivityは常設buttonから外し、menuへ移す。
+  assert.equal(/<IconClipboard size=\{16\} \/> コピー/.test(header), false);
+  assert.equal(/<IconClipboard size=\{16\} \/> Activity/.test(header), false);
+  assert.match(header, /id: "copy-today",\s+label: "Todayの内容をコピー"/);
+  assert.match(header, /id: "goto-activity",\s+label: "Activityへ移動"/);
+
+  // Task作成時にThemeを選べる（#316のTask creation contract）。
+  assert.match(todayPageSource, /<InlineAddPanel[\s\S]*?theme=\{addTheme\}[\s\S]*?themes=\{themes\}/);
+});
+
+test("実行中のFocusはSidebar下部から確認・再開できる（#316）", () => {
+  const shell = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+  const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
+
+  // 右下floatingをやめ、Sidebar下部の常設領域へ移す。
+  assert.equal(/focus-resume-chip/.test(app), false);
+  assert.equal(/focus-resume-chip/.test(styles), false);
+  assert.match(shell, /function SidebarFocus\(/);
+  assert.match(shell, /<SidebarFocus focus=\{activeFocus\} collapsed=\{collapsed\} onOpen=\{openActiveFocus\} \/>/);
+  assert.match(styles, /\.sidebar-focus \{[\s\S]*?margin-top: auto;/);
+
+  // 色だけでactiveを示さず、labelと経過時間を出す。
+  assert.match(shell, /FOCUS/);
+  assert.match(shell, /function elapsedFocusLabel\(/);
+  // 動きを減らす設定ではpulseを止める。
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\n\s*\.sidebar-focus-dot \{ animation: none; \}/);
+
+  // どの画面からでも開けるshortcutとcommandがある。
+  assert.match(app, /event\.altKey && !event\.ctrlKey && !event\.metaKey && event\.key\.toLowerCase\(\) === "f"/);
+  assert.match(app, /id: "focus:resume"/);
+  assert.match(shell, /<dt><kbd>Alt<\/kbd>\+<kbd>F<\/kbd><\/dt><dd>実行中のFocus Sessionを開く<\/dd>/);
+});
+
+test("Focus UIは表示だけ閉じ、sessionを終了しない（#316）", () => {
+  const dialog = readFileSync("src/renderer/src/features/workspace/components/FocusSessionDialog.tsx", "utf8");
+
+  // 外側click / Escで閉じる。closeは表示を閉じるだけ（session終了は明示操作）。
+  assert.match(dialog, /className="focus-session-backdrop"\s*\n\s*role="presentation"/);
+  assert.match(dialog, /if \(event\.target === event\.currentTarget\) close\(\);/);
+  assert.match(dialog, /if \(event\.key !== "Escape"\) return;/);
+  // 終了確認を開いているときはそちらを先に閉じる。
+  assert.match(dialog, /if \(endOpen\) \{[\s\S]*?setEndOpen\(false\);/);
+});
+
+test("Daily ScratchpadはMarkdownとして書けて確認できる（#316）", () => {
+  const dialog = readFileSync("src/renderer/src/features/workspace/components/DailyScratchpadDialog.tsx", "utf8");
+  const markdown = readFileSync("src/renderer/src/features/workspace/lib/markdown.ts", "utf8");
+
+  // 本文はMarkdownが正本。書いた結果を確認できる。
+  assert.match(dialog, /const \[mode, setMode\] = useState<"edit" \| "preview">\("edit"\)/);
+  assert.match(dialog, /className="scratchpad-preview markdown-preview"/);
+  // チェックリストを文字のまま出さない。
+  assert.match(markdown, /gfmTaskListItem\(\),/);
+  assert.match(markdown, /gfmTaskListItemFromMarkdown\(\),/);
+
+  // 「選択をNoteへ」は撤去し、Task化だけ残す。
+  assert.equal(/選択をNoteへ/.test(dialog), false);
+  assert.match(dialog, /選択をTaskへ/);
+});

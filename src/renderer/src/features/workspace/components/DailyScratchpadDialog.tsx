@@ -22,6 +22,8 @@ import {
   selectionTitleCandidate,
   type SelectionExtractionKind,
 } from "../lib/selectionExtraction";
+import { renderMarkdownPreview } from "../lib/markdown";
+import { MarkdownPreview } from "./MarkdownPreview";
 import type { Reference, Task } from "../domain-model/types";
 import type { BaseRecord, OpenDrawer, SaveEntities, SaveEntity } from "../types";
 
@@ -61,6 +63,8 @@ export function DailyScratchpadDialog({
   const [saveState, setSaveState] = useState<"creating" | "saved" | "dirty" | "saving" | "error">("creating");
   const [error, setError] = useState("");
   const [extracting, setExtracting] = useState(false);
+  /** 本文はMarkdownが正本。書いた結果を確認できるようにする（#316）。 */
+  const [mode, setMode] = useState<"edit" | "preview">("edit");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const creatingDates = useRef(new Set<string>());
   const pads = useMemo(() => filterDailyScratchpads(notes), [notes]);
@@ -265,25 +269,41 @@ export function DailyScratchpadDialog({
             {filteredPads.length > LIST_LIMIT && <small>先頭{LIST_LIMIT}件を表示中 / {filteredPads.length}件</small>}
           </aside>
           <main className="scratchpad-editor">
+            {/*
+              本文はMarkdownが正本（#316）。見出し・チェックリスト・コード・リンクを
+              そのまま書けるので、書いた結果を確認できるようPreviewを用意する。
+            */}
             <div className="scratchpad-toolbar">
+              <div className="segmented" aria-label="Scratchpadの表示">
+                <button className={mode === "edit" ? "is-active" : ""} onClick={() => setMode("edit")}>Edit</button>
+                <button className={mode === "preview" ? "is-active" : ""} onClick={() => setMode("preview")}>Preview</button>
+              </div>
               <div>
-                <button className="secondary-button compact" disabled={extracting || !current} onClick={() => void extractSelection("task")}>
+                <button
+                  className="secondary-button compact"
+                  disabled={extracting || !current || mode !== "edit"}
+                  onClick={() => void extractSelection("task")}
+                >
                   選択をTaskへ
-                </button>
-                <button className="secondary-button compact" disabled={extracting || !current} onClick={() => void extractSelection("note")}>
-                  選択をNoteへ
                 </button>
               </div>
               <span>Activity Logには全文転記されません</span>
             </div>
-            <textarea
-              ref={textareaRef}
-              value={body}
-              onChange={(event) => updateBody(event.target.value)}
-              placeholder="思いつき、途中の計算、URL、AIへの依頼文。分類せず、そのまま書けます。"
-              aria-label={`${activeDate}のDaily Scratchpad本文`}
-              disabled={saveState === "creating" && !current}
-            />
+            {mode === "preview" ? (
+              <MarkdownPreview
+                className="scratchpad-preview markdown-preview"
+                html={renderMarkdownPreview(body || "_まだ何も書いていません_")}
+              />
+            ) : (
+              <textarea
+                ref={textareaRef}
+                value={body}
+                onChange={(event) => updateBody(event.target.value)}
+                placeholder="思いつき、途中の計算、URL、AIへの依頼文。分類せず、そのまま書けます。Markdownで書けます。"
+                aria-label={`${activeDate}のDaily Scratchpad本文`}
+                disabled={saveState === "creating" && !current}
+              />
+            )}
             {error && <p className="scratchpad-error" role="alert">{error}</p>}
             {derivedItems.length > 0 && (
               <section className="scratchpad-derived">

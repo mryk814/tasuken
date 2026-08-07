@@ -3073,29 +3073,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   background: color-mix(in srgb, #1a1214 52%, transparent);
 }
 
-.focus-resume-chip {
-  position: fixed;
-  z-index: 35;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  max-width: min(420px, calc(100vw - 32px));
-  padding: var(--space-2) var(--space-3);
-  color: var(--color-text);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-lg);
-}
-
-.focus-resume-chip span {
-  color: var(--color-accent);
-  font-size: var(--font-size-xs);
-  font-weight: 800;
-  letter-spacing: .08em;
-}
-
 .focus-session-backdrop {
   position: fixed;
   inset: 0;
@@ -4868,3 +4845,67 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .toolbar-menu-toggle:hover { background: var(--color-surface-muted); }
 /* 保存状態は保存操作の隣（#331）。空でも幅が動かないよう、行の中で自然に伸ばす。 */
 .note-preview-actions > .note-draft-state { margin-right: auto; padding-right: var(--space-2); }
+
+/*
+ * 実行中のFocus Session（#316）。Sidebar下部の常設領域に置き、
+ * navigationを圧迫せず見失わないようにする。色だけでなくlabelと経過時間で示す。
+ */
+.sidebar-focus {
+  flex: 0 0 auto;
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-accent-bd);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-text);
+  text-align: left;
+}
+.sidebar-focus:hover { border-color: var(--color-accent); }
+.sidebar-focus:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.sidebar-focus-label {
+  grid-column: 1 / -1;
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  color: var(--color-accent-strong); font-size: var(--text-xs);
+  font-weight: var(--weight-semibold); letter-spacing: .08em;
+}
+.sidebar-focus-dot {
+  width: 8px; height: 8px; flex: none; border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  animation: sidebar-focus-pulse 2.4s ease-in-out infinite;
+}
+.sidebar-focus-title {
+  grid-column: 1 / -1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-sm);
+}
+.sidebar-focus-time {
+  grid-column: 1 / -1;
+  color: var(--color-text-secondary);
+  font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.app-shell.is-sidebar-collapsed .sidebar-focus { justify-items: center; padding: var(--space-2) var(--space-1); }
+@keyframes sidebar-focus-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+/* 動きを減らす設定では点滅させない。activeであることはlabelと枠線が伝える。 */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-focus-dot { animation: none; }
+}
+
+/* Daily ScratchpadのMarkdown Preview（#316）。編集面と同じ余白で読める。 */
+.scratchpad-editor > .scratchpad-preview {
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(20px, 4vw, 48px);
+  background: var(--color-surface);
+}
+.scratchpad-toolbar > .segmented { flex: 0 0 auto; }
+/* Markdownのチェックリスト（#316）。記号は装飾なので読み上げから外し、状態はテキストで残す。 */
+.markdown-preview .md-task-item { list-style: none; margin-left: -1.2em; }
+.markdown-preview .md-task-marker { margin-right: .3em; color: var(--markdown-accent-strong); }
+.markdown-preview .md-task-item[data-checked="true"] { color: var(--color-text-secondary); }
