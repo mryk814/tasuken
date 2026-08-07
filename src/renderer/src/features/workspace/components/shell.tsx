@@ -35,6 +35,8 @@ interface AppTitleBarProps {
   openSettings: () => void;
   openCommandPalette: () => void;
   launcher?: TitleBarLauncherData;
+  /** 切り離しウィンドウ（#290）。Sidebarが無いので開閉トグルを出さない（#329）。 */
+  detached?: boolean;
 }
 
 export interface TitleBarLauncherData {
@@ -237,6 +239,7 @@ export function AppTitleBar({
   openSettings,
   openCommandPalette,
   launcher,
+  detached = false,
 }: AppTitleBarProps) {
   const [openMenu, setOpenMenu] = useState<"view" | "help" | null>(null);
   const controlsRef = useRef<HTMLDivElement | null>(null);
@@ -264,18 +267,20 @@ export function AppTitleBar({
   };
 
   return (
-    <header className="app-titlebar">
-      <button
-        className="titlebar-sidebar-toggle"
-        type="button"
-        aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
-        title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        {collapsed
-          ? <IconLayoutSidebarLeftExpand size={17} aria-hidden="true" />
-          : <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />}
-      </button>
+    <header className={`app-titlebar${detached ? " is-detached" : ""}`}>
+      {!detached && (
+        <button
+          className="titlebar-sidebar-toggle"
+          type="button"
+          aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+          title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed
+            ? <IconLayoutSidebarLeftExpand size={17} aria-hidden="true" />
+            : <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />}
+        </button>
+      )}
       <div className="titlebar-brand" aria-label="Tasken">
         <img src={taskenIconUrl} alt="" aria-hidden="true" />
         <strong>Tasken</strong>

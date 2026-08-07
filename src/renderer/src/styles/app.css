@@ -4708,9 +4708,58 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
-/* 切り離しウィンドウ（#290）。Sidebarを持たないので、本文だけの一列にする。 */
-.app-shell.is-detached-window { grid-template-columns: minmax(0, 1fr); }
+/* 切り離しウィンドウ（#290）。Sidebarを持たないので、本文だけの一列にする。
+   760px以下の`display:block`フォールバックはSidebarを上へ積むためのもので、
+   Sidebarが無いこのウィンドウでは高さの制約だけを失わせる（#329）。gridを保つ。 */
+.app-shell.is-detached-window { display: grid; grid-template-columns: minmax(0, 1fr); }
 .app-shell.is-detached-window .notes-page > .filter-bar { display: none; }
+
+/*
+ * 狭幅でも本文を残す（#329）。
+ *
+ * 760px以下は一覧と本文を縦に積む前提で、workbenchを1列gridへ、
+ * .note-preview-panel の min-height を auto へ戻していた。
+ * だが一覧を畳んでいるとき（別ウィンドウ・本文集中・手動collapse）は本文が唯一の列で、
+ * 積み上げると本文パネルが内容の高さまで伸び、overflow:hidden の .notes-page が
+ * 本文を窓の外へ押し出す。畳んでいる間は横並びの列構成と高さの制約を保ち、
+ * scrollは本文自身に持たせる。
+ */
+.notes-workbench.is-list-collapsed { grid-template-columns: 0px auto minmax(0, 1fr) !important; }
+.notes-workbench.is-list-collapsed .note-preview-panel { min-height: 0; max-height: 100%; }
+
+/*
+ * 別ウィンドウの上部を薄くする（#329）。狭くして横へ置く用途なので、
+ * 見出し・窓操作は一行に収め、日付などの補助行は畳んで縦を本文へ回す。
+ */
+.notes-page.is-detached-note { padding: var(--space-2) var(--space-3); }
+.notes-page.is-detached-note > .page-header { min-height: auto; margin-bottom: var(--space-1); gap: var(--space-2); }
+.notes-page.is-detached-note > .page-header h1 { min-width: 0; font-size: var(--text-base); }
+.notes-page.is-detached-note > .page-header h1 > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.notes-page.is-detached-note .header-actions { flex: 0 0 auto; flex-wrap: nowrap; }
+.notes-page.is-detached-note .header-actions > button { white-space: nowrap; }
+/* タイトルはページ見出しが持つ。本文側で二重に出さず、その行を本文へ回す。 */
+.notes-page.is-detached-note .note-preview-header h2 { display: none; }
+.notes-page.is-detached-note .note-date-meta { display: none; }
+.notes-page.is-detached-note .note-preview-panel { padding: var(--space-1) var(--space-2) 0; gap: var(--space-1); }
+
+/*
+ * 上部バーは幅が足りなくなっても縮めず、畳む（#329）。
+ * 収縮を許すと「コマンド」「表示」「ヘルプ」が一文字ずつ縦積みになる。
+ */
+.app-titlebar > *, .titlebar-controls > *, .titlebar-launcher > * { flex-shrink: 0; }
+.app-titlebar button, .app-titlebar .titlebar-brand { white-space: nowrap; }
+.app-titlebar .titlebar-drag-space { flex-shrink: 1; }
+/* 切り離しウィンドウは常に狭い前提。ブランド表記とショートカット表示を先に畳む。 */
+.app-titlebar.is-detached .titlebar-brand { margin-left: 0; }
+.app-titlebar.is-detached .titlebar-brand strong,
+.app-titlebar.is-detached .titlebar-command-button kbd { display: none; }
+@media (max-width: 900px) {
+  .app-titlebar .titlebar-command-button kbd { display: none; }
+}
+@media (max-width: 760px) {
+  .app-titlebar .titlebar-brand strong { display: none; }
+  .app-titlebar .titlebar-command-button > span { display: none; }
+}
 /* 一覧は is-list-collapsed が畳む。ハンドルは display:none にすると grid の列がずれるので、
    幅だけ潰して列構成を保つ。 */
 .app-shell.is-detached-window .notes-page .notes-resize-handle { visibility: hidden; width: 0; }

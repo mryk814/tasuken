@@ -35,6 +35,16 @@ npm run smoke:desktop
 npm run smoke:model
 ```
 
+狭幅・表示倍率ごとのレイアウト崩れを自動確認（本体の主要画面 / Note別ウィンドウ）:
+
+```powershell
+npm run audit:responsive
+```
+
+```powershell
+npm run audit:note-window
+```
+
 Read-only MCP Serverを起動:
 
 ```powershell

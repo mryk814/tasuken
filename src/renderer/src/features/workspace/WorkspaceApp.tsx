@@ -1166,6 +1166,7 @@ export function WorkspaceApp() {
   const titleBar = (
     <AppTitleBar
       launcher={titleBarLauncher}
+      detached={Boolean(detachedNoteId)}
       collapsed={sidebarCollapsed}
       setCollapsed={setSidebarCollapsed}
       zoomFactor={zoomFactor}
