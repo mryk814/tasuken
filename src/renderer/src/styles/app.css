@@ -4817,3 +4817,22 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .ai-context-source-row { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); gap: var(--space-1); }
 .ai-context-source-row input[name="ai_source_ref_title"] { grid-column: 1 / -1; }
 .ai-context-source-row + .ai-context-source-row { padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+
+/* Notesの作成導線（#313）。primary actionを一つにし、種類はdropdownで選ぶ。 */
+.note-create-menu { position: relative; display: inline-flex; }
+.note-create-menu > button { border-radius: 0; }
+.note-create-primary { border-top-left-radius: var(--radius-md); border-bottom-left-radius: var(--radius-md); white-space: nowrap; }
+.note-create-toggle { display: inline-grid; place-items: center; padding-inline: var(--space-2); border-left: 1px solid var(--color-on-accent-border, rgba(255, 255, 255, .28)); border-top-right-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md); }
+.note-create-list {
+  position: absolute; z-index: 40; top: calc(100% + var(--space-1)); right: 0;
+  display: grid; gap: 2px; min-width: 140px; padding: var(--space-1);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); box-shadow: var(--shadow-md);
+}
+.note-create-list button {
+  min-height: 32px; display: flex; align-items: center; width: 100%;
+  padding: var(--space-1) var(--space-2); border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-text); font-size: var(--text-sm); text-align: left;
+}
+.note-create-list button:hover { background: var(--color-surface-muted); }
+.note-create-list button.is-active { color: var(--color-accent-strong); font-weight: var(--weight-medium); }

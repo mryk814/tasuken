@@ -1,4 +1,5 @@
 import {
+  IconCopy,
   IconExternalLink,
   IconFileTypePdf,
   IconFolder,
@@ -41,6 +42,8 @@ import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
 import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { NoteAiDialog, type NoteAiTarget } from "../components/NoteAiDialog";
+import { NoteCreateMenu } from "../components/NoteCreateMenu";
+import type { SelectionCommandRequest } from "../components/MarkdownRichEditor";
 import { clipboardImageFile, readFileAsDataUrl } from "../lib/clipboardImage";
 import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
@@ -232,6 +235,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [draftState, setDraftState] = useState("");
   // 直近の正本Markdown同期の結果（#291）。署名比較では分からない外部変更・失敗を保持する。
   const [canonicalSyncState, setCanonicalSyncState] = useState<CanonicalMarkdownFileState | null>(null);
+  /** 選択範囲の変換を明示commandで呼ぶための合図（#313）。 */
+  const [selectionCommand, setSelectionCommand] = useState<SelectionCommandRequest | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
@@ -933,6 +938,33 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     });
   }
 
+  /**
+   * 選択範囲の変換はCommand Palette等からの明示commandで呼ぶ（#313）。
+   * 選択しただけでtoolbarを出すと、通常のコピー・IME操作を妨げる。
+   */
+  function requestSelectionCommand(kind: SelectionCommandRequest["kind"]) {
+    if (previewMode !== "edit") {
+      setToast("Editで本文の範囲を選んでから実行してください。", "warning");
+      return;
+    }
+    setSelectionCommand((current) => ({ kind, nonce: (current?.nonce ?? 0) + 1 }));
+  }
+
+  /** 追加の既定種別（#313）。種別filter中はその種類、`すべて`ではNote。 */
+  const createDefaultKind: NotesKind = scope === "all" ? "note" : scope;
+
+  function createRecord(kind: NotesKind) {
+    if (kind === "resource") {
+      openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } });
+      return;
+    }
+    if (kind === "prompt") {
+      addPrompt();
+      return;
+    }
+    addNote(kind);
+  }
+
   async function copySelectedRaw() {
     if (!selected) return;
     await workspaceApi.copyText(currentDraftBody());
@@ -1605,6 +1637,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     draft: () => selected?.recordType === "note"
       ? setDraftWorkspaceTarget(selected)
       : setToast("Draft Workspaceで扱うNoteまたはMarkdown文書を選択してください。", "warning"),
+    // 選択範囲の変換（#313）。自動toolbarを撤去したので、ここが正規の入口。
+    "selection-task": () => requestSelectionCommand("task"),
+    "selection-note": () => requestSelectionCommand("note"),
+    "selection-ai": () => requestSelectionCommand("ai"),
   };
 
   useEffect(() => {
@@ -1629,10 +1665,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
           <>
             <button className="secondary-button" onClick={copy}>一覧をコピー</button>
             <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
-            <button className="primary-button" onClick={() => addNote("note")}>Note</button>
-            <button className="primary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } })}>Resource</button>
-            <button className="primary-button" onClick={() => addNote("report")}>Report</button>
-            <button className="primary-button" onClick={() => addPrompt()}>Prompt</button>
+            {/* 作成は一つのprimary actionへ集約する。既定の種類は現在のfilterから決める（#313）。 */}
+            <NoteCreateMenu defaultKind={createDefaultKind} onCreate={createRecord} />
           </>
         )}
       </PageHeader>
@@ -1811,7 +1845,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   )}
                 </div>
                 <div className="note-preview-actions">
-                  <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
+                  {/* 通常はOS標準の選択コピーを使う。全文コピーは控えめなiconだけ残す（#313）。 */}
+                  <button
+                    className="secondary-button compact icon-only"
+                    onClick={copySelectedRaw}
+                    aria-label="本文をすべてコピー"
+                    title="本文をすべてコピー"
+                  >
+                    <IconCopy size={15} aria-hidden="true" />
+                  </button>
                   {selected.recordType === "note" && (
                     <button className="secondary-button compact" onClick={() => setDraftWorkspaceTarget(selected)}><IconSparkles size={15} />Draft Workspace</button>
                   )}
@@ -2141,6 +2183,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                         onError={reportRichEditorError}
                         onExtractSelection={selected.recordType === "note" ? extractSelection : undefined}
                         onAiEditSelection={selected.recordType === "note" ? openSelectionAi : undefined}
+                        selectionCommand={selectionCommand}
+                        onSelectionUnavailable={() => setToast("先に本文の範囲を選択してください。", "warning")}
                       />
                     </Suspense>
                   </MarkdownEditorBoundary>

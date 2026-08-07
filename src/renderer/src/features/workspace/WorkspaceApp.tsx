@@ -1034,6 +1034,10 @@ export function WorkspaceApp() {
       { id: "notes:format", label: "現在のMarkdownを整形", keywords: ["format", "空行"], category: "Commands" as const, execute: () => dispatchNotesCommand("format") },
       { id: "notes:pdf", label: "現在の文書をPDF出力", keywords: ["export", "出力"], category: "Commands" as const, execute: () => dispatchNotesCommand("pdf") },
       { id: "notes:folder", label: "現在の文書の保存先を開く", keywords: ["folder", "directory", "フォルダ"], category: "Commands" as const, execute: () => dispatchNotesCommand("folder") },
+      // 選択しただけでtoolbarを出すのをやめたので、変換はここが正規の入口（#313）。
+      { id: "notes:selection-task", label: "選択範囲からTaskを作る", keywords: ["選択", "切り出し", "task", "抽出"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-task") },
+      { id: "notes:selection-note", label: "選択範囲からNoteを作る", keywords: ["選択", "切り出し", "note", "抽出"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-note") },
+      { id: "notes:selection-ai", label: "選択範囲をAIで編集", keywords: ["選択", "AI", "書き換え"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-ai") },
     ] : []),
     ...domain.tasks.map((task) => ({
       id: `task:${task.id}`,

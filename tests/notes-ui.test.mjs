@@ -158,3 +158,48 @@ test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本
   assert.match(styles, /\.notes-page\.is-document-focus > \.page-header/);
   assert.match(styles, /\.notes-page\.is-document-focus \.note-export-handoff \{ display: none; \}/);
 });
+
+test("Notesの作成導線が一つのprimary actionへ集約される（#313）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const menu = readFileSync("src/renderer/src/features/workspace/components/NoteCreateMenu.tsx", "utf8");
+
+  // 種類ごとのbuttonを4つ常設しない。
+  assert.equal(/<button className="primary-button" onClick=\{\(\) => addNote\("note"\)\}/.test(source), false);
+  assert.equal(/<button className="primary-button" onClick=\{\(\) => addPrompt\(\)\}/.test(source), false);
+  assert.match(source, /<NoteCreateMenu defaultKind=\{createDefaultKind\} onCreate=\{createRecord\} \/>/);
+
+  // 既定の種類は現在のfilterから決める。`すべて`ではNote。
+  assert.match(source, /const createDefaultKind: NotesKind = scope === "all" \? "note" : scope;/);
+
+  // dropdownから4種を選べ、keyboard / screen readerからも辿れる。
+  assert.match(menu, /const CREATE_ORDER: NotesKind\[\] = \["note", "resource", "report", "prompt"\];/);
+  assert.match(menu, /aria-haspopup="menu"/);
+  assert.match(menu, /aria-label="追加する種類を選ぶ"/);
+  assert.match(menu, /role="menuitem"/);
+});
+
+test("本文を選択しただけでは変換toolbarを出さない（#313）", () => {
+  const editor = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+
+  // 選択そのものでpanelを開かない。開くのはタイトルを決める段だけ。
+  assert.match(editor, /\{textSelection && extractionKind && \(/);
+  assert.equal(/beginSelectionExtraction/.test(editor), false);
+  assert.equal(/選択範囲から<\/span>/.test(editor), false);
+
+  // 明示commandで呼ぶ。Command Paletteでfocusが移っても対象を見失わない。
+  assert.match(editor, /selectionCommand\?: SelectionCommandRequest \| null;/);
+  assert.match(editor, /lastSelectionRangeRef\.current = range\.cloneRange\(\);/);
+  assert.match(source, /"selection-task": \(\) => requestSelectionCommand\("task"\)/);
+  assert.match(app, /id: "notes:selection-task", label: "選択範囲からTaskを作る"/);
+  assert.match(app, /id: "notes:selection-ai", label: "選択範囲をAIで編集"/);
+});
+
+test("本文の全文コピーは控えめなiconだけ残す（#313）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+
+  assert.equal(/>本文をコピー</.test(source), false);
+  assert.match(source, /aria-label="本文をすべてコピー"/);
+  assert.match(source, /title="本文をすべてコピー"/);
+});
