@@ -141,6 +141,9 @@ export function AiContextFields({
   workspaceDefault?: AiAudience[] | null;
 }) {
   const [freshness, setFreshness] = useState(String(entity.ai_freshness || ""));
+  const storedSourceRefs: AiSourceRef[] = Array.isArray(entity.ai_source_refs) ? entity.ai_source_refs : [];
+  // 空行は保存時に捨てるので、行数だけを状態に持つ（値はフォームが正本）。
+  const [sourceRefRows, setSourceRefRows] = useState(storedSourceRefs.length + 1);
   if (!hasAiContextSection(type)) return null;
   const inherited = resolveAiVisibility({
     entity: null,
@@ -206,6 +209,37 @@ export function AiContextFields({
       <Field label="最終確認日">
         <input type="date" name="ai_last_verified_at" defaultValue={String(entity.ai_last_verified_at || "").slice(0, 10)} />
       </Field>
+      <fieldset className="ai-context-source-refs">
+        <legend>出典</legend>
+        {Array.from({ length: sourceRefRows }, (_, index) => {
+          const ref = storedSourceRefs[index];
+          return (
+            <div className="ai-context-source-row" key={index}>
+              <select name="ai_source_ref_kind" defaultValue={ref?.kind || "url"} aria-label="出典の種類">
+                {Object.entries(AI_SOURCE_REF_KIND_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <input
+                name="ai_source_ref_locator"
+                defaultValue={ref?.locator || ""}
+                placeholder="URL・パス・IDなど"
+                aria-label="出典の場所"
+              />
+              <input
+                name="ai_source_ref_title"
+                defaultValue={ref?.title || ""}
+                placeholder="表示名（任意）"
+                aria-label="出典の表示名"
+              />
+            </div>
+          );
+        })}
+        <button type="button" className="text-button compact" onClick={() => setSourceRefRows((rows) => rows + 1)}>
+          出典を追加
+        </button>
+        <p className="ai-context-note">場所を空にすると、その行は保存時に外れます。</p>
+      </fieldset>
       <fieldset className="ai-context-visibility">
         <legend>AI公開範囲</legend>
         <label>

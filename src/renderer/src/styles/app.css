@@ -4761,3 +4761,10 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .ai-context-visibility legend { padding: 0 var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .ai-context-visibility label { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-text); font-size: var(--text-sm); }
 .ai-context-visibility p { margin: 0; }
+.ai-context-source-refs { display: grid; gap: var(--space-2); margin: 0; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.ai-context-source-refs legend { padding: 0 var(--space-1); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.ai-context-source-refs p { margin: 0; }
+/* ドロワー幅は狭い。種類+場所を1行、表示名を次の行に置いて横詰まりを避ける。 */
+.ai-context-source-row { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); gap: var(--space-1); }
+.ai-context-source-row input[name="ai_source_ref_title"] { grid-column: 1 / -1; }
+.ai-context-source-row + .ai-context-source-row { padding-top: var(--space-2); border-top: 1px solid var(--color-border); }

@@ -1,4 +1,4 @@
-import type { AiAudience, AiMetadataFields } from "../../../../../shared/aiMetadata.mjs";
+import type { AiAudience, AiMetadataFields, AiSourceRef } from "../../../../../shared/aiMetadata.mjs";
 import { normalizeAiVisibility } from "../../../../../shared/aiMetadata.mjs";
 import type { AiMetadata } from "../domain-model/types";
 import { formText } from "./format";
@@ -27,6 +27,30 @@ function readVisibility(values: FormData): AiAudience[] | null {
   // 個別設定のチェックを外したら「未設定」に戻し、Theme・全体の既定へ継承させる。
   if (!values.getAll("ai_visibility_override").map(String).includes("true")) return null;
   return normalizeAiVisibility(values.getAll("ai_visibility").map(String)) || [];
+}
+
+/**
+ * 出典。場所が空の行は保存しない（追加用の空行と削除を同じ操作で扱う）。
+ * `storage_root_id` / `relative_path` はImport・正本Markdown経路が付けるため、
+ * フォームで触らずに既存値をそのまま引き継ぐ。
+ */
+function readSourceRefs(values: FormData, base: Record<string, unknown>): AiMetadataFields["ai_source_refs"] {
+  const stored: AiSourceRef[] = Array.isArray(base.ai_source_refs) ? base.ai_source_refs as AiSourceRef[] : [];
+  const kinds = values.getAll("ai_source_ref_kind").map(String);
+  const locators = values.getAll("ai_source_ref_locator").map(String);
+  const titles = values.getAll("ai_source_ref_title").map(String);
+  return locators.flatMap((locator, index): AiSourceRef[] => {
+    const trimmed = locator.trim();
+    if (!trimmed) return [];
+    const previous = stored[index];
+    const title = titles[index]?.trim();
+    return [{
+      ...(previous && previous.locator === trimmed ? previous : {}),
+      kind: (kinds[index] || "url") as AiSourceRef["kind"],
+      locator: trimmed,
+      ...(title ? { title } : {}),
+    }];
+  });
 }
 
 function readSupersededBy(values: FormData): AiMetadataFields["ai_superseded_by"] {
@@ -63,9 +87,7 @@ export function aiMetadataFromForm(
     ai_visibility: readVisibility(values),
     ai_last_verified_at: lastVerified || null,
     ai_superseded_by: supersededBy,
-    ai_source_refs: Array.isArray(base.ai_source_refs)
-      ? (base.ai_source_refs as AiMetadataFields["ai_source_refs"])
-      : [],
+    ai_source_refs: readSourceRefs(values, base),
   };
 }
 

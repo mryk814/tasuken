@@ -199,3 +199,45 @@ test("AI共通metadataは欄がある編集では保存され、欄が無い保�
   const supersededTask = superseded.operations.find((operation) => operation.type === "task").entity;
   assert.equal(supersededTask.ai_freshness, null);
 });
+
+test("出典は空行を捨て、Import由来のlocator情報を保つ（#294）", () => {
+  const base = {
+    id: "task-1",
+    ai_source_refs: [
+      { kind: "canonical_document", locator: "材料A/測定メモ.md", title: "測定メモ", storage_root_id: "sync", relative_path: "材料A/測定メモ.md" },
+    ],
+  };
+  const result = plan("task", [
+    ["title", "解析する"],
+    ["state", "todo"],
+    ["ai_context_present", "true"],
+    ["ai_source_ref_kind", "canonical_document"],
+    ["ai_source_ref_locator", "材料A/測定メモ.md"],
+    ["ai_source_ref_title", "測定メモ"],
+    ["ai_source_ref_kind", "url"],
+    ["ai_source_ref_locator", "https://example.com/spec"],
+    ["ai_source_ref_title", "仕様"],
+    // 追加用の空行は保存しない。
+    ["ai_source_ref_kind", "url"],
+    ["ai_source_ref_locator", "  "],
+    ["ai_source_ref_title", ""],
+  ], base);
+  const task = result.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(task.ai_source_refs.length, 2);
+  // フォームで触らないstorage_root_id / relative_pathは既存値を引き継ぐ。
+  assert.equal(task.ai_source_refs[0].storage_root_id, "sync");
+  assert.equal(task.ai_source_refs[0].relative_path, "材料A/測定メモ.md");
+  assert.deepEqual(task.ai_source_refs[1], { kind: "url", locator: "https://example.com/spec", title: "仕様" });
+
+  // 場所を空にした行は外れる（削除）。
+  const removed = plan("task", [
+    ["title", "解析する"],
+    ["state", "todo"],
+    ["ai_context_present", "true"],
+    ["ai_source_ref_kind", "canonical_document"],
+    ["ai_source_ref_locator", ""],
+    ["ai_source_ref_title", "測定メモ"],
+  ], base);
+  const removedTask = removed.operations.find((operation) => operation.type === "task").entity;
+  assert.deepEqual(removedTask.ai_source_refs, []);
+});
