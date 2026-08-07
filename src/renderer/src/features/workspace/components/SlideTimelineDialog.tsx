@@ -20,6 +20,8 @@ interface SlideTimelineDialogProps {
   initialThemeId: string;
   initialStart: string;
   initialEnd: string;
+  /** 画面のTimelineと出力対象を揃える（#318）。 */
+  initialShowCompleted: boolean;
   onClose(): void;
   setToast(message: string, tone?: "info" | "success" | "warning" | "danger"): void;
 }
@@ -31,6 +33,7 @@ export function SlideTimelineDialog({
   initialThemeId,
   initialStart,
   initialEnd,
+  initialShowCompleted,
   onClose,
   setToast,
 }: SlideTimelineDialogProps) {
@@ -40,8 +43,10 @@ export function SlideTimelineDialog({
   const [unit, setUnit] = useState<SlideTimelineUnit>("month");
   const [background, setBackground] = useState<SlideTimelineBackground>("white");
   const [showTasks, setShowTasks] = useState(true);
-  const [showActivity, setShowActivity] = useState(true);
-  const [showCompleted, setShowCompleted] = useState(true);
+  // Activityは既定で混ぜない。必要なときだけ明示的に足す（#318）。
+  const [showActivity, setShowActivity] = useState(false);
+  // 完了の扱いは画面のTimelineへ合わせ、出力対象を一致させる（#318）。
+  const [showCompleted, setShowCompleted] = useState(initialShowCompleted);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState(() => `${slideTimelineThemeName(themes, initialThemeId)} Timeline`);
   const [subtitle, setSubtitle] = useState("Taskenから作業の経緯と予定をまとめました");

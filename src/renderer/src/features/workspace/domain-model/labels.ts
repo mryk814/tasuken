@@ -1,3 +1,4 @@
+import type { TimelineItemState } from "../lib/timeline";
 import type {
   AiAudience,
   AiAuthority,
@@ -191,4 +192,26 @@ export const ENTITY_REF_TYPE_LABELS: Record<EntityRefType, string> = {
   knowledge_node: "Knowledge",
   sketch: "Sketch",
   artifact: "Artifact",
+};
+
+/** Timeline itemの状態（#318）。色だけで伝えないための語と記号の対応表。 */
+export const TIMELINE_ITEM_STATE_LABELS: Record<TimelineItemState, string> = {
+  completed: "完了",
+  cancelled: "中止",
+  overdue: "期限超過",
+  ongoing: "継続中",
+  execution_window: "期間内に一度",
+  active: "進行中",
+  planned: "未着手",
+};
+
+/** barの中でも状態が分かるようにする記号。読み上げからは外し、labelを正本にする。 */
+export const TIMELINE_ITEM_STATE_MARKS: Record<TimelineItemState, string> = {
+  completed: "✓",
+  cancelled: "×",
+  overdue: "!",
+  ongoing: "→",
+  execution_window: "◇",
+  active: "▶",
+  planned: "",
 };

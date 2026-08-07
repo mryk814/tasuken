@@ -4909,3 +4909,44 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .markdown-preview .md-task-item { list-style: none; margin-left: -1.2em; }
 .markdown-preview .md-task-marker { margin-right: .3em; color: var(--markdown-accent-strong); }
 .markdown-preview .md-task-item[data-checked="true"] { color: var(--color-text-secondary); }
+
+/*
+ * Timeline itemの状態（#318）。
+ *
+ * barの面はTheme色（--bar-color）が担うので、状態はTheme色を塗り替えず
+ * 枠線の形・記号・不透明度で重ねる。色だけで意味を伝えない。
+ * 期限超過は破壊的操作の赤（danger）と混同しないよう、warning系を使う。
+ */
+.gantt-bar-state-mark { margin-right: .3em; font-weight: var(--weight-bold); }
+.gantt-item-bar.is-state-completed { opacity: .62; border-style: solid; border-color: var(--color-status-done-bd); }
+.gantt-item-bar.is-state-completed .gantt-bar-state-mark { color: var(--color-status-done-fg); }
+.gantt-item-bar.is-state-cancelled { opacity: .5; border-style: dotted; border-color: var(--color-status-dropped-bd); text-decoration: line-through; }
+.gantt-item-bar.is-state-overdue { border-width: 2px; border-color: var(--color-status-blocked-fg); box-shadow: inset 0 -2px 0 var(--color-status-blocked-fg); }
+.gantt-item-bar.is-state-overdue .gantt-bar-state-mark { color: var(--color-status-blocked-fg); }
+.gantt-item-bar.is-state-active { border-color: var(--color-status-active-bd); box-shadow: inset 0 -2px 0 var(--color-status-active-fg); }
+/* 継続中は「ずっと続く」ことが分かるよう、面へ流れる縞を重ねる（線種の併用）。 */
+.gantt-item-bar.is-state-ongoing {
+  border-color: var(--color-status-active-bd);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--bar-color) 26%, transparent) 0 6px,
+    transparent 6px 12px
+  );
+}
+/* 期間内に一度は「どこか一点でやる」ので、両端だけを立てる。 */
+.gantt-item-bar.is-state-execution_window { border-style: dashed; border-color: var(--color-status-active-bd); }
+
+/* 一覧側の状態ラベル。色を消しても語で読める。 */
+.timeline-state-chip {
+  flex: none; padding: 0 var(--space-1); border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm); background: var(--color-surface-muted);
+  color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap;
+}
+.timeline-state-chip.is-state-completed { border-color: var(--color-status-done-bd); background: var(--color-status-done-bg); color: var(--color-status-done-fg); }
+.timeline-state-chip.is-state-cancelled { border-color: var(--color-status-dropped-bd); background: var(--color-status-dropped-bg); color: var(--color-status-dropped-fg); }
+.timeline-state-chip.is-state-overdue { border-color: var(--color-status-blocked-bd); background: var(--color-status-blocked-bg); color: var(--color-status-blocked-fg); }
+.timeline-state-chip.is-state-active,
+.timeline-state-chip.is-state-ongoing,
+.timeline-state-chip.is-state-execution_window { border-color: var(--color-status-active-bd); background: var(--color-status-active-bg); color: var(--color-status-active-fg); }
+.gantt-name { min-width: 0; display: flex; align-items: center; gap: var(--space-1); }
+.gantt-name > .gantt-title-button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

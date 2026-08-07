@@ -72,6 +72,48 @@ export function scaleFromDayWidth(dayWidth: number): string {
   return "year";
 }
 
+/**
+ * Timeline itemの状態（#318）。
+ *
+ * Theme色は「どの束のものか」を、状態は「いまどうなっているか」を表す。
+ * 二つを同じ色体系で混ぜないため、状態はここで一意に決めて
+ * class / label / icon へ同じ値を配る。色だけで伝えない。
+ */
+export type TimelineItemState =
+  | "completed"
+  | "cancelled"
+  | "overdue"
+  | "ongoing"
+  | "execution_window"
+  | "active"
+  | "planned";
+
+interface TimelineStateInput {
+  status?: string;
+  planned_start?: string | null;
+  planned_end?: string | null;
+  /** #309の日付範囲の意味。未設定は「分類していない範囲」。 */
+  range_semantics?: string | null;
+}
+
+export function timelineItemState(item: TimelineStateInput, today: string): TimelineItemState {
+  const status = String(item.status || "");
+  if (status === "done") return "completed";
+  if (status === "cancelled") return "cancelled";
+
+  const start = String(item.planned_start || "");
+  const end = String(item.planned_end || "");
+  // 終了日を過ぎた未完了だけを期限超過にする。開始前の項目は含めない。
+  if (end && end < today) return "overdue";
+
+  const started = !start || start <= today;
+  const inRange = started && (!end || end >= today);
+  if (inRange && item.range_semantics === "ongoing") return "ongoing";
+  if (inRange && item.range_semantics === "once_within_window") return "execution_window";
+  if (inRange && (start || end)) return "active";
+  return "planned";
+}
+
 export const ZOOM_PRESETS = [
   { id: "year", label: "年間", dayWidth: 2 },
   { id: "half", label: "半年", dayWidth: 4 },
