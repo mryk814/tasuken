@@ -329,6 +329,14 @@ flowchart LR
           return firstLabel === label || button.textContent.trim() === label;
         });
       }, label + " ボタン");
+      // Notesの作成は一つのprimary actionへ集約した（#313）。filterの種別buttonと取り違えない。
+      const clickCreateNote = async () => {
+        const button = await waitFor(
+          () => document.querySelector(".notes-page .note-create-primary"),
+          "Note作成ボタン",
+        );
+        button.click();
+      };
       const clickPaneButton = (pane, label) => {
         const button = [...pane.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label);
         if (!button) throw new Error(label + " ボタンがNotesパネル内に見つかりません。");
@@ -359,7 +367,7 @@ flowchart LR
       // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
       (await waitForButton("Notes")).click();
       await delay(80);
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
 
       const form = await waitFor(() => document.querySelector(".drawer-form"), "メモ入力フォーム");
@@ -383,7 +391,7 @@ flowchart LR
       const markdownContent = ${JSON.stringify(markdownBody)}.replace("__SMOKE_IMAGE_URL__", smokeImage.url);
 
       // Markdown 確認用 Note を作成（本文は中央 Raw で投入）
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
       const markdownForm = await waitFor(() => document.querySelector(".drawer-form"), "Markdown入力フォーム");
       const markdownTitleInput = markdownForm.querySelector('input[name="title"]');
@@ -427,8 +435,14 @@ flowchart LR
         && smokePreviewImage?.naturalWidth > 0
       );
 
-      clickPaneButton(notesPane, "本文をコピー");
-      await delay(140);
+      // 全文コピーは「この文書」menuの項目へ移した（#313 / #331）。
+      clickPaneButton(notesPane, "この文書");
+      await delay(160);
+      const copyBodyItem = [...notesPane.querySelectorAll(".toolbar-menu-list button")]
+        .find((candidate) => candidate.textContent.trim() === "本文をすべてコピー");
+      if (!copyBodyItem) throw new Error("本文をすべてコピー が「この文書」menuに見つかりません。");
+      copyBodyItem.click();
+      await delay(160);
       const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
 
       // Edit（Live Preview）面での追記・貼り付け
@@ -525,7 +539,7 @@ flowchart LR
       const notesEditReopened = Boolean(notesPane.querySelector(".note-mdx-content[contenteditable='true']")?.textContent?.includes("Live edit smoke"));
 
       // 脚注MarkdownをEditで更新し、Previewへ切り替えて脚注表示と保存値を確認する。
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
       const footnoteForm = await waitFor(() => document.querySelector(".drawer-form"), "脚注Note入力フォーム");
       const footnoteTitleInput = footnoteForm.querySelector('input[name="title"]');

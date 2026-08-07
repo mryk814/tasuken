@@ -280,8 +280,8 @@ test("同じNoteを二つのEditorで黙って同時編集させない（#290）
   assert.match(notesSource, /if \(detachedElsewhere\) setPreviewMode\("preview"\);/);
   assert.match(notesSource, /このノートは別ウィンドウで編集中です。/);
   assert.match(notesSource, /disabled=\{detachedElsewhere\}/);
-  // 既に開いていればボタンの意味が「前面へ出す」に変わる。
-  assert.match(notesSource, /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを表示" : "別ウィンドウで開く"/);
+  // 常設buttonから「この文書」menuの項目へ移した（#331）。意味の切り替えは維持する。
+  assert.match(notesSource, /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを前面に出す" : "別ウィンドウで開く"/);
   // 切り離す前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする。
   assert.match(notesSource, /await autoSaveDraft\(\);\s*\n\s*const opened = await workspaceApi\.openNoteWindow\(selected\.id\)/);
 });

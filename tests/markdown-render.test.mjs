@@ -1015,7 +1015,8 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   assert.match(notesSource, /applyHeadingNumberAttributes/);
   assert.match(notesSource, /見出し番号/);
   assert.match(notesSource, /HEADING_NUMBER_LEVELS/);
-  assert.match(notesSource, /note-heading-level-picker/);
+  // 見出し番号レベルの選択は出力menuの項目になった（#331）。
+  assert.match(notesSource, /id: `heading-level-\$\{level\}`/);
   assert.doesNotMatch(notesSource, /PDFにも番号|heading_numbers_in_publish/);
 
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
