@@ -3,12 +3,14 @@ import { IconCopy, IconFileText, IconMessage2Plus, IconSparkles } from "@tabler/
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, PageProps, SaveOperation } from "../types";
-import { THEME_STATUS_LABELS } from "../lib/domain";
+import { NOTES_KIND_LABELS, notesKindFromNoteType, THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
+import { compactNotesBodyPreview } from "../lib/notes";
+import { buildCompleteTaskOperations } from "../domain-model/taskRecurrence";
 import { buildTaskSection, groupTasksBySection, listTaskSections, type TaskSection, type TaskSectionGroup } from "../lib/taskSections";
 import { ArtifactSection } from "../components/artifacts";
-import { EmptyState, Metric, PageHeader, SimpleRows, StatusBadge } from "../components/common";
+import { EmptyState, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 import type { Schedule, Task } from "../domain-model/types";
 
 const REPORT_TYPE_LABELS: Record<string, string> = {
@@ -18,8 +20,28 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
   ad_hoc: "その他",
 };
 
+/** Overviewは全件一覧ではない。上位だけ出して続きは各画面へ回す（#321）。 */
+const REPORT_PREVIEW_LIMIT = 5;
+const TASK_PREVIEW_LIMIT = 7;
+const NOTE_PREVIEW_LIMIT = 4;
+
 function noteProps(note: BaseRecord): Record<string, unknown> {
   return note.properties_json && typeof note.properties_json === "object" ? note.properties_json as Record<string, unknown> : {};
+}
+
+/** 完了時刻。今日の分は時刻まで、それ以前は日付で出す。 */
+function completedLabel(task: Task): string {
+  const value = str(task.completed_at || task.updated_at || task.created_at);
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date();
+  const sameDay = date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
+  return sameDay
+    ? date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
+    : formatDate(value.slice(0, 10));
 }
 
 function TaskSectionBoard({
@@ -106,6 +128,23 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
   const reportPrompts = themeNotes
     .filter((note) => note.note_type === "report_prompt" || (isPromptNote(note) && promptPurpose(note) === "report"))
     .sort((a, b) => Number(isDefaultPrompt(b)) - Number(isDefaultPrompt(a)) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  /** 未完了は期限の近い順。Overviewでは上位だけ出し、続きはToDoへ回す（#321）。 */
+  const nextTasks = [...openTasks]
+    .sort((a, b) => (schedulesMap.get(`task:${a.id}`)?.end_date || "9999").localeCompare(schedulesMap.get(`task:${b.id}`)?.end_date || "9999"))
+    .slice(0, TASK_PREVIEW_LIMIT);
+  /** 最近更新したNote。報告書とプロンプトは別枠なので混ぜない。 */
+  const recentNotes = themeNotes
+    .filter((note) => note.note_type !== "report" && !isPromptNote(note))
+    .sort((a, b) => str(b.updated_at || b.created_at).localeCompare(str(a.updated_at || a.created_at)))
+    .slice(0, NOTE_PREVIEW_LIMIT);
+
+  async function completeTask(task: Task) {
+    await saveEntities(
+      buildCompleteTaskOperations(task, schedulesMap.get(`task:${task.id}`)),
+      "完了しました。",
+    );
+  }
+
   const latestReport = reportNotes[0];
   const latestReportProps = latestReport ? noteProps(latestReport) : null;
   const defaultPrompt = reportPrompts[0];
@@ -179,11 +218,160 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: theme.id } })}>現在地を記録</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: theme.id } })}>タスクを追加</button>
       </PageHeader>
-      <div className="metric-grid home-metrics">
-        <Metric label="未完了" value={openTasks.length} tone="primary" />
-        <Metric label="待ち" value={activeWaitings.length} />
-        <Metric label="マイルストーン" value={milestones.length} />
+      {/*
+        Themeへ戻ったとき短時間で状況を把握するOverview（#321）。
+        上から 報告書 → Task（未完了 / 完了）→ 最近のNote → Artifact の順に置き、
+        現在地・マイルストーン・セクションは補助として下へ回す。
+      */}
+      <section className="panel report-section">
+        <div className="section-heading">
+          <h2>報告書・重要文書</h2>
+          <div className="inline-actions">
+            {reportNotes.length > REPORT_PREVIEW_LIMIT && (
+              <button className="text-button compact" onClick={() => navigate("notes")}>すべて表示</button>
+            )}
+            <button className="secondary-button compact" onClick={defaultPrompt ? () => copyNoteText(defaultPrompt, "報告書プロンプトをコピーしました。") : addPrompt}>
+              {defaultPrompt ? <IconCopy size={15} /> : <IconMessage2Plus size={15} />}
+              {defaultPrompt ? "プロンプトをコピー" : "プロンプトを追加"}
+            </button>
+            <button className="primary-button compact" onClick={addReport}><IconFileText size={15} />報告書を追加</button>
+          </div>
+        </div>
+        <div className="report-list">
+          {reportNotes.slice(0, REPORT_PREVIEW_LIMIT).map((note) => {
+            const props = noteProps(note);
+            const reportType = str(props.report_type) || "weekly";
+            return (
+              <div className="report-row" key={note.id}>
+                <button onClick={() => openDrawer({ type: "note", mode: "edit", entity: note })}>
+                  <strong>{note.title}</strong>
+                  <span>
+                    {REPORT_TYPE_LABELS[reportType] || reportType}
+                    {" / "}
+                    {formatDate(str(props.period_start))} - {formatDate(str(props.period_end))}
+                    {" / 更新 "}
+                    {formatDate(str(note.updated_at || note.created_at))}
+                  </span>
+                </button>
+                <button className="secondary-button compact icon-only" onClick={() => copyNoteText(note, "報告書本文をコピーしました。")} aria-label={`${note.title}の本文をコピー`} title="本文をコピー">
+                  <IconCopy size={15} />
+                </button>
+              </div>
+            );
+          })}
+          {!reportNotes.length && <EmptyState title="報告書はまだありません" action="報告書を追加" onAction={addReport} />}
+        </div>
+      </section>
+
+      {/* 未完了と完了を横並びにして、これからやることとやったことを同時に見る。 */}
+      <div className="dashboard-grid theme-task-grid">
+        <section className="panel">
+          <div className="section-heading">
+            <h2>未完了</h2>
+            <span>{openTasks.length}件</span>
+            <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
+          </div>
+          {nextTasks.length ? (
+            <ul className="theme-task-list">
+              {nextTasks.map((task) => (
+                <li key={task.id}>
+                  <button
+                    className="theme-task-check"
+                    aria-label={`${task.title}を完了にする`}
+                    title="完了にする"
+                    onClick={() => void completeTask(task)}
+                  />
+                  <button
+                    className="theme-task-main"
+                    onClick={() => openDrawer({ type: "task", entity: { ...task, _schedule: schedulesMap.get(`task:${task.id}`) } as Record<string, unknown> })}
+                  >
+                    <strong>{task.title}</strong>
+                    <span>{formatDate(schedulesMap.get(`task:${task.id}`)?.end_date) || "予定なし"}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="未完了のタスクはありません" />
+          )}
+        </section>
+        <section className="panel">
+          <div className="section-heading">
+            <h2>完了・やったこと</h2>
+            <span>{doneTasks.length}件</span>
+            <button className="text-button compact" onClick={() => navigate("todo")}>完了一覧へ</button>
+          </div>
+          {doneTasks.length ? (
+            <ul className="theme-task-list is-done">
+              {doneTasks.map((task) => (
+                <li key={task.id}>
+                  <button
+                    className="theme-task-main"
+                    onClick={() => openDrawer({ type: "task", entity: { ...task, _schedule: schedulesMap.get(`task:${task.id}`) } as Record<string, unknown> })}
+                  >
+                    <strong>{task.title}</strong>
+                    {/* 完了時刻はActivity（#315）と同じ値を出す。 */}
+                    <time dateTime={str(task.completed_at || task.updated_at || task.created_at)}>
+                      {completedLabel(task)}
+                    </time>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="完了済みの記録はまだありません" />
+          )}
+        </section>
       </div>
+
+      {/* タイトルだけでは思い出せないので、本文の書き出しを見せる。 */}
+      <section className="panel">
+        <div className="section-heading">
+          <h2>最近のNote</h2>
+          <span>{recentNotes.length}件</span>
+          <button className="text-button compact" onClick={() => navigate("notes")}>Notesへ</button>
+        </div>
+        {recentNotes.length ? (
+          <div className="theme-note-grid">
+            {recentNotes.map((note) => (
+              <button
+                className="theme-note-card"
+                key={note.id}
+                onClick={() => openDrawer({ type: "note", mode: "edit", entity: note })}
+              >
+                <strong>{str(note.title) || "無題"}</strong>
+                <span className="theme-note-meta">
+                  {NOTES_KIND_LABELS[notesKindFromNoteType(str(note.note_type))]}
+                  {" / 更新 "}
+                  {formatDate(str(note.updated_at || note.created_at))}
+                </span>
+                <p>{compactNotesBodyPreview(note.body_markdown, 160) || "本文はまだありません"}</p>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="このThemeのNoteはまだありません" />
+        )}
+      </section>
+
+      <section className="panel">
+        <ArtifactSection
+          sourceType="theme"
+          sourceId={theme.id}
+          themeId={theme.id}
+          artifacts={data.artifacts || []}
+          data={data}
+          // 元Note / Taskを辿れるようにする（#321）。
+          openDrawer={openDrawer}
+          openContentViewer={openContentViewer}
+          saveEntities={saveEntities}
+          removeEntity={removeEntity}
+          setToast={setToast}
+          includeThemeArtifacts
+          headingExtra={<button className="text-button compact" onClick={() => navigate("artifacts")}>一覧へ</button>}
+        />
+      </section>
+
       <div className="dashboard-grid">
         <section className="panel">
           <div className="section-heading"><h2>現在地</h2><span>{latest ? formatDate(latest.date) : "未記録"}</span></div>
@@ -203,20 +391,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
           <SimpleRows records={milestones as unknown as BaseRecord[]} onOpen={(node) => openDrawer({ type: "plan_node", entity: node })} meta={(node) => formatDate(schedulesMap.get(`plan_node:${node.id}`)?.end_date)} />
         </section>
       </div>
-      <div className="dashboard-grid">
-        <section className="panel">
-          <div className="section-heading"><h2>次のタスク</h2><button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button></div>
-          <SimpleRows
-            records={openTasks.sort((a, b) => (schedulesMap.get(`task:${a.id}`)?.end_date || "9999").localeCompare(schedulesMap.get(`task:${b.id}`)?.end_date || "9999")).slice(0, 7) as unknown as BaseRecord[]}
-            onOpen={(task) => openDrawer({ type: "task", entity: task })}
-            meta={(task) => formatDate(schedulesMap.get(`task:${task.id}`)?.end_date)}
-          />
-        </section>
-        <section className="panel">
-          <div className="section-heading"><h2>最近のメモ</h2><span>{themeNotes.length}件</span></div>
-          <SimpleRows records={themeNotes.filter((note) => note.note_type !== "report" && !isPromptNote(note)).slice(0, 5)} onOpen={(note) => openDrawer({ type: "note", entity: note })} meta={(note) => String(note.note_type ?? "")} />
-        </section>
-      </div>
+
       <section className="panel task-sections-panel">
         <div className="section-heading"><h2>タスクセクション</h2><span>{taskSections.length}件</span></div>
         <div className="section-create-row">
@@ -232,73 +407,6 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
           onRename={renameTaskSection}
           onDelete={deleteTaskSection}
         />
-      </section>
-      <section className="panel">
-        <div className="section-heading"><h2>最近やったこと</h2><button className="text-button compact" onClick={() => navigate("todo")}>完了一覧へ</button></div>
-        <SimpleRows
-          records={doneTasks as unknown as BaseRecord[]}
-          onOpen={(task) => openDrawer({ type: "task", entity: task })}
-          meta={(task) => formatDate(str(task.completed_at || task.updated_at || task.created_at))}
-        />
-        {!doneTasks.length && <EmptyState title="完了済みの記録はまだありません" />}
-      </section>
-      <section className="panel">
-        <ArtifactSection
-          sourceType="theme"
-          sourceId={theme.id}
-          themeId={theme.id}
-          artifacts={data.artifacts || []}
-          data={data}
-          openContentViewer={openContentViewer}
-          saveEntities={saveEntities}
-          removeEntity={removeEntity}
-          setToast={setToast}
-          headingExtra={<button className="text-button compact" onClick={() => navigate("artifacts")}>一覧へ</button>}
-        />
-      </section>
-      <section className="panel report-section">
-        <div className="section-heading">
-          <h2>報告書</h2>
-          <div className="inline-actions">
-            <button className="secondary-button compact" onClick={defaultPrompt ? () => copyNoteText(defaultPrompt, "報告書プロンプトをコピーしました。") : addPrompt}>
-              {defaultPrompt ? <IconCopy size={15} /> : <IconMessage2Plus size={15} />}
-              {defaultPrompt ? "プロンプトをコピー" : "プロンプトを追加"}
-            </button>
-            <button className="primary-button compact" onClick={addReport}><IconFileText size={15} />報告書を追加</button>
-          </div>
-        </div>
-        <div className="report-summary-row">
-          <div>
-            <span>前回報告</span>
-            <strong>{latestReportProps ? `${formatDate(str(latestReportProps.period_start))} - ${formatDate(str(latestReportProps.period_end))}` : "未作成"}</strong>
-          </div>
-          <div>
-            <span>履歴</span>
-            <strong className="metric-value">{reportNotes.length}</strong>
-          </div>
-          <div>
-            <span>プロンプト</span>
-            <strong>{defaultPrompt ? "保存済み" : "未作成"}</strong>
-          </div>
-        </div>
-        <div className="report-list">
-          {reportNotes.slice(0, 5).map((note) => {
-            const props = noteProps(note);
-            const reportType = str(props.report_type) || "weekly";
-            return (
-              <div className="report-row" key={note.id}>
-                <button onClick={() => openDrawer({ type: "note", mode: "edit", entity: note })}>
-                  <strong>{note.title}</strong>
-                  <span>{REPORT_TYPE_LABELS[reportType] || reportType} / {formatDate(str(props.period_start))} - {formatDate(str(props.period_end))}</span>
-                </button>
-                <button className="secondary-button compact icon-only" onClick={() => copyNoteText(note, "報告書本文をコピーしました。")} aria-label={`${note.title}の本文をコピー`} title="本文をコピー">
-                  <IconCopy size={15} />
-                </button>
-              </div>
-            );
-          })}
-          {!reportNotes.length && <EmptyState title="報告書はまだありません" action="報告書を追加" onAction={addReport} />}
-        </div>
       </section>
     </div>
   );

@@ -690,6 +690,7 @@ export function ArtifactSection({
   setToast,
   headingExtra,
   originNoteId,
+  includeThemeArtifacts = false,
 }: {
   sourceType: ArtifactSourceType;
   sourceId: string;
@@ -704,6 +705,8 @@ export function ArtifactSection({
   headingExtra?: ReactNode;
   /** Chat Refを主出所に持つ書き出しArtifactを元Note側にも表示する */
   originNoteId?: string;
+  /** Theme配下で生まれたArtifactも含めて出す（#321のTheme Overview用）。 */
+  includeThemeArtifacts?: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -717,8 +720,13 @@ export function ArtifactSection({
     .filter((entry) => (
       (entry.source_type === sourceType && entry.source_id === sourceId)
       || Boolean(originNoteId && entry.origin_note_id === originNoteId)
+      // Theme Overviewでは「このThemeで作ったもの」を出す（#321）。
+      // 直接添付したものだけでなく、Theme配下のNote / Taskから生まれたものも含める。
+      || Boolean(includeThemeArtifacts && themeId && entry.theme_id === themeId)
     ))
-    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    .sort((a, b) => (
+      String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""))
+    ));
 
   useEffect(() => {
     if (urlFormOpen) urlInputRef.current?.focus();

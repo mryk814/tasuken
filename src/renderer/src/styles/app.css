@@ -4953,3 +4953,47 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 /* ChatRef一覧の補助情報（#322）。URL文字列は出さず、Themeと時刻だけ短く添える。 */
 .chat-link-meta { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .chat-link-meta time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/*
+ * Theme Overview（#321）。Themeへ戻ったとき短時間で状況を把握するための面。
+ * 未完了と完了を横並びにし、Noteは本文の書き出しまで見せる。
+ */
+.theme-task-grid { align-items: start; }
+.theme-task-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.theme-task-list > li { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.theme-task-check {
+  flex: none; width: 18px; height: 18px; padding: 0;
+  border: 1.5px solid var(--color-border-strong); border-radius: 50%;
+  background: var(--color-surface);
+}
+.theme-task-check:hover { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); }
+.theme-task-check:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.theme-task-main {
+  flex: 1 1 auto; min-width: 0; min-height: 32px;
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-1) var(--space-2); border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-text); text-align: left;
+}
+.theme-task-main:hover { background: var(--color-surface-muted); }
+.theme-task-main > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-medium); }
+.theme-task-main > span, .theme-task-main > time {
+  flex: none; color: var(--color-text-secondary);
+  font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums;
+}
+/* 完了は見えるが、未完了より主張を弱める。 */
+.theme-task-list.is-done .theme-task-main > strong { color: var(--color-text-secondary); font-weight: var(--weight-regular); }
+
+.theme-note-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-2); }
+.theme-note-card {
+  display: grid; gap: var(--space-1); align-content: start; min-width: 0;
+  padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text); text-align: left;
+}
+.theme-note-card:hover { border-color: var(--color-accent-bd); background: var(--color-surface-muted); }
+.theme-note-card:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.theme-note-card > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-note-meta { color: var(--color-text-secondary); font-size: var(--text-xs); }
+.theme-note-card > p {
+  margin: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
+  color: var(--color-text-secondary); font-size: var(--text-sm); line-height: var(--lh-normal);
+}
