@@ -13,6 +13,7 @@ import {
   IconInbox,
   IconPaperclip,
   IconPencil,
+  IconPlus,
   IconRestore,
   IconSearch,
   IconTrash,
@@ -26,6 +27,7 @@ import { inferChatServiceFromUrl } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
 import { formatDate, uuid } from "../lib/format";
 import { EmptyState, PageHeader } from "../components/common";
+import { ToolbarMenu } from "../components/ToolbarMenu";
 import { buildInboxView, buildMicroMemoView } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
@@ -50,6 +52,17 @@ import {
 } from "../../../../../shared/quickCapture.mjs";
 
 type InboxKind = "task" | "memo" | "document" | "link" | "waiting" | "idea" | "artifact";
+
+/** 内部コードを画面へ出さないための対応表。 */
+const INBOX_KIND_LABELS: Record<InboxKind, string> = {
+  task: "タスク",
+  memo: "メモ",
+  document: "Markdown",
+  link: "リンク",
+  waiting: "待ち",
+  idea: "アイデア",
+  artifact: "Artifact",
+};
 
 const INBOX_KIND_OPTIONS: Array<[InboxKind, string]> = [
   ["task", "タスク"],
@@ -446,6 +459,21 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
     }
   }
 
+  /**
+   * Inboxの主操作（#317）。短手数で置けることを最優先にする。
+   * 追加先は今見ているレーンに合わせ、付箋メモ側ではMemoとして作る。
+   * Quick Capture（Alt+N等）と同じcapture_entryへ保存し、保存先を分裂させない。
+   */
+  function addMemo() {
+    openDrawer({
+      type: "capture_entry",
+      mode: "edit",
+      entity: lane === "micro"
+        ? { kind: "micro_memo", content_type: "text", state: "untriaged", captured_at: new Date().toISOString() }
+        : { state: "untriaged", captured_at: todayIso() },
+    });
+  }
+
   async function deleteEntry(row: InboxRow) {
     setSelected((current) => current.filter((id) => id !== row.entry.id));
     await removeEntity("capture_entry", row.entry as unknown as Record<string, unknown>);
@@ -596,12 +624,26 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
 
   return (
     <div className="page inbox-page">
+      {/*
+        Inboxは未整理のTask候補を置く場所（#317）。
+        手書き・ファイル・チャットリンクの入口は使われていないので常設から外し、
+        Command Palette・drag & drop・各専用画面へ退避する。既存データは表示・整理できる。
+      */}
       <PageHeader route="inbox">
-        <button className="secondary-button" onClick={() => void startInkCapture()}><IconWriting size={16} />手書きで記録</button>
-        <button className="secondary-button" onClick={() => void captureFiles()}><IconPaperclip size={16} />ファイルを記録</button>
-        <button className="secondary-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })}>記録を追加</button>
-        <button className="secondary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { reference_status: "inbox", captured_at: new Date().toISOString().slice(0, 10) } })}>チャットリンクを追加</button>
-        <button className="primary-button" disabled={!selected.length} onClick={organizeSelected}>{selected.length ? `${selected.length}件を整理` : "選択して整理"}</button>
+        <ToolbarMenu
+          label="その他の記録"
+          title="使用頻度の低い記録方法"
+          items={[
+            { id: "capture-ink", label: "手書きで記録", onSelect: () => void startInkCapture() },
+            { id: "capture-file", label: "ファイルを記録", onSelect: () => void captureFiles() },
+            {
+              id: "capture-chat-link",
+              label: "チャットリンクを追加",
+              onSelect: () => openDrawer({ type: "resource", mode: "edit", entity: { reference_status: "inbox", captured_at: todayIso() } }),
+            },
+          ]}
+        />
+        <button className="primary-button" onClick={addMemo}><IconPlus size={16} />Memo</button>
       </PageHeader>
       <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
         <button className={lane === "untriaged" ? "is-active" : ""} aria-current={lane === "untriaged" ? "page" : undefined} onClick={() => setLane("untriaged")}>
@@ -697,17 +739,33 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
                       onChange={(event) => setSelected((current) => event.target.checked ? [...current, row.entry.id] : current.filter((id) => id !== row.entry.id))}
                       aria-label={`${draft.title}を選択`}
                     />
+                    {/*
+                      Inboxの既定の行き先はTask（#317）。7種を同格で常設せず、
+                      いま選ばれている種類だけを見せ、変更はmenuから行う。
+                    */}
                     <div className="inbox-kind-picker" aria-label="種類">
-                      {INBOX_KIND_OPTIONS.map(([value, label]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          className={draft.output === value ? "is-selected" : ""}
-                          onClick={() => patchDraft(row.entry.id, { output: value })}
-                        >
-                          {label}
+                      <button
+                        type="button"
+                        className={draft.output === "task" ? "is-selected" : ""}
+                        onClick={() => patchDraft(row.entry.id, { output: "task" })}
+                      >
+                        タスク
+                      </button>
+                      {draft.output !== "task" && (
+                        <button type="button" className="is-selected" aria-current="true">
+                          {INBOX_KIND_LABELS[draft.output]}
                         </button>
-                      ))}
+                      )}
+                      <ToolbarMenu
+                        label="種類"
+                        align="left"
+                        title={`整理先の種類（現在: ${INBOX_KIND_LABELS[draft.output]}）`}
+                        items={INBOX_KIND_OPTIONS.map(([value, label]) => ({
+                          id: `kind-${value}`,
+                          label: draft.output === value ? `${label}（選択中）` : label,
+                          onSelect: () => patchDraft(row.entry.id, { output: value }),
+                        }))}
+                      />
                     </div>
                     <label className="inbox-title-field">タイトル
                       <input value={draft.title} onChange={(event) => patchDraft(row.entry.id, { title: event.target.value })} />

@@ -15,51 +15,6 @@ import { addDays } from "./format";
 import { domainToItems } from "../domain-model/compat/itemProjection";
 import type { KnowledgeEdge, Resource, TaskDependency, WorkspaceDomain } from "../domain-model/types";
 
-export interface ParsedTaskRow {
-  title: string;
-  theme_id: string | null;
-  planned_end: string | null;
-  status: string;
-  description: string;
-  kind?: string;
-  priority?: string;
-  planned_start?: string | null;
-}
-
-export function parseTaskTable(text: string, themes: Theme[]): ParsedTaskRow[] {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return [];
-  const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
-  const rows = lines.map((line) => line.split(delimiter).map((value) => value.trim()));
-  const normalized = (value: string) => String(value || "").toLowerCase().replace(/\s/g, "");
-  const knownHeaders = ["title", "タイトル", "タスク", "theme", "テーマ", "予定終了", "期限", "due", "状態", "status", "説明", "description"];
-  const hasHeader = rows[0].some((value) => knownHeaders.includes(normalized(value)));
-  const headers = hasHeader ? rows.shift()!.map(normalized) : ["タイトル", "theme", "予定終了", "状態", "説明"];
-  const fieldIndex = (aliases: string[]) => headers.findIndex((header) => aliases.includes(header));
-  const titleIndex = fieldIndex(["title", "タイトル", "タスク"]);
-  const themeIndex = fieldIndex(["theme", "テーマ"]);
-  const dueIndex = fieldIndex(["due", "due_date", "期限", "予定終了", "planned_end"]);
-  const statusIndex = fieldIndex(["status", "状態"]);
-  const descriptionIndex = fieldIndex(["description", "説明"]);
-  const statusMap: Record<string, string> = Object.fromEntries(
-    Object.entries(STATUS_LABELS).flatMap(([key, label]) => [[key, key], [label, key]]),
-  );
-  return rows.flatMap<ParsedTaskRow>((row) => {
-    const title = row[titleIndex >= 0 ? titleIndex : 0]?.trim();
-    if (!title) return [];
-    const themeName = row[themeIndex] || "";
-    const theme = themes.find((entry) => entry.id === themeName || entry.name === themeName);
-    const due = row[dueIndex] || "";
-    return [{
-      title,
-      theme_id: theme?.id || null,
-      planned_end: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
-      status: statusMap[row[statusIndex]] || "todo",
-      description: row[descriptionIndex] || "",
-    }];
-  });
-}
-
 export interface ExportData {
   themes: Theme[];
   items: Item[];
