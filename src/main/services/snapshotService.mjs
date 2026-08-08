@@ -3,17 +3,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 
 import { workspaceEntityTypes, workspaceSchemaVersion } from "../repositories/workspaceRepository.mjs";
+import { collectionKeyForEntityType } from "../../shared/entityRegistry.mjs";
 
 const checksum = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 10 * 1024 * 1024;
-
-function collectionKey(type) {
-  if (type === "task_dependency") return "task_dependencies";
-  if (type === "plan_dependency") return "plan_dependencies";
-  if (type === "sketch") return "sketches";
-  return `${type}s`;
-}
 
 function readEntryText(entry, name) {
   if (entry.header.size > MAX_ENTRY_BYTES) {
@@ -61,7 +55,7 @@ export function createSnapshot(workspace) {
   const zip = new AdmZip();
   const files = {};
   for (const type of workspaceEntityTypes) {
-    const key = collectionKey(type);
+    const key = collectionKeyForEntityType(type);
     const name = `${key}.json`;
     const content = JSON.stringify(workspace[key] || [], null, 2);
     zip.addFile(name, Buffer.from(content, "utf8"));
@@ -104,7 +98,7 @@ export function readSnapshot(filePath) {
 
   const workspace = { meta: { workspaceId: manifest.workspaceId, deviceId: manifest.deviceId } };
   for (const type of workspaceEntityTypes) {
-    const key = collectionKey(type);
+    const key = collectionKeyForEntityType(type);
     const name = `${key}.json`;
     const entry = zip.getEntry(name);
     if (!entry) {

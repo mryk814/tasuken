@@ -1,10 +1,11 @@
 import { IconChevronDown, IconInfoCircle } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { ROUTE_ICONS } from "../../../pages/routeIcons";
 import { routeDescription, routeLabel } from "../../../pages/routes";
 import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
+import { PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
 export type ContextMenuItem = {
@@ -259,27 +260,43 @@ export function ThemeSelect({
   fieldName?: string;
   onChange?: (value: string) => void;
 }) {
-  const [selected, setSelected] = useState(value || "");
+  const initialValue = !value && allowPersonal && !allowAll ? PERSONAL_DEFAULT_THEME_ID : (value || "");
+  const [selected, setSelected] = useState(initialValue);
+  const hiddenInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    setSelected(value || "");
-  }, [value]);
+    setSelected(!value && allowPersonal && !allowAll ? PERSONAL_DEFAULT_THEME_ID : (value || ""));
+  }, [allowAll, allowPersonal, value]);
   function choose(next: string) {
+    // Keep the native form boundary coherent before React commits the state
+    // update. This matters for programmatic requestSubmit() and for the same
+    // click-to-submit path used by detached windows.
+    if (hiddenInputRef.current) hiddenInputRef.current.value = next;
     setSelected(next);
     onChange?.(next);
   }
-  const noneLabel = allowAll ? "全体共通" : allowPersonal ? "個人業務" : "未設定";
+  const noneLabel = allowAll ? "全体共通" : "未設定";
   return (
     <Field label="Theme">
-      <input type="hidden" name={fieldName} value={selected} />
+      <input ref={hiddenInputRef} type="hidden" name={fieldName} value={selected} readOnly />
       <div className="theme-chips">
-        <button
-          type="button"
-          className={`theme-chip ${!selected ? "is-selected" : ""}`}
-          onClick={() => choose("")}
-        >
-          {noneLabel}
-        </button>
-        {themes.map((theme, index) => (
+        {allowPersonal ? (
+          <button
+            type="button"
+            className={`theme-chip ${selected === PERSONAL_DEFAULT_THEME_ID ? "is-selected" : ""}`}
+            onClick={() => choose(PERSONAL_DEFAULT_THEME_ID)}
+          >
+            個人業務
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`theme-chip ${!selected ? "is-selected" : ""}`}
+            onClick={() => choose("")}
+          >
+            {noneLabel}
+          </button>
+        )}
+        {themes.filter((theme) => theme.id !== PERSONAL_DEFAULT_THEME_ID).map((theme, index) => (
           <button
             key={theme.id}
             type="button"

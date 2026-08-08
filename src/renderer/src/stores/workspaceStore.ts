@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../shared/types/workspace";
+import { collectionKeyForEntityType } from "../../../shared/entityRegistry.mjs";
 import { workspaceApi } from "../services/workspaceApi";
 
 type LoadState = "idle" | "loading" | "success" | "error";
@@ -20,39 +21,8 @@ interface WorkspaceState {
   applyExternalSaves(changes: Array<{ type: EntityType; entity: Entity }>): void;
 }
 
-const entityKeys: Record<EntityType, keyof Workspace> = {
-  theme: "themes",
-  item: "items",
-  note: "notes",
-  link: "links",
-  resource: "resources",
-  view: "views",
-  status_update: "status_updates",
-  source_record: "source_records",
-  entity_source: "entity_sources",
-  field_definition: "field_definitions",
-  field_value: "field_values",
-  log_entry: "log_entries",
-  import_batch: "import_batchs",
-  knowledge_node: "knowledge_nodes",
-  ai_proposal: "ai_proposals",
-  project: "projects",
-  capture_entry: "capture_entrys",
-  task: "tasks",
-  waiting: "waitings",
-  plan_node: "plan_nodes",
-  schedule: "schedules",
-  reference: "references",
-  task_dependency: "task_dependencies",
-  plan_dependency: "plan_dependencies",
-  knowledge_edge: "knowledge_edges",
-  change_event: "change_events",
-  artifact: "artifacts",
-  sketch: "sketches",
-};
-
 function replaceEntity(workspace: Workspace, type: EntityType, saved: Entity): Workspace {
-  const key = entityKeys[type];
+  const key = collectionKeyForEntityType(type) as keyof Workspace;
   const records = (workspace[key] as Entity[] | undefined) || [];
   const next = records.some((entry) => entry.id === saved.id)
     ? records.map((entry) => entry.id === saved.id ? saved : entry)

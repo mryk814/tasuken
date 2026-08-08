@@ -1,33 +1,6 @@
-export const entityTypes = [
-  "theme",
-  "item",
-  "note",
-  "link",
-  "view",
-  "status_update",
-  "source_record",
-  "entity_source",
-  "field_definition",
-  "field_value",
-  "log_entry",
-  "import_batch",
-  "knowledge_node",
-  "ai_proposal",
-  "resource",
-  "project",
-  "capture_entry",
-  "task",
-  "waiting",
-  "plan_node",
-  "schedule",
-  "reference",
-  "task_dependency",
-  "plan_dependency",
-  "knowledge_edge",
-  "change_event",
-  "artifact",
-  "sketch",
-] as const;
+import { entityTypes as registryEntityTypes } from "../entityRegistry.mjs";
+
+export const entityTypes = registryEntityTypes;
 
 export type EntityType = (typeof entityTypes)[number];
 
@@ -96,6 +69,13 @@ export interface SaveOperation {
   type: EntityType;
   entity: Entity;
   options?: SaveOptions;
+}
+
+export type RawRecord = Record<string, unknown>;
+
+export interface EntityEnvelope<T extends RawRecord = Entity> {
+  type: EntityType;
+  entity: T;
 }
 
 export interface SnapshotDecision {

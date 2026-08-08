@@ -24,6 +24,7 @@ import {
 } from "react";
 
 import { noteExportSignature } from "../../../../../shared/fileExport";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import {
   markdownSignature,
   noteSaveStateLabel,
@@ -846,8 +847,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (body === recordBody(previous)) return;
     // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
     if (previous.recordType === "note" && !body.trim()) return;
-    const { recordType, ...entity } = previous;
-    await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
+    // Theme選択など別の保存経路が先に完了しても、古いselected行で本文保存が
+    // canonical project_idを巻き戻さない。保存直前に同じownerの正本を読み直し、
+    // snapshotは本文だけを担う。
+    const latest = await workspaceApi.get(previous.recordType, previous.id);
+    const current = latest ? { ...previous, ...latest } : previous;
+    const { recordType, ...entity } = current;
+    const saved = await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
     // 保存対象がまだ表示中のownerならEditorの基準本文も同じsnapshotへ進める。
     if (selectedOwnerKeyRef.current === noteDraftOwnerKey(snapshot.owner)) {
       selectedBodyRef.current = snapshot;
@@ -856,7 +862,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       setRichEditorDirty(false);
     }
     // 自動保存・Ctrl+S・手動保存は同じowner付きsnapshot経路で正本Markdownも更新する（#291）。
-    await syncCanonicalMarkdown(previous, snapshot);
+    await syncCanonicalMarkdown({ ...current, ...saved, recordType }, snapshot);
   }
 
   async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
@@ -1013,7 +1019,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       type: "note",
       mode: "edit",
       entity: {
-        theme_id: activeTheme?.id || null,
+        project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
         note_type: "prompt",
         content_format: "markdown",
         title: `${PROMPT_PURPOSE_LABELS[purpose] || "汎用"}プロンプト`,
@@ -1033,7 +1039,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       type: "note",
       mode: "edit",
       entity: {
-        theme_id: activeTheme?.id || null,
+        project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
         note_type: noteType,
         content_format: "markdown",
         title: noteType === "report" ? "Report" : "",
@@ -1060,7 +1066,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   function createRecord(kind: NotesKind) {
     if (kind === "resource") {
-      openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } });
+      openDrawer({ type: "resource", mode: "edit", entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) } });
       return;
     }
     if (kind === "prompt") {

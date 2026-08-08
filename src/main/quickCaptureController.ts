@@ -13,6 +13,7 @@ import {
   quickCaptureTitle,
   splitQuickCaptureInput,
 } from "../shared/quickCapture.mjs";
+import { canonicalThemeId } from "../shared/themeRef.mjs";
 
 export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task" | "due-task";
 
@@ -144,7 +145,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               description: mode === "today-task" && extra ? extra : null,
               // やったことのひとことは本文と混ぜず、完了の記録として分けて保存する。
               completion_note: isDoneTask && extra ? extra : null,
-              project_id: themeId || null,
+              project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
               state: isDoneTask ? "done" : "todo",
               priority: "normal",
               completed_at: isDoneTask ? now : null,
@@ -185,7 +186,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
         kind: mode === "micro-memo" ? "micro_memo" : "inbox",
         content_type: contentType,
         url: contentType === "url" ? firstCaptureUrl(trimmed) : null,
-        project_id: themeId || null,
+        project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
         captured_at: localDateTimeString(),
         state: "untriaged",
       }, { source: "quick-capture" });

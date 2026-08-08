@@ -1,17 +1,14 @@
+import { entityTypes, themeFieldForEntityType } from "../../shared/entityRegistry.mjs";
+
+const themeReferenceTargets = entityTypes
+  .filter((entityType) => entityType !== "theme" && entityType !== "project" && entityType !== "status_update")
+  .map((entityType) => [entityType, themeFieldForEntityType(entityType)])
+  .filter((entry) => entry[1]);
+
 export function applyRepositoryDeletePolicy(repository, type, id) {
   if (type === "theme") {
     repository.cascadeWhere("artifact", (entry) => entry.source_type === "theme" && entry.source_id === id, type, id);
-    repository.nullifyReferences(type, [
-      ["item", "theme_id"],
-      ["note", "theme_id"],
-      ["link", "theme_id"],
-      ["field_definition", "theme_id"],
-      ["knowledge_node", "theme_id"],
-      ["log_entry", "theme_id"],
-      ["view", "theme_id"],
-      ["artifact", "theme_id"],
-      ["sketch", "project_id"],
-    ], id);
+    repository.nullifyReferences(type, themeReferenceTargets, id);
     repository.cascadeWhere("status_update", (entry) => entry.theme_id === id, type, id);
   }
 

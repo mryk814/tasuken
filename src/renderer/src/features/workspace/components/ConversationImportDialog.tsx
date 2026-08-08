@@ -2,6 +2,7 @@ import { useState } from "react";
 import { IconFileImport, IconClipboard } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
 import type { Resource } from "../domain-model/types";
 import { listActiveChatGroupNames } from "../lib/chatRefs";
@@ -113,7 +114,7 @@ export function ConversationImportDialog({
         url: url || null,
         description: null,
         body_markdown: rawText,
-        project_id: themeId || null,
+        project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
         source_record_id: null,
         link_type: linkType !== "other" ? linkType : null,
         reference_status: "inbox",

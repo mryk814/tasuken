@@ -1,65 +1,13 @@
 import { hasAiMetadataContract, normalizeAiMetadata } from "../../shared/aiMetadata.mjs";
 import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
+import {
+  assertEntityPayload,
+  assertEntityType as assertRegistryEntityType,
+  entityTypes,
+  requiredFieldsForEntityType,
+} from "../../shared/entityRegistry.mjs";
 
-export const workspaceEntityTypes = [
-  "theme",
-  "item",
-  "note",
-  "link",
-  "view",
-  "status_update",
-  "source_record",
-  "entity_source",
-  "field_definition",
-  "field_value",
-  "log_entry",
-  "import_batch",
-  "knowledge_node",
-  "ai_proposal",
-  "resource",
-  "project",
-  "capture_entry",
-  "task",
-  "waiting",
-  "plan_node",
-  "schedule",
-  "reference",
-  "task_dependency",
-  "plan_dependency",
-  "knowledge_edge",
-  "change_event",
-  "artifact",
-  "sketch",
-];
-
-const requiredTextFields = {
-  theme: ["name"],
-  item: ["title"],
-  // 本文は Notes 中央エリアで書く。タイトルだけで下書き作成できるようにする。
-  note: ["title"],
-  link: ["title", "url"],
-  resource: ["title"],
-  status_update: ["theme_id", "summary"],
-  source_record: ["source_title"],
-  field_definition: ["name", "field_type", "applies_to"],
-  field_value: ["field_definition_id", "entity_type", "entity_id"],
-  knowledge_node: ["node_type", "title"],
-  ai_proposal: ["source", "payload_type", "status"],
-  project: ["name", "state"],
-  capture_entry: ["text", "captured_at", "state"],
-  task: ["title", "state"],
-  waiting: ["title", "waiting_for", "state"],
-  plan_node: ["title", "type", "state"],
-  schedule: ["owner_type", "owner_id", "date_kind", "confidence", "granularity"],
-  reference: ["source_type", "source_id", "target_type", "target_id", "relation_type"],
-  task_dependency: ["task_id", "depends_on_task_id"],
-  plan_dependency: ["plan_node_id", "depends_on_plan_node_id"],
-  knowledge_edge: ["source_node_id", "target_node_id", "relation_type"],
-  change_event: ["entity_type", "entity_id", "changed_at", "change_type", "source"],
-  // stored_path は managed のみ必須。linked は target/link_type を validateEntity で見る。
-  artifact: ["title", "filename", "source_type", "source_id"],
-  sketch: ["title"],
-};
+export const workspaceEntityTypes = entityTypes;
 
 const isoDateFields = [
   "baseline_start",
@@ -287,19 +235,18 @@ export function assertItemParentAcyclic(items, entity, message = "親Itemに自�
 
 
 export function assertEntityType(type) {
-  if (!workspaceEntityTypes.includes(type)) {
-    throw new Error(`未対応のデータ種別です: ${type}`);
-  }
+  return assertRegistryEntityType(type);
 }
 
 export function validateEntity(type, input) {
   assertEntityType(type);
+  assertEntityPayload(type, input);
   if (!isPlainObject(input)) throw new Error(`${type}の保存内容が不正です。`);
 
   // AI共通metadata（#294）は正規化と同じ規則で検証する。規則の正本は aiMetadata.mjs 側。
   if (hasAiMetadataContract(type)) normalizeAiMetadata(type, input);
 
-  for (const field of requiredTextFields[type] || []) {
+  for (const field of requiredFieldsForEntityType(type)) {
     if (typeof input[field] !== "string" || !input[field].trim()) {
       throw new Error(`${type}.${field}を入力してください。`);
     }
@@ -461,7 +408,7 @@ export function normalizeEntity(type, input) {
   const normalized = { ...input };
   // AI共通metadata（#294）。本文フィールドには触れず、概要・鮮度・根拠・公開範囲だけを揃える。
   if (hasAiMetadataContract(type)) Object.assign(normalized, normalizeAiMetadata(type, normalized));
-  for (const field of requiredTextFields[type] || []) {
+  for (const field of requiredFieldsForEntityType(type)) {
     if (typeof normalized[field] === "string") normalized[field] = normalized[field].trim();
   }
   if (type === "item") {

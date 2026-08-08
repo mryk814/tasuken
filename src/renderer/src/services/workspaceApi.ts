@@ -33,6 +33,9 @@ export const workspaceApi = {
   save(type: EntityType, entity: Entity, options: SaveOptions = {}) {
     return desktopApi().entities.save(type, entity, options);
   },
+  get(type: EntityType, id: string) {
+    return desktopApi().entities.get(type, id);
+  },
   saveMany(operations: SaveOperation[]) {
     return desktopApi().entities.saveMany(operations);
   },

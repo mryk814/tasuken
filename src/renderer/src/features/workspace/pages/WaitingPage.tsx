@@ -12,6 +12,7 @@ import { InlineAddPanel } from "../components/InlineAddPanel";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Schedule, Waiting } from "../domain-model/types";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 
 function scheduledDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
@@ -44,7 +45,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
     const waitingId = crypto.randomUUID();
     const waiting: Waiting = {
       id: waitingId,
-      project_id: addTheme || null,
+      project_id: canonicalThemeId(addTheme, { defaultPersonal: true }),
       title,
       waiting_for: waitingFor,
       state: "waiting",

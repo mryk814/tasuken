@@ -17,6 +17,11 @@ import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMet
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { isThemeDeletable, planPersonalDefaultTheme } from "../../shared/personalTheme.mjs";
 import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
+import {
+  collectionKeyForEntityType,
+  legacyThemeFieldsForEntityType,
+  themeFieldForEntityType,
+} from "../../shared/entityRegistry.mjs";
 
 const SCHEMA_VERSION = 2;
 
@@ -53,13 +58,6 @@ function contentOf(entity) {
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function collectionKey(type) {
-  if (type === "task_dependency") return "task_dependencies";
-  if (type === "plan_dependency") return "plan_dependencies";
-  if (type === "sketch") return "sketches";
-  return `${type}s`;
 }
 
 export class WorkspaceDatabase {
@@ -347,7 +345,7 @@ export class WorkspaceDatabase {
   loadWorkspace(includeDeleted = false) {
     this.ensurePersonalDefaultTheme();
     const result = {};
-    for (const type of workspaceEntityTypes) result[collectionKey(type)] = this.list(type, includeDeleted);
+    for (const type of workspaceEntityTypes) result[collectionKeyForEntityType(type)] = this.list(type, includeDeleted);
     result.plan_revisions = this.db.prepare(
       "SELECT * FROM plan_revisions ORDER BY changed_at DESC",
     ).all().map((row) => ({
@@ -438,7 +436,6 @@ export class WorkspaceDatabase {
       }
     };
 
-    requireReference("theme", entity.theme_id, "theme_id");
     requireReference("item", entity.item_id, "item_id");
     requireReference("note", entity.note_id, "note_id");
     requireReference("source_record", entity.source_record_id, "source_record_id");
@@ -464,17 +461,26 @@ export class WorkspaceDatabase {
       throw new Error(`${type}.${field}が存在しない${targetType}を参照しています。`);
     };
 
+    // Theme参照の正本はRegistryのcanonical field。legacyThemeFieldsは
+    // migration境界からまだ届くraw recordだけを検証し、独自type mappingは持たない。
+    const themeField = themeFieldForEntityType(type);
+    if (themeField === "project_id") {
+      requireV2("project", entity[themeField], themeField);
+    } else if (themeField) {
+      requireReference("theme", entity[themeField], themeField);
+    }
+    for (const legacyField of legacyThemeFieldsForEntityType(type)) {
+      if (legacyField !== themeField) requireReference("theme", entity[legacyField], legacyField);
+    }
+
     if (type === "task") {
-      requireV2("project", entity.project_id, "project_id");
       requireV2("plan_node", entity.plan_node_id, "plan_node_id");
       requireV2("task", entity.parent_task_id, "parent_task_id");
     }
     if (type === "waiting") {
-      requireV2("project", entity.project_id, "project_id");
       requireV2("task", entity.task_id, "task_id");
     }
     if (type === "plan_node") {
-      requireV2("project", entity.project_id, "project_id");
       requireV2("plan_node", entity.parent_plan_node_id, "parent_plan_node_id");
     }
     if (type === "schedule") {
@@ -482,9 +488,6 @@ export class WorkspaceDatabase {
       if (ownerType && entity.owner_id) {
         requireV2(ownerType, entity.owner_id, "owner_id");
       }
-    }
-    if (type === "resource") {
-      requireV2("project", entity.project_id, "project_id");
     }
     if (type === "reference") {
       requireV2(entity.source_type, entity.source_id, "source_id");
@@ -520,8 +523,8 @@ export class WorkspaceDatabase {
     if (!isPlainObject(snapshot)) throw new Error("Snapshotのworkspace構造が不正です。");
     const activeIds = new Map();
     for (const type of workspaceEntityTypes) {
-      const records = snapshot[collectionKey(type)] || [];
-      if (!Array.isArray(records)) throw new Error(`${collectionKey(type)}は配列で指定してください。`);
+      const records = snapshot[collectionKeyForEntityType(type)] || [];
+      if (!Array.isArray(records)) throw new Error(`${collectionKeyForEntityType(type)}は配列で指定してください。`);
       const ids = new Set();
       for (const record of records) {
         if (!isPlainObject(record)) throw new Error(`${type}のレコード構造が不正です。`);
@@ -540,7 +543,7 @@ export class WorkspaceDatabase {
     };
 
     for (const type of workspaceEntityTypes) {
-      for (const record of snapshot[collectionKey(type)] || []) {
+      for (const record of snapshot[collectionKeyForEntityType(type)] || []) {
         requireSnapshotReference(type, record, "theme", record.theme_id, "theme_id");
         requireSnapshotReference(type, record, "item", record.item_id, "item_id");
         requireSnapshotReference(type, record, "note", record.note_id, "note_id");
@@ -562,24 +565,32 @@ export class WorkspaceDatabase {
           if (field !== "project_id" && activeIds.get(targetType)?.has(String(id))) return;
           throw new Error(`${type}.${field}がSnapshot内に存在しない${targetType}を参照しています。`);
         };
+
+        // Snapshotも同じRegistry契約を使う。canonical project_idと、
+        // compatibility boundaryのlegacy theme_idを混同しない。
+        const themeField = themeFieldForEntityType(type);
+        if (themeField === "project_id") {
+          requireV2Ref("project", record[themeField], themeField);
+        } else if (themeField) {
+          requireSnapshotReference(type, record, "theme", record[themeField], themeField);
+        }
+        for (const legacyField of legacyThemeFieldsForEntityType(type)) {
+          if (legacyField !== themeField) {
+            requireSnapshotReference(type, record, "theme", record[legacyField], legacyField);
+          }
+        }
         if (type === "task") {
-          requireV2Ref("project", record.project_id, "project_id");
           requireV2Ref("plan_node", record.plan_node_id, "plan_node_id");
           requireV2Ref("task", record.parent_task_id, "parent_task_id");
         }
         if (type === "waiting") {
-          requireV2Ref("project", record.project_id, "project_id");
           requireV2Ref("task", record.task_id, "task_id");
         }
         if (type === "plan_node") {
-          requireV2Ref("project", record.project_id, "project_id");
           requireV2Ref("plan_node", record.parent_plan_node_id, "parent_plan_node_id");
         }
         if (type === "schedule" && record.owner_type && record.owner_id) {
           requireV2Ref(record.owner_type, record.owner_id, "owner_id");
-        }
-        if (type === "resource") {
-          requireV2Ref("project", record.project_id, "project_id");
         }
         if (type === "reference") {
           requireV2Ref(record.source_type, record.source_id, "source_id");
@@ -835,7 +846,7 @@ export class WorkspaceDatabase {
     if (!this.isEmpty()) return this.loadWorkspace();
     const transaction = this.db.transaction(() => {
       for (const type of workspaceEntityTypes) {
-        const records = legacyWorkspace?.[collectionKey(type)] || [];
+        const records = legacyWorkspace?.[collectionKeyForEntityType(type)] || [];
         for (const record of records) this.insertImported(type, record, "legacy");
       }
     });
@@ -878,7 +889,7 @@ export class WorkspaceDatabase {
     this.validateSnapshotWorkspace(snapshot);
     const changes = [];
     for (const type of workspaceEntityTypes) {
-      for (const incoming of snapshot?.[collectionKey(type)] || []) {
+      for (const incoming of snapshot?.[collectionKeyForEntityType(type)] || []) {
         const local = this.get(type, incoming.id, true);
         let category = "new";
         if (local) {

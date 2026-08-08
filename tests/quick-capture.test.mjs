@@ -49,7 +49,7 @@ test("Inbox検索はタイトル・本文・URL・種別を横断する", () => 
 
 test("Quick CaptureはTheme任意・連続入力・URLメタデータを保存する", () => {
   assert.match(controllerSource, /content_type:\s*contentType/);
-  assert.match(controllerSource, /project_id:\s*themeId \|\| null/);
+  assert.match(controllerSource, /project_id:\s*canonicalThemeId\(themeId, \{ defaultPersonal: true \}\)/);
   assert.match(controllerSource, /url:\s*contentType === "url"/);
   assert.match(captureWindowSource, /submit\(event\.shiftKey\)/);
   assert.match(captureWindowSource, /const usesTheme = mode !== "micro-memo"/);

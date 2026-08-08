@@ -11,6 +11,8 @@
  * この関数はpathを組み立てるだけで、ファイルI/Oはしない（node:fsに依存しない）。
  */
 
+import { canonicalThemeId, isPersonalDefaultThemeId } from "./themeRef.mjs";
+
 /** 標準サブフォルダ。利用者へ細かい設定を公開せず、ここで最小限に固定する。 */
 export const STORAGE_SUBFOLDERS = {
   notes: "Notes",
@@ -69,6 +71,7 @@ function subfolderFor(purpose) {
 export function resolveStorageLocation({
   purpose = "artifacts",
   themeId = null,
+  themeRef = null,
   themeCode = null,
   themeStorageRoot = null,
   syncRoot = null,
@@ -91,9 +94,9 @@ export function resolveStorageLocation({
   const base = String(syncRoot || "").trim();
   if (!base) return { status: "needs_root" };
 
-  const id = String(themeId || "").trim();
+  const id = canonicalThemeId(themeRef?.id ?? themeId);
   // 既定Theme「個人業務」（#282）は案件フォルダを増やさず、Inboxへまとめる。
-  if (!id || isPersonalDefaultTheme) {
+  if (!id || isPersonalDefaultTheme || isPersonalDefaultThemeId(id)) {
     return {
       status: "ok",
       root: base,

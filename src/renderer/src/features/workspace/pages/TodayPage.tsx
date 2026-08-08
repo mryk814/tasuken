@@ -13,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { CalendarConnectionStatus, CalendarEvent, CalendarEventsResult } from "../../../../../shared/calendar";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
@@ -942,7 +943,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     const taskId = crypto.randomUUID();
     const task: Task = {
       id: taskId,
-      project_id: addTheme || null,
+      project_id: canonicalThemeId(addTheme, { defaultPersonal: true }),
       title,
       state: "todo",
       priority: "normal",

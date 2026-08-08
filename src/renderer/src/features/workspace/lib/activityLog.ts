@@ -1,6 +1,7 @@
 import type { StatusUpdate, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { compareCapturesNewestFirst } from "../domain-model/selectors";
+import { PERSONAL_DEFAULT_THEME_ID, resolveThemeRef, themeRefFromId } from "../../../../../shared/themeRef.mjs";
 
 export interface ActivityLogInput {
   date: string;
@@ -51,12 +52,13 @@ function text(value: unknown): string {
  * - 削除済み・参照切れ: 削除済みTheme + 短い ID 断片（後から辿れる程度）
  */
 export function resolveActivityTheme(themes: Theme[], projectId?: string | null): ActivityThemeRef {
-  const id = text(projectId);
-  if (!id) {
-    return { id: null, name: "個人業務", code: "", description: "", missing: false };
+  const ref = themeRefFromId(projectId, { legacyNullMeansPersonal: true });
+  const resolved = resolveThemeRef(themes, ref);
+  if (resolved.id === PERSONAL_DEFAULT_THEME_ID && !resolved.theme) {
+    return { id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務", code: "", description: "", missing: false };
   }
-  const theme = themes.find((entry) => entry.id === id);
-  if (!theme) {
+  if (resolved.missing || !resolved.theme) {
+    const id = resolved.id || PERSONAL_DEFAULT_THEME_ID;
     return {
       id,
       name: "削除済みTheme",
@@ -65,6 +67,7 @@ export function resolveActivityTheme(themes: Theme[], projectId?: string | null)
       missing: true,
     };
   }
+  const theme = resolved.theme;
   return {
     id: theme.id,
     name: text(theme.name) || "無題のTheme",

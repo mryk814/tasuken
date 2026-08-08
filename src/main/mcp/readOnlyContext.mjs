@@ -10,6 +10,7 @@ import {
   summarizeAiExclusions,
 } from "../../shared/aiMetadata.mjs";
 import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../shared/knowledgeHealth.mjs";
+import { collectionKeyForEntityType, entityTypes } from "../../shared/entityRegistry.mjs";
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -44,30 +45,7 @@ const MAX_LIMIT = 100;
 const DEFAULT_TEXT_LIMIT = 1200;
 const MAX_TEXT_LIMIT = 8000;
 const OPEN_ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "inbox"]);
-const ENTITY_TYPES = [
-  "theme",
-  "item",
-  "note",
-  "link",
-  "resource",
-  "status_update",
-  "knowledge_node",
-  "project",
-  "task",
-  "waiting",
-  "plan_node",
-  "schedule",
-  "capture_entry",
-  "reference",
-  "task_dependency",
-  "plan_dependency",
-  "knowledge_edge",
-  "change_event",
-];
-
-function collectionKey(type) {
-  return `${type}s`;
-}
+const ENTITY_TYPES = entityTypes;
 
 function parseRow(row) {
   return {
@@ -207,7 +185,7 @@ export class ReadOnlyTaskenContext {
 
   list(type, includeArchived = false) {
     if (this.workspace) {
-      const records = this.workspace[collectionKey(type)] || [];
+      const records = this.workspace[collectionKeyForEntityType(type)] || [];
       return sortUpdated(includeArchived ? records : records.filter((record) => !record.deleted_at));
     }
     const deletedClause = includeArchived ? "" : "AND deleted_at IS NULL";
@@ -220,7 +198,7 @@ export class ReadOnlyTaskenContext {
 
   loadWorkspace(includeArchived = false) {
     const workspace = {};
-    for (const type of ENTITY_TYPES) workspace[collectionKey(type)] = this.list(type, includeArchived);
+    for (const type of ENTITY_TYPES) workspace[collectionKeyForEntityType(type)] = this.list(type, includeArchived);
     return workspace;
   }
 
