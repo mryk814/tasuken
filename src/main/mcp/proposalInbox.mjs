@@ -7,7 +7,7 @@ import { validateArtifactProposal, validateSafeSvg } from "../../shared/proposal
 
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 1024 * 1024;
-const PAYLOAD_TYPES = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update"]);
+const PAYLOAD_TYPES = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work"]);
 
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -22,6 +22,23 @@ function validatePayload(payloadType, payload) {
   const entries = payload[payloadType];
   if (!Array.isArray(entries) || entries.length === 0 || entries.length > 100) {
     throw new Error(`${payloadType}は1〜100件の配列にしてください。`);
+  }
+  if (payloadType === "task_work") {
+    for (const entry of entries) {
+      if (!plainObject(entry)) throw new Error("task_workの各要素はJSON objectにしてください。");
+      if (!text(entry.task_id) || !["start", "append_receipt", "report_done", "request_review"].includes(entry.action)) {
+        throw new Error("task_workにはtask_idとstart/append_receipt/report_done/request_reviewのactionが必要です。");
+      }
+      if (entry.action === "append_receipt" || entry.action === "report_done") {
+        if (!text(entry.executor_kind) || !["self", "human", "ai_agent", "external", "unknown"].includes(entry.executor_kind)) throw new Error("task_work.executor_kindが不正です。");
+        if (!text(entry.executor_label) || !text(entry.summary)) throw new Error("task_workのReceiptにはexecutor_labelとsummaryが必要です。");
+        for (const field of ["completed_items", "changed_or_created_items", "verification", "remaining_work"]) {
+          if (entry[field] != null && (!Array.isArray(entry[field]) || entry[field].length > 100 || entry[field].some((item) => !text(item)))) throw new Error(`task_work.${field}が不正です。`);
+        }
+      }
+      if (entry.action === "request_review" && !text(entry.review_note)) throw new Error("task_workのrequest_reviewにはreview_noteが必要です。");
+    }
+    return;
   }
   for (const entry of entries) {
     if (!plainObject(entry)) throw new Error(`${payloadType}の各要素はJSON objectにしてください。`);
