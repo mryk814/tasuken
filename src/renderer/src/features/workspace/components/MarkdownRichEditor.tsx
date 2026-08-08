@@ -359,12 +359,7 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
           setEditing(true);
         }}
       >
-        <StableMermaidPreview
-          key={rendered}
-          className="note-mermaid-preview markdown-preview"
-          html={rendered}
-          renderMermaidEager
-        />
+        <StableMermaidPreview key={rendered} className="note-mermaid-preview markdown-preview" html={rendered} />
       </div>
       <div className="note-mermaid-width-control" aria-label="Mermaidの表示幅">
         <span>幅</span>

@@ -5,14 +5,12 @@ import { renderMermaidBlock, renderMermaidBlocks } from "../lib/mermaid";
 export function MarkdownPreview({
   html,
   className = "markdown-preview",
-  renderMermaidEager = false,
   rootRef: externalRef,
   onScroll,
   onClick,
 }: {
   html: string;
   className?: string;
-  renderMermaidEager?: boolean;
   rootRef?: Ref<HTMLDivElement>;
   onScroll?: UIEventHandler<HTMLDivElement>;
   onClick?: MouseEventHandler<HTMLDivElement>;
@@ -28,16 +26,6 @@ export function MarkdownPreview({
     if (!nodes.length) return;
 
     let active = true;
-    if (renderMermaidEager) {
-      void renderMermaidBlocks(root).catch(() => {
-        if (active && renderVersionRef.current === version) nodes.forEach((node) => node.classList.add("has-render-error"));
-      });
-      return () => {
-        active = false;
-        renderVersionRef.current += 1;
-      };
-    }
-
     const renderNode = (node: HTMLElement) => {
       if (!active || renderVersionRef.current !== version) return;
       void renderMermaidBlock(node).catch(() => {
@@ -65,7 +53,7 @@ export function MarkdownPreview({
       observer?.disconnect();
       renderVersionRef.current += 1;
     };
-  }, [html, renderMermaidEager]);
+  }, [html]);
 
   return <div ref={(node) => {
     internalRef.current = node;

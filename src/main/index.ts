@@ -1118,7 +1118,14 @@ function createWindow(): BrowserWindow {
 
   window.once("ready-to-show", () => {
     readyMainWindows.add(window);
-    if (!isSmokeTest) window.show();
+    if (isSmokeTest) {
+      // IntersectionObserver needs a visible layout viewport; keep the smoke window
+      // nonintrusive while exercising the same lazy Mermaid path as production.
+      window.setOpacity(0);
+      window.showInactive();
+    } else {
+      window.show();
+    }
   });
   window.webContents.once("did-finish-load", () => {
     if (isSmokeTest) {
