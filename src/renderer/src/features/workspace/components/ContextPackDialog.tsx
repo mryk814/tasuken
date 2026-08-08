@@ -223,7 +223,7 @@ export function ContextPackDialog({
       >
         <header>
           <div>
-            <span>AI IO</span>
+            <span>Theme Context</span>
             <h2 id="context-pack-title">Context Pack · {theme.name}</h2>
           </div>
           <button type="button" className="icon-button" onClick={() => closeDialog()} aria-label="閉じる"><IconX size={18} /></button>

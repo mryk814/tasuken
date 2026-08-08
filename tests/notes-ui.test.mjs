@@ -122,7 +122,7 @@ test("navigation, page headings and command palette share one canonical label", 
   assert.match(routes, /export const ROUTE_META/);
   assert.match(routes, /"chat-refs": \{ label: "Chat Refs"/);
   assert.match(routes, /inbox: \{ label: "Inbox"/);
-  assert.match(routes, /"ai-io": \{ label: "AI IO"/);
+  assert.match(routes, /"ai-io": \{ label: "AI Inbox"/);
   assert.match(shell, /const label = routeLabel\(id\);/);
   assert.match(common, /routeLabel\(route\)/);
   assert.match(common, /ROUTE_ICONS\[route\]/);
