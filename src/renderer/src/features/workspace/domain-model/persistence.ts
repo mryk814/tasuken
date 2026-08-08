@@ -1,5 +1,6 @@
 import type { Entity, SaveOperation, SaveOptions } from "../types";
 import type { CaptureEntry, ChangeEvent, EntityRefType, Note, PlanNode, Resource, Schedule, Task, Waiting } from "./types";
+import { buildActivityEvent } from "../../../../../shared/activityEvent.mjs";
 
 type SaveSource = ChangeEvent["source"];
 
@@ -7,7 +8,17 @@ export interface SaveContext {
   now?: string;
   source?: SaveSource;
   reason?: string | null;
+  sessionId?: string;
+  /** Start a new meaningful editing session instead of continuing debounce. */
+  newSession?: boolean;
 }
+
+// Autosaves within five seconds share an editing session. A caller can pass a
+// sessionId for a longer-lived explicit workflow, or newSession=true at a
+// deliberate boundary. This prevents the renderer lifetime from becoming the
+// dedupe boundary while still collapsing rapid identical writes.
+const ACTIVITY_SESSION_IDLE_MS = 5_000;
+const activitySessions = new Map<string, { id: string; lastAt: number }>();
 
 function nowIso(context: SaveContext = {}): string {
   return context.now || new Date().toISOString();
@@ -15,6 +26,25 @@ function nowIso(context: SaveContext = {}): string {
 
 function uuid(): string {
   return crypto.randomUUID();
+}
+
+function activitySessionId(entityType: string, entityId: string, context: SaveContext): string {
+  if (context.sessionId) return context.sessionId;
+  const key = `${entityType}:${entityId}`;
+  const at = Date.parse(context.now || "") || Date.now();
+  const previous = activitySessions.get(key);
+  if (context.newSession || !previous || at - previous.lastAt > ACTIVITY_SESSION_IDLE_MS || at < previous.lastAt) {
+    const next = { id: uuid(), lastAt: at };
+    activitySessions.set(key, next);
+    return next.id;
+  }
+  previous.lastAt = at;
+  return previous.id;
+}
+
+function parsedEntity(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { return value; }
 }
 
 function saveOperation(type: SaveOperation["type"], entity: Entity, options?: SaveOptions): SaveOperation {
@@ -34,17 +64,33 @@ export function buildChangeEventOperation(
   beforeJson?: unknown,
   afterJson?: unknown,
 ): SaveOperation {
-  return saveOperation("change_event", {
+  const sessionId = activitySessionId(entityType, entityId, context);
+  const after = parsedEntity(afterJson);
+  const occurredAt = changeType === "completed" && after && typeof after === "object" && "completed_at" in after
+    ? String((after as { completed_at?: unknown }).completed_at || nowIso(context))
+    : nowIso(context);
+  return saveOperation("change_event", buildActivityEvent({
     id: uuid(),
-    entity_type: entityType,
-    entity_id: entityId,
-    changed_at: nowIso(context),
-    change_type: changeType,
-    reason: context.reason || null,
+    entityType,
+    entityId,
+    occurredAt,
+    changeType,
+    before: beforeJson,
+    after: afterJson,
     before_json: beforeJson,
     after_json: afterJson,
     source: context.source || "manual",
-  });
+    actor: { kind: "user" },
+    origin: {
+      kind: "renderer_save",
+      session_id: sessionId,
+    },
+    reason: context.reason || null,
+    metadata: {
+      session_id: sessionId,
+      source: context.source || "manual",
+    },
+  }) as unknown as Entity);
 }
 
 export function buildSaveTaskOperations(task: Task, context: SaveContext = {}): SaveOperation[] {

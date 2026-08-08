@@ -279,6 +279,19 @@ export interface ChangeEvent {
   after_json?: unknown;
   source: "manual" | "import" | "ai" | "migration";
   legacy_item_id?: string | null;
+  occurred_at?: string;
+  event_kind?: string;
+  entity_ref?: { type: EntityRefType; id: string; revision?: number };
+  theme_ref?: { kind: "theme" | "none"; id: string | null };
+  actor?: { kind: string; id?: string };
+  origin?: { kind: string; command_id?: string; command_name?: string; session_id?: string };
+  summary?: string;
+  changed_fields?: string[];
+  canonical_refs?: Array<Record<string, unknown>>;
+  source_refs?: Array<Record<string, unknown>>;
+  relation_refs?: Array<Record<string, unknown>>;
+  work_receipt_ref?: { type: string; id: string; revision?: number } | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface WorkspaceDomain {
