@@ -597,7 +597,8 @@ test("long note Edit keeps full-document work off the urgent keystroke path", ()
   const richEditor = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
   const headingIndex = readFileSync("src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx", "utf8");
 
-  assert.match(notesPage, /startTransition\(\(\) => \{\s*setDraftBody\(value\)/);
+  assert.match(notesPage, /startTransition\(\(\) => \{\s*setDraftOwner\(selectedOwnerRef\.current\)/);
+  assert.match(notesPage, /setDraftBodyState\(value\)/);
   assert.match(notesPage, /diffOpen && draftDirty \? diffMarkdownLines/);
   assert.match(notesPage, /setTimeout\(\(\) => setIndexedDraftBody\(draftBody\), 240\)/);
   assert.match(headingIndex, /querySelectorAll<HTMLElement>\("\.note-mdx-content h1,/);
@@ -831,8 +832,8 @@ test("notes page keeps mode switches draft-only and autosaves when the note leav
   const switchSource = source.slice(switchStart, switchEnd);
   assert.match(switchSource, /previewMode === "edit" && nextMode !== "edit"/);
   assert.doesNotMatch(switchSource, /autoSaveDraft/);
-  assert.match(source, /return \(\) => \{\s*void autoSaveDraft\(\);/);
-  assert.match(source, /\}, \[selected\?\.id\]\);/);
+  assert.match(source, /return \(\) => \{\s*void autoSaveDraft\(autosaveRef\.current\);/);
+  assert.match(source, /\}, \[\]\);/);
   assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });
 

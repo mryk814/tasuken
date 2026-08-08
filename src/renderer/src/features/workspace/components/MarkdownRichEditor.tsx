@@ -96,15 +96,17 @@ import {
   restoreAmbiguousMarkdownComparisons,
   type MarkdownRenderOptions,
 } from "../lib/markdown";
+import type { NoteDraftEditorSession } from "../lib/noteDraftIdentity";
 
 type MarkdownRichEditorProps = {
+  ownerKey: string;
   markdown: string;
   onChange: (value: string) => void;
   onImageUpload: (file: File) => Promise<string>;
   onError: (message: string) => void;
   onDirty?: () => void;
   headingNumberOptions?: MarkdownRenderOptions;
-  markdownSourceRef?: { current: (() => string) | null };
+  markdownSourceRef?: { current: NoteDraftEditorSession | null };
   markdownInsertRef?: { current: ((markdown: string) => void) | null };
   onImagePreview?: (src: string) => Promise<string>;
   onExtractSelection?: (
@@ -478,6 +480,7 @@ type HoverLinkCard = {
 };
 
 export const MarkdownRichEditor = memo(function MarkdownRichEditor({
+  ownerKey,
   markdown,
   onChange,
   onImageUpload,
@@ -523,13 +526,16 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
 
   useEffect(() => {
     if (!markdownSourceRef) return;
-    markdownSourceRef.current = () => normalizeRichEditorMarkdown(
-      restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current),
-    );
+    markdownSourceRef.current = {
+      ownerKey,
+      getMarkdown: () => normalizeRichEditorMarkdown(
+        restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current),
+      ),
+    };
     return () => {
       markdownSourceRef.current = null;
     };
-  }, [markdownSourceRef]);
+  }, [markdownSourceRef, ownerKey]);
 
   useEffect(() => {
     if (!markdownInsertRef) return;

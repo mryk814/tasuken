@@ -70,6 +70,17 @@ import {
   restoreNoteModeScroll,
   type NoteModeScrollAnchor,
 } from "../lib/noteModeScroll";
+import {
+  makeNoteDraftSnapshot,
+  noteDraftOwner,
+  noteDraftOwnerKey,
+  readNoteDraftBody,
+  renderNoteDraftBody,
+  sameNoteDraftOwner,
+  type NoteDraftEditorSession,
+  type NoteDraftOwner,
+  type NoteDraftSnapshot,
+} from "../lib/noteDraftIdentity";
 import { PROMPT_PURPOSE_LABELS } from "../lib/prompts";
 import {
   cropSketchPageToContent,
@@ -229,8 +240,16 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     [selectedId, workbenchRecords],
   );
   const selectedBody = selected ? recordBody(selected) : "";
+  const selectedOwner = selected ? noteDraftOwner(selected.recordType, selected.id) : null;
+  const selectedOwnerKey = selectedOwner ? noteDraftOwnerKey(selectedOwner) : null;
   // 初回描画を空本文→実本文の二段階にせず、Preview/Editの再構築を一度にする。
-  const [draftBody, setDraftBody] = useState(() => normalizeRichEditorMarkdown(selectedBody));
+  const [draftOwner, setDraftOwner] = useState<NoteDraftOwner | null>(selectedOwner);
+  const [draftBodyState, setDraftBodyState] = useState(() => normalizeRichEditorMarkdown(selectedBody));
+  // 選択切替のrenderでは、前文書のsnapshotを新文書へ渡さない。切替先の保存済み本文を使う。
+  const draftSnapshotState: NoteDraftSnapshot | null = draftOwner
+    ? { owner: draftOwner, body: draftBodyState, dirty: true }
+    : null;
+  const draftBody = renderNoteDraftBody(selectedOwner, draftSnapshotState, selectedBody);
   const [richEditorDirty, setRichEditorDirty] = useState(false);
   const [draftState, setDraftState] = useState("");
   // 直近の正本Markdown同期の結果（#291）。署名比較では分からない外部変更・失敗を保持する。
@@ -327,13 +346,43 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const replaceInputRef = useRef<HTMLInputElement | null>(null);
   const previewPanelRef = useRef<HTMLElement | null>(null);
   const markdownSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const mdxMarkdownSourceRef = useRef<(() => string) | null>(null);
+  const mdxMarkdownSourceRef = useRef<NoteDraftEditorSession | null>(null);
   const modeScrollRestoreCleanupRef = useRef<(() => void) | null>(null);
+  const selectedOwnerKeyRef = useRef<string | null>(selectedOwnerKey);
+  selectedOwnerKeyRef.current = selectedOwnerKey;
+  const selectedOwnerRef = useRef<NoteDraftOwner | null>(selectedOwner);
+  selectedOwnerRef.current = selectedOwner;
 
   useEffect(() => () => modeScrollRestoreCleanupRef.current?.(), []);
 
+  function setDraftBodyForSelected(next: string | ((current: string) => string)): void {
+    if (!selectedOwner) return;
+    const resolved = typeof next === "function" ? next(draftBody) : next;
+    setDraftOwner(selectedOwner);
+    setDraftBodyState(resolved);
+  }
+
+  function currentDraftBodyForSelected(): string {
+    if (!selectedOwner) return "";
+    return readNoteDraftBody({
+      owner: selectedOwner,
+      snapshot: draftSnapshotState,
+      editor: mdxMarkdownSourceRef.current,
+      savedBody: selectedBody,
+    });
+  }
+
+  function captureCurrentDraftSnapshot(): { selected: Combined; snapshot: NoteDraftSnapshot } | null {
+    if (!selected || !selectedOwner) return null;
+    const body = currentDraftBodyForSelected();
+    return {
+      selected,
+      snapshot: makeNoteDraftSnapshot(selectedOwner, body, selectedBody),
+    };
+  }
+
   function openSelectionAi(selection: MarkdownTextSelection) {
-    const source = mdxMarkdownSourceRef.current?.() || draftBody;
+    const source = currentDraftBodyForSelected();
     const first = source.indexOf(selection.text);
     const second = first >= 0 ? source.indexOf(selection.text, first + selection.text.length) : -1;
     if (first < 0 || second >= 0) {
@@ -354,8 +403,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     setAiTarget({ scope: "document" });
   }
   const mdxMarkdownInsertRef = useRef<((markdown: string) => void) | null>(null);
-  const selectedBodyRef = useRef(selectedBody);
-  const ctxRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
+  const selectedBodyRef = useRef<NoteDraftSnapshot | null>(selectedOwner
+    ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody)
+    : null);
+  const ctxRef = useRef<{ selected: Combined | null; snapshot: NoteDraftSnapshot | null }>({ selected: null, snapshot: null });
   const commandActionsRef = useRef<Record<string, () => void | Promise<void>>>({});
   const selectedKind = selected ? recordKind(selected) : null;
   // Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
@@ -484,7 +535,28 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }, [visible.length, visibleLimit]);
 
   function updatePrefs(patch: Partial<NotesPreferences>) {
+    // scope / Themeの変更で選択文書がvisibleから外れる場合も、切替前のsnapshotを確定する。
+    if (patch.scope !== undefined || patch.themeId !== undefined) {
+      flushCurrentDraft();
+    }
     setPrefs((current) => ({ ...current, ...patch }));
+  }
+
+  function flushCurrentDraft(): void {
+    const current = captureCurrentDraftSnapshot();
+    if (!current?.snapshot.dirty) return;
+    void autoSaveDraft(current);
+    // 選択切替effectが同じsnapshotを二重保存しないよう、明示flushの所有権を移す。
+    if (autosaveRef.current && sameNoteDraftOwner(autosaveRef.current.snapshot.owner, current.snapshot.owner)) {
+      autosaveRef.current = null;
+    }
+  }
+
+  function switchDocument(next: Combined | null): void {
+    const nextOwnerKey = next ? noteDraftOwnerKey(noteDraftOwner(next.recordType, next.id)) : null;
+    if (nextOwnerKey !== selectedOwnerKey) flushCurrentDraft();
+    setSelectedId(next?.id || null);
+    if (next) setPreviewMode("edit");
   }
 
   function focusSearchMatch(index: number) {
@@ -532,7 +604,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   /** Rich Editor編集中は、stateより新しいEditor本文を正とする。 */
   function currentDraftSource(): string {
-    return previewMode === "edit" ? mdxMarkdownSourceRef.current?.() || draftBody : draftBody;
+    return previewMode === "edit" ? currentDraftBodyForSelected() : draftBody;
   }
 
   function focusMarkdownEditorSurface() {
@@ -550,8 +622,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }
 
   function openMarkdownReplace() {
-    const liveBody = mdxMarkdownSourceRef.current?.();
-    if (typeof liveBody === "string") setDraftBody(liveBody);
+    setDraftBodyForSelected(currentDraftBodyForSelected());
     setSearchOpen(true);
     setReplaceOpen(true);
     window.requestAnimationFrame(() => {
@@ -588,7 +659,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       textarea.setSelectionRange(0, textarea.value.length);
       if (document.execCommand("insertText", false, nextBody)) return;
     }
-    setDraftBody(nextBody);
+    setDraftBodyForSelected(nextBody);
   }
 
   function replaceCurrentMatch() {
@@ -623,7 +694,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   async function detachSelectedNote() {
     if (!selected || selected.recordType !== "note") return;
     // 切り離す前に、この画面の未保存分を確定させる。別ウィンドウが古い本文を読まないようにする。
-    await autoSaveDraft();
+    const current = captureCurrentDraftSnapshot();
+    await autoSaveDraft(current);
     const opened = await workspaceApi.openNoteWindow(selected.id);
     if (!opened) setToast("別ウィンドウで開けませんでした。ノートが見つかりません。", "danger");
   }
@@ -635,14 +707,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       setDraftState("整形できる変更はありません。");
       return;
     }
-    setDraftBody(formatted);
+    setDraftBodyForSelected(formatted);
     setDraftState("Markdownを整形しました。");
   }
 
   function restoreMarkdownDiffMarker(marker: MarkdownDiffMarker) {
     const restored = restoreMarkdownDiffHunk(draftBody, marker.hunk);
     if (restored === draftBody) return;
-    setDraftBody(restored);
+    setDraftBodyForSelected(restored);
     setDraftState(`変更箇所 ${marker.lineNumber}行目を元に戻しました。`);
   }
 
@@ -682,8 +754,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }, [searchOpen, searchQuery, previewMode, draftBody]);
 
   useEffect(() => {
-    selectedBodyRef.current = selectedBody;
-    setDraftBody(normalizeRichEditorMarkdown(selectedBody));
+    const previous = autosaveRef.current;
+    if (previous && (!selectedOwnerKey || noteDraftOwnerKey(previous.snapshot.owner) !== selectedOwnerKey)) {
+      void autoSaveDraft(previous);
+    }
+    selectedBodyRef.current = selectedOwner
+      ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody)
+      : null;
+    setDraftOwner(selectedOwner);
+    setDraftBodyState(normalizeRichEditorMarkdown(selectedBody));
     setIndexedDraftBody(normalizeRichEditorMarkdown(selectedBody));
     setRichEditorDirty(false);
     setDraftState("");
@@ -691,20 +770,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     setSearchIndex(0);
     setAutoLinked(null);
     setRecentExtraction(null);
-  }, [selected?.id, selectedBody]);
+  }, [selectedOwnerKey, selectedBody]);
 
-  ctxRef.current = { selected, draftBody, draftDirty };
+  ctxRef.current = {
+    selected,
+    snapshot: selectedOwner ? makeNoteDraftSnapshot(selectedOwner, draftBody, selectedBody) : null,
+  };
 
   // 未保存の変更を、Markdown本文が画面から外れる時だけ自動保存する。
   // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
-  const autosaveRef = useRef<{ selected: Combined | null; draftBody: string; draftDirty: boolean }>({ selected: null, draftBody: "", draftDirty: false });
+  const autosaveRef = useRef<{ selected: Combined; snapshot: NoteDraftSnapshot } | null>(null);
   const saveEntityRef = useRef(saveEntity);
   const setToastRef = useRef(setToast);
   saveEntityRef.current = saveEntity;
   setToastRef.current = setToast;
   useEffect(() => {
-    autosaveRef.current = { selected, draftBody, draftDirty };
-  });
+    const current = captureCurrentDraftSnapshot();
+    autosaveRef.current = current;
+  }, [selectedOwnerKey, selectedBody, draftBody, draftDirty]);
 
   // 本体へ戻すときに、対象Noteを選び直す（#290）。
   useEffect(() => {
@@ -755,22 +838,34 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     return workspaceApi.onNoteWindowOpenChanged(setOpenNoteWindowIds);
   }, [detachedNoteId]);
 
-  async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
-    const previous = snapshot.selected;
-    const liveBody = mdxMarkdownSourceRef.current?.();
-    const body = typeof liveBody === "string" ? liveBody : snapshot.draftBody;
-    if (!previous || body === recordBody(previous)) return;
+  async function persistDraftSnapshot(request: { selected: Combined; snapshot: NoteDraftSnapshot }): Promise<void> {
+    const { selected: previous, snapshot } = request;
+    const expectedOwner = noteDraftOwner(previous.recordType, previous.id);
+    if (!sameNoteDraftOwner(snapshot.owner, expectedOwner)) return;
+    const body = snapshot.body;
+    if (body === recordBody(previous)) return;
     // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
     if (previous.recordType === "note" && !body.trim()) return;
     const { recordType, ...entity } = previous;
+    await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
+    // 保存対象がまだ表示中のownerならEditorの基準本文も同じsnapshotへ進める。
+    if (selectedOwnerKeyRef.current === noteDraftOwnerKey(snapshot.owner)) {
+      selectedBodyRef.current = snapshot;
+      setDraftOwner(snapshot.owner);
+      setDraftBodyState(snapshot.body);
+      setRichEditorDirty(false);
+    }
+    // 自動保存・Ctrl+S・手動保存は同じowner付きsnapshot経路で正本Markdownも更新する（#291）。
+    await syncCanonicalMarkdown(previous, snapshot);
+  }
+
+  async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
+    if (!snapshot) return;
     try {
-      await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
+      await persistDraftSnapshot(snapshot);
     } catch (error: unknown) {
       setToastRef.current(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`);
-      return;
     }
-    // 自動保存も手動保存も同じ経路で正本Markdownを更新する（#291）。
-    await syncCanonicalMarkdown(previous, body);
   }
 
   /**
@@ -780,7 +875,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
    * ここでは確認を出さず、書き込みを見送って状態だけ伝える。上書きするかどうかは
    * 手動保存（確認あり）で選ばせる。ファイル側が失敗しても内部の保存は残す。
    */
-  async function syncCanonicalMarkdown(note: Combined, body: string): Promise<void> {
+  async function syncCanonicalMarkdown(note: Combined, snapshot: NoteDraftSnapshot): Promise<void> {
+    const noteOwner = noteDraftOwner(note.recordType, note.id);
+    if (!sameNoteDraftOwner(noteOwner, snapshot.owner) || note.recordType !== "note") return;
+    const body = snapshot.body;
+    const ownerKey = noteDraftOwnerKey(snapshot.owner);
+    const setSyncState = (state: CanonicalMarkdownFileState) => {
+      if (selectedOwnerKeyRef.current === ownerKey) setCanonicalSyncState(state);
+    };
     const properties = noteProperties(note);
     const exportState = properties.markdown_export && typeof properties.markdown_export === "object" && !Array.isArray(properties.markdown_export)
       ? properties.markdown_export as Record<string, unknown>
@@ -800,16 +902,16 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       fileExists: Boolean(preview?.ok),
     });
     if (plan.action === "skip") {
-      setCanonicalSyncState("synced");
+      setSyncState("synced");
       return;
     }
     if (plan.action === "confirm") {
       // 黙って上書きしない。手動保存で内容を確認してから決めてもらう。
-      setCanonicalSyncState("external_change");
+      setSyncState("external_change");
       return;
     }
     if (plan.action === "unavailable") {
-      setCanonicalSyncState("pending");
+      setSyncState("pending");
       return;
     }
     try {
@@ -838,19 +940,19 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
           },
         },
       });
-      setCanonicalSyncState("synced");
+      setSyncState("synced");
     } catch {
       // ルートが一時的に見えない場合もここへ来る。内部の保存は残っているので
       // 失敗として示し、次の保存で再試行できるようにする。
-      setCanonicalSyncState("failed");
+      setSyncState("failed");
     }
   }
 
   useEffect(() => {
     return () => {
-      void autoSaveDraft();
+      void autoSaveDraft(autosaveRef.current);
     };
-  }, [selected?.id]);
+  }, []);
 
   // Noteを切り替えたら、前のNoteの同期結果を持ち越さない（#291）。
   useEffect(() => {
@@ -861,8 +963,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        const liveBody = mdxMarkdownSourceRef.current?.();
-        if (typeof liveBody === "string") setDraftBody(liveBody);
+        setDraftBodyForSelected(currentDraftBodyForSelected());
         setSearchOpen(true);
         window.requestAnimationFrame(() => searchInputRef.current?.focus());
         return;
@@ -880,22 +981,17 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
         event.preventDefault();
-        const { selected: s, draftBody: stateBody } = ctxRef.current;
-        const liveBody = mdxMarkdownSourceRef.current?.();
-        const body = typeof liveBody === "string" ? liveBody : stateBody;
-        const dirty = Boolean(s && body !== recordBody(s));
-        if (dirty && s) {
+        const request = captureCurrentDraftSnapshot();
+        const s = request?.selected;
+        const body = request?.snapshot.body || "";
+        if (request?.snapshot.dirty && s) {
           if (s.recordType === "note" && !body.trim()) {
             setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
             return;
           }
           setDraftState("保存しています。");
-          const { recordType, ...entity } = s;
-          saveEntity(recordType, { ...entity, body_markdown: body })
+          persistDraftSnapshot(request)
             .then(() => {
-              selectedBodyRef.current = body;
-              setDraftBody(body);
-              setRichEditorDirty(false);
               setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
             })
             .catch((error: unknown) => setDraftState(error instanceof Error ? error.message : "保存できませんでした。"));
@@ -983,8 +1079,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   function openRecord(record: Combined) {
     // 一覧クリックは右ペイン選択 + 編集ドロワー（メタ・タイトル・種別の編集）。
     if (isWorkbenchRecord(record)) {
-      setSelectedId(record.id);
-      setPreviewMode("edit");
+      switchDocument(record);
     }
     openDrawer({ type: record.recordType, mode: "edit", entity: record });
   }
@@ -1009,8 +1104,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       { label: "編集する", onSelect: () => openRecord(record) },
       { label: "本文を開く", onSelect: () => {
         if (isWorkbenchRecord(record)) {
-          setSelectedId(record.id);
-          setPreviewMode("edit");
+          switchDocument(record);
         }
       } },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(record.title)) },
@@ -1124,10 +1218,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     // Editを離れる直前にMDXから最新本文を取り込み、Preview/Rawへ最新の下書きを渡す。
     // モード切替では自動保存しない。
     if (previewMode === "edit" && nextMode !== "edit") {
-      const latest = mdxMarkdownSourceRef.current?.();
-      if (typeof latest === "string" && latest !== draftBody) {
-        setDraftBody(latest);
-      }
+      const latest = currentDraftBodyForSelected();
+      if (latest !== draftBody) setDraftBodyForSelected(latest);
     }
     const scrollState = captureModeScroll(previewMode);
     setPreviewMode(nextMode);
@@ -1135,15 +1227,11 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }
 
   function currentDraftBody(): string {
-    if (previewMode === "edit") {
-      const liveBody = mdxMarkdownSourceRef.current?.();
-      if (typeof liveBody === "string") return liveBody;
-    }
-    return effectiveBody;
+    return previewMode === "edit" ? currentDraftBodyForSelected() : effectiveBody;
   }
 
   function insertDraftMarkdown(markdown: string, selectionStart: number, selectionEnd: number) {
-    setDraftBody((current) => `${current.slice(0, selectionStart)}${markdown}${current.slice(selectionEnd)}`);
+    setDraftBodyForSelected((current) => `${current.slice(0, selectionStart)}${markdown}${current.slice(selectionEnd)}`);
     window.setTimeout(() => {
       const position = selectionStart + markdown.length;
       textareaRef.current?.focus();
@@ -1248,11 +1336,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     }
   }, []);
 
-  const updateRichEditorDraft = useCallback((value: string) => {
+  const updateRichEditorDraft = useCallback((ownerKey: string, value: string) => {
+    if (selectedOwnerKeyRef.current !== ownerKey) return;
     // Lexicalの入力・IME描画を先に確定し、全文由来のNotes表示更新は低優先度で追従させる。
     startTransition(() => {
-      setDraftBody(value);
-      setRichEditorDirty(value !== selectedBodyRef.current);
+      setDraftOwner(selectedOwnerRef.current);
+      setDraftBodyState(value);
+      setRichEditorDirty(value !== selectedBodyRef.current?.body);
       setDraftState((current) => current ? "" : current);
     });
   }, []);
@@ -1300,23 +1390,17 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }, [saveEntities]);
 
   async function saveSelectedDraft() {
-    const liveBody = mdxMarkdownSourceRef.current?.();
-    const body = typeof liveBody === "string" ? liveBody : draftBody;
-    if (!selected || body === selectedBody) return;
-    if (selected.recordType === "note" && !body.trim()) {
+    const request = captureCurrentDraftSnapshot();
+    const body = request?.snapshot.body || "";
+    if (!request || !request.snapshot.dirty) return;
+    const { selected: current } = request;
+    if (current.recordType === "note" && !body.trim()) {
       setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
       return;
     }
     setDraftState("保存しています。");
     try {
-      const { recordType, ...entity } = selected;
-      await saveEntity(recordType, {
-        ...entity,
-        body_markdown: body,
-      });
-      selectedBodyRef.current = body;
-      setDraftBody(body);
-      setRichEditorDirty(false);
+      await persistDraftSnapshot(request);
       setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
     } catch (error) {
       setDraftState(error instanceof Error ? error.message : "保存できませんでした。");
@@ -1355,7 +1439,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     }
     const ta = textareaRef.current;
     if (!ta) return;
-    const lines = ctxRef.current.draftBody.split(/\r?\n/);
+    const lines = ctxRef.current.snapshot?.body.split(/\r?\n/) || [];
     let inCode = false;
     let count = 0;
     let found = -1;
@@ -1628,7 +1712,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   function handleDraftWorkspaceSaved(saved: BaseRecord, body: string) {
     setSelectedId(saved.id);
-    setDraftBody(body);
+    const owner = noteDraftOwner("note", saved.id);
+    setDraftOwner(owner);
+    setDraftBodyState(body);
     setIndexedDraftBody(body);
     setRichEditorDirty(false);
     setPreviewMode("edit");
@@ -1963,7 +2049,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   {/* 保存状態は保存操作の隣に置く。自動保存と手動保存の関係を読み取れるようにする（#331）。 */}
                   <span className="note-draft-state" role="status" aria-live="polite">{saveStateLabel}</span>
                   <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
-                    setDraftBody(selectedBody);
+                    setDraftBodyForSelected(selectedBody);
                     setRichEditorDirty(false);
                     setDraftState("変更を戻しました。");
                   }}>戻す</button>
@@ -2018,8 +2104,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   <button
                     className="secondary-button compact icon-only"
                     onClick={() => {
-                      const liveBody = mdxMarkdownSourceRef.current?.();
-                      if (typeof liveBody === "string") setDraftBody(liveBody);
+                      setDraftBodyForSelected(currentDraftBodyForSelected());
                       setSearchOpen(true);
                       window.requestAnimationFrame(() => searchInputRef.current?.focus());
                     }}
@@ -2034,8 +2119,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     aria-pressed={diffOpen}
                     onClick={() => {
                       if (!diffOpen) {
-                        const liveBody = mdxMarkdownSourceRef.current?.();
-                        if (typeof liveBody === "string") setDraftBody(liveBody);
+                        setDraftBodyForSelected(currentDraftBodyForSelected());
                       }
                       setDiffOpen((current) => !current);
                     }}
@@ -2197,7 +2281,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     value={draftBody}
                     onPaste={handleDraftPaste}
                     onChange={(event) => {
-                      setDraftBody(event.target.value);
+                      setDraftBodyForSelected(event.target.value);
                       if (draftState) setDraftState("");
                     }}
                     aria-label="脚注を含むMarkdown本文"
@@ -2207,17 +2291,18 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     key={selected.id}
                     markdown={draftBody}
                     resetKey={selected.id}
-                    onChange={updateRichEditorDraft}
+                    onChange={(value) => updateRichEditorDraft(selectedOwnerKey || "", value)}
                     onPaste={handleDraftPaste}
                     onError={reportRichEditorError}
                   >
                     <Suspense fallback={<div className="note-editor-loading" role="status">エディタを読み込んでいます…</div>}>
                       <MarkdownRichEditor
+                        ownerKey={selectedOwnerKey || ""}
                         markdown={draftBody}
                         headingNumberOptions={previewRenderOptions}
                         markdownSourceRef={mdxMarkdownSourceRef}
                         markdownInsertRef={mdxMarkdownInsertRef}
-                        onChange={updateRichEditorDraft}
+                        onChange={(value) => updateRichEditorDraft(selectedOwnerKey || "", value)}
                         onDirty={markRichEditorDirty}
                         onImageUpload={uploadEditorImage}
                         onImagePreview={previewSketchImage}
@@ -2241,7 +2326,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     value={draftBody}
                     onPaste={handleDraftPaste}
                     onChange={(event) => {
-                      setDraftBody(event.target.value);
+                      setDraftBodyForSelected(event.target.value);
                       if (draftState) setDraftState("");
                     }}
                   />
@@ -2301,7 +2386,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       {selected && selected.recordType === "note" && aiTarget && (
         <NoteAiDialog
           note={selected}
-          body={mdxMarkdownSourceRef.current?.() || draftBody}
+          body={currentDraftBodyForSelected()}
           target={aiTarget}
           saveEntity={saveEntity}
           setToast={setToast}
