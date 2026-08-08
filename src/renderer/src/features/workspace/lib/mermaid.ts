@@ -24,6 +24,35 @@ function loadMermaid() {
 
 type MermaidRenderMode = "screen" | "print";
 
+export const MERMAID_LAZY_VIEWPORT_MARGIN_PX = 700;
+
+export interface MermaidViewportRect {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/**
+ * Keep the lazy rendering boundary identical to the IntersectionObserver
+ * rootMargin. This is also used after a paint/scroll event because hosted
+ * Chromium can occasionally omit the observer's initial callback while the
+ * DOM is already laid out.
+ */
+export function isMermaidNearViewport(
+  rect: MermaidViewportRect,
+  viewportWidth: number,
+  viewportHeight: number,
+  margin = MERMAID_LAZY_VIEWPORT_MARGIN_PX,
+): boolean {
+  if (viewportWidth <= 0 || viewportHeight <= 0) return false;
+  if (rect.right <= rect.left || rect.bottom <= rect.top) return false;
+  return rect.bottom >= -margin
+    && rect.top <= viewportHeight + margin
+    && rect.right >= 0
+    && rect.left <= viewportWidth;
+}
+
 export function markMermaidEditorInput(): void {
   lastEditorInputAt = performance.now();
 }

@@ -434,12 +434,19 @@ flowchart LR
       };
       const mermaidDiagnostics = () => ({
         activeElement: document.activeElement?.outerHTML?.slice(0, 300) || "",
+        visibilityState: document.visibilityState,
+        hidden: document.hidden,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
         notePane: Boolean(document.querySelector(".note-preview-panel")),
         mermaidBlocks: [...document.querySelectorAll(".note-mermaid-code-block")].map((block) => ({
           className: block.className,
           text: block.textContent?.slice(0, 300) || "",
           svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
           errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+          rect: (() => {
+            const rect = block.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height };
+          })(),
           html: block.innerHTML.slice(0, 1200),
         })),
         markdownBlocks: [...document.querySelectorAll("[data-mermaid='true']")].map((block) => ({
@@ -550,8 +557,26 @@ flowchart LR
       );
       const mermaidPreviewTarget = notesPane?.querySelector(".note-mermaid-preview .md-mermaid-block")
         || notesPane?.querySelector(".note-mermaid-preview-frame");
+      const scrollableAncestor = (() => {
+        let current = mermaidPreviewTarget?.parentElement || null;
+        while (current && current !== document.body) {
+          const style = getComputedStyle(current);
+          if (/(auto|scroll|overlay)/.test(style.overflowY) && current.scrollHeight > current.clientHeight) return current;
+          current = current.parentElement;
+        }
+        return document.scrollingElement;
+      })();
+      if (mermaidPreviewTarget && scrollableAncestor && scrollableAncestor !== document.scrollingElement) {
+        const targetRect = mermaidPreviewTarget.getBoundingClientRect();
+        const ancestorRect = scrollableAncestor.getBoundingClientRect();
+        scrollableAncestor.scrollTop += targetRect.top - ancestorRect.top - (scrollableAncestor.clientHeight - targetRect.height) / 2;
+      }
       mermaidPreviewTarget?.scrollIntoView({ block: "center", inline: "nearest" });
-      await delay(0);
+      if (mermaidPreviewTarget instanceof HTMLElement) {
+        mermaidPreviewTarget.tabIndex = -1;
+        mermaidPreviewTarget.focus({ preventScroll: true });
+      }
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       let mermaidPreviewInEdit;
       try {
         mermaidPreviewInEdit = await waitFor(
