@@ -52,6 +52,17 @@ test("saved task view filters combine tab, theme, state, priority, and schedule"
   assert.deepEqual(savedViews.filterTodoRows(rows, filters, "2026-07-05").map((entry) => entry.task.id), ["match"]);
 });
 
+test("saved task view filters distinguish range semantics without inspecting dates in the view", () => {
+  const filters = { tab: "open", rangeSemantics: "ongoing_period" };
+  const rows = [
+    row("execution", {}, { start_date: "2026-07-01", end_date: "2026-07-08", date_kind: "range", range_semantics: "once_within_window" }),
+    row("ongoing", {}, { start_date: "2026-07-01", end_date: "2026-07-08", date_kind: "range", range_semantics: "ongoing" }),
+    row("unspecified", {}, { start_date: "2026-07-01", end_date: "2026-07-08", date_kind: "range" }),
+  ];
+
+  assert.deepEqual(savedViews.filterTodoRows(rows, filters, "2026-07-05").map((entry) => entry.task.id), ["ongoing"]);
+});
+
 test("saved task views ignore malformed filters and tolerate deleted themes", () => {
   const view = savedViews.normalizeSavedTaskView({
     id: "view-1",
@@ -79,6 +90,8 @@ test("ToDo page keeps table controls lightweight and removes saved view manageme
   assert.match(source, /todo-table-toolbar/);
   assert.match(source, /sortMode/);
   assert.match(source, /groupMode/);
+  assert.match(source, /rangeSemantics/);
+  assert.match(source, /期間未分類/);
   assert.match(source, /並び替え/);
   assert.match(source, /グループ/);
   assert.match(styles, /\.todo-table \.table-head, \.todo-table \.table-row \{[^}]*min-width: 0;/);

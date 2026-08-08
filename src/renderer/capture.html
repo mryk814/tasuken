@@ -61,6 +61,29 @@
       .due-preview.is-error { color: #CE3B3B; }
       [data-theme="dark"] .due-preview { color: #7FB99A; }
       [data-theme="dark"] .due-preview.is-error { color: #E88; }
+      .range-choice {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: #7A6E69;
+      }
+      .range-choice[hidden] { display: none; }
+      .range-choice button {
+        min-height: 26px;
+        padding: 2px 8px;
+        border-color: #D5C9C3;
+        background: #FDFBFA;
+        color: #3D2E2A;
+        font-size: 11px;
+      }
+      .range-choice button:hover,
+      .range-choice button.is-selected { border-color: #8A2F3B; background: rgba(138, 47, 59, 0.08); color: #8A2F3B; }
+      [data-theme="dark"] .range-choice { color: #9B8E89; }
+      [data-theme="dark"] .range-choice button { border-color: #4A3E3A; background: #1E1816; color: #E8DDD8; }
+      [data-theme="dark"] .range-choice button:hover,
+      [data-theme="dark"] .range-choice button.is-selected { border-color: #D4858F; background: rgba(212, 133, 143, 0.12); color: #F0B7BE; }
       .mode-pill {
         display: inline-flex;
         align-items: center;
@@ -199,6 +222,7 @@
       </label>
       <textarea id="input" placeholder="タスク・メモ・アイデア" autofocus></textarea>
       <span id="due-preview" class="due-preview" role="status" aria-live="polite"></span>
+      <div id="range-choice" class="range-choice" hidden aria-label="日付範囲の意味"></div>
       <div class="capture-actions">
         <button id="submit" type="button">記録する</button>
       </div>
@@ -214,8 +238,11 @@
       const themeSelect = document.getElementById("theme-select");
       const hint = document.getElementById("hint");
       const duePreview = document.getElementById("due-preview");
+      const rangeChoice = document.getElementById("range-choice");
       let mode = "inbox";
       let lastThemeId = localStorage.getItem("tasken:quick-capture:last-theme-id") || "";
+      let selectedRangeSemantics = "";
+      let previewRequest = 0;
 
       function applyThemes(themes) {
         const current = themeSelect.value || lastThemeId;
@@ -259,20 +286,61 @@
         themeRow.classList.toggle("is-visible", usesTheme);
         duePreview.className = "due-preview";
         duePreview.textContent = "";
+        selectedRangeSemantics = "";
+        rangeChoice.replaceChildren();
+        rangeChoice.hidden = true;
+      }
+
+      function renderRangeChoice(result) {
+        rangeChoice.replaceChildren();
+        if (result.state !== "ok" || result.kind !== "range" || !result.ambiguous) {
+          rangeChoice.hidden = true;
+          return;
+        }
+        rangeChoice.hidden = false;
+        const label = document.createElement("span");
+        label.textContent = "期間の意味:";
+        rangeChoice.append(label);
+        for (const option of [
+          ["once_within_window", "期間内に一度"],
+          ["ongoing", "期間中継続"],
+        ]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.rangeSemantics = option[0];
+          button.textContent = option[1];
+          button.classList.toggle("is-selected", selectedRangeSemantics === option[0]);
+          button.addEventListener("click", () => {
+            selectedRangeSemantics = option[0];
+            for (const candidate of rangeChoice.querySelectorAll("button")) {
+              candidate.classList.toggle("is-selected", candidate === button);
+            }
+          });
+          rangeChoice.append(button);
+        }
       }
 
       // 期限は解釈結果を保存前に見せる。読めない表現のまま黙って保存させない（#308）。
       async function refreshDuePreview() {
         if (mode !== "due-task") return;
+        const request = ++previewRequest;
         const result = await window.captureApi.previewDue(input.value);
-        if (mode !== "due-task") return;
+        if (mode !== "due-task" || request !== previewRequest) return;
         if (result.state === "empty") {
           duePreview.className = "due-preview is-visible";
           duePreview.textContent = "｜ の後ろに期限を書いてください（例: 金曜まで / 8/15 / 明日17時）";
+          rangeChoice.hidden = true;
           return;
         }
         duePreview.className = result.state === "ok" ? "due-preview is-visible" : "due-preview is-visible is-error";
-        duePreview.textContent = result.state === "ok" ? `期限: ${result.label}` : result.message;
+        if (result.state === "ok") {
+          selectedRangeSemantics = result.rangeSemantics || "";
+          duePreview.textContent = result.kind === "range" ? `日付範囲: ${result.label}` : `期限: ${result.label}`;
+          renderRangeChoice(result);
+        } else {
+          duePreview.textContent = result.message;
+          rangeChoice.hidden = true;
+        }
       }
 
       async function submit(continueCapturing = false) {
@@ -282,7 +350,7 @@
         try {
           const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
-          await window.captureApi.save(text, mode, themeId);
+          await window.captureApi.save(text, mode, themeId, selectedRangeSemantics || undefined);
           if (usesTheme) {
             lastThemeId = themeId;
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);

@@ -6,8 +6,8 @@ import { usePersistentState } from "../../../utils/usePersistentState";
 import type { Item, PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
 import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
-import { buildTimelineRows, scaleFromDayWidth, timelineItemState, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
-import { TIMELINE_ITEM_STATE_LABELS } from "../domain-model/labels";
+import { buildTimelineRows, scaleFromDayWidth, timelineItemScheduleKind, timelineItemState, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
+import { SCHEDULE_KIND_LABELS, TIMELINE_ITEM_STATE_LABELS } from "../domain-model/labels";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttGridBackground, ganttRowHeight } from "../components/gantt";
 import { PageHeader, StatusBadge, ToolbarOverflow } from "../components/common";
 import { SlideTimelineDialog } from "../components/SlideTimelineDialog";
@@ -625,6 +625,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
             const { item, depth } = row;
             const isPlan = timelineItemLevel(item) === "plan";
             const rowHeight = ganttRowHeight(row.laneItems.length ? row.laneItems : [item]);
+            const scheduleKind = timelineItemScheduleKind(item);
             return (
               <div
                 className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${selectedTimelineItemId === item.id ? "is-selected" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
@@ -677,6 +678,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                       <span className={`timeline-state-chip is-state-${timelineItemState(item, today)}`}>
                         {TIMELINE_ITEM_STATE_LABELS[timelineItemState(item, today)]}
                       </span>
+                      {(scheduleKind === "execution_window" || scheduleKind === "ongoing_period" || scheduleKind === "unspecified_range") && (
+                        <span className={`timeline-range-chip is-range-${scheduleKind}`}>
+                          {SCHEDULE_KIND_LABELS[scheduleKind]}
+                        </span>
+                      )}
                     </>
                   )}
                 </div>

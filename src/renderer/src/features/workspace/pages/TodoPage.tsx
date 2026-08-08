@@ -18,8 +18,9 @@ import {
 import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
-import { TASK_STATE_LABELS } from "../domain-model/labels";
+import { SCHEDULE_KIND_LABELS, TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
+import { getScheduleKind } from "../domain-model/scheduleSemantics";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
@@ -86,6 +87,23 @@ function scheduleGroupLabel(row: TodoRow, today: string): string {
   if (date < today) return "予定超過";
   if (date === today) return "今日";
   return "今後";
+}
+
+function rangeSemanticsBadge(row: TodoRow, openTaskDetail: (task: Task, schedule?: Schedule) => void) {
+  const kind = getScheduleKind(row.schedule);
+  if (kind !== "execution_window" && kind !== "ongoing_period" && kind !== "unspecified_range") return null;
+  const label = SCHEDULE_KIND_LABELS[kind];
+  if (kind === "unspecified_range") {
+    return (
+      <button
+        type="button"
+        className="range-semantics-badge range-semantics-badge-button"
+        onClick={(event) => { event.stopPropagation(); openTaskDetail(row.task, row.schedule); }}
+        title="編集して期間の意味を選ぶ"
+      >{label}</button>
+    );
+  }
+  return <span className="range-semantics-badge">{label}</span>;
 }
 
 function groupTodoRows(rows: TodoRow[], groupMode: TodoGroupMode, today: string, themes: PageProps["themes"]): TodoRowGroup[] {
@@ -285,6 +303,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
             <span>{task.title}</span>
             <ChecklistProgressBadge items={task.checklist_items} />
           </button>
+           {rangeSemanticsBadge({ task, schedule }, openTaskDetail)}
           {reminder && <span className="row-reminder-meta"><IconClock size={13} />{reminder}</span>}
         </div>
         <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
@@ -338,6 +357,12 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
             <option value="overdue">予定超過</option>
             <option value="this-week">今週中</option>
             <option value="today">今日</option>
+          </select>
+          <select value={taskFilters.rangeSemantics} onChange={(event) => patchTaskFilters({ rangeSemantics: event.target.value as TaskViewFilters["rangeSemantics"] })} aria-label="期間の意味で絞り込み">
+            <option value="">期間の意味: すべて</option>
+            <option value="execution_window">期間内に一度</option>
+            <option value="ongoing_period">期間中継続</option>
+            <option value="unspecified_range">期間未分類</option>
           </select>
           <select value={taskFilters.priority} onChange={(event) => patchTaskFilters({ priority: event.target.value as TaskViewFilters["priority"] })} aria-label="旗で絞り込み">
             <option value="">旗条件なし</option>

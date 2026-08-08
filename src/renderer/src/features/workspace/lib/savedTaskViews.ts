@@ -1,10 +1,12 @@
 import { addDays } from "./format";
 import { isTodayRow, scheduledDate } from "./todoRows.js";
 import type { Schedule, Task } from "../domain-model/types";
+import { getScheduleKind, type ScheduleKind } from "../domain-model/scheduleSemantics";
 
 export type TaskViewTab = "open" | "today" | "overdue" | "no-schedule" | "done";
 export type TaskViewSchedule = "" | "scheduled" | "no-schedule" | "overdue" | "this-week" | "today";
 export type TaskViewPriority = "" | "high" | "normal";
+export type TaskViewRangeSemantics = "" | Extract<ScheduleKind, "execution_window" | "ongoing_period" | "unspecified_range">;
 
 export interface TodoRow {
   task: Task;
@@ -17,6 +19,7 @@ export interface TaskViewFilters {
   state: string;
   priority: TaskViewPriority;
   schedule: TaskViewSchedule;
+  rangeSemantics: TaskViewRangeSemantics;
 }
 
 export interface SavedTaskView {
@@ -28,6 +31,7 @@ export interface SavedTaskView {
 const TASK_VIEW_TABS = new Set(["open", "today", "overdue", "no-schedule", "done"]);
 const TASK_VIEW_SCHEDULES = new Set(["", "scheduled", "no-schedule", "overdue", "this-week", "today"]);
 const TASK_VIEW_PRIORITIES = new Set(["", "high", "normal"]);
+const TASK_VIEW_RANGE_SEMANTICS = new Set(["", "execution_window", "ongoing_period", "unspecified_range"]);
 const TASK_STATES = new Set(["", "todo", "doing", "waiting", "review", "done", "cancelled"]);
 
 export const DEFAULT_TASK_VIEW_FILTERS: TaskViewFilters = {
@@ -36,6 +40,7 @@ export const DEFAULT_TASK_VIEW_FILTERS: TaskViewFilters = {
   state: "",
   priority: "",
   schedule: "",
+  rangeSemantics: "",
 };
 
 function text(value: unknown): string {
@@ -52,12 +57,14 @@ export function normalizeTaskViewFilters(value: unknown): TaskViewFilters {
   const priority = text(raw.priority);
   const schedule = text(raw.schedule);
   const state = text(raw.state);
+  const rangeSemantics = text(raw.rangeSemantics);
   return {
     tab: (TASK_VIEW_TABS.has(tab) ? tab : DEFAULT_TASK_VIEW_FILTERS.tab) as TaskViewTab,
     themeId: text(raw.themeId),
     state: TASK_STATES.has(state) ? state : "",
     priority: (TASK_VIEW_PRIORITIES.has(priority) ? priority : "") as TaskViewPriority,
     schedule: (TASK_VIEW_SCHEDULES.has(schedule) ? schedule : "") as TaskViewSchedule,
+    rangeSemantics: (TASK_VIEW_RANGE_SEMANTICS.has(rangeSemantics) ? rangeSemantics : "") as TaskViewRangeSemantics,
   };
 }
 
@@ -92,6 +99,7 @@ export function filterTodoRows(rows: TodoRow[], filters: Partial<TaskViewFilters
     if (normalized.schedule === "overdue" && (!date || date >= today)) return false;
     if (normalized.schedule === "this-week" && (!date || date < today || date > weekEnd)) return false;
     if (normalized.schedule === "today" && !isTodayRow(row, today)) return false;
+    if (normalized.rangeSemantics && getScheduleKind(row.schedule) !== normalized.rangeSemantics) return false;
     return true;
   });
 }

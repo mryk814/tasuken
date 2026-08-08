@@ -7,9 +7,9 @@ import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import {
   firstCaptureUrl,
-  parseQuickCaptureDue,
+  parseQuickCaptureSchedule,
   quickCaptureContentType,
-  quickCaptureDueLabel,
+  quickCaptureScheduleLabel,
   quickCaptureTitle,
   splitQuickCaptureInput,
 } from "../shared/quickCapture.mjs";
@@ -21,6 +21,15 @@ interface QuickCaptureControllerOptions {
   notifyWorkspaceChanged: (
     change: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> },
   ) => void;
+}
+
+type QuickCaptureScheduleParse =
+  | { ok: false; message: string }
+  | { ok: true; kind: "single"; date: string; time: string }
+  | { ok: true; kind: "range"; startDate: string; endDate: string; rangeSemantics: "once_within_window" | "ongoing"; ambiguous: boolean };
+
+function parseSchedule(expression: string, today: string): QuickCaptureScheduleParse {
+  return parseQuickCaptureSchedule(expression, today) as unknown as QuickCaptureScheduleParse;
 }
 
 export interface QuickCaptureController {
@@ -37,7 +46,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
     const win = new BrowserWindow({
       width: 420,
       // 期限の解釈結果を出す1行ぶんを含めた高さ（#308）。
-      height: 252,
+      height: 284,
       show: false,
       frame: false,
       resizable: false,
@@ -104,7 +113,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
   }
 
   function registerIpc(): void {
-    ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string) => {
+    ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string, selectedRangeSemantics?: "once_within_window" | "ongoing") => {
       const trimmed = (text || "").trim();
       if (!trimmed) throw new Error("入力が空です。");
       if (mode === "today-task" || mode === "done-task" || mode === "due-task") {
@@ -115,9 +124,15 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
         // 「本体｜補足」の補足はmodeごとに意味が違う（#308）。
         const { main, extra } = splitQuickCaptureInput(trimmed);
         if (!main) throw new Error("タスク名を入力してください。");
-        const due = mode === "due-task" ? parseQuickCaptureDue(extra, today) : null;
+        const due = mode === "due-task" ? parseSchedule(extra, today) : null;
         if (due && !due.ok) throw new Error(due.message);
-        const scheduledDate = due?.ok ? due.date : today;
+        const parsedDue = due?.ok ? due : null;
+        const isRange = parsedDue?.kind === "range";
+        const scheduledDate = parsedDue ? parsedDue.kind === "range" ? parsedDue.startDate : parsedDue.date : today;
+        const scheduledEndDate = parsedDue?.kind === "range" ? parsedDue.endDate : scheduledDate;
+        const rangeSemantics = parsedDue?.kind === "range"
+          ? selectedRangeSemantics === "ongoing" ? "ongoing" : selectedRangeSemantics === "once_within_window" ? "once_within_window" : parsedDue.rangeSemantics
+          : null;
         const saved = options.repository.saveMany([
           {
             action: "save",
@@ -133,7 +148,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               state: isDoneTask ? "done" : "todo",
               priority: "normal",
               completed_at: isDoneTask ? now : null,
-              reminder_at: due?.ok && due.time ? `${due.date}T${due.time}` : null,
+              reminder_at: parsedDue?.kind === "single" && parsedDue.time ? `${parsedDue.date}T${parsedDue.time}` : null,
               created_at: now,
             },
             options: { source: "quick-capture" },
@@ -146,8 +161,9 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               owner_type: "task",
               owner_id: taskId,
               start_date: scheduledDate,
-              end_date: scheduledDate,
-              date_kind: mode === "due-task" ? "deadline" : "point",
+              end_date: scheduledEndDate,
+              date_kind: isRange ? "range" : mode === "due-task" ? "deadline" : "point",
+              range_semantics: rangeSemantics,
               confidence: "fixed",
               granularity: "day",
             },
@@ -183,9 +199,15 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
     ipcMain.handle("quick-capture:preview-due", (_event, text: unknown) => {
       const { extra } = splitQuickCaptureInput(typeof text === "string" ? text : "");
       if (!extra) return { state: "empty" as const };
-      const due = parseQuickCaptureDue(extra, localDateString());
+      const due = parseSchedule(extra, localDateString());
       if (!due.ok) return { state: "error" as const, message: due.message };
-      return { state: "ok" as const, label: quickCaptureDueLabel(due) };
+      return {
+        state: "ok" as const,
+        label: quickCaptureScheduleLabel(due),
+        kind: due.kind,
+        rangeSemantics: due.kind === "range" ? due.rangeSemantics : null,
+        ambiguous: due.kind === "range" ? due.ambiguous : false,
+      };
     });
 
     ipcMain.on("quick-capture:hide", () => {
