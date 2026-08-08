@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld("memoStickyApi", {
   // 本体や他のウィンドウでの変更を受けて、同じMemoの表示を追従させる。
   onWorkspaceChanged: (callback: () => void): Unsubscribe => {
     const handler = (): void => callback();
-    ipcRenderer.on("workspace:changed", handler);
-    return () => { ipcRenderer.removeListener("workspace:changed", handler); };
+    ipcRenderer.on(IPC.workspaceChanged, handler);
+    return () => { ipcRenderer.removeListener(IPC.workspaceChanged, handler); };
   },
 });

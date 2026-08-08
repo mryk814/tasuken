@@ -94,7 +94,10 @@ test("dead mini-timeline CSS selectors are removed only when no renderer markup 
   for (const selector of selectors) {
     const escaped = selector.replace(".", "\\.");
     assert.doesNotMatch(css, new RegExp(escaped));
-    assert.doesNotMatch(source, new RegExp(escaped));
+    // Timeline data may legitimately use names such as `milestones`; only
+    // renderer class assignments prove that the removed CSS surface remains.
+    const className = selector.slice(1);
+    assert.doesNotMatch(source, new RegExp(`(?:className|class)\\s*=\\s*[^\\n]*(?<![\\w-])${className}(?![\\w-])`));
   }
 });
 

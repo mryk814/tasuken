@@ -65,6 +65,33 @@ test("Theme and period produce distinct Task and Activity candidates", () => {
   assert.ok(result.every((item) => item.projectId === "p1"));
 });
 
+test("unknown change_event types keep the Timeline projection alive with a fallback title", () => {
+  const domain = domainFixture();
+  domain.change_events.push({
+    id: "legacy-event",
+    entity_type: "legacy_event",
+    entity_id: "removed-entity",
+    changed_at: "2026-07-11T10:00:00Z",
+    change_type: "updated",
+    source: "migration",
+  });
+
+  assert.doesNotThrow(() => timeline.buildSlideTimelineCandidates(
+    domain,
+    [],
+    { themeId: "all", start: "2026-07-01", end: "2026-07-31" },
+  ));
+  const result = timeline.buildSlideTimelineCandidates(
+    domain,
+    [],
+    { themeId: "all", start: "2026-07-01", end: "2026-07-31" },
+  );
+  const legacy = result.find((item) => item.id === "activity:legacy-event");
+  assert.ok(legacy);
+  assert.equal(legacy.title, "legacy_event");
+  assert.equal(legacy.projectId, null);
+});
+
 test("16:9 SVG distinguishes task bars and activity diamonds and supports transparent background", () => {
   const candidates = timeline.buildSlideTimelineCandidates(
     domainFixture(),
