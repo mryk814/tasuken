@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -19,6 +20,7 @@ async function importBundled(relativePath) {
 
 const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
 const { normalizeEntity, normalizeTaskAssignment } = await import("../src/main/repositories/domain.mjs");
+const { WorkspaceDatabase } = await import("../src/main/repositories/workspaceRepository.mjs");
 
 function repository() {
   const records = new Map([
@@ -117,12 +119,17 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   const domain = readFileSync("src/main/repositories/domain.mjs", "utf8");
   const repositorySource = readFileSync("src/main/repositories/workspaceRepository.mjs", "utf8");
   const mcp = readFileSync("src/main/mcp/server.mjs", "utf8");
+  const proposalInbox = readFileSync("src/main/mcp/proposalInbox.mjs", "utf8");
+  const proposalPanel = readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
   const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
   assert.match(todo, /buildCompleteTaskOperations/);
   assert.match(app, /saveEntities\(domainPlan\.operations/);
   assert.match(domain, /input\.intended_executor === "ai_agent" && input\.state === "done" && input\.work_state !== "accepted"/);
   assert.match(repositorySource, /normalizeTaskAssignment\(activityInput, existing\)/);
   assert.doesNotMatch(mcp, /registerTool\("tasken\.accept_task_work"/);
+  assert.doesNotMatch(mcp, /request_human_review|request_review/);
+  assert.doesNotMatch(proposalInbox, /request_review/);
+  assert.doesNotMatch(proposalPanel, /request_review/);
   assert.match(drawer, /!\["done", "cancelled"\]\.includes\(task\.state\) && !\["accepted", "reported_done", "needs_human_review", "in_progress"\]\.includes\(workState\)/);
 
   const repo = repository();
@@ -190,12 +197,82 @@ test("AI report stays needs_human_review and cannot complete before human accept
   assert.throws(() => service.execute(envelope("ReturnTaskWork", { taskId: "task-ai", reviewNote: "再確認してください。" }, "mcp-return", [{ type: "task", id: "task-ai", version: 3 }], { kind: "user" }, "mcp")), /人間UIからのみ/);
 });
 
+test("SQLite repository enforces AI completion, append-only receipts, and task receipt cascade restore", async () => {
+  const directory = await mkdtemp(path.join(process.cwd(), ".tasken-work-receipt-"));
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+  try {
+    database.loadWorkspace();
+    const task = {
+      id: "sqlite-task-ai",
+      title: "SQLite AI task",
+      state: "todo",
+      project_id: "theme-personal-default",
+      intended_executor: "ai_agent",
+      requester: "self",
+      work_state: "ready_for_agent",
+    };
+    const assignedTask = database.save("task", task);
+    assert.equal(assignedTask.work_state, "ready_for_agent");
+    const invalidDone = { ...assignedTask, state: "done", work_state: "needs_human_review" };
+    assert.throws(() => database.save("task", invalidDone), /work_state=accepted/);
+    assert.throws(() => database.saveMany([{ action: "save", type: "task", entity: { ...invalidDone, id: "sqlite-task-ai-batch" } }]), /work_state=accepted/);
+
+    const acceptedTask = database.saveMany([{
+      action: "save",
+      type: "task",
+      entity: { ...assignedTask, state: "done", work_state: "accepted" },
+    }]);
+    assert.equal(acceptedTask[0].state, "done");
+    assert.equal(acceptedTask[0].work_state, "accepted");
+    const receipt = database.save("work_receipt", {
+      id: "sqlite-receipt",
+      task_id: "sqlite-task-ai",
+      executor_kind: "ai_agent",
+      executor_label: "AI agent",
+      reported_at: "2026-08-08T00:02:00.000Z",
+      summary: "SQLite receipt",
+      completed_items: [],
+      changed_or_created_items: [],
+      source: "ai",
+    });
+    assert.equal(receipt.version, 1);
+    assert.throws(() => database.saveMany([{
+      action: "save",
+      type: "work_receipt",
+      entity: { ...receipt, summary: "tampered" },
+    }]), /append-only/);
+
+    database.remove("task", "sqlite-task-ai");
+    assert.equal(database.get("task", "sqlite-task-ai"), null);
+    const cascadedReceipt = database.get("work_receipt", "sqlite-receipt", true);
+    assert.ok(cascadedReceipt?.deleted_at);
+    assert.deepEqual(cascadedReceipt.cascade_deleted_by, { parentType: "task", parentId: "sqlite-task-ai" });
+
+    database.restore("task", "sqlite-task-ai");
+    assert.equal(database.get("task", "sqlite-task-ai")?.state, "done");
+    const restoredReceipt = database.get("work_receipt", "sqlite-receipt");
+    assert.equal(restoredReceipt?.summary, "SQLite receipt");
+    assert.equal(restoredReceipt?.deleted_at, null);
+    assert.equal(restoredReceipt?.cascade_deleted_by, undefined);
+  } finally {
+    database.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("human UI accept unlocks ordinary Task completion and receipt metadata is canonical", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);
   createAiTask(service);
+  repo.save("ai_proposal", {
+    id: "proposal-mcp",
+    source: "mcp",
+    payload_type: "task_work",
+    payload: { task_work: [{ action: "report_done", task_id: "task-ai" }] },
+    status: "pending",
+  });
   service.execute(envelope("StartTaskWork", { taskId: "task-ai" }, "start-ai-2", [{ type: "task", id: "task-ai", version: 1 }]));
-  service.execute(envelope("AppendWorkReceipt", {
+  const report = service.execute(envelope("AppendWorkReceipt", {
     taskId: "task-ai",
     receipt: {
       id: "receipt-ai-2",
@@ -206,18 +283,65 @@ test("human UI accept unlocks ordinary Task completion and receipt metadata is c
       summary: "Report",
       completed_items: [],
       changed_or_created_items: [],
+      source_session: "proposal-mcp",
       version: 99,
       deleted_at: "spoofed",
       source: "spoofed",
     },
-  }, "report-ai-2", [{ type: "task", id: "task-ai", version: 2 }], { kind: "ai_agent" }, "mcp"));
+  }, "report-ai-2", [{ type: "task", id: "task-ai", version: 2 }]));
   const accepted = service.execute(envelope("AcceptTaskWork", { taskId: "task-ai" }, "human-accept", [{ type: "task", id: "task-ai", version: 3 }]));
   assert.equal(accepted.status, "applied");
   const receipt = repo.get("work_receipt", "receipt-ai-2");
   assert.equal(receipt.deleted_at, undefined);
   assert.equal(receipt.source, "ai");
+  assert.deepEqual(receipt.provenance, { reported_via: "mcp", proposal_id: "proposal-mcp", imported_by: "human" });
   assert.equal(receipt.version, 1);
+  const reportEvent = repo.get("change_event", report.events[0]);
+  assert.equal(reportEvent.source, "ai");
+  assert.equal(reportEvent.event_kind, "task_ai_reported");
   const completed = service.execute(envelope("CompleteTask", { taskId: "task-ai" }, "human-complete", [{ type: "task", id: "task-ai", version: 4 }]));
   assert.equal(repo.get("task", "task-ai").state, "done");
   assert.equal(completed.status, "applied");
+});
+
+test("MCP Receipt provenance requires a matching task_work proposal", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  service.execute(envelope("CreateTask", {
+    task: {
+      id: "task-ai-unrelated",
+      title: "Unrelated AI work",
+      state: "todo",
+      project_id: "theme-personal-default",
+      intended_executor: "ai_agent",
+      requester: "self",
+      work_state: "ready_for_agent",
+    },
+  }, "create-unrelated"));
+  repo.save("ai_proposal", {
+    id: "proposal-wrong-task",
+    source: "mcp",
+    payload_type: "task_work",
+    payload: { task_work: [{ action: "report_done", task_id: "another-task" }] },
+    status: "pending",
+  });
+  service.execute(envelope("StartTaskWork", { taskId: "task-ai-unrelated" }, "start-unrelated", [{ type: "task", id: "task-ai-unrelated", version: 1 }]));
+  const report = service.execute(envelope("AppendWorkReceipt", {
+    taskId: "task-ai-unrelated",
+    receipt: {
+      id: "receipt-wrong-provenance",
+      task_id: "task-ai-unrelated",
+      executor_kind: "ai_agent",
+      executor_label: "Codex",
+      reported_at: "2026-08-08T00:03:00.000Z",
+      summary: "Report with an unrelated proposal id",
+      completed_items: [],
+      changed_or_created_items: [],
+      source_session: "proposal-wrong-task",
+    },
+  }, "report-unrelated", [{ type: "task", id: "task-ai-unrelated", version: 2 }]));
+  const receipt = repo.get("work_receipt", "receipt-wrong-provenance");
+  assert.equal(receipt.source_session, undefined);
+  assert.deepEqual(receipt.provenance, { reported_via: "main_ui", imported_by: "human" });
+  assert.equal(repo.get("change_event", report.events[0]).source, "ai");
 });

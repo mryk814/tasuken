@@ -353,6 +353,7 @@ export function validateEntity(type, input) {
       if (input[field] != null && !isPlainObject(input[field])) throw new Error(`work_receipt.${field}が不正です。`);
     }
     if (input.source_session != null && input.source_session !== "" && (typeof input.source_session !== "string" || input.source_session.length > 200)) throw new Error("work_receipt.source_sessionは200文字以内で入力してください。");
+    if (input.provenance != null && !isPlainObject(input.provenance)) throw new Error("work_receipt.provenanceが不正です。");
   }
   if (type === "waiting" && !waitingStates.has(input.state)) throw new Error("waiting.stateが不正です。");
   if (type === "plan_node") {

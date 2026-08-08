@@ -26,8 +26,8 @@ function validatePayload(payloadType, payload) {
   if (payloadType === "task_work") {
     for (const entry of entries) {
       if (!plainObject(entry)) throw new Error("task_workの各要素はJSON objectにしてください。");
-      if (!text(entry.task_id) || !["start", "append_receipt", "report_done", "request_review"].includes(entry.action)) {
-        throw new Error("task_workにはtask_idとstart/append_receipt/report_done/request_reviewのactionが必要です。");
+      if (!text(entry.task_id) || !["start", "append_receipt", "report_done"].includes(entry.action)) {
+        throw new Error("task_workにはtask_idとstart/append_receipt/report_doneのactionが必要です。");
       }
       if (entry.action === "append_receipt" || entry.action === "report_done") {
         if (!text(entry.executor_kind) || !["self", "human", "ai_agent", "external", "unknown"].includes(entry.executor_kind)) throw new Error("task_work.executor_kindが不正です。");
@@ -36,7 +36,6 @@ function validatePayload(payloadType, payload) {
           if (entry[field] != null && (!Array.isArray(entry[field]) || entry[field].length > 100 || entry[field].some((item) => !text(item)))) throw new Error(`task_work.${field}が不正です。`);
         }
       }
-      if (entry.action === "request_review" && !text(entry.review_note)) throw new Error("task_workのrequest_reviewにはreview_noteが必要です。");
     }
     return;
   }

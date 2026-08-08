@@ -217,7 +217,6 @@ export function createTaskenMcpServer() {
       start: "tasken.start_task_work",
       append_receipt: "tasken.append_work_receipt",
       report_done: "tasken.report_task_done",
-      request_review: "tasken.request_human_review",
     }[action] || `tasken.${action}` },
   }));
 
@@ -268,15 +267,6 @@ export function createTaskenMcpServer() {
     inputSchema: receiptProposalSchema,
     annotations: PROPOSAL_ANNOTATIONS,
   }, async (args) => queueTaskWork(args, "report_done", receiptProposalFields(args)));
-
-  server.registerTool("tasken.request_human_review", {
-    description: "Queue a proposal asking Tasken to show a Task's Work Receipt for human review.",
-    inputSchema: {
-      ...taskWorkBase,
-      review_note: z.string().trim().min(1).max(2000),
-    },
-    annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => queueTaskWork(args, "request_review", { review_note: args.review_note }));
 
   server.registerTool("tasken.propose_task", {
     description: "Queue a new Task proposal. This does not create the Task until the user accepts it in Tasken.",

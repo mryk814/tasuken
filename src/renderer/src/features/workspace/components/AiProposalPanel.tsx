@@ -371,10 +371,6 @@ export function AiProposalPanel(props: PageProps) {
               runtime_metadata: candidate.entry.runtime_metadata && typeof candidate.entry.runtime_metadata === "object" ? candidate.entry.runtime_metadata : null,
             },
           };
-        } else if (action === "request_review") {
-          await saveEntities([{ action: "save", type: "ai_proposal", entity: { ...proposal, status: "accepted", review_note: str(candidate.entry.review_note) } }], "Human review proposalを確認しました。");
-          setPreview(null);
-          return;
         } else {
           throw new Error("未対応のtask_work actionです。");
         }

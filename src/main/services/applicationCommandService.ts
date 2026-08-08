@@ -46,6 +46,51 @@ function workExecutorLabel(task: Entity, receipt?: Entity): string {
   return String(receipt?.executor_label || task.executor_identity || (task.intended_executor === "ai_agent" ? "AI agent" : "Task executor"));
 }
 
+function mcpTaskWorkProposal(repository: Repository, taskId: string, sourceSession: string): Entity | null {
+  const proposal = repository.get("ai_proposal", sourceSession, true);
+  if (!proposal || proposal.source !== "mcp" || proposal.payload_type !== "task_work") return null;
+  let payload: unknown = proposal.payload;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const entries = (payload as { task_work?: unknown }).task_work;
+  if (!Array.isArray(entries)) return null;
+  return entries.some((entry) => entry && typeof entry === "object" && !Array.isArray(entry)
+    && (entry as { task_id?: unknown }).task_id === taskId
+    && ["append_receipt", "report_done"].includes(String((entry as { action?: unknown }).action)))
+    ? proposal
+    : null;
+}
+
+function workReceiptProvenance(repository: Repository, command: CommandEnvelope, taskId: string, receipt: Entity): {
+  source: "manual" | "ai" | "migration";
+  metadata: Record<string, unknown>;
+  sourceSession?: string;
+} {
+  const requestedSourceSession = typeof receipt.source_session === "string" && receipt.source_session.trim()
+    ? receipt.source_session.trim()
+    : "";
+  const proposal = requestedSourceSession ? mcpTaskWorkProposal(repository, taskId, requestedSourceSession) : null;
+  const reportedViaMcp = proposal?.source === "mcp";
+  const source = receipt.executor_kind === "ai_agent" || reportedViaMcp
+    ? "ai"
+    : command.actor.kind === "system" ? "migration" : "manual";
+  return {
+    source,
+    ...(proposal ? { sourceSession: proposal.id } : {}),
+    metadata: {
+      reported_via: reportedViaMcp ? "mcp" : command.source,
+      ...(proposal ? { proposal_id: proposal.id } : {}),
+      ...(command.actor.kind === "user" && command.source !== "mcp" ? { imported_by: "human" } : {}),
+    },
+  };
+}
+
 function latestWorkReceipt(repository: Repository, taskId: string): Entity | null {
   return repository.list("work_receipt", true)
     .filter((receipt) => receipt.task_id === taskId && !receipt.deleted_at)
@@ -110,9 +155,10 @@ function commandEvent(
   after: Entity,
   eventKind?: string,
   workReceiptRef?: { type: string; id: string; revision?: number } | null,
+  sourceOverride?: "manual" | "ai" | "migration",
 ): Entity {
   const refType = entityType === "schedule" ? "task" : entityType;
-  const source = command.actor.kind === "system" ? "migration" : command.actor.kind === "ai_agent" ? "ai" : "manual";
+  const source = sourceOverride || (command.actor.kind === "system" ? "migration" : command.actor.kind === "ai_agent" ? "ai" : "manual");
   return {
     ...buildActivityEvent({
       id: randomUUID(),
@@ -457,6 +503,7 @@ export class ApplicationCommandService {
     if (currentWorkState(current) !== "in_progress") throw new ApplicationCommandError("INVALID_TRANSITION", "作業中のTaskだけにWork Receiptを追加できます。", { id: taskId, work_state: currentWorkState(current) });
     if (payload.receipt.task_id !== taskId) throw new ApplicationCommandError("INVALID_PAYLOAD", "Work Receiptのtask_idが対象Taskと一致しません。", { id: payload.receipt.id });
     if (this.repository.get("work_receipt", payload.receipt.id, true)) throw new ApplicationCommandError("CONFLICT", "Work ReceiptのIDを再利用できません。", { id: payload.receipt.id });
+    const provenance = workReceiptProvenance(this.repository, command, taskId, payload.receipt);
     const receipt: Entity = {
       id: payload.receipt.id,
       task_id: taskId,
@@ -471,17 +518,25 @@ export class ApplicationCommandService {
       ...(Array.isArray(payload.receipt.remaining_work) ? { remaining_work: payload.receipt.remaining_work } : {}),
       ...(Array.isArray(payload.receipt.external_references) ? { external_references: payload.receipt.external_references } : {}),
       ...(payload.receipt.repository_context && typeof payload.receipt.repository_context === "object" ? { repository_context: payload.receipt.repository_context } : {}),
-      ...(typeof payload.receipt.source_session === "string" ? { source_session: payload.receipt.source_session } : {}),
+      ...(provenance.sourceSession ? { source_session: provenance.sourceSession } : {}),
       ...(payload.receipt.runtime_metadata && typeof payload.receipt.runtime_metadata === "object" ? { runtime_metadata: payload.receipt.runtime_metadata } : {}),
-      source: command.actor.kind === "ai_agent" ? "ai" : "manual",
+      provenance: provenance.metadata,
+      source: provenance.source,
     };
     workReceiptDefinition.parseCreate(receipt);
     const nextTask: Entity = { ...current, work_state: "needs_human_review", work_reported_at: receipt.reported_at, work_review_note: null };
     taskDefinition.parseUpdate(nextTask);
     assertThemeExists(this.repository, nextTask);
-    const eventKind = receipt.executor_kind === "ai_agent" ? "task_ai_reported" : "task_work_recorded";
-    const event = annotateEvent(command, commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, { type: "work_receipt", id: receipt.id }));
-    event.metadata = { ...(event.metadata as Record<string, unknown> || {}), include_in_activity: true, work_action: "reported", executor_label: workExecutorLabel(nextTask, receipt) };
+    const eventKind = provenance.source === "ai" ? "task_ai_reported" : "task_work_recorded";
+    const event = annotateEvent(command, commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, { type: "work_receipt", id: receipt.id }, provenance.source));
+    event.metadata = {
+      ...(event.metadata as Record<string, unknown> || {}),
+      include_in_activity: true,
+      work_action: "reported",
+      executor_kind: receipt.executor_kind,
+      executor_label: workExecutorLabel(nextTask, receipt),
+      provenance: provenance.metadata,
+    };
     const operations: SaveOperation[] = [
       { action: "save", type: "task", entity: nextTask },
       { action: "save", type: "work_receipt", entity: receipt },

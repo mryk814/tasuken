@@ -79,6 +79,7 @@ export interface WorkReceipt {
   external_references?: Array<Record<string, unknown>>;
   repository_context?: Record<string, unknown> | null;
   source_session?: string | null;
+  provenance?: Record<string, unknown>;
   runtime_metadata?: Record<string, unknown> | null;
   created_at?: string;
   updated_at?: string;
