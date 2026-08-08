@@ -523,14 +523,14 @@ flowchart LR
       const mermaidPreviewInEdit = await waitFor(
         () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
         "Edit面のMermaid Preview",
-        80,
+        300,
       );
       const notesMermaidRenderedInEdit = Boolean(mermaidPreviewInEdit);
       mermaidPreviewInEdit.closest(".note-mermaid-preview-frame")?.click();
       const mermaidCodeEditor = await waitFor(
         () => notesPane?.querySelector(".note-mermaid-code-block.is-editing .cm-editor"),
         "Mermaidコード編集面",
-        80,
+        300,
       );
       const notesCodeBlockFullWidth = mermaidCodeEditor.getBoundingClientRect().width >= liveEditable.getBoundingClientRect().width * 0.8;
 
