@@ -38,6 +38,44 @@ function saveSnapshot(saved, request) {
   if (request.snapshot.dirty) saved[key] = request.snapshot.body;
 }
 
+function createDraftTransitionState() {
+  return {
+    selected: null,
+    snapshot: null,
+    editor: null,
+    persisted: Object.fromEntries(fixtures.map((record) => [identity.noteDraftOwnerKey(owner(record)), record.body])),
+    canonical: Object.fromEntries(fixtures.filter((record) => record.recordType === "note").map((record) => [record.id, record.body])),
+  };
+}
+
+function transitionTo(state, next, editorMarkdown = null) {
+  if (state.selected) {
+    const currentOwner = owner(state.selected);
+    const currentKey = identity.noteDraftOwnerKey(currentOwner);
+    const currentSaved = state.persisted[currentKey];
+    const currentBody = identity.readNoteDraftBody({
+      owner: currentOwner,
+      snapshot: state.snapshot,
+      editor: state.editor,
+      savedBody: currentSaved,
+    });
+    const flushed = identity.makeNoteDraftSnapshot(currentOwner, currentBody, currentSaved);
+    saveSnapshot(state.persisted, { record: state.selected, snapshot: flushed });
+    if (state.selected.recordType === "note" && flushed.dirty) state.canonical[state.selected.id] = flushed.body;
+  }
+
+  const nextOwner = next ? owner(next) : null;
+  const nextSaved = next ? state.persisted[identity.noteDraftOwnerKey(nextOwner)] : "";
+  return {
+    ...state,
+    selected: next,
+    snapshot: nextOwner ? identity.makeNoteDraftSnapshot(nextOwner, nextSaved, nextSaved) : null,
+    editor: nextOwner && editorMarkdown !== null
+      ? { ownerKey: identity.noteDraftOwnerKey(nextOwner), getMarkdown: () => editorMarkdown }
+      : null,
+  };
+}
+
 test("owner不一致のlive Editor本文はsnapshotや保存済み本文へフォールバックし、別文書へ混入しない", () => {
   const a = fixtures[0];
   const b = fixtures[1];
@@ -85,6 +123,38 @@ test("NOTE_A_ONLY → REPORT_B_ONLY → PROMPT_C_ONLYの高速切替は各本文
     "report-b": "REPORT_B_EDITED",
     "prompt-c": "PROMPT_C_EDITED",
   });
+});
+
+test("filter fallbackを含むA→B→Cの状態遷移は保存・表示・canonical Markdownのownerを揃える", () => {
+  let state = createDraftTransitionState();
+  state = transitionTo(state, fixtures[0], "NOTE_A_FILTER_EDITED");
+  assert.equal(identity.readNoteDraftBody({
+    owner: owner(fixtures[0]),
+    snapshot: state.snapshot,
+    editor: state.editor,
+    savedBody: fixtures[0].body,
+  }), "NOTE_A_FILTER_EDITED");
+
+  // Scope/Theme/search filterでAが表示対象から外れた場合も、先にAをflushしてからBを表示する。
+  state = transitionTo(state, fixtures[1]);
+  assert.equal(state.persisted["note:note-a"], "NOTE_A_FILTER_EDITED");
+  assert.equal(state.canonical["note-a"], "NOTE_A_FILTER_EDITED");
+  assert.equal(identity.renderNoteDraftBody(owner(fixtures[1]), state.snapshot, fixtures[1].body), "REPORT_B_ONLY");
+
+  state = transitionTo(state, fixtures[2], "PROMPT_C_FILTER_EDITED");
+  assert.equal(state.persisted["note:report-b"], "REPORT_B_ONLY");
+  assert.equal(identity.readNoteDraftBody({
+    owner: owner(fixtures[2]),
+    snapshot: state.snapshot,
+    editor: state.editor,
+    savedBody: fixtures[2].body,
+  }), "PROMPT_C_FILTER_EDITED");
+
+  // Detached windowもC ownerで読むため、A/B本文が混ざらない。
+  state = transitionTo(state, fixtures[0]);
+  assert.equal(state.persisted["note:prompt-c"], "PROMPT_C_FILTER_EDITED");
+  assert.equal(state.canonical["prompt-c"], "PROMPT_C_FILTER_EDITED");
+  assert.equal(identity.renderNoteDraftBody(owner(fixtures[0]), state.snapshot, state.persisted["note:note-a"]), "NOTE_A_FILTER_EDITED");
 });
 
 test("scope / Theme / search fallback and Edit / Preview / Raw / detached window share the same owner contract", () => {

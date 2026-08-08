@@ -1,0 +1,114 @@
+name: Quality Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd run rebuild:node
+      - run: npm.cmd run typecheck
+
+  unit-contract:
+    name: unit-contract
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd run rebuild:node
+      - run: npm.cmd run test:unit-contract
+
+  behavior-data-safety:
+    name: behavior-data-safety
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd run rebuild:node
+      - run: npm.cmd run test:behavior
+
+  full-test:
+    name: full-test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd run rebuild:node
+      - run: npm.cmd run test:full
+
+  consistency-audit:
+    name: consistency-audit
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd run audit:consistency
+      - run: npm.cmd run audit:scripts
+
+  build-windows:
+    name: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd run build
+
+  electron-smoke:
+    name: electron-smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd run build
+      - run: npm.cmd run rebuild:electron
+      - run: npm.cmd run smoke:desktop:focused
