@@ -18,3 +18,4 @@ release
 release-*
 .codex-remote-attachments
 audit-shots/
+/output/
