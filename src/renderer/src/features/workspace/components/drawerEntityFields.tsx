@@ -134,8 +134,9 @@ export function TaskFields({
 
   const preservedSectionId = normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
   const preservedShelf = normalizeTaskShelf(entity.planning_shelf) || "";
-  const initialIntendedExecutor = Object.prototype.hasOwnProperty.call(TASK_INTENDED_EXECUTOR_LABELS, entity.intended_executor)
-    ? str(entity.intended_executor)
+  const intendedExecutorValue = str(entity.intended_executor);
+  const initialIntendedExecutor = Object.prototype.hasOwnProperty.call(TASK_INTENDED_EXECUTOR_LABELS, intendedExecutorValue)
+    ? intendedExecutorValue
     : "self";
   const [intendedExecutor, setIntendedExecutor] = useState(initialIntendedExecutor);
   const preservedWorkState = str(entity.work_state) || (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");

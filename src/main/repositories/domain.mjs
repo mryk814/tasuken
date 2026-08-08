@@ -457,6 +457,10 @@ export function validateEntity(type, input) {
  * Assignment変更はフォームのhidden work_stateを信頼せず、この関数へ正規化規則を集約する。
  * Repositoryが最終write時にも同じ関数を適用する。
  * 作業中・確認中の再割当は、暗黙にReceiptの帰属を変えないため拒否する。
+ * @template {Record<string, unknown>} T
+ * @param {T} input
+ * @param {T | null | undefined} [previous]
+ * @returns {T}
  */
 export function normalizeTaskAssignment(input, previous = null) {
   const normalized = { ...input };

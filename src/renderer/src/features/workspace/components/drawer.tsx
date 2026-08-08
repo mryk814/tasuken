@@ -751,7 +751,7 @@ function EditDrawer({
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   const entityId = str(entity.id);
   const taskFormEntity = type === "task"
-    ? (((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) || entity)
+    ? (((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) || entity) as unknown as DrawerConfig["entity"]
     : entity;
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
   // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。

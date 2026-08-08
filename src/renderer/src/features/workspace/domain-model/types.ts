@@ -64,6 +64,7 @@ export type TaskWorkState =
   | "failed";
 
 export interface WorkReceipt {
+  [key: string]: unknown;
   id: string;
   task_id: string;
   executor_kind: TaskExecutorKind;

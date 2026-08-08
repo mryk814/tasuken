@@ -824,7 +824,7 @@ export class ApplicationCommandService {
         }
       }
       if (type === "task") {
-        const task = normalizeTaskAssignment(normalizeCanonicalEntity(type, candidate.entity), before);
+        const task = normalizeTaskAssignment(normalizeCanonicalEntity(type, candidate.entity), before || undefined);
         if (task.work_state === "accepted" && (!before || currentWorkState(before) !== "accepted")) {
           throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの受入れはAcceptTaskWorkを使用してください。", { id: task.id });
         }
@@ -870,7 +870,7 @@ export class ApplicationCommandService {
     const task: Entity = normalizeTaskAssignment({
       ...inputTask,
       project_id: canonicalThemeId(inputTask.project_id, { defaultPersonal: true }),
-    }, current);
+    }, current || undefined);
     if (task.state === "done") assertHumanAcceptBeforeCompletion(task);
     if (!isCreate && !expectedVersionFor(command, "task", taskId)) {
       throw new ApplicationCommandError("CONFLICT", "UpdateTaskにはexpected versionが必要です。", { type: "task", id: taskId });
