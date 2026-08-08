@@ -47,7 +47,7 @@ export const ROUTE_META = {
   "chat-refs": { label: "Chat Refs", description: "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。" },
   artifacts: { label: "Artifacts", description: "AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。" },
   themes: { label: "Themes", description: "研究テーマごとの現在地と負荷を確認します。" },
-  "ai-io": { label: "AI IO", description: "外部AIへ渡し、戻ってきた候補を確認してTaskenに取り込みます。" },
+  "ai-io": { label: "AI Inbox", description: "外部AIから届いたProposalを確認し、採用する内容だけをTaskenへ反映します。" },
   settings: { label: "Settings" },
 } as const satisfies Record<string, RouteMeta>;
 

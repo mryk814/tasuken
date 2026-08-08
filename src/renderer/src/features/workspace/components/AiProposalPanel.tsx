@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { IconAlertTriangle, IconArchive, IconHistory, IconPencil, IconShieldCheck } from "@tabler/icons-react";
 
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import { str, uuid } from "../lib/format";
@@ -26,8 +27,6 @@ interface ProposalPreview {
   candidates: ProposalCandidate[];
   payloadIssues: string[];
 }
-
-const PAYLOAD_TYPES: ProposalPayloadType[] = ["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update"];
 
 function parsePayload(raw: unknown, payloadType: ProposalPayloadType): Record<string, unknown> {
   if (typeof raw === "string") return JSON.parse(raw);
@@ -80,11 +79,6 @@ function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data" | "the
     return hunks.length ? { ...candidate, acceptedHunks: hunks.map((_, index) => index) } : candidate;
   });
   return preview;
-}
-
-function compact(value: unknown, limit = 220) {
-  const text = str(value).replace(/\s+/g, " ").trim();
-  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
 }
 
 function noteDiffHunks(candidate: ProposalCandidate) {
@@ -273,12 +267,14 @@ function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperatio
 
 export function AiProposalPanel(props: PageProps) {
   const { data, themes, items, saveEntities, setToast } = props;
-  const [payloadType, setPayloadType] = useState<ProposalPayloadType>("knowledge_nodes");
-  const [sourceApp, setSourceApp] = useState("manual");
-  const [rawPayload, setRawPayload] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [preview, setPreview] = useState<ProposalPreview | null>(null);
+  const [quarantineId, setQuarantineId] = useState("");
+  const [quarantineReason, setQuarantineReason] = useState("");
   const proposals = useMemo(() => (data.ai_proposals || []).filter((proposal) => str(proposal.status) === "pending"), [data.ai_proposals]);
+  const history = useMemo(() => (data.ai_proposals || [])
+    .filter((proposal) => str(proposal.status) !== "pending")
+    .sort((a, b) => proposalTimestamp(b).localeCompare(proposalTimestamp(a))), [data.ai_proposals]);
   const selected = proposals.find((proposal) => proposal.id === selectedId) || proposals[0] || null;
 
   function previewProposal(proposal: BaseRecord) {
@@ -290,33 +286,28 @@ export function AiProposalPanel(props: PageProps) {
     }
   }
 
-  async function createProposal() {
-    try {
-      const payload = parsePayload(rawPayload, payloadType);
-      await saveEntities([{
-        action: "save",
-        type: "ai_proposal",
-        entity: {
-          id: uuid(),
-          source: "manual",
-          source_app: sourceApp || "manual",
-          payload_type: payloadType,
-          status: "pending",
-          payload,
-        },
-      }], "Proposalを追加しました。");
-      setRawPayload("");
-    } catch (error) {
-      setToast(`Proposalを作成できませんでした。${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
   async function rejectProposal(proposal: BaseRecord) {
     await saveEntities([{
       action: "save",
       type: "ai_proposal",
       entity: { ...proposal, status: "rejected" },
     }], "Proposalを却下しました。");
+    setPreview(null);
+  }
+
+  async function quarantineProposal(proposal: BaseRecord) {
+    const reason = quarantineReason.trim();
+    if (!reason) {
+      setToast("隔離理由を入力してください。", "warning");
+      return;
+    }
+    await saveEntities([{
+      action: "save",
+      type: "ai_proposal",
+      entity: { ...proposal, status: "quarantined", quarantine_reason: reason },
+    }], "Proposalを隔離しました。");
+    setQuarantineId("");
+    setQuarantineReason("");
     setPreview(null);
   }
 
@@ -379,37 +370,77 @@ export function AiProposalPanel(props: PageProps) {
 
   return (
     <div className="ai-proposal-panel">
-      <section className="panel io-panel">
-        <div className="section-heading"><h2>Proposalを追加</h2></div>
-        <div className="inline-actions">
-          <select value={payloadType} onChange={(event) => setPayloadType(event.target.value as ProposalPayloadType)}>
-            {PAYLOAD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-          </select>
-          <input value={sourceApp} onChange={(event) => setSourceApp(event.target.value)} aria-label="source_app" />
+      <section className="panel proposal-inbox-panel">
+        <div className="section-heading">
+          <h2>Pending Proposal</h2>
+          <span className="proposal-pending-count">{proposals.length}件</span>
         </div>
-        <textarea value={rawPayload} onChange={(event) => setRawPayload(event.target.value)} placeholder='{"knowledge_nodes":[{"title":"確認する主張","node_type":"claim"}]}' />
-        <button className="secondary-button" onClick={createProposal}>Pendingに入れる</button>
-      </section>
-      <section className="panel import-preview">
-        <div className="section-heading"><h2>Pending</h2><span>{proposals.length}件</span></div>
-        {!proposals.length && <div className="empty-state"><strong>Pending proposalはありません</strong></div>}
+        {!proposals.length && (
+          <div className="empty-state proposal-empty-state">
+            <IconShieldCheck size={22} aria-hidden="true" />
+            <strong>未処理のProposalはありません</strong>
+            <span>外部AIから届いた提案はここで確認します。</span>
+          </div>
+        )}
         {proposals.map((proposal) => (
-          <div className="import-candidate" key={proposal.id}>
-            <div>
-              <strong>{str(proposal.payload_type)}</strong>
-              <small>{str(proposal.source)} / {str(proposal.source_app) || "source_appなし"} / {str(proposal.created_at).slice(0, 10) || "日付なし"}</small>
-              <p className="field-help">{compact(JSON.stringify(proposal.payload))}</p>
+          <div className="proposal-inbox-row" key={proposal.id}>
+            <div className="proposal-row-main">
+              <div className="proposal-row-heading">
+                <strong>{proposalTypeLabel(proposal)}</strong>
+                <ProposalRisk proposal={proposal} />
+              </div>
+              <dl className="proposal-meta-list">
+                <div><dt>Source</dt><dd>{proposalSourceLabel(proposal)}</dd></div>
+                <div><dt>Target</dt><dd>{proposalTargetLabel(proposal)}</dd></div>
+                <div><dt>Diff</dt><dd>{proposalDiffLabel(proposal)}</dd></div>
+                <div><dt>受信</dt><dd>{formatProposalDate(proposal)}</dd></div>
+              </dl>
+              <p className="proposal-validation-hint"><IconAlertTriangle size={14} aria-hidden="true" />検証・差分・採用範囲はPreviewで確認できます。</p>
             </div>
-            <div className="inline-actions">
-              <button className="secondary-button compact" onClick={() => previewProposal(proposal)}>Preview</button>
-              <button className="danger-button compact" onClick={() => rejectProposal(proposal)}>却下</button>
+            <div className="proposal-row-actions">
+              <button className="primary-button compact" onClick={() => previewProposal(proposal)}>Preview</button>
+              <button className="danger-button compact" onClick={() => rejectProposal(proposal)}>拒否する</button>
+              <button className="secondary-button compact" onClick={() => { setQuarantineId(proposal.id); setQuarantineReason(""); }}>隔離する</button>
             </div>
+            {quarantineId === proposal.id && (
+              <div className="proposal-quarantine-form">
+                <label>
+                  <span>隔離理由</span>
+                  <input value={quarantineReason} onChange={(event) => setQuarantineReason(event.target.value)} placeholder="例: 対象Themeを確認してから扱う" autoFocus />
+                </label>
+                <button className="secondary-button compact" onClick={() => void quarantineProposal(proposal)}>隔離を保存</button>
+                <button className="text-button compact" onClick={() => setQuarantineId("")}>戻る</button>
+              </div>
+            )}
           </div>
         ))}
       </section>
+      {history.length > 0 && (
+        <details className="panel proposal-history">
+          <summary><span><IconHistory size={16} aria-hidden="true" />処理履歴</span><strong>{history.length}件</strong></summary>
+          <div className="proposal-history-list">
+            {history.map((proposal) => (
+              <div className="proposal-history-row" key={proposal.id}>
+                <div>
+                  <strong>{proposalTypeLabel(proposal)}</strong>
+                  <small>{proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} / {formatProposalDate(proposal)}</small>
+                </div>
+                <span className={`proposal-status proposal-status-${str(proposal.status)}`}>
+                  {proposalStatusLabel(proposal)}
+                </span>
+                {str(proposal.quarantine_reason) && <p>{str(proposal.quarantine_reason)}</p>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       {selected && preview && (
-        <section className="panel import-preview">
-          <div className="section-heading"><h2>Preview</h2><span>{preview.candidates.length}件</span></div>
+        <section className="panel import-preview proposal-preview-panel">
+          <div className="section-heading">
+            <h2>Proposal Preview</h2>
+            <span>{preview.candidates.length}件 / {proposalSourceLabel(selected)}</span>
+          </div>
+          <p className="proposal-preview-context">Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}</p>
           {preview.payloadIssues.length > 0 && <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>}
           {preview.candidates.map((candidate, index) => (
             <div className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`} key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
@@ -462,10 +493,96 @@ export function AiProposalPanel(props: PageProps) {
           ))}
           <div className="form-actions">
             <button className="secondary-button" onClick={() => setPreview(null)}>閉じる</button>
-            <button className="primary-button" onClick={() => acceptProposal(selected)}>採用を保存</button>
+            <button className="danger-button" onClick={() => void rejectProposal(selected)}>拒否する</button>
+            <button className="primary-button" onClick={() => void acceptProposal(selected)}>採用を保存</button>
           </div>
         </section>
       )}
     </div>
   );
+}
+
+function proposalTimestamp(proposal: BaseRecord): string {
+  return str(proposal.updated_at || proposal.received_at || proposal.created_at);
+}
+
+function proposalEntries(proposal: BaseRecord): Record<string, unknown>[] {
+  const payloadType = str(proposal.payload_type) as ProposalPayloadType;
+  if (payloadType === "status_update") return [];
+  try {
+    const payload = wrapPayload(parsePayload(proposal.payload, payloadType), payloadType);
+    return Array.isArray(payload[payloadType]) ? payload[payloadType] as Record<string, unknown>[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function proposalTypeLabel(proposal: BaseRecord): string {
+  const labels: Record<string, string> = {
+    items: "Task / Waiting",
+    notes: "Note",
+    links: "Link",
+    knowledge_nodes: "Knowledge",
+    sketches: "Sketch",
+    artifacts: "Artifact",
+    status_update: "Status Update",
+  };
+  return labels[str(proposal.payload_type)] || "Proposal";
+}
+
+function proposalSourceLabel(proposal: BaseRecord): string {
+  return str(proposal.source_app) || str(proposal.source) || "不明なSource";
+}
+
+function proposalTargetLabel(proposal: BaseRecord): string {
+  const request = proposal.request && typeof proposal.request === "object" && !Array.isArray(proposal.request)
+    ? proposal.request as Record<string, unknown>
+    : {};
+  const requestTarget = request.target && typeof request.target === "object" && !Array.isArray(request.target)
+    ? request.target as Record<string, unknown>
+    : {};
+  const entries = proposalEntries(proposal);
+  const target = str(requestTarget.id) || str(entries[0]?.target_id);
+  const targetType = str(requestTarget.type);
+  if (target) return targetType ? `${targetType} ${target}` : target;
+  const theme = str(entries[0]?.theme);
+  return theme ? `Theme: ${theme}` : "新規候補";
+}
+
+function proposalDiffLabel(proposal: BaseRecord): string {
+  const entries = proposalEntries(proposal);
+  if (entries.some((entry) => str(entry.action) === "merge" || str(entry.target_id))) return "既存データの更新差分";
+  if (str(proposal.payload_type) === "artifacts" || str(proposal.payload_type) === "sketches") return "ファイル内容を確認";
+  return entries.length ? `${entries.length}件の新規候補` : "内容を確認";
+}
+
+function formatProposalDate(proposal: BaseRecord): string {
+  const timestamp = proposalTimestamp(proposal);
+  if (!timestamp) return "日付なし";
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? timestamp.slice(0, 10) : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+}
+
+function proposalRisk(proposal: BaseRecord): "update" | "file" | "create" {
+  const type = str(proposal.payload_type);
+  if (proposalEntries(proposal).some((entry) => str(entry.action) === "merge" || str(entry.target_id))) return "update";
+  if (type === "artifacts" || type === "sketches") return "file";
+  return "create";
+}
+
+function ProposalRisk({ proposal }: { proposal: BaseRecord }) {
+  const risk = proposalRisk(proposal);
+  const Icon = risk === "update" ? IconPencil : risk === "file" ? IconArchive : IconShieldCheck;
+  const label = risk === "update" ? "既存更新" : risk === "file" ? "ファイル確認" : "新規追加";
+  return <span className={`proposal-risk proposal-risk-${risk}`}><Icon size={14} aria-hidden="true" />{label}</span>;
+}
+
+function proposalStatusLabel(proposal: BaseRecord): string {
+  const labels: Record<string, string> = {
+    accepted: "採用済み",
+    partially_accepted: "一部採用",
+    rejected: "拒否済み",
+    quarantined: "隔離中",
+  };
+  return labels[str(proposal.status)] || str(proposal.status) || "処理済み";
 }

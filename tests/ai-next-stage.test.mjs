@@ -5,6 +5,7 @@ import test from "node:test";
 import { applyMarkdownDiffHunks, diffMarkdownLines } from "../src/renderer/src/features/workspace/lib/markdownEditing.ts";
 import { validateArtifactProposal, validateSafeSvg } from "../src/shared/proposalMedia.mjs";
 import { validateMcpProposalEnvelope } from "../src/main/mcp/proposalInbox.mjs";
+import { validateEntity } from "../src/main/repositories/domain.mjs";
 
 test("Note AI is Main-only for credentials and creates a pending safe proposal", () => {
   const service = readFileSync("src/main/services/aiProviderService.ts", "utf8");
@@ -68,4 +69,15 @@ test("MCP accepts Sketch and Artifact only as Proposal payloads", () => {
     payload: { artifacts: [{ action: "create", title: "Memo", file_name: "memo.md", media_type: "text/markdown", content: "# Memo" }] },
   });
   assert.equal(artifact.payload_type, "artifacts");
+});
+
+test("proposal history accepts embedded AI, media payloads, and quarantine without applying them", () => {
+  assert.doesNotThrow(() => validateEntity("ai_proposal", {
+    id: "12345678-1234-1234-1234-123456789abc",
+    source: "embedded_llm",
+    payload_type: "artifacts",
+    payload: { artifacts: [{ action: "create", title: "Memo", file_name: "memo.md", media_type: "text/markdown", content: "# Memo" }] },
+    status: "quarantined",
+    quarantine_reason: "確認待ち",
+  }));
 });

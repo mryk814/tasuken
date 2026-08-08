@@ -7,9 +7,9 @@ const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/Wor
 const importExportPageSource = readFileSync("src/renderer/src/features/workspace/pages/ImportExportPage.tsx", "utf8");
 const aiProposalPanelSource = readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
 
-test("AI proposals are folded into the AI integration page", () => {
+test("AI proposals use the existing AI route as a review inbox", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
-  assert.match(routesSource, /"ai-io": \{ label: "AI IO"/);
+  assert.match(routesSource, /"ai-io": \{ label: "AI Inbox"/);
   assert.match(routesSource, /toolNavigation = \["ai-io", "settings"\]/);
   assert.match(routesSource, /"proposal-inbox": "ai-io"/);
   assert.match(workspaceAppSource, /route === "proposal-inbox" \? "ai-io"/);
@@ -17,9 +17,14 @@ test("AI proposals are folded into the AI integration page", () => {
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ProposalInboxPage.tsx"), false);
 });
 
-test("AI integration page includes handoff and proposal review lanes", () => {
+test("AI Inbox contains only the safe proposal review surface", () => {
   assert.match(importExportPageSource, /PageHeader route="ai-io"/);
+  assert.match(importExportPageSource, /ai-inbox-page/);
   assert.match(importExportPageSource, /AiProposalPanel/);
   assert.match(aiProposalPanelSource, /export function AiProposalPanel/);
-  assert.doesNotMatch(aiProposalPanelSource, /PageHeader/);
+  assert.match(aiProposalPanelSource, /Pending Proposal/);
+  assert.match(aiProposalPanelSource, /処理履歴/);
+  assert.match(aiProposalPanelSource, /proposalTargetLabel/);
+  assert.match(aiProposalPanelSource, /quarantine/);
+  assert.doesNotMatch(importExportPageSource, /buildAiImportPrompt|buildAiOrganizePrompt|buildExportData/);
 });

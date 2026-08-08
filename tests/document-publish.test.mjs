@@ -28,19 +28,11 @@ test("document publish signature changes when markdown body changes", () => {
 });
 
 test("document publish uses Markdown as primary output and removes Word", () => {
-  const importExportSource = readFileSync("src/renderer/src/features/workspace/pages/ImportExportPage.tsx", "utf8");
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
   const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   const contractsSource = readFileSync("src/shared/ipc/contracts.ts", "utf8");
   const workspaceApiSource = readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
   const workspaceServiceSource = readFileSync("src/main/services/workspaceService.ts", "utf8");
-
-  assert.match(importExportSource, /publishMarkdownTargets/);
-  assert.match(importExportSource, /publishPdfTargets/);
-  assert.match(importExportSource, />Markdown</);
-  assert.match(importExportSource, />PDF</);
-  assert.match(importExportSource, /markdown_export/);
-  assert.doesNotMatch(importExportSource, /publishWordTargets|Word出力|exportMarkdownNoteToWord|word_export|AI向け|固定表示/);
 
   assert.match(drawerSource, /label="出力設定"/);
   assert.match(drawerSource, /exportMarkdown\(/);
