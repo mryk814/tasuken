@@ -5,7 +5,7 @@ release.ymlのtag-based package workflowは独立して維持する。
 
 ## Stable checks
 
-typecheck、unit-contract、behavior-data-safety、full-test、consistency-audit、build-windows、electron-smokeをrequired check候補とする。
+quality-gates.ymlのjob nameとstatus check contextは、`typecheck`、`unit-contract`、`behavior-data-safety`、`full-test`、`consistency-audit`、`build-windows`、`electron-smoke`の7つで固定する。これらをrequired status checksの実設定対象とする。
 各jobはnpm.cmd ci後、必要なNode ABI rebuildを行う。
 Electron smokeだけはbuild後にElectron ABI rebuildを行い、生成済みbuildを起動する。
 
@@ -22,6 +22,7 @@ audit:scriptsはpackage/workflow/manual reachability、目的、workspace schema
 Application Command parityは#336の正本を使う。Main/Today/Quick Capture/InboxのTask作成・更新・完了・削除・Capture変換はnamed commandを通り、generic Task IPC persistenceは拒否する。behavior gateではToday selector、expectedVersion、duplicate command replay、out-of-order/stale event、Inbox atomic conversionを確認する。
 
 Electron smokeはrun IDを生成し、`--user-data-dir`と`--smoke-result-path`を明示的に別TEMPへ渡す。main側で固定TEMPを削除しないため、並列実行時のDB/result競合を起こさない。`180000ms` timeoutとpreviousStage/trace diagnostics、visible lazy Mermaid pathは維持する。
+Windowsのnative clipboardはOS全体で共有されるため、smoke全体は直列化せず、本文copy通知・text write・画像write→paste→read-backを連続した最小clipboard phaseへ集約し、そこだけPID・開始時刻付きatomic lockで保護する。期限切れの死プロセスlockは回収し、待機timeoutでは失敗してrunRoot diagnosticsを残す。lockの直列化・回収はelectron-smoke-runner.test.mjsで実動検証する。
 
 ## #333 behavior contract
 

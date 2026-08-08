@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { buildElectronSmokeArgs, createSmokePaths } from "../scripts/run-electron-smoke.mjs";
+import { acquireSmokeClipboardLock } from "../src/main/smokeClipboardLock.mjs";
 
 test("Electron smoke runner creates unique explicit userData and result paths", () => {
   const first = createSmokePaths("C:/temp", "ci");
@@ -15,4 +19,51 @@ test("Electron smoke runner creates unique explicit userData and result paths", 
   }
   assert.notEqual(first.userDataDir, second.userDataDir);
   assert.notEqual(first.resultPath, second.resultPath);
+});
+
+test("native clipboard smoke lock serializes only the shared interval and records ownership", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tasken-smoke-lock-test-"));
+  const lockPath = path.join(root, "clipboard.lock");
+  const releaseFirst = await acquireSmokeClipboardLock({ lockPath, runId: "first", retryMs: 5, waitMs: 500 });
+  const owner = JSON.parse(await readFile(path.join(lockPath, "owner.json"), "utf8"));
+  assert.equal(owner.pid, process.pid);
+  assert.equal(owner.runId, "first");
+  assert.equal(typeof owner.startedAt, "number");
+
+  let secondAcquired = false;
+  const second = acquireSmokeClipboardLock({ lockPath, runId: "second", retryMs: 5, waitMs: 500 }).then((release) => {
+    secondAcquired = true;
+    return release;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(secondAcquired, false);
+  releaseFirst();
+  const releaseSecond = await second;
+  assert.equal(secondAcquired, true);
+  releaseSecond();
+  await rm(root, { recursive: true, force: true });
+});
+
+test("native clipboard smoke lock recovers an expired dead owner and has a bounded wait", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tasken-smoke-lock-expired-"));
+  const lockPath = path.join(root, "clipboard.lock");
+  await mkdir(lockPath);
+  await writeFile(path.join(lockPath, "owner.json"), JSON.stringify({ pid: 999999, startedAt: Date.now() - 1000, runId: "dead" }));
+  const release = await acquireSmokeClipboardLock({ lockPath, runId: "recovered", leaseMs: 10, waitMs: 500, retryMs: 5 });
+  const owner = JSON.parse(await readFile(path.join(lockPath, "owner.json"), "utf8"));
+  assert.equal(owner.runId, "recovered");
+  release();
+  await rm(root, { recursive: true, force: true });
+});
+
+test("native clipboard smoke lock fails clearly when the shared interval exceeds its wait bound", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tasken-smoke-lock-timeout-"));
+  const lockPath = path.join(root, "clipboard.lock");
+  const release = await acquireSmokeClipboardLock({ lockPath, runId: "holder", retryMs: 5, waitMs: 500 });
+  await assert.rejects(
+    acquireSmokeClipboardLock({ lockPath, runId: "blocked", retryMs: 5, waitMs: 25 }),
+    /native clipboard lockの待機がタイムアウトしました/,
+  );
+  release();
+  await rm(root, { recursive: true, force: true });
 });

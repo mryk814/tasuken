@@ -23,6 +23,7 @@ import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
+import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { ApplicationCommandService } from "./services/applicationCommandService";
 import type { CommandReceipt } from "../shared/applicationCommand";
@@ -528,16 +529,6 @@ flowchart LR
         && smokePreviewImage?.naturalWidth > 0
       );
 
-      // 全文コピーは「この文書」menuの項目へ移した（#313 / #331）。
-      clickPaneButton(notesPane, "この文書");
-      await delay(160);
-      const copyBodyItem = [...notesPane.querySelectorAll(".toolbar-menu-list button")]
-        .find((candidate) => candidate.textContent.trim() === "本文をすべてコピー");
-      if (!copyBodyItem) throw new Error("本文をすべてコピー が「この文書」menuに見つかりません。");
-      copyBodyItem.click();
-      await delay(160);
-      const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
-
       // Edit（Live Preview）面での追記・貼り付け
       clickPaneButton(notesPane, "Edit");
       const liveEditable = await waitFor(
@@ -764,17 +755,6 @@ flowchart LR
 
       const todayMiniWindowOpened = await window.api.app.showTodayMiniWindow();
       const themeMode = await window.api.preferences.get("themeMode");
-      const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
-      const sketchClipboardCanvas = document.createElement("canvas");
-      sketchClipboardCanvas.width = 8;
-      sketchClipboardCanvas.height = 8;
-      const sketchClipboardContext = sketchClipboardCanvas.getContext("2d");
-      if (!sketchClipboardContext) throw new Error("Sketch clipboard smoke canvas is unavailable.");
-      sketchClipboardContext.fillStyle = "#8a2f3b";
-      sketchClipboardContext.fillRect(0, 0, 8, 8);
-      const sketchClipboardWritten = await window.api.clipboard.writeImage({
-        dataUrl: sketchClipboardCanvas.toDataURL("image/png")
-      });
       const savedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)}));
       const markdownSavedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)}));
 
@@ -799,10 +779,10 @@ flowchart LR
         notesMermaidRenderedInEdit,
         notesCodeBlockFullWidth,
         notesFootnoteEditPreviewAligned,
-        rawCopyNotified,
+        rawCopyNotified: false,
         themeMode,
-        clipboardWritten,
-        sketchClipboardWritten,
+        clipboardWritten: false,
+        sketchClipboardWritten: false,
         aiMetadataPersisted,
         aiThemeDefaultPersisted,
         aiMetadataRejectedInvalid,
@@ -813,27 +793,63 @@ flowchart LR
     })()
   `) as SmokeCreatedResult;
 
-  await window.webContents.executeJavaScript(`
-    (() => {
-      const target = document.createElement("div");
-      target.id = "sketch-clipboard-smoke-target";
-      target.contentEditable = "true";
-      target.style.position = "fixed";
-      target.style.left = "-10000px";
-      document.body.append(target);
-      target.focus();
-    })()
-  `);
-  window.webContents.paste();
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  created.sketchClipboardPasted = await window.webContents.executeJavaScript(`
-    (() => {
-      const target = document.querySelector("#sketch-clipboard-smoke-target");
-      const pasted = Boolean(target?.querySelector("img"));
-      target?.remove();
-      return pasted;
-    })()
-  `) as boolean;
+  const releaseSmokeClipboardLock = await acquireSmokeClipboardLock({ runId: smokeRunId });
+  try {
+    recordSmoke("clipboard-start");
+    const clipboardPhase = await window.webContents.executeJavaScript(`
+      (async () => {
+        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const notesPane = document.querySelector(".note-preview-panel");
+        const documentMenu = [...(notesPane?.querySelectorAll("button") || [])]
+          .find((button) => button.textContent.trim() === "この文書");
+        if (!documentMenu) throw new Error("この文書 menuボタンがNotesパネル内に見つかりません。");
+        documentMenu.click();
+        await delay(160);
+        const copyBodyItem = [...(notesPane?.querySelectorAll(".toolbar-menu-list button") || [])]
+          .find((button) => button.textContent.trim() === "本文をすべてコピー");
+        if (!copyBodyItem) throw new Error("本文をすべてコピー が「この文書」menuに見つかりません。");
+        copyBodyItem.click();
+        await delay(160);
+        const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
+        const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Sketch clipboard smoke canvas is unavailable.");
+        context.fillStyle = "#8a2f3b";
+        context.fillRect(0, 0, 8, 8);
+        const sketchClipboardWritten = await window.api.clipboard.writeImage({ dataUrl: canvas.toDataURL("image/png") });
+        const target = document.createElement("div");
+        target.id = "sketch-clipboard-smoke-target";
+        target.contentEditable = "true";
+        target.style.position = "fixed";
+        target.style.left = "-10000px";
+        document.body.append(target);
+        target.focus();
+        return { rawCopyNotified, clipboardWritten, sketchClipboardWritten };
+      })()
+    `) as { rawCopyNotified: boolean; clipboardWritten: boolean; sketchClipboardWritten: boolean };
+    created.rawCopyNotified = clipboardPhase.rawCopyNotified;
+    created.clipboardWritten = clipboardPhase.clipboardWritten;
+    created.sketchClipboardWritten = clipboardPhase.sketchClipboardWritten;
+    window.webContents.paste();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    created.sketchClipboardPasted = await window.webContents.executeJavaScript(`
+      (() => {
+        const target = document.querySelector("#sketch-clipboard-smoke-target");
+        const pasted = Boolean(target?.querySelector("img"));
+        target?.remove();
+        return pasted;
+      })()
+    `) as boolean;
+    recordSmoke("clipboard-complete", {
+      sketchClipboardWritten: created.sketchClipboardWritten,
+      sketchClipboardPasted: created.sketchClipboardPasted,
+    });
+  } finally {
+    releaseSmokeClipboardLock();
+  }
 
   let mini: SmokeMiniResult = {
     todayMiniOpened: false,
