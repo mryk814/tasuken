@@ -13,6 +13,9 @@ import {
   SCHEDULE_RANGE_SEMANTICS_HINTS,
   SCHEDULE_RANGE_SEMANTICS_LABELS,
   TASK_STATE_LABELS,
+  TASK_REQUESTER_LABELS,
+  TASK_INTENDED_EXECUTOR_LABELS,
+  TASK_WORK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
@@ -101,6 +104,13 @@ export function TaskFields({
       plan_node_id: (entity.plan_node_id as string | null) ?? null,
       parent_task_id: (entity.parent_task_id as string | null) ?? null,
       state: (str(entity.state) || "todo") as Task["state"],
+      requester: (str(entity.requester) || "self") as Task["requester"],
+      intended_executor: (str(entity.intended_executor) || "self") as Task["intended_executor"],
+      executor_identity: (entity.executor_identity as string | null) ?? null,
+      work_state: (str(entity.work_state) || (str(entity.intended_executor) === "ai_agent" ? "ready_for_agent" : "not_delegated")) as Task["work_state"],
+      work_started_at: (entity.work_started_at as string | null) ?? null,
+      work_reported_at: (entity.work_reported_at as string | null) ?? null,
+      work_review_note: (entity.work_review_note as string | null) ?? null,
       priority: str(entity.priority) === "high" ? "high" : "normal",
       planning_shelf: normalizeTaskShelf(entity.planning_shelf),
       reminder_at: normalizeReminderDateTime(entity.reminder_at),
@@ -124,11 +134,34 @@ export function TaskFields({
 
   const preservedSectionId = normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
   const preservedShelf = normalizeTaskShelf(entity.planning_shelf) || "";
+  const initialIntendedExecutor = Object.prototype.hasOwnProperty.call(TASK_INTENDED_EXECUTOR_LABELS, entity.intended_executor)
+    ? str(entity.intended_executor)
+    : "self";
+  const [intendedExecutor, setIntendedExecutor] = useState(initialIntendedExecutor);
+  const preservedWorkState = str(entity.work_state) || (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
       <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
+      <section className="drawer-subsection">
+        <div className="section-heading"><h2>依頼と実行</h2><span className="field-help">本文とは別に、担当と作業状態を記録します。</span></div>
+        <div className="form-grid">
+          <Field label="依頼者">
+            <select name="requester" defaultValue={str(entity.requester) || "self"}>
+              {Object.entries(TASK_REQUESTER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="実行主体">
+            <select name="intended_executor" value={intendedExecutor} onChange={(event) => setIntendedExecutor(event.target.value)}>
+              {Object.entries(TASK_INTENDED_EXECUTOR_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="実行主体の表示名"><input name="executor_identity" defaultValue={str(entity.executor_identity)} placeholder="例: Codex / 山田" /></Field>
+        <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
+        <div className="field-help">作業状態: {TASK_WORK_STATE_LABELS[preservedWorkState as keyof typeof TASK_WORK_STATE_LABELS] || preservedWorkState}</div>
+      </section>
       <Field label="状態">
         <select name="state" defaultValue={str(entity.state) || "todo"}>
           {Object.entries(TASK_STATE_LABELS).map(([value, label]) => (

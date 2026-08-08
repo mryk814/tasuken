@@ -15,10 +15,10 @@ import {
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/savedTaskViews";
-import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
+import { Button, EmptyState, PageHeader, StatusBadge, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
-import { SCHEDULE_KIND_LABELS, TASK_STATE_LABELS } from "../domain-model/labels";
+import { SCHEDULE_KIND_LABELS, TASK_STATE_LABELS, TASK_WORK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { getScheduleKind } from "../domain-model/scheduleSemantics";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
@@ -261,6 +261,8 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
     const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
     const done = task.state === "done" || task.state === "cancelled";
+    const workState = task.work_state || (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+    const requiresHumanAcceptance = task.intended_executor === "ai_agent" && workState !== "accepted";
     const due = scheduledDate(schedule);
     const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
     const urgency = !done && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
@@ -275,6 +277,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
         <span className="todo-theme-bar" />
         <button
           className={`todo-check-circle ${done ? "is-done" : ""}`}
+          disabled={requiresHumanAcceptance}
           onClick={(event) => { event.stopPropagation(); toggleTask(task); }}
           aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了`}
           title={done ? "未完了に戻す" : "完了にする"}
@@ -309,6 +312,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
             <span>{task.title}</span>
             <ChecklistProgressBadge items={task.checklist_items} />
+            {task.intended_executor === "ai_agent" && <StatusBadge value="info" label={`AI · ${TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState}`} />}
           </button>
            {rangeSemanticsBadge({ task, schedule }, openTaskDetail)}
           {reminder && <span className="row-reminder-meta"><IconClock size={13} />{reminder}</span>}

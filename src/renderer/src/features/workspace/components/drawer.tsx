@@ -8,6 +8,7 @@ import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import type {
   BaseRecord,
   DrawerConfig,
+  ExecuteCommand,
   KnowledgeNode,
   Note,
   OpenContentViewer,
@@ -42,6 +43,7 @@ import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt 
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { isConversationMarkdown } from "../lib/conversationParser";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
+import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { AiContextFields, AiContextSummary, ThemeAiVisibilityField, workspaceAiVisibility } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
 import { ConversationPreview } from "./ConversationPreview";
@@ -58,6 +60,9 @@ import { ChecklistProgressBadge } from "./taskChecklist";
 import { ChatGroupPicker, ThemeColorPicker, ThemeGroupPicker, ThemeStorageRootField } from "./drawerPickers";
 import {
   TASK_STATE_LABELS,
+  TASK_REQUESTER_LABELS,
+  TASK_INTENDED_EXECUTOR_LABELS,
+  TASK_WORK_STATE_LABELS,
   WAITING_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -71,7 +76,7 @@ import {
 } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
-import type { CaptureEntry, PlanNode, Reference, Resource, Schedule, Task, Waiting } from "../domain-model/types";
+import type { CaptureEntry, PlanNode, Reference, Resource, Schedule, Task, WorkReceipt, Waiting } from "../domain-model/types";
 import { normalizeReminderDateTime } from "../lib/reminders";
 import { listTaskSections, normalizeTaskSectionId } from "../lib/taskSections";
 
@@ -118,6 +123,7 @@ interface EntityDrawerProps {
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+  executeCommand?: ExecuteCommand;
   openContentViewer?: OpenContentViewer;
   startFocusSession?: (taskId: string) => void;
   navigate: (route: string) => void;
@@ -155,7 +161,132 @@ function DerivedSourceReference({
   );
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, openContentViewer, startFocusSession, navigate }: EntityDrawerProps) {
+function splitWorkLines(value: string): string[] {
+  return value.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
+function TaskWorkSection({
+  task,
+  receipts,
+  executeCommand,
+  setToast,
+}: {
+  task: Task;
+  receipts: WorkReceipt[];
+  executeCommand?: ExecuteCommand;
+  setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+}) {
+  const [summary, setSummary] = useState("");
+  const [completedItems, setCompletedItems] = useState("");
+  const [changedItems, setChangedItems] = useState("");
+  const [verification, setVerification] = useState("");
+  const [remainingWork, setRemainingWork] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const workState = task.work_state || (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+  const sortedReceipts = [...receipts].filter((receipt) => receipt.task_id === task.id).sort((a, b) => b.reported_at.localeCompare(a.reported_at));
+  const expectedVersion = Number((task as unknown as Record<string, unknown>).version || 0);
+  const executorKind = task.intended_executor === "ai_agent" ? "ai_agent" : task.intended_executor === "human" ? "human" : "self";
+  const executorLabel = task.executor_identity || (executorKind === "ai_agent" ? "AI agent" : executorKind === "human" ? "人" : "自分");
+  const run = async (name: CommandEnvelope["name"], payload: CommandEnvelope["payload"], message: string) => {
+    if (!executeCommand || busy) return;
+    setBusy(true);
+    try {
+      await executeCommand({
+        commandId: uuid(),
+        name,
+        payload,
+        actor: { kind: "user" },
+        source: "main_ui",
+        expectedVersions: [{ type: "task", id: task.id, version: expectedVersion }],
+        issuedAt: new Date().toISOString(),
+      } as CommandEnvelope);
+      setToast(message, "success");
+      setSummary("");
+      setCompletedItems("");
+      setChangedItems("");
+      setVerification("");
+      setRemainingWork("");
+      setReviewNote("");
+    } catch (error) {
+      setToast(`Work stateを更新できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const report = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = summary.trim();
+    if (!trimmed) {
+      setToast("報告の概要を入力してください。", "warning");
+      return;
+    }
+    const reportedAt = new Date().toISOString();
+    void run("AppendWorkReceipt", {
+      taskId: task.id,
+      receipt: {
+        id: uuid(),
+        task_id: task.id,
+        executor_kind: executorKind,
+        executor_label: executorLabel,
+        started_at: task.work_started_at || reportedAt,
+        reported_at: reportedAt,
+        summary: trimmed,
+        completed_items: splitWorkLines(completedItems),
+        changed_or_created_items: splitWorkLines(changedItems),
+        verification: splitWorkLines(verification),
+        remaining_work: splitWorkLines(remainingWork),
+        source_session: null,
+      },
+    }, "Work Receiptを追加しました。人間の確認待ちです。");
+  };
+  if (!executeCommand) return null;
+  return (
+    <section className="drawer-subsection" aria-labelledby="task-work-heading">
+      <div className="section-heading"><h3 id="task-work-heading">依頼と作業報告</h3><StatusBadge value={workState} label={TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState} /></div>
+      <dl>
+        <dt>依頼者</dt><dd>{TASK_REQUESTER_LABELS[task.requester || "unknown"]}</dd>
+        <dt>実行主体</dt><dd>{TASK_INTENDED_EXECUTOR_LABELS[task.intended_executor || "self"]}{task.executor_identity ? ` · ${task.executor_identity}` : ""}</dd>
+      </dl>
+      {sortedReceipts.length > 0 ? (
+        <div className="task-learning-list" aria-label="Work Receipt一覧">
+          {sortedReceipts.map((receipt) => (
+            <article className="task-learning-item" key={receipt.id}>
+              <div className="section-heading"><strong>{receipt.executor_label}</strong><small>{formatDate(receipt.reported_at)}</small></div>
+              <p>{receipt.summary}</p>
+              {receipt.completed_items?.length > 0 && <p><strong>完了:</strong> {receipt.completed_items.join("、")}</p>}
+              {receipt.changed_or_created_items?.length > 0 && <p><strong>変更・作成:</strong> {receipt.changed_or_created_items.join("、")}</p>}
+              {receipt.verification?.length ? <p><strong>検証:</strong> {receipt.verification.join("、")}</p> : null}
+              {receipt.remaining_work?.length ? <p><strong>残り:</strong> {receipt.remaining_work.join("、")}</p> : null}
+            </article>
+          ))}
+        </div>
+      ) : <p className="field-help">作業の開始後、本文を上書きせずにWork Receiptとして報告できます。</p>}
+      {!["done", "cancelled"].includes(task.state) && !["accepted", "reported_done", "needs_human_review", "in_progress"].includes(workState) && (
+        <button className="secondary-button" type="button" disabled={busy} onClick={() => void run("StartTaskWork", { taskId: task.id, executorKind, executorIdentity: task.executor_identity || null }, "作業を開始しました。")}>作業を開始する</button>
+      )}
+      {workState === "in_progress" && (
+        <form className="form-grid" onSubmit={report}>
+          <Field label="報告の概要"><textarea value={summary} onChange={(event) => setSummary(event.target.value)} required /></Field>
+          <Field label="完了した項目"><textarea value={completedItems} onChange={(event) => setCompletedItems(event.target.value)} placeholder="1行1項目" /></Field>
+          <Field label="変更・作成した項目"><textarea value={changedItems} onChange={(event) => setChangedItems(event.target.value)} placeholder="1行1項目" /></Field>
+          <Field label="検証"><textarea value={verification} onChange={(event) => setVerification(event.target.value)} placeholder="1行1項目" /></Field>
+          <Field label="残りの作業"><textarea value={remainingWork} onChange={(event) => setRemainingWork(event.target.value)} placeholder="1行1項目" /></Field>
+          <button className="primary-button" type="submit" disabled={busy}>報告を追加する</button>
+        </form>
+      )}
+      {(["reported_done", "needs_human_review"].includes(workState)) && sortedReceipts[0] && (
+        <div className="drawer-actions">
+          <button className="primary-button" type="button" disabled={busy} onClick={() => void run("AcceptTaskWork", { taskId: task.id }, "Work Receiptを確認しました。Taskを完了できます。")}>確認して受け入れる</button>
+          <Field label="差戻し理由"><textarea value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} required /></Field>
+          <button className="secondary-button" type="button" disabled={busy || !reviewNote.trim()} onClick={() => void run("ReturnTaskWork", { taskId: task.id, reviewNote }, "Work Receiptを差し戻しました。")}>差し戻す</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, executeCommand, openContentViewer, startFocusSession, navigate }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") {
     return (
@@ -168,6 +299,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         removeEntity={removeEntity}
         saveEntities={saveEntities}
         setToast={setToast}
+        executeCommand={executeCommand}
         openContentViewer={openContentViewer}
         startFocusSession={startFocusSession}
       />
@@ -325,10 +457,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
     );
   }
   if (type === "task") {
-    const task = entity as unknown as Task;
+    const task = ((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entity.id) || entity as unknown as Task;
     const schedule = findSchedule(data, "task", task.id, entity._schedule);
     const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
     const completionNote = str((entity as Record<string, unknown>).completion_note);
+    const taskWorkState = task.work_state || (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+    const requiresHumanAcceptance = task.intended_executor === "ai_agent" && taskWorkState !== "accepted";
     const learningNotes = (data.notes || [])
       .filter((note) => note.item_id === task.id && note.note_type === "learning")
       .sort((a, b) => str(b.created_at || b.updated_at).localeCompare(str(a.created_at || a.updated_at)));
@@ -416,6 +550,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             entityId={task.id}
             openSource={(source) => close({ type: "note", entity: source })}
           />
+          <TaskWorkSection task={task} receipts={(data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]} executeCommand={executeCommand} setToast={setToast} />
           <section className="task-learning-section">
             <div className="section-heading">
               <h3>気づき・学び</h3>
@@ -450,13 +585,13 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <button className="primary-button" onClick={() => startFocusSession?.(task.id)}><IconClock size={16} />集中して作業する</button>
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             <button className="secondary-button" onClick={copyTask}><IconCopyPlus size={16} />複製する</button>
-            <button className="secondary-button" onClick={async () => {
+            <button className="secondary-button" disabled={requiresHumanAcceptance} title={requiresHumanAcceptance ? "AIの報告を人間が確認してから完了できます。" : undefined} onClick={async () => {
               const nextState = task.state === "done" ? "todo" : "done";
               const message = nextState === "done" && task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
               await saveEntities(buildCompleteTaskOperations(task, schedule), message);
               close();
-            }}>{task.state === "done" ? "未完了に戻す" : "完了にする"}</button>
-            {task.state !== "done" && <button className="secondary-button" onClick={() => addLearningNote(true)}>完了して学びを書く</button>}
+            }}>{task.state === "done" ? "未完了に戻す" : requiresHumanAcceptance ? "確認してから完了" : "完了にする"}</button>
+            {task.state !== "done" && <button className="secondary-button" disabled={requiresHumanAcceptance} onClick={() => addLearningNote(true)}>完了して学びを書く</button>}
             <button className="danger-button" onClick={() => removeEntity("task", entity)}><IconTrash size={16} />削除する</button>
           </div>
         </div>
@@ -580,6 +715,7 @@ function EditDrawer({
   removeEntity,
   saveEntities,
   setToast,
+  executeCommand: _executeCommand,
   openContentViewer,
   startFocusSession,
 }: {
@@ -591,6 +727,7 @@ function EditDrawer({
   removeEntity?: RemoveEntity;
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+  executeCommand?: ExecuteCommand;
   openContentViewer?: OpenContentViewer;
   startFocusSession?: (taskId: string) => void;
 }) {
@@ -613,6 +750,9 @@ function EditDrawer({
   const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   const entityId = str(entity.id);
+  const taskFormEntity = type === "task"
+    ? (((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) || entity)
+    : entity;
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
   // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。
   const artifactSource = (() => {
@@ -675,7 +815,7 @@ function EditDrawer({
         )}
         {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
         {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
-        {type === "task" && <TaskFields entity={entity} data={data} saveEntities={saveEntities} />}
+        {type === "task" && <TaskFields entity={taskFormEntity} data={data} saveEntities={saveEntities} />}
         {type === "waiting" && <WaitingFields entity={entity} data={data} />}
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
         {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
@@ -706,6 +846,14 @@ function EditDrawer({
         />
         <button className="primary-button" type="submit">保存する</button>
       </form>
+      {type === "task" && entityId && (
+        <TaskWorkSection
+          task={((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) || entity as unknown as Task}
+          receipts={(data.work_receipts || []) as unknown as WorkReceipt[]}
+          executeCommand={_executeCommand}
+          setToast={setToast}
+        />
+      )}
       {(artifactSource || (entityId && removeEntity)) && (
         <div className="drawer-edit-footer">
           {artifactSource && saveEntities && removeEntity && (
