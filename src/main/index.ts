@@ -566,8 +566,18 @@ flowchart LR
       };
       const saveDraftButton = [...(notesPane?.querySelectorAll(".note-preview-actions button") || [])].find((button) => button.textContent.trim() === "保存");
       saveDraftButton?.click();
-      await delay(220);
-      const notesLiveEditSaved = notesLiveEditRendered && document.body.innerText.includes("保存しました。");
+      const savedNotesPane = await waitFor(
+        () => {
+          const currentNotesPane = document.querySelector(".note-preview-panel");
+          return currentNotesPane?.querySelector(".note-draft-state")?.textContent?.trim() === "保存しました"
+            ? currentNotesPane
+            : null;
+        },
+        "Live Preview保存状態",
+        40,
+      );
+      notesPane = savedNotesPane;
+      const notesLiveEditSaved = notesLiveEditRendered && Boolean(savedNotesPane);
       clickPaneButton(notesPane, "Preview");
       await delay(180);
       const editedPreview = notesPane.querySelector(".note-main-preview.markdown-preview");
