@@ -1,4 +1,4 @@
-import { IconChevronDown, IconInfoCircle } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCircle, IconCheck, IconChevronDown, IconInfoCircle, IconLoader2, IconX } from "@tabler/icons-react";
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { actionDefinition, type ActionId } from "../../../pages/semanticActions";
@@ -13,6 +13,30 @@ import {
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "ai";
+
+export type IntegrationStatusTone = "normal" | "neutral" | "attention" | "error" | "loading";
+
+/**
+ * 接続系設定の状態表示を一つの意味契約へ揃える（#324 / #312）。
+ * 正常状態は控えめにし、未設定はneutral、要確認・エラーだけを状態色で知らせる。
+ */
+export function IntegrationStatus({ label, tone, detail }: { label: string; tone: IntegrationStatusTone; detail?: string }) {
+  const StatusIcon = tone === "normal"
+    ? IconCheck
+    : tone === "neutral"
+      ? IconCircle
+      : tone === "error"
+        ? IconX
+        : tone === "attention"
+          ? IconAlertTriangle
+          : IconLoader2;
+  return (
+    <span className={`integration-status integration-status-${tone}`} title={detail}>
+      <StatusIcon className={tone === "loading" ? "is-spinning" : undefined} size={14} stroke={1.9} aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+}
 
 /**
  * 操作の意味をclassNameの組み合わせではなくvariantで宣言する共通button。

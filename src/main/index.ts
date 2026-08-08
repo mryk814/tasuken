@@ -42,6 +42,8 @@ let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let mcpProposalInboxService: McpProposalInboxService | null = null;
+let lastSmokeStage = "startup";
+const smokeTrace: string[] = [];
 const readyMainWindows = new WeakSet<BrowserWindow>();
 registerAttachmentScheme();
 
@@ -225,6 +227,7 @@ interface SmokeReloadResult {
   themeMode: string;
   aiVisibilityDefault: string;
   aiTaskMetadataPersisted: boolean;
+  settingsReloadRestored: boolean;
 }
 
 interface SmokeMiniResult {
@@ -237,6 +240,9 @@ interface SmokeMiniResult {
 
 function recordSmoke(stage: string, details: Record<string, unknown> = {}): void {
   if (!isSmokeTest) return;
+  lastSmokeStage = stage;
+  smokeTrace.push(stage);
+  if (smokeTrace.length > 40) smokeTrace.shift();
   fs.writeFileSync(smokeResultPath, JSON.stringify({ stage, argv: process.argv, ...details }, null, 2));
 }
 
@@ -259,9 +265,10 @@ app.disableHardwareAcceleration();
     app.setPath("userData", smokeUserDataPath);
     recordSmoke("main-started");
     setTimeout(() => {
-      recordSmoke("timeout");
+      const previousStage = lastSmokeStage;
+      recordSmoke("timeout", { previousStage, trace: [...smokeTrace] });
       app.exit(1);
-    }, 45000);
+    }, 180000);
 }
 
 async function runSmokeTest(window: BrowserWindow): Promise<void> {
@@ -303,6 +310,7 @@ flowchart LR
 ## 続き
 
 編集前の本文。`;
+  recordSmoke("core-start");
   const created = await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -366,7 +374,7 @@ flowchart LR
 
       // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
       (await waitForButton("Notes")).click();
-      await delay(80);
+      await waitFor(() => document.querySelector(".notes-page"), "Notes page");
       await clickCreateNote();
       await delay(100);
 
@@ -454,13 +462,13 @@ flowchart LR
 
       // Edit（Live Preview）面での追記・貼り付け
       clickPaneButton(notesPane, "Edit");
-      await delay(200);
-      notesPane = document.querySelector(".note-preview-panel");
       const liveEditable = await waitFor(
-        () => notesPane?.querySelector(".note-mdx-content[contenteditable='true']"),
+        () => document.querySelector(".note-preview-panel .note-mdx-content[contenteditable='true']"),
         "Live Preview編集面",
         40,
       );
+      notesPane = liveEditable.closest(".note-preview-panel");
+      if (!notesPane) throw new Error("Live Preview編集面の親パネルが見つかりません。");
       const notesPanePreviewRendered = Boolean(
         notesPane?.querySelector("h2")?.textContent?.includes(${JSON.stringify(markdownTitle)})
         && (notesPane?.querySelector(".note-live-editor h1")?.textContent?.includes("Markdown Preview")
@@ -652,6 +660,8 @@ flowchart LR
       const sketchClipboardWritten = await window.api.clipboard.writeImage({
         dataUrl: sketchClipboardCanvas.toDataURL("image/png")
       });
+      const savedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)}));
+      const markdownSavedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)}));
 
       return {
         title: document.title,
@@ -659,8 +669,8 @@ flowchart LR
         smokeTaskId: ${JSON.stringify(smokeTaskId)},
         smokeTaskTitle: ${JSON.stringify(smokeTaskTitle)},
         todayMiniWindowOpened,
-        saved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)})),
-        markdownSaved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)})),
+        saved: savedBeforeSettingsRoute,
+        markdownSaved: markdownSavedBeforeSettingsRoute,
         markdownPreviewRendered,
         markdownFrontmatterRendered,
         markdownMathRendered,
@@ -759,6 +769,97 @@ flowchart LR
     })()
   `) as boolean;
   mini.todayMiniOpenDetail = mini.todayMiniOpenDetail && detailOpened;
+  recordSmoke("markdown-edit-complete");
+
+  window.show();
+  window.focus();
+  window.webContents.focus();
+  const settingsNavigation = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (finder, label, attempts = 50) => {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          const target = finder();
+          if (target) return target;
+          await delay(100);
+        }
+        throw new Error(label + " が見つかりません。画面: " + document.body.innerText.slice(0, 1000));
+      };
+      const activeCategory = (label) => [...document.querySelectorAll(".settings-category-nav button")]
+        .find((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === label);
+      const storageIsActive = () => window.location.hash === "#settings/storage" && Boolean(activeCategory("Storage & Files"));
+      window.location.hash = "settings/storage";
+      await waitFor(storageIsActive, "Settings Storage deep link");
+      const appearanceButton = [...document.querySelectorAll(".settings-category-nav button")]
+        .find((button) => button.querySelector("strong")?.textContent?.trim() === "Appearance");
+      if (!appearanceButton) throw new Error("Appearance category button が見つかりません。");
+      appearanceButton.focus();
+      return {
+        storageDeepLink: storageIsActive(),
+        categoryButtonFocused: document.activeElement === appearanceButton,
+      };
+    })()
+  `) as {
+    storageDeepLink: boolean;
+    categoryButtonFocused: boolean;
+  };
+  const nativeFocusBeforeKey = await window.webContents.executeJavaScript(`
+    (() => {
+      const target = [...document.querySelectorAll(".settings-category-nav button")]
+        .find((button) => button.querySelector("strong")?.textContent?.trim() === "Appearance");
+      window.__taskenSmokeInputTrusted = false;
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && event.isTrusted) window.__taskenSmokeInputTrusted = true;
+      });
+      target?.focus();
+      return { focused: document.activeElement === target };
+    })()
+  `) as {
+    focused: boolean;
+  };
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
+  window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
+  const settingsKeyboard = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const appearanceIsActive = () => window.location.hash === "#settings/appearance"
+        && Boolean([...document.querySelectorAll(".settings-category-nav button")]
+          .find((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === "Appearance"));
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (appearanceIsActive()) break;
+        await delay(100);
+      }
+      return {
+        appearanceIsActive: appearanceIsActive(),
+        inputTrusted: Boolean(window.__taskenSmokeInputTrusted),
+      };
+    })()
+  `) as {
+    appearanceIsActive: boolean;
+    inputTrusted: boolean;
+  };
+  const settingsHistory = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (finder, label, attempts = 50) => {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          const target = finder();
+          if (target) return target;
+          await delay(100);
+        }
+        throw new Error(label + " が見つかりません。画面: " + document.body.innerText.slice(0, 1000));
+      };
+      const storageIsActive = () => window.location.hash === "#settings/storage"
+        && Boolean([...document.querySelectorAll(".settings-category-nav button")]
+          .find((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === "Storage & Files"));
+      history.back();
+      await waitFor(storageIsActive, "Settings history.back Storage restore");
+      return { storageRestored: storageIsActive() };
+    })()
+  `) as { storageRestored: boolean };
+  recordSmoke("settings-complete");
+  const settingsStorageBeforeReload = settingsHistory.storageRestored;
 
   window.webContents.once("did-finish-load", async () => {
     try {
@@ -768,8 +869,19 @@ flowchart LR
           window.api.preferences.get("themeMode"),
           window.api.preferences.get("aiVisibilityDefault"),
           window.api.entities.list("task"),
-        ]).then(([notes, themeMode, aiVisibilityDefault, tasks]) => {
+        ]).then(async ([notes, themeMode, aiVisibilityDefault, tasks]) => {
           const markdown = notes.find((note) => note.title === ${JSON.stringify(markdownTitle)});
+          const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const settingsReloadRestored = await (async () => {
+            for (let attempt = 0; attempt < 50; attempt += 1) {
+              const restored = window.location.hash === "#settings/storage"
+                && [...document.querySelectorAll(".settings-category-nav button")]
+                  .some((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === "Storage & Files");
+              if (restored) return true;
+              await delay(100);
+            }
+            return false;
+          })();
           return ({
           persisted: notes.some((note) => note.title === ${JSON.stringify(testTitle)}),
           markdownPersisted: Boolean(markdown?.body_markdown?.includes("Markdown Preview")),
@@ -783,6 +895,7 @@ flowchart LR
           aiTaskMetadataPersisted: Boolean(
             tasks.find((task) => task.id === ${JSON.stringify(smokeTaskId)})?.ai_summary === "Todayミニの動作確認"
           ),
+          settingsReloadRestored,
         });
         })
       `) as SmokeReloadResult;
@@ -797,6 +910,13 @@ flowchart LR
         themeModeAfterReload: afterReload.themeMode,
         aiVisibilityDefaultAfterReload: afterReload.aiVisibilityDefault,
         aiMetadataPersistedAfterReload: afterReload.aiTaskMetadataPersisted,
+        settingsDeepLink: settingsNavigation.storageDeepLink,
+        settingsKeyboardFocus: settingsNavigation.categoryButtonFocused && nativeFocusBeforeKey.focused,
+        settingsKeyboardTransition: settingsKeyboard.appearanceIsActive,
+        settingsHistoryBackRestored: settingsHistory.storageRestored,
+        settingsReloadRestored: afterReload.settingsReloadRestored,
+        settingsKeyboardInputTrusted: settingsKeyboard.inputTrusted,
+        settingsStorageBeforeReload,
         ...mini,
       };
       console.log(JSON.stringify(result));
@@ -841,6 +961,13 @@ flowchart LR
         && result.aiVisibilityDefaultSaved === "coding_agent"
         && result.aiMetadataPersistedAfterReload
         && result.aiVisibilityDefaultAfterReload === "coding_agent"
+        && result.settingsDeepLink
+        && result.settingsKeyboardFocus
+        && result.settingsKeyboardInputTrusted
+        && result.settingsKeyboardTransition
+        && result.settingsHistoryBackRestored
+        && result.settingsStorageBeforeReload
+        && result.settingsReloadRestored
           ? 0
           : 1,
       );
@@ -850,6 +977,7 @@ flowchart LR
       app.exit(1);
     }
   });
+  recordSmoke("reload-start");
   window.reload();
 }
 
@@ -888,6 +1016,7 @@ function createWindow(): BrowserWindow {
     if (isSmokeTest) {
       runSmokeTest(window).catch((error: unknown) => {
         console.error(error);
+        recordSmoke("smoke-failed", { error: String(error) });
         app.exit(1);
       });
     }
