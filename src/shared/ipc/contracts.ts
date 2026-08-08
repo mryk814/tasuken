@@ -11,7 +11,17 @@ import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactPropo
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../slideTimelineExport";
-import type { AiNoteGenerateRequest, AiNoteGenerateResult, AiProviderConfig, AiProviderConfigUpdate } from "../ai";
+import type {
+  AiConnectionTestResult,
+  AiFeature,
+  AiFeatureAvailability,
+  AiModelProfileUpdate,
+  AiNoteGenerateRequest,
+  AiNoteGenerateResult,
+  AiProviderConfig,
+  AiProviderProfileUpdate,
+  AiTestConnectionRequest,
+} from "../ai";
 import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
@@ -86,7 +96,14 @@ export const IPC = {
   sketchExport: "sketch:export",
   slideTimelineExport: "slide-timeline:export",
   aiConfigGet: "ai:config-get",
-  aiConfigSave: "ai:config-save",
+  aiProviderSave: "ai:provider-save",
+  aiProviderDelete: "ai:provider-delete",
+  aiModelSave: "ai:model-save",
+  aiModelDelete: "ai:model-delete",
+  aiDefaultProvider: "ai:default-provider",
+  aiDefaultModel: "ai:default-model",
+  aiTestConnection: "ai:test-connection",
+  aiFeatureAvailability: "ai:feature-availability",
   aiNoteGenerate: "ai:note-generate",
   calendarStatus: "calendar:status",
   calendarConnect: "calendar:connect",
@@ -227,7 +244,14 @@ export interface ResearchDeskApi {
   };
   ai: {
     getConfig(): Promise<AiProviderConfig>;
-    saveConfig(update: AiProviderConfigUpdate): Promise<AiProviderConfig>;
+    saveProviderProfile(update: AiProviderProfileUpdate): Promise<AiProviderConfig>;
+    deleteProviderProfile(id: string): Promise<AiProviderConfig>;
+    saveModelProfile(update: AiModelProfileUpdate): Promise<AiProviderConfig>;
+    deleteModelProfile(id: string): Promise<AiProviderConfig>;
+    setDefaultProviderProfile(id: string): Promise<AiProviderConfig>;
+    setDefaultModelProfile(id: string): Promise<AiProviderConfig>;
+    testConnection(request: AiTestConnectionRequest): Promise<AiConnectionTestResult>;
+    featureAvailability(feature: AiFeature, providerProfileId?: string, modelProfileId?: string): Promise<AiFeatureAvailability>;
     generateNote(request: AiNoteGenerateRequest): Promise<AiNoteGenerateResult>;
   };
   clipboard: {
