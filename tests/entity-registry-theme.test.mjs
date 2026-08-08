@@ -7,6 +7,7 @@ import { Buffer } from "node:buffer";
 import {
   assertEntityPayload,
   collectionKeyForEntityType,
+  domainCollectionKeyForEntityType,
   entityDefinitions,
   entityTypes,
   themeFieldForEntityType,
@@ -39,6 +40,7 @@ test("Entity Registryは全typeのcollection/schema/Theme policyを一意に解�
     const definition = entityDefinitions.find((candidate) => candidate.type === type);
     assert.ok(definition, type);
     assert.equal(collectionKeyForEntityType(type), definition.collectionKey);
+    if (definition.domainCollectionKey) assert.equal(domainCollectionKeyForEntityType(type), definition.domainCollectionKey);
     assert.equal(typeof definition.label, "string");
     assert.equal(typeof definition.iconKey, "string");
     assert.ok(Array.isArray(definition.requiredFields));
@@ -53,6 +55,7 @@ test("Entity Registryは全typeのcollection/schema/Theme policyを一意に解�
   }
   assert.throws(() => assertEntityPayload("task", { entityType: "note" }), /一致しません/);
   assert.doesNotThrow(() => assertEntityPayload("field_value", { entity_type: "task" }));
+  assert.equal(domainCollectionKeyForEntityType("legacy-unknown"), null);
 });
 
 test("RegistryのcollectionKeyはcanonical WorkspaceDataの全collectionに実在する", async () => {

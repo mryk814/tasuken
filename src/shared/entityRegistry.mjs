@@ -8,7 +8,7 @@
 const definitions = [
   { type: "theme", collectionKey: "themes", label: "Theme", iconKey: "palette", projection: "legacy", themePolicy: "none", themeField: null, requiredFields: ["name"] },
   { type: "item", collectionKey: "items", label: "Item", iconKey: "check", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["title"] },
-  { type: "note", collectionKey: "notes", label: "Note", iconKey: "note", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
+  { type: "note", collectionKey: "notes", domainCollectionKey: "notes", label: "Note", iconKey: "note", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
   { type: "link", collectionKey: "links", label: "Link", iconKey: "link", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["title", "url"] },
   { type: "view", collectionKey: "views", label: "View", iconKey: "layout", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: [] },
   { type: "status_update", collectionKey: "status_updates", label: "Status update", iconKey: "message", projection: "legacy", themePolicy: "required", themeField: "theme_id", requiredFields: ["theme_id", "summary"] },
@@ -18,22 +18,22 @@ const definitions = [
   { type: "field_value", collectionKey: "field_values", label: "Field value", iconKey: "forms", projection: "legacy", themePolicy: "none", themeField: null, requiredFields: ["field_definition_id", "entity_type", "entity_id"] },
   { type: "log_entry", collectionKey: "log_entries", label: "Log entry", iconKey: "history", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: [] },
   { type: "import_batch", collectionKey: "import_batchs", label: "Import batch", iconKey: "upload", projection: "legacy", themePolicy: "none", themeField: null, requiredFields: [] },
-  { type: "knowledge_node", collectionKey: "knowledge_nodes", label: "Knowledge node", iconKey: "bulb", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["node_type", "title"] },
+  { type: "knowledge_node", collectionKey: "knowledge_nodes", domainCollectionKey: "knowledge_nodes", label: "Knowledge node", iconKey: "bulb", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["node_type", "title"] },
   { type: "ai_proposal", collectionKey: "ai_proposals", label: "AI proposal", iconKey: "sparkles", projection: "legacy", themePolicy: "none", themeField: null, requiredFields: ["source", "payload_type", "status"] },
-  { type: "resource", collectionKey: "resources", label: "Resource", iconKey: "folder", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
-  { type: "project", collectionKey: "projects", label: "Theme", iconKey: "palette", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["name", "state"] },
-  { type: "capture_entry", collectionKey: "capture_entrys", label: "Capture", iconKey: "inbox", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["text", "captured_at", "state"] },
-  { type: "task", collectionKey: "tasks", label: "Task", iconKey: "check", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "state"] },
-  { type: "waiting", collectionKey: "waitings", label: "Waiting", iconKey: "clock", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "waiting_for", "state"] },
-  { type: "plan_node", collectionKey: "plan_nodes", label: "Plan node", iconKey: "route", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "type", "state"] },
-  { type: "schedule", collectionKey: "schedules", label: "Schedule", iconKey: "calendar", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["owner_type", "owner_id", "date_kind", "confidence", "granularity"] },
-  { type: "reference", collectionKey: "references", label: "Reference", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["source_type", "source_id", "target_type", "target_id", "relation_type"] },
-  { type: "task_dependency", collectionKey: "task_dependencies", label: "Task dependency", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["task_id", "depends_on_task_id"] },
-  { type: "plan_dependency", collectionKey: "plan_dependencies", label: "Plan dependency", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["plan_node_id", "depends_on_plan_node_id"] },
-  { type: "knowledge_edge", collectionKey: "knowledge_edges", label: "Knowledge edge", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["source_node_id", "target_node_id", "relation_type"] },
-  { type: "change_event", collectionKey: "change_events", label: "Change event", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["entity_type", "entity_id", "changed_at", "change_type", "source"] },
+  { type: "resource", collectionKey: "resources", domainCollectionKey: "resources", label: "Resource", iconKey: "folder", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
+  { type: "project", collectionKey: "projects", domainCollectionKey: "projects", label: "Theme", iconKey: "palette", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["name", "state"] },
+  { type: "capture_entry", collectionKey: "capture_entrys", domainCollectionKey: "capture_entries", label: "Capture", iconKey: "inbox", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["text", "captured_at", "state"] },
+  { type: "task", collectionKey: "tasks", domainCollectionKey: "tasks", label: "Task", iconKey: "check", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "state"] },
+  { type: "waiting", collectionKey: "waitings", domainCollectionKey: "waitings", label: "Waiting", iconKey: "clock", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "waiting_for", "state"] },
+  { type: "plan_node", collectionKey: "plan_nodes", domainCollectionKey: "plan_nodes", label: "Plan node", iconKey: "route", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "type", "state"] },
+  { type: "schedule", collectionKey: "schedules", domainCollectionKey: "schedules", label: "Schedule", iconKey: "calendar", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["owner_type", "owner_id", "date_kind", "confidence", "granularity"] },
+  { type: "reference", collectionKey: "references", domainCollectionKey: "references", label: "Reference", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["source_type", "source_id", "target_type", "target_id", "relation_type"] },
+  { type: "task_dependency", collectionKey: "task_dependencies", domainCollectionKey: "task_dependencies", label: "Task dependency", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["task_id", "depends_on_task_id"] },
+  { type: "plan_dependency", collectionKey: "plan_dependencies", domainCollectionKey: "plan_dependencies", label: "Plan dependency", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["plan_node_id", "depends_on_plan_node_id"] },
+  { type: "knowledge_edge", collectionKey: "knowledge_edges", domainCollectionKey: "knowledge_edges", label: "Knowledge edge", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["source_node_id", "target_node_id", "relation_type"] },
+  { type: "change_event", collectionKey: "change_events", domainCollectionKey: "change_events", label: "Change event", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["entity_type", "entity_id", "changed_at", "change_type", "source"] },
   { type: "artifact", collectionKey: "artifacts", label: "Artifact", iconKey: "file", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["title", "filename", "source_type", "source_id"] },
-  { type: "sketch", collectionKey: "sketches", label: "Sketch", iconKey: "pencil", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
+  { type: "sketch", collectionKey: "sketches", domainCollectionKey: "sketches", label: "Sketch", iconKey: "pencil", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
 ];
 
 function parseCreatePayload(type, payload) {
@@ -48,6 +48,7 @@ export const entityDefinitions = Object.freeze(definitions.map((definition) => O
   ...definition,
   requiredFields: Object.freeze([...definition.requiredFields]),
   legacyThemeFields: Object.freeze([...(definition.legacyThemeFields || [])]),
+  domainCollectionKey: definition.domainCollectionKey || null,
   payloadKind: "record",
   parseCreate: (payload) => parseCreatePayload(definition.type, payload),
   parseUpdate: (payload) => parseUpdatePayload(definition.type, payload),
@@ -81,6 +82,10 @@ export function entityDefinitionForCollection(collectionKey) {
 
 export function collectionKeyForEntityType(type) {
   return entityDefinition(type).collectionKey;
+}
+
+export function domainCollectionKeyForEntityType(type) {
+  return definitionsByType.get(type)?.domainCollectionKey || null;
 }
 
 export function requiredFieldsForEntityType(type) {

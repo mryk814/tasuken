@@ -25,6 +25,29 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; min-height: 0; margin: 0; overflow: hidden; }
 :root {
+  /* App-specific aliases are declared at the global boundary so every CSS surface resolves to a canonical token. */
+  --color-accent-bd: var(--color-accent-subtle-bd);
+  --color-accent-bg: var(--color-accent-subtle-bg);
+  --color-focus: var(--color-accent);
+  --color-focus-ring: var(--color-accent);
+  --color-on-accent-border: var(--color-on-accent);
+  --color-surface-raised: var(--color-surface);
+  --color-text-primary: var(--color-text);
+  --color-text-muted: var(--color-text-secondary);
+  --font-family: var(--font-base);
+  --font-sans: var(--font-base);
+  --font-size-xs: var(--text-xs);
+  --font-size-sm: var(--text-sm);
+  --font-size-md: var(--text-base);
+  --font-size-lg: var(--text-lg);
+  --text-md: var(--text-base);
+  --weight-regular: var(--weight-normal);
+  --weight-semibold: var(--weight-medium);
+  --lh-normal: var(--lh-base);
+  --lh-snug: var(--lh-tight);
+  --lh-relaxed: 1.7;
+  --shadow-elevated: var(--shadow-lg);
+  --space-half: 2px;
   --color-theme-extra-1: color-mix(in srgb, var(--color-chart-1) 70%, var(--color-chart-2));
   --color-theme-extra-2: color-mix(in srgb, var(--color-chart-2) 70%, var(--color-chart-3));
   --color-theme-extra-3: color-mix(in srgb, var(--color-chart-3) 70%, var(--color-chart-4));
@@ -252,28 +275,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .metric-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .metric-card.danger { border-color: var(--color-danger-bd); background: var(--color-danger-bg); }
 
-.mini-timeline { margin-bottom: var(--space-2); overflow: hidden; }
-.mini-gantt-grid { position: relative; display: grid; grid-template-columns: 106px repeat(4, 1fr); grid-template-rows: 28px repeat(4, 36px); overflow-x: auto; }
-.gantt-corner, .month-head, .lane-label { border-right: 1px solid var(--color-border-subtle); border-bottom: 1px solid var(--color-border-subtle); }
-.month-head { display: grid; place-items: center; color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
-.lane-label { display: flex; align-items: center; padding-left: var(--space-3); color: var(--color-text-secondary); font-size: var(--text-xs); }
-.mini-track { position: relative; grid-column: 2 / -1; border-bottom: 1px solid var(--color-border-subtle); }
-.grid-lines { position: absolute; inset: 0; pointer-events: none; }
-.grid-lines i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--color-border-subtle); }
-.bar, .waiting-track span { position: absolute; left: calc(var(--start) * 1%); top: 7px; width: calc(var(--span) * 1%); height: 26px; display: grid; place-items: center; overflow: hidden; border: 1px solid; border-radius: var(--radius-sm); font-size: var(--text-xs); white-space: nowrap; }
-/* 工程バーのトーン = カテゴリ識別色（chart-1..6）。状態色ではないので意味は持たない。テキストで識別する。 */
-.bar.accent,  .phase-bar.accent  { color: var(--color-text); border-color: color-mix(in srgb, var(--color-chart-1) 48%, var(--color-surface)); background: color-mix(in srgb, var(--color-chart-1) 16%, var(--color-surface)); }
-.bar.blue,    .phase-bar.blue    { color: var(--color-text); border-color: color-mix(in srgb, var(--color-chart-2) 48%, var(--color-surface)); background: color-mix(in srgb, var(--color-chart-2) 16%, var(--color-surface)); }
-.bar.green,   .phase-bar.green   { color: var(--color-text); border-color: color-mix(in srgb, var(--color-chart-3) 48%, var(--color-surface)); background: color-mix(in srgb, var(--color-chart-3) 16%, var(--color-surface)); }
-.bar.amber,   .phase-bar.amber   { color: var(--color-text); border-color: color-mix(in srgb, var(--color-chart-4) 48%, var(--color-surface)); background: color-mix(in srgb, var(--color-chart-4) 16%, var(--color-surface)); }
-.bar.rose,    .phase-bar.rose    { color: var(--color-text); border-color: color-mix(in srgb, var(--color-chart-5) 48%, var(--color-surface)); background: color-mix(in srgb, var(--color-chart-5) 16%, var(--color-surface)); }
-.bar.neutral, .phase-bar.neutral { color: var(--color-text); border-color: var(--color-border); background: var(--color-surface-muted); }
-.baseline { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); align-items: center; padding: 0 var(--space-2); }
-.baseline span, .baseline-bar { height: 12px; border: 1px dashed var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface-muted); opacity: .75; }
-.milestones span { position: absolute; left: calc(var(--at) * 1%); top: 3px; color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); line-height: var(--lh-tight); white-space: nowrap; transform: translateX(-50%); text-align: center; }
-.waiting-track span { color: var(--color-warning-strong); border-color: var(--color-warning-bd); background: var(--color-warning-bg); }
-.today-line, .full-today { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--color-accent); pointer-events: none; }
-.today-line span, .full-today span { position: absolute; top: 0; left: 50%; padding: 1px var(--space-1); transform: translate(-50%, -100%); border-radius: var(--radius-sm); background: var(--color-accent); color: var(--color-on-accent); font-size: var(--text-xs); white-space: nowrap; }
 
 .dashboard-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: var(--space-2); margin-bottom: var(--space-2); }
 .hub-tabs { display: flex; gap: var(--space-1); margin-bottom: var(--space-2); padding: 2px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface-subtle); }
@@ -568,14 +569,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .full-lane:last-child { border-bottom: 0; }
 .lane-name { display: flex; align-items: center; padding-left: var(--space-3); color: var(--color-text-secondary); font-size: var(--text-xs); border-right: 1px solid var(--color-border-subtle); }
 .full-track { position: relative; }
-.phase-bar, .wait-bar { position: absolute; top: 9px; height: 30px; overflow: hidden; padding: 0 var(--space-2); border: 1px solid; border-radius: var(--radius-sm); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
-.phase-bar:hover, .wait-bar:hover { filter: brightness(.96); }
-.baseline-bar { position: absolute; left: 2%; right: 2%; top: 17px; }
-.milestone-mark { position: absolute; top: 3px; width: 80px; height: 42px; display: flex; flex-direction: column; align-items: center; transform: translateX(-50%); border: 0; background: transparent; color: var(--color-accent-strong); font-size: var(--text-xs); }
-.milestone-mark small { max-width: 80px; overflow: hidden; color: var(--color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
-.wait-bar { color: var(--color-warning-strong); border-color: var(--color-warning-bd); background: var(--color-warning-bg); }
-.full-today { top: 40px; bottom: 0; z-index: 2; }
-.full-today span { top: 0; transform: translate(-50%, 0); }
 
 .list-page { overflow: hidden; }
 .wide-row, .waiting-row { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--pad-card); border: 0; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface); text-align: left; }
@@ -3791,7 +3784,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .milestone-row > :nth-child(3), .milestone-row > :nth-child(4) { grid-column: 2; }
   .list-toolbar { align-items: stretch; flex-direction: column; }
   .summary-card { min-height: 104px; }
-  .mini-gantt-grid { min-width: 760px; }
   .timeline-toolbar { align-items: stretch; flex-direction: column; }
   .timeline-quick-add { grid-template-columns: 1fr; }
   .segmented { width: 100%; }

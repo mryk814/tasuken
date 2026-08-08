@@ -1,36 +1,14 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { scanSource, scanTokenUsage } from "./audit-rules.mjs";
+import { declaredTokensFromSource, scanSource, scanTokenUsage } from "./audit-rules.mjs";
 
 const root = process.cwd();
 const schemaVersion = 1;
 const strict = process.argv.includes("--strict");
 const sourceRoots = ["src", "scripts", "tests"];
 const sourceExtensions = new Set([".css", ".html", ".js", ".mjs", ".ts", ".tsx"]);
-const allowlist = {
-  "raw-auxiliary-ipc": {
-    "src/preload/capture.ts": "Capture satellite uses its stable legacy channel until Application Command (#336) lands.",
-    "src/preload/memoSticky.ts": "Memo sticky window channel is an existing satellite boundary; migration is tracked with #336.",
-    "src/preload/todayMini.ts": "Today mini window channel is an existing satellite boundary; migration is tracked with #336.",
-  },
-  "legacy-theme-field": {
-    "src/main/repositories/workspaceRepository.mjs": "Repository is the explicit legacy-read and canonical-write boundary.",
-    "src/shared/entityRegistry.mjs": "Registry declares legacy fields for migration and raw-record validation.",
-    "src/shared/themeRef.mjs": "ThemeRef resolves legacy theme_id only at the declared boundary.",
-  },
-  "entity-registry-external-mapping": {
-    "src/renderer/src/features/workspace/lib/slideTimeline.ts": "Specialized Timeline projection still uses a validated collection projection; migrate only when its canonical data contract changes.",
-  },
-  "application-command-write": {
-    "src/main/ipc/registerIpc.ts": "Current IPC write boundary predates #336 Application Command; keep report-only until #336 is merged.",
-    "src/main/repositories/workspaceRepository.mjs": "Repository is the single persistence boundary; command parity is pending #336.",
-  },
-  "raw-danger-or-ai-icon": {
-    "src/renderer/src/pages/semanticActions.ts": "Semantic ActionDefinition is the canonical icon/role registry.",
-    "src/renderer/src/pages/routes.ts": "RouteDefinition owns the AI Inbox route icon.",
-  },
-};
+const allowlist = {};
 
 function filesUnder(relativeRoot) {
   const absoluteRoot = path.join(root, relativeRoot);
@@ -85,8 +63,8 @@ const cssFiles = [...contents.keys()].filter((file) => file.endsWith(".css") || 
 const declaredTokens = new Set();
 const designTokens = readFileSync(path.join(root, "design-standard/tokens.css"), "utf8");
 for (const match of designTokens.matchAll(/--([a-z0-9-]+)\s*:/gi)) declaredTokens.add(match[1]);
-for (const file of cssFiles) {
-  for (const match of contents.get(file).matchAll(/--([a-z0-9-]+)\s*:/gi)) declaredTokens.add(match[1]);
+for (const file of files) {
+  for (const token of declaredTokensFromSource(contents.get(file))) declaredTokens.add(token);
 }
 for (const file of cssFiles) {
   const source = contents.get(file);

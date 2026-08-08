@@ -31,7 +31,10 @@ import { IPC, type SatelliteWindowStatePayload } from "../shared/ipc/contracts";
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
-const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json");
+const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
+const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
+const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
+const smokeResultPath = path.resolve(smokeResultArgument?.slice("--smoke-result-path=".length) || path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`));
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
@@ -284,6 +287,7 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
   lastSmokeStage = stage;
   smokeTrace.push(stage);
   if (smokeTrace.length > 40) smokeTrace.shift();
+  fs.mkdirSync(path.dirname(smokeResultPath), { recursive: true });
   fs.writeFileSync(smokeResultPath, JSON.stringify({ stage, argv: process.argv, ...details }, null, 2));
 }
 
@@ -301,8 +305,7 @@ app.disableHardwareAcceleration();
   if (requestedUserDataPath) {
     app.setPath("userData", path.resolve(requestedUserDataPath));
   } else if (isSmokeTest) {
-    const smokeUserDataPath = path.join(app.getPath("temp"), "research-desk-smoke-test");
-    fs.rmSync(smokeUserDataPath, { recursive: true, force: true });
+    const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
     app.setPath("userData", smokeUserDataPath);
     recordSmoke("main-started");
     setTimeout(() => {

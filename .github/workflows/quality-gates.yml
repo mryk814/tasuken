@@ -82,7 +82,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm.cmd ci
-      - run: npm.cmd run audit:consistency
+      - run: npm.cmd run audit:consistency -- --strict --format=json
       - run: npm.cmd run audit:scripts
 
   build-windows:
