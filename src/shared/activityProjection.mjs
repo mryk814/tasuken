@@ -157,7 +157,11 @@ function publicCanonicalRefs(refs, roots) {
     .filter(Boolean)
     .map((ref) => {
       const resolved = resolveCanonicalRef(ref, roots);
-      return { ...ref, status: resolved.status };
+      return {
+        ...ref,
+        status: resolved.status,
+        ...(resolved.local_status ? { local_status: resolved.local_status } : {}),
+      };
     });
 }
 

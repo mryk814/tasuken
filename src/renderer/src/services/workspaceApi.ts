@@ -26,6 +26,12 @@ export const workspaceApi = {
     // 初回起動でもダミーデータは入れない。空のWorkspaceで開始する。
     return desktopApi().workspace.load();
   },
+  getActivityCanonicalRootStatus() {
+    return desktopApi().activity.getCanonicalRootStatus();
+  },
+  openActivityCanonicalRef(ref: Record<string, unknown>) {
+    return desktopApi().activity.openCanonicalRef(ref);
+  },
   // 明示的にサンプルデータを投入する（Settingsの操作からのみ呼ぶ）。
   // Repository側のbootstrapはDBが空のときだけ登録し、データがあれば現状をそのまま返す。
   loadSample(): Promise<Workspace> {

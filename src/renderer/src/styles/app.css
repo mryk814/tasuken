@@ -3850,11 +3850,13 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .activity-summary-group li::before { content: "·"; margin-right: var(--space-1); color: var(--color-accent); }
 .activity-summary-group .activity-more { color: var(--color-text-secondary); }
 .activity-event-list { display: grid; gap: 0; margin: 0; padding: 0 var(--pad-card); list-style: none; overflow-x: auto; }
-.activity-event-row { display: grid; grid-template-columns: 3.25rem minmax(8rem, max-content) minmax(10rem, 1fr) minmax(9rem, max-content) minmax(0, 1.2fr); align-items: center; gap: var(--space-2); min-width: 38rem; padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border-subtle); font-size: var(--text-xs); }
+.activity-event-row { display: grid; grid-template-columns: 3.25rem minmax(8rem, max-content) minmax(10rem, 1fr) minmax(9rem, max-content) minmax(12rem, 1.2fr) max-content max-content; align-items: center; gap: var(--space-2); min-width: 52rem; padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border-subtle); font-size: var(--text-xs); }
 .activity-event-row time, .activity-event-row code { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
 .activity-event-kind { color: var(--color-text-secondary); font-family: var(--font-mono); }
 .activity-event-title { min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .activity-event-canonical { min-width: 0; overflow: hidden; color: var(--color-text-tertiary); text-overflow: ellipsis; white-space: nowrap; }
+.activity-event-open { white-space: nowrap; }
+.activity-event-state { color: var(--color-text-tertiary); white-space: nowrap; }
 .activity-event-row:focus-within { background: var(--color-surface-muted); }
 .activity-auto-export { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--pad-card) 0; border-top: 1px solid var(--color-border-subtle); }
 .activity-auto-export label { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs); }

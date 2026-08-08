@@ -3,6 +3,7 @@ import type { WorkspaceDomain } from "../domain-model/types";
 import { compareCapturesNewestFirst } from "../domain-model/selectors";
 import { PERSONAL_DEFAULT_THEME_ID, resolveThemeRef, themeRefFromId } from "../../../../../shared/themeRef.mjs";
 import { projectActivityMarkdown, queryActivityEvents } from "../../../../../shared/activityProjection.mjs";
+import type { CanonicalRootStatusMap } from "../../../../../shared/types/workspace";
 
 export interface ActivityLogInput {
   date: string;
@@ -13,6 +14,7 @@ export interface ActivityLogInput {
   changeEvents?: Array<Record<string, unknown>>;
   references?: Array<Record<string, unknown>>;
   artifacts?: Array<Record<string, unknown>>;
+  roots?: CanonicalRootStatusMap;
   timezone?: string;
 }
 
@@ -122,8 +124,9 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
         knowledge_nodes: domain.knowledge_nodes,
         capture_entrys: domain.capture_entries,
         references: input.references || [],
-        artifacts: input.artifacts || [],
-        status_updates: statusUpdates,
+      artifacts: input.artifacts || [],
+      roots: input.roots || {},
+      status_updates: statusUpdates,
       },
       themes: input.themes,
       date,
@@ -198,6 +201,7 @@ export function buildActivityLog(input: ActivityLogInput): string {
         capture_entrys: input.domain.capture_entries,
         references: input.references || [],
         artifacts: input.artifacts || [],
+        roots: input.roots || {},
         status_updates: input.statusUpdates,
       },
       themes: input.themes,

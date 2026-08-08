@@ -58,8 +58,13 @@ Application Command は command retry の idempotency を保ちつつ、
 Canonical ref は storage_root_id + relative_path を優先し、
 web_url は任意です。root の実パスは resolver の内部だけで使い、
 MCP やその他の AI projection に絶対パスを返しません。
-root が変更されたときは root ID の resolver を更新し、
-壊れた参照は status: "broken" として残します。
+既存の `workspace_meta.artifact_directory` は `sync`（および互換別名）へ、
+Theme の `storage_root` は Theme ID／`theme:<id>` へ typed resolver で束ねます。
+root が変更されても event の identity は書き換えず、現在の設定で再解決します。
+Today の開く操作だけが Main の安全境界を通り、壊れた参照は status: "broken" として
+非活性表示します。local root が未設定・不存在でも有効な https `web_url` があれば
+それを開き、`local_status: "broken"` を併記します。traversal や symlink で root 外へ
+出る参照は拒否します。Renderer／MCPへ返す root 情報は `ok`／`broken` の状態だけです。
 
 #294 の visibility / authority / freshness は projection 時点で評価します。
 local_only は M365 projection に含めず、除外件数と理由だけを返します。

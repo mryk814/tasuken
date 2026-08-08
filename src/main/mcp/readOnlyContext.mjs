@@ -13,6 +13,7 @@ import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../shared/k
 import { collectionKeyForEntityType, entityTypes } from "../../shared/entityRegistry.mjs";
 import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../shared/contextGraph.mjs";
 import { projectActivityJson, projectActivityMarkdown, queryActivityEvents } from "../../shared/activityProjection.mjs";
+import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -201,7 +202,21 @@ export class ReadOnlyTaskenContext {
   loadWorkspace(includeArchived = false) {
     const workspace = {};
     for (const type of ENTITY_TYPES) workspace[collectionKeyForEntityType(type)] = this.list(type, includeArchived);
+    workspace.canonical_root_status = this.canonicalRootStatus();
     return workspace;
+  }
+
+  canonicalRootStatus() {
+    if (this.workspace?.canonical_root_status) return this.workspace.canonical_root_status;
+    let artifactDirectory = "";
+    if (this.db) {
+      artifactDirectory = this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'artifact_directory'").get()?.value || "";
+    }
+    const registry = buildActivityRootRegistry({
+      artifactDirectory,
+      themes: this.list("theme", true),
+    });
+    return publicActivityRootStatus(registry, (root) => fs.existsSync(root));
   }
 
   mergedItems(includeArchived = false) {
@@ -493,6 +508,7 @@ export class ReadOnlyTaskenContext {
       timezone: args.timezone || "Asia/Tokyo",
       audience: this.audience,
       workspaceDefault: this.workspaceVisibilityDefault(),
+      roots: workspace.canonical_root_status,
       limit: args.limit,
     });
     const format = args.format === "markdown" ? "markdown" : "json";

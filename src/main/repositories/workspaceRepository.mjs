@@ -23,6 +23,7 @@ import {
   themeFieldForEntityType,
 } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent, migrateChangeEvent, normalizeActivityEvent, activityEventDedupeKey } from "../../shared/activityEvent.mjs";
+import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
 
 const SCHEMA_VERSION = 3;
 
@@ -423,7 +424,19 @@ export class WorkspaceDatabase {
       next: JSON.parse(row.new_json),
     }));
     result.meta = this.getMeta();
+    result.canonical_root_status = this.getActivityCanonicalRootStatus();
     return result;
+  }
+
+  getActivityCanonicalRootPaths() {
+    return buildActivityRootRegistry({
+      artifactDirectory: this.getPreference("artifactDirectory"),
+      themes: this.list("theme", true),
+    });
+  }
+
+  getActivityCanonicalRootStatus() {
+    return publicActivityRootStatus(this.getActivityCanonicalRootPaths(), (root) => fs.existsSync(root));
   }
 
   get(type, id, includeDeleted = false) {

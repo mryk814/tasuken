@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { Buffer } from "node:buffer";
 import { build } from "esbuild";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,8 @@ import {
   projectActivityMarkdown,
   queryActivityEvents,
 } from "../src/shared/activityProjection.mjs";
+import { buildActivityRootRegistry, publicActivityRootStatus } from "../src/shared/activityRootRegistry.mjs";
+import { resolveActivityCanonicalLocalPath } from "../src/main/services/activityCanonicalResolver.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 async function importBundled(relativePath) {
@@ -233,6 +235,107 @@ test("canonical refs are root-relative, private absolute paths stay out, and pol
   });
   assert.equal(coding.events[0].source_refs.some((ref) => ref.absolute_path), false);
   assert.equal(JSON.stringify(coding).includes("C:\\\\Users\\\\private"), false);
+});
+
+test("canonical root identity survives root changes and public status never exposes paths", () => {
+  const ref = { kind: "canonical_document", storage_root_id: "sync", relative_path: "Notes/measure.md" };
+  const oldRegistry = buildActivityRootRegistry({ artifactDirectory: "C:/tasken-old" });
+  const newRegistry = buildActivityRootRegistry({ artifactDirectory: "D:/tasken-new" });
+  const oldResolved = queryActivityEvents({
+    events: [buildActivityEvent({ id: "root-change-event", entityType: "note", entityId: "note-root", changeType: "created", after: { id: "note-root", title: "root" }, canonical_refs: [ref] })],
+    workspace: { notes: [{ id: "note-root", title: "root" }] },
+    roots: oldRegistry,
+  });
+  const newResolved = queryActivityEvents({
+    events: [buildActivityEvent({ id: "root-change-event", entityType: "note", entityId: "note-root", changeType: "created", after: { id: "note-root", title: "root" }, canonical_refs: [ref] })],
+    workspace: { notes: [{ id: "note-root", title: "root" }] },
+    roots: newRegistry,
+  });
+  assert.equal(oldResolved.events[0].id, newResolved.events[0].id);
+  assert.equal(oldResolved.events[0].canonical_refs[0].status, "ok");
+  assert.equal(newResolved.events[0].canonical_refs[0].status, "ok");
+  const publicStatus = publicActivityRootStatus(newRegistry, () => true);
+  assert.deepEqual(publicStatus.sync, { status: "ok" });
+  assert.equal(JSON.stringify(publicStatus).includes("tasken-new"), false);
+  const broken = queryActivityEvents({
+    events: [buildActivityEvent({ id: "root-change-event", entityType: "note", entityId: "note-root", changeType: "created", after: { id: "note-root", title: "root" }, canonical_refs: [ref] })],
+    workspace: { notes: [{ id: "note-root", title: "root" }] },
+    roots: { sync: { status: "broken" } },
+  });
+  assert.equal(broken.events[0].canonical_refs[0].status, "broken");
+});
+
+test("canonical web URL remains openable when local root is missing, while invalid local paths stay blocked", async () => {
+  const webRef = {
+    kind: "canonical_document",
+    storage_root_id: "sync",
+    relative_path: "Notes/missing.md",
+    web_url: "https://example.com/canonical/missing",
+  };
+  const webProjection = queryActivityEvents({
+    events: [buildActivityEvent({ id: "web-fallback-event", entityType: "note", entityId: "note-web", changeType: "created", after: { id: "note-web", title: "web", canonical_refs: [webRef] } })],
+    workspace: { notes: [{ id: "note-web", title: "web" }] },
+    roots: { sync: { status: "broken" } },
+  });
+  assert.deepEqual(webProjection.events[0].canonical_refs[0], { ...webRef, status: "ok", local_status: "broken" });
+  assert.equal(resolveActivityCanonicalLocalPath(webRef, {}).status, "missing");
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), "tasken-activity-boundary-"));
+  const root = path.join(directory, "root");
+  const outside = path.join(directory, "outside");
+  await mkdir(root);
+  await mkdir(outside);
+  const outsideFile = path.join(outside, "secret.md");
+  await writeFile(outsideFile, "private");
+  const traversal = resolveActivityCanonicalLocalPath({ ...webRef, web_url: "", relative_path: "../outside/secret.md" }, { sync: root });
+  assert.equal(traversal.status, "missing");
+  const link = path.join(root, "link");
+  try {
+    await symlink(outside, link, "junction");
+    const symlinkEscape = resolveActivityCanonicalLocalPath({ ...webRef, web_url: "", relative_path: "link/secret.md" }, { sync: root });
+    assert.equal(symlinkEscape.status, "outside_root");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("workspace root resolver follows artifactDirectory changes without rewriting stored events", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "tasken-activity-root-"));
+  const firstRoot = path.join(directory, "first");
+  const secondRoot = path.join(directory, "second");
+  await mkdir(firstRoot);
+  await mkdir(secondRoot);
+  const repository = new WorkspaceDatabase(path.join(directory, "roots.sqlite"));
+  repository.setPreference("artifactDirectory", firstRoot);
+  const event = buildActivityEvent({
+    id: "root-resolver-event",
+    entityType: "note",
+    entityId: "note-root-resolver",
+    changeType: "created",
+    after: {
+      id: "note-root-resolver",
+      title: "root resolver",
+      canonical_refs: [{ kind: "canonical_document", storage_root_id: "sync", relative_path: "Notes/root.md" }],
+    },
+  });
+  repository.save("change_event", event);
+  const storedBefore = repository.get("change_event", event.id, true);
+  assert.equal(repository.getActivityCanonicalRootStatus().sync.status, "ok");
+  repository.setPreference("artifactDirectory", secondRoot);
+  assert.equal(repository.getActivityCanonicalRootStatus().sync.status, "ok");
+  assert.deepEqual(repository.get("change_event", event.id, true), storedBefore);
+  repository.db.close();
+  await rm(directory, { recursive: true, force: true });
+});
+
+test("Today Activity uses the safe canonical open boundary and never creates a fake drawer entity", async () => {
+  const source = await readFile("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+  assert.match(source, /ThemePickerSelect/);
+  assert.match(source, /openActivityCanonicalRef/);
+  assert.match(source, /disabled=\{canonicalBroken/);
+  assert.match(source, /data\.canonical_root_status/);
+  assert.match(source, /現在のEntityがないため、履歴のみ表示しています/);
+  assert.doesNotMatch(source, /\{ id: ref\.id, title \}/);
 });
 
 test("JSON and Markdown Activity projections share the same event query and timezone", () => {

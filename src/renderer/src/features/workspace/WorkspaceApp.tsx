@@ -78,6 +78,7 @@ function projectWorkspace(workspace: Record<string, unknown> | null): WorkspaceD
     if (Array.isArray(value)) (result[key] as BaseRecord[]) = activeRecords(value as BaseRecord[]);
   }
   result.meta = (workspace.meta as WorkspaceData["meta"]) || undefined;
+  result.canonical_root_status = workspace.canonical_root_status as WorkspaceData["canonical_root_status"];
   return result;
 }
 
@@ -440,6 +441,7 @@ export function WorkspaceApp() {
                 changeEvents: fullDomain.change_events as unknown as Array<Record<string, unknown>>,
                 references: fullDomain.references as unknown as Array<Record<string, unknown>>,
                 artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
+                roots: fullData.canonical_root_status,
                 timezone: "Asia/Tokyo",
               }),
               directory: activeDirectory,

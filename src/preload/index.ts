@@ -10,6 +10,10 @@ const api: ResearchDeskApi = {
     bootstrap: (legacy) => ipcRenderer.invoke(IPC.workspaceBootstrap, legacy),
     getMeta: () => ipcRenderer.invoke(IPC.workspaceMeta),
   },
+  activity: {
+    getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
+    openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),
+  },
   preferences: {
     get: (key) => ipcRenderer.invoke(IPC.preferenceGet, key),
     set: (key, value) => ipcRenderer.invoke(IPC.preferenceSet, key, value),

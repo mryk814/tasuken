@@ -7,6 +7,7 @@ import type {
   Workspace,
   WorkspaceMeta,
 } from "../types/workspace";
+import type { CanonicalRootStatusMap } from "../types/workspace";
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
@@ -20,6 +21,8 @@ export const IPC = {
   workspaceLoad: "workspace:load",
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
+  activityCanonicalRootStatus: "activity:canonical-root-status",
+  activityOpenCanonicalRef: "activity:open-canonical-ref",
   preferenceGet: "preference:get",
   preferenceSet: "preference:set",
   viewPreferenceGet: "view-preference:get",
@@ -117,6 +120,7 @@ export interface WorkspaceChangePayload {
   type?: EntityType;
   entity?: Entity;
   entities?: Array<{ type: EntityType; entity: Entity }>;
+  canonical_root_status?: CanonicalRootStatusMap;
 }
 
 export interface ViewPreferenceEnvelope {
@@ -217,6 +221,10 @@ export interface ResearchDeskApi {
     load(): Promise<Workspace>;
     bootstrap(legacy: Workspace): Promise<Workspace>;
     getMeta(): Promise<WorkspaceMeta>;
+  };
+  activity: {
+    getCanonicalRootStatus(): Promise<CanonicalRootStatusMap>;
+    openCanonicalRef(ref: Record<string, unknown>): Promise<{ ok: boolean; error?: string }>;
   };
   preferences: {
     get(key: string): Promise<unknown>;

@@ -113,6 +113,7 @@ test("read-only MCP Activity uses the shared structured projection", () => {
   const context = new ReadOnlyTaskenContext("in-memory.sqlite", {
     workspace: {
       themes: [{ id: "theme-activity", name: "Activity Theme" }],
+      canonical_root_status: { sync: { status: "ok" } },
       notes: [{ id: "note-activity", title: "Activity note", theme_id: "theme-activity" }],
       change_events: [buildActivityEvent({
         id: "activity-mcp-1",
@@ -132,6 +133,8 @@ test("read-only MCP Activity uses the shared structured projection", () => {
     assert.match(markdown.activity, /note_created/);
     assert.match(markdown.activity, /note-activity/);
     assert.equal(markdown.read_only, true);
+    assert.equal(JSON.stringify(json).includes("canonical_root_status"), false);
+    assert.equal(JSON.stringify(json).includes("C:\\"), false);
   } finally {
     context.close();
   }

@@ -392,7 +392,29 @@ export function resolveCanonicalRef(ref, roots = {}) {
   if (!normalized.storage_root_id || !normalized.relative_path) {
     return { status: normalized.web_url ? "ok" : "broken", ref: normalized, path: normalized.web_url || null };
   }
-  const root = roots[normalized.storage_root_id] || (roots instanceof Map ? roots.get(normalized.storage_root_id) : "");
-  if (!root) return { status: "broken", ref: normalized, path: null };
-  return { status: "ok", ref: normalized, path: `${String(root).replace(/[\\/]$/, "")}/${normalized.relative_path}` };
+  const root = roots instanceof Map ? roots.get(normalized.storage_root_id) : roots[normalized.storage_root_id];
+  if (!root) {
+    return normalized.web_url
+      ? { status: "ok", local_status: "broken", ref: normalized, path: normalized.web_url }
+      : { status: "broken", ref: normalized, path: null };
+  }
+  if (typeof root === "object") {
+    if (root.status === "broken") {
+      return normalized.web_url
+        ? { status: "ok", local_status: "broken", ref: normalized, path: normalized.web_url }
+        : { status: "broken", ref: normalized, path: null };
+    }
+    if (root.status === "ok" && !root.path) {
+      return normalized.web_url
+        ? { status: "ok", local_status: "broken", ref: normalized, path: normalized.web_url }
+        : { status: "ok", ref: normalized, path: null };
+    }
+  }
+  const rootPath = typeof root === "string" ? root : root.path;
+  if (!rootPath) {
+    return normalized.web_url
+      ? { status: "ok", local_status: "broken", ref: normalized, path: normalized.web_url }
+      : { status: "broken", ref: normalized, path: null };
+  }
+  return { status: "ok", ref: normalized, path: `${String(rootPath).replace(/[\\/]$/, "")}/${normalized.relative_path}` };
 }

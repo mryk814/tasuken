@@ -24,8 +24,16 @@ export interface WorkspaceMeta {
   [key: string]: unknown;
 }
 
+export interface CanonicalRootStatus {
+  status: "ok" | "broken";
+}
+
+export type CanonicalRootStatusMap = Record<string, CanonicalRootStatus>;
+
 export interface Workspace {
   meta?: WorkspaceMeta;
+  /** Public resolver state only; absolute storage paths never cross this boundary. */
+  canonical_root_status?: CanonicalRootStatusMap;
   themes?: Entity[];
   items?: Entity[];
   notes?: Entity[];
