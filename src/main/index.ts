@@ -554,6 +554,10 @@ flowchart LR
         notesPane?.querySelector(".note-editor-math-inline")
         && notesPane?.querySelector(".note-editor-math-block")
       );
+      const mermaidPreviewTarget = notesPane?.querySelector(".note-mermaid-preview .md-mermaid-block")
+        || notesPane?.querySelector(".note-mermaid-preview-frame");
+      mermaidPreviewTarget?.scrollIntoView({ block: "center", inline: "nearest" });
+      await delay(0);
       let mermaidPreviewInEdit;
       try {
         mermaidPreviewInEdit = await waitFor(
@@ -1116,16 +1120,16 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  if (isSmokeTest) {
+    // Show the smoke-only window before the renderer starts so IntersectionObserver
+    // observes the same visible lazy path as production without stealing focus.
+    window.setOpacity(0);
+    window.showInactive();
+  }
+
   window.once("ready-to-show", () => {
     readyMainWindows.add(window);
-    if (isSmokeTest) {
-      // IntersectionObserver needs a visible layout viewport; keep the smoke window
-      // nonintrusive while exercising the same lazy Mermaid path as production.
-      window.setOpacity(0);
-      window.showInactive();
-    } else {
-      window.show();
-    }
+    if (!isSmokeTest) window.show();
   });
   window.webContents.once("did-finish-load", () => {
     if (isSmokeTest) {

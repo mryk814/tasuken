@@ -660,8 +660,8 @@ test("notes editor exposes persisted Mermaid width controls", () => {
   assert.match(source, /setPointerCapture\(event\.pointerId\)/);
   assert.match(source, /preserveEditorViewport\(editorRootRef\.current/);
   assert.match(source, /const previewMeta = withMermaidWidthMeta\(props\.meta, null\)/);
-  assert.match(source, /const StableMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
-  assert.match(source, /<StableMermaidPreview key=\{rendered\}/);
+  assert.match(source, /const LazyMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
+  assert.match(source, /<LazyMermaidPreview key=\{rendered\}/);
   assert.match(source, /draftWidth === null \? "" : " is-custom-width"/);
   assert.match(styles, /\.note-mermaid-preview-frame\.is-custom-width \.md-mermaid-svg svg \{ width: 100% !important;/);
 });
