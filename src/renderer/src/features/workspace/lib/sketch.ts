@@ -881,4 +881,3 @@ export function sketchPageToSvg(page: SketchPage): string {
   }).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="context-stroke"/></marker><marker id="arrow-start" markerWidth="10" markerHeight="10" refX="1" refY="3" orient="auto"><path d="M9,0 L9,6 L0,3 z" fill="context-stroke"/></marker></defs><rect width="100%" height="100%" fill="#fffdfb"/>${objects}</svg>`;
 }
-

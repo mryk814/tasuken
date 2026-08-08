@@ -53,7 +53,7 @@ import {
   drawSketchPage,
   infiniteCanvasExportPage,
   minimumSketchPageSize,
-  renderSketchPageToDataUrl,
+  renderSketchPageToDataUrl,
   sketchCanvasMode,
   sketchPageToSvg,
   type SketchDocument,
