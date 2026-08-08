@@ -5,8 +5,8 @@ import type { BaseRecord, Item } from "../types";
 type Dependency = BaseRecord;
 import { DAY, hasPlannedSchedule, itemLevel, statusProgress } from "../lib/domain";
 import { addDays, daysBetween, localDateIso, str } from "../lib/format";
-import { timelineItemState, type GanttRange, type TimelineRow } from "../lib/timeline";
-import { TIMELINE_ITEM_STATE_LABELS, TIMELINE_ITEM_STATE_MARKS } from "../domain-model/labels";
+import { timelineItemScheduleKind, timelineItemState, type GanttRange, type TimelineRow } from "../lib/timeline";
+import { SCHEDULE_KIND_LABELS, TIMELINE_ITEM_STATE_LABELS, TIMELINE_ITEM_STATE_MARKS } from "../domain-model/labels";
 
 export interface SelectedDependency {
   dependency: Dependency;
@@ -243,10 +243,15 @@ export function GanttItemRow({
         // 状態はTheme色と別の体系（#318）。classと記号とtooltipへ同じ値を配る。
         const state = timelineItemState(barItem, today);
         const stateLabel = TIMELINE_ITEM_STATE_LABELS[state];
-        const stateMark = TIMELINE_ITEM_STATE_MARKS[state];
+        const scheduleKind = timelineItemScheduleKind(barItem);
+        const scheduleLabel = scheduleKind === "execution_window" || scheduleKind === "ongoing_period" || scheduleKind === "unspecified_range"
+          ? SCHEDULE_KIND_LABELS[scheduleKind]
+          : "";
+        const stateMark = scheduleKind === "execution_window" ? "◇" : scheduleKind === "ongoing_period" ? "→" : TIMELINE_ITEM_STATE_MARKS[state];
         const barClass = [
           `gantt-item-bar level-${level}`,
           `is-state-${state}`,
+          scheduleLabel ? `is-range-${scheduleKind}` : "",
           bars.length > 1 ? "in-lane" : "",
           barItem.kind === "milestone" ? "milestone" : "",
           drag?.itemId === barItem.id ? "is-dragging" : "",
@@ -265,7 +270,7 @@ export function GanttItemRow({
             onPointerDown={isConnecting ? undefined : (event) => beginDrag(event, barItem, "move")}
             title={isConnecting
               ? (isSource ? `${barItem.title}（選択中）` : `${barItem.title} を後続にする`)
-              : `${barItem.title}\n状態: ${stateLabel}\n${hint(barItem)}\nCtrl+クリックで依存を接続`}
+              : `${barItem.title}\n状態: ${stateLabel}${scheduleLabel ? `\n範囲: ${scheduleLabel}` : ""}\n${hint(barItem)}\nCtrl+クリックで依存を接続`}
           >
             {barItem.kind !== "milestone" && !isConnecting && <span className="resize-handle start" onPointerDown={(event) => beginDrag(event, barItem, "start")} />}
             <span>

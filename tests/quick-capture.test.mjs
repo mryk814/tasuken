@@ -8,6 +8,8 @@ import {
   firstCaptureUrl,
   quickCaptureContentType,
   quickCaptureDueLabel,
+  quickCaptureScheduleLabel,
+  parseQuickCaptureSchedule,
   quickCaptureTitle,
   parseQuickCaptureDue,
   splitQuickCaptureInput,
@@ -112,6 +114,22 @@ test("期限表現は相対語・曜日・日付・時刻を解釈する（#308�
   assert.equal(due("17時").date, "2026-08-06");
 });
 
+test("日付範囲はexecution windowを既定にし、継続の明示だけをongoing候補にする（#326）", () => {
+  const ambiguous = parseQuickCaptureSchedule("8/10〜8/15", "2026-08-06");
+  assert.equal(ambiguous.ok, true);
+  assert.equal(ambiguous.startDate, "2026-08-10");
+  assert.equal(ambiguous.endDate, "2026-08-15");
+  assert.equal(ambiguous.rangeSemantics, "once_within_window");
+  assert.equal(ambiguous.ambiguous, true);
+  assert.match(quickCaptureScheduleLabel(ambiguous), /期間内に一度/);
+
+  const ongoing = parseQuickCaptureSchedule("8/10〜8/15 継続", "2026-08-06");
+  assert.equal(ongoing.ok, true);
+  assert.equal(ongoing.rangeSemantics, "ongoing");
+  assert.equal(ongoing.ambiguous, false);
+  assert.match(quickCaptureScheduleLabel(ongoing), /継続/);
+});
+
 test("読み取れない期限は保存させずに直し方を返す（#308）", () => {
   const failed = parseQuickCaptureDue("なるはやで", "2026-08-06");
   assert.equal(failed.ok, false);
@@ -129,8 +147,9 @@ test("期限のラベルは曜日と時刻を添えて確認できる（#308）"
 
 test("Quick Captureはmodeごとに補足を解釈し、期限つきTaskを直接保存する（#308）", () => {
   // 期限modeはdeadline scheduleで保存し、時刻があればリマインダーにする。
-  assert.match(controllerSource, /date_kind: mode === "due-task" \? "deadline" : "point"/);
-  assert.match(controllerSource, /reminder_at: due\?\.ok && due\.time/);
+  assert.match(controllerSource, /date_kind: isRange \? "range" : mode === "due-task" \? "deadline" : "point"/);
+  assert.match(controllerSource, /range_semantics: rangeSemantics/);
+  assert.match(controllerSource, /reminder_at: parsedDue\?\.kind === "single" && parsedDue\.time/);
   // 読めない期限は例外にして、期限なしのまま保存しない。
   assert.match(controllerSource, /if \(due && !due\.ok\) throw new Error\(due\.message\)/);
   // やったことのひとことは本文と分けて保存する。
@@ -138,4 +157,6 @@ test("Quick Captureはmodeごとに補足を解釈し、期限つきTaskを直�
   // 入口ごとにmodeを決めて開く。
   assert.match(controllerSource, /期限つきタスクを追加/);
   assert.match(captureWindowSource, /previewDue/);
+  assert.match(captureWindowSource, /期間中継続/);
+  assert.match(captureWindowSource, /selectedRangeSemantics/);
 });

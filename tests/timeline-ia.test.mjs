@@ -17,7 +17,7 @@ async function importBundled(relativePath) {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 }
 
-const { timelineItemState } = await importBundled("src/renderer/src/features/workspace/lib/timeline.ts");
+const { timelineItemScheduleKind, timelineItemState } = await importBundled("src/renderer/src/features/workspace/lib/timeline.ts");
 const timelinePageSource = readFileSync("src/renderer/src/features/workspace/pages/TimelinePage.tsx", "utf8");
 const ganttSource = readFileSync("src/renderer/src/features/workspace/components/gantt.tsx", "utf8");
 const stylesSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
@@ -43,6 +43,13 @@ test("Timeline itemの状態を日付と#309のsemanticsから一意に決める
   assert.equal(at({}), "planned");
 });
 
+test("Timelineの範囲意味判定はgetScheduleKindへ集約する（#326）", () => {
+  assert.equal(timelineItemScheduleKind({ planned_start: "2026-08-01", planned_end: "2026-08-31", range_semantics: "once_within_window" }), "execution_window");
+  assert.equal(timelineItemScheduleKind({ planned_start: "2026-08-01", planned_end: "2026-08-31", range_semantics: "ongoing" }), "ongoing_period");
+  assert.equal(timelineItemScheduleKind({ planned_start: "2026-08-01", planned_end: "2026-08-31" }), "unspecified_range");
+  assert.match(readFileSync("src/renderer/src/features/workspace/lib/timeline.ts", "utf8"), /getScheduleKind\(schedule\)/);
+});
+
 test("状態を色だけで伝えない（#312 / #318）", () => {
   // barはclass・記号・aria-label・tooltipへ同じ状態を配る。
   assert.match(ganttSource, /const state = timelineItemState\(barItem, today\);/);
@@ -61,6 +68,8 @@ test("状態を色だけで伝えない（#312 / #318）", () => {
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-cancelled \{[^}]*border-style: dotted;/);
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?repeating-linear-gradient/);
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-execution_window \{ border-style: dashed;/);
+  assert.match(stylesSource, /\.gantt-item-bar\.is-range-execution_window \{ border-style: dashed;/);
+  assert.match(stylesSource, /\.gantt-item-bar\.is-range-ongoing_period \{ border-style: solid;/);
   // 期限超過は破壊的操作の赤ではなくwarning系にする。
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-overdue \{[^}]*var\(--color-status-blocked-fg\)/);
 });

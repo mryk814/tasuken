@@ -213,23 +213,82 @@ function parseDateExpression(text, today) {
   return "";
 }
 
-/**
- * 「金曜まで」「8月15日」「明日17時」等の期限表現を日付へ解釈する。
- * 解釈できないときは ok:false を返し、期限なしで黙って保存させない。
- */
-export function parseQuickCaptureDue(expression, today) {
-  const raw = toHalfWidth(String(expression ?? "").trim())
-    .replace(/[\s　]+/g, " ")
-    .replace(/(まで(に)?|迄)$/u, "")
-    .trim();
-  if (!raw) {
-    return { ok: false, message: "期限が空です。「明日」「金曜まで」「8/15」のように書いてください。" };
+const QUICK_CAPTURE_RANGE_PATTERN = /\s*(?:〜|～|~|から)\s*/u;
+const ONGOING_RANGE_SUFFIX_PATTERN = /\s*(?:継続|継続中|継続する|続ける|続行)\s*$/u;
+
+function parseQuickCaptureRange(expression, today) {
+  const normalized = toHalfWidth(String(expression ?? "").trim()).replace(/[\s　]+/g, " ");
+  const explicitOngoing = ONGOING_RANGE_SUFFIX_PATTERN.test(normalized);
+  const rangeText = explicitOngoing ? normalized.replace(ONGOING_RANGE_SUFFIX_PATTERN, "").trim() : normalized;
+  const parts = rangeText.split(QUICK_CAPTURE_RANGE_PATTERN);
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const startDate = parseDateExpression(parts[0].trim(), today);
+  const endDate = parseDateExpression(parts[1].trim().replace(/(まで(に)?|迄)$/u, "").trim(), today);
+  if (!startDate || !endDate) {
+    return {
+      ok: false,
+      message: `期間として読み取れませんでした: ${expression}。「8/10〜8/15」のように開始日と終了日を書いてください。`,
+    };
   }
-  const { rest, time } = parseTimeExpression(raw);
+  if (endDate <= startDate) {
+    return { ok: false, message: "期間の終了日は開始日より後にしてください。" };
+  }
+  return {
+    ok: true,
+    kind: "range",
+    startDate,
+    endDate,
+    rangeSemantics: explicitOngoing ? "ongoing" : "once_within_window",
+    // 明示がない範囲はexecution windowを既定にし、選択UIだけでongoingへ変更できる。
+    ambiguous: !explicitOngoing,
+    explicitOngoing,
+  };
+}
+
+export function parseQuickCaptureSchedule(expression, today) {
+  const raw = toHalfWidth(String(expression ?? "").trim()).replace(/[\s　]+/g, " ").trim();
+  if (!raw) return { ok: false, message: "期限が空です。「明日」「金曜まで」「8/15」のように書いてください。" };
+
+  const range = parseQuickCaptureRange(raw, today);
+  if (range) return range;
+
+  const normalized = raw.replace(/(まで(に)?|迄)$/u, "").trim();
+  const { rest, time } = parseTimeExpression(normalized);
   const datePart = rest || (time ? "今日" : "");
   const date = parseDateExpression(datePart, today);
   if (!date) {
     return { ok: false, message: `期限として読み取れませんでした: ${expression}。「明日」「金曜まで」「8/15」「2026-08-15」のように書いてください。` };
   }
-  return { ok: true, date, time };
+  return { ok: true, kind: "single", date, time };
+}
+
+export function quickCaptureScheduleLabel(schedule) {
+  if (!schedule?.ok) return "";
+  if (schedule.kind === "range") {
+    const suffix = schedule.rangeSemantics === "ongoing" ? "（期間中継続）" : "（期間内に一度）";
+    return `${quickCaptureDueLabel({ date: schedule.startDate })}〜${quickCaptureDueLabel({ date: schedule.endDate })}${suffix}`;
+  }
+  return quickCaptureDueLabel(schedule);
+}
+
+/**
+ * 「金曜まで」「8月15日」「明日17時」等の期限表現を日付へ解釈する。
+ * 解釈できないときは ok:false を返し、期限なしで黙って保存させない。
+ */
+export function parseQuickCaptureDue(expression, today) {
+  const parsed = parseQuickCaptureSchedule(expression, today);
+  if (!parsed.ok) return parsed;
+  if (parsed.kind === "range") {
+    return {
+      ok: true,
+      date: parsed.endDate,
+      time: "",
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
+      rangeSemantics: parsed.rangeSemantics,
+      ambiguous: parsed.ambiguous,
+      kind: parsed.kind,
+    };
+  }
+  return parsed;
 }

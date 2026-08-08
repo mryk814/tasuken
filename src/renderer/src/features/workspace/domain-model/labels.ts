@@ -18,6 +18,7 @@ import type {
   TaskState,
   WaitingState,
 } from "./types";
+import type { ScheduleKind } from "./scheduleSemantics";
 
 export const PROJECT_STATE_LABELS: Record<ProjectState, string> = {
   idea: "構想",
@@ -63,6 +64,16 @@ export const SCHEDULE_RANGE_SEMANTICS_HINTS: Record<ScheduleRangeSemantics, stri
 
 /** 意味が未設定の既存範囲。分類していないことが分かる語にする。 */
 export const UNSPECIFIED_RANGE_LABEL = "期間未分類";
+
+/** ScheduleKindの画面表示。意味判定はscheduleSemantics.ts、表示語はここを正本にする。 */
+export const SCHEDULE_KIND_LABELS: Record<ScheduleKind, string> = {
+  none: "予定なし",
+  point: "単日",
+  deadline: "期限",
+  execution_window: "期間内に一度",
+  ongoing_period: "期間中継続",
+  unspecified_range: UNSPECIFIED_RANGE_LABEL,
+};
 
 export const WAITING_STATE_LABELS: Record<WaitingState, string> = {
   waiting: "待ち",

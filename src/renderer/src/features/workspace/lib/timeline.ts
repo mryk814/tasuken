@@ -1,4 +1,6 @@
 import type { Item, Theme } from "../types";
+import { getScheduleKind, type ScheduleKind } from "../domain-model/scheduleSemantics";
+import type { Schedule, ScheduleRangeSemantics } from "../domain-model/types";
 import { itemLevel } from "./domain";
 import { addDays, daysBetween, localDateIso } from "./format";
 
@@ -96,6 +98,26 @@ interface TimelineStateInput {
   range_semantics?: string | null;
 }
 
+/** Timelineも日付範囲の意味を直接読まず、#309の判定へ接続する。 */
+export function timelineItemScheduleKind(item: TimelineStateInput): ScheduleKind {
+  const start = item.planned_start || null;
+  const end = item.planned_end || null;
+  const schedule: Schedule = {
+    id: `timeline-schedule:${item.planned_start || "none"}:${item.planned_end || "none"}`,
+    owner_type: "plan_node",
+    owner_id: "timeline-item",
+    start_date: start,
+    end_date: end,
+    date_kind: start && end && end > start ? "range" : end ? "deadline" : start ? "point" : "unknown",
+    range_semantics: item.range_semantics === "ongoing" || item.range_semantics === "once_within_window"
+      ? item.range_semantics as ScheduleRangeSemantics
+      : null,
+    confidence: "fixed",
+    granularity: "day",
+  };
+  return getScheduleKind(schedule);
+}
+
 export function timelineItemState(item: TimelineStateInput, today: string): TimelineItemState {
   const status = String(item.status || "");
   if (status === "done") return "completed";
@@ -108,8 +130,9 @@ export function timelineItemState(item: TimelineStateInput, today: string): Time
 
   const started = !start || start <= today;
   const inRange = started && (!end || end >= today);
-  if (inRange && item.range_semantics === "ongoing") return "ongoing";
-  if (inRange && item.range_semantics === "once_within_window") return "execution_window";
+  const scheduleKind = timelineItemScheduleKind(item);
+  if (inRange && scheduleKind === "ongoing_period") return "ongoing";
+  if (inRange && scheduleKind === "execution_window") return "execution_window";
   if (inRange && (start || end)) return "active";
   return "planned";
 }

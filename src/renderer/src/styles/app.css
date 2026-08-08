@@ -4935,6 +4935,11 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 }
 /* 期間内に一度は「どこか一点でやる」ので、両端だけを立てる。 */
 .gantt-item-bar.is-state-execution_window { border-style: dashed; border-color: var(--color-status-active-bd); }
+/* 日付範囲の意味は現在日付の状態とは別軸。範囲外でも線種を維持する。 */
+.gantt-item-bar.is-range-ongoing_period { border-style: solid; }
+.gantt-item-bar.is-range-ongoing_period .gantt-bar-state-mark { color: var(--color-status-active-fg); }
+.gantt-item-bar.is-range-execution_window { border-style: dashed; border-color: var(--color-status-active-bd); }
+.gantt-item-bar.is-range-unspecified_range { border-style: dotted; border-color: var(--color-border-strong); }
 
 /* 一覧側の状態ラベル。色を消しても語で読める。 */
 .timeline-state-chip {
@@ -4948,6 +4953,15 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .timeline-state-chip.is-state-active,
 .timeline-state-chip.is-state-ongoing,
 .timeline-state-chip.is-state-execution_window { border-color: var(--color-status-active-bd); background: var(--color-status-active-bg); color: var(--color-status-active-fg); }
+.timeline-range-chip {
+  flex: none; padding: 0 var(--space-1); border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm); background: var(--color-surface-subtle); color: var(--color-text-secondary);
+  font-size: var(--text-xs); white-space: nowrap;
+}
+.range-semantics-badge-button { cursor: pointer; }
+.range-semantics-badge-button:hover { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
+.timeline-range-chip.is-range-ongoing_period { border-style: solid; }
+.timeline-range-chip.is-range-unspecified_range { border-style: dotted; }
 .gantt-name { min-width: 0; display: flex; align-items: center; gap: var(--space-1); }
 .gantt-name > .gantt-title-button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ChatRef一覧の補助情報（#322）。URL文字列は出さず、Themeと時刻だけ短く添える。 */
