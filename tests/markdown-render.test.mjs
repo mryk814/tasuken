@@ -24,6 +24,7 @@ async function importBundled(relativePath) {
 
 const markdown = await importBundled("src/renderer/src/features/workspace/lib/markdown.ts");
 const markdownEditing = await importBundled("src/renderer/src/features/workspace/lib/markdownEditing.ts");
+const mermaid = await importBundled("src/renderer/src/features/workspace/lib/mermaid.ts");
 const mermaidSizing = await importBundled("src/renderer/src/features/workspace/lib/mermaidSizing.ts");
 const mermaidWidth = await importBundled("src/renderer/src/features/workspace/lib/mermaidWidth.ts");
 const markdownSurfaceSource = readFileSync("src/renderer/src/features/workspace/lib/markdownDocumentSurfaces.ts", "utf8");
@@ -40,6 +41,14 @@ test("Mermaid SVG presentation enlarges small diagrams without shrinking large o
     intrinsicHeight: 174,
   });
   assert.equal(mermaidSizing.mermaidSvgPresentation("0 0 0 100"), null);
+});
+
+test("Mermaid lazy viewport fallback renders only within the observer root margin", () => {
+  assert.equal(mermaid.isMermaidNearViewport({ top: 760, bottom: 820, left: 20, right: 400 }, 800, 600), true);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 1360, bottom: 1420, left: 20, right: 400 }, 800, 600), false);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 200, bottom: 260, left: 820, right: 900 }, 800, 600), false);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 0, bottom: 0, left: 20, right: 400 }, 800, 600), false);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 0, bottom: 60, left: 20, right: 400 }, 0, 600), false);
 });
 
 test("Mermaid width metadata normalizes and preserves unrelated fence metadata", () => {
@@ -660,8 +669,8 @@ test("notes editor exposes persisted Mermaid width controls", () => {
   assert.match(source, /setPointerCapture\(event\.pointerId\)/);
   assert.match(source, /preserveEditorViewport\(editorRootRef\.current/);
   assert.match(source, /const previewMeta = withMermaidWidthMeta\(props\.meta, null\)/);
-  assert.match(source, /const StableMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
-  assert.match(source, /<StableMermaidPreview key=\{rendered\}/);
+  assert.match(source, /const LazyMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
+  assert.match(source, /<LazyMermaidPreview key=\{rendered\}/);
   assert.match(source, /draftWidth === null \? "" : " is-custom-width"/);
   assert.match(styles, /\.note-mermaid-preview-frame\.is-custom-width \.md-mermaid-svg svg \{ width: 100% !important;/);
 });

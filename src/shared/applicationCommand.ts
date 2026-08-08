@@ -2,6 +2,7 @@ import { entityTypes, type Entity, type EntityType } from "./types/workspace";
 
 export const applicationCommandNames = [
   "CreateTask",
+  "DeleteTask",
   "CreateTaskFromCapture",
   "UpdateTask",
   "CompleteTask",
@@ -200,7 +201,7 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     && (!isRecord(value.payload.task) || typeof value.payload.task.id !== "string")) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtask payloadが不正です。`);
   }
-  if ((name === "CompleteTask" || name === "ReopenTask")
+  if ((name === "CompleteTask" || name === "ReopenTask" || name === "DeleteTask")
     && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
   }

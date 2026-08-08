@@ -28,7 +28,10 @@ test("heavy decorators activate only near or during the user's current work", ()
   assert.match(codeBlockEditor, /onClick=\{\(\) => setActive\(true\)\}/);
   assert.match(css, /data-lexical-decorator="true"\]:has\(\.note-code-block-placeholder\)/);
   assert.match(markdownPreview, /IntersectionObserver/);
-  assert.match(markdownPreview, /rootMargin:\s*"700px 0px"/);
+  assert.match(markdownPreview, /MERMAID_LAZY_VIEWPORT_MARGIN_PX/);
+  assert.match(markdownPreview, /rootMargin:\s*`\$\{MERMAID_LAZY_VIEWPORT_MARGIN_PX\}px 0px`/);
+  assert.match(markdownPreview, /requestAnimationFrame/);
+  assert.match(markdownPreview, /isMermaidNearViewport/);
   assert.match(mermaid, /waitForMermaidRenderIdle/);
   assert.match(mermaid, /performance\.now\(\) - lastEditorInputAt >= 450/);
 });

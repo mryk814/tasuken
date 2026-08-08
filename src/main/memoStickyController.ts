@@ -179,7 +179,7 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
       if (!memoId) return false;
       const mainWindow = options.showMainWindow();
       const send = (): void => {
-        if (!mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:open-memo", memoId);
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceOpenMemo, memoId);
       };
       if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
       else send();

@@ -120,7 +120,7 @@ export function DailyScratchpadDialog({
       body_markdown: localStorage.getItem(dailyScratchpadDraftKey(activeDate)) || "",
       note_type: "note",
       content_format: "markdown",
-      theme_id: null,
+      project_id: null,
       properties_json: {
         document_role: DAILY_SCRATCHPAD_ROLE,
         scratchpad_date: activeDate,

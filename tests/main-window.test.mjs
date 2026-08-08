@@ -16,6 +16,7 @@ test("main window stays hidden until its renderer is ready", () => {
   assert.doesNotMatch(mainSource, /show: !isSmokeTest,/);
   assert.match(mainSource, /window\.once\("ready-to-show", \(\) => \{/);
   assert.match(mainSource, /readyMainWindows\.add\(window\);/);
+  assert.match(mainSource, /if \(isSmokeTest\) \{[\s\S]*window\.setOpacity\(0\);[\s\S]*window\.showInactive\(\);[\s\S]*\}/);
   assert.match(mainSource, /if \(!isSmokeTest\) window\.show\(\);/);
 });
 

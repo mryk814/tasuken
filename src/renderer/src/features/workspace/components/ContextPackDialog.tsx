@@ -164,7 +164,7 @@ export function ContextPackDialog({
         body_markdown: markdown,
         note_type: "prompt",
         content_format: "markdown",
-        theme_id: theme.id,
+        project_id: theme.id,
         properties_json: {
           prompt_purpose: "other",
           publish_enabled: false,

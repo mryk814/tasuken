@@ -32,15 +32,20 @@ export const workspaceApi = {
     return desktopApi().workspace.bootstrap(buildBootstrapWorkspace() as Workspace);
   },
   save(type: EntityType, entity: Entity, options: SaveOptions = {}) {
+    if (type === "task") throw new Error("Taskの保存はApplication Command経由で実行してください。");
     return desktopApi().entities.save(type, entity, options);
   },
   get(type: EntityType, id: string) {
     return desktopApi().entities.get(type, id);
   },
   saveMany(operations: SaveOperation[]) {
+    if (operations.some((operation) => operation.type === "task")) {
+      throw new Error("Taskの一括保存はApplication Command経由で実行してください。");
+    }
     return desktopApi().entities.saveMany(operations);
   },
   remove(type: EntityType, id: string) {
+    if (type === "task") throw new Error("Taskの削除はApplication Command経由で実行してください。");
     return desktopApi().entities.remove(type, id);
   },
   restore(type: EntityType, id: string) {

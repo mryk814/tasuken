@@ -18,6 +18,7 @@ interface Repository {
   get(type: EntityType, id: string, includeDeleted?: boolean): Entity | null;
   saveMany(operations: SaveOperation[]): Entity[];
   save(type: EntityType, entity: Entity): Entity;
+  remove(type: EntityType, id: string): Entity | null;
   runTransaction<T>(callback: (repository: Repository) => T): T;
 }
 
@@ -339,10 +340,31 @@ export class ApplicationCommandService {
     if (command.name === "ApplyAiProposal") {
       return this.applyAiProposal(command);
     }
+    if (command.name === "DeleteTask") {
+      return this.deleteTask(command);
+    }
     if (command.name === "CreateTask" || command.name === "UpdateTask") {
       return this.saveTask(command, command.name === "CreateTask");
     }
     return this.transitionTask(command, command.name === "CompleteTask");
+  }
+
+  private deleteTask(command: CommandEnvelope): CommandReceipt {
+    const taskId = asTaskId(command.payload);
+    const current = this.repository.get("task", taskId);
+    if (!current) throw new ApplicationCommandError("NOT_FOUND", "削除対象のTaskがありません。", { id: taskId });
+    if (!expectedVersionFor(command, "task", taskId)) {
+      throw new ApplicationCommandError("CONFLICT", "DeleteTaskにはexpected versionが必要です。", { type: "task", id: taskId });
+    }
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    const deleted = this.repository.remove("task", taskId);
+    if (!deleted) throw new ApplicationCommandError("NOT_FOUND", "削除対象のTaskがありません。", { id: taskId });
+    const receipt = receiptFor(command, "applied");
+    return {
+      ...receipt,
+      deleted: [{ type: "task", id: taskId }],
+      changes: [{ type: "task", entity: deleted }],
+    };
   }
 
   private completeTaskWithLearning(command: CommandEnvelope): CommandReceipt {

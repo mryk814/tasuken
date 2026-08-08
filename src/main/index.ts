@@ -23,6 +23,7 @@ import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
+import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { ApplicationCommandService } from "./services/applicationCommandService";
 import type { CommandReceipt } from "../shared/applicationCommand";
@@ -31,7 +32,10 @@ import { IPC, type SatelliteWindowStatePayload } from "../shared/ipc/contracts";
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
-const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json");
+const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
+const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
+const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
+const smokeResultPath = path.resolve(smokeResultArgument?.slice("--smoke-result-path=".length) || path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`));
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
@@ -284,6 +288,7 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
   lastSmokeStage = stage;
   smokeTrace.push(stage);
   if (smokeTrace.length > 40) smokeTrace.shift();
+  fs.mkdirSync(path.dirname(smokeResultPath), { recursive: true });
   fs.writeFileSync(smokeResultPath, JSON.stringify({ stage, argv: process.argv, ...details }, null, 2));
 }
 
@@ -301,8 +306,7 @@ app.disableHardwareAcceleration();
   if (requestedUserDataPath) {
     app.setPath("userData", path.resolve(requestedUserDataPath));
   } else if (isSmokeTest) {
-    const smokeUserDataPath = path.join(app.getPath("temp"), "research-desk-smoke-test");
-    fs.rmSync(smokeUserDataPath, { recursive: true, force: true });
+    const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
     app.setPath("userData", smokeUserDataPath);
     recordSmoke("main-started");
     setTimeout(() => {
@@ -355,6 +359,22 @@ flowchart LR
   const created = await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      window.__taskenSmokeDiagnostics = { rendererErrors: [] };
+      window.addEventListener("error", (event) => {
+        window.__taskenSmokeDiagnostics.rendererErrors.push({
+          kind: "error",
+          message: event.message,
+          filename: event.filename,
+          line: event.lineno,
+          column: event.colno,
+        });
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        window.__taskenSmokeDiagnostics.rendererErrors.push({
+          kind: "unhandledrejection",
+          message: String(event.reason?.stack || event.reason || "unknown rejection"),
+        });
+      });
       const setInputValue = (element, value) => {
         const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set
           || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
@@ -412,6 +432,31 @@ flowchart LR
         await delay(40);
         return notesPane;
       };
+      const mermaidDiagnostics = () => ({
+        activeElement: document.activeElement?.outerHTML?.slice(0, 300) || "",
+        visibilityState: document.visibilityState,
+        hidden: document.hidden,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        notePane: Boolean(document.querySelector(".note-preview-panel")),
+        mermaidBlocks: [...document.querySelectorAll(".note-mermaid-code-block")].map((block) => ({
+          className: block.className,
+          text: block.textContent?.slice(0, 300) || "",
+          svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+          errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+          rect: (() => {
+            const rect = block.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height };
+          })(),
+          html: block.innerHTML.slice(0, 1200),
+        })),
+        markdownBlocks: [...document.querySelectorAll("[data-mermaid='true']")].map((block) => ({
+          className: block.className,
+          text: block.textContent?.slice(0, 300) || "",
+          svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+          errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+        })),
+        rendererErrors: window.__taskenSmokeDiagnostics.rendererErrors,
+      });
 
       // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
       (await waitForButton("Notes")).click();
@@ -491,16 +536,6 @@ flowchart LR
         && smokePreviewImage?.naturalWidth > 0
       );
 
-      // 全文コピーは「この文書」menuの項目へ移した（#313 / #331）。
-      clickPaneButton(notesPane, "この文書");
-      await delay(160);
-      const copyBodyItem = [...notesPane.querySelectorAll(".toolbar-menu-list button")]
-        .find((candidate) => candidate.textContent.trim() === "本文をすべてコピー");
-      if (!copyBodyItem) throw new Error("本文をすべてコピー が「この文書」menuに見つかりません。");
-      copyBodyItem.click();
-      await delay(160);
-      const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
-
       // Edit（Live Preview）面での追記・貼り付け
       clickPaneButton(notesPane, "Edit");
       const liveEditable = await waitFor(
@@ -520,17 +555,46 @@ flowchart LR
         notesPane?.querySelector(".note-editor-math-inline")
         && notesPane?.querySelector(".note-editor-math-block")
       );
-      const mermaidPreviewInEdit = await waitFor(
-        () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
-        "Edit面のMermaid Preview",
-        30,
-      );
+      const mermaidPreviewTarget = notesPane?.querySelector(".note-mermaid-preview .md-mermaid-block")
+        || notesPane?.querySelector(".note-mermaid-preview-frame");
+      const scrollableAncestor = (() => {
+        let current = mermaidPreviewTarget?.parentElement || null;
+        while (current && current !== document.body) {
+          const style = getComputedStyle(current);
+          if (/(auto|scroll|overlay)/.test(style.overflowY) && current.scrollHeight > current.clientHeight) return current;
+          current = current.parentElement;
+        }
+        return document.scrollingElement;
+      })();
+      if (mermaidPreviewTarget && scrollableAncestor && scrollableAncestor !== document.scrollingElement) {
+        const targetRect = mermaidPreviewTarget.getBoundingClientRect();
+        const ancestorRect = scrollableAncestor.getBoundingClientRect();
+        scrollableAncestor.scrollTop += targetRect.top - ancestorRect.top - (scrollableAncestor.clientHeight - targetRect.height) / 2;
+      }
+      mermaidPreviewTarget?.scrollIntoView({ block: "center", inline: "nearest" });
+      if (mermaidPreviewTarget instanceof HTMLElement) {
+        mermaidPreviewTarget.tabIndex = -1;
+        mermaidPreviewTarget.focus({ preventScroll: true });
+      }
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      let mermaidPreviewInEdit;
+      try {
+        mermaidPreviewInEdit = await waitFor(
+          () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
+          "Edit面のMermaid Preview",
+          80,
+        );
+      } catch (error) {
+        const diagnostics = mermaidDiagnostics();
+        console.error("Mermaid smoke diagnostics: " + JSON.stringify(diagnostics));
+        throw new Error(String(error) + " diagnostics=" + JSON.stringify(diagnostics));
+      }
       const notesMermaidRenderedInEdit = Boolean(mermaidPreviewInEdit);
       mermaidPreviewInEdit.closest(".note-mermaid-preview-frame")?.click();
       const mermaidCodeEditor = await waitFor(
         () => notesPane?.querySelector(".note-mermaid-code-block.is-editing .cm-editor"),
         "Mermaidコード編集面",
-        30,
+        80,
       );
       const notesCodeBlockFullWidth = mermaidCodeEditor.getBoundingClientRect().width >= liveEditable.getBoundingClientRect().width * 0.8;
 
@@ -716,17 +780,6 @@ flowchart LR
 
       const todayMiniWindowOpened = await window.api.app.showTodayMiniWindow();
       const themeMode = await window.api.preferences.get("themeMode");
-      const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
-      const sketchClipboardCanvas = document.createElement("canvas");
-      sketchClipboardCanvas.width = 8;
-      sketchClipboardCanvas.height = 8;
-      const sketchClipboardContext = sketchClipboardCanvas.getContext("2d");
-      if (!sketchClipboardContext) throw new Error("Sketch clipboard smoke canvas is unavailable.");
-      sketchClipboardContext.fillStyle = "#8a2f3b";
-      sketchClipboardContext.fillRect(0, 0, 8, 8);
-      const sketchClipboardWritten = await window.api.clipboard.writeImage({
-        dataUrl: sketchClipboardCanvas.toDataURL("image/png")
-      });
       const savedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)}));
       const markdownSavedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)}));
 
@@ -751,10 +804,10 @@ flowchart LR
         notesMermaidRenderedInEdit,
         notesCodeBlockFullWidth,
         notesFootnoteEditPreviewAligned,
-        rawCopyNotified,
+        rawCopyNotified: false,
         themeMode,
-        clipboardWritten,
-        sketchClipboardWritten,
+        clipboardWritten: false,
+        sketchClipboardWritten: false,
         aiMetadataPersisted,
         aiThemeDefaultPersisted,
         aiMetadataRejectedInvalid,
@@ -765,27 +818,63 @@ flowchart LR
     })()
   `) as SmokeCreatedResult;
 
-  await window.webContents.executeJavaScript(`
-    (() => {
-      const target = document.createElement("div");
-      target.id = "sketch-clipboard-smoke-target";
-      target.contentEditable = "true";
-      target.style.position = "fixed";
-      target.style.left = "-10000px";
-      document.body.append(target);
-      target.focus();
-    })()
-  `);
-  window.webContents.paste();
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  created.sketchClipboardPasted = await window.webContents.executeJavaScript(`
-    (() => {
-      const target = document.querySelector("#sketch-clipboard-smoke-target");
-      const pasted = Boolean(target?.querySelector("img"));
-      target?.remove();
-      return pasted;
-    })()
-  `) as boolean;
+  const releaseSmokeClipboardLock = await acquireSmokeClipboardLock({ runId: smokeRunId });
+  try {
+    recordSmoke("clipboard-start");
+    const clipboardPhase = await window.webContents.executeJavaScript(`
+      (async () => {
+        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const notesPane = document.querySelector(".note-preview-panel");
+        const documentMenu = [...(notesPane?.querySelectorAll("button") || [])]
+          .find((button) => button.textContent.trim() === "この文書");
+        if (!documentMenu) throw new Error("この文書 menuボタンがNotesパネル内に見つかりません。");
+        documentMenu.click();
+        await delay(160);
+        const copyBodyItem = [...(notesPane?.querySelectorAll(".toolbar-menu-list button") || [])]
+          .find((button) => button.textContent.trim() === "本文をすべてコピー");
+        if (!copyBodyItem) throw new Error("本文をすべてコピー が「この文書」menuに見つかりません。");
+        copyBodyItem.click();
+        await delay(160);
+        const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
+        const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Sketch clipboard smoke canvas is unavailable.");
+        context.fillStyle = "#8a2f3b";
+        context.fillRect(0, 0, 8, 8);
+        const sketchClipboardWritten = await window.api.clipboard.writeImage({ dataUrl: canvas.toDataURL("image/png") });
+        const target = document.createElement("div");
+        target.id = "sketch-clipboard-smoke-target";
+        target.contentEditable = "true";
+        target.style.position = "fixed";
+        target.style.left = "-10000px";
+        document.body.append(target);
+        target.focus();
+        return { rawCopyNotified, clipboardWritten, sketchClipboardWritten };
+      })()
+    `) as { rawCopyNotified: boolean; clipboardWritten: boolean; sketchClipboardWritten: boolean };
+    created.rawCopyNotified = clipboardPhase.rawCopyNotified;
+    created.clipboardWritten = clipboardPhase.clipboardWritten;
+    created.sketchClipboardWritten = clipboardPhase.sketchClipboardWritten;
+    window.webContents.paste();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    created.sketchClipboardPasted = await window.webContents.executeJavaScript(`
+      (() => {
+        const target = document.querySelector("#sketch-clipboard-smoke-target");
+        const pasted = Boolean(target?.querySelector("img"));
+        target?.remove();
+        return pasted;
+      })()
+    `) as boolean;
+    recordSmoke("clipboard-complete", {
+      sketchClipboardWritten: created.sketchClipboardWritten,
+      sketchClipboardPasted: created.sketchClipboardPasted,
+    });
+  } finally {
+    releaseSmokeClipboardLock();
+  }
 
   let mini: SmokeMiniResult = {
     todayMiniOpened: false,
@@ -1075,18 +1164,53 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  if (isSmokeTest) {
+    // Show the smoke-only window before the renderer starts so IntersectionObserver
+    // observes the same visible lazy path as production without stealing focus.
+    window.setOpacity(0);
+    window.showInactive();
+  }
+
   window.once("ready-to-show", () => {
     readyMainWindows.add(window);
     if (!isSmokeTest) window.show();
   });
   window.webContents.once("did-finish-load", () => {
     if (isSmokeTest) {
-      runSmokeTest(window).catch((error: unknown) => {
-        console.error(error);
-        recordSmoke("smoke-failed", { error: String(error) });
+      runSmokeTest(window).catch(async (error: unknown) => {
+        let diagnostics: unknown = null;
+        try {
+          diagnostics = await window.webContents.executeJavaScript(`
+            (() => ({
+              url: location.href,
+              title: document.title,
+              notePane: Boolean(document.querySelector(".note-preview-panel")),
+              mermaidBlocks: [...document.querySelectorAll(".note-mermaid-code-block")].map((block) => ({
+                className: block.className,
+                text: block.textContent?.slice(0, 300) || "",
+                svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+                errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+                html: block.innerHTML.slice(0, 1200),
+              })),
+              rendererErrors: window.__taskenSmokeDiagnostics?.rendererErrors || [],
+            }))()
+          `);
+        } catch (diagnosticError) {
+          diagnostics = { captureError: String(diagnosticError) };
+        }
+        const failure = { error: String(error), diagnostics };
+        console.error("Electron smoke failure: " + JSON.stringify(failure));
+        recordSmoke("failed", failure);
         app.exit(1);
       });
     }
+  });
+  window.webContents.on("console-message", ({ level, message, lineNumber: line, sourceId }) => {
+    if (!isSmokeTest) return;
+    if (level !== "warning" && level !== "error" && !/mermaid|markdown|unhandled|exception/i.test(message)) return;
+    const entry = { level, message, line, sourceId };
+    recordSmoke("renderer-console", entry);
+    console.error("Renderer console: " + JSON.stringify(entry));
   });
   window.webContents.on("did-fail-load", (_event, code, description) => {
     recordSmoke("load-failed", { code, description });

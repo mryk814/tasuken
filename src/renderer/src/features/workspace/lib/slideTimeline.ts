@@ -1,4 +1,5 @@
-import type { StatusUpdate, Theme } from "../types";
+import { domainCollectionKeyForEntityType } from "../../../../../shared/entityRegistry.mjs";
+import type { EntityType, StatusUpdate, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 
 export type SlideTimelineKind = "task" | "activity";
@@ -70,30 +71,19 @@ function recordTimestamp(record: unknown): string {
   return dateOnly(row.updated_at || row.created_at);
 }
 
+function entityRecords(domain: WorkspaceDomain, type: string): Array<{ id: string; project_id?: string | null; title?: string | null; text?: string | null }> {
+  const key = domainCollectionKeyForEntityType(type as EntityType) as keyof WorkspaceDomain | null;
+  if (!key) return [];
+  const records = domain[key];
+  return Array.isArray(records) ? records as Array<{ id: string; project_id?: string | null; title?: string | null; text?: string | null }> : [];
+}
+
 function entityProjectId(domain: WorkspaceDomain, type: string, id: string): string | null {
-  const collections: Record<string, Array<{ id: string; project_id?: string | null }>> = {
-    task: domain.tasks,
-    waiting: domain.waitings,
-    plan_node: domain.plan_nodes,
-    note: domain.notes,
-    resource: domain.resources,
-    capture_entry: domain.capture_entries,
-    knowledge_node: domain.knowledge_nodes,
-  };
-  return collections[type]?.find((entry) => entry.id === id)?.project_id || null;
+  return entityRecords(domain, type).find((entry) => entry.id === id)?.project_id || null;
 }
 
 function entityTitle(domain: WorkspaceDomain, type: string, id: string): string {
-  const collections: Record<string, Array<{ id: string; title?: string | null; text?: string | null }>> = {
-    task: domain.tasks,
-    waiting: domain.waitings,
-    plan_node: domain.plan_nodes,
-    note: domain.notes,
-    resource: domain.resources,
-    capture_entry: domain.capture_entries,
-    knowledge_node: domain.knowledge_nodes,
-  };
-  const entity = collections[type]?.find((entry) => entry.id === id);
+  const entity = entityRecords(domain, type).find((entry) => entry.id === id);
   return String(entity?.title || entity?.text || type);
 }
 

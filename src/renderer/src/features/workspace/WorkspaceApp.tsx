@@ -949,7 +949,22 @@ export function WorkspaceApp() {
       if (!ok) return;
     }
     try {
-      await removeWorkspaceEntity(type, id);
+      if (type === "task") {
+        const current = fullDomain.tasks.find((task) => task.id === id);
+        if (!current) throw new Error("削除対象のTaskがありません。");
+        const receipt = await workspaceApi.executeCommand({
+          commandId: uuid(),
+          name: "DeleteTask",
+          payload: { taskId: id },
+          actor: { kind: "user" },
+          source: drawer?.commandSource || "main_ui",
+          expectedVersions: [{ type: "task", id, version: Number((current as unknown as Entity).version || 0) }],
+          issuedAt: new Date().toISOString(),
+        });
+        applyCommandReceipt(receipt);
+      } else {
+        await removeWorkspaceEntity(type, id);
+      }
       lastDeleted.current = { type, id };
       drawerFormRef.current = null;
       drawerFormInitialSignature.current = "";

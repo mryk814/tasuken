@@ -12,6 +12,7 @@ export const referenceRelationTypes: readonly ["related_to", "derived_from", "me
 export interface EntityDefinition {
   readonly type: RegistryEntityType;
   readonly collectionKey: string;
+  readonly domainCollectionKey: string | null;
   readonly themePolicy: "none" | "optional" | "required";
   readonly themeField: string | null;
   readonly parseCreate(payload: unknown): Record<string, unknown>;
@@ -20,6 +21,7 @@ export interface EntityDefinition {
 export const entityDefinitions: readonly EntityDefinition[];
 export function entityDefinition(type: RegistryEntityType): EntityDefinition;
 export function collectionKeyForEntityType(type: RegistryEntityType): string;
+export function domainCollectionKeyForEntityType(type: string): string | null;
 export function themeFieldForEntityType(type: RegistryEntityType): string | null;
 export function legacyThemeFieldsForEntityType(type: RegistryEntityType): readonly string[];
 export function requiredFieldsForEntityType(type: RegistryEntityType): readonly string[];

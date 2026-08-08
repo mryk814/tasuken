@@ -168,7 +168,7 @@ export function DraftWorkspaceDialog({
         body_markdown: nextWorkingBody,
         note_type: str(currentNote?.note_type) || "note",
         content_format: "markdown",
-        theme_id: themeId || null,
+        project_id: themeId || null,
         properties_json: {
           ...baseProperties,
           source_draft: false,
