@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconCopy, IconFileText, IconSparkles, IconX } from "@tabler/icons-react";
+import { IconCopy, IconFileText, IconX } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import { buildContextPackMarkdown, contextPackExcerpt } from "../../../../../shared/contextPack.mjs";
 import type { Entity, OpenDrawer, SaveEntity, Theme, WorkspaceData } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
@@ -9,6 +10,7 @@ import { str } from "../lib/format";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { previewHtml } from "../lib/markdown";
 import { themeRefFromEntity } from "../../../../../shared/themeRef.mjs";
+import { Button } from "./common";
 
 type CandidateType = "task" | "note" | "resource" | "artifact";
 
@@ -282,7 +284,7 @@ export function ContextPackDialog({
         <footer>
           <button type="button" className="secondary-button" onClick={() => void copyMarkdown()}><IconCopy size={16} />Markdownをコピー</button>
           <button type="button" className="secondary-button" disabled={saving} onClick={() => void savePack()}><IconFileText size={16} />{savedPack ? "保存済み" : "Context Packを保存"}</button>
-          <button type="button" className="primary-button" disabled={saving} onClick={() => void createAnswerDraft()}><IconSparkles size={16} />AI回答を受け取る</button>
+          <Button variant="ai" disabled={saving} onClick={() => void createAnswerDraft()}><AI_ICON size={16} />AI回答を受け取る</Button>
         </footer>
       </section>
     </div>

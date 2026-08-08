@@ -9,7 +9,7 @@ import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
 import { buildTimelineRows, scaleFromDayWidth, timelineItemScheduleKind, timelineItemState, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { SCHEDULE_KIND_LABELS, TIMELINE_ITEM_STATE_LABELS } from "../domain-model/labels";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttGridBackground, ganttRowHeight } from "../components/gantt";
-import { PageHeader, StatusBadge, ToolbarOverflow } from "../components/common";
+import { Button, PageHeader, StatusBadge, ThemePickerSelect, ToolbarOverflow } from "../components/common";
 import { SlideTimelineDialog } from "../components/SlideTimelineDialog";
 import {
   isTimelineCompleted,
@@ -545,25 +545,32 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   return (
     <div className="page timeline-wide">
       <PageHeader route="timeline">
-        <button className="secondary-button" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</button>
+        <Button variant="secondary" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</Button>
+        <Button variant="primary" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</Button>
       </PageHeader>
       {/* 狭幅では横一列に詰め込まず、意味単位で行送りする。表示切替と一括開閉は
           利用頻度が低いのでメニューへ畳み、幅が変わっても位置を動かさない（#300）。 */}
       <section className="timeline-toolbar toolbar-row panel">
         <label>Theme
-          <select value={themeFilter} onChange={(event) => updatePrefs({ themeFilter: event.target.value })}>
-            <option value="all">すべて</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
-          </select>
+          <ThemePickerSelect
+            themes={themes}
+            value={themeFilter}
+            onChange={(next) => updatePrefs({ themeFilter: next })}
+            allowAll
+            allowNone
+            allLabel="すべて"
+            ariaLabel="Themeで絞り込み"
+          />
         </label>
         <div className="segmented" aria-label="表示範囲">
           {RANGE_BUFFER_OPTIONS.map((option) => <button key={option.value} className={rangeBufferMonths === option.value ? "is-active" : ""} onClick={() => updatePrefs({ rangeBufferMonths: option.value })}>{option.label}</button>)}
         </div>
         {/* 中長期の把握が主用途（#318）。週間はTodayと役割が重なるのでmenuへ畳む。 */}
         <div className="segmented" aria-label="表示倍率">{LONG_RANGE_ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => applyZoom(pw)}>{label}</button>)}</div>
-        <button
-          className={`secondary-button compact ${connectMode || connecting ? "is-active" : ""}`}
+        <Button
+          variant="secondary"
+          compact
+          className={connectMode || connecting ? "is-active" : ""}
           onClick={() => {
             const next = !(connectMode || connecting);
             setConnectMode(next);
@@ -572,15 +579,16 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
           }}
         >
           依存をつなぐ
-        </button>
+        </Button>
         {/* 展開と折りたたみは同時に出さず、いまの状態から次の操作だけを出す（#318）。 */}
-        <button
-          className="secondary-button compact"
+        <Button
+          variant="secondary"
+          compact
           aria-expanded={!allThemesCollapsed}
           onClick={() => setCollapsedThemes(allThemesCollapsed ? [] : groupKeys)}
         >
           {allThemesCollapsed ? "すべて展開" : "すべて折りたたむ"}
-        </button>
+        </Button>
         <ToolbarOverflow label="表示" ariaLabel="タイムラインの表示切替">
           <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
           <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
@@ -595,7 +603,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         {connecting && (
           <div className="connect-status-popover" role="status" aria-live="polite">
             <span>{connecting.sourceTitle ? <>先行: <strong>{connecting.sourceTitle}</strong> → 後続タスクをクリック</> : "先行タスクをクリック"}</span>
-            <button className="danger-button compact" onClick={() => { setConnecting(null); setConnectMode(false); }}>キャンセル</button>
+            <Button variant="secondary" compact onClick={() => { setConnecting(null); setConnectMode(false); }}>キャンセル</Button>
           </div>
         )}
         <div className="gantt-table">
@@ -675,9 +683,11 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                         {item.title}
                       </button>
                       {/* 状態は色だけで伝えず、語でも読めるようにする（#312 / #318）。 */}
-                      <span className={`timeline-state-chip is-state-${timelineItemState(item, today)}`}>
-                        {TIMELINE_ITEM_STATE_LABELS[timelineItemState(item, today)]}
-                      </span>
+                      <StatusBadge
+                        value={timelineItemState(item, today)}
+                        label={TIMELINE_ITEM_STATE_LABELS[timelineItemState(item, today)]}
+                        className={`timeline-state-chip is-state-${timelineItemState(item, today)}`}
+                      />
                       {(scheduleKind === "execution_window" || scheduleKind === "ongoing_period" || scheduleKind === "unspecified_range") && (
                         <span className={`timeline-range-chip is-range-${scheduleKind}`}>
                           {SCHEDULE_KIND_LABELS[scheduleKind]}

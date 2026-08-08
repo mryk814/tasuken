@@ -385,7 +385,7 @@ test("ChatRefsは会話閲覧へ集中し、まとめコピーをmenuへ畳む�
 
   // 主操作は会話へ戻る・取り込む・追加。
   assert.match(header, /会話ログを取り込む/);
-  assert.match(header, /className="primary-button"/);
+  assert.match(header, /<Button variant="primary"/);
 
   // 一覧はprovider / title / Theme / 時刻を短く出し、URL文字列は載せない。
   assert.match(source, /className="chat-link-meta"/);

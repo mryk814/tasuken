@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { IconCopy, IconFileText, IconMessage2Plus, IconSparkles } from "@tabler/icons-react";
+import { IconCopy, IconMessage2Plus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import type { BaseRecord, PageProps, SaveOperation } from "../types";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
@@ -10,7 +11,7 @@ import { compactNotesBodyPreview } from "../lib/notes";
 import { buildCompleteTaskOperations } from "../domain-model/taskRecurrence";
 import { buildTaskSection, groupTasksBySection, listTaskSections, type TaskSection, type TaskSectionGroup } from "../lib/taskSections";
 import { ArtifactSection } from "../components/artifacts";
-import { EmptyState, PageHeader, SimpleRows, StatusBadge } from "../components/common";
+import { ActionButton, Button, EmptyState, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 import type { Schedule, Task } from "../domain-model/types";
 
 const REPORT_TYPE_LABELS: Record<string, string> = {
@@ -214,9 +215,9 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
     <div className="page">
       <PageHeader title={theme.name} subtitle={theme.description}>
         {theme.code && <span className="theme-code">{theme.code}</span>}
-        <button className="secondary-button" onClick={() => openContextPack(theme.id)}><IconSparkles size={16} />AI向けContext</button>
-        <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: theme.id } })}>現在地を記録</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: theme.id } })}>タスクを追加</button>
+        <Button variant="ai" onClick={() => openContextPack(theme.id)}><AI_ICON size={16} />AI向けContext</Button>
+        <Button variant="secondary" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: theme.id } })}>現在地を記録</Button>
+        <ActionButton action="themeAddTask" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: theme.id } })}>タスクを追加</ActionButton>
       </PageHeader>
       {/*
         Themeへ戻ったとき短時間で状況を把握するOverview（#321）。
@@ -230,11 +231,11 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
             {reportNotes.length > REPORT_PREVIEW_LIMIT && (
               <button className="text-button compact" onClick={() => navigate("notes")}>すべて表示</button>
             )}
-            <button className="secondary-button compact" onClick={defaultPrompt ? () => copyNoteText(defaultPrompt, "報告書プロンプトをコピーしました。") : addPrompt}>
+            <Button variant="secondary" compact onClick={defaultPrompt ? () => copyNoteText(defaultPrompt, "報告書プロンプトをコピーしました。") : addPrompt}>
               {defaultPrompt ? <IconCopy size={15} /> : <IconMessage2Plus size={15} />}
               {defaultPrompt ? "プロンプトをコピー" : "プロンプトを追加"}
-            </button>
-            <button className="primary-button compact" onClick={addReport}><IconFileText size={15} />報告書を追加</button>
+            </Button>
+            <ActionButton action="themeAddReport" compact onClick={addReport}>報告書を追加</ActionButton>
           </div>
         </div>
         <div className="report-list">
@@ -253,9 +254,9 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
                     {formatDate(str(note.updated_at || note.created_at))}
                   </span>
                 </button>
-                <button className="secondary-button compact icon-only" onClick={() => copyNoteText(note, "報告書本文をコピーしました。")} aria-label={`${note.title}の本文をコピー`} title="本文をコピー">
+                <Button variant="secondary" compact className="icon-only" onClick={() => copyNoteText(note, "報告書本文をコピーしました。")} aria-label={`${note.title}の本文をコピー`} title="本文をコピー">
                   <IconCopy size={15} />
-                </button>
+                </Button>
               </div>
             );
           })}
@@ -396,7 +397,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
         <div className="section-heading"><h2>タスクセクション</h2><span>{taskSections.length}件</span></div>
         <div className="section-create-row">
           <input value={sectionTitle} onChange={(event) => setSectionTitle(event.target.value)} placeholder="見出し名" />
-          <button className="secondary-button compact" onClick={addTaskSection}>追加</button>
+          <Button variant="secondary" compact onClick={addTaskSection}>追加</Button>
         </div>
         <TaskSectionBoard
           groups={taskSectionGroups}

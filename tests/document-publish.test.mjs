@@ -45,7 +45,7 @@ test("document publish uses Markdown as primary output and removes Word", () => 
   assert.match(notesSource, /exportSelectedMarkdown/);
   assert.match(notesSource, /document-publish-open|IconFolder/);
   assert.match(notesSource, /markdown_export/);
-  assert.match(notesSource, /primary-button compact.*exportSelectedMarkdown|exportSelectedMarkdown[\s\S]*primary-button/);
+  assert.match(notesSource, /exportSelectedMarkdown\(false\)/);
   assert.doesNotMatch(notesSource, /Document Publish|Publish対象|Word出力|exportSelectedWord|word_export|exportMarkdownNoteToWord|Markdown=AI|document-publish-inline-meta/);
 
   assert.match(workspaceServiceSource, /PDF は都度選択する/);

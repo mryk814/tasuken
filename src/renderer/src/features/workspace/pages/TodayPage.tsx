@@ -13,7 +13,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { CalendarConnectionStatus, CalendarEvent, CalendarEventsResult } from "../../../../../shared/calendar";
-import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
@@ -24,7 +24,7 @@ import { buildActivityLog, collectActivityLogEntries } from "../lib/activityLog"
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import { taskShelfStatus } from "../lib/taskShelves";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -463,10 +463,10 @@ function OngoingPeriodTaskRows({
             <time>{scheduleRangeLabel(row.schedule)}</time>
             {/* 終了日が来ただけでは自動完了しない。完了・延長・そのまま継続を選べるようにする。 */}
             <span className="period-row-actions" onClick={(event) => event.stopPropagation()}>
-              <button className="secondary-button compact" onClick={() => onRecordToday(row)}>今日取り組んだ</button>
-              <button className="secondary-button compact" onClick={() => onPlanToday(row)}>今日やる</button>
-              {row.pastEnd && <button className="secondary-button compact" onClick={() => onExtendPeriod(row)}>期間を延長</button>}
-              <button className="secondary-button compact" onClick={() => onFinishPeriod(row)}>継続を終了</button>
+              <Button variant="secondary" compact onClick={() => onRecordToday(row)}>今日取り組んだ</Button>
+              <Button variant="secondary" compact onClick={() => onPlanToday(row)}>今日やる</Button>
+              {row.pastEnd && <Button variant="secondary" compact onClick={() => onExtendPeriod(row)}>期間を延長</Button>}
+              <Button variant="secondary" compact onClick={() => onFinishPeriod(row)}>継続を終了</Button>
             </span>
           </div>
         );
@@ -503,7 +503,7 @@ function CandidateTaskRows({
               <strong>{row.task.title}</strong>
               <span>{theme?.name || "個人業務"} / {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
             </button>
-            <button className="secondary-button compact" onClick={() => onMoveToday(row)}>今日へ</button>
+            <Button variant="secondary" compact onClick={() => onMoveToday(row)}>今日へ</Button>
           </div>
         );
       })}
@@ -575,9 +575,9 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
         </div>
         <div className="today-calendar-empty">
           <p>外部カレンダーが未接続です。</p>
-          <button className="secondary-button compact" onClick={() => navigate("settings")}>
+          <Button variant="secondary" compact onClick={() => navigate("settings")}>
             Settingsで接続
-          </button>
+          </Button>
         </div>
       </section>
     );
@@ -600,14 +600,15 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
               {new Date(calendarResult.fetchedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}更新
             </span>
           )}
-          <button
-            className="secondary-button compact"
+          <Button
+            variant="secondary"
+            compact
             onClick={fetchEvents}
             disabled={calendarLoading}
             aria-label="カレンダーを更新"
           >
             <IconRefresh size={14} /> {calendarLoading ? "取得中" : "更新"}
-          </button>
+          </Button>
         </div>
       </div>
       {calendarResult?.stale && calendarResult.error && (
@@ -616,7 +617,7 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
       {hasError ? (
         <div className="today-calendar-error">
           <p>{calendarResult!.error}</p>
-          <button className="secondary-button compact" onClick={fetchEvents}>再試行</button>
+          <Button variant="secondary" compact onClick={fetchEvents}>再試行</Button>
         </div>
       ) : calendarLoading && !calendarResult ? (
         <p className="today-calendar-loading">予定を取得中…</p>
@@ -660,7 +661,7 @@ function buildDisconnectedCalendarStatus(): CalendarConnectionStatus {
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, openDailyScratchpad, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
-  const [addTheme, setAddTheme] = useState("");
+  const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [activityDate, setActivityDate] = useState(todayIso());
   const [activityDirectory, setActivityDirectory] = useState("");
   const [activityAutoExportTime, setActivityAutoExportTime] = useState("");
@@ -1067,12 +1068,12 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
         primary actionは一つにし、コピーやActivityへの移動はmenuへ畳む。
       */}
       <PageHeader route="today">
-        <button className="secondary-button" onClick={() => openDailyScratchpad(today)}>
+        <Button variant="secondary" onClick={() => openDailyScratchpad(today)}>
           <IconNotebook size={16} /> 今日のScratchpad
-        </button>
-        <button className="secondary-button" onClick={openTodayTasksWindow}>
+        </Button>
+        <Button variant="secondary" onClick={openTodayTasksWindow}>
           <IconCalendarCheck size={16} /> 今日やること
-        </button>
+        </Button>
         <ToolbarMenu
           label="その他"
           title="Todayのその他の操作"
@@ -1090,9 +1091,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
             },
           ]}
         />
-        <button className="primary-button" onClick={() => setShowAdd((v) => !v)} aria-expanded={showAdd}>
+        <Button variant="primary" onClick={() => setShowAdd((v) => !v)} aria-expanded={showAdd}>
           <IconPlus size={16} /> 今日のTaskを追加
-        </button>
+        </Button>
       </PageHeader>
 
       {showAdd && (
@@ -1119,8 +1120,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
             <span className="focus-hero-meta">{themes.find((t) => t.id === focusItem.projectId)?.name || "個人業務"} / {focusItem.kindLabel}{focusItem.date ? ` / ${formatDate(focusItem.date)}` : ""}</span>
           </div>
           <div className="focus-hero-actions">
-            <button className="secondary-button compact" onClick={(e) => { e.stopPropagation(); handleToggleComplete(focusItem); }}>{canComplete(focusItem) ? "完了" : "開く"}</button>
-            {hasSchedule(focusItem) && <button className="secondary-button compact" onClick={(e) => { e.stopPropagation(); handlePostpone(focusItem, 1); }}>+1日</button>}
+            <Button variant="secondary" compact onClick={(e) => { e.stopPropagation(); handleToggleComplete(focusItem); }}>{canComplete(focusItem) ? "完了" : "開く"}</Button>
+            {hasSchedule(focusItem) && <Button variant="secondary" compact onClick={(e) => { e.stopPropagation(); handlePostpone(focusItem, 1); }}>+1日</Button>}
             <IconChevronRight size={18} className="focus-hero-arrow" />
           </div>
         </section>
@@ -1223,8 +1224,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           <h2>Activity <span className="activity-count">{activityCount}</span></h2>
           <div className="inline-actions">
             <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity対象日" />
-            <button className="secondary-button compact" onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。", "success"))}>コピー</button>
-            <button className="secondary-button compact" onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</button>
+            <Button variant="secondary" compact onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。", "success"))}>コピー</Button>
+            <Button variant="secondary" compact onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</Button>
           </div>
         </div>
         {activityGroups.length ? (
@@ -1256,9 +1257,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           <span className="activity-output-path">
             {activityFilePath ? `最新の手動出力: ${activityFilePath}` : activityDirectory ? `出力先: ${activityDirectory}` : "先に自動出力先を選択してください。"}
           </span>
-          <button className="secondary-button compact" disabled={exportingActivity} onClick={() => void chooseActivityDirectory()}>
+          <Button variant="secondary" compact disabled={exportingActivity} onClick={() => void chooseActivityDirectory()}>
             出力先を選択
-          </button>
+          </Button>
           <small>アプリ停止中の未出力分は、次回起動時に日ごとに補完します。</small>
         </div>
       </section>

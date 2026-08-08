@@ -26,7 +26,7 @@ import type { PageProps } from "../types";
 import { inferChatServiceFromUrl } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
 import { formatDate, uuid } from "../lib/format";
-import { EmptyState, PageHeader } from "../components/common";
+import { ActionButton, Button, EmptyState, PageHeader } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { buildInboxView, buildMicroMemoView } from "../domain-model/selectors";
 import {
@@ -643,7 +643,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
             },
           ]}
         />
-        <button className="primary-button" onClick={addMemo}><IconPlus size={16} />Memo</button>
+        <Button variant="primary" onClick={addMemo}><IconPlus size={16} />Memo</Button>
       </PageHeader>
       <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
         <button className={lane === "untriaged" ? "is-active" : ""} aria-current={lane === "untriaged" ? "page" : undefined} onClick={() => setLane("untriaged")}>
@@ -688,9 +688,9 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
           <label>予定日
             <input type="date" defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ planned_end: e.target.value }); }} />
           </label>
-          <button className="secondary-button compact" onClick={() => bulkPatch({ today_flag: true, planned_end: today })}>今日やる</button>
-          <button className="secondary-button compact" onClick={() => bulkPatch({ priority: "high" })}>優先</button>
-          <button className="primary-button compact" onClick={organizeSelected}>一括整理</button>
+          <Button variant="secondary" compact onClick={() => bulkPatch({ today_flag: true, planned_end: today })}>今日やる</Button>
+          <Button variant="secondary" compact onClick={() => bulkPatch({ priority: "high" })}>優先</Button>
+          <Button variant="primary" compact onClick={organizeSelected}>一括整理</Button>
         </section>
       )}
       {lane === "untriaged" ? <section className="panel inbox-panel">
@@ -891,9 +891,9 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
                       >
                         <IconArchive size={15} />
                       </button>
-                      <button className="primary-button compact" disabled={isOrganizing} onClick={() => organize(row)}>
+                      <ActionButton action="inboxOrganize" compact disabled={isOrganizing} onClick={() => organize(row)}>
                         {isOrganizing ? "整理中..." : "整理する"}
-                      </button>
+                      </ActionButton>
                     </div>
                   </div>
                 </div>
@@ -933,14 +933,14 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
                 )}
                 <div className="inbox-processed-actions">
                   {entry.state === "triaged" && entry.triaged_to_id && (
-                    <button className="secondary-button compact" onClick={() => openProcessedEntry(entry)}>
+                    <Button variant="secondary" compact onClick={() => openProcessedEntry(entry)}>
                       <IconExternalLink size={14} />整理先を開く
-                    </button>
+                    </Button>
                   )}
                   {entry.state === "archived" && (
-                    <button className="secondary-button compact" onClick={() => void restoreToInbox(entry)}>
+                    <Button variant="secondary" compact onClick={() => void restoreToInbox(entry)}>
                       <IconRestore size={14} />Inboxへ戻す
-                    </button>
+                    </Button>
                   )}
                 </div>
               </article>

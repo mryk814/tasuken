@@ -13,9 +13,9 @@ const drawer = read("src/renderer/src/features/workspace/components/drawer.tsx")
 const inbox = read("src/renderer/src/features/workspace/pages/InboxPage.tsx");
 
 test("Sketch is an independent Knowledge shelf with a dedicated editor route", () => {
-  assert.match(routes, /sketch: \{ label: "Sketch" \}/);
-  assert.match(routes, /knowledgeHubTabs = \[[^\]]*"sketch"/);
-  assert.match(routes, /"sketch-editor":\s*"sketch"/);
+  assert.match(routes, /id: "sketch", label: "Sketch"/);
+  assert.match(routes, /id: "sketch"[\s\S]*group: "knowledge"/);
+  assert.match(routes, /id: "sketch-editor", parent: "sketch"/);
   assert.match(router, /case "sketch":[\s\S]*?<SketchLibraryPage/);
   assert.match(router, /case "sketch-editor":[\s\S]*?<SketchPage/);
   assert.match(app, /route === "sketch-editor"/);
@@ -69,7 +69,7 @@ test("Sketch metadata and deletion live in the detail-edit drawer", () => {
   assert.match(drawer, /type === "sketch"/);
   assert.doesNotMatch(drawer, /Sketchを開く/);
   assert.match(drawer, /SketchのThemeを更新しました/);
-  assert.match(drawer, /saveEntity\("sketch",[\s\S]*?project_id: canonicalThemeId\(select\.value, \{ defaultPersonal: true \}\)/);
+  assert.match(drawer, /ThemePickerSelect[\s\S]*?saveEntity\("sketch",[\s\S]*?project_id: canonicalThemeId\(next\)/);
   assert.match(drawer, /fieldName="project_id"/);
   assert.match(drawer, /entityId && removeEntity[\s\S]*?removeEntity\(type as Parameters<RemoveEntity>\[0\], entity\)/);
   assert.doesNotMatch(editor, /Sketchを削除|deleteSketch/);

@@ -1,7 +1,7 @@
-import { IconChevronDown, IconPlus } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { NOTES_KIND_LABELS, type NotesKind } from "../lib/domain";
+import { ActionButton } from "./common";
 
 const CREATE_ORDER: NotesKind[] = ["note", "resource", "report", "prompt"];
 
@@ -45,26 +45,26 @@ export function NoteCreateMenu({
 
   return (
     <div className="note-create-menu" ref={anchorRef}>
-      <button
-        className="primary-button note-create-primary"
+      <ActionButton
+        action="notesCreate"
+        className="note-create-primary"
         type="button"
         onClick={() => choose(defaultKind)}
       >
-        <IconPlus size={16} aria-hidden="true" />
         {NOTES_KIND_LABELS[defaultKind]}を追加
-      </button>
-      <button
-        className="primary-button note-create-toggle"
+      </ActionButton>
+      <ActionButton
+        action="notesCreateMenu"
+        className="note-create-toggle"
         type="button"
+        iconOnly
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
         aria-label="追加する種類を選ぶ"
         title="追加する種類を選ぶ"
         onClick={() => setOpen((current) => !current)}
-      >
-        <IconChevronDown size={15} aria-hidden="true" />
-      </button>
+      />
       {open && (
         <div className="note-create-list" id={menuId} role="menu" aria-label="追加する種類">
           {CREATE_ORDER.map((kind) => (

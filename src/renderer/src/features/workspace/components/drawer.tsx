@@ -55,7 +55,7 @@ import {
   WaitingFields,
 } from "./drawerEntityFields";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { DrawerHeader, Field, StatusBadge, ThemeSelect, type CloseDrawer } from "./common";
+import { DrawerHeader, Field, StatusBadge, ThemePickerSelect, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import { ChatGroupPicker, ThemeColorPicker, ThemeGroupPicker, ThemeStorageRootField } from "./drawerPickers";
 import {
@@ -216,29 +216,24 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         </div>
         <h2>{sketch.title || "無題のSketch"}</h2>
         <Field label="Theme">
-          <select
-            defaultValue={sketch.project_id || ""}
-            onChange={async (event) => {
-              const select = event.currentTarget;
-              const previousValue = sketch.project_id || "";
-              select.disabled = true;
+          <ThemePickerSelect
+            themes={data.themes}
+            value={sketch.project_id || ""}
+            onChange={async (next) => {
               try {
                 await saveEntity("sketch", {
                   ...sketch,
-                  project_id: canonicalThemeId(select.value, { defaultPersonal: true }),
+                  project_id: canonicalThemeId(next),
                 });
                 setToast("SketchのThemeを更新しました。", "success");
               } catch (error) {
-                select.value = previousValue;
                 setToast(`Themeを更新できませんでした。もう一度選択してください。${error instanceof Error ? ` ${error.message}` : ""}`, "danger");
-              } finally {
-                select.disabled = false;
               }
             }}
-          >
-            <option value="">Theme未設定</option>
-            {data.themes.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-          </select>
+            allowPersonal
+            allowNone
+            ariaLabel="SketchのTheme"
+          />
         </Field>
         <dl>
           <dt>作成</dt><dd>{formatDate(sketch.created_at)}</dd>

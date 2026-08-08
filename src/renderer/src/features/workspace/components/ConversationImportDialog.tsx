@@ -18,6 +18,7 @@ import {
 import { uuid } from "../lib/format";
 import { previewHtml } from "../lib/markdown";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { ThemePickerSelect } from "./common";
 import type { SaveEntities, Theme } from "../types";
 
 type DialogState =
@@ -114,7 +115,7 @@ export function ConversationImportDialog({
         url: url || null,
         description: null,
         body_markdown: rawText,
-        project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
+        project_id: canonicalThemeId(themeId),
         source_record_id: null,
         link_type: linkType !== "other" ? linkType : null,
         reference_status: "inbox",
@@ -252,10 +253,14 @@ export function ConversationImportDialog({
             </div>
             <label>
               Theme
-              <select value={themeId} onChange={(e) => setThemeId(e.target.value)}>
-                <option value="">未設定</option>
-                {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              <ThemePickerSelect
+                themes={themes}
+                value={themeId}
+                onChange={setThemeId}
+                allowPersonal
+                allowNone
+                ariaLabel="Theme"
+              />
             </label>
             <label>
               グループ

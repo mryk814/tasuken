@@ -9,6 +9,7 @@ import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTask
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
 import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { ActionButton, Button } from "./common";
 
 type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update";
 type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact";
@@ -398,9 +399,9 @@ export function AiProposalPanel(props: PageProps) {
               <p className="proposal-validation-hint"><IconAlertTriangle size={14} aria-hidden="true" />検証・差分・採用範囲はPreviewで確認できます。</p>
             </div>
             <div className="proposal-row-actions">
-              <button className="primary-button compact" onClick={() => previewProposal(proposal)}>Preview</button>
-              <button className="danger-button compact" onClick={() => rejectProposal(proposal)}>拒否する</button>
-              <button className="secondary-button compact" onClick={() => { setQuarantineId(proposal.id); setQuarantineReason(""); }}>隔離する</button>
+              <ActionButton action="aiProposalPreview" compact onClick={() => previewProposal(proposal)}>Preview</ActionButton>
+              <ActionButton action="actionReject" compact onClick={() => rejectProposal(proposal)}>拒否する</ActionButton>
+              <Button variant="secondary" compact onClick={() => { setQuarantineId(proposal.id); setQuarantineReason(""); }}>隔離する</Button>
             </div>
             {quarantineId === proposal.id && (
               <div className="proposal-quarantine-form">
@@ -408,8 +409,8 @@ export function AiProposalPanel(props: PageProps) {
                   <span>隔離理由</span>
                   <input value={quarantineReason} onChange={(event) => setQuarantineReason(event.target.value)} placeholder="例: 対象Themeを確認してから扱う" autoFocus />
                 </label>
-                <button className="secondary-button compact" onClick={() => void quarantineProposal(proposal)}>隔離を保存</button>
-                <button className="text-button compact" onClick={() => setQuarantineId("")}>戻る</button>
+                <Button variant="secondary" compact onClick={() => void quarantineProposal(proposal)}>隔離を保存</Button>
+                <Button variant="ghost" compact onClick={() => setQuarantineId("")}>戻る</Button>
               </div>
             )}
           </div>
@@ -492,9 +493,9 @@ export function AiProposalPanel(props: PageProps) {
             </div>
           ))}
           <div className="form-actions">
-            <button className="secondary-button" onClick={() => setPreview(null)}>閉じる</button>
-            <button className="danger-button" onClick={() => void rejectProposal(selected)}>拒否する</button>
-            <button className="primary-button" onClick={() => void acceptProposal(selected)}>採用を保存</button>
+            <ActionButton action="actionCancel" onClick={() => setPreview(null)}>閉じる</ActionButton>
+            <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>拒否する</ActionButton>
+            <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal(selected)}>採用を保存</ActionButton>
           </div>
         </section>
       )}

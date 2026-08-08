@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { IconSparkles } from "@tabler/icons-react";
-
 import type { AiNoteMode, AiNoteScope } from "../../../../../shared/ai";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { BaseRecord, PageProps, SaveEntity } from "../types";
 import { str, uuid } from "../lib/format";
@@ -73,7 +72,7 @@ export function NoteAiDialog({ note, body, target, saveEntity, setToast, onClose
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="modal-card note-ai-dialog" role="dialog" aria-modal="true" aria-label="NoteをAIで編集">
         <div className="section-heading">
-          <h2><IconSparkles size={18} />Note AI</h2>
+          <h2><AI_ICON size={18} />Note AI</h2>
           <span>{target.scope === "selection" ? "選択範囲" : "文書全体"}</span>
         </div>
         <div className="segmented" aria-label="AI編集モード">

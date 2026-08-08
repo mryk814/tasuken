@@ -2,14 +2,14 @@ import { IconPencil, IconTrash } from "@tabler/icons-react";
 
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
-import { PageHeader } from "../components/common";
+import { ActionButton, PageHeader } from "../components/common";
 
 export function ThemesPage({ data, themes, domain: v2, activeThemeId, setActiveThemeId, navigate, openDrawer, removeEntity }: PageProps) {
 
   return (
     <div className="page">
       <PageHeader route="themes">
-        <button className="primary-button" onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>テーマを追加</button>
+        <ActionButton action="themesAdd" onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>テーマを追加</ActionButton>
       </PageHeader>
       <div className="theme-card-grid">
         {themes.map((theme, index) => {

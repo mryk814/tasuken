@@ -11,7 +11,7 @@ const chatRefsPageSource = readFileSync("src/renderer/src/features/workspace/pag
 
 test("Prompts are folded into Notes instead of a separate Knowledge nav item", () => {
   assert.doesNotMatch(routesSource, /\["prompts", "Prompts"\]/);
-  assert.match(routesSource, /prompts:\s*"notes"/);
+  assert.match(routesSource, /id: "prompts", parent: "notes"/);
   assert.match(workspaceAppSource, /route === "prompts" \? "notes"/);
   assert.doesNotMatch(workspaceAppSource, /PromptsPage/);
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/PromptsPage.tsx"), false);
@@ -37,9 +37,9 @@ test("Notes kinds are simplified to Note Resource Report Prompt", () => {
   const createMenuSource = readFileSync("src/renderer/src/features/workspace/components/NoteCreateMenu.tsx", "utf8");
   assert.match(notesPageSource, /<NoteCreateMenu /);
   assert.match(createMenuSource, /\["note", "resource", "report", "prompt"\]/);
-  assert.match(createMenuSource, /className="primary-button note-create-primary"/);
+  assert.match(createMenuSource, /action="notesCreate"/);
   // コピー操作は secondary のまま。
-  assert.match(notesPageSource, /secondary-button[\s\S]*?>一覧をコピー</);
+  assert.match(notesPageSource, /<Button variant="secondary" onClick=\{copy\}>一覧をコピー<\/Button>/);
   assert.match(notesPageSource, /body_markdown/);
   assert.match(notesPageSource, /recordType === "resource"/);
 });

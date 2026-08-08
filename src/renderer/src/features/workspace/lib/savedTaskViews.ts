@@ -36,7 +36,7 @@ const TASK_STATES = new Set(["", "todo", "doing", "waiting", "review", "done", "
 
 export const DEFAULT_TASK_VIEW_FILTERS: TaskViewFilters = {
   tab: "open",
-  themeId: "",
+  themeId: "all",
   state: "",
   priority: "",
   schedule: "",
@@ -58,9 +58,10 @@ export function normalizeTaskViewFilters(value: unknown): TaskViewFilters {
   const schedule = text(raw.schedule);
   const state = text(raw.state);
   const rangeSemantics = text(raw.rangeSemantics);
+  const themeId = typeof raw.themeId === "string" ? raw.themeId : DEFAULT_TASK_VIEW_FILTERS.themeId;
   return {
     tab: (TASK_VIEW_TABS.has(tab) ? tab : DEFAULT_TASK_VIEW_FILTERS.tab) as TaskViewTab,
-    themeId: text(raw.themeId),
+    themeId,
     state: TASK_STATES.has(state) ? state : "",
     priority: (TASK_VIEW_PRIORITIES.has(priority) ? priority : "") as TaskViewPriority,
     schedule: (TASK_VIEW_SCHEDULES.has(schedule) ? schedule : "") as TaskViewSchedule,
@@ -91,7 +92,10 @@ export function filterTodoRows(rows: TodoRow[], filters: Partial<TaskViewFilters
     if (normalized.tab === "no-schedule" && (isDoneRow(row) || date)) return false;
     if (normalized.tab === "overdue" && (isDoneRow(row) || !date || date >= today)) return false;
     if (normalized.tab === "open" && isDoneRow(row)) return false;
-    if (normalized.themeId && row.task.project_id !== normalized.themeId) return false;
+    if (normalized.themeId !== "all") {
+      if (!normalized.themeId && row.task.project_id) return false;
+      if (normalized.themeId && row.task.project_id !== normalized.themeId) return false;
+    }
     if (normalized.state && row.task.state !== normalized.state) return false;
     if (normalized.priority && row.task.priority !== normalized.priority) return false;
     if (normalized.schedule === "scheduled" && !date) return false;

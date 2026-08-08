@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { IconAlertTriangle, IconCheck, IconInfoCircle, IconTrash } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../services/workspaceApi";
+import { actionDefinition, TOAST_ACTIONS } from "../../pages/semanticActions";
 import { routeAliases, routeLabel } from "../../pages/routes";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -83,10 +83,8 @@ function errorMessage(error: unknown): string {
 }
 
 function toastIcon(tone: ToastTone) {
-  if (tone === "danger") return <IconAlertTriangle size={18} />;
-  if (tone === "warning") return <IconTrash size={18} />;
-  if (tone === "success") return <IconCheck size={18} />;
-  return <IconInfoCircle size={18} />;
+  const ToastIcon = actionDefinition(TOAST_ACTIONS[tone]).icon;
+  return ToastIcon ? <ToastIcon size={18} /> : null;
 }
 
 function formSignature(form: HTMLFormElement): string {

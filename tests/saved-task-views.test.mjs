@@ -63,6 +63,12 @@ test("saved task view filters distinguish range semantics without inspecting dat
   assert.deepEqual(savedViews.filterTodoRows(rows, filters, "2026-07-05").map((entry) => entry.task.id), ["ongoing"]);
 });
 
+test("saved task Theme filter keeps all sentinel separate from explicit Themeなし", () => {
+  const rows = [row("none", { project_id: null }), row("personal", { project_id: "theme-personal-default" })];
+  assert.deepEqual(savedViews.filterTodoRows(rows, { tab: "open", themeId: "all" }, "2026-07-05").map((entry) => entry.task.id), ["none", "personal"]);
+  assert.deepEqual(savedViews.filterTodoRows(rows, { tab: "open", themeId: "" }, "2026-07-05").map((entry) => entry.task.id), ["none"]);
+});
+
 test("saved task views ignore malformed filters and tolerate deleted themes", () => {
   const view = savedViews.normalizeSavedTaskView({
     id: "view-1",

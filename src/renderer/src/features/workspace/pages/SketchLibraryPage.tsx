@@ -2,7 +2,7 @@ import { IconArrowsMaximize, IconFile, IconPlus, IconWriting, IconX } from "@tab
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { usePersistentState } from "../../../utils/usePersistentState";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import {
   resolveSketchPageSize,
@@ -174,12 +174,12 @@ export function SketchLibraryPage({
             },
           ]}
         />
-        <button
-          className="primary-button"
+        <Button
+          variant="primary"
           onClick={() => void startSketch("page", SKETCH_PAGE_PRESETS.landscape)}
         >
           <IconPlus size={16} />新しいSketch
-        </button>
+        </Button>
       </PageHeader>
 
       <div className="filter-bar panel sketch-library-filters">
@@ -190,14 +190,15 @@ export function SketchLibraryPage({
           placeholder="タイトル・Themeで検索"
           aria-label="Sketchを検索"
         />
-        <select
+        <ThemePickerSelect
+          themes={themes}
           value={preferences.themeId}
-          onChange={(event) => setPreferences((current) => ({ ...current, themeId: event.target.value }))}
-          aria-label="SketchをThemeで絞り込み"
-        >
-          <option value="all">Theme: すべて</option>
-          {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-        </select>
+          onChange={(themeId) => setPreferences((current) => ({ ...current, themeId }))}
+          allowAll
+          allowNone
+          allLabel="Theme: すべて"
+          ariaLabel="SketchをThemeで絞り込み"
+        />
         <select
           value={preferences.sortOrder}
           onChange={(event) => setPreferences((current) => ({
@@ -304,13 +305,13 @@ export function SketchLibraryPage({
             ) : (
               <p className="sketch-mode-description">2400 × 1600から始まり、描画に合わせて右・下へ広がります。</p>
             )}
-            <button
-              className="primary-button"
+            <Button
+              variant="primary"
               disabled={createMode === "page" && !resolveSketchPageSize(pageSize)}
               onClick={createSketch}
             >
               {createMode === "page" ? "Pageを作成" : "Infiniteを作成"}
-            </button>
+            </Button>
           </section>
         </div>
       )}

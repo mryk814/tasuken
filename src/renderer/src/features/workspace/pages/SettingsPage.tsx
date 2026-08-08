@@ -9,7 +9,7 @@ import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMet
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
 import { entityTitle } from "../lib/domain";
-import { PageHeader } from "../components/common";
+import { Button, PageHeader } from "../components/common";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -364,8 +364,8 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         <section className="panel settings-form">
           <h2>バックアップ</h2>
           <p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p>
-          <button className="secondary-button" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</button>
-          <button className="secondary-button" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</button>
+          <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</Button>
+          <Button variant="secondary" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</Button>
         </section>
         <section className="panel settings-form sync-settings-panel">
           <div className="settings-section-heading">
@@ -406,14 +406,14 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           </dl>
           {syncStatus?.lastError && <p className="form-error">同期エラー: {syncStatus.lastError}</p>}
           <div className="settings-action-row">
-            <button className="secondary-button" disabled={syncBusy} onClick={chooseSyncDirectory}>
+            <Button variant="secondary" disabled={syncBusy} onClick={chooseSyncDirectory}>
               {syncStatus?.directory ? "同期先を変更" : "同期先を選ぶ"}
-            </button>
+            </Button>
             {syncStatus?.enabled && (
               <>
-                <button className="primary-button" disabled={syncBusy} onClick={runSharedSync}>
+                <Button variant="primary" disabled={syncBusy} onClick={runSharedSync}>
                   {syncBusy ? "同期中" : "今すぐ同期"}
-                </button>
+                </Button>
                 <button className="text-button" disabled={syncBusy} onClick={disableSharedSync}>停止</button>
               </>
             )}
@@ -432,8 +432,8 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             </div>
           </dl>
           <div className="settings-action-row">
-            <button className="secondary-button" onClick={chooseArtifactDirectory}>保存先を選ぶ</button>
-            {artifactDirectory && <button className="secondary-button" onClick={openArtifactDirectory}>フォルダを開く</button>}
+            <Button variant="secondary" onClick={chooseArtifactDirectory}>保存先を選ぶ</Button>
+            {artifactDirectory && <Button variant="secondary" onClick={openArtifactDirectory}>フォルダを開く</Button>}
           </div>
         </section>
         <section className="panel settings-form mcp-settings-panel">
@@ -455,8 +455,8 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             </div>
           </dl>
           <div className="settings-action-row">
-            <button className="primary-button" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</button>
-            <button className="secondary-button" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</button>
+            <Button variant="primary" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</Button>
+            <Button variant="secondary" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</Button>
           </div>
         </section>
         <section className="panel settings-form ai-visibility-settings-panel">
@@ -504,16 +504,16 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                 </div>
               </dl>
               <div className="settings-action-row">
-                <button className="danger-button" disabled={calendarBusy} onClick={disconnectCalendar}>
+                <Button variant="danger" disabled={calendarBusy} onClick={disconnectCalendar}>
                   {calendarBusy ? "処理中" : "接続を解除"}
-                </button>
+                </Button>
               </div>
             </>
           ) : (
             <div className="settings-action-row">
-              <button className="primary-button" disabled={calendarBusy} onClick={connectCalendar}>
+              <Button variant="primary" disabled={calendarBusy} onClick={connectCalendar}>
                 {calendarBusy ? "接続中…" : "Microsoftアカウントで接続"}
-              </button>
+              </Button>
             </div>
           )}
         </section>
@@ -541,11 +541,11 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             />
           </label>
           <div className="settings-action-row">
-            <button className="primary-button" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
+            <Button variant="primary" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
               {aiBusy ? "保存中" : "設定を保存"}
-            </button>
+            </Button>
             {aiConfig?.hasApiKey && (
-              <button className="danger-button" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</button>
+              <Button variant="danger" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</Button>
             )}
           </div>
         </section>
@@ -568,12 +568,12 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             )}
           </dl>
           <div className="settings-action-row">
-            <button className="secondary-button" disabled={checkingUpdate} onClick={checkForUpdates}>
+            <Button variant="secondary" disabled={checkingUpdate} onClick={checkForUpdates}>
               {checkingUpdate ? "確認中" : "更新を確認"}
-            </button>
-            <button className="primary-button" onClick={openReleasePage}>
+            </Button>
+            <Button variant="primary" onClick={openReleasePage}>
               Releaseを開く
-            </button>
+            </Button>
           </div>
         </section>
       </div>
@@ -595,13 +595,13 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                   <span>この端末</span>
                   <strong>{entityTitle(conflict.entityType, conflict.local)}</strong>
                   <small>{conflict.local.updated_at ? new Date(String(conflict.local.updated_at)).toLocaleString("ja-JP") : "更新時刻なし"}</small>
-                  <button className="secondary-button" disabled={syncBusy} onClick={() => resolveSyncConflict(conflict.id, "local")}>こちらを残す</button>
+                  <Button variant="secondary" disabled={syncBusy} onClick={() => resolveSyncConflict(conflict.id, "local")}>こちらを残す</Button>
                 </div>
                 <div>
                   <span>相手端末</span>
                   <strong>{entityTitle(conflict.entityType, conflict.incoming)}</strong>
                   <small>{conflict.incoming.updated_at ? new Date(String(conflict.incoming.updated_at)).toLocaleString("ja-JP") : "更新時刻なし"}</small>
-                  <button className="secondary-button" disabled={syncBusy} onClick={() => resolveSyncConflict(conflict.id, "incoming")}>こちらを残す</button>
+                  <Button variant="secondary" disabled={syncBusy} onClick={() => resolveSyncConflict(conflict.id, "incoming")}>こちらを残す</Button>
                 </div>
               </div>
             </div>
@@ -625,8 +625,8 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             </div>
           ))}
           <div className="form-actions">
-            <button className="secondary-button" onClick={() => setSnapshotPreview(null)}>取り消す</button>
-            <button className="primary-button" disabled={busy} onClick={applySnapshot}>選択内容を反映</button>
+            <Button variant="secondary" onClick={() => setSnapshotPreview(null)}>取り消す</Button>
+            <Button variant="primary" disabled={busy} onClick={applySnapshot}>選択内容を反映</Button>
           </div>
         </section>
       )}

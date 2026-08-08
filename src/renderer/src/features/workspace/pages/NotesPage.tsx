@@ -7,7 +7,6 @@ import {
   IconPrompt,
   IconReport,
   IconSearch,
-  IconSparkles,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -34,7 +33,8 @@ import {
 } from "../../../../../shared/canonicalMarkdown.mjs";
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { AI_ICON } from "../../../pages/semanticIcons";
+import { ActionButton, Button, ContextMenu, EmptyState, PageHeader, ThemePickerSelect, type ContextMenuItem } from "../components/common";
 import { ChatRefArtifactLinkDialog } from "../components/ChatRefArtifactLinkDialog";
 import { DraftWorkspaceDialog } from "../components/DraftWorkspaceDialog";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
@@ -218,12 +218,12 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       .filter((resource) => !isChatReference(resource))
       .map((resource) => ({ ...resource, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => compareNotesRecords(a, b, sortOrder)), [domain.notes, domain.resources, sortOrder]);
-  const themeId = prefs.themeId && prefs.themeId !== "all" && prefs.themeId !== "none"
-    && !themes.some((t) => t.id === prefs.themeId) ? "all" : (prefs.themeId || "all");
+  const themeId = prefs.themeId !== "all" && prefs.themeId !== ""
+    && !themes.some((t) => t.id === prefs.themeId) ? "all" : prefs.themeId;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visible = useMemo(() => records.filter((record) => {
     if (scope !== "all" && recordKind(record) !== scope) return false;
-    if (themeId === "none") {
+    if (themeId === "") {
       if (str(record.project_id || record.theme_id)) return false;
     } else if (themeId !== "all") {
       if (str(record.project_id || record.theme_id) !== themeId) return false;
@@ -1861,13 +1861,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       <PageHeader route="notes" title={detachedNoteId ? str(selected?.title) || "無題のノート" : undefined}>
         {detachedNoteId ? (
           <>
-            <button className="secondary-button" onClick={() => void workspaceApi.openNoteWindowInMain("notes")}>Taskenを表示</button>
-            <button className="primary-button" onClick={() => void workspaceApi.returnNoteWindowToMain()}>本体へ戻す</button>
+            <Button variant="secondary" onClick={() => void workspaceApi.openNoteWindowInMain("notes")}>Taskenを表示</Button>
+            <Button variant="primary" onClick={() => void workspaceApi.returnNoteWindowToMain()}>本体へ戻す</Button>
           </>
         ) : (
           <>
-            <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-            <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
+            <Button variant="secondary" onClick={copy}>一覧をコピー</Button>
+            <Button variant="ai" onClick={() => setDraftWorkspaceTarget(null)}><AI_ICON size={16} />AI Draft</Button>
             {/* 作成は一つのprimary actionへ集約する。既定の種類は現在のfilterから決める（#313）。 */}
             <NoteCreateMenu defaultKind={createDefaultKind} onCreate={createRecord} />
           </>
@@ -1888,24 +1888,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             </button>
           ))}
         </div>
-        <select
+        <ThemePickerSelect
+          themes={themes}
           value={themeId}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (next !== "all" && !themes.some((t) => t.id === next) && next !== "none") {
-              updatePrefs({ themeId: "all" });
-            } else {
-              updatePrefs({ themeId: next });
-            }
-          }}
-          aria-label="Themeで絞り込み"
-        >
-          <option value="all">Theme: すべて</option>
-          <option value="none">Themeなし</option>
-          {themes.map((theme) => (
-            <option key={theme.id} value={theme.id}>{theme.name}</option>
-          ))}
-        </select>
+          onChange={(next) => updatePrefs({ themeId: next })}
+          allowAll
+          allowNone
+          allLabel="Theme: すべて"
+          ariaLabel="Themeで絞り込み"
+        />
         <label className="notes-sort-field">
           <span className="sr-only">Notesの並び順</span>
           <select
@@ -2019,7 +2010,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
               {detachedElsewhere && (
                 <div className="note-detached-notice" role="status">
                   <span>このノートは別ウィンドウで編集中です。ここでは内容の確認だけできます。</span>
-                  <button className="secondary-button compact" onClick={() => void detachSelectedNote()}>別ウィンドウを表示</button>
+                  <Button variant="secondary" compact onClick={() => void detachSelectedNote()}>別ウィンドウを表示</Button>
                 </div>
               )}
               <div className="note-preview-header">
@@ -2054,12 +2045,12 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                 <div className="note-preview-actions">
                   {/* 保存状態は保存操作の隣に置く。自動保存と手動保存の関係を読み取れるようにする（#331）。 */}
                   <span className="note-draft-state" role="status" aria-live="polite">{saveStateLabel}</span>
-                  <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
+                  <Button variant="secondary" compact disabled={!draftDirty} onClick={() => {
                     setDraftBodyForSelected(selectedBody);
                     setRichEditorDirty(false);
                     setDraftState("変更を戻しました。");
-                  }}>戻す</button>
-                  <button className="primary-button compact" disabled={!draftDirty} onClick={saveSelectedDraft} title="Ctrl+S">保存</button>
+                  }}>戻す</Button>
+                  <ActionButton action="notesSave" compact disabled={!draftDirty} onClick={saveSelectedDraft} />
                   <ToolbarMenu label="この文書" title="この文書に対する操作" items={documentMenuItems} />
                 </div>
               </div>
@@ -2107,8 +2098,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     >Raw</button>
                   </div>
                   {/* Editorの高頻度操作。本体と別ウィンドウで同じ位置・順序にする（#331）。 */}
-                  <button
-                    className="secondary-button compact icon-only"
+                  <Button
+                    variant="secondary"
+                    compact
+                    className="icon-only"
                     onClick={() => {
                       setDraftBodyForSelected(currentDraftBodyForSelected());
                       setSearchOpen(true);
@@ -2118,9 +2111,11 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     title="本文を検索・置換（Ctrl+F）"
                   >
                     <IconSearch size={15} stroke={1.8} aria-hidden="true" />
-                  </button>
-                  <button
-                    className={`secondary-button compact ${diffOpen ? "is-active" : ""}`}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    compact
+                    className={diffOpen ? "is-active" : ""}
                     disabled={!draftDirty}
                     aria-pressed={diffOpen}
                     onClick={() => {
@@ -2131,16 +2126,17 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     }}
                   >
                     {markdownDiffHunks.length ? `変更 ${markdownDiffHunks.length}か所` : "変更を確認"}
-                  </button>
+                  </Button>
                   {!detachedNoteId && (
-                    <button
-                      className="secondary-button compact"
+                    <Button
+                      variant="secondary"
+                      compact
                       aria-pressed={documentFocus}
                       onClick={toggleDocumentFocus}
                       title={documentFocus ? "元の表示へ戻す（Esc）" : "一覧と補助行を畳んで本文を縦いっぱいに広げます"}
                     >
                       {documentFocus ? "表示を戻す" : "本文を広げる"}
-                    </button>
+                    </Button>
                   )}
                   {/* 派生出力は正本保存と語彙を分ける（#331）。`保存`とは呼ばない。 */}
                   <ToolbarMenu label="出力" title="書き出しと保存先" items={outputMenuItems} />
@@ -2157,13 +2153,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
               {recentExport?.noteId === selected.id && (
                 <div className="note-export-handoff" role="status">
                   <span>{recentExport.format === "pdf" ? "PDF" : "Markdown"}を書き出しました。</span>
-                  <button
+                  <Button
                     type="button"
-                    className="secondary-button compact"
+                    variant="secondary"
+                    compact
                     onClick={() => setExportLinkDialogOpen(true)}
                   >
                     Chat Refへ紐づける
-                  </button>
+                  </Button>
                   <button
                     type="button"
                     className="text-button compact"
@@ -2180,9 +2177,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     {autoLinked.chatRefs.map((chatRef) => str(chatRef.title) || "無題").join("」「")}
                     」へ追加しました。
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="secondary-button compact"
+                    variant="secondary"
+                    compact
                     onClick={() => openDrawer({
                       type: "resource",
                       mode: "edit",
@@ -2190,8 +2188,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     })}
                   >
                     Chat Refを開く
-                  </button>
-                  <button type="button" className="secondary-button compact" onClick={undoAutoLink}>取り消す</button>
+                  </Button>
+                  <Button type="button" variant="secondary" compact onClick={undoAutoLink}>取り消す</Button>
                   <button
                     type="button"
                     className="text-button compact"
@@ -2228,17 +2226,18 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     <span className="markdown-search-count" aria-live="polite">
                       {searchMatches.length ? `${searchIndex + 1}/${searchMatches.length}` : searchQuery.trim() ? "一致なし" : "検索語を入力"}
                     </span>
-                    <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(-1)}>前へ</button>
-                    <button type="button" className="secondary-button compact" disabled={!searchMatches.length} onClick={() => moveSearchMatch(1)}>次へ</button>
-                    <button
+                    <Button type="button" variant="secondary" compact disabled={!searchMatches.length} onClick={() => moveSearchMatch(-1)}>前へ</Button>
+                    <Button type="button" variant="secondary" compact disabled={!searchMatches.length} onClick={() => moveSearchMatch(1)}>次へ</Button>
+                    <Button
                       type="button"
-                      className="secondary-button compact"
+                      variant="secondary"
+                      compact
                       aria-expanded={replaceOpen}
                       onClick={() => (replaceOpen ? setReplaceOpen(false) : openMarkdownReplace())}
                     >
                       置換
-                    </button>
-                    <button type="button" className="secondary-button compact" onClick={closeMarkdownSearch}>閉じる</button>
+                    </Button>
+                    <Button type="button" variant="secondary" compact onClick={closeMarkdownSearch}>閉じる</Button>
                   </div>
                   {replaceOpen && (
                     <div className="markdown-search-row">
@@ -2256,8 +2255,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                         placeholder="置換後の文字列"
                         aria-label="置換後の文字列"
                       />
-                      <button type="button" className="secondary-button compact" disabled={!replaceEnabled} onClick={replaceCurrentMatch}>置換</button>
-                      <button type="button" className="secondary-button compact" disabled={!replaceEnabled} onClick={replaceAllMatches}>すべて置換</button>
+                      <Button type="button" variant="secondary" compact disabled={!replaceEnabled} onClick={replaceCurrentMatch}>置換</Button>
+                      <Button type="button" variant="secondary" compact disabled={!replaceEnabled} onClick={replaceAllMatches}>すべて置換</Button>
                     </div>
                   )}
                   {replaceOpen && replaceHint && <p className="field-help">{replaceHint}</p>}
@@ -2372,8 +2371,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             </label>
             {pickerPage && <div className="note-sketch-picker-preview"><SketchPickerPreview page={pickerPage} /></div>}
             <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => setSketchPickerOpen(false)}>取消</button>
-              <button className="primary-button" type="button" onClick={insertSelectedSketch}>カーソル位置へ挿入</button>
+              <Button variant="secondary" type="button" onClick={() => setSketchPickerOpen(false)}>取消</Button>
+              <Button variant="primary" type="button" onClick={insertSelectedSketch}>カーソル位置へ挿入</Button>
             </div>
           </section>
         </div>

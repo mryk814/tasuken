@@ -18,7 +18,7 @@ import { str, uuid } from "../lib/format";
 import { buildKnowledgeHealth, type KnowledgeHealthIssue } from "../lib/knowledgeHealth";
 import { parseWikiLinks } from "../lib/knowledgeLinks";
 import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
-import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { ActionButton, Button, EmptyState, PageHeader, StatusBadge, ThemePickerSelect } from "../components/common";
 import type { KnowledgeEdge } from "../domain-model/types";
 
 const ALL = "all";
@@ -443,7 +443,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
   const visible = useMemo(() => nodes.filter((node) => {
     const text = `${node.title} ${node.body ?? ""}`.toLowerCase();
     return (!query || text.includes(query.toLowerCase()))
-      && (themeId === ALL || node.theme_id === themeId)
+      && (themeId === ALL || (themeId === "" ? !node.theme_id : node.theme_id === themeId))
       && (nodeType === ALL || node.node_type === nodeType)
       && (status === ALL || node.status === status);
   }).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || ""))), [nodes, query, themeId, nodeType, status]);
@@ -480,7 +480,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
   const graph = useMemo(() => buildKnowledgeGraphLayout(visible, relations, selectedId, graphScope, healthIssues), [visible, relations, selectedId, graphScope, healthIssues]);
   const knowledgePrompt = useMemo(() => (data.notes || [])
     .filter((note) => isPromptNote(note) && promptPurpose(note) === "knowledge")
-    .filter((note) => themeId === ALL || !note.theme_id || note.theme_id === themeId)
+    .filter((note) => themeId === ALL || (themeId === "" ? !note.theme_id : !note.theme_id || note.theme_id === themeId))
     .sort((a, b) => Number(isDefaultPrompt(b)) - Number(isDefaultPrompt(a)) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0] || null,
   [data.notes, themeId]);
 
@@ -529,7 +529,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
         node_type: "insight",
         title,
         body: "",
-        theme_id: themeId === ALL ? null : themeId,
+        theme_id: themeId === ALL || themeId === "" ? null : themeId,
         confidence: "medium",
         status: "active",
       },
@@ -589,16 +589,21 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
   return (
     <div className="page knowledge-page">
       <PageHeader route="knowledge">
-        {knowledgePrompt && <button className="secondary-button" onClick={copyKnowledgePrompt}>Knowledgeプロンプトをコピー</button>}
-        <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: { node_type: "question" } })}>問いを追加</button>
+        {knowledgePrompt && <Button variant="secondary" onClick={copyKnowledgePrompt}>Knowledgeプロンプトをコピー</Button>}
+        <Button variant="secondary" onClick={copy}>一覧をコピー</Button>
+        <ActionButton action="knowledgeAddQuestion" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: { node_type: "question" } })}>問いを追加</ActionButton>
       </PageHeader>
       <div className="filter-bar panel">
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル・本文を検索" />
-        <select value={themeId} onChange={(event) => setThemeId(event.target.value)} aria-label="Theme">
-          <option value={ALL}>すべてのTheme</option>
-          {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-        </select>
+        <ThemePickerSelect
+          themes={themes}
+          value={themeId}
+          onChange={setThemeId}
+          allowAll
+          allowNone
+          allLabel="すべてのTheme"
+          ariaLabel="Theme"
+        />
         <select value={nodeType} onChange={(event) => setNodeType(event.target.value)} aria-label="Node type">
           <option value={ALL}>すべての種類</option>
           {Object.entries(KNOWLEDGE_NODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -629,7 +634,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
           placeholder="短いKnowledgeを追加"
           aria-label="短いKnowledge"
         />
-        <button className="primary-button" onClick={createQuickKnowledge}>追加する</button>
+        <ActionButton action="knowledgeQuickAdd" onClick={createQuickKnowledge}>追加する</ActionButton>
       </section>
       <section className="knowledge-explorer panel">
         <div className="section-heading">
@@ -643,7 +648,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
               <strong>{selectedNode.title}</strong>
               <span>{nodeBody(selectedNode)}</span>
             </div>
-            <button className="secondary-button compact" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: selectedNode })}>開く</button>
+            <Button variant="secondary" compact onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: selectedNode })}>開く</Button>
           </div>
         )}
         {viewMode === "graph" && (
@@ -774,7 +779,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
                 <strong>{issue.node.title}</strong>
                 <span>{issue.message}</span>
               </button>
-              <button className="secondary-button compact" onClick={() => openIssueAction(issue)}>{ISSUE_ACTIONS[issue.kind]}</button>
+              <Button variant="secondary" compact onClick={() => openIssueAction(issue)}>{ISSUE_ACTIONS[issue.kind]}</Button>
             </article>
           ))}
           {!healthIssues.length && <div className="empty-state"><strong>目立つ問題はありません</strong></div>}

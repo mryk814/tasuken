@@ -24,7 +24,6 @@ import {
   IconRectangle,
   IconSquareRounded,
   IconShape,
-  IconSparkles,
   IconTextSize,
   IconTriangle,
   IconTrash,
@@ -38,6 +37,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { SketchCanvas } from "../components/SketchCanvas";
 import { ToolbarMenu } from "../components/ToolbarMenu";
+import { Button } from "../components/common";
 import {
   resolveSketchPageSize,
   SketchPageSizePicker,
@@ -88,7 +88,7 @@ const SHAPE_ITEMS: Array<{ id: SketchShapeKind; label: string; description?: str
   { id: "sticky_note", label: "付箋", icon: IconNote },
   { id: "callout", label: "吹き出し", icon: IconMessage },
   { id: "bidirectional_arrow", label: "両矢印", icon: IconArrowsLeftRight },
-  { id: "auto", label: "手描き認識", description: "描いた線から、直線・四角・楕円を判定します", icon: IconSparkles },
+  { id: "auto", label: "手描き認識", description: "描いた線から、直線・四角・楕円を判定します", icon: IconShape },
 ];
 const TOOL_ITEMS: Array<{ id: SketchTool; label: string; icon: typeof IconPointer }> = [
   { id: "select", label: "選択", icon: IconPointer },
@@ -387,7 +387,7 @@ export function SketchPage({
       <div className="page sketch-empty">
         <IconWriting size={48} aria-hidden="true" />
         <h1>Sketchを選択できません</h1>
-        <button className="primary-button" onClick={() => navigate("sketch")}>Sketch一覧へ</button>
+        <Button variant="primary" onClick={() => navigate("sketch")}>Sketch一覧へ</Button>
       </div>
     );
   }
@@ -635,13 +635,14 @@ export function SketchPage({
                     <SketchPageSizePicker value={pageSize} onChange={setPageSize} />
                     <div className="sketch-page-size-actions">
                       <button className="secondary-button compact" onClick={() => setPageSizeOpen(false)}>閉じる</button>
-                      <button
-                        className="primary-button compact"
+                      <Button
+                        variant="primary"
+                        compact
                         disabled={!resolveSketchPageSize(pageSize)}
                         onClick={applyPageSize}
                       >
                         適用
-                      </button>
+                      </Button>
                     </div>
                   </section>
                 )}

@@ -47,9 +47,9 @@ test("Notes UI persists filter and sort preferences and exposes save-folder acti
 
 test("Notes theme filter, resizable list pane, and collapse are wired", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  assert.match(source, /aria-label="Themeで絞り込み"/);
-  assert.match(source, /value="none">Themeなし/);
-  assert.match(source, /themeId === "none"/);
+  assert.match(source, /ariaLabel="Themeで絞り込み"/);
+  assert.match(source, /ThemePickerSelect/);
+  assert.match(source, /themeId === ""/);
   assert.match(source, /notes-resize-handle/);
   assert.match(source, /is-list-collapsed/);
   assert.match(source, /onPointerDown=\{handleResize\}/);
@@ -118,14 +118,15 @@ test("navigation, page headings and command palette share one canonical label", 
   const common = readFileSync("src/renderer/src/features/workspace/components/common.tsx", "utf8");
   const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
-  // 名称の正本は ROUTE_META だけ。Sidebarもページ見出しもここを引く。
-  assert.match(routes, /export const ROUTE_META/);
-  assert.match(routes, /"chat-refs": \{ label: "Chat Refs"/);
-  assert.match(routes, /inbox: \{ label: "Inbox"/);
-  assert.match(routes, /"ai-io": \{ label: "AI Inbox"/);
+  // RouteDefinitionがlabel・description・iconの唯一の正本。Sidebarもページ見出しもここを引く。
+  assert.match(routes, /export const ROUTE_DEFINITIONS/);
+  assert.match(routes, /label: "Chat Refs"/);
+  assert.match(routes, /label: "Inbox"/);
+  assert.match(routes, /label: "AI Inbox"/);
   assert.match(shell, /const label = routeLabel\(id\);/);
   assert.match(common, /routeLabel\(route\)/);
-  assert.match(common, /ROUTE_ICONS\[route\]/);
+  assert.match(routes, /export function routeIcon\(id: string\)/);
+  assert.match(common, /routeIcon\(route\)/);
   assert.match(app, /routeLabel\("inbox"\)/);
 
   // 説明語をページ名へ混ぜない。
@@ -138,8 +139,8 @@ test("navigation, page headings and command palette share one canonical label", 
   }
 
   // 表示名を変えてもrouteとdeep linkは触らない。
-  assert.match(routes, /"todo-done": "todo"/);
-  assert.match(routes, /"chat-refs": "knowledge"/);
+  assert.match(routes, /aliases: \[\{ id: "todo-done" \}\]/);
+  assert.match(routes, /id: "chat-refs", label: "Chat Refs"/);
 });
 
 test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本文へ回す（#292）", () => {
@@ -230,9 +231,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
   // 画面上で `保存` と表示されるbuttonは、内部Entityを確定する一つだけ。
-  const saveButtons = source.match(/>保存<\/button>/g) || [];
-  assert.equal(saveButtons.length, 1);
-  assert.match(source, /onClick=\{saveSelectedDraft\} title="Ctrl\+S">保存<\/button>/);
+  assert.match(source, /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/);
 
   // 派生出力は `保存` と呼ばない。
   assert.match(source, /label: markdownExporting \? "Markdownを書き出しています" : "Markdownを書き出す"/);
@@ -250,5 +249,5 @@ test("AI iconはAIの操作にだけ使う（#312）", () => {
   // Knowledge化はAIが実行する操作ではない。
   assert.match(source, /title="Knowledge化"\s*\n\s*>\s*\n[^<]*\n\s*<IconBulb size=\{15\} \/>/);
   // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
-  assert.match(source, /<IconSparkles size=\{16\} \/>AI Draft/);
+  assert.match(source, /<AI_ICON size=\{16\} \/>AI Draft/);
 });
