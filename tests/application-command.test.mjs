@@ -48,6 +48,13 @@ function repository() {
     save(type, entity) {
       return this.saveMany([{ action: "save", type, entity }])[0];
     },
+    remove(type, id) {
+      const current = records.get(key(type, id));
+      if (!current) return null;
+      const deleted = { ...current, deleted_at: "2026-08-08T00:00:00.000Z", version: Number(current.version || 0) + 1 };
+      records.set(key(type, id), deleted);
+      return deleted;
+    },
     runTransaction(callback) {
       return callback(this);
     },
@@ -159,6 +166,18 @@ test("Complete/Reopen are idempotent and ordinary edits of completed Tasks are u
   assert.throws(() => service.execute(envelope("ReopenTask", { taskId: "task-b" }, "stale-b", [{ type: "task", id: "task-b", version: 2 }])), /更新済み/);
   const noChangeRetry = service.execute(envelope("CompleteTask", { taskId: "task-b" }, "complete-b-retry", [{ type: "task", id: "task-b", version: 2 }]));
   assert.deepEqual(noChangeRetry, noChange);
+});
+
+test("DeleteTask uses the same expected-version boundary and keeps deletion undoable", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  service.execute(envelope("CreateTask", { task: { id: "delete-task", title: "delete me", state: "todo", project_id: "theme-personal-default" } }, "delete-create"));
+  const receipt = service.execute(envelope("DeleteTask", { taskId: "delete-task" }, "delete-task-command", [{ type: "task", id: "delete-task", version: 1 }]));
+  assert.deepEqual(receipt.deleted, [{ type: "task", id: "delete-task" }]);
+  assert.equal(receipt.changes.find(({ type }) => type === "task").entity.deleted_at, "2026-08-08T00:00:00.000Z");
+  assert.equal(repo.get("task", "delete-task"), null);
+  assert.equal(repo.get("task", "delete-task", true).deleted_at, "2026-08-08T00:00:00.000Z");
+  assert.throws(() => service.execute(envelope("DeleteTask", { taskId: "delete-task" }, "delete-task-stale", [{ type: "task", id: "delete-task", version: 1 }])), /対象Taskがありません/);
 });
 
 test("Main Today and Today mini use the same explicit-date Task selector", () => {
@@ -462,6 +481,8 @@ test("WorkspaceApp maps reachable mixed flows to named commands and preserves ot
   const focus = readFileSync("src/renderer/src/features/workspace/components/FocusSessionDialog.tsx", "utf8");
   const ai = readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
   const scratchpad = readFileSync("src/renderer/src/features/workspace/components/DailyScratchpadDialog.tsx", "utf8");
+  const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
+  const workspaceApi = readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
   const todo = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
   const timeline = readFileSync("src/renderer/src/features/workspace/pages/TimelinePage.tsx", "utf8");
   assert.match(workspaceApp, /name: "CompleteTaskWithLearning"/);
@@ -477,4 +498,8 @@ test("WorkspaceApp maps reachable mixed flows to named commands and preserves ot
   assert.match(todo, /duplicateTask/);
   assert.match(timeline, /timelineAddDependencyOperations/);
   assert.match(workspaceApp, /executeCommands\(envelopes\)/);
+  assert.match(workspaceApp, /name: "DeleteTask"/);
+  assert.match(registerIpc, /rejectTaskPersistence\(entityType\)/);
+  assert.match(registerIpc, /types\.includes\("task"\)/);
+  assert.match(workspaceApi, /Taskの保存はApplication Command経由/);
 });

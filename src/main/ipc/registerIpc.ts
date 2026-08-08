@@ -56,6 +56,12 @@ function saveManyTypes(operations: unknown[]): EntityType[] {
   return types;
 }
 
+function rejectTaskPersistence(type: EntityType, operation = "保存"): void {
+  if (type === "task") {
+    throw new Error(`Taskの${operation}はApplication Command経由で実行してください。`);
+  }
+}
+
 export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
@@ -110,18 +116,22 @@ export function registerIpc(
       throw new Error("保存内容が不正です。入力内容を確認してください。");
     }
     const entityType = requireEntityType(type);
+    rejectTaskPersistence(entityType);
     const saved = repository.save(entityType, entity, options);
     notifyEntitiesChanged([entityType]);
     return saved;
   });
   ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {
     if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
+    const types = saveManyTypes(operations);
+    if (types.includes("task")) rejectTaskPersistence("task", "一括保存");
     const saved = repository.saveMany(operations);
-    notifyEntitiesChanged(saveManyTypes(operations));
+    notifyEntitiesChanged(types);
     return saved;
   });
   ipcMain.handle(IPC.entityRemove, (_event, type, id) => {
     const entityType = requireEntityType(type);
+    rejectTaskPersistence(entityType, "削除");
     const removed = repository.remove(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
     return removed;
