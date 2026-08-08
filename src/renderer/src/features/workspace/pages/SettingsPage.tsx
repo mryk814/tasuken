@@ -9,7 +9,7 @@ import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMet
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
 import { entityTitle } from "../lib/domain";
-import { Button, PageHeader } from "../components/common";
+import { Button, IntegrationStatus, PageHeader } from "../components/common";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -17,6 +17,27 @@ interface SettingsPageProps extends PageProps {
   activeGroups: string[];
   setActiveGroups: (groups: string[]) => void;
   allThemes: Theme[];
+}
+
+type SettingsSectionId = "general" | "appearance" | "storage" | "integrations" | "ai-mcp" | "advanced";
+
+const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; description: string }> = [
+  { id: "general", label: "General", description: "基本の使い方" },
+  { id: "appearance", label: "Appearance", description: "表示と編集" },
+  { id: "storage", label: "Storage & Files", description: "保存と同期" },
+  { id: "integrations", label: "Integrations", description: "外部サービス" },
+  { id: "ai-mcp", label: "AI & MCP", description: "AI接続と提案" },
+  { id: "advanced", label: "Advanced", description: "更新と復元" },
+];
+
+function settingsSectionFromHash(hash: string): SettingsSectionId {
+  const value = hash.replace(/^#/, "");
+  const section = value.match(/^settings(?:[/?](?:section=)?([^/?]+))?$/)?.[1] || "general";
+  return SETTINGS_SECTIONS.some((entry) => entry.id === section) ? section as SettingsSectionId : "general";
+}
+
+function settingsHash(section: SettingsSectionId): string {
+  return section === "general" ? "settings" : `settings/${section}`;
 }
 
 export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroups, setActiveGroups, allThemes, setSnapshotPreview, snapshotPreview, setToast }: SettingsPageProps) {
@@ -36,6 +57,20 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   // AI公開範囲のworkspace既定（#294）。Theme・項目が未設定のときだけ使う。
   const [aiVisibilityDefault, setAiVisibilityDefault] = useState<AiAudience[]>([...DEFAULT_AI_VISIBILITY]);
   const [aiVisibilityBusy, setAiVisibilityBusy] = useState(false);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(() => settingsSectionFromHash(window.location.hash));
+
+  useEffect(() => {
+    const onHash = () => setActiveSection(settingsSectionFromHash(window.location.hash));
+    onHash();
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  function selectSection(section: SettingsSectionId) {
+    const nextHash = settingsHash(section);
+    if (window.location.hash.slice(1) !== nextHash) window.location.hash = nextHash;
+    setActiveSection(section);
+  }
 
   useEffect(() => {
     workspaceApi.getPreference("aiVisibilityDefault")
@@ -321,263 +356,339 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         : `確認できませんでした。${updateInfo.error || ""}`
     : "未確認";
 
+  const storageStatus = syncStatus?.state === "error" || Boolean(syncStatus?.lastError)
+    ? { label: "エラー", tone: "error" as const }
+    : syncStatus?.state === "conflict"
+      ? { label: "要確認", tone: "attention" as const }
+      : artifactDirectory || syncStatus?.directory
+        ? { label: "正常", tone: "normal" as const }
+        : syncStatus
+          ? { label: "未設定", tone: "neutral" as const }
+          : { label: "確認中", tone: "loading" as const };
+  const calendarSummary = calendarStatus
+    ? calendarStatus.connected
+      ? { label: "接続済み", tone: "normal" as const, detail: calendarStatus.accountName }
+      : { label: "未接続", tone: "neutral" as const }
+    : { label: "確認中", tone: "loading" as const };
+  const aiSummary = aiConfig
+    ? aiConfig.hasApiKey
+      ? { label: `${aiConfig.provider} · ${aiConfig.model}`, tone: "normal" as const }
+      : { label: "未設定", tone: "neutral" as const }
+    : { label: "確認中", tone: "loading" as const };
+  const mcpSummary = mcpInfo
+    ? mcpInfo.pendingFileCount > 0
+      ? { label: `要確認 · ${mcpInfo.pendingFileCount}件`, tone: "attention" as const }
+      : { label: "正常", tone: "normal" as const }
+    : { label: "確認中", tone: "loading" as const };
+  const activeSectionDefinition = SETTINGS_SECTIONS.find((entry) => entry.id === activeSection) || SETTINGS_SECTIONS[0];
+
   return (
     <div className="page">
       <PageHeader route="settings" />
-      <div className="settings-grid">
-        <section className="panel settings-form">
-          <h2>表示</h2>
-          <label>カラーモード
-            <select value={themeMode} onChange={(event) => setThemeMode(event.target.value === "dark" ? "dark" : "light")}>
-              <option value="light">ライト</option>
-              <option value="dark">ダーク</option>
-            </select>
-          </label>
-          <h2>テーマグループ</h2>
-          <p className="field-help">選択したグループに属するテーマだけを表示します。未選択なら全テーマを表示します。</p>
-          {(() => {
-            const groups = [...new Set(allThemes.map((t) => t.group).filter(Boolean))] as string[];
-            const toggle = (group: string) => {
-              setActiveGroups(activeGroups.includes(group) ? activeGroups.filter((g) => g !== group) : [...activeGroups, group]);
-            };
-            return groups.length > 0 ? (
-              <div className="group-chip-list">
-                {groups.map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    className={`theme-chip ${activeGroups.includes(g) ? "is-selected" : ""}`}
-                    onClick={() => toggle(g)}
-                  >
-                    {g}
-                  </button>
-                ))}
-                {activeGroups.length > 0 && (
-                  <button type="button" className="text-button compact" onClick={() => setActiveGroups([])}>すべて表示に戻す</button>
-                )}
-              </div>
-            ) : (
-              <p className="field-help">テーマにグループが設定されていません。テーマ編集でグループを設定してください。</p>
-            );
-          })()}
-        </section>
-        <section className="panel settings-form">
-          <h2>バックアップ</h2>
-          <p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p>
-          <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</Button>
-          <Button variant="secondary" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</Button>
-        </section>
-        <section className="panel settings-form sync-settings-panel">
-          <div className="settings-section-heading">
-            <h2>端末間同期</h2>
-            <span className={`sync-state sync-state-${syncStatus?.state || "off"}`}>
-              {syncStatus?.state === "syncing"
-                ? "同期中"
-                : syncStatus?.state === "conflict"
-                  ? "要確認"
-                  : syncStatus?.state === "error"
-                    ? "エラー"
-                    : syncStatus?.enabled ? "有効" : "停止"}
-            </span>
+      <section className="panel settings-summary" aria-labelledby="settings-summary-title">
+        <h2 id="settings-summary-title">現在の状態</h2>
+        <div className="settings-summary-list">
+          <button type="button" className="settings-summary-item" onClick={() => selectSection("storage")}>
+            <span>Storage</span>
+            <strong><IntegrationStatus label={storageStatus.label} tone={storageStatus.tone} /></strong>
+          </button>
+          <button type="button" className="settings-summary-item" onClick={() => selectSection("integrations")}>
+            <span>Calendar</span>
+            <strong><IntegrationStatus label={calendarSummary.label} tone={calendarSummary.tone} detail={calendarSummary.detail} /></strong>
+          </button>
+          <button type="button" className="settings-summary-item" onClick={() => selectSection("ai-mcp")}>
+            <span>AI Provider</span>
+            <strong><IntegrationStatus label={aiSummary.label} tone={aiSummary.tone} /></strong>
+          </button>
+          <button type="button" className="settings-summary-item" onClick={() => selectSection("ai-mcp")}>
+            <span>MCP Bridge</span>
+            <strong><IntegrationStatus label={mcpSummary.label} tone={mcpSummary.tone} /></strong>
+          </button>
+        </div>
+      </section>
+      <div className="settings-layout">
+        <nav className="panel settings-category-nav" aria-label="Settings category">
+          <h2>Settings</h2>
+          {SETTINGS_SECTIONS.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              className={activeSection === section.id ? "is-active" : ""}
+              aria-current={activeSection === section.id ? "page" : undefined}
+              onClick={() => selectSection(section.id)}
+            >
+              <strong>{section.label}</strong>
+              <small>{section.description}</small>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-category-content">
+          <div className="settings-category-heading">
+            <h2>{activeSectionDefinition.label}</h2>
+            <p>{activeSectionDefinition.description}</p>
           </div>
-          <p className="field-help">各端末のSQLiteはローカルに保ち、選択したOneDriveまたは共有フォルダで変更とNote内のMarkdown画像を交換します。画像は各端末にもキャッシュするため、同期後はオフラインでも表示できます。</p>
-          <dl className="settings-meta-list">
-            <div>
-              <dt>同期先</dt>
-              <dd title={syncStatus?.directory}>{syncStatus?.directory || "未設定"}</dd>
-            </div>
-            <div>
-              <dt>最終同期</dt>
-              <dd>{syncStatus?.lastSyncedAt ? new Date(syncStatus.lastSyncedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" }) : "未同期"}</dd>
-            </div>
-            <div>
-              <dt>端末</dt>
-              <dd className="mono-value">{syncStatus?.deviceId ? syncStatus.deviceId.slice(0, 8) : "—"}</dd>
-            </div>
-            <div>
-              <dt>Markdown画像</dt>
-              <dd>
-                {syncStatus ? `${syncStatus.markdownImageCount}件` : "—"}
-                {syncStatus && (syncStatus.lastMarkdownImagesPublished || syncStatus.lastMarkdownImagesReceived)
-                  ? `（送信 ${syncStatus.lastMarkdownImagesPublished}・受信 ${syncStatus.lastMarkdownImagesReceived}）`
-                  : ""}
-              </dd>
-            </div>
-          </dl>
-          {syncStatus?.lastError && <p className="form-error">同期エラー: {syncStatus.lastError}</p>}
-          <div className="settings-action-row">
-            <Button variant="secondary" disabled={syncBusy} onClick={chooseSyncDirectory}>
-              {syncStatus?.directory ? "同期先を変更" : "同期先を選ぶ"}
-            </Button>
-            {syncStatus?.enabled && (
-              <>
-                <Button variant="primary" disabled={syncBusy} onClick={runSharedSync}>
-                  {syncBusy ? "同期中" : "今すぐ同期"}
-                </Button>
-                <button className="text-button" disabled={syncBusy} onClick={disableSharedSync}>停止</button>
-              </>
-            )}
-          </div>
-        </section>
-        <section className="panel settings-form">
-          {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}
-          <h2>同期ストレージ</h2>
-          <p className="field-help">
-            OneDrive等のTasken同期ルートを一度だけ設定します。配下の <code>Inbox/</code> と <code>Themes/識別子/</code>、その中の <code>Notes|Artifacts|Exports/</code> はTaskenが必要になった時点で自動生成します。用途ごとの保存先設定は増やしません。Themeだけは編集画面で専用ルートを指定でき、その場合も標準サブフォルダは自動生成します。PDF等の明示的な書き出しは都度選択（初期位置は Exports）、linked Artifact は移動しません。
-          </p>
-          <dl className="settings-meta-list">
-            <div>
-              <dt>同期ルート</dt>
-              <dd>{artifactDirectory || "未設定"}</dd>
-            </div>
-          </dl>
-          <div className="settings-action-row">
-            <Button variant="secondary" onClick={chooseArtifactDirectory}>保存先を選ぶ</Button>
-            {artifactDirectory && <Button variant="secondary" onClick={openArtifactDirectory}>フォルダを開く</Button>}
-          </div>
-        </section>
-        <section className="panel settings-form mcp-settings-panel">
-          <div className="settings-section-heading">
-            <h2>MCP Bridge</h2>
-            <span className="sync-state sync-state-idle">利用可能</span>
-          </div>
-          <p className="field-help">外部AIはTaskenを読み取り、追加・編集はPending Proposalとして送ります。正式データはTaskenで採用するまで変わりません。</p>
-          <dl className="settings-meta-list">
-            <div>
-              <dt>起動</dt>
-              <dd className="mono-value" title={mcpInfo ? `${mcpInfo.command} ${mcpInfo.args.join(" ")}` : ""}>
-                {mcpInfo ? `${mcpInfo.command} ${mcpInfo.args.join(" ")}` : "読込中"}
-              </dd>
-            </div>
-            <div>
-              <dt>受信待ち</dt>
-              <dd>{mcpInfo?.pendingFileCount || 0}件</dd>
-            </div>
-          </dl>
-          <div className="settings-action-row">
-            <Button variant="primary" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</Button>
-            <Button variant="secondary" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</Button>
-          </div>
-        </section>
-        <section className="panel settings-form ai-visibility-settings-panel">
-          <div className="settings-section-heading">
-            <h2>AI公開範囲の既定</h2>
-          </div>
-          <p className="field-help">Theme・各項目で個別に決めていないときに使う既定です。項目側の設定が常に優先されます。</p>
-          <fieldset className="ai-context-visibility">
-            <legend>渡してよい相手</legend>
-            {AI_AUDIENCES.map((audience) => (
-              <label key={audience}>
-                <input
-                  type="checkbox"
-                  checked={aiVisibilityDefault.includes(audience)}
-                  disabled={aiVisibilityBusy}
-                  onChange={(event) => updateAiVisibilityDefault(audience, event.target.checked)}
-                />
-                {AI_AUDIENCE_LABELS[audience]}
+          <div className="settings-grid">
+            <section className="panel settings-form" hidden={activeSection !== "general"}>
+              <h2>Themeの表示範囲</h2>
+              <p className="field-help">Sidebarで表示するTheme groupを選びます。未選択ならすべて表示します。</p>
+              {(() => {
+                const groups = [...new Set(allThemes.map((t) => t.group).filter(Boolean))] as string[];
+                const toggle = (group: string) => {
+                  setActiveGroups(activeGroups.includes(group) ? activeGroups.filter((g) => g !== group) : [...activeGroups, group]);
+                };
+                return groups.length > 0 ? (
+                  <div className="group-chip-list">
+                    {groups.map((g) => (
+                      <button key={g} type="button" className={`theme-chip ${activeGroups.includes(g) ? "is-selected" : ""}`} onClick={() => toggle(g)}>{g}</button>
+                    ))}
+                    {activeGroups.length > 0 && <button type="button" className="text-button compact" onClick={() => setActiveGroups([])}>すべて表示に戻す</button>}
+                  </div>
+                ) : (
+                  <p className="field-help">Themeにgroupが設定されていません。</p>
+                );
+              })()}
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "appearance"}>
+              <h2>表示</h2>
+              <label>カラーモード
+                <select value={themeMode} onChange={(event) => setThemeMode(event.target.value === "dark" ? "dark" : "light")}>
+                  <option value="light">ライト</option>
+                  <option value="dark">ダーク</option>
+                </select>
               </label>
-            ))}
-          </fieldset>
-        </section>
-        <section className="panel settings-form calendar-settings-panel">
-          <div className="settings-section-heading">
-            <h2>カレンダー連携</h2>
-            <span className={`sync-state ${calendarStatus?.connected ? "sync-state-idle" : "sync-state-off"}`}>
-              {calendarStatus?.connected ? "接続済み" : "未接続"}
-            </span>
-          </div>
-          <p className="field-help">Outlook / Microsoft 365のカレンダーを読み取り専用で表示します。メールや連絡先にはアクセスしません。</p>
-          {calendarStatus?.connected ? (
-            <>
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "advanced"}>
+              <h2>バックアップ</h2>
+              <p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p>
+              <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</Button>
+              <Button variant="secondary" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</Button>
+            </section>
+            <section className="panel settings-form sync-settings-panel" hidden={activeSection !== "storage"}>
+              <div className="settings-section-heading">
+                <h2>端末間同期</h2>
+                <IntegrationStatus label={syncStatus?.state === "syncing" ? "同期中" : storageStatus.label} tone={syncStatus?.state === "syncing" ? "loading" : storageStatus.tone} />
+              </div>
+              <p className="field-help">各端末のSQLiteはローカルに保ち、変更とNote内のMarkdown画像を交換します。</p>
+              <details className="settings-detail">
+                <summary>同期の詳細</summary>
+                <div className="settings-detail-body">
+                  <p className="field-help">選択したOneDriveまたは共有フォルダを使います。画像は各端末にもキャッシュするため、同期後はオフラインでも表示できます。</p>
+                </div>
+              </details>
               <dl className="settings-meta-list">
                 <div>
-                  <dt>アカウント</dt>
-                  <dd>{calendarStatus.accountName}</dd>
+                  <dt>同期先</dt>
+                  <dd title={syncStatus?.directory}>{syncStatus?.directory || "未設定"}</dd>
                 </div>
                 <div>
-                  <dt>最終取得</dt>
+                  <dt>最終同期</dt>
+                  <dd>{syncStatus?.lastSyncedAt ? new Date(syncStatus.lastSyncedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" }) : "未同期"}</dd>
+                </div>
+                <div>
+                  <dt>端末</dt>
+                  <dd className="mono-value">{syncStatus?.deviceId ? syncStatus.deviceId.slice(0, 8) : "—"}</dd>
+                </div>
+                <div>
+                  <dt>Markdown画像</dt>
                   <dd>
-                    {calendarStatus.lastFetchedAt
-                      ? new Date(calendarStatus.lastFetchedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })
-                      : "未取得"}
+                    {syncStatus ? `${syncStatus.markdownImageCount}件` : "—"}
+                    {syncStatus && (syncStatus.lastMarkdownImagesPublished || syncStatus.lastMarkdownImagesReceived)
+                      ? `（送信 ${syncStatus.lastMarkdownImagesPublished}・受信 ${syncStatus.lastMarkdownImagesReceived}）`
+                      : ""}
                   </dd>
                 </div>
               </dl>
+              {syncStatus?.lastError && <p className="form-error">同期エラー: {syncStatus.lastError}</p>}
               <div className="settings-action-row">
-                <Button variant="danger" disabled={calendarBusy} onClick={disconnectCalendar}>
-                  {calendarBusy ? "処理中" : "接続を解除"}
+                <Button variant="secondary" disabled={syncBusy} onClick={chooseSyncDirectory}>
+                  {syncStatus?.directory ? "同期先を変更" : "同期先を選ぶ"}
+                </Button>
+                {syncStatus?.enabled && (
+                  <>
+                    <Button variant="primary" disabled={syncBusy} onClick={runSharedSync}>
+                      {syncBusy ? "同期中" : "今すぐ同期"}
+                    </Button>
+                    <button className="text-button" disabled={syncBusy} onClick={disableSharedSync}>停止</button>
+                  </>
+                )}
+              </div>
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "storage"}>
+              {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}
+              <h2>同期ストレージ</h2>
+              <p className="field-help">Tasken共通の同期ルートを使います。用途ごとの保存先設定は増やしません。</p>
+              <details className="settings-detail">
+                <summary>保存ルールを見る</summary>
+                <div className="settings-detail-body">
+                  <p className="field-help">OneDrive等のTasken同期ルート配下に <code>Inbox/</code> と <code>Themes/識別子/</code>、その中の <code>Notes|Artifacts|Exports/</code> を必要時だけ自動生成します。Theme専用ルート、PDF等の明示Export、linked Artifactはそれぞれ既存の導線で扱います。</p>
+                </div>
+              </details>
+              <dl className="settings-meta-list">
+                <div>
+                  <dt>同期ルート</dt>
+                  <dd>{artifactDirectory || "未設定"}</dd>
+                </div>
+              </dl>
+              <div className="settings-action-row">
+                <Button variant="secondary" onClick={chooseArtifactDirectory}>保存先を選ぶ</Button>
+                {artifactDirectory && <Button variant="secondary" onClick={openArtifactDirectory}>フォルダを開く</Button>}
+              </div>
+            </section>
+            <section className="panel settings-form mcp-settings-panel" hidden={activeSection !== "ai-mcp"}>
+              <div className="settings-section-heading">
+                <h2>MCP Bridge</h2>
+                <IntegrationStatus label={mcpSummary.label} tone={mcpSummary.tone} />
+              </div>
+              <p className="field-help">外部AIはTaskenを読み取り、追加・編集はPending Proposalとして送ります。正式データはTaskenで採用するまで変わりません。</p>
+              <dl className="settings-meta-list">
+                <div>
+                  <dt>起動</dt>
+                  <dd className="mono-value" title={mcpInfo ? `${mcpInfo.command} ${mcpInfo.args.join(" ")}` : ""}>
+                    {mcpInfo ? `${mcpInfo.command} ${mcpInfo.args.join(" ")}` : "読込中"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>受信待ち</dt>
+                  <dd>{mcpInfo?.pendingFileCount || 0}件</dd>
+                </div>
+              </dl>
+              <div className="settings-action-row">
+                <Button variant="secondary" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</Button>
+                <Button variant="secondary" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</Button>
+              </div>
+            </section>
+            <section className="panel settings-form ai-visibility-settings-panel" hidden={activeSection !== "ai-mcp"}>
+              <div className="settings-section-heading">
+                <h2>AI公開範囲の既定</h2>
+              </div>
+              <details className="settings-detail">
+                <summary>公開範囲を編集</summary>
+                <div className="settings-detail-body">
+                  <p className="field-help">Theme・各項目で個別に決めていないときに使う既定です。項目側の設定が常に優先されます。</p>
+                  <fieldset className="ai-context-visibility">
+                    <legend>渡してよい相手</legend>
+                    {AI_AUDIENCES.map((audience) => (
+                      <label key={audience}>
+                        <input
+                          type="checkbox"
+                          checked={aiVisibilityDefault.includes(audience)}
+                          disabled={aiVisibilityBusy}
+                          onChange={(event) => updateAiVisibilityDefault(audience, event.target.checked)}
+                        />
+                        {AI_AUDIENCE_LABELS[audience]}
+                      </label>
+                    ))}
+                  </fieldset>
+                </div>
+              </details>
+            </section>
+            <section className="panel settings-form calendar-settings-panel" hidden={activeSection !== "integrations"}>
+              <div className="settings-section-heading">
+                <h2>カレンダー連携</h2>
+                <IntegrationStatus label={calendarSummary.label} tone={calendarSummary.tone} detail={calendarSummary.detail} />
+              </div>
+              <p className="field-help">Outlook / Microsoft 365のカレンダーを読み取り専用で表示します。メールや連絡先にはアクセスしません。</p>
+              {calendarStatus?.connected ? (
+                <>
+                  <dl className="settings-meta-list">
+                    <div>
+                      <dt>アカウント</dt>
+                      <dd>{calendarStatus.accountName}</dd>
+                    </div>
+                    <div>
+                      <dt>最終取得</dt>
+                      <dd>
+                        {calendarStatus.lastFetchedAt
+                          ? new Date(calendarStatus.lastFetchedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })
+                          : "未取得"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="settings-danger-zone">
+                    <h3>Danger Zone</h3>
+                    <Button variant="danger" disabled={calendarBusy} onClick={disconnectCalendar}>
+                      {calendarBusy ? "処理中" : "接続を解除"}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="settings-action-row">
+                  <Button variant="primary" disabled={calendarBusy} onClick={connectCalendar}>
+                    {calendarBusy ? "接続中…" : "Microsoftアカウントで接続"}
+                  </Button>
+                </div>
+              )}
+            </section>
+            <section className="panel settings-form ai-provider-settings-panel" hidden={activeSection !== "ai-mcp"}>
+              <div className="settings-section-heading">
+                <h2>AI Provider</h2>
+                <IntegrationStatus label={aiSummary.label} tone={aiSummary.tone} />
+              </div>
+              <p className="field-help">明示操作時だけ送信し、返答はPending Proposalとして差分確認します。</p>
+              <details className="settings-detail" open={!aiConfig?.hasApiKey}>
+                <summary>Provider設定を編集</summary>
+                <div className="settings-detail-body">
+                  <label>Provider
+                    <select value="openai" disabled><option value="openai">OpenAI</option></select>
+                  </label>
+                  <label>Model
+                    <input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="gpt-5.6" />
+                  </label>
+                  <label>API key
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={aiApiKey}
+                      onChange={(event) => setAiApiKey(event.target.value)}
+                      placeholder={aiConfig?.hasApiKey ? "保存済み（変更時だけ入力）" : "保存時だけ入力。再表示しません"}
+                    />
+                  </label>
+                  <div className="settings-action-row">
+                    <Button variant="primary" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
+                      {aiBusy ? "保存中" : "設定を保存"}
+                    </Button>
+                  </div>
+                </div>
+              </details>
+              {aiConfig?.hasApiKey && (
+                <div className="settings-danger-zone">
+                  <h3>Danger Zone</h3>
+                  <p className="field-help">保存済みのAPI keyを安全な保存領域から削除します。</p>
+                  <Button variant="danger" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</Button>
+                </div>
+              )}
+            </section>
+            <section className="panel settings-form update-panel" hidden={activeSection !== "advanced"}>
+              <h2>更新</h2>
+              <dl className="settings-meta-list">
+                <div>
+                  <dt>現在</dt>
+                  <dd>{updateInfo?.currentVersion || "確認後に表示"}</dd>
+                </div>
+                <div>
+                  <dt>状態</dt>
+                  <dd>{updateStatusLabel}</dd>
+                </div>
+                {updateInfo?.publishedAt && (
+                  <div>
+                    <dt>公開日</dt>
+                    <dd>{new Date(updateInfo.publishedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}</dd>
+                  </div>
+                )}
+              </dl>
+              <div className="settings-action-row">
+                <Button variant="secondary" disabled={checkingUpdate} onClick={checkForUpdates}>
+                  {checkingUpdate ? "確認中" : "更新を確認"}
+                </Button>
+                <Button variant="primary" onClick={openReleasePage}>
+                  Releaseを開く
                 </Button>
               </div>
-            </>
-          ) : (
-            <div className="settings-action-row">
-              <Button variant="primary" disabled={calendarBusy} onClick={connectCalendar}>
-                {calendarBusy ? "接続中…" : "Microsoftアカウントで接続"}
-              </Button>
-            </div>
-          )}
-        </section>
-        <section className="panel settings-form ai-provider-settings-panel">
-          <div className="settings-section-heading">
-            <h2>AI Provider</h2>
-            <span className={`sync-state ${aiConfig?.hasApiKey ? "sync-state-idle" : "sync-state-off"}`}>
-              {aiConfig?.hasApiKey ? "設定済み" : "未設定"}
-            </span>
+            </section>
           </div>
-          <p className="field-help">OpenAIへの送信は明示操作時だけです。返答はNoteを直接変更せず、Pending Proposalとして差分確認します。</p>
-          <label>Provider
-            <select value="openai" disabled><option value="openai">OpenAI</option></select>
-          </label>
-          <label>Model
-            <input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="gpt-5.6" />
-          </label>
-          <label>API key
-            <input
-              type="password"
-              autoComplete="off"
-              value={aiApiKey}
-              onChange={(event) => setAiApiKey(event.target.value)}
-              placeholder={aiConfig?.hasApiKey ? "保存済み（変更時だけ入力）" : "sk-..."}
-            />
-          </label>
-          <div className="settings-action-row">
-            <Button variant="primary" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
-              {aiBusy ? "保存中" : "設定を保存"}
-            </Button>
-            {aiConfig?.hasApiKey && (
-              <Button variant="danger" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</Button>
-            )}
-          </div>
-        </section>
-        <section className="panel settings-form update-panel">
-          <h2>更新</h2>
-          <dl className="settings-meta-list">
-            <div>
-              <dt>現在</dt>
-              <dd>{updateInfo?.currentVersion || "確認後に表示"}</dd>
-            </div>
-            <div>
-              <dt>状態</dt>
-              <dd>{updateStatusLabel}</dd>
-            </div>
-            {updateInfo?.publishedAt && (
-              <div>
-                <dt>公開日</dt>
-                <dd>{new Date(updateInfo.publishedAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}</dd>
-              </div>
-            )}
-          </dl>
-          <div className="settings-action-row">
-            <Button variant="secondary" disabled={checkingUpdate} onClick={checkForUpdates}>
-              {checkingUpdate ? "確認中" : "更新を確認"}
-            </Button>
-            <Button variant="primary" onClick={openReleasePage}>
-              Releaseを開く
-            </Button>
-          </div>
-        </section>
+        </div>
       </div>
-      {syncStatus && syncStatus.conflicts.length > 0 && (
+      {syncStatus && syncStatus.conflicts.length > 0 && activeSection === "storage" && (
         <section className="panel sync-conflict-panel">
           <div className="section-heading">
             <h2>同期の競合</h2>
@@ -608,7 +719,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           ))}
         </section>
       )}
-      {snapshotPreview && (
+      {snapshotPreview && activeSection === "advanced" && (
         <section className="panel snapshot-preview">
           <div className="section-heading"><h2>Snapshot差分</h2><span>{snapshotPreview.changes.length}件</span></div>
           {snapshotPreview.changes.map((change) => (

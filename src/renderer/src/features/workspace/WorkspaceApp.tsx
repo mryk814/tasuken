@@ -60,6 +60,7 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
 ];
 
 function normalizeRoute(route: string): string {
+  if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
   return route === "micro-memos" ? "inbox" : route === "prompts" ? "notes" : route === "proposal-inbox" ? "ai-io" : routeAliases[route] || route;
 }
 
@@ -207,6 +208,7 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     const onHash = () => setRoute(normalizeRoute(location.hash.slice(1) || "today"));
+    onHash();
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [setRoute]);
@@ -1190,10 +1192,7 @@ export function WorkspaceApp() {
       setThemeMode={setThemeMode}
       openShortcuts={() => setShowShortcuts(true)}
       openCommandPalette={() => setShowCommandPalette(true)}
-      openSettings={() => {
-        setDrawer(null);
-        setRoute("settings");
-      }}
+      openSettings={() => navigate("settings")}
     />
   );
   const frameStyle = { "--app-content-zoom": zoomFactor } as CSSProperties;
