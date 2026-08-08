@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   IconChevronDown,
+  IconCalendarCheck,
   IconKeyboard,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMinus,
   IconMoon,
+  IconNotes,
   IconPlus,
   IconSearch,
   IconSettings,
@@ -38,190 +40,39 @@ interface AppTitleBarProps {
 }
 
 export interface TitleBarLauncherData {
-  memos: Array<{ id: string; text: string }>;
-  /** いま付箋として浮いているMemo（#298 / #299）。一覧して前面へ出せる。 */
-  stickyMemos: Array<{ id: string; text: string }>;
-  untriagedMemoCount: number;
-  todayTasks: Array<{ id: string; title: string; done: boolean }>;
-  todayTaskCount: number;
-  createMemo(text: string): Promise<void>;
-  toggleTaskDone(taskId: string): Promise<void>;
-  openMemo(memoId: string): void;
-  openMemos(): void;
-  /** 付箋として浮かせる。既に浮いていれば前面へ出す（重複ウィンドウを作らない）。 */
-  floatMemo(memoId: string): void;
-  /** すべての付箋を閉じる。Memoは削除しない。 */
-  closeStickyMemos(): void;
-  openTask(taskId: string): void;
-  openToday(): void;
+  todayWindowOpen: boolean;
+  stickyWindowsShown: boolean;
+  /** 付箋表示対象を一括で展開／収納する。Memo自体は変更しない。 */
+  toggleStickyWindows(): void;
   openTodayWindow(): void;
-  openScratchpad(): void;
-  /** 今日のActivityを開く（#299）。 */
-  openActivity(): void;
 }
 
-/**
- * 上部バーの常用ランチャー（#299）。既存のMemo・今日のTaskを別データにせず、
- * 現在の画面・編集状態を保ったままPopoverで確認・入力する。
- */
+/** Top Barから衛星ウィンドウを直接操作する（#327）。Popoverは経由しない。 */
 function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
-  const [openPanel, setOpenPanel] = useState<"memo" | "today" | null>(null);
-  const [memoText, setMemoText] = useState("");
-  const [saving, setSaving] = useState(false);
-  const anchorRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!openPanel) return undefined;
-    const close = (event: PointerEvent) => {
-      if (!anchorRef.current?.contains(event.target as Node)) setOpenPanel(null);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenPanel(null);
-    };
-    addEventListener("pointerdown", close);
-    addEventListener("keydown", closeOnEscape);
-    return () => {
-      removeEventListener("pointerdown", close);
-      removeEventListener("keydown", closeOnEscape);
-    };
-  }, [openPanel]);
-
-  async function submitMemo() {
-    const text = memoText.trim();
-    if (!text || saving) return;
-    setSaving(true);
-    try {
-      await launcher.createMemo(text);
-      setMemoText("");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const go = (action: () => void) => {
-    setOpenPanel(null);
-    action();
-  };
-
   return (
-    <div className="titlebar-launcher" ref={anchorRef}>
-      <div className="titlebar-launcher-anchor">
+    <div className="titlebar-launcher">
         <button
           type="button"
-          className={openPanel === "memo" ? "is-active" : ""}
-          aria-haspopup="dialog"
-          aria-expanded={openPanel === "memo"}
-          onClick={() => setOpenPanel((current) => current === "memo" ? null : "memo")}
+          className={`titlebar-launcher-button${launcher.todayWindowOpen ? " is-active" : ""}`}
+          aria-label="Todayウィンドウを表示"
+          title="Todayウィンドウを表示"
+          aria-pressed={launcher.todayWindowOpen}
+          onClick={launcher.openTodayWindow}
         >
-          Memo
-          {launcher.untriagedMemoCount > 0 && (
-            <span className="count" title={`未処理のMemo ${launcher.untriagedMemoCount}件`}>{launcher.untriagedMemoCount}</span>
-          )}
+          <IconCalendarCheck size={16} aria-hidden="true" />
+          <span className="titlebar-launcher-state" aria-hidden="true" />
         </button>
-        {openPanel === "memo" && (
-          <div className="titlebar-popover" role="dialog" aria-label="Memo">
-            <form
-              className="titlebar-popover-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitMemo();
-              }}
-            >
-              <input
-                autoFocus
-                value={memoText}
-                onChange={(event) => setMemoText(event.target.value)}
-                placeholder="新しいMemo"
-                aria-label="新しいMemo"
-              />
-              <button type="submit" className="primary-button compact" disabled={!memoText.trim() || saving}>
-                {saving ? "記録中" : "記録"}
-              </button>
-            </form>
-            {launcher.memos.length ? (
-              <ul className="titlebar-popover-list">
-                {launcher.memos.map((memo) => (
-                  <li key={memo.id}>
-                    <button type="button" className="text-button compact" onClick={() => go(() => launcher.openMemo(memo.id))}>
-                      {memo.text}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="titlebar-popover-empty">Memoはまだありません。</p>
-            )}
-            {/* 浮かせている付箋をここから再表示できるようにする（#298 / #299）。 */}
-            {launcher.stickyMemos.length > 0 && (
-              <>
-                <div className="titlebar-popover-group">付箋 {launcher.stickyMemos.length}</div>
-                <ul className="titlebar-popover-list">
-                  {launcher.stickyMemos.map((memo) => (
-                    <li key={memo.id}>
-                      <span className="titlebar-popover-sticky-text">{memo.text}</span>
-                      <button type="button" className="text-button compact" onClick={() => go(() => launcher.floatMemo(memo.id))}>表示</button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <div className="titlebar-popover-actions">
-              <button type="button" className="text-button compact" onClick={() => go(launcher.openMemos)}>すべてのMemoを開く</button>
-              {launcher.stickyMemos.length > 0 && (
-                <button type="button" className="text-button compact" onClick={() => go(launcher.closeStickyMemos)}>付箋をすべて閉じる</button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="titlebar-launcher-anchor">
         <button
           type="button"
-          className={openPanel === "today" ? "is-active" : ""}
-          aria-haspopup="dialog"
-          aria-expanded={openPanel === "today"}
-          onClick={() => setOpenPanel((current) => current === "today" ? null : "today")}
+          className={`titlebar-launcher-button${launcher.stickyWindowsShown ? " is-active" : ""}`}
+          aria-label="付箋を展開または収納"
+          title="付箋を展開または収納"
+          aria-pressed={launcher.stickyWindowsShown}
+          onClick={launcher.toggleStickyWindows}
         >
-          Today
-          {launcher.todayTaskCount > 0 && (
-            <span className="count" title={`今日のTask ${launcher.todayTaskCount}件`}>{launcher.todayTaskCount}</span>
-          )}
+          <IconNotes size={16} aria-hidden="true" />
+          <span className="titlebar-launcher-state" aria-hidden="true" />
         </button>
-        {openPanel === "today" && (
-          <div className="titlebar-popover" role="dialog" aria-label="今日のTask">
-            {launcher.todayTasks.length ? (
-              <ul className="titlebar-popover-list">
-                {launcher.todayTasks.map((task) => (
-                  <li key={task.id}>
-                    <label className="titlebar-popover-check">
-                      <input
-                        type="checkbox"
-                        checked={task.done}
-                        onChange={() => void launcher.toggleTaskDone(task.id)}
-                        aria-label={`${task.title}を${task.done ? "未完了に戻す" : "完了にする"}`}
-                      />
-                      <span className={task.done ? "is-done" : ""}>{task.title}</span>
-                    </label>
-                    <button type="button" className="text-button compact" onClick={() => go(() => launcher.openTask(task.id))}>開く</button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="titlebar-popover-empty">今日のTaskはありません。</p>
-            )}
-            <div className="titlebar-popover-actions">
-              <button type="button" className="text-button compact" onClick={() => go(launcher.openTodayWindow)}>別ウィンドウで表示</button>
-              <button type="button" className="text-button compact" onClick={() => go(launcher.openToday)}>Today画面を開く</button>
-            </div>
-            {/* 日次の面はボタンを増やさず、ここへまとめる（#299）。 */}
-            <div className="titlebar-popover-group">日次</div>
-            <div className="titlebar-popover-actions">
-              <button type="button" className="text-button compact" onClick={() => go(launcher.openScratchpad)}>Daily Scratchpad</button>
-              <button type="button" className="text-button compact" onClick={() => go(launcher.openActivity)}>今日のActivity</button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

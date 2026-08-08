@@ -6,20 +6,71 @@ import path from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
 
-async function importBundled(relativePath) {
+async function importBundled(relativePath, plugins = []) {
   const result = await build({
     entryPoints: [path.resolve(relativePath)],
     bundle: true,
     platform: "node",
     format: "esm",
     packages: "external",
+    plugins,
     write: false,
     logLevel: "silent",
   });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 }
 
+const electronMockPlugin = {
+  name: "mock-electron",
+  setup(buildContext) {
+    buildContext.onResolve({ filter: /^electron$/ }, () => ({ path: "electron", namespace: "mock-electron" }));
+    buildContext.onLoad({ filter: /.*/, namespace: "mock-electron" }, () => ({
+      loader: "js",
+      contents: `
+        export const screen = {
+          getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 800, height: 600 } }],
+        };
+        export class BrowserWindow {
+          constructor(options = {}) {
+            this.bounds = {
+              x: options.x ?? 0,
+              y: options.y ?? 0,
+              width: options.width ?? 300,
+              height: options.height ?? 200,
+            };
+            this.visible = false;
+            this.destroyed = false;
+            this.minimized = false;
+            this.focused = false;
+            this.webContents = { isLoading: () => false, send: () => {} };
+          }
+          isDestroyed() { return this.destroyed; }
+          isVisible() { return this.visible; }
+          isMinimized() { return this.minimized; }
+          restore() { this.minimized = false; }
+          show() { this.visible = true; }
+          hide() { this.visible = false; }
+          focus() { this.focused = true; }
+          isFocused() { return this.focused; }
+          getBounds() { return { ...this.bounds }; }
+          setBounds(next) { this.bounds = { ...this.bounds, ...next }; }
+          setTitle() {}
+          loadURL() {}
+          loadFile() {}
+          setAlwaysOnTop() {}
+          close() { this.destroyed = true; this.visible = false; }
+          on() { return this; }
+          once() { return this; }
+          removeAllListeners() { return this; }
+        }
+      `,
+    }));
+  },
+};
+
 const state = await importBundled("src/main/satelliteWindowState.ts");
+const memoPresentation = await importBundled("src/shared/memoPresentation.ts");
+const registryModule = await importBundled("src/main/satelliteWindowRegistry.ts", [electronMockPlugin]);
 
 function tempStatePath() {
   return path.join(mkdtempSync(path.join(tmpdir(), "tasken-satellite-")), "windows.json");
@@ -117,6 +168,57 @@ test("状態ファイルに未知のキーや不正な値が混ざっても無�
   assert.equal(store.read({ kind: "memo", entityId: "broken" }), null);
 });
 
+function satelliteSpec() {
+  return {
+    title: "Memo",
+    width: 300,
+    height: 200,
+    minWidth: 220,
+    minHeight: 160,
+    page: "memo-sticky",
+    preload: "preload",
+  };
+}
+
+function createTestRegistry() {
+  const stateFilePath = tempStatePath();
+  return {
+    stateFilePath,
+    registry: registryModule.createSatelliteWindowRegistry({
+      stateFilePath,
+      getAppIconPath: () => "",
+      resolvePageUrl: () => ({ file: "memo-sticky.html" }),
+    }),
+  };
+}
+
+test("arrangeは非表示の非対象ウィンドウを占有矩形に含めない（#327）", () => {
+  const { registry } = createTestRegistry();
+  const hidden = registry.open({ kind: "today", entityId: "today" }, satelliteSpec());
+  hidden.setBounds({ x: 16, y: 16 });
+  const target = registry.open({ kind: "memo", entityId: "memo-target" }, satelliteSpec());
+
+  registry.arrange([{ kind: "memo", entityId: "memo-target" }]);
+
+  assert.deepEqual(target.getBounds(), { x: 16, y: 16, width: 300, height: 200 });
+});
+
+test("初回配置後は手動移動した新規ウィンドウを再配置しない（#327）", () => {
+  const { registry, stateFilePath } = createTestRegistry();
+  const fresh = registry.open({ kind: "memo", entityId: "memo-fresh" }, satelliteSpec());
+
+  assert.equal(registry.arrange([{ kind: "memo", entityId: "memo-fresh" }]), 1);
+  assert.deepEqual(
+    state.createSatelliteWindowStateStore(stateFilePath).read({ kind: "memo", entityId: "memo-fresh" }),
+    fresh.getBounds(),
+  );
+  fresh.setBounds({ x: 500, y: 300 });
+  const moved = fresh.getBounds();
+
+  assert.equal(registry.arrange([{ kind: "memo", entityId: "memo-fresh" }]), 0);
+  assert.deepEqual(fresh.getBounds(), moved);
+});
+
 // --- 配線（source assertion）: Electron依存部分はここで契約だけ固定する ---
 const registrySource = readFileSync("src/main/satelliteWindowRegistry.ts", "utf8");
 const memoStickySource = readFileSync("src/main/memoStickyController.ts", "utf8");
@@ -124,6 +226,7 @@ const mainSource = readFileSync("src/main/index.ts", "utf8");
 const stickyHtml = readFileSync("src/renderer/memo-sticky.html", "utf8");
 const viteConfig = readFileSync("electron.vite.config.ts", "utf8");
 const cssSourceForNotes = readFileSync("src/renderer/src/styles/app.css", "utf8");
+const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
 
 test("同じEntityの切り離しウィンドウを二枚作らない（#290 / #298）", () => {
   // 既にあれば作らずに前面へ出す。黙って別Editorを開かないための契約。
@@ -140,6 +243,30 @@ test("本体ウィンドウ判定を一箇所へ集約する（#290）", () => {
   assert.match(mainSource, /\.find\(\(win\) => !isAuxiliaryWindow\(win\) && !win\.isDestroyed\(\)\)/);
   // 切り離しウィンドウにも同じ変更通知を配る（正本が分裂しない）。
   assert.match(mainSource, /satelliteWindows\?\.broadcast\(IPC\.workspaceChanged, change\);/);
+});
+
+test("Todayの表示状態はregistryのvisibility遷移を通知する（#327）", () => {
+  assert.match(mainSource, /function isVisibleWindow\(win: BrowserWindow \| null\): boolean/);
+  assert.match(mainSource, /todayOpen: isVisibleWindow\(todayMiniController\?\.getWindow\(\) \|\| null\)/g);
+  assert.doesNotMatch(mainSource, /todayOpen: Boolean\(todayMiniController\?\.getWindow\(\)\)/);
+  assert.match(registrySource, /const wasVisible = window\.isVisible\(\);/);
+  assert.match(registrySource, /window\.show\(\);/);
+  assert.match(registrySource, /window\.focus\(\);/);
+  assert.match(registrySource, /if \(!wasVisible && window\.isVisible\(\)\) options\.onChanged\?\.\(\);/);
+  assert.match(registrySource, /window\.hide\(\);/);
+  assert.match(registrySource, /if \(wasVisible && !window\.isVisible\(\)\) options\.onChanged\?\.\(\);/);
+  assert.match(registrySource, /focus\(key\)[\s\S]*reveal\(window\)/);
+  assert.match(registrySource, /window\.on\("closed"[\s\S]*options\.onChanged\?\.\(\);/);
+});
+
+test("Top BarのToday／付箋はicon中心で状態を色だけに頼らない（#327）", () => {
+  assert.match(shellSource, /aria-label="Todayウィンドウを表示"[\s\S]*title="Todayウィンドウを表示"[\s\S]*aria-pressed=\{launcher\.todayWindowOpen\}/);
+  assert.match(shellSource, /aria-label="付箋を展開または収納"[\s\S]*title="付箋を展開または収納"[\s\S]*aria-pressed=\{launcher\.stickyWindowsShown\}/);
+  assert.match(shellSource, /className="titlebar-launcher-state"/);
+  assert.doesNotMatch(shellSource, />Today<\/span>/);
+  assert.doesNotMatch(shellSource, />付箋<\/span>/);
+  assert.match(cssSourceForNotes, /\.titlebar-launcher button \{ position: relative;[\s\S]*width: 30px/);
+  assert.match(cssSourceForNotes, /\.titlebar-launcher button\.is-active \.titlebar-launcher-state \{ display: block; \}/);
 });
 
 test("位置・サイズを覚え、画面外へ復元しない配線がある（#290）", () => {
@@ -301,23 +428,27 @@ test("Noteウィンドウから本体へ表示を渡せる（#290）", () => {
   assert.match(workspaceAppSource, /if \(detachedNoteId \|\| loadState !== "success"\) return undefined;/);
 });
 
-test("上部バーのランチャーが切り離しウィンドウと連携する（#299）", () => {
+test("上部バーはPopoverを経由せずRegistryの衛星ウィンドウを操作する（#327）", () => {
   const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
   const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
-  // 浮かせている付箋を一覧し、前面へ出せる。開閉状態の正本はMainのregistry。
-  assert.match(shellSource, /stickyMemos: Array<\{ id: string; text: string \}>;/);
-  assert.match(shellSource, /titlebar-popover-group">付箋 \{launcher\.stickyMemos\.length\}/);
-  assert.match(shellSource, /onClick=\{\(\) => go\(\(\) => launcher\.floatMemo\(memo\.id\)\)\}/);
-  assert.match(shellSource, /付箋をすべて閉じる/);
-  assert.match(workspaceAppSource, /return workspaceApi\.onMemoStickyOpenChanged\(setOpenStickyMemoIds\);/);
-  // 既に浮いていれば前面へ出すだけなので、重複ウィンドウを作らない。
-  assert.match(workspaceAppSource, /floatMemo: \(memoId\) => \{ void workspaceApi\.showMemoStickyWindow\(memoId\); \}/);
+  assert.match(shellSource, /todayWindowOpen: boolean;/);
+  assert.match(shellSource, /stickyWindowsShown: boolean;/);
+  assert.match(shellSource, /aria-pressed=\{launcher\.todayWindowOpen\}/);
+  assert.match(shellSource, /aria-pressed=\{launcher\.stickyWindowsShown\}/);
+  assert.doesNotMatch(shellSource, /titlebar-popover/);
+  assert.match(workspaceAppSource, /workspaceApi\.getSatelliteWindowState\(\)/);
+  assert.match(workspaceAppSource, /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/);
+  assert.match(workspaceAppSource, /workspaceApi\.showAllMemoStickies\(\)/);
+  assert.match(workspaceAppSource, /workspaceApi\.closeAllMemoStickies\(\)/);
+});
 
-  // Activity / Scratchpad はボタンを増やさず日次メニューへまとめる。
-  assert.match(shellSource, /titlebar-popover-group">日次</);
-  assert.match(shellSource, /onClick=\{\(\) => go\(launcher\.openScratchpad\)\}>Daily Scratchpad</);
-  assert.match(shellSource, /onClick=\{\(\) => go\(launcher\.openActivity\)\}>今日のActivity</);
-  // Activityは既存のToday画面の面を使い、別実装を作らない。
-  assert.match(workspaceAppSource, /document\.getElementById\("daily-activity"\)\?\.scrollIntoView/);
+test("付箋表示対象は同じMemoのproperties_jsonへ保存し、閉じても状態を消さない（#327）", () => {
+  const memo = { id: "memo-1", kind: "micro_memo", state: "untriaged", properties_json: { color: "amber" } };
+  const marked = memoPresentation.markStickyMemoTarget(memo, true);
+  assert.equal(memoPresentation.isStickyMemoTarget(marked), true);
+  assert.equal(marked.properties_json.presentation, "floating");
+  assert.equal(marked.properties_json.color, "amber");
+  assert.equal(memoPresentation.isStickyMemoTarget({ ...marked, state: "archived" }), false);
+  assert.equal(memoPresentation.isStickyMemoTarget({ ...marked, deleted_at: "2026-08-08T00:00:00Z" }), false);
 });

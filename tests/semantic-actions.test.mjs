@@ -23,3 +23,11 @@ test("standalone windows do not define a second color palette", () => {
     assert.doesNotMatch(source, /rgba?\(\s*\d/);
   }
 });
+
+test("Today mini standalone picker uses only shared design token roles", () => {
+  const todayMini = standaloneSources[0];
+  assert.doesNotMatch(todayMini, /--color-(?:glass|glass-hover|panel-strong|text-light)/);
+  assert.match(todayMini, /--color-surface-subtle/);
+  assert.match(todayMini, /--color-surface-muted/);
+  assert.match(todayMini, /--color-accent-subtle-bg-strong/);
+});

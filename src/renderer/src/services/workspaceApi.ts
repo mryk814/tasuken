@@ -6,7 +6,7 @@ import type {
   Workspace,
 } from "../../../shared/types/workspace";
 import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
-import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
+import type { AppUpdateCheckResult, SatelliteWindowStatePayload } from "../../../shared/ipc/contracts";
 import type { CommandEnvelope } from "../../../shared/applicationCommand";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
 import type { SketchExportRequest } from "../../../shared/sketchExport";
@@ -130,11 +130,20 @@ export const workspaceApi = {
   listOpenMemoStickies() {
     return desktopApi().app.listOpenMemoStickies();
   },
+  listStickyMemoTargets() {
+    return desktopApi().app.listStickyMemoTargets();
+  },
   showAllMemoStickies() {
     return desktopApi().app.showAllMemoStickies();
   },
   closeAllMemoStickies() {
     return desktopApi().app.closeAllMemoStickies();
+  },
+  getSatelliteWindowState() {
+    return desktopApi().app.getSatelliteWindowState();
+  },
+  onSatelliteWindowStateChanged(callback: (state: SatelliteWindowStatePayload) => void) {
+    return desktopApi().app.onSatelliteWindowStateChanged(callback);
   },
   onMemoStickyOpenChanged(callback: (memoIds: string[]) => void) {
     return desktopApi().app.onMemoStickyOpenChanged(callback);

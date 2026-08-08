@@ -14,6 +14,7 @@ import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineEx
 import type { AiNoteGenerateRequest, AiNoteGenerateResult, AiProviderConfig, AiProviderConfigUpdate } from "../ai";
 import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
+import type { ThemePickerOption } from "../themeRef.mjs";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -38,6 +39,31 @@ export const IPC = {
   appReleasePageOpen: "app:release-page-open",
   appTitleBarTheme: "app:titlebar-theme",
   mcpBridgeInfo: "mcp:bridge-info",
+  todayMiniShow: "today-mini:show",
+  todayMiniRefresh: "today-mini:refresh",
+  todayMiniPinTopRight: "today-mini:pin-top-right",
+  todayMiniHide: "today-mini:hide",
+  todayMiniList: "today-mini:list",
+  todayMiniThemes: "today-mini:themes",
+  todayMiniAddTask: "today-mini:add-task",
+  todayMiniToggle: "today-mini:toggle",
+  todayMiniOpenTask: "today-mini:open-task",
+  memoStickyOpen: "memo-sticky:open",
+  memoStickyLoad: "memo-sticky:load",
+  memoStickySave: "memo-sticky:save",
+  memoStickyCopy: "memo-sticky:copy",
+  memoStickyClose: "memo-sticky:close",
+  memoStickySetAlwaysOnTop: "memo-sticky:set-always-on-top",
+  memoStickyIsAlwaysOnTop: "memo-sticky:is-always-on-top",
+  memoStickyOpenInMain: "memo-sticky:open-in-main",
+  memoStickyArchive: "memo-sticky:archive",
+  memoStickyDelete: "memo-sticky:delete",
+  memoStickyOpenChanged: "memo-sticky:open-changed",
+  memoStickyListOpen: "memo-sticky:list-open",
+  memoStickyListTargets: "memo-sticky:list-targets",
+  memoStickyShowAll: "memo-sticky:show-all",
+  memoStickyCloseAll: "memo-sticky:close-all",
+  satelliteWindowState: "satellite-window:state",
   entityList: "entity:list",
   entityGet: "entity:get",
   entitySave: "entity:save",
@@ -66,34 +92,12 @@ export const IPC = {
   applicationCommand: "application:command",
   applicationCommandBatch: "application:command-batch",
   workspaceChanged: "workspace:changed",
-  todayMiniRefresh: "today-mini:refresh",
-  todayMiniShow: "today-mini:show",
-  todayMiniPinTopRight: "today-mini:pin-top-right",
-  todayMiniHide: "today-mini:hide",
-  todayMiniList: "today-mini:list",
-  todayMiniAddTask: "today-mini:add-task",
-  todayMiniToggle: "today-mini:toggle",
-  todayMiniOpenTask: "today-mini:open-task",
   quickCaptureSave: "quick-capture:save",
   quickCapturePreviewDue: "quick-capture:preview-due",
   quickCaptureHide: "quick-capture:hide",
   quickCaptureShown: "quick-capture:shown",
   quickCaptureTheme: "quick-capture:theme",
   quickCaptureThemes: "quick-capture:themes",
-  memoStickyOpen: "memo-sticky:open",
-  memoStickyLoad: "memo-sticky:load",
-  memoStickySave: "memo-sticky:save",
-  memoStickyCopy: "memo-sticky:copy",
-  memoStickyClose: "memo-sticky:close",
-  memoStickyOpenInMain: "memo-sticky:open-in-main",
-  memoStickyAlwaysOnTop: "memo-sticky:set-always-on-top",
-  memoStickyIsAlwaysOnTop: "memo-sticky:is-always-on-top",
-  memoStickyListOpen: "memo-sticky:list-open",
-  memoStickyShowAll: "memo-sticky:show-all",
-  memoStickyCloseAll: "memo-sticky:close-all",
-  memoStickyArchive: "memo-sticky:archive",
-  memoStickyDelete: "memo-sticky:delete",
-  memoStickyOpenChanged: "memo-sticky:open-changed",
   noteWindowOpen: "note-window:open",
   noteWindowListOpen: "note-window:list-open",
   noteWindowReturnToMain: "note-window:return-to-main",
@@ -122,6 +126,19 @@ export interface TodayMiniTask {
   priority: "normal" | "high";
   checklistDone: number;
   checklistTotal: number;
+}
+
+export type TodayMiniThemeOption = ThemePickerOption;
+
+export interface TodayMiniAddTaskRequest {
+  title: string;
+  themeId?: string;
+}
+
+export interface SatelliteWindowStatePayload {
+  todayOpen: boolean;
+  openMemoIds: string[];
+  stickyMemoIds: string[];
 }
 
 export interface AppUpdateCheckResult {
@@ -227,10 +244,13 @@ export interface ResearchDeskApi {
     showMemoStickyWindow(memoId: string): Promise<boolean>;
     /** いま付箋として浮いているMemoのID（#298）。 */
     listOpenMemoStickies(): Promise<string[]>;
+    listStickyMemoTargets(): Promise<string[]>;
     showAllMemoStickies(): Promise<number>;
     /** すべて閉じる。Memoは削除しない。 */
     closeAllMemoStickies(): Promise<number>;
     onMemoStickyOpenChanged(callback: (memoIds: string[]) => void): () => void;
+    getSatelliteWindowState(): Promise<SatelliteWindowStatePayload>;
+    onSatelliteWindowStateChanged(callback: (state: SatelliteWindowStatePayload) => void): () => void;
     /** Noteを別ウィンドウで開く。既に開いていれば前面へ出す（#290）。 */
     openNoteWindow(noteId: string): Promise<boolean>;
     listOpenNoteWindows(): Promise<string[]>;

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Menu, safeStorage, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +26,7 @@ import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { ApplicationCommandService } from "./services/applicationCommandService";
 import type { CommandReceipt } from "../shared/applicationCommand";
-import { IPC } from "../shared/ipc/contracts";
+import { IPC, type SatelliteWindowStatePayload } from "../shared/ipc/contracts";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
@@ -130,14 +130,25 @@ function isAuxiliaryWindow(win: BrowserWindow): boolean {
   return satelliteWindows?.has(win) === true;
 }
 
+function isVisibleWindow(win: BrowserWindow | null): boolean {
+  return Boolean(win && !win.isDestroyed() && win.isVisible());
+}
+
 /** 開いている付箋の一覧を本体へ配る。本体側で「付箋表示中」を区別するために使う（#298）。 */
 function notifyMemoStickyWindowsChanged(): void {
   const openMemoIds = memoStickyController?.openMemoIds() || [];
+  const stickyMemoIds = memoStickyController?.stickyMemoIds() || [];
   const openNoteIds = noteWindowController?.openNoteIds() || [];
+  const state: SatelliteWindowStatePayload = {
+    todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
+    openMemoIds,
+    stickyMemoIds,
+  };
   for (const win of BrowserWindow.getAllWindows()) {
     if (isAuxiliaryWindow(win) || win.isDestroyed() || win.webContents.isLoading()) continue;
     win.webContents.send(IPC.memoStickyOpenChanged, openMemoIds);
     win.webContents.send(IPC.noteWindowOpenChanged, openNoteIds);
+    win.webContents.send(IPC.satelliteWindowState, state);
   }
 }
 
@@ -1157,6 +1168,11 @@ async function startDesktopApp(): Promise<void> {
         : { file: path.join(__dirname, `../renderer/${page}.html`) }
     ),
   });
+  ipcMain.handle(IPC.satelliteWindowState, () => ({
+    todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
+    openMemoIds: memoStickyController?.openMemoIds() || [],
+    stickyMemoIds: memoStickyController?.stickyMemoIds() || [],
+  } satisfies SatelliteWindowStatePayload));
   memoStickyController = createMemoStickyController({
     repository: workspaceRepository,
     satelliteWindows,
@@ -1179,7 +1195,7 @@ async function startDesktopApp(): Promise<void> {
   quickCaptureController.registerIpc();
   todayMiniController = createTodayMiniController({
     repository: workspaceRepository,
-    getAppIconPath,
+    satelliteWindows,
     showMainWindow,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
     notifyCommandApplied,

@@ -1,4 +1,9 @@
 export type ThemeRef = { kind: "theme"; id: string } | { kind: "none"; id: null };
+export type ThemePickerOption = {
+  value: string;
+  label: string;
+  kind: "personal" | "theme" | "none";
+};
 export const PERSONAL_DEFAULT_THEME_ID: string;
 export const PERSONAL_DEFAULT_THEME_NAME: string;
 export const PERSONAL_DEFAULT_THEME_KIND: string;
@@ -10,6 +15,6 @@ export function themeRefFromId(value: unknown, options?: { defaultPersonal?: boo
 export function themeRefFromEntity(entity: Record<string, unknown>, options?: { defaultPersonal?: boolean; legacyNullMeansPersonal?: boolean }): ThemeRef;
 export function canonicalThemeId(value: unknown, options?: { defaultPersonal?: boolean; legacyNullMeansPersonal?: boolean }): string | null;
 export function themeIdForEntityType(type: string): string | null;
-export function themePickerOptions(themes?: Record<string, unknown>[], options?: { allowPersonal?: boolean; allowNone?: boolean }): { value: string; label: string; kind: string }[];
+export function themePickerOptions(themes?: Record<string, unknown>[], options?: { allowPersonal?: boolean; allowNone?: boolean }): ThemePickerOption[];
 export function resolveThemeRef(themes: Record<string, any>[], value: unknown, options?: { defaultPersonal?: boolean; legacyNullMeansPersonal?: boolean }): { kind: string; id: string | null; theme: Record<string, any> | null; missing: boolean };
 export function canonicalThemeRefForCreate(value: unknown): ThemeRef;
