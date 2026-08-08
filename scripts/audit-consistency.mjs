@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { scanSource } from "./audit-rules.mjs";
+import { scanSource, scanTokenUsage } from "./audit-rules.mjs";
 
 const root = process.cwd();
 const schemaVersion = 1;
@@ -90,9 +90,7 @@ for (const file of cssFiles) {
 }
 for (const file of cssFiles) {
   const source = contents.get(file);
-  for (const match of source.matchAll(/var\(--([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\s*[,)]/gi)) {
-    if (!declaredTokens.has(match[1])) add("standalone-token", "report-only", file, "Token --" + match[1] + " is not declared in the design token source.", "--" + match[1]);
-  }
+  for (const finding of scanTokenUsage({ file, source, declaredTokens, strict })) findings.push({ schemaVersion, ...finding });
 }
 
 const uniqueFindings = [...new Map(findings.map((finding) => [

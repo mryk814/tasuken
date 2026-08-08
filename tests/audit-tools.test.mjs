@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inventoryEntry } from "../scripts/audit-scripts.mjs";
-import { scanSource } from "../scripts/audit-rules.mjs";
+import { scanSource, scanTokenUsage } from "../scripts/audit-rules.mjs";
 
 test("consistency scanner promotes raw IPC and direct writes to blocking errors in strict mode", () => {
   const findings = scanSource({
@@ -47,4 +47,17 @@ test("script inventory marks an unreferenced fixture stale and a package target 
   assert.equal(stale.reachable, false);
   assert.deepEqual(reachable.packageOwners, ["audit:consistency"]);
   assert.equal(reachable.stale, false);
+});
+
+test("strict consistency treats an undeclared CSS token as a blocking error", () => {
+  const findings = scanTokenUsage({
+    file: "fixture.css",
+    source: ".card { color: var(--missing-fixture-token); }",
+    declaredTokens: new Set(["known-token"]),
+    strict: true,
+  });
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].ruleId, "standalone-token");
+  assert.equal(findings[0].severity, "error");
+  assert.equal(findings[0].category, "error");
 });

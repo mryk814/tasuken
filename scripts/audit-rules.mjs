@@ -42,3 +42,21 @@ export function scanSource({ file, source, allowlist = {}, strict = false }) {
 
   return findings;
 }
+
+export function scanTokenUsage({ file, source, declaredTokens, strict = false }) {
+  const findings = [];
+  for (const match of source.matchAll(/var\(--([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\s*[,)]/gi)) {
+    if (declaredTokens.has(match[1])) continue;
+    findings.push({
+      ruleId: "standalone-token",
+      severity: strict ? "error" : "report-only",
+      category: strict ? "error" : "report",
+      file,
+      match: "--" + match[1],
+      message: "Token --" + match[1] + " is not declared in a CSS token source.",
+      allowlisted: false,
+      reason: null,
+    });
+  }
+  return findings;
+}
