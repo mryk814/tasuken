@@ -283,7 +283,7 @@ test("同じNoteを二つのEditorで黙って同時編集させない（#290）
   // 常設buttonから「この文書」menuの項目へ移した（#331）。意味の切り替えは維持する。
   assert.match(notesSource, /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを前面に出す" : "別ウィンドウで開く"/);
   // 切り離す前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする。
-  assert.match(notesSource, /await autoSaveDraft\(\);\s*\n\s*const opened = await workspaceApi\.openNoteWindow\(selected\.id\)/);
+  assert.match(notesSource, /const current = captureCurrentDraftSnapshot\(\);\s*\n\s*await autoSaveDraft\(current\);\s*\n\s*const opened = await workspaceApi\.openNoteWindow\(selected\.id\)/);
 });
 
 test("Noteウィンドウから本体へ表示を渡せる（#290）", () => {
