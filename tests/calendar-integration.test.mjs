@@ -69,7 +69,7 @@ test("TodayPage includes calendar section with 4-state UI", () => {
   assert.match(source, /safeMeetingUrlFor/);
   assert.match(source, /event\.sensitivity !== "normal"/);
   assert.match(source, /会議を開く/);
-  const calendarMeta = source.match(/function CalendarEventMeta[\s\S]*?\n}\n\nfunction TodayCalendarSection/);
+  const calendarMeta = source.match(/function CalendarEventMeta[\s\S]*?\r?\n}\r?\n\r?\nfunction TodayCalendarSection/);
   assert.ok(calendarMeta, "CalendarEventMeta source is present");
   assert.match(calendarMeta[0], /href=\{meetingUrl\}/);
   assert.match(calendarMeta[0], /target="_blank"/);
