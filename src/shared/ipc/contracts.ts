@@ -14,6 +14,7 @@ import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineEx
 import type { AiNoteGenerateRequest, AiNoteGenerateResult, AiProviderConfig, AiProviderConfigUpdate } from "../ai";
 import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
+import type { ThemePickerOption } from "../themeRef.mjs";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -149,11 +150,7 @@ export interface TodayMiniTask {
   checklistTotal: number;
 }
 
-export interface TodayMiniThemeOption {
-  value: string;
-  label: string;
-  kind: "personal" | "theme" | "none";
-}
+export type TodayMiniThemeOption = ThemePickerOption;
 
 export interface TodayMiniAddTaskRequest {
   title: string;

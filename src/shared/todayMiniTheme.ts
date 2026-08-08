@@ -1,9 +1,7 @@
 import { canonicalThemeRefForCreate } from "./themeRef.mjs";
+import type { ThemePickerOption } from "./themeRef.mjs";
 
-export interface TodayMiniThemeChoice {
-  value: string;
-  kind: "personal" | "theme" | "none";
-}
+export type TodayMiniThemeChoice = ThemePickerOption;
 
 /** Main-side boundary: only the shared picker values are accepted for creation. */
 export function resolveTodayMiniThemeRef(options: TodayMiniThemeChoice[], value: unknown) {

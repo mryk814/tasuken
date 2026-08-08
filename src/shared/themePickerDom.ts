@@ -1,8 +1,6 @@
-export interface ThemePickerDomOption {
-  value: string;
-  label: string;
-  kind: "personal" | "theme" | "none";
-}
+import type { ThemePickerOption } from "./themeRef.mjs";
+
+export type ThemePickerDomOption = ThemePickerOption;
 
 export interface ThemePickerDom {
   element: HTMLDivElement;
