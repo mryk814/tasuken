@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
+import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import type { Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
 import {
   ApplicationCommandError,
@@ -77,19 +78,45 @@ function commandEvent(
   before: Entity | null,
   after: Entity,
 ): Entity {
+  const refType = entityType === "schedule" ? "task" : entityType;
+  const source = command.actor.kind === "system" ? "migration" : "manual";
   return {
-    id: randomUUID(),
-    entity_type: entityType === "schedule" ? "task" : entityType,
+    ...buildActivityEvent({
+      id: randomUUID(),
+      entityType: refType,
+      entityId,
+      eventKind: entityType === "schedule" ? "schedule_updated" : undefined,
+      occurredAt: now(),
+      changeType: kind,
+      before,
+      after,
+      before_json: before ? JSON.stringify(before) : null,
+      after_json: JSON.stringify(after),
+      source,
+      actor: command.actor,
+      origin: {
+        kind: "application_command",
+        command_id: command.commandId,
+        command_name: command.name,
+        session_id: command.sessionId || command.commandId,
+      },
+      command_id: command.commandId,
+      command_name: command.name,
+      command_source: command.source,
+      reason: `application-command:${command.name}`,
+      metadata: {
+        command_id: command.commandId,
+        command_name: command.name,
+        command_source: command.source,
+        session_id: command.sessionId || command.commandId,
+        // One command can persist a Task plus Note/Artifact/Schedule events.
+        // The command ID gives retry idempotency; the typed event identity
+        // keeps those sibling events from collapsing into one row.
+        dedupe_key: `command:${command.commandId}:${entityType}:${entityId}:${kind}`,
+      },
+    }),
+    entity_type: refType,
     record_type: entityType,
-    entity_id: entityId,
-    changed_at: now(),
-    change_type: kind,
-    source: command.actor.kind === "system" ? "migration" : "manual",
-    before_json: before ? JSON.stringify(before) : null,
-    after_json: JSON.stringify(after),
-    reason: `application-command:${command.name}`,
-    command_id: command.commandId,
-    command_name: command.name,
   };
 }
 

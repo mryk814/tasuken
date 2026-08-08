@@ -134,6 +134,24 @@ export function createTaskenMcpServer() {
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolGetKnowledgeHealth(args)));
 
+  server.registerTool("tasken.get_activity", {
+    description: "Return the structured Activity event index as JSON or Markdown. This is read-only and applies AI visibility policy at projection time.",
+    inputSchema: {
+      date: optionalText,
+      from: optionalText,
+      to: optionalText,
+      theme_id: optionalText,
+      entity_type: optionalText,
+      event_kinds: z.array(z.string()).max(20).optional(),
+      timezone: optionalText,
+      limit: optionalLimit,
+      format: z.enum(["json", "markdown"]).optional(),
+      audience: z.enum(["m365", "coding_agent", "external_ai"]).optional(),
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetActivity(args)));
+
   server.registerTool("tasken.get_context_subgraph", {
     description: "Return a bounded, read-only Context/Provenance subgraph for one typed entity. Suggested relations are excluded by default and never become facts.",
     inputSchema: {

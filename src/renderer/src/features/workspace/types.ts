@@ -1,4 +1,5 @@
 import type {
+  CanonicalRootStatusMap,
   Entity,
   EntityType,
   SaveOperation,
@@ -264,6 +265,7 @@ export interface WorkspaceData {
   change_events: BaseRecord[];
   artifacts: Artifact[];
   sketches: Sketch[];
+  canonical_root_status?: CanonicalRootStatusMap;
   meta?: WorkspaceMeta;
 }
 

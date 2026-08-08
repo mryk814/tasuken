@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 
 function setupContext() {
   const theme = { id: "theme-1", name: "材料A評価", updated_at: "2026-06-18T00:00:00.000Z" };
@@ -103,6 +104,37 @@ test("read-only MCP context exports AI context and health", () => {
     assert.equal(json.knowledge_nodes.length, 3);
     assert.equal(json.health.claims_without_evidence.length, 0);
     assert.equal(json.health.stale_decisions.length, 1);
+  } finally {
+    context.close();
+  }
+});
+
+test("read-only MCP Activity uses the shared structured projection", () => {
+  const context = new ReadOnlyTaskenContext("in-memory.sqlite", {
+    workspace: {
+      themes: [{ id: "theme-activity", name: "Activity Theme" }],
+      canonical_root_status: { sync: { status: "ok" } },
+      notes: [{ id: "note-activity", title: "Activity note", theme_id: "theme-activity" }],
+      change_events: [buildActivityEvent({
+        id: "activity-mcp-1",
+        entityType: "note",
+        entityId: "note-activity",
+        changeType: "created",
+        occurredAt: "2026-08-08T01:00:00.000Z",
+        after: { id: "note-activity", title: "Activity note", theme_id: "theme-activity" },
+      })],
+    },
+  });
+  try {
+    const json = context.toolGetActivity({ date: "2026-08-08", format: "json" });
+    const markdown = context.toolGetActivity({ date: "2026-08-08", format: "markdown" });
+    assert.equal(json.events[0].id, "activity-mcp-1");
+    assert.equal(json.events[0].event_kind, "note_created");
+    assert.match(markdown.activity, /note_created/);
+    assert.match(markdown.activity, /note-activity/);
+    assert.equal(markdown.read_only, true);
+    assert.equal(JSON.stringify(json).includes("canonical_root_status"), false);
+    assert.equal(JSON.stringify(json).includes("C:\\"), false);
   } finally {
     context.close();
   }

@@ -84,8 +84,21 @@ export function registerIpc(
   ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
+  ipcMain.handle(IPC.activityCanonicalRootStatus, () => service.getActivityCanonicalRootStatus());
+  ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) => service.openActivityCanonicalRef(ref));
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
-  ipcMain.handle(IPC.preferenceSet, (_event, key, value) => repository.setPreference(requireId(key), value));
+  ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
+    const normalizedKey = requireId(key);
+    const saved = repository.setPreference(normalizedKey, value);
+    if (normalizedKey === "artifactDirectory") {
+      // Root changes are workspace projection changes, not entity changes.
+      // Refreshing here updates canonical_root_status in the live renderer.
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(IPC.workspaceChanged, {});
+      }
+    }
+    return saved;
+  });
   ipcMain.handle(IPC.viewPreferenceGet, () => normalizeViewPreferenceEnvelope(repository.getViewPreferences()) as ViewPreferenceEnvelope);
   ipcMain.handle(IPC.viewPreferenceSet, (_event, id, scopeKey, value, schemaVersion) => {
     if (!isViewPreferenceId(id)) throw new Error("未登録の表示設定です。画面を再読み込みしてください。");

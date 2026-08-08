@@ -212,8 +212,12 @@ export function projectContextGraph(workspace, options = {}) {
     if (type === "entity_source" && record.entity_type && record.entity_id && record.source_record_id) {
       addEdge({ sourceType: record.entity_type, sourceId: record.entity_id, targetType: "source_record", targetId: record.source_record_id, predicate: "captured_from", layer: "provenance", origin: "entity_source", evidenceRefs: [id] });
     }
-    if (type === "change_event" && record.entity_type && record.entity_id) {
-      addEdge({ sourceType: type, sourceId: id, targetType: record.entity_type, targetId: record.entity_id, predicate: "records_change_for", layer: "provenance", origin: record.source || "change_event", validFrom: record.changed_at });
+    if (type === "change_event") {
+      const entityType = record.entity_ref?.type || record.entity_type;
+      const entityId = record.entity_ref?.id || record.entity_id;
+      if (entityType && entityId) {
+        addEdge({ sourceType: type, sourceId: id, targetType: entityType, targetId: entityId, predicate: "records_change_for", layer: "provenance", origin: record.origin?.kind || record.source || "change_event", validFrom: record.occurred_at || record.changed_at });
+      }
     }
     if (type === "resource" && record.parent_resource_id) addFieldRef(type, record, "parent_resource_id", "resource", "continued_as", "provenance");
     if (type === "knowledge_node") {

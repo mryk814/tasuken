@@ -22,8 +22,10 @@ import {
   legacyThemeFieldsForEntityType,
   themeFieldForEntityType,
 } from "../../shared/entityRegistry.mjs";
+import { buildActivityEvent, migrateChangeEvent, normalizeActivityEvent, activityEventDedupeKey } from "../../shared/activityEvent.mjs";
+import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
@@ -159,6 +161,36 @@ export class WorkspaceDatabase {
             UNIQUE(entity_type, entity_id)
           );
         `),
+      },
+      {
+        version: 3,
+        up: () => {
+          // Activity migration is intentionally idempotent. The old columns
+          // remain in data_json so snapshots and older readers retain access
+          // to the original record while structured fields become canonical.
+          const rows = this.db.prepare(
+            "SELECT * FROM entities WHERE entity_type = 'change_event'",
+          ).all();
+          const target = this.db.prepare(
+            "SELECT * FROM entities WHERE entity_type = ? AND id = ?",
+          );
+          const update = this.db.prepare(
+            "UPDATE entities SET data_json = ? WHERE entity_type = 'change_event' AND id = ?",
+          );
+          for (const row of rows) {
+            const event = parseRow(row);
+            const after = (() => {
+              if (event.after_json && typeof event.after_json === "object") return event.after_json;
+              try { return event.after_json ? JSON.parse(event.after_json) : null; } catch { return null; }
+            })();
+            const targetRow = after || target.get(event.entity_type, event.entity_id);
+            // after_json is already a plain entity. Only SQLite rows need
+            // parseRow; parsing the plain object used to throw during v3.
+            const entity = after || (targetRow ? parseRow(targetRow) : null);
+            const migrated = migrateChangeEvent(event, { entity });
+            update.run(JSON.stringify(contentOf(migrated)), event.id);
+          }
+        },
       },
     ];
     const applyMigrations = this.db.transaction(() => {
@@ -392,7 +424,19 @@ export class WorkspaceDatabase {
       next: JSON.parse(row.new_json),
     }));
     result.meta = this.getMeta();
+    result.canonical_root_status = this.getActivityCanonicalRootStatus();
     return result;
+  }
+
+  getActivityCanonicalRootPaths() {
+    return buildActivityRootRegistry({
+      artifactDirectory: this.getPreference("artifactDirectory"),
+      themes: this.list("theme", true),
+    });
+  }
+
+  getActivityCanonicalRootStatus() {
+    return publicActivityRootStatus(this.getActivityCanonicalRootPaths(), (root) => fs.existsSync(root));
   }
 
   get(type, id, includeDeleted = false) {
@@ -411,12 +455,41 @@ export class WorkspaceDatabase {
     if (!Array.isArray(operations) || !operations.length) {
       throw new Error("保存するデータがありません。");
     }
-    const transaction = this.db.transaction(() => operations.map((operation) => {
+    const transaction = this.db.transaction(() => {
+      const beforeByKey = new Map();
+      for (const operation of operations) {
+        if (!operation || operation.action !== "save" || operation.type === "change_event") continue;
+        const id = String(operation.entity?.id || "");
+        if (!id) continue;
+        beforeByKey.set(`${operation.type}:${id}`, this.get(operation.type, id, true));
+      }
+      return operations.map((operation) => {
       if (!operation || operation.action !== "save") {
         throw new Error("saveManyではaction=saveのみ利用できます。");
       }
-      return this.saveWithinTransaction(operation.type, operation.entity, operation.options || {});
-    }));
+      if (operation.type !== "change_event") {
+        return this.saveWithinTransaction(operation.type, operation.entity, operation.options || {});
+      }
+      const raw = operation.entity || {};
+      const type = String(raw.entity_ref?.type || raw.entity_type || "");
+      const id = String(raw.entity_ref?.id || raw.entity_id || "");
+      const before = beforeByKey.get(`${type}:${id}`) || null;
+      const after = (() => {
+        try { return raw.after_json ? JSON.parse(raw.after_json) : null; } catch { return null; }
+      })();
+      const event = buildActivityEvent({
+        ...raw,
+        before: raw.before_json ?? before,
+        after: raw.after_json ?? after,
+        before_json: raw.before_json ?? (before ? JSON.stringify(before) : null),
+        after_json: raw.after_json ?? (after ? JSON.stringify(after) : null),
+        // Direct renderer saves have no command identity, so their event kind
+        // is recalculated with the pre-save record (create vs update).
+        event_kind: raw.command_id || raw.command_name ? raw.event_kind : undefined,
+      });
+      return this.saveWithinTransaction("change_event", event, operation.options || {});
+      });
+    });
     return transaction();
   }
 
@@ -437,11 +510,33 @@ export class WorkspaceDatabase {
   saveWithinTransaction(type, input, options = {}) {
     assertEntityType(type);
     const id = String(input.id || uuid());
-    const existing = this.get(type, id, true);
+    const normalizedActivityInput = type === "change_event" ? normalizeActivityEvent(input) : input;
+    const requestedDedupeKey = type === "change_event" ? activityEventDedupeKey(normalizedActivityInput) : "";
+    const dedupedExisting = type === "change_event" && requestedDedupeKey
+      ? this.list("change_event", true).find((candidate) => activityEventDedupeKey(candidate) === requestedDedupeKey)
+      : null;
+    const existing = dedupedExisting || this.get(type, id, true);
+    const persistedId = existing?.id || id;
+    const canAggregateActivity = type === "change_event" && dedupedExisting
+      && !normalizedActivityInput.command_id
+      && !normalizedActivityInput.command_name
+      && normalizedActivityInput.origin?.kind === "renderer_save";
+    const activityInput = canAggregateActivity
+      ? buildActivityEvent({
+        ...normalizedActivityInput,
+        id: persistedId,
+        // A session event is an aggregate: keep the session-start before and
+        // replace only its latest after/occurred_at fields.
+        before_json: dedupedExisting.before_json !== undefined
+          ? dedupedExisting.before_json
+          : normalizedActivityInput.before_json,
+        after_json: normalizedActivityInput.after_json,
+      })
+      : normalizedActivityInput;
     const timestamp = now();
     const entity = normalizeEntity(type, {
-      ...input,
-      id,
+      ...activityInput,
+      id: persistedId,
       created_at: existing?.created_at || input.created_at || timestamp,
       updated_at: timestamp,
       deleted_at: null,
@@ -466,7 +561,7 @@ export class WorkspaceDatabase {
         version = excluded.version
     `).run(
       type,
-      id,
+      persistedId,
       JSON.stringify(contentOf(entity)),
       entity.created_at,
       entity.updated_at,
@@ -475,7 +570,7 @@ export class WorkspaceDatabase {
       entity.source,
       entity.version,
     );
-    const saved = this.get(type, id);
+    const saved = this.get(type, persistedId);
     if (!options.skipSync) this.enqueueSyncEntity(type, saved, options.syncParents);
     return saved;
   }

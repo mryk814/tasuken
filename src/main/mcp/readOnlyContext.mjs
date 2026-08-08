@@ -12,6 +12,8 @@ import {
 import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../shared/knowledgeHealth.mjs";
 import { collectionKeyForEntityType, entityTypes } from "../../shared/entityRegistry.mjs";
 import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../shared/contextGraph.mjs";
+import { projectActivityJson, projectActivityMarkdown, queryActivityEvents } from "../../shared/activityProjection.mjs";
+import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -200,7 +202,21 @@ export class ReadOnlyTaskenContext {
   loadWorkspace(includeArchived = false) {
     const workspace = {};
     for (const type of ENTITY_TYPES) workspace[collectionKeyForEntityType(type)] = this.list(type, includeArchived);
+    workspace.canonical_root_status = this.canonicalRootStatus();
     return workspace;
+  }
+
+  canonicalRootStatus() {
+    if (this.workspace?.canonical_root_status) return this.workspace.canonical_root_status;
+    let artifactDirectory = "";
+    if (this.db) {
+      artifactDirectory = this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'artifact_directory'").get()?.value || "";
+    }
+    const registry = buildActivityRootRegistry({
+      artifactDirectory,
+      themes: this.list("theme", true),
+    });
+    return publicActivityRootStatus(registry, (root) => fs.existsSync(root));
   }
 
   mergedItems(includeArchived = false) {
@@ -472,6 +488,39 @@ export class ReadOnlyTaskenContext {
     return this.buildKnowledgeHealth(args.theme_id || "");
   }
 
+  /** ActivityはMarkdown/JSON/MCPで同じstructured queryを投影するread-only入口。 */
+  toolGetActivity(args = {}) {
+    if (args.audience && args.audience !== this.audience) {
+      return this.withAudience(args.audience, () => this.toolGetActivity({ ...args, audience: null }));
+    }
+    const workspace = this.loadWorkspace(Boolean(args.include_archived));
+    const result = queryActivityEvents({
+      events: this.list("change_event", Boolean(args.include_archived)),
+      workspace,
+      themes: this.list("theme", Boolean(args.include_archived)),
+      references: this.list("reference", Boolean(args.include_archived)),
+      date: args.date || "",
+      from: args.from || "",
+      to: args.to || "",
+      theme_id: args.theme_id || "",
+      entity_type: args.entity_type || "",
+      event_kinds: Array.isArray(args.event_kinds) ? args.event_kinds : [],
+      timezone: args.timezone || "Asia/Tokyo",
+      audience: this.audience,
+      workspaceDefault: this.workspaceVisibilityDefault(),
+      roots: workspace.canonical_root_status,
+      limit: args.limit,
+    });
+    const format = args.format === "markdown" ? "markdown" : "json";
+    return {
+      ...projectActivityJson(result),
+      activity: format === "markdown" ? projectActivityMarkdown(result) : projectActivityJson(result),
+      format,
+      ai_audience: this.audience,
+      read_only: true,
+    };
+  }
+
   /**
    * 正本SQLiteを変更せず、既存collectionから再構築できるbounded relation projection。
    * 本文は返さず、AI公開範囲は既存#294ポリシーで先に絞る。
@@ -560,6 +609,15 @@ export class ReadOnlyTaskenContext {
       include_relations: true,
       include_sources: false,
     });
+    const activity = this.toolGetActivity({
+      date: scope === "recent" ? args.date : "",
+      theme_id: themeId,
+      timezone: args.timezone || "Asia/Tokyo",
+      format: "json",
+      limit: maxItems,
+      include_archived: false,
+      audience: null,
+    });
     const pack = {
       generated_at: new Date().toISOString(),
       scope,
@@ -570,6 +628,13 @@ export class ReadOnlyTaskenContext {
       resources: mergedResources,
       knowledge_nodes: knowledge.knowledge_nodes,
       knowledge_edges: knowledge.knowledge_edges,
+      activity: activity.events,
+      activity_meta: {
+        schema_version: activity.schema_version,
+        timezone: activity.timezone,
+        excluded_count: activity.excluded_count,
+        excluded_reasons: activity.excluded_reasons,
+      },
       health: {
         ...this.buildPlanHealth(themeId),
         ...this.buildKnowledgeHealth(themeId),
@@ -620,6 +685,9 @@ function renderContextMarkdown(pack) {
     "",
     "## Recent Notes",
     ...(pack.notes.length ? pack.notes.map((note) => `- ${note.title}: ${note.body_excerpt || ""}${aiMark(note)}`) : ["- なし"]),
+    "",
+    "## Activity",
+    ...(pack.activity?.length ? pack.activity.map((event) => `- ${event.local_date} ${event.local_time} / ${event.event_kind}: ${event.entity_title} (${event.entity_ref.type}:${event.entity_ref.id})`) : ["- なし"]),
     "",
     "## Questions",
     ...nodeLines(pack.knowledge_nodes, "question"),

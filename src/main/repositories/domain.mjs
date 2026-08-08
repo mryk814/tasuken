@@ -1,5 +1,6 @@
 import { hasAiMetadataContract, normalizeAiMetadata } from "../../shared/aiMetadata.mjs";
 import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
+import { normalizeActivityEvent, ACTIVITY_EVENT_KINDS } from "../../shared/activityEvent.mjs";
 import {
   assertEntityPayload,
   assertEntityType as assertRegistryEntityType,
@@ -356,6 +357,12 @@ export function validateEntity(type, input) {
     if (!entityRefTypes.has(input.entity_type)) throw new Error("change_event.entity_typeが不正です。");
     if (!changeTypes.has(input.change_type)) throw new Error("change_event.change_typeが不正です。");
     if (!changeSources.has(input.source)) throw new Error("change_event.sourceが不正です。");
+    if (input.event_kind != null || input.entity_ref != null || input.occurred_at != null) {
+      const normalized = normalizeActivityEvent(input);
+      if (!ACTIVITY_EVENT_KINDS.includes(normalized.event_kind)) throw new Error("change_event.event_kindが不正です。");
+      if (!normalized.entity_ref?.type || !normalized.entity_ref?.id) throw new Error("change_event.entity_refが不正です。");
+      if (Number.isNaN(new Date(normalized.occurred_at).getTime())) throw new Error("change_event.occurred_atが不正です。");
+    }
   }
   if (type === "sketch") {
     validateSketchDocument(input.document);
@@ -406,6 +413,7 @@ export function validateEntity(type, input) {
 
 export function normalizeEntity(type, input) {
   const normalized = { ...input };
+  if (type === "change_event") Object.assign(normalized, normalizeActivityEvent(normalized));
   // AI共通metadata（#294）。本文フィールドには触れず、概要・鮮度・根拠・公開範囲だけを揃える。
   if (hasAiMetadataContract(type)) Object.assign(normalized, normalizeAiMetadata(type, normalized));
   for (const field of requiredFieldsForEntityType(type)) {

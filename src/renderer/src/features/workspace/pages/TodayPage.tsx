@@ -13,7 +13,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { CalendarConnectionStatus, CalendarEvent, CalendarEventsResult } from "../../../../../shared/calendar";
-import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID, THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
@@ -24,7 +24,7 @@ import { buildActivityLog, collectActivityLogEntries } from "../lib/activityLog"
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import { taskShelfStatus } from "../lib/taskShelves";
-import { Button, EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -68,6 +68,18 @@ type TodayRow = {
   priority?: "normal" | "high";
   waitingFor?: string | null;
   v2?: DomainRow;
+};
+
+type StructuredActivityEvent = {
+  id?: string;
+  occurred_at?: string;
+  local_time?: string;
+  event_kind?: string;
+  entity_title?: string;
+  summary?: string;
+  entity_ref?: { type?: string; id?: string };
+  theme_ref?: { kind?: "theme" | "none"; id?: string | null };
+  canonical_refs?: Array<Record<string, unknown>>;
 };
 
 function scheduleDate(schedule?: Schedule): string {
@@ -666,6 +678,10 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   const [activityDirectory, setActivityDirectory] = useState("");
   const [activityAutoExportTime, setActivityAutoExportTime] = useState("");
   const [activityFilePath, setActivityFilePath] = useState("");
+  const [activityThemeFilter, setActivityThemeFilter] = useState("all");
+  const [activityTypeFilter, setActivityTypeFilter] = useState("");
+  const [activityRootStatus, setActivityRootStatus] = useState(data.canonical_root_status || {});
+  const [openingActivityCanonicalId, setOpeningActivityCanonicalId] = useState("");
   const [exportingActivity, setExportingActivity] = useState(false);
   const today = todayIso();
   const soon = addDays(today, 14);
@@ -691,6 +707,21 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     .filter((waiting) => waiting.state === "waiting")
     .map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)))
     .sort((a, b) => compareWaitingRows(a, b, today));
+
+  useEffect(() => {
+    let canceled = false;
+    void workspaceApi.getActivityCanonicalRootStatus()
+      .then((status) => {
+        if (!canceled) setActivityRootStatus(status);
+      })
+      .catch((error) => {
+        if (!canceled) setToast(`Activityの保存先状態を読み込めませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      });
+    return () => { canceled = true; };
+  }, [setToast]);
+  useEffect(() => {
+    setActivityRootStatus(data.canonical_root_status || {});
+  }, [data.canonical_root_status]);
   const overdueWaitingCount = openWaitings.filter((row) => row.date && row.date < today).length;
   useEffect(() => {
     Promise.all([
@@ -986,6 +1017,11 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
       domain: v2,
       statusUpdates: data.status_updates || [],
       themes,
+      changeEvents: v2.change_events as unknown as Array<Record<string, unknown>>,
+      references: v2.references as unknown as Array<Record<string, unknown>>,
+      artifacts: data.artifacts as unknown as Array<Record<string, unknown>>,
+      roots: activityRootStatus,
+      timezone: "Asia/Tokyo",
     });
   }
 
@@ -994,6 +1030,11 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     domain: v2,
     statusUpdates: data.status_updates || [],
     themes,
+    changeEvents: v2.change_events as unknown as Array<Record<string, unknown>>,
+    references: v2.references as unknown as Array<Record<string, unknown>>,
+    artifacts: data.artifacts as unknown as Array<Record<string, unknown>>,
+    roots: activityRootStatus,
+    timezone: "Asia/Tokyo",
   });
   const activityGroups = [
     { label: "完了", rows: activityEntries.completedTasks.map((entry) => entry.title) },
@@ -1004,7 +1045,31 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     { label: "現在地", rows: activityEntries.updates.map((entry) => entry.summary || entry.next_actions || entry.risks || "更新") },
     { label: "Capture", rows: activityEntries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
-  const activityCount = activityGroups.reduce((sum, group) => sum + group.rows.length, 0);
+  const structuredActivityEvents = activityEntries.events as StructuredActivityEvent[];
+  const activityEventKinds = [...new Set(structuredActivityEvents.map((event) => String(event.event_kind || ""))).values()]
+    .filter(Boolean)
+    .sort();
+  const visibleActivityEvents = structuredActivityEvents.filter((event) => (
+    (activityThemeFilter === "all"
+      || (activityThemeFilter === THEME_NONE_VALUE ? event.theme_ref?.kind === "none" : event.theme_ref?.id === activityThemeFilter))
+    && (!activityTypeFilter || event.event_kind === activityTypeFilter)
+  ));
+  const activityCount = structuredActivityEvents.length
+    ? visibleActivityEvents.length
+    : activityGroups.reduce((sum, group) => sum + group.rows.length, 0);
+
+  async function openActivityCanonical(ref: Record<string, unknown>, eventId: string) {
+    setOpeningActivityCanonicalId(eventId);
+    try {
+      const result = await workspaceApi.openActivityCanonicalRef(ref);
+      if (result.ok) setToast("Canonical文書を開きました。", "success");
+      else setToast(result.error || "Canonical文書を開けませんでした。", "danger");
+    } catch (error) {
+      setToast(`Canonical文書を開けませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setOpeningActivityCanonicalId("");
+    }
+  }
 
   async function chooseActivityDirectory() {
     try {
@@ -1225,11 +1290,86 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           <h2>Activity <span className="activity-count">{activityCount}</span></h2>
           <div className="inline-actions">
             <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity対象日" />
+            {structuredActivityEvents.length > 0 && (
+              <>
+                <ThemePickerSelect
+                  themes={themes}
+                  value={activityThemeFilter}
+                  onChange={setActivityThemeFilter}
+                  allowAll
+                  allowNone
+                  allLabel="All Themes"
+                  ariaLabel="Activity Theme filter"
+                />
+                <select value={activityTypeFilter} onChange={(event) => setActivityTypeFilter(event.target.value)} aria-label="Activity event type filter">
+                  <option value="">All Types</option>
+                  {activityEventKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                </select>
+              </>
+            )}
             <Button variant="secondary" compact onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。", "success"))}>コピー</Button>
             <Button variant="secondary" compact onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</Button>
           </div>
         </div>
-        {activityGroups.length ? (
+        {structuredActivityEvents.length ? (
+          visibleActivityEvents.length ? (
+            <ul className="activity-event-list" aria-label="Activity events">
+              {visibleActivityEvents.slice(0, 30).map((event) => {
+                const ref = event.entity_ref || {};
+                const title = String(event.entity_title || event.summary || `${ref.type}:${ref.id}`);
+                const records = ref.type === "task" ? v2.tasks
+                  : ref.type === "waiting" ? v2.waitings
+                    : ref.type === "note" ? v2.notes
+                      : ref.type === "resource" ? v2.resources
+                        : ref.type === "plan_node" ? v2.plan_nodes
+                          : ref.type === "capture_entry" ? v2.capture_entries
+                            : ref.type === "sketch" ? v2.sketches : [];
+                const entity = records.find((record) => record.id === ref.id);
+                const entityOpenable = Boolean(entity);
+                const canonicalRef = Array.isArray(event.canonical_refs)
+                  ? event.canonical_refs[0] as Record<string, unknown> | undefined
+                  : undefined;
+                const canonicalBroken = Boolean(canonicalRef && canonicalRef.status !== "ok");
+                return (
+                  <li key={String(event.id)} className="activity-event-row">
+                    <time dateTime={String(event.occurred_at)}>{String(event.local_time || "--:--")}</time>
+                    <span className="activity-event-kind">{String(event.event_kind)}</span>
+                    {entityOpenable ? (
+                      <button
+                        type="button"
+                        className="text-button compact activity-event-title"
+                        onClick={() => {
+                          openDrawer({ type: ref.type as "task" | "waiting" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch", mode: "view", entity: entity as unknown as Record<string, unknown> });
+                        }}
+                      >
+                        {title}
+                      </button>
+                    ) : (
+                      <span className="activity-event-title" title="現在のEntityがないため、履歴のみ表示しています。">{title}</span>
+                    )}
+                    <code>{String(ref.type)}:{String(ref.id)}</code>
+                    {canonicalRef ? (
+                      <>
+                        <span className="activity-event-canonical">{String(canonicalRef.relative_path || canonicalRef.web_url || "canonical")}{canonicalRef.local_status === "broken" ? "（local参照切れ・webを使用）" : ""}</span>
+                        <button
+                          type="button"
+                          className="text-button compact activity-event-open"
+                          disabled={canonicalBroken || openingActivityCanonicalId === String(event.id)}
+                          title={canonicalBroken ? "保存Rootが解決できないため開けません。" : "Canonical文書を開く"}
+                          onClick={() => void openActivityCanonical(canonicalRef, String(event.id))}
+                        >
+                          {canonicalBroken ? "参照切れ" : openingActivityCanonicalId === String(event.id) ? "開いています…" : "開く"}
+                        </button>
+                      </>
+                    ) : <span className="activity-event-canonical">Canonicalなし</span>}
+                    {!entityOpenable && <span className="activity-event-state">履歴のみ</span>}
+                  </li>
+                );
+              })}
+              {visibleActivityEvents.length > 30 && <li className="activity-more">ほか{visibleActivityEvents.length - 30}件</li>}
+            </ul>
+          ) : <EmptyState title="条件に一致するActivityはありません" />
+        ) : activityGroups.length ? (
           <div className="activity-summary-grid">
             {activityGroups.map((group) => (
               <section className="activity-summary-group" key={group.label}>

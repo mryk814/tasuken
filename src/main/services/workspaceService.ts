@@ -11,6 +11,8 @@ import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineEx
 import type { Workspace } from "../../shared/types/workspace";
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
 import { THEME_FOLDER_MANIFEST, buildThemeFolderManifest } from "../../shared/storageResolver.mjs";
+import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
+import { resolveActivityCanonicalLocalPath } from "./activityCanonicalResolver.mjs";
 import {
   artifactFileTypeOf,
   artifactMimeTypeOf,
@@ -68,6 +70,7 @@ interface WorkspaceRepository {
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
+  list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
 }
 
 function localDateIso(date = new Date()): string {
@@ -299,6 +302,33 @@ export class WorkspaceService {
     return error ? { ok: false, error } : { ok: true };
   }
 
+  private activityCanonicalRootPaths(): Record<string, string> {
+    const artifactDirectory = this.repository.getPreference("artifactDirectory");
+    return buildActivityRootRegistry({
+      artifactDirectory: typeof artifactDirectory === "string" ? artifactDirectory : "",
+      themes: this.repository.list("theme", true),
+    });
+  }
+
+  getActivityCanonicalRootStatus(): Record<string, { status: "ok" | "broken" }> {
+    return publicActivityRootStatus(this.activityCanonicalRootPaths(), (root: string) => fs.existsSync(root));
+  }
+
+  async openActivityCanonicalRef(value: unknown): Promise<{ ok: boolean; error?: string }> {
+    const local = resolveActivityCanonicalLocalPath(value, this.activityCanonicalRootPaths());
+    const ref = local.ref;
+    if (!ref) return { ok: false, error: "Canonical参照が不正です。" };
+    if (!ref.storage_root_id && ref.web_url) return this.openPath(ref.web_url);
+    if (!ref.storage_root_id || !ref.relative_path) {
+      return { ok: false, error: "開けるCanonical文書の場所がありません。" };
+    }
+
+    if (local.status === "outside_root") return { ok: false, error: "Canonical文書の参照先が保存Rootの外にあります。" };
+    if (local.status === "ok") return this.openPath(local.path);
+    if (ref.web_url) return this.openPath(ref.web_url);
+    return { ok: false, error: "Canonical文書が見つかりません。保存先を確認してください。" };
+  }
+
   showItemInFolder(filePathValue: unknown): { ok: boolean; error?: string } {
     if (typeof filePathValue !== "string" || !filePathValue.trim()) {
       throw new Error("表示するファイルの場所がありません。");
@@ -444,7 +474,7 @@ export class WorkspaceService {
         themeCode = code || null;
       }
     }
-    // .mjs の型推論が弱いため、純ロジック呼び出しは any 経由にする。
+    // .mjs の型推論が弱いため、純ロジック呼び出しは明示した関数型を通す。
     const location = (resolveThemeContentDirectoryParts as (options: {
       artifactDirectory?: string | null;
       themeId?: string | null;

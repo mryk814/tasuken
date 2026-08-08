@@ -27,7 +27,7 @@ import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { ApplicationCommandService } from "./services/applicationCommandService";
 import type { CommandReceipt } from "../shared/applicationCommand";
-import { IPC, type SatelliteWindowStatePayload } from "../shared/ipc/contracts";
+import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
@@ -156,7 +156,7 @@ function notifyMemoStickyWindowsChanged(): void {
   }
 }
 
-function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
+function notifyMainWindowRefresh(change?: WorkspaceChangePayload): void {
   const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!isAuxiliaryWindow(win) && !win.isDestroyed()) {
