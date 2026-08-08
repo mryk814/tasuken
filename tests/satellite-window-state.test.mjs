@@ -181,15 +181,19 @@ function satelliteSpec() {
 }
 
 function createTestRegistry() {
-  return registryModule.createSatelliteWindowRegistry({
-    stateFilePath: tempStatePath(),
-    getAppIconPath: () => "",
-    resolvePageUrl: () => ({ file: "memo-sticky.html" }),
-  });
+  const stateFilePath = tempStatePath();
+  return {
+    stateFilePath,
+    registry: registryModule.createSatelliteWindowRegistry({
+      stateFilePath,
+      getAppIconPath: () => "",
+      resolvePageUrl: () => ({ file: "memo-sticky.html" }),
+    }),
+  };
 }
 
 test("arrangeは非表示の非対象ウィンドウを占有矩形に含めない（#327）", () => {
-  const registry = createTestRegistry();
+  const { registry } = createTestRegistry();
   const hidden = registry.open({ kind: "today", entityId: "today" }, satelliteSpec());
   hidden.setBounds({ x: 16, y: 16 });
   const target = registry.open({ kind: "memo", entityId: "memo-target" }, satelliteSpec());
@@ -200,10 +204,14 @@ test("arrangeは非表示の非対象ウィンドウを占有矩形に含めな�
 });
 
 test("初回配置後は手動移動した新規ウィンドウを再配置しない（#327）", () => {
-  const registry = createTestRegistry();
+  const { registry, stateFilePath } = createTestRegistry();
   const fresh = registry.open({ kind: "memo", entityId: "memo-fresh" }, satelliteSpec());
 
   assert.equal(registry.arrange([{ kind: "memo", entityId: "memo-fresh" }]), 1);
+  assert.deepEqual(
+    state.createSatelliteWindowStateStore(stateFilePath).read({ kind: "memo", entityId: "memo-fresh" }),
+    fresh.getBounds(),
+  );
   fresh.setBounds({ x: 500, y: 300 });
   const moved = fresh.getBounds();
 

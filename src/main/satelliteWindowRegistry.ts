@@ -223,7 +223,8 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       const current = normalizeBounds(entry.window.getBounds());
       if (!current) continue;
       const clamped = clampBoundsToDisplays(current, areas, { minWidth: 1, minHeight: 1 });
-      const needsPlacement = !entry.restoredFromState
+      const initialPlacement = !entry.restoredFromState;
+      const needsPlacement = initialPlacement
         || !sameBounds(current, clamped)
         || occupied.some((other) => overlaps(current, other));
       let next = current;
@@ -246,6 +247,8 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
         entry.window.setBounds(next, false);
         store.write(entry.key, next);
         changed += 1;
+      } else if (initialPlacement) {
+        store.write(entry.key, next);
       }
       entry.restoredFromState = true;
       occupied.push(next);
