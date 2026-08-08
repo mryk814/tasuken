@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
+import { normalizeTaskAssignment } from "../repositories/domain.mjs";
 import type { Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
 import {
   ApplicationCommandError,
@@ -26,6 +27,36 @@ interface Repository {
 const now = () => new Date().toISOString();
 const taskDefinition = entityDefinition("task");
 const referenceDefinition = entityDefinition("reference");
+const workReceiptDefinition = entityDefinition("work_receipt");
+const taskWorkStates = new Set(["not_delegated", "ready_for_agent", "in_progress", "reported_done", "needs_human_review", "accepted", "blocked", "failed"]);
+const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
+
+function currentWorkState(task: Entity): string {
+  if (typeof task.work_state === "string" && taskWorkStates.has(task.work_state)) return task.work_state;
+  return task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated";
+}
+
+function assertHumanAcceptBeforeCompletion(task: Entity): void {
+  if (task.intended_executor === "ai_agent" && currentWorkState(task) !== "accepted") {
+    throw new ApplicationCommandError("INVALID_TRANSITION", "AIの報告だけではTaskを完了できません。人間がWork Receiptを確認してから完了してください。", { id: task.id });
+  }
+}
+
+function workExecutorLabel(task: Entity, receipt?: Entity): string {
+  return String(receipt?.executor_label || task.executor_identity || (task.intended_executor === "ai_agent" ? "AI agent" : "Task executor"));
+}
+
+function latestWorkReceipt(repository: Repository, taskId: string): Entity | null {
+  return repository.list("work_receipt", true)
+    .filter((receipt) => receipt.task_id === taskId && !receipt.deleted_at)
+    .sort((left, right) => String(right.reported_at).localeCompare(String(left.reported_at)) || Number(right.version || 0) - Number(left.version || 0))[0] || null;
+}
+
+function assertHumanReviewActor(command: CommandEnvelope, action: string): void {
+  if (command.actor.kind !== "user" || command.source === "mcp") {
+    throw new ApplicationCommandError("INVALID_ENVELOPE", `${action}は人間UIからのみ実行できます。`);
+  }
+}
 
 function asTask(payload: unknown): Entity {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -77,15 +108,17 @@ function commandEvent(
   kind: "created" | "updated" | "completed" | "rescheduled" | "triaged",
   before: Entity | null,
   after: Entity,
+  eventKind?: string,
+  workReceiptRef?: { type: string; id: string; revision?: number } | null,
 ): Entity {
   const refType = entityType === "schedule" ? "task" : entityType;
-  const source = command.actor.kind === "system" ? "migration" : "manual";
+  const source = command.actor.kind === "system" ? "migration" : command.actor.kind === "ai_agent" ? "ai" : "manual";
   return {
     ...buildActivityEvent({
       id: randomUUID(),
       entityType: refType,
       entityId,
-      eventKind: entityType === "schedule" ? "schedule_updated" : undefined,
+      eventKind: eventKind || (entityType === "schedule" ? "schedule_updated" : undefined),
       occurredAt: now(),
       changeType: kind,
       before,
@@ -114,6 +147,7 @@ function commandEvent(
         // keeps those sibling events from collapsing into one row.
         dedupe_key: `command:${command.commandId}:${entityType}:${entityId}:${kind}`,
       },
+      work_receipt_ref: workReceiptRef || null,
     }),
     entity_type: refType,
     record_type: entityType,
@@ -231,7 +265,7 @@ function persistNoChange(repository: Repository, command: CommandEnvelope, taskI
     changed_at: now(),
     change_type: "updated",
     no_change: true,
-    source: command.actor.kind === "system" ? "migration" : "manual",
+    source: command.actor.kind === "system" ? "migration" : command.actor.kind === "ai_agent" ? "ai" : "manual",
     command_id: command.commandId,
     command_name: command.name,
     command_source: command.source,
@@ -367,6 +401,10 @@ export class ApplicationCommandService {
     if (command.name === "ApplyAiProposal") {
       return this.applyAiProposal(command);
     }
+    if (command.name === "StartTaskWork") return this.startTaskWork(command);
+    if (command.name === "AppendWorkReceipt") return this.appendWorkReceipt(command);
+    if (command.name === "AcceptTaskWork") return this.acceptTaskWork(command);
+    if (command.name === "ReturnTaskWork") return this.returnTaskWork(command);
     if (command.name === "DeleteTask") {
       return this.deleteTask(command);
     }
@@ -374,6 +412,136 @@ export class ApplicationCommandService {
       return this.saveTask(command, command.name === "CreateTask");
     }
     return this.transitionTask(command, command.name === "CompleteTask");
+  }
+
+  private startTaskWork(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as { taskId: string; executorKind?: string; executorIdentity?: string | null; startedAt?: string | null };
+    const taskId = asTaskId(payload);
+    const current = this.repository.get("task", taskId);
+    if (!current) throw new ApplicationCommandError("NOT_FOUND", "作業開始対象のTaskがありません。", { id: taskId });
+    if (!expectedVersionFor(command, "task", taskId)) throw new ApplicationCommandError("CONFLICT", "StartTaskWorkにはexpected versionが必要です。", { type: "task", id: taskId });
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    if (current.state === "done" || current.state === "cancelled") throw new ApplicationCommandError("INVALID_TRANSITION", "完了済みまたは中止済みTaskは作業開始できません。", { id: taskId });
+    const state = currentWorkState(current);
+    if (["reported_done", "needs_human_review", "accepted"].includes(state)) throw new ApplicationCommandError("INVALID_TRANSITION", "報告済みのTaskはAcceptまたは差戻しを先に行ってください。", { id: taskId, work_state: state });
+    if (payload.executorKind != null && !taskExecutorKinds.has(payload.executorKind)) throw new ApplicationCommandError("INVALID_PAYLOAD", "executorKindが不正です。");
+    if (payload.executorIdentity != null && payload.executorIdentity.length > 200) throw new ApplicationCommandError("INVALID_PAYLOAD", "executorIdentityは200文字以内で入力してください。");
+    if (state === "in_progress") return persistNoChange(this.repository, command, taskId, current);
+    const task: Entity = {
+      ...current,
+      work_state: "in_progress",
+      work_started_at: payload.startedAt || current.work_started_at || now(),
+      work_reported_at: null,
+      work_review_note: null,
+      ...(payload.executorIdentity !== undefined ? { executor_identity: payload.executorIdentity || null } : {}),
+    };
+    taskDefinition.parseUpdate(task);
+    assertThemeExists(this.repository, task);
+    const event = annotateEvent(command, commandEvent(command, "task", taskId, "updated", current, task, "task_work_recorded"));
+    event.metadata = { ...(event.metadata as Record<string, unknown> || {}), include_in_activity: true, work_action: "started" };
+    const operations: SaveOperation[] = [
+      { action: "save", type: "task", entity: task },
+      { action: "save", type: "change_event", entity: event },
+    ];
+    return persistReceipt(this.repository, command, operations, [event.id], ["task"]);
+  }
+
+  private appendWorkReceipt(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as { taskId: string; receipt: Entity };
+    const taskId = asTaskId(payload);
+    const current = this.repository.get("task", taskId);
+    if (!current) throw new ApplicationCommandError("NOT_FOUND", "報告対象のTaskがありません。", { id: taskId });
+    if (!expectedVersionFor(command, "task", taskId)) throw new ApplicationCommandError("CONFLICT", "AppendWorkReceiptにはexpected versionが必要です。", { type: "task", id: taskId });
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    if (current.state === "done" || current.state === "cancelled") throw new ApplicationCommandError("INVALID_TRANSITION", "完了済みまたは中止済みTaskへWork Receiptを追加できません。", { id: taskId });
+    if (currentWorkState(current) !== "in_progress") throw new ApplicationCommandError("INVALID_TRANSITION", "作業中のTaskだけにWork Receiptを追加できます。", { id: taskId, work_state: currentWorkState(current) });
+    if (payload.receipt.task_id !== taskId) throw new ApplicationCommandError("INVALID_PAYLOAD", "Work Receiptのtask_idが対象Taskと一致しません。", { id: payload.receipt.id });
+    if (this.repository.get("work_receipt", payload.receipt.id, true)) throw new ApplicationCommandError("CONFLICT", "Work ReceiptのIDを再利用できません。", { id: payload.receipt.id });
+    const receipt: Entity = {
+      id: payload.receipt.id,
+      task_id: taskId,
+      executor_kind: payload.receipt.executor_kind,
+      executor_label: payload.receipt.executor_label,
+      started_at: payload.receipt.started_at || current.work_started_at || null,
+      reported_at: payload.receipt.reported_at,
+      summary: payload.receipt.summary,
+      completed_items: Array.isArray(payload.receipt.completed_items) ? payload.receipt.completed_items : [],
+      changed_or_created_items: Array.isArray(payload.receipt.changed_or_created_items) ? payload.receipt.changed_or_created_items : [],
+      ...(Array.isArray(payload.receipt.verification) ? { verification: payload.receipt.verification } : {}),
+      ...(Array.isArray(payload.receipt.remaining_work) ? { remaining_work: payload.receipt.remaining_work } : {}),
+      ...(Array.isArray(payload.receipt.external_references) ? { external_references: payload.receipt.external_references } : {}),
+      ...(payload.receipt.repository_context && typeof payload.receipt.repository_context === "object" ? { repository_context: payload.receipt.repository_context } : {}),
+      ...(typeof payload.receipt.source_session === "string" ? { source_session: payload.receipt.source_session } : {}),
+      ...(payload.receipt.runtime_metadata && typeof payload.receipt.runtime_metadata === "object" ? { runtime_metadata: payload.receipt.runtime_metadata } : {}),
+      source: command.actor.kind === "ai_agent" ? "ai" : "manual",
+    };
+    workReceiptDefinition.parseCreate(receipt);
+    const nextTask: Entity = { ...current, work_state: "needs_human_review", work_reported_at: receipt.reported_at, work_review_note: null };
+    taskDefinition.parseUpdate(nextTask);
+    assertThemeExists(this.repository, nextTask);
+    const eventKind = receipt.executor_kind === "ai_agent" ? "task_ai_reported" : "task_work_recorded";
+    const event = annotateEvent(command, commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, { type: "work_receipt", id: receipt.id }));
+    event.metadata = { ...(event.metadata as Record<string, unknown> || {}), include_in_activity: true, work_action: "reported", executor_label: workExecutorLabel(nextTask, receipt) };
+    const operations: SaveOperation[] = [
+      { action: "save", type: "task", entity: nextTask },
+      { action: "save", type: "work_receipt", entity: receipt },
+      { action: "save", type: "change_event", entity: event },
+    ];
+    return persistReceipt(this.repository, command, operations, [event.id], ["task", "work_receipt"]);
+  }
+
+  private acceptTaskWork(command: CommandEnvelope): CommandReceipt {
+    assertHumanReviewActor(command, "AcceptTaskWork");
+    const taskId = asTaskId(command.payload);
+    const current = this.repository.get("task", taskId);
+    if (!current) throw new ApplicationCommandError("NOT_FOUND", "確認対象のTaskがありません。", { id: taskId });
+    if (!expectedVersionFor(command, "task", taskId)) throw new ApplicationCommandError("CONFLICT", "AcceptTaskWorkにはexpected versionが必要です。", { type: "task", id: taskId });
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    if (currentWorkState(current) === "accepted") return persistNoChange(this.repository, command, taskId, current);
+    if (!["reported_done", "needs_human_review"].includes(currentWorkState(current))) throw new ApplicationCommandError("INVALID_TRANSITION", "確認待ちのTaskだけをAcceptできます。", { id: taskId, work_state: currentWorkState(current) });
+    const receipt = latestWorkReceipt(this.repository, taskId);
+    if (!receipt) throw new ApplicationCommandError("NOT_FOUND", "確認対象のWork Receiptがありません。", { id: taskId });
+    const nextTask: Entity = { ...current, work_state: "accepted", work_review_note: null };
+    taskDefinition.parseUpdate(nextTask);
+    assertThemeExists(this.repository, nextTask);
+    const eventKind = current.intended_executor === "ai_agent" || receipt.executor_kind === "ai_agent" ? "task_ai_accepted" : "task_work_recorded";
+    const event = annotateEvent(command, commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, { type: "work_receipt", id: receipt.id }));
+    event.metadata = { ...(event.metadata as Record<string, unknown> || {}), include_in_activity: true, work_action: "accepted", executor_label: workExecutorLabel(nextTask, receipt) };
+    return persistReceipt(this.repository, command, [
+      { action: "save", type: "task", entity: nextTask },
+      { action: "save", type: "change_event", entity: event },
+    ], [event.id], ["task"]);
+  }
+
+  private returnTaskWork(command: CommandEnvelope): CommandReceipt {
+    assertHumanReviewActor(command, "ReturnTaskWork");
+    const payload = command.payload as { taskId: string; reviewNote?: string | null };
+    const taskId = asTaskId(payload);
+    const current = this.repository.get("task", taskId);
+    if (!current) throw new ApplicationCommandError("NOT_FOUND", "差戻し対象のTaskがありません。", { id: taskId });
+    if (!expectedVersionFor(command, "task", taskId)) throw new ApplicationCommandError("CONFLICT", "ReturnTaskWorkにはexpected versionが必要です。", { type: "task", id: taskId });
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    if (!["reported_done", "needs_human_review"].includes(currentWorkState(current))) throw new ApplicationCommandError("INVALID_TRANSITION", "確認待ちのTaskだけを差し戻せます。", { id: taskId, work_state: currentWorkState(current) });
+    const reviewNote = typeof payload.reviewNote === "string" ? payload.reviewNote.trim() : "";
+    if (!reviewNote || reviewNote.length > 2000) throw new ApplicationCommandError("INVALID_PAYLOAD", "差戻し理由を1〜2000文字で入力してください。");
+    const receipt = latestWorkReceipt(this.repository, taskId);
+    if (!receipt) throw new ApplicationCommandError("NOT_FOUND", "差戻し対象のWork Receiptがありません。", { id: taskId });
+    const nextTask: Entity = {
+      ...current,
+      work_state: current.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated",
+      work_started_at: null,
+      work_reported_at: null,
+      work_review_note: reviewNote,
+    };
+    taskDefinition.parseUpdate(nextTask);
+    assertThemeExists(this.repository, nextTask);
+    const eventKind = current.intended_executor === "ai_agent" || receipt.executor_kind === "ai_agent" ? "task_ai_returned" : "task_work_recorded";
+    const event = annotateEvent(command, commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, { type: "work_receipt", id: receipt.id }));
+    event.metadata = { ...(event.metadata as Record<string, unknown> || {}), include_in_activity: true, work_action: "returned", review_note: reviewNote, executor_label: workExecutorLabel(nextTask, receipt) };
+    return persistReceipt(this.repository, command, [
+      { action: "save", type: "task", entity: nextTask },
+      { action: "save", type: "change_event", entity: event },
+    ], [event.id], ["task"]);
   }
 
   private deleteTask(command: CommandEnvelope): CommandReceipt {
@@ -411,6 +579,7 @@ export class ApplicationCommandService {
     if (current.state === "cancelled" || current.state === "done") {
       throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みまたは完了済みTaskは学び付き完了できません。", { id: inputTask.id });
     }
+    assertHumanAcceptBeforeCompletion(current);
     const completedAt = typeof inputTask.completed_at === "string" && inputTask.completed_at.trim()
       ? inputTask.completed_at : command.issuedAt;
     const completedTask = normalizeCanonicalEntity("task", {
@@ -536,6 +705,7 @@ export class ApplicationCommandService {
       if (currentTask.state === "cancelled" || currentTask.state === "done") {
         throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みまたは完了済みTaskはFocus終了で完了できません。", { id: taskId });
       }
+      assertHumanAcceptBeforeCompletion(currentTask);
       const task = normalizeCanonicalEntity("task", {
         ...currentTask,
         ...(payload.task || {}),
@@ -654,7 +824,16 @@ export class ApplicationCommandService {
         }
       }
       if (type === "task") {
-        const task = normalizeCanonicalEntity(type, candidate.entity);
+        const task = normalizeTaskAssignment(normalizeCanonicalEntity(type, candidate.entity), before);
+        if (task.work_state === "accepted" && (!before || currentWorkState(before) !== "accepted")) {
+          throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの受入れはAcceptTaskWorkを使用してください。", { id: task.id });
+        }
+        if (before && before.intended_executor === task.intended_executor
+          && Object.prototype.hasOwnProperty.call(candidate.entity, "work_state")
+          && currentWorkState(before) !== currentWorkState(task)) {
+          throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの変更はStart/Report/Accept/Return Commandを使用してください。", { id: task.id });
+        }
+        if (task.state === "done") assertHumanAcceptBeforeCompletion(task);
         taskDefinition[before ? "parseUpdate" : "parseCreate"](task);
         assertThemeExists(this.repository, task);
         operations.push({ action: "save", type, entity: task });
@@ -688,10 +867,11 @@ export class ApplicationCommandService {
     if (!isCreate && !current) throw new ApplicationCommandError("NOT_FOUND", "更新対象のTaskがありません。", { id: taskId });
     assertExpectedVersion(this.repository, command, "task", taskId, current);
 
-    const task: Entity = {
+    const task: Entity = normalizeTaskAssignment({
       ...inputTask,
       project_id: canonicalThemeId(inputTask.project_id, { defaultPersonal: true }),
-    };
+    }, current);
+    if (task.state === "done") assertHumanAcceptBeforeCompletion(task);
     if (!isCreate && !expectedVersionFor(command, "task", taskId)) {
       throw new ApplicationCommandError("CONFLICT", "UpdateTaskにはexpected versionが必要です。", { type: "task", id: taskId });
     }
@@ -699,6 +879,11 @@ export class ApplicationCommandService {
     assertThemeExists(this.repository, task);
     if (!isCreate && current && current.state !== task.state && (current.state === "done" || task.state === "done")) {
       throw new ApplicationCommandError("INVALID_TRANSITION", "完了状態の変更はCompleteTask/ReopenTaskを使用してください。");
+    }
+    if (!isCreate && current && Object.prototype.hasOwnProperty.call(inputTask, "work_state") && currentWorkState(current) !== currentWorkState(task)) {
+      const setupTransition = (currentWorkState(current) === "not_delegated" && currentWorkState(task) === "ready_for_agent")
+        || (currentWorkState(current) === "ready_for_agent" && currentWorkState(task) === "not_delegated");
+      if (!setupTransition) throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの変更はStart/Report/Accept/Return Commandを使用してください。", { id: taskId });
     }
 
     const schedule = validateScheduleWrite(this.repository, command, (command.payload as { schedule?: Entity | null }).schedule, taskId, isCreate);
@@ -749,6 +934,7 @@ export class ApplicationCommandService {
     if (current.state === "cancelled") {
       throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みTaskはこのCommandで変更できません。", { id: taskId });
     }
+    if (completing) assertHumanAcceptBeforeCompletion(current);
     const requestedTask = (command.payload as { task?: Entity }).task;
     if (requestedTask) {
       asTask({ task: requestedTask });
@@ -846,6 +1032,7 @@ export class ApplicationCommandService {
     }
 
     const task: Entity = { ...inputTask, project_id: canonicalThemeId(inputTask.project_id, { defaultPersonal: true }) };
+    if (task.state === "done") assertHumanAcceptBeforeCompletion(task);
     taskDefinition.parseCreate(task);
     assertThemeExists(this.repository, task);
     const schedule = validateScheduleWrite(this.repository, command, payload.schedule, task.id, true);

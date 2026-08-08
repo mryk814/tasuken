@@ -10,6 +10,7 @@ import {
   hasPath,
   isKnowledgeDirectionalRelationType,
   normalizeEntity,
+  normalizeTaskAssignment,
   validateEntity,
   workspaceEntityTypes,
 } from "./domain.mjs";
@@ -516,6 +517,7 @@ export class WorkspaceDatabase {
       ? this.list("change_event", true).find((candidate) => activityEventDedupeKey(candidate) === requestedDedupeKey)
       : null;
     const existing = dedupedExisting || this.get(type, id, true);
+    if (type === "work_receipt" && existing) throw new Error("Work Receiptはappend-onlyです。既存Receiptを更新できません。");
     const persistedId = existing?.id || id;
     const canAggregateActivity = type === "change_event" && dedupedExisting
       && !normalizedActivityInput.command_id
@@ -534,8 +536,9 @@ export class WorkspaceDatabase {
       })
       : normalizedActivityInput;
     const timestamp = now();
+    const normalizedInput = type === "task" ? normalizeTaskAssignment(activityInput, existing) : activityInput;
     const entity = normalizeEntity(type, {
-      ...activityInput,
+      ...normalizedInput,
       id: persistedId,
       created_at: existing?.created_at || input.created_at || timestamp,
       updated_at: timestamp,
@@ -624,6 +627,7 @@ export class WorkspaceDatabase {
       requireV2("plan_node", entity.plan_node_id, "plan_node_id");
       requireV2("task", entity.parent_task_id, "parent_task_id");
     }
+    if (type === "work_receipt") requireV2("task", entity.task_id, "task_id");
     if (type === "waiting") {
       requireV2("task", entity.task_id, "task_id");
     }
@@ -1001,19 +1005,23 @@ export class WorkspaceDatabase {
     return this.loadWorkspace();
   }
 
-  insertImported(type, input, fallbackSource = "imported") {
+  insertImported(type, input, fallbackSource = "imported", previous = null) {
     assertEntityType(type);
-    validateEntity(type, input);
+    const normalizedInput = type === "task" ? normalizeTaskAssignment(input, previous) : input;
+    if (type === "work_receipt" && normalizedInput.id && this.get(type, normalizedInput.id, true)) {
+      throw new Error("Work Receiptはappend-onlyです。既存Receiptを取り込みで更新できません。");
+    }
+    validateEntity(type, normalizedInput);
     const timestamp = now();
     const entity = {
-      ...input,
-      id: String(input.id || uuid()),
-      created_at: input.created_at || timestamp,
-      updated_at: input.updated_at || timestamp,
-      deleted_at: input.deleted_at || null,
-      device_id: input.device_id || this.deviceId,
-      source: input.source || fallbackSource,
-      version: Number(input.version) || 1,
+      ...normalizedInput,
+      id: String(normalizedInput.id || uuid()),
+      created_at: normalizedInput.created_at || timestamp,
+      updated_at: normalizedInput.updated_at || timestamp,
+      deleted_at: normalizedInput.deleted_at || null,
+      device_id: normalizedInput.device_id || this.deviceId,
+      source: normalizedInput.source || fallbackSource,
+      version: Number(normalizedInput.version) || 1,
     };
     this.db.prepare(`
       INSERT OR REPLACE INTO entities(
@@ -1086,7 +1094,7 @@ export class WorkspaceDatabase {
             version: 1,
           }, "snapshot");
         } else {
-          this.insertImported(change.type, change.incoming, "snapshot");
+          this.insertImported(change.type, change.incoming, "snapshot", change.local);
         }
         applied.push({ key: change.key, action });
       }
@@ -1271,7 +1279,7 @@ export class WorkspaceDatabase {
       const local = this.get(type, id, true);
       const canApply = !local || !currentHead || incomingParents.includes(currentHead);
       if (canApply) {
-        this.insertImported(type, packet.entity, "sync");
+        this.insertImported(type, packet.entity, "sync", local);
         this.setSyncHead(type, id, revisionId);
         this.db.prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?").run(type, id);
         return { status: "applied", type, entity: this.get(type, id, true) };
@@ -1337,7 +1345,7 @@ export class WorkspaceDatabase {
       const local = this.get(row.entity_type, row.entity_id, true);
       const chosen = choice === "incoming" ? packet.entity : local;
       if (!chosen) throw new Error("競合を解決するデータがありません。");
-      if (choice === "incoming") this.insertImported(row.entity_type, chosen, "sync");
+      if (choice === "incoming") this.insertImported(row.entity_type, chosen, "sync", local);
       const parents = [row.local_revision_id, row.incoming_revision_id].filter(Boolean);
       const resolution = this.enqueueSyncEntity(row.entity_type, this.get(row.entity_type, row.entity_id, true), parents);
       this.db.prepare("DELETE FROM sync_conflicts WHERE id = ?").run(conflictId);

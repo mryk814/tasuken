@@ -50,6 +50,39 @@ export type TaskRepeatFrequency = "daily" | "weekly" | "monthly";
 
 export type TaskShelf = "maybe_today" | "this_evening" | "this_week" | "someday" | "backlog";
 
+export type TaskRequester = "self" | "human" | "ai_agent" | "external" | "unknown";
+export type TaskIntendedExecutor = "self" | "human" | "ai_agent" | "unassigned";
+export type TaskExecutorKind = "self" | "human" | "ai_agent" | "external" | "unknown";
+export type TaskWorkState =
+  | "not_delegated"
+  | "ready_for_agent"
+  | "in_progress"
+  | "reported_done"
+  | "needs_human_review"
+  | "accepted"
+  | "blocked"
+  | "failed";
+
+export interface WorkReceipt {
+  id: string;
+  task_id: string;
+  executor_kind: TaskExecutorKind;
+  executor_label: string;
+  started_at?: string | null;
+  reported_at: string;
+  summary: string;
+  completed_items: string[];
+  changed_or_created_items: string[];
+  verification?: string[];
+  remaining_work?: string[];
+  external_references?: Array<Record<string, unknown>>;
+  repository_context?: Record<string, unknown> | null;
+  source_session?: string | null;
+  runtime_metadata?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface TaskRepeatRule {
   frequency: TaskRepeatFrequency;
   interval: number;
@@ -76,6 +109,13 @@ export interface Task extends AiMetadata {
   title: string;
   description?: string | null;
   state: TaskState;
+  requester?: TaskRequester;
+  intended_executor?: TaskIntendedExecutor;
+  executor_identity?: string | null;
+  work_state?: TaskWorkState;
+  work_started_at?: string | null;
+  work_reported_at?: string | null;
+  work_review_note?: string | null;
   priority: "normal" | "high";
   planning_shelf?: TaskShelf | null;
   planned_start_time?: string | null;
@@ -311,12 +351,14 @@ export interface WorkspaceDomain {
   knowledge_edges: KnowledgeEdge[];
   ai_proposals: Record<string, unknown>[];
   change_events: ChangeEvent[];
+  work_receipts: WorkReceipt[];
 }
 
 export type DomainEntity =
   | Project
   | CaptureEntry
   | Task
+  | WorkReceipt
   | Waiting
   | PlanNode
   | Schedule
