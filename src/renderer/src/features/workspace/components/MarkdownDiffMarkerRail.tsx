@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 
-import type { MarkdownDiffMarker } from "../lib/markdownEditing";
+import {
+  buildMarkdownDiffMarkerAnchorTexts,
+  normalizeMarkdownDiffAnchorText,
+  type MarkdownDiffMarker,
+} from "../lib/markdownEditing";
 
 type MarkdownDiffScrollMetrics = {
   containerTop: number;
@@ -14,33 +18,6 @@ type MarkdownDiffScrollMetrics = {
   clientHeight: number;
   anchorTops: Array<number | null>;
 };
-
-function normalizeMarkerText(value: string): string {
-  return value
-    .normalize("NFKC")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[^\p{L}\p{N}]+/gu, "")
-    .toLocaleLowerCase();
-}
-
-function markerAnchorTexts(marker: MarkdownDiffMarker): string[] {
-  const changedIndexes = marker.hunk.lines
-    .map((line, index) => line.kind === "same" ? -1 : index)
-    .filter((index) => index >= 0);
-  const firstChangedIndex = changedIndexes[0] ?? 0;
-  const lastChangedIndex = changedIndexes[changedIndexes.length - 1] ?? firstChangedIndex;
-  const candidateLines = [
-    ...marker.hunk.lines.filter((line) => line.kind === "added"),
-    ...marker.hunk.lines.slice(lastChangedIndex + 1).filter((line) => line.kind === "same"),
-    ...marker.hunk.lines.slice(0, firstChangedIndex).reverse().filter((line) => line.kind === "same"),
-  ];
-
-  return [...new Set(candidateLines
-    .map((line) => normalizeMarkerText(line.text))
-    .filter((text) => text.length >= 2))];
-}
 
 function markerElements(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(
@@ -63,9 +40,9 @@ function findMarkerAnchor(
   const lineRatio = Math.max(0, Math.min(1, (marker.lineNumber - 1) / Math.max(1, totalLines - 1)));
   const expectedTop = rootRect.top + lineRatio * Math.max(0, root.scrollHeight - 18);
 
-  for (const anchorText of markerAnchorTexts(marker)) {
+  for (const anchorText of buildMarkdownDiffMarkerAnchorTexts(marker)) {
     const matches = elements.filter((element) => {
-      const elementText = normalizeMarkerText(markerElementText(element));
+      const elementText = normalizeMarkdownDiffAnchorText(markerElementText(element));
       return elementText === anchorText || elementText.includes(anchorText);
     });
     if (matches.length === 0) continue;

@@ -36,6 +36,29 @@ export type MarkdownDiffMarker = {
   hunk: MarkdownDiffHunk;
 };
 
+export function normalizeMarkdownDiffAnchorText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .toLocaleLowerCase();
+}
+
+export function buildMarkdownDiffMarkerAnchorTexts(marker: MarkdownDiffMarker): string[] {
+  const { lines, focusStart, focusEnd } = marker.hunk;
+  const candidateLines = [
+    ...lines.slice(focusStart, focusEnd + 1).filter((line) => line.kind === "added"),
+    ...lines.slice(focusEnd + 1).filter((line) => line.kind === "same"),
+    ...lines.slice(0, focusStart).reverse().filter((line) => line.kind === "same"),
+  ];
+
+  return [...new Set(candidateLines
+    .map((line) => normalizeMarkdownDiffAnchorText(line.text))
+    .filter((text) => text.length >= 2))];
+}
+
 function splitLines(value: string): string[] {
   return value.replace(/\r\n?/g, "\n").split("\n");
 }
