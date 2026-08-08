@@ -4,6 +4,8 @@ TaskenはElectron + React + SQLiteのローカルデスクトップアプリと�
 
 この文書はKnowledge Model、AI Context Export、MCP連携、安全なwrite提案の実装方針を固定する。実装時は既存のWorkspace Repository、Snapshot、AI Import / Export、typed IPCの境界に合わせて段階導入する。
 
+> **2026-08-08 / Issue #319**: Knowledge画面は実験・診断用へ戻し、既存Entity / Edge / Relation / internal link / backlink / source relation / export / backupの正本互換を保ったまま、通常の作成導線から切り離す。Context Graph、Backlink、Provenance、Data Healthは共有read projectionとして成立し、AI Contextは手動Knowledge整理に依存しない。以下の旧UX記述はモデル・保存・AI/MCP契約の履歴として残す。
+
 ## 基本方針
 
 TaskenにGitHub Copilotの非公式serviceを直接埋め込むことはしない。外部AIが参照できる「思考と作業の文脈DB」を基本にしつつ、利用者が明示設定したOpenAI APIだけはNote編集の短い経路として使う。どちらの書き込みもSafe Write Proposalへ合流する。

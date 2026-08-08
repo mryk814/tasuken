@@ -90,8 +90,8 @@ export const ROUTE_DEFINITIONS = {
     semanticRole: "view", availability: "always", navigation: { group: "cross", order: 2 },
   },
   knowledge: {
-    id: "knowledge", label: "Knowledge", description: "後から判断に使う問い・主張・根拠・決定を整理します。", icon: IconBulb,
-    semanticRole: "hub", availability: "always", navigation: { group: "knowledge", order: 1 },
+    id: "knowledge", label: "Knowledge", description: "既存データを読み取り、Research / Diagnosticとして確認します。", icon: IconBulb,
+    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 3 },
   },
   notes: {
     id: "notes", label: "Notes", description: "Note・Resource・Report・Promptをまとめて扱います。Markdownを書き、関連資料を参照しながら整理できます。", icon: IconNotes,

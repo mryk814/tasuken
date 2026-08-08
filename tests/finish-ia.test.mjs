@@ -38,8 +38,8 @@ test("sidebar count badges are limited to action-driving counts", () => {
   assert.doesNotMatch(shellSource, /chatRefCount/);
   assert.match(shellSource, /overdueTasks/);
   assert.doesNotMatch(shellSource, /dueWaitings/);
-  assert.match(shellSource, /knowledgeHealthIssueCount/);
-  assert.match(shellSource, /knowledge:\s*knowledgeHealthIssueCount/);
+  assert.doesNotMatch(shellSource, /knowledgeHealthIssueCount/);
+  assert.doesNotMatch(shellSource, /knowledge:\s*knowledgeHealthIssueCount/);
   assert.match(shellSource, /"ai-io": proposalCount/);
 });
 

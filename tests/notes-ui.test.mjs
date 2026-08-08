@@ -246,8 +246,8 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
 test("AI iconはAIの操作にだけ使う（#312）", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
-  // Knowledge化はAIが実行する操作ではない。
-  assert.match(source, /title="Knowledge化"\s*\n\s*>\s*\n[^<]*\n\s*<IconBulb size=\{15\} \/>/);
+  // Knowledge化はNotesの日常導線から撤去し、AI iconを流用する余地も残さない。
+  assert.doesNotMatch(source, /Knowledge化|IconBulb/);
   // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
   assert.match(source, /<AI_ICON size=\{16\} \/>AI Draft/);
 });

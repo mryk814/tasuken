@@ -1,5 +1,4 @@
 import {
-  IconBulb,
   IconExternalLink,
   IconFolder,
   IconLink,
@@ -49,7 +48,6 @@ import { clipboardImageFile, readFileAsDataUrl } from "../lib/clipboardImage";
 import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
 import { str } from "../lib/format";
-import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
 import { buildMarkdownDiffHunks, buildMarkdownDiffMarkers, diffMarkdownLines, findMarkdownMatches, formatMarkdown, replaceAllMarkdownMatches, replaceMarkdownMatch, restoreMarkdownDiffHunk, type MarkdownDiffMarker } from "../lib/markdownEditing";
 import {
   extractMarkdownHeadings,
@@ -184,10 +182,6 @@ function noteDateLabel(value: unknown): string {
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-function canCreateKnowledge(record: Combined): boolean {
-  return record.recordType === "note" && recordKind(record) === "note";
 }
 
 type AutoLinkUndoEntry = { artifactId: string; previous: Artifact | null };
@@ -1090,20 +1084,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     openDrawer({ type: record.recordType, mode: "edit", entity: record });
   }
 
-  function knowledgeFromNote(record: Combined) {
-    if (record.recordType !== "note") return;
-    if (isLongKnowledgeSource(recordBody(record))) {
-      openDrawer({ type: "note", entity: record });
-      setToast("本文が長いため、Knowledge候補の抽出導線を開きました。");
-      return;
-    }
-    openDrawer({
-      type: "knowledge_node",
-      mode: "edit",
-      entity: buildKnowledgeNodeDraftFromNote(record),
-    });
-  }
-
   function showRecordMenu(event: MouseEvent, record: Combined, url: string) {
     event.preventDefault();
     const items: ContextMenuItem[] = [
@@ -1115,7 +1095,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       } },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(record.title)) },
     ];
-    if (canCreateKnowledge(record)) items.push({ label: "学びとしてKnowledge化", onSelect: () => knowledgeFromNote(record) });
     if (url) {
       items.push(
         { label: "リンクを開く", onSelect: () => window.open(url, "_blank", "noreferrer") },
@@ -1829,7 +1808,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       hint: "本文を別ウィンドウへ切り離し、本体では別の画面へ移動できます",
       onSelect: () => void detachSelectedNote(),
     } as ToolbarMenuItem] : []),
-    { kind: "group", id: "group-ai", label: "AI・関連付け" },
+    { kind: "group", id: "group-ai", label: "AI" },
     ...(selected.recordType === "note" ? [{
       id: "draft-workspace",
       label: "Draft WorkspaceでAIと書く",
@@ -1838,11 +1817,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       id: "ai-edit",
       label: "AIで編集する",
       onSelect: () => openNoteAi(),
-    } as ToolbarMenuItem] : []),
-    ...(canCreateKnowledge(selected) ? [{
-      id: "knowledge",
-      label: "Knowledgeにする",
-      onSelect: () => knowledgeFromNote(selected),
     } as ToolbarMenuItem] : []),
   ] : [];
 
@@ -1959,17 +1933,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     </span>
                   </span>
                 </button>
-                {canCreateKnowledge(record) && (
-                  <button
-                    className="row-action-button note-row-open"
-                    onClick={() => knowledgeFromNote(record)}
-                    aria-label={`${str(record.title) || "Note"}をKnowledge化`}
-                    title="Knowledge化"
-                  >
-                    {/* Knowledge化はAIの操作ではない。AI iconを流用しない（#312）。 */}
-                    <IconBulb size={15} />
-                  </button>
-                )}
                 {url && (
                   <a
                     className="row-action-button note-row-open"

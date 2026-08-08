@@ -20,10 +20,10 @@ rg -n --glob '*.html' --glob '*.css' ':[[:space:]]*#[0-9A-Fa-f]{3,8}' src/render
 | AI向けContext | `ThemePage.tsx` | AIへ渡す。適切 |
 | assistant message | `ConversationPreview.tsx` | AI生成結果。適切 |
 | AI Inbox route | `routes.ts` の `ROUTE_DEFINITIONS.ai-io` | Proposalを確認する画面。AI action iconとは分離して適切 |
-| Knowledge node `insight` | `KnowledgePage.tsx` の `IconBulb` | Knowledge種別。AI iconではない |
+| Knowledge node `insight` | Knowledgeの既存データ表示 | Knowledge種別。AI iconではない |
 | Sketch「手描き認識」 | `SketchPage.tsx` の `IconShape` | 通常の図形認識。Sparklesを除去済み |
 
-機械検索で残る `IconSparkles` は `semanticIcons.ts` のregistryだけで、featureからの直接importはない。Knowledge化・通常の関連付け・自動保存・コピーにはAI iconを使っていない。
+機械検索で残る `IconSparkles` は `semanticIcons.ts` のregistryだけで、featureからの直接importはない。Knowledgeの通常作成導線は持たず、AI iconはAI依頼にだけ使う。
 
 Today mini、Quick Capture、Memo stickyのstandalone windowも `electron.vite.config.ts` の `tasken-shared-design-tokens` pluginで同じ `design-standard/tokens.css` をbuild時に注入する。各HTMLに独自の色パレットやhex値を残さず、`data-theme` の切替とdark modeを共通tokenへ接続している。
 
