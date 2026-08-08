@@ -1,0 +1,72 @@
+export const calendarFixture = {
+  calendar: { name: "研究予定" },
+  events: [
+    {
+      id: "event-normal",
+      subject: "設計レビュー",
+      start: { dateTime: "2026-08-08T09:00:00.0000000", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-08-08T10:00:00.0000000", timeZone: "Asia/Tokyo" },
+      isAllDay: false,
+      location: { displayName: "会議室A" },
+      onlineMeeting: { joinUrl: "https://teams.microsoft.com/l/meetup-join/example" },
+      sensitivity: "normal",
+      type: "singleInstance",
+      body: { content: "SECRET_EVENT_BODY" },
+    },
+    {
+      id: "event-private",
+      subject: "秘密の人事会議",
+      start: { dateTime: "2026-08-08T11:00:00.0000000", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-08-08T12:00:00.0000000", timeZone: "Asia/Tokyo" },
+      isAllDay: false,
+      location: { displayName: "役員室" },
+      onlineMeeting: { joinUrl: "https://teams.microsoft.com/l/meetup-join/private" },
+      sensitivity: "private",
+      type: "occurrence",
+      seriesMasterId: "series-private",
+      recurrence: {
+        pattern: { type: "weekly", interval: 1, daysOfWeek: ["saturday"] },
+        range: { type: "endDate", startDate: "2026-08-01", endDate: "2026-08-29" },
+      },
+      body: { content: "PRIVATE_EVENT_BODY" },
+    },
+    {
+      id: "event-unsafe-url",
+      subject: "リンク確認",
+      start: { dateTime: "2026-08-08T13:00:00.0000000", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-08-08T13:30:00.0000000", timeZone: "Asia/Tokyo" },
+      isAllDay: false,
+      location: { displayName: "オンライン" },
+      onlineMeetingUrl: "javascript:alert('bad')",
+      sensitivity: "normal",
+      type: "singleInstance",
+    },
+  ],
+};
+
+export const calendarPageTwo = {
+  value: [
+    {
+      id: "event-all-day",
+      subject: "出張",
+      start: { dateTime: "2026-08-08T00:00:00.0000000", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-08-09T00:00:00.0000000", timeZone: "Asia/Tokyo" },
+      isAllDay: true,
+      location: { displayName: "東京" },
+      sensitivity: "normal",
+      type: "singleInstance",
+    },
+    {
+      id: "event-confidential",
+      subject: "機密の経営会議",
+      start: { dateTime: "2026-08-08T15:00:00.0000000", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-08-08T16:00:00.0000000", timeZone: "Asia/Tokyo" },
+      isAllDay: false,
+      location: { displayName: "取締役室" },
+      onlineMeeting: { joinUrl: "https://teams.microsoft.com/l/meetup-join/confidential" },
+      sensitivity: "confidential",
+      type: "singleInstance",
+      body: { content: "CONFIDENTIAL_EVENT_BODY" },
+    },
+  ],
+};

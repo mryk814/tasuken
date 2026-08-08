@@ -526,6 +526,7 @@ function CandidateTaskRows({
 function formatEventTime(iso: string): string {
   if (!iso) return "";
   const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
@@ -544,6 +545,40 @@ function findNextEvent(events: CalendarEvent[]): string | null {
   return null;
 }
 
+function safeMeetingUrlFor(event: CalendarEvent): string {
+  if (event.sensitivity !== "normal" || !event.meetingUrl) return "";
+  try {
+    const url = new URL(event.meetingUrl);
+    if (url.protocol !== "https:" || url.username || url.password || !url.hostname) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function CalendarEventMeta({ event }: { event: CalendarEvent }) {
+  const calendarName = event.calendarName.trim();
+  const location = event.sensitivity === "normal" ? event.location.trim() : "";
+  const meetingUrl = safeMeetingUrlFor(event);
+  if (!calendarName && !location && !meetingUrl) return null;
+
+  return (
+    <span className="today-calendar-location">
+      {calendarName && <span>{calendarName}</span>}
+      {location && <span>{calendarName ? ` · ${location}` : location}</span>}
+      {meetingUrl && (
+        <a
+          href={meetingUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {calendarName || location ? " · 会議を開く" : "会議を開く"}
+        </a>
+      )}
+    </span>
+  );
+}
+
 function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }) {
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarResult, setCalendarResult] = useState<CalendarEventsResult | null>(null);
@@ -560,6 +595,7 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
         provider: "microsoft",
         events: [],
         fetchedAt: "",
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         stale: false,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -577,7 +613,16 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
       .catch(() => setCalendarStatus(buildDisconnectedCalendarStatus()));
   }, [fetchEvents]);
 
-  if (!calendarStatus) return null;
+  if (!calendarStatus) {
+    return (
+      <section className="panel today-calendar-section">
+        <div className="section-heading">
+          <h2><IconCalendar size={16} /> 今日の予定</h2>
+        </div>
+        <p className="today-calendar-loading">カレンダーの接続状態を確認中…</p>
+      </section>
+    );
+  }
 
   if (!calendarStatus.connected) {
     return (
@@ -600,6 +645,7 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
   const timedEvents = events.filter((e) => !e.isAllDay);
   const nextEventId = findNextEvent(timedEvents);
   const hasError = calendarResult?.error && !calendarResult.stale;
+  const titleFor = (event: CalendarEvent) => event.sensitivity === "normal" ? event.title : "予定あり";
 
   return (
     <section className="panel today-calendar-section">
@@ -640,10 +686,8 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
           {allDayEvents.map((event) => (
             <div key={event.id} className="today-calendar-event is-allday">
               <span className="today-calendar-time today-calendar-allday">終日</span>
-              <span className="today-calendar-title">
-                {event.sensitivity === "private" ? "予定あり" : event.title}
-              </span>
-              {event.location && <span className="today-calendar-location">{event.location}</span>}
+              <span className="today-calendar-title">{titleFor(event)}</span>
+              <CalendarEventMeta event={event} />
             </div>
           ))}
           {timedEvents.map((event) => (
@@ -654,10 +698,8 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
               <span className="today-calendar-time">
                 {formatEventTime(event.startTime)}–{formatEventTime(event.endTime)}
               </span>
-              <span className="today-calendar-title">
-                {event.sensitivity === "private" ? "予定あり" : event.title}
-              </span>
-              {event.location && <span className="today-calendar-location">{event.location}</span>}
+              <span className="today-calendar-title">{titleFor(event)}</span>
+              <CalendarEventMeta event={event} />
             </div>
           ))}
         </div>
