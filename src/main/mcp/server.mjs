@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 
 import { ReadOnlyTaskenContext, defaultTaskenDbPath } from "./readOnlyContext.mjs";
 import { queueMcpProposal } from "./proposalInbox.mjs";
+import { entityTypes } from "../../shared/entityRegistry.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -132,6 +133,21 @@ export function createTaskenMcpServer() {
     inputSchema: { theme_id: optionalText },
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolGetKnowledgeHealth(args)));
+
+  server.registerTool("tasken.get_context_subgraph", {
+    description: "Return a bounded, read-only Context/Provenance subgraph for one typed entity. Suggested relations are excluded by default and never become facts.",
+    inputSchema: {
+      entity_type: z.enum(entityTypes),
+      entity_id: z.string().trim().min(1).max(200),
+      max_hops: z.number().int().positive().max(2).optional(),
+      max_nodes: z.number().int().positive().max(100).optional(),
+      max_edges: z.number().int().positive().max(200).optional(),
+      token_budget: z.number().int().positive().max(12000).optional(),
+      include_suggested: z.boolean().optional(),
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetContextSubgraph(args)));
 
   server.registerTool("tasken.export_ai_context", {
     description: "Export bounded Tasken context as Markdown or JSON.",
