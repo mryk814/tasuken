@@ -28,6 +28,12 @@ after_json、source などの旧フィールドは、既存 reader と snapshot 
 
 Task の CompleteTask / ReopenTask はそれぞれ
 task_completed / task_reopened です。
+Task の作業経路は task_work_recorded（開始・人間作業の報告）、
+task_ai_reported（AIのWork Receipt報告）、task_ai_accepted（人間の受入れ）、
+task_ai_returned（人間の差戻し）です。Work Receiptは task_id と
+work_receipt_ref でTaskへ結びますが、Receipt本文はappend-onlyです。
+AIの報告・Receiptの追加はTaskのstateをdoneへ変更せず、
+CompleteTaskはAI Taskがacceptedになった後だけ許可します。
 Note / Report / Prompt は create/update を分け、Resource は
 resource_added / resource_updated、Artifact は
 artifact_added / artifact_updated です。
@@ -52,6 +58,20 @@ five seconds を超える idle、または producer が newSession: true / 新�
 sessionId を渡した場合は別 event です。
 Application Command は command retry の idempotency を保ちつつ、
 同一 command 内の複数 Entity event を別 key にします。
+
+## Work Receiptの境界
+
+StartTaskWork / AppendWorkReceipt / AcceptTaskWork / ReturnTaskWork は
+Task・Receipt・Change Eventを同じtransactionで保存します。
+MCPはassignment/Receiptをread-onlyで読み、開始・報告・人間レビュー依頼は
+ProposalとしてInboxへ送るだけです。Acceptと差戻しはactor.kind=userかつ
+非MCP sourceの人間UI commandに限定し、MCP actorのspoofでは受入れできません。
+executor_labelは表示用の記録であり、provider/modelはruntime_metadataにだけ保存し、
+Taskのexecutor_identity表示名を上書きしません。
+Taskの永続化境界では、intended_executor=ai_agentかつstate=doneを
+work_state=accepted以外で保存できません。intended_executorの変更は同じ境界で正規化し、
+AIへ割り当てる場合はready_for_agent、AIから外す場合はnot_delegatedへ戻します。
+in_progress / reported_done / needs_human_review 中の再割当は、Receiptの帰属を曖昧にしないため拒否します。
 
 ## canonical / AI projection
 
