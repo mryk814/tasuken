@@ -11,6 +11,7 @@ import {
 } from "../../shared/aiMetadata.mjs";
 import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../shared/knowledgeHealth.mjs";
 import { collectionKeyForEntityType, entityTypes } from "../../shared/entityRegistry.mjs";
+import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../shared/contextGraph.mjs";
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -469,6 +470,49 @@ export class ReadOnlyTaskenContext {
 
   toolGetKnowledgeHealth(args = {}) {
     return this.buildKnowledgeHealth(args.theme_id || "");
+  }
+
+  /**
+   * 正本SQLiteを変更せず、既存collectionから再構築できるbounded relation projection。
+   * 本文は返さず、AI公開範囲は既存#294ポリシーで先に絞る。
+   */
+  toolGetContextSubgraph(args = {}) {
+    const type = text(args.entity_type || args.type);
+    const id = text(args.entity_id || args.id);
+    const graph = projectContextGraph(this.loadWorkspace(Boolean(args.include_archived)));
+    const allowed = new Set();
+    for (const entityType of ENTITY_TYPES) {
+      const records = this.filterForAi(entityType, this.list(entityType, Boolean(args.include_archived))).records;
+      for (const record of records) allowed.add(JSON.stringify([entityType, record.id]));
+    }
+    const seedAllowed = allowed.has(JSON.stringify([type, id]));
+    if (!seedAllowed) {
+      return {
+        seed: { type, id },
+        nodes: [],
+        edges: [],
+        paths: [],
+        limits: { max_hops: Math.min(2, Number(args.max_hops) || 2), max_nodes: Number(args.max_nodes) || 24, max_edges: Number(args.max_edges) || 48, token_budget: Number(args.token_budget) || 2400 },
+        estimated_tokens: 0,
+        truncated: false,
+        exclusions: ["seed_not_allowed"],
+        ai_audience: this.audience,
+        read_only: true,
+      };
+    }
+    const result = getContextSubgraph(graph, { type, id }, {
+      maxHops: args.max_hops,
+      maxNodes: args.max_nodes,
+      maxEdges: args.max_edges,
+      tokenBudget: args.token_budget,
+      includeSuggested: Boolean(args.include_suggested),
+      nodeFilter: (node) => allowed.has(JSON.stringify([node.ref.type, node.ref.id])),
+    });
+    return {
+      ...contextGraphMcpShape(result),
+      ai_audience: this.audience,
+      read_only: true,
+    };
   }
 
   /** OneDrive AI Pack等はm365で、Coding Agentはcoding_agentで同じ関数を呼ぶ（#294 / #295）。 */
