@@ -355,6 +355,22 @@ flowchart LR
   const created = await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      window.__taskenSmokeDiagnostics = { rendererErrors: [] };
+      window.addEventListener("error", (event) => {
+        window.__taskenSmokeDiagnostics.rendererErrors.push({
+          kind: "error",
+          message: event.message,
+          filename: event.filename,
+          line: event.lineno,
+          column: event.colno,
+        });
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        window.__taskenSmokeDiagnostics.rendererErrors.push({
+          kind: "unhandledrejection",
+          message: String(event.reason?.stack || event.reason || "unknown rejection"),
+        });
+      });
       const setInputValue = (element, value) => {
         const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set
           || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
@@ -412,6 +428,24 @@ flowchart LR
         await delay(40);
         return notesPane;
       };
+      const mermaidDiagnostics = () => ({
+        activeElement: document.activeElement?.outerHTML?.slice(0, 300) || "",
+        notePane: Boolean(document.querySelector(".note-preview-panel")),
+        mermaidBlocks: [...document.querySelectorAll(".note-mermaid-code-block")].map((block) => ({
+          className: block.className,
+          text: block.textContent?.slice(0, 300) || "",
+          svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+          errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+          html: block.innerHTML.slice(0, 1200),
+        })),
+        markdownBlocks: [...document.querySelectorAll("[data-mermaid='true']")].map((block) => ({
+          className: block.className,
+          text: block.textContent?.slice(0, 300) || "",
+          svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+          errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+        })),
+        rendererErrors: window.__taskenSmokeDiagnostics.rendererErrors,
+      });
 
       // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
       (await waitForButton("Notes")).click();
@@ -520,17 +554,24 @@ flowchart LR
         notesPane?.querySelector(".note-editor-math-inline")
         && notesPane?.querySelector(".note-editor-math-block")
       );
-      const mermaidPreviewInEdit = await waitFor(
-        () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
-        "Edit面のMermaid Preview",
-        300,
-      );
+      let mermaidPreviewInEdit;
+      try {
+        mermaidPreviewInEdit = await waitFor(
+          () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
+          "Edit面のMermaid Preview",
+          80,
+        );
+      } catch (error) {
+        const diagnostics = mermaidDiagnostics();
+        console.error("Mermaid smoke diagnostics: " + JSON.stringify(diagnostics));
+        throw new Error(String(error) + " diagnostics=" + JSON.stringify(diagnostics));
+      }
       const notesMermaidRenderedInEdit = Boolean(mermaidPreviewInEdit);
       mermaidPreviewInEdit.closest(".note-mermaid-preview-frame")?.click();
       const mermaidCodeEditor = await waitFor(
         () => notesPane?.querySelector(".note-mermaid-code-block.is-editing .cm-editor"),
         "Mermaidコード編集面",
-        300,
+        80,
       );
       const notesCodeBlockFullWidth = mermaidCodeEditor.getBoundingClientRect().width >= liveEditable.getBoundingClientRect().width * 0.8;
 
@@ -1081,12 +1122,40 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.once("did-finish-load", () => {
     if (isSmokeTest) {
-      runSmokeTest(window).catch((error: unknown) => {
-        console.error(error);
-        recordSmoke("smoke-failed", { error: String(error) });
+      runSmokeTest(window).catch(async (error: unknown) => {
+        let diagnostics: unknown = null;
+        try {
+          diagnostics = await window.webContents.executeJavaScript(`
+            (() => ({
+              url: location.href,
+              title: document.title,
+              notePane: Boolean(document.querySelector(".note-preview-panel")),
+              mermaidBlocks: [...document.querySelectorAll(".note-mermaid-code-block")].map((block) => ({
+                className: block.className,
+                text: block.textContent?.slice(0, 300) || "",
+                svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+                errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+                html: block.innerHTML.slice(0, 1200),
+              })),
+              rendererErrors: window.__taskenSmokeDiagnostics?.rendererErrors || [],
+            }))()
+          `);
+        } catch (diagnosticError) {
+          diagnostics = { captureError: String(diagnosticError) };
+        }
+        const failure = { error: String(error), diagnostics };
+        console.error("Electron smoke failure: " + JSON.stringify(failure));
+        recordSmoke("failed", failure);
         app.exit(1);
       });
     }
+  });
+  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    if (!isSmokeTest) return;
+    if (level < 2 && !/mermaid|markdown|unhandled|exception/i.test(message)) return;
+    const entry = { level, message, line, sourceId };
+    recordSmoke("renderer-console", entry);
+    console.error("Renderer console: " + JSON.stringify(entry));
   });
   window.webContents.on("did-fail-load", (_event, code, description) => {
     recordSmoke("load-failed", { code, description });
