@@ -1,0 +1,65 @@
+# Activity Event Contract
+
+## 正本
+
+Activity の正本は change_event Entity に保存する構造化 event です。
+表示用の summary や Markdown の行から Entity を復元してはいけません。
+Markdown、JSON、MCP、将来の日次 06 Activity.md は
+src/shared/activityProjection.mjs の query と projection を共有します。
+
+必須の構造化フィールドは次のとおりです。
+
+- id: stable UUID
+- occurred_at: ISO 8601
+- event_kind: src/shared/activityEvent.mjs の固定語彙
+- entity_ref: { type, id, revision? }
+- theme_ref: { kind: "theme" | "none", id }
+- actor、origin
+- summary、changed_fields
+- canonical_refs、source_refs、relation_refs
+- work_receipt_ref
+- metadata.schema_version、metadata.dedupe_key
+
+entity_type、entity_id、changed_at、change_type、before_json、
+after_json、source などの旧フィールドは、既存 reader と snapshot のために
+保存し続けます。新しい query は構造化フィールドだけを正本として使います。
+
+## イベント語彙
+
+Task の CompleteTask / ReopenTask はそれぞれ
+task_completed / task_reopened です。
+Note / Report / Prompt は create/update を分け、Resource は
+resource_added / resource_updated、Artifact は
+artifact_added / artifact_updated です。
+
+Task の作成と単純な title 編集は履歴には保持しますが、既定 Activity には出しません。
+Activity に明示的に含める必要がある producer は
+metadata.include_in_activity: true を指定します。
+
+## 移行
+
+SQLite schema version 3 で旧 change_event 行を一度だけ正規化します。
+旧フィールドを削除せず、metadata.migrated_from と
+metadata.dedupe_key = legacy:<event id> を付けるため、再起動や再移行で
+過去の履歴が相互に dedupe されません。
+after_json が既に plain entity の場合は再 parse せず、そのまま対象 Entity として扱います。
+
+## Autosave dedupe
+
+同一 Entity の同一 event_kind を five seconds の idle window 内で保存した autosave は、
+同じ session_id の一つの event に集約し、after と occurred_at を最新値へ更新します。
+five seconds を超える idle、または producer が newSession: true / 新しい
+sessionId を渡した場合は別 event です。
+Application Command は command retry の idempotency を保ちつつ、
+同一 command 内の複数 Entity event を別 key にします。
+
+## canonical / AI projection
+
+Canonical ref は storage_root_id + relative_path を優先し、
+web_url は任意です。root の実パスは resolver の内部だけで使い、
+MCP やその他の AI projection に絶対パスを返しません。
+root が変更されたときは root ID の resolver を更新し、
+壊れた参照は status: "broken" として残します。
+
+#294 の visibility / authority / freshness は projection 時点で評価します。
+local_only は M365 projection に含めず、除外件数と理由だけを返します。
