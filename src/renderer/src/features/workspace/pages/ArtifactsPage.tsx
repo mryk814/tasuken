@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
+import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
 import {
   ArtifactCard,
   resolveArtifactSourceLabel,
@@ -22,12 +23,7 @@ interface ArtifactsPrefs {
   sortOrder: SortOrder;
 }
 
-const DEFAULT_PREFS: ArtifactsPrefs = {
-  themeId: "all",
-  sourceType: "all",
-  typeFilter: "all",
-  sortOrder: "newest",
-};
+const DEFAULT_PREFS: ArtifactsPrefs = defaultViewPreference("artifacts.preferences");
 
 const TYPE_FILTER_LABELS: Record<TypeFilter, string> = {
   all: "すべて",
@@ -61,7 +57,7 @@ export function ArtifactsPage({
 }: PageProps) {
   const [query, setQuery] = useState("");
   const [recentTick, setRecentTick] = useState(0);
-  const [prefs, setPrefs] = usePersistentState<ArtifactsPrefs>("artifacts:prefs:v1", DEFAULT_PREFS);
+  const [prefs, setPrefs] = usePreference("artifacts.preferences");
   const updatePrefs = (patch: Partial<ArtifactsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const recentIds = useMemo(() => readRecentArtifactIds(), [data.artifacts, recentTick]);
   const recentRank = useMemo(() => new Map(recentIds.map((id, index) => [id, index])), [recentIds]);

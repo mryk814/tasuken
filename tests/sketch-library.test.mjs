@@ -24,7 +24,7 @@ test("Sketch is an independent Knowledge shelf with a dedicated editor route", (
 });
 
 test("Sketch library owns discovery creation and opening", () => {
-  assert.match(library, /usePersistentState<SketchLibraryPreferences>/);
+  assert.match(library, /usePreference\("sketch\.libraryPreferences"\)/);
   assert.match(library, /タイトル・Themeで検索/);
   assert.match(library, /Sketchの並び順/);
   // 作成も行選択も編集canvasへ直行する。詳細drawerを経由しない（#320）。

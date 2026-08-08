@@ -2,6 +2,7 @@ import { useState } from "react";
 import { IconCopy, IconMessage2Plus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { usePreference } from "../../../utils/usePreference";
 import { AI_ICON } from "../../../pages/semanticIcons";
 import type { BaseRecord, PageProps, SaveOperation } from "../types";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, THEME_STATUS_LABELS } from "../lib/domain";
@@ -98,11 +99,20 @@ function TaskSectionBoard({
 
 export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, openContentViewer, openContextPack, navigate, saveEntities, removeEntity, setToast }: PageProps) {
   const [sectionTitle, setSectionTitle] = useState("");
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [themePreference, setThemePreference] = usePreference("theme.preferences", activeTheme?.id || "none");
+  const collapsedSections = new Set(themePreference.collapsedSections);
   if (!activeTheme) {
     return <EmptyState title="テーマがありません" action="テーマを追加" onAction={() => openDrawer({ type: "theme", mode: "edit", entity: {} })} />;
   }
   const theme = activeTheme;
+
+  function toggleTaskSection(sectionId: string) {
+    setThemePreference((current) => ({
+      collapsedSections: current.collapsedSections.includes(sectionId)
+        ? current.collapsedSections.filter((id) => id !== sectionId)
+        : [...current.collapsedSections, sectionId],
+    }));
+  }
   const schedulesMap = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
   const themeTasks = v2.tasks.filter((t) => t.project_id === theme.id);
   const taskSections = listTaskSections(data.views || [], theme.id);
@@ -170,14 +180,6 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
   }
   async function deleteTaskSection(section: TaskSection) {
     await removeEntity("view", section);
-  }
-  function toggleTaskSection(sectionId: string) {
-    setCollapsedSections((current) => {
-      const next = new Set(current);
-      if (next.has(sectionId)) next.delete(sectionId);
-      else next.add(sectionId);
-      return next;
-    });
   }
   function addReport() {
     const previousEnd = latestReportProps ? str(latestReportProps.period_end) : "";

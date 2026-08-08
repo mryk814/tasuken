@@ -98,8 +98,8 @@ import {
   type SketchEmbedPreview,
 } from "../lib/sketchEmbed";
 import type { Artifact, BaseRecord, Entity, NoteComment, PageProps, SaveOperation, Sketch } from "../types";
-import { usePersistentState } from "../../../utils/usePersistentState";
-import { compactNotesBodyPreview, DEFAULT_NOTES_PREFS, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
+import { usePreference } from "../../../utils/usePreference";
+import { compactNotesBodyPreview, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
 import {
   buildNoteExportArtifactOperation,
   createNoteDocumentExport,
@@ -200,7 +200,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [openNoteWindowIds, setOpenNoteWindowIds] = useState<string[]>([]);
   // Notesは書く場所としてEditを初期表示にする。Preview / Rawは必要なときだけ切り替える。
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
-  const [prefs, setPrefs] = usePersistentState<NotesPreferences>("notes:prefs:v1", DEFAULT_NOTES_PREFS);
+  const [prefs, setPrefs] = usePreference("notes.preferences");
+  const [resizeDraft, setResizeDraft] = useState<Partial<Pick<NotesPreferences, "listWidth" | "listCollapsed">> | null>(null);
+  const resizeDraftRef = useRef(resizeDraft);
+  resizeDraftRef.current = resizeDraft;
   const sketches = useMemo(() => data.sketches as Sketch[], [data.sketches]);
   const scope = prefs.scope;
   const sortOrder = prefs.sortOrder;
@@ -274,8 +277,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     entity: BaseRecord;
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
-  const listWidth = prefs.listWidth;
-  const listCollapsed = prefs.listCollapsed;
+  const listWidth = resizeDraft?.listWidth ?? prefs.listWidth;
+  const listCollapsed = resizeDraft?.listCollapsed ?? prefs.listCollapsed;
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
   const handleResize = useCallback((event: React.PointerEvent) => {
@@ -292,16 +295,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       const MIN_WIDTH = 180;
       const COLLAPSE_THRESHOLD = 100;
       if (x < COLLAPSE_THRESHOLD) {
-        updatePrefs({ listCollapsed: true, listWidth: MIN_WIDTH });
+        const next = { listCollapsed: true, listWidth: MIN_WIDTH } as const;
+        resizeDraftRef.current = next;
+        setResizeDraft(next);
       } else {
         const clamped = Math.max(MIN_WIDTH, Math.min(x, rect.width * 0.6));
-        updatePrefs({ listCollapsed: false, listWidth: clamped });
+        const next = { listCollapsed: false, listWidth: clamped } as const;
+        resizeDraftRef.current = next;
+        setResizeDraft(next);
       }
     };
     const onUp = () => {
       draggingRef.current = false;
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
+      const draft = resizeDraftRef.current;
+      if (draft) setPrefs((current) => ({ ...current, ...draft }));
+      resizeDraftRef.current = null;
+      setResizeDraft(null);
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);

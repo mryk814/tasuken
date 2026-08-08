@@ -26,7 +26,7 @@ import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type Keyb
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID, themePickerOptions } from "../../../../../shared/themeRef.mjs";
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
 import { Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ConversationImportDialog } from "../components/ConversationImportDialog";
@@ -49,6 +49,7 @@ import {
   moveCollapsedChatGroupPreference,
   renameChatGroupResources,
   reorderChatGroupResources,
+  sortChatResources,
   restoreChatResource,
   restoreChatResources,
   UNGROUPED_CHAT_GROUP,
@@ -78,14 +79,6 @@ interface ChatRefsPrefs {
   /** 通常一覧の検索時に Archive も含める */
   includeArchivedInSearch: boolean;
 }
-
-const DEFAULT_CHAT_REFS_PREFS: ChatRefsPrefs = {
-  sortOrder: "newest",
-  groupSortOrder: "recent",
-  statusFilter: "all",
-  listMode: "active",
-  includeArchivedInSearch: false,
-};
 
 function isAdopted(r: Resource): boolean {
   return str(r.reference_status) === "adopted";
@@ -118,11 +111,14 @@ export function ChatRefsPage({
   saveEntities,
   setToast,
 }: PageProps) {
-  const chatResources = useMemo(() => domain.resources.filter(isChatReference), [domain.resources]);
+  const [optimisticResources, setOptimisticResources] = useState<Record<string, Resource>>({});
+  const chatResources = useMemo(() => domain.resources
+    .filter(isChatReference)
+    .map((resource) => optimisticResources[resource.id] || resource), [domain.resources, optimisticResources]);
   const themeNameOf = (resource: Resource) => themeTitle(themes, str(resource.project_id) || null);
   const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || PERSONAL_DEFAULT_THEME_ID);
   const [query, setQuery] = useState("");
-  const [prefs, setPrefs] = usePersistentState<ChatRefsPrefs>("chat-refs:prefs:v1", DEFAULT_CHAT_REFS_PREFS);
+  const [prefs, setPrefs] = usePreference("chatRefs.preferences");
   const {
     sortOrder,
     groupSortOrder,
@@ -132,7 +128,7 @@ export function ChatRefsPage({
   } = prefs;
   const updatePrefs = (patch: Partial<ChatRefsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const isArchiveView = listMode === "archive";
-  const [collapsedPreferences, setCollapsedPreferences] = usePersistentState<string[]>("chat-refs:collapsed-groups:v1", []);
+  const [collapsedPreferences, setCollapsedPreferences] = usePreference("chatRefs.collapsedGroups");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
@@ -324,10 +320,27 @@ export function ChatRefsPage({
     if (renamingGroupKey === group.key) cancelRenameGroup();
   }
 
-  function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
-    const reordered = reorderChatGroupResources(group.resources, draggedId, targetId, placement);
+  async function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
+    // 手動順の正本全体を渡し、検索・Archive・採用フィルタで隠れた同一Groupの順序を保つ。
+    const fullGroup = sortChatResources(themeGroupResources(group.key), "manual");
+    const reordered = reorderChatGroupResources(fullGroup, draggedId, targetId, placement, group.resources.map((resource) => resource.id));
     if (!reordered.length) return;
-    saveGroupResources(reordered, "並び替えを保存しました。");
+    const previousOptimistic = optimisticResources;
+    setOptimisticResources((current) => ({
+      ...current,
+      ...Object.fromEntries(reordered.map((resource) => [resource.id, resource])),
+    }));
+    try {
+      await saveEntities(reordered.flatMap((resource) => buildSaveResourceOperations(resource)), "並び替えを保存しました。");
+      setOptimisticResources((current) => {
+        const next = { ...current };
+        for (const resource of reordered) delete next[resource.id];
+        return next;
+      });
+    } catch {
+      setOptimisticResources(previousOptimistic);
+      setToast("並び替えを保存できませんでした。再試行してください。", "danger");
+    }
   }
 
   function archiveChatLink(resource: Resource) {

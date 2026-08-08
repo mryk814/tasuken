@@ -34,7 +34,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
 import { SketchCanvas } from "../components/SketchCanvas";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { Button } from "../components/common";
@@ -67,13 +67,11 @@ import {
 import { ACTIVE_SKETCH_ID_KEY, ACTIVE_SKETCH_PAGE_KEY } from "../lib/sketchEmbed";
 import { clampSketchZoom, normalizeSketchViewport, type SketchViewport } from "../lib/sketchNavigation";
 import {
-  DEFAULT_SKETCH_TOOL_PRESETS,
   isSketchPresetTool,
   normalizeSketchToolPresets,
   SKETCH_TOOL_WIDTHS,
   sketchToolWidthSampleSize,
   type SketchPresetTool,
-  type SketchToolPresets,
 } from "../lib/sketchToolPresets";
 import type { BaseRecord, PageProps, Sketch } from "../types";
 
@@ -130,16 +128,13 @@ export function SketchPage({
   const [document, setDocument] = useState<SketchDocument>(selected?.document || createEmptySketchDocument());
   const [activePageId, setActivePageId] = useState(() => localStorage.getItem(ACTIVE_SKETCH_PAGE_KEY) || document.pages[0]?.id || "");
   const [tool, setTool] = useState<SketchTool>("pen");
-  const [storedPresets, setStoredPresets] = usePersistentState<SketchToolPresets>(
-    "sketch:tool-presets:v1",
-    DEFAULT_SKETCH_TOOL_PRESETS,
-  );
+  const [storedPresets, setStoredPresets] = usePreference("sketch.toolPresets");
   const toolPresets = useMemo(() => normalizeSketchToolPresets(storedPresets), [storedPresets]);
   const activePresetTool: SketchPresetTool = isSketchPresetTool(tool) ? tool : "pen";
   const activePreset = toolPresets[activePresetTool];
-  const [storedShapeKind, setShapeKind] = usePersistentState<SketchShapeKind>("sketch:shape-kind:v2", "rectangle");
+  const [storedShapeKind, setShapeKind] = usePreference("sketch.shapeKind");
   const shapeKind = SHAPE_ITEMS.some((item) => item.id === storedShapeKind) ? storedShapeKind : "rectangle";
-  const [eraserMode, setEraserMode] = usePersistentState<SketchEraserMode>("sketch:eraser-mode:v1", "partial");
+  const [eraserMode, setEraserMode] = usePreference("sketch.eraserMode");
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
   const [zoom, setZoom] = useState(0.82);
   const [saveState, setSaveState] = useState("保存済み");

@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { IconCalendarPlus, IconCalendarCheck, IconClock, IconCopyPlus, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
+import { usePreference } from "../../../utils/usePreference";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { formatDate } from "../lib/format";
 import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
 import {
-  DEFAULT_TASK_VIEW_FILTERS,
   filterTodoRows,
   normalizeTaskViewFilters,
   type TaskViewFilters,
@@ -121,26 +121,13 @@ function groupTodoRows(rows: TodoRow[], groupMode: TodoGroupMode, today: string,
 }
 
 export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, setToast }: PageProps) {
-  const [filter, setFilter] = useState("open");
-  const [taskFilters, setTaskFilters] = useState<TaskViewFilters>(DEFAULT_TASK_VIEW_FILTERS);
-  const [sortMode, setSortMode] = useState<TodoSortMode>("default");
-  const [sortDirection, setSortDirection] = useState<TodoSortDirection>("desc");
-  const [groupMode, setGroupMode] = useState<TodoGroupMode>("none");
+  const [viewPreference, setViewPreference] = usePreference("todo.preferences");
+  const { filter, taskFilters, sortMode, sortDirection, groupMode } = viewPreference;
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
-
-  useEffect(() => {
-    if (route === "todo") {
-      setFilter("open");
-      setTaskFilters(DEFAULT_TASK_VIEW_FILTERS);
-      setSortMode("default");
-      setSortDirection("desc");
-      setGroupMode("none");
-    }
-  }, [route]);
 
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
   const currentFilters: TaskViewFilters = normalizeTaskViewFilters({ ...taskFilters, tab: filter });
@@ -155,11 +142,30 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   const groupedVisible = groupTodoRows(visible, groupMode, today, themes);
 
   function patchTaskFilters(patch: Partial<TaskViewFilters>) {
-    setTaskFilters((current) => normalizeTaskViewFilters({ ...current, ...patch }));
+    setViewPreference((current) => ({
+      ...current,
+      taskFilters: normalizeTaskViewFilters({ ...current.taskFilters, ...patch }),
+    }));
   }
 
   function selectFilterTab(nextFilter: TaskViewTab) {
-    setFilter(nextFilter);
+    setViewPreference((current) => ({
+      ...current,
+      filter: nextFilter,
+      taskFilters: { ...current.taskFilters, tab: nextFilter },
+    }));
+  }
+
+  function setSortMode(next: TodoSortMode) {
+    setViewPreference((current) => ({ ...current, sortMode: next }));
+  }
+
+  function setSortDirection(next: TodoSortDirection) {
+    setViewPreference((current) => ({ ...current, sortDirection: next }));
+  }
+
+  function setGroupMode(next: TodoGroupMode) {
+    setViewPreference((current) => ({ ...current, groupMode: next }));
   }
 
   async function addTask() {

@@ -1,5 +1,6 @@
 import type { Resource } from "../domain-model/types";
 import { isKnownChatService, resolveChatService } from "./chatServices";
+import { reorderVisibleIdsInScope, reindexScopedIds } from "../../../../../shared/viewOrdering.mjs";
 
 export const UNGROUPED_CHAT_GROUP = "__ungrouped__";
 const CHAT_DISPLAY_TIME_ZONE = "Asia/Tokyo";
@@ -348,21 +349,24 @@ export function touchChatGroupActivity(
   return { ...current, [key]: at };
 }
 
-export function reorderChatGroupResources(resources: Resource[], draggedId: string, targetId: string, placement: "before" | "after" = "before"): Resource[] {
-  if (draggedId === targetId) return [];
-  const fromIndex = resources.findIndex((resource) => resource.id === draggedId);
-  const targetIndex = resources.findIndex((resource) => resource.id === targetId);
-  if (fromIndex < 0 || targetIndex < 0) return [];
-
-  const next = [...resources];
-  const [moved] = next.splice(fromIndex, 1);
-  const adjustedTargetIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
-  const insertIndex = placement === "after" ? adjustedTargetIndex + 1 : adjustedTargetIndex;
-  next.splice(insertIndex, 0, moved);
-  return next.map((resource, orderIndex) => ({
-    ...resource,
-    sort_order: (orderIndex + 1) * 10,
-  }));
+export function reorderChatGroupResources(
+  resources: Resource[],
+  draggedId: string,
+  targetId: string,
+  placement: "before" | "after" = "before",
+  visibleIds: string[] = resources.map((resource) => resource.id),
+): Resource[] {
+  const orderedIds = reorderVisibleIdsInScope(
+    resources.map((resource) => resource.id),
+    visibleIds,
+    draggedId,
+    targetId,
+    placement,
+  );
+  if (!orderedIds) return [];
+  const order = reindexScopedIds(orderedIds);
+  const byId = new Map(resources.map((resource) => [resource.id, resource]));
+  return orderedIds.map((id) => ({ ...byId.get(id)!, sort_order: order.get(id) }));
 }
 
 export function renameChatGroupResources(resources: Resource[], nextGroupName: string): Resource[] {

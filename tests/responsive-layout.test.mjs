@@ -11,7 +11,7 @@ const ipcSource = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const responsiveGuide = readFileSync("docs/responsive-layout.md", "utf8");
 
 test("sidebar collapse is accessible and persisted as device UI state", () => {
-  assert.match(workspaceSource, /usePersistentState\("shell:sidebar-collapsed:v1", false\)/);
+  assert.match(workspaceSource, /usePreference\("shell\.sidebarCollapsed"\)/);
   assert.match(workspaceSource, /is-sidebar-collapsed/);
   assert.match(shellSource, /className="titlebar-sidebar-toggle"/);
   assert.match(shellSource, /aria-label=\{collapsed \? "サイドバーを広げる" : "サイドバーを畳む"\}/);
@@ -36,7 +36,7 @@ test("custom titlebar keeps native window controls and lightweight display help 
   assert.match(shellSource, /ヘルプ <IconChevronDown/);
   assert.match(shellSource, /ショートカット/);
   assert.match(shellSource, /設定を開く/);
-  assert.match(workspaceSource, /usePersistentState\("shell:zoom-factor:v1", 1\)/);
+  assert.match(workspaceSource, /usePreference\("shell\.zoomFactor"\)/);
   assert.match(workspaceSource, /"--app-content-zoom": zoomFactor/);
   assert.match(cssSource, /\.app-content-viewport > \.app-shell,[\s\S]*transform: scale\(var\(--app-content-zoom\)\);[\s\S]*transform-origin: top left;/);
   assert.doesNotMatch(cssSource, /zoom: var\(--app-content-zoom\)/);

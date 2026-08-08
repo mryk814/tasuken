@@ -13,6 +13,13 @@ const api: ResearchDeskApi = {
   preferences: {
     get: (key) => ipcRenderer.invoke(IPC.preferenceGet, key),
     set: (key, value) => ipcRenderer.invoke(IPC.preferenceSet, key, value),
+    getView: () => ipcRenderer.invoke(IPC.viewPreferenceGet),
+    setView: (id, scopeKey, value, schemaVersion) => ipcRenderer.invoke(IPC.viewPreferenceSet, id, scopeKey, value, schemaVersion),
+    onViewChanged: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, change: Parameters<typeof callback>[0]) => callback(change);
+      ipcRenderer.on(IPC.viewPreferenceChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.viewPreferenceChanged, listener);
+    },
   },
   ai: {
     getConfig: () => ipcRenderer.invoke(IPC.aiConfigGet),

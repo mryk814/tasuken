@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { IconCalendarPlus, IconGripVertical, IconPlus, IconPresentationAnalytics, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
 import type { Item, PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
 import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
@@ -43,17 +43,8 @@ interface TimelinePrefs {
   showCompleted: boolean;
   showDependencies: boolean;
   showLightning: boolean;
-  rangeBufferMonths: number;
+  rangeBufferMonths: 0 | 3 | 6;
 }
-const DEFAULT_PREFS: TimelinePrefs = {
-  dayWidth: 2,
-  themeFilter: "all",
-  showCompleted: true,
-  showDependencies: true,
-  showLightning: true,
-  rangeBufferMonths: 0,
-};
-
 /**
  * 常設するのは中長期のscaleだけ（#318）。週間はTodayの実行管理と役割が重なり
  * 利用実績もないため、廃止せずmenuへ畳む。
@@ -65,7 +56,7 @@ const RANGE_BUFFER_OPTIONS = [
   { value: 0, label: "年度" },
   { value: 3, label: "前後3か月" },
   { value: 6, label: "前後6か月" },
-];
+] as const;
 
 function fiscalYearStart(today: string): number {
   const date = new Date(`${today}T00:00:00`);
@@ -108,12 +99,17 @@ function sameTimelineItemShape(a: Item, b: Item): boolean {
 }
 
 export function TimelinePage({ data, domain: v2, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
-  const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v6", DEFAULT_PREFS);
-  const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning, rangeBufferMonths = 0 } = prefs;
+  const [prefs, setPrefs] = usePreference("timeline.preferences");
+  const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning, rangeBufferMonths = 0, collapsedThemes } = prefs;
   const scale = scaleFromDayWidth(dayWidth);
   const updatePrefs = (patch: Partial<TimelinePrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const today = todayIso();
-  const [collapsedThemes, setCollapsedThemes] = useState<string[]>([]);
+  const setCollapsedThemes = (next: string[] | ((current: string[]) => string[])) => {
+    setPrefs((current) => ({
+      ...current,
+      collapsedThemes: typeof next === "function" ? next(current.collapsedThemes) : next,
+    }));
+  };
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
   const [connectMode, setConnectMode] = useState(false);
   const [selectedDep, setSelectedDep] = useState<SelectedDependency | null>(null);
@@ -510,13 +506,23 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     const ops = reordered.flatMap((entry, orderIndex) => timelineSaveItemOperations({ ...entry, sort_order: (orderIndex + 1) * 10 }, v2));
-    await saveEntities(ops, "並び順を変更しました。Ctrl+Zで戻せます。");
-    pushUndo({
-      label: "並び替え",
-      run: async () => {
-        await saveEntities(siblings.flatMap((entry) => timelineSaveItemOperations(entry, v2)));
-      },
-    });
+    const previousOptimistic = optimisticTimelineItems;
+    setOptimisticTimelineItems((current) => ({
+      ...current,
+      ...Object.fromEntries(reordered.map((entry, orderIndex) => [entry.id, { ...entry, sort_order: (orderIndex + 1) * 10 }])),
+    }));
+    try {
+      await saveEntities(ops, "並び順を変更しました。Ctrl+Zで戻せます。");
+      pushUndo({
+        label: "並び替え",
+        run: async () => {
+          await saveEntities(siblings.flatMap((entry) => timelineSaveItemOperations(entry, v2)));
+        },
+      });
+    } catch {
+      setOptimisticTimelineItems(previousOptimistic);
+      setToast("並び替えを保存できませんでした。再試行してください。", "danger");
+    }
   }
 
   async function deleteItem(item: Item) {

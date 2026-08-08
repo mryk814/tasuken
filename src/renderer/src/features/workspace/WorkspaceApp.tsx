@@ -6,7 +6,7 @@ import { routeAliases, routeLabel } from "../../pages/routes";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
-import { usePersistentState } from "../../utils/usePersistentState";
+import { usePreference } from "../../utils/usePreference";
 import type {
   BaseRecord,
   ContentViewerTarget,
@@ -134,8 +134,8 @@ export function WorkspaceApp() {
   const [scratchpadDate, setScratchpadDate] = useState<string | null>(null);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const closeContextPack = useCallback(() => setContextPackThemeId(null), []);
-  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("shell:sidebar-collapsed:v1", false);
-  const [zoomFactor, setZoomFactor] = usePersistentState("shell:zoom-factor:v1", 1);
+  const [sidebarCollapsed, setSidebarCollapsed] = usePreference("shell.sidebarCollapsed");
+  const [zoomFactor, setZoomFactor] = usePreference("shell.zoomFactor");
   const [compactDrawerLayout, setCompactDrawerLayout] = useState(() => window.matchMedia("(max-width: 1680px)").matches);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
