@@ -666,6 +666,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   const [activityDirectory, setActivityDirectory] = useState("");
   const [activityAutoExportTime, setActivityAutoExportTime] = useState("");
   const [activityFilePath, setActivityFilePath] = useState("");
+  const [activityThemeFilter, setActivityThemeFilter] = useState("");
+  const [activityTypeFilter, setActivityTypeFilter] = useState("");
   const [exportingActivity, setExportingActivity] = useState(false);
   const today = todayIso();
   const soon = addDays(today, 14);
@@ -986,6 +988,10 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
       domain: v2,
       statusUpdates: data.status_updates || [],
       themes,
+      changeEvents: v2.change_events as unknown as Array<Record<string, unknown>>,
+      references: v2.references as unknown as Array<Record<string, unknown>>,
+      artifacts: data.artifacts as unknown as Array<Record<string, unknown>>,
+      timezone: "Asia/Tokyo",
     });
   }
 
@@ -994,6 +1000,10 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     domain: v2,
     statusUpdates: data.status_updates || [],
     themes,
+    changeEvents: v2.change_events as unknown as Array<Record<string, unknown>>,
+    references: v2.references as unknown as Array<Record<string, unknown>>,
+    artifacts: data.artifacts as unknown as Array<Record<string, unknown>>,
+    timezone: "Asia/Tokyo",
   });
   const activityGroups = [
     { label: "完了", rows: activityEntries.completedTasks.map((entry) => entry.title) },
@@ -1004,7 +1014,17 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     { label: "現在地", rows: activityEntries.updates.map((entry) => entry.summary || entry.next_actions || entry.risks || "更新") },
     { label: "Capture", rows: activityEntries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
-  const activityCount = activityGroups.reduce((sum, group) => sum + group.rows.length, 0);
+  const structuredActivityEvents = activityEntries.events as Array<Record<string, any>>;
+  const activityEventKinds = [...new Set(structuredActivityEvents.map((event) => String(event.event_kind || ""))).values()]
+    .filter(Boolean)
+    .sort();
+  const visibleActivityEvents = structuredActivityEvents.filter((event) => (
+    (!activityThemeFilter || event.theme_ref?.id === activityThemeFilter)
+    && (!activityTypeFilter || event.event_kind === activityTypeFilter)
+  ));
+  const activityCount = structuredActivityEvents.length
+    ? visibleActivityEvents.length
+    : activityGroups.reduce((sum, group) => sum + group.rows.length, 0);
 
   async function chooseActivityDirectory() {
     try {
@@ -1225,11 +1245,61 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           <h2>Activity <span className="activity-count">{activityCount}</span></h2>
           <div className="inline-actions">
             <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity対象日" />
+            {structuredActivityEvents.length > 0 && (
+              <>
+                <select value={activityThemeFilter} onChange={(event) => setActivityThemeFilter(event.target.value)} aria-label="Activity Theme filter">
+                  <option value="">All Themes</option>
+                  {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+                </select>
+                <select value={activityTypeFilter} onChange={(event) => setActivityTypeFilter(event.target.value)} aria-label="Activity event type filter">
+                  <option value="">All Types</option>
+                  {activityEventKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                </select>
+              </>
+            )}
             <Button variant="secondary" compact onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。", "success"))}>コピー</Button>
             <Button variant="secondary" compact onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</Button>
           </div>
         </div>
-        {activityGroups.length ? (
+        {structuredActivityEvents.length ? (
+          visibleActivityEvents.length ? (
+            <ul className="activity-event-list" aria-label="Activity events">
+              {visibleActivityEvents.slice(0, 30).map((event) => {
+                const ref = event.entity_ref || {};
+                const title = String(event.entity_title || event.summary || `${ref.type}:${ref.id}`);
+                const openable = ["task", "waiting", "note", "resource", "plan_node", "capture_entry", "sketch"].includes(String(ref.type));
+                return (
+                  <li key={String(event.id)} className="activity-event-row">
+                    <time dateTime={String(event.occurred_at)}>{String(event.local_time || "--:--")}</time>
+                    <span className="activity-event-kind">{String(event.event_kind)}</span>
+                    {openable ? (
+                      <button
+                        type="button"
+                        className="text-button compact activity-event-title"
+                        onClick={() => {
+                          const records = ref.type === "task" ? v2.tasks
+                            : ref.type === "waiting" ? v2.waitings
+                              : ref.type === "note" ? v2.notes
+                                : ref.type === "resource" ? v2.resources
+                                  : ref.type === "plan_node" ? v2.plan_nodes
+                                    : ref.type === "capture_entry" ? v2.capture_entries
+                                      : v2.sketches;
+                          const entity = records.find((record) => record.id === ref.id) || { id: ref.id, title };
+                          openDrawer({ type: ref.type as "task" | "waiting" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch", mode: "view", entity: entity as unknown as Record<string, unknown> });
+                        }}
+                      >
+                        {title}
+                      </button>
+                    ) : <span className="activity-event-title">{title}</span>}
+                    <code>{String(ref.type)}:{String(ref.id)}</code>
+                    {event.canonical_refs?.length ? <span className="activity-event-canonical">{String(event.canonical_refs[0].relative_path || event.canonical_refs[0].web_url || "canonical")}</span> : null}
+                  </li>
+                );
+              })}
+              {visibleActivityEvents.length > 30 && <li className="activity-more">ほか{visibleActivityEvents.length - 30}件</li>}
+            </ul>
+          ) : <EmptyState title="条件に一致するActivityはありません" />
+        ) : activityGroups.length ? (
           <div className="activity-summary-grid">
             {activityGroups.map((group) => (
               <section className="activity-summary-group" key={group.label}>
