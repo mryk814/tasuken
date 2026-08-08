@@ -25,6 +25,7 @@ import {
 import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
@@ -449,7 +450,7 @@ export function ChatRefsPage({
       mode: "edit",
       entity: {
         reference_status: "inbox",
-        project_id: selectedThemeId || null,
+        project_id: canonicalThemeId(selectedThemeId, { defaultPersonal: true }),
         chat_group: chatGroup,
         importance: "normal",
         captured_at: new Date().toISOString(),
@@ -471,7 +472,7 @@ export function ChatRefsPage({
       mode: "edit",
       entity: {
         reference_status: "inbox",
-        project_id: parent.project_id || selectedThemeId || null,
+        project_id: canonicalThemeId(parent.project_id || selectedThemeId, { defaultPersonal: true }),
         chat_group: parent.chat_group || "",
         parent_resource_id: parent.id,
         importance: "normal",

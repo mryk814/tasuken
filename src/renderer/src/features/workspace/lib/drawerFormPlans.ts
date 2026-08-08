@@ -28,6 +28,7 @@ import { formText, uuid } from "./format";
 import { normalizeReminderDateTime } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
 import { normalizeTaskShelf } from "./taskShelves";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 
 export type DrawerFormPlan =
   | {
@@ -108,6 +109,10 @@ function normalizeChatReferenceStatus(value: string): string {
   return value === "adopted" ? "adopted" : "inbox";
 }
 
+function themeIdFromForm(value: string): string | null {
+  return canonicalThemeId(value, { defaultPersonal: true });
+}
+
 export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): DrawerFormPlan | null {
   const { type, values, base, data, domain, hasField } = context;
 
@@ -115,7 +120,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const title = formText(values, "title");
     if (!title) return { kind: "invalid", field: "title", message: "タイトルを入力してください。" };
     const taskId = (base.id as string) || uuid();
-    const projectId = formText(values, "theme_id") || null;
+    const projectId = themeIdFromForm(formText(values, "theme_id"));
     const taskSections = projectId ? listTaskSections(data.views || [], projectId) : [];
     const task: Task = {
       id: taskId,
@@ -192,7 +197,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       id: waitingId,
       title,
       waiting_for: waitingFor,
-      project_id: formText(values, "theme_id") || null,
+      project_id: themeIdFromForm(formText(values, "theme_id")),
       state: (formText(values, "state") || "waiting") as Waiting["state"],
       check_reminder_at: normalizeReminderDateTime(formText(values, "check_reminder_at")),
       next_action: formText(values, "next_action") || null,
@@ -237,7 +242,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const planNode: PlanNode = {
       id: nodeId,
       title,
-      project_id: formText(values, "theme_id") || null,
+      project_id: themeIdFromForm(formText(values, "theme_id")),
       parent_plan_node_id: parentPlanNodeId,
       type: (formText(values, "node_type") || "phase") as PlanNode["type"],
       state: (formText(values, "node_state") || "planned") as PlanNode["state"],
@@ -323,7 +328,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       id: (base.id as string) || uuid(),
       title,
       url: url || null,
-      project_id: formText(values, "project_id") || formText(values, "theme_id") || null,
+      project_id: themeIdFromForm(formText(values, "project_id") || formText(values, "theme_id")),
       description: formText(values, "description") || null,
       body_markdown: hasField("body_markdown")
         ? (formText(values, "body_markdown") || null)

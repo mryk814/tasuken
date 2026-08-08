@@ -24,6 +24,7 @@ import {
 import type { EntityRefType } from "../domain-model/types";
 import { Field } from "./common";
 import type { Theme, WorkspaceData } from "../types";
+import { resolveThemeRef } from "../../../../../shared/themeRef.mjs";
 
 /** 共通metadataを持つEntityだけがこのセクションを出す（#294）。 */
 export function hasAiContextSection(type: string): boolean {
@@ -46,9 +47,8 @@ function audienceListLabel(audiences: AiAudience[]): string {
 }
 
 function themeOf(entity: Record<string, unknown>, themes: Theme[]): Theme | null {
-  const themeId = String(entity.project_id || entity.theme_id || "");
-  if (!themeId) return null;
-  return themes.find((theme) => theme.id === themeId) || null;
+  const resolved = resolveThemeRef(themes, entity, { legacyNullMeansPersonal: true });
+  return (resolved.theme as Theme | null) || null;
 }
 
 /**

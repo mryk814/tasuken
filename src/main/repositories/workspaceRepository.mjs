@@ -17,6 +17,7 @@ import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMet
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { isThemeDeletable, planPersonalDefaultTheme } from "../../shared/personalTheme.mjs";
 import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
+import { collectionKeyForEntityType } from "../../shared/entityRegistry.mjs";
 
 const SCHEMA_VERSION = 2;
 
@@ -53,13 +54,6 @@ function contentOf(entity) {
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function collectionKey(type) {
-  if (type === "task_dependency") return "task_dependencies";
-  if (type === "plan_dependency") return "plan_dependencies";
-  if (type === "sketch") return "sketches";
-  return `${type}s`;
 }
 
 export class WorkspaceDatabase {
@@ -347,7 +341,7 @@ export class WorkspaceDatabase {
   loadWorkspace(includeDeleted = false) {
     this.ensurePersonalDefaultTheme();
     const result = {};
-    for (const type of workspaceEntityTypes) result[collectionKey(type)] = this.list(type, includeDeleted);
+    for (const type of workspaceEntityTypes) result[collectionKeyForEntityType(type)] = this.list(type, includeDeleted);
     result.plan_revisions = this.db.prepare(
       "SELECT * FROM plan_revisions ORDER BY changed_at DESC",
     ).all().map((row) => ({
@@ -520,8 +514,8 @@ export class WorkspaceDatabase {
     if (!isPlainObject(snapshot)) throw new Error("Snapshotのworkspace構造が不正です。");
     const activeIds = new Map();
     for (const type of workspaceEntityTypes) {
-      const records = snapshot[collectionKey(type)] || [];
-      if (!Array.isArray(records)) throw new Error(`${collectionKey(type)}は配列で指定してください。`);
+      const records = snapshot[collectionKeyForEntityType(type)] || [];
+      if (!Array.isArray(records)) throw new Error(`${collectionKeyForEntityType(type)}は配列で指定してください。`);
       const ids = new Set();
       for (const record of records) {
         if (!isPlainObject(record)) throw new Error(`${type}のレコード構造が不正です。`);
@@ -540,7 +534,7 @@ export class WorkspaceDatabase {
     };
 
     for (const type of workspaceEntityTypes) {
-      for (const record of snapshot[collectionKey(type)] || []) {
+      for (const record of snapshot[collectionKeyForEntityType(type)] || []) {
         requireSnapshotReference(type, record, "theme", record.theme_id, "theme_id");
         requireSnapshotReference(type, record, "item", record.item_id, "item_id");
         requireSnapshotReference(type, record, "note", record.note_id, "note_id");
@@ -835,7 +829,7 @@ export class WorkspaceDatabase {
     if (!this.isEmpty()) return this.loadWorkspace();
     const transaction = this.db.transaction(() => {
       for (const type of workspaceEntityTypes) {
-        const records = legacyWorkspace?.[collectionKey(type)] || [];
+        const records = legacyWorkspace?.[collectionKeyForEntityType(type)] || [];
         for (const record of records) this.insertImported(type, record, "legacy");
       }
     });
@@ -878,7 +872,7 @@ export class WorkspaceDatabase {
     this.validateSnapshotWorkspace(snapshot);
     const changes = [];
     for (const type of workspaceEntityTypes) {
-      for (const incoming of snapshot?.[collectionKey(type)] || []) {
+      for (const incoming of snapshot?.[collectionKeyForEntityType(type)] || []) {
         const local = this.get(type, incoming.id, true);
         let category = "new";
         if (local) {

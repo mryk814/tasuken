@@ -13,10 +13,14 @@
  * `system_kind === "personal_default"` と、この安定IDである。
  */
 
-/** 端末・workspaceをまたいで同じ既定Themeだと分かるよう、IDを固定する。 */
-export const PERSONAL_DEFAULT_THEME_ID = "theme-personal-default";
-export const PERSONAL_DEFAULT_THEME_NAME = "個人業務";
-export const PERSONAL_DEFAULT_THEME_KIND = "personal_default";
+import {
+  PERSONAL_DEFAULT_THEME_ID,
+  PERSONAL_DEFAULT_THEME_KIND,
+  PERSONAL_DEFAULT_THEME_NAME,
+  canonicalThemeId,
+} from "./themeRef.mjs";
+
+export { PERSONAL_DEFAULT_THEME_ID, PERSONAL_DEFAULT_THEME_KIND, PERSONAL_DEFAULT_THEME_NAME } from "./themeRef.mjs";
 
 export function isPersonalDefaultTheme(theme) {
   if (!theme) return false;
@@ -47,8 +51,7 @@ export function buildPersonalDefaultTheme(now = new Date().toISOString()) {
  * 未設定は既定Themeとして扱い、「個人業務だけ検索対象外」のような例外を作らない。
  */
 export function resolveThemeId(projectId) {
-  const id = typeof projectId === "string" ? projectId.trim() : "";
-  return id || PERSONAL_DEFAULT_THEME_ID;
+  return canonicalThemeId(projectId, { legacyNullMeansPersonal: true });
 }
 
 /** 解決後のTheme IDが、保存時に `project_id` として書くべき値か。 */

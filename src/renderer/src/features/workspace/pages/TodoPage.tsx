@@ -25,6 +25,7 @@ import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { Schedule, Task } from "../domain-model/types";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 
 type TodoRow = {
   task: Task;
@@ -167,7 +168,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     const taskId = crypto.randomUUID();
     const task: Task = {
       id: taskId,
-      project_id: addTheme || null,
+      project_id: canonicalThemeId(addTheme, { defaultPersonal: true }),
       title,
       state: "todo",
       priority: "normal",

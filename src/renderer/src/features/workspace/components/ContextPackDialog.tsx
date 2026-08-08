@@ -8,6 +8,7 @@ import type { WorkspaceDomain } from "../domain-model/types";
 import { str } from "../lib/format";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { previewHtml } from "../lib/markdown";
+import { themeRefFromEntity } from "../../../../../shared/themeRef.mjs";
 
 type CandidateType = "task" | "note" | "resource" | "artifact";
 
@@ -23,8 +24,9 @@ interface ContextCandidate {
 }
 
 function themeCandidates(themeId: string, domain: WorkspaceDomain, data: WorkspaceData): ContextCandidate[] {
+  const matchesTheme = (record: object) => themeRefFromEntity(record as Record<string, unknown>).id === themeId;
   const tasks = domain.tasks
-    .filter((task) => task.project_id === themeId)
+    .filter(matchesTheme)
     .map((task) => ({
       id: task.id,
       type: "task" as const,
@@ -34,7 +36,7 @@ function themeCandidates(themeId: string, domain: WorkspaceDomain, data: Workspa
       selected: false,
     }));
   const notes = domain.notes
-    .filter((note) => note.project_id === themeId)
+    .filter(matchesTheme)
     .map((note) => ({
       id: note.id,
       type: "note" as const,
@@ -43,7 +45,7 @@ function themeCandidates(themeId: string, domain: WorkspaceDomain, data: Workspa
       selected: false,
     }));
   const resources = domain.resources
-    .filter((resource) => resource.project_id === themeId)
+    .filter(matchesTheme)
     .map((resource) => ({
       id: resource.id,
       type: "resource" as const,
@@ -53,7 +55,7 @@ function themeCandidates(themeId: string, domain: WorkspaceDomain, data: Workspa
       selected: false,
     }));
   const artifacts = (data.artifacts || [])
-    .filter((artifact) => artifact.theme_id === themeId)
+    .filter(matchesTheme)
     .map((artifact) => ({
       id: artifact.id,
       type: "artifact" as const,

@@ -398,7 +398,14 @@ flowchart LR
       const markdownTheme = markdownForm.querySelector('input[name="theme_id"]');
       if (!markdownTitleInput || !markdownTheme) throw new Error("Markdown入力フォームの項目が見つかりません");
       setInputValue(markdownTitleInput, ${JSON.stringify(markdownTitle)});
-      setInputValue(markdownTheme, ${JSON.stringify(smokeThemeId)});
+      // Theme保存のworkspace:changed反映を待って、実際の共通ThemeSelectを操作する。
+      // hidden inputへの直接fallbackはproduct pathを検証しないため持たない。
+      const smokeThemeChip = await waitFor(
+        () => [...markdownForm.querySelectorAll(".theme-chip")]
+          .find((candidate) => candidate.textContent?.trim() === "Smoke Theme"),
+        "Smoke Theme chip",
+      );
+      smokeThemeChip.click();
       markdownForm.requestSubmit();
       await delay(220);
 
@@ -766,7 +773,8 @@ flowchart LR
           return ({
           persisted: notes.some((note) => note.title === ${JSON.stringify(testTitle)}),
           markdownPersisted: Boolean(markdown?.body_markdown?.includes("Markdown Preview")),
-          markdownThemeLinked: markdown?.theme_id === ${JSON.stringify(smokeThemeId)},
+          // Smoke Theme chipの選択値がcanonical Noteへ届くことを厳密に確認する。
+          markdownThemeLinked: markdown?.project_id === ${JSON.stringify(smokeThemeId)},
           markdownFrontmatterPersisted: Boolean(markdown?.body_markdown?.includes("type: report")),
           markdownLiveEditPersisted: Boolean(markdown?.body_markdown?.includes("Live edit smoke")),
           markdownPastePersisted: Boolean(markdown?.body_markdown?.includes("## Pasted Markdown Heading") && markdown?.body_markdown?.includes("**Pasted Bold Text**")),
@@ -935,7 +943,10 @@ async function startDesktopApp(): Promise<void> {
     sharedFolderSyncService,
     new AiProviderService(app.getPath("userData")),
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
-    notifyTodayMiniRefresh,
+    (types) => {
+      notifyMainWindowRefresh();
+      notifyTodayMiniRefresh(types);
+    },
   );
   mcpProposalInboxService = new McpProposalInboxService(
     workspaceRepository,

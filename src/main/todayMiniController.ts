@@ -6,6 +6,7 @@ import { localDateString } from "./dateTime";
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type { TodayMiniTask } from "../shared/ipc/contracts";
 import type { Entity, EntityType } from "../shared/types/workspace";
+import { canonicalThemeId } from "../shared/themeRef.mjs";
 
 const INACTIVE_OPACITY = 0.5;
 const FADE_DELAY_MS = 30000;
@@ -213,7 +214,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
           title: trimmed,
           state: "todo",
           priority: "normal",
-          project_id: null,
+          project_id: canonicalThemeId(null, { defaultPersonal: true }),
           source: "today-mini",
         },
         options: { source: "today-mini" },

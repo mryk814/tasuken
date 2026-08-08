@@ -46,6 +46,7 @@ import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
 import { FocusSessionDialog } from "./components/FocusSessionDialog";
 import { findActiveFocusSession, focusSessionProperties, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
+import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -766,7 +767,7 @@ export function WorkspaceApp() {
       entity = {
         ...base,
         title,
-        project_id: formText(values, "project_id") || null,
+        project_id: canonicalThemeId(formText(values, "project_id"), { defaultPersonal: true }),
       };
     } else if (type === "note") {
       const title = formText(values, "title");
@@ -814,13 +815,14 @@ export function WorkspaceApp() {
           heading_number_levels: hasHeadingNumberLevels ? headingNumberLevels : [2, 3, 4],
         }
         : {};
+      const { theme_id: _legacyThemeId, ...canonicalBase } = base;
       entity = {
-        ...base,
+        ...canonicalBase,
         title,
         body_markdown: body,
         note_type: noteType,
         content_format: formText(values, "content_format") || "markdown",
-        theme_id: formText(values, "theme_id") || null,
+        project_id: canonicalThemeId(formText(values, "theme_id"), { defaultPersonal: true }),
         // Note編集UIから関連タスク（item_id）を外した。フォームに無いときは既存値を保持する（#144）。
         item_id: noteType === "report"
           ? null
@@ -839,7 +841,7 @@ export function WorkspaceApp() {
     } else if (type === "status_update") {
       entity = {
         ...base,
-        theme_id: formText(values, "theme_id", activeThemeId),
+        theme_id: canonicalThemeId(formText(values, "theme_id", activeThemeId), { defaultPersonal: true }),
         date: formText(values, "date", todayIso()),
         status: formText(values, "status", "on_track"),
         summary: formText(values, "summary"),
@@ -860,7 +862,7 @@ export function WorkspaceApp() {
         node_type: formText(values, "node_type", "question"),
         title: formText(values, "title"),
         body: formText(values, "body"),
-        theme_id: formText(values, "theme_id") || null,
+        theme_id: canonicalThemeId(formText(values, "theme_id"), { defaultPersonal: true }),
         source_type: sourceType,
         source_id: sourceId,
         source_note_id: sourceType === "note" ? sourceId : (base.source_note_id as string | null) ?? null,
@@ -989,7 +991,7 @@ export function WorkspaceApp() {
       label: "Taskを作る",
       keywords: ["追加", "todo", "新規"],
       category: "Commands",
-      execute: () => openDrawer({ type: "task", mode: "edit", entity: { project_id: activeTheme?.id || null } }),
+      execute: () => openDrawer({ type: "task", mode: "edit", entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) } }),
     },
     {
       id: "create:note",
@@ -999,7 +1001,7 @@ export function WorkspaceApp() {
       execute: () => openDrawer({
         type: "note",
         mode: "edit",
-        entity: { project_id: activeTheme?.id || null, note_type: "note", content_format: "markdown" },
+        entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }), note_type: "note", content_format: "markdown" },
       }),
     },
     {
@@ -1011,7 +1013,7 @@ export function WorkspaceApp() {
         type: "note",
         mode: "edit",
         entity: {
-          project_id: activeTheme?.id || null,
+          project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
           note_type: "note",
           content_format: "markdown",
           properties_json: { publish_enabled: true },

@@ -30,6 +30,7 @@ import type {
   WaitingState,
   WorkspaceDomain,
 } from "../types";
+import { PERSONAL_DEFAULT_THEME_ID, canonicalThemeId } from "../../../../../../shared/themeRef.mjs";
 
 type LegacyItemKind = "capture" | "task" | "waiting" | "plan_node";
 
@@ -74,7 +75,9 @@ export interface MigrationReport {
     dueDateOnlyToScheduleEnd: number;
     missingParent: number;
     missingDependencyEndpoint: number;
+    invalidThemeRef: number;
   };
+  invalidThemeRefs: Array<{ entityType: string; entityId: string; themeId: string }>;
 }
 
 export interface DomainMigration {
@@ -176,7 +179,7 @@ function entityRefType(kind: LegacyItemKind): LegacyItemRef["type"] {
 }
 
 function projectIdFromLegacy(item: Item): string | null {
-  return nullableText(item.theme_id);
+  return canonicalThemeId(item.theme_id, { legacyNullMeansPersonal: true });
 }
 
 function scheduleFromLegacyItem(
@@ -248,10 +251,11 @@ function migrateProject(theme: Theme): Project {
   };
 }
 
-function migrateNote(note: LegacyNote): LegacyNote & { project_id?: string | null } {
+function migrateNote(note: LegacyNote): Note {
+  const { theme_id: _legacyThemeId, ...canonicalNote } = note;
   return {
-    ...note,
-    project_id: nullableText(note.theme_id),
+    ...canonicalNote,
+    project_id: canonicalThemeId(note.theme_id, { legacyNullMeansPersonal: true }),
   };
 }
 
@@ -261,7 +265,7 @@ function migrateResource(link: LegacyLink): Resource {
     title: link.title,
     url: nullableText(link.url),
     description: nullableText(link.description),
-    project_id: nullableText(link.theme_id),
+    project_id: canonicalThemeId(link.theme_id, { legacyNullMeansPersonal: true }),
     source_record_id: nullableText(link.source_record_id),
     link_type: nullableText(link.link_type),
     reference_status: nullableText(link.reference_status),
@@ -291,7 +295,7 @@ function migrateKnowledgeNode(
     title: node.title,
     body: nullableText(node.body) || undefined,
     node_type: node.node_type,
-    project_id: nullableText(node.theme_id),
+    project_id: canonicalThemeId(node.theme_id, { legacyNullMeansPersonal: true }),
     ...source,
   };
 }
@@ -314,6 +318,7 @@ export function legacyItemToDomain(item: Item, _context: LegacyContext): LegacyC
       id,
       text: description || item.title,
       title: nullableText(item.title),
+      project_id: projectIdFromLegacy(item),
       captured_at: legacyTimestamp(item),
       state: item.status === "archived" ? "archived" : "untriaged",
       source_record_id,
@@ -364,6 +369,13 @@ export function legacyItemToDomain(item: Item, _context: LegacyContext): LegacyC
   }
 
   const scheduleOwner = kind === "waiting" ? "waiting" : kind === "plan_node" ? "plan_node" : kind === "task" ? "task" : null;
+  // Unknown legacy fields are not silently dropped at the compatibility
+  // boundary when they carry user content or a managed-file reference.
+  const rawItem = item as unknown as Record<string, unknown>;
+  const rawEntity = entity as unknown as Record<string, unknown>;
+  for (const field of ["body_markdown", "body", "file_path", "stored_path", "original_path"]) {
+    if (rawItem[field] != null) rawEntity[field] = rawItem[field];
+  }
   const scheduleResult = scheduleOwner ? scheduleFromLegacyItem(item, scheduleOwner, id) : { schedule: null, dueDateOnly: false };
   if (scheduleResult.dueDateOnly) {
     warnings.push(`Item ${item.id} had due_date only; mapped to Schedule.end_date.`);
@@ -424,7 +436,9 @@ function emptyMigrationReport(legacyItems: number): MigrationReport {
       dueDateOnlyToScheduleEnd: 0,
       missingParent: 0,
       missingDependencyEndpoint: 0,
+      invalidThemeRef: 0,
     },
+    invalidThemeRefs: [],
   };
 }
 
@@ -500,18 +514,63 @@ function updateCreatedCounts(workspace: WorkspaceDomain, report: MigrationReport
   report.created.ChangeEvent = workspace.change_events.length;
 }
 
+/**
+ * Legacy `theme_id` is normalized only while entering the canonical domain.
+ * The raw WorkspaceData object is not mutated, and unknown IDs are retained so
+ * a migration cannot discard a body/file record merely because its Theme is
+ * currently unavailable.
+ */
+export function normalizeLegacyThemeReferences(data: WorkspaceData, report: MigrationReport): WorkspaceData {
+  const knownThemeIds = new Set([
+    PERSONAL_DEFAULT_THEME_ID,
+    ...(data.themes || []).map((theme) => theme.id),
+  ]);
+
+  const normalizeCollection = <T extends BaseRecord>(records: T[] | undefined, entityType: string): T[] => (records || []).map((record) => {
+    const raw = record.theme_id;
+    const normalized = canonicalThemeId(raw, { legacyNullMeansPersonal: true });
+    if (typeof raw === "string" && raw.trim() && !knownThemeIds.has(normalized || "")) {
+      report.warningCounts.invalidThemeRef += 1;
+      report.invalidThemeRefs.push({ entityType, entityId: record.id, themeId: raw.trim() });
+      report.warnings.push(`${entityType} ${record.id} references unknown Theme ${raw.trim()}.`);
+    }
+    if (record.project_id != null && raw != null) {
+      const projectId = canonicalThemeId(record.project_id);
+      if (projectId && normalized && projectId !== normalized) {
+        report.warningCounts.invalidThemeRef += 1;
+        report.invalidThemeRefs.push({ entityType, entityId: record.id, themeId: `${raw} / ${record.project_id}` });
+        report.warnings.push(`${entityType} ${record.id} has conflicting theme_id/project_id.`);
+      }
+    }
+    return { ...record, theme_id: normalized };
+  });
+
+  return {
+    ...data,
+    items: normalizeCollection(data.items, "item"),
+    notes: normalizeCollection(data.notes, "note"),
+    links: normalizeCollection(data.links, "link"),
+    status_updates: normalizeCollection(data.status_updates, "status_update"),
+    field_definitions: normalizeCollection(data.field_definitions, "field_definition"),
+    log_entries: normalizeCollection(data.log_entries, "log_entry"),
+    knowledge_nodes: normalizeCollection(data.knowledge_nodes, "knowledge_node"),
+  };
+}
+
 export function legacyWorkspaceToDomainMigration(data: WorkspaceData): DomainMigration {
   const workspace = emptyWorkspaceDomain();
   const items = data.items || [];
   const report = emptyMigrationReport(items.length);
+  const normalizedData = normalizeLegacyThemeReferences(data, report);
+  const normalizedItems = normalizedData.items || [];
   const itemRefsByLegacyId = new Map<string, LegacyItemRef>();
   const context: LegacyContext = { itemRefsByLegacyId };
 
-  workspace.projects = (data.themes || []).map(migrateProject);
-  workspace.notes = (data.notes || []).map(migrateNote);
-  workspace.resources = (data.links || []).map(migrateResource);
+  workspace.projects = (normalizedData.themes || []).map(migrateProject);
+  workspace.notes = (normalizedData.notes || []).map(migrateNote);
+  workspace.resources = (normalizedData.links || []).map(migrateResource);
 
-  for (const item of items) {
+  for (const item of normalizedItems) {
     const result = legacyItemToDomain(item, context);
     itemRefsByLegacyId.set(item.id, { type: entityRefType(result.kind), id: result.entity.id });
 
@@ -527,8 +586,8 @@ export function legacyWorkspaceToDomainMigration(data: WorkspaceData): DomainMig
     if (result.warnings.some((warning) => warning.includes("due_date only"))) report.warningCounts.dueDateOnlyToScheduleEnd += 1;
   }
 
-  workspace.knowledge_nodes = (data.knowledge_nodes || []).map((node) => migrateKnowledgeNode(node, itemRefsByLegacyId));
-  applyParentLinks(workspace, items, itemRefsByLegacyId, report);
+  workspace.knowledge_nodes = (normalizedData.knowledge_nodes || []).map((node) => migrateKnowledgeNode(node, itemRefsByLegacyId));
+  applyParentLinks(workspace, normalizedItems, itemRefsByLegacyId, report);
   updateCreatedCounts(workspace, report);
 
   return { workspace, report };
@@ -643,6 +702,9 @@ export function formatMigrationReport(report: MigrationReport): string {
     `- PlanDependency: ${report.created.PlanDependency}`,
     `- KnowledgeEdge: ${report.created.KnowledgeEdge}`,
     `- ChangeEvent: ${report.created.ChangeEvent}`,
+    "",
+    "Diagnostics:",
+    `- InvalidThemeRef: ${report.invalidThemeRefs.length}`,
     "",
     "Warnings:",
     ...warningLines,

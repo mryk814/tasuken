@@ -24,6 +24,7 @@ import {
 } from "react";
 
 import { noteExportSignature } from "../../../../../shared/fileExport";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import {
   markdownSignature,
   noteSaveStateLabel,
@@ -1013,7 +1014,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       type: "note",
       mode: "edit",
       entity: {
-        theme_id: activeTheme?.id || null,
+        project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
         note_type: "prompt",
         content_format: "markdown",
         title: `${PROMPT_PURPOSE_LABELS[purpose] || "汎用"}プロンプト`,
@@ -1033,7 +1034,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       type: "note",
       mode: "edit",
       entity: {
-        theme_id: activeTheme?.id || null,
+        project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
         note_type: noteType,
         content_format: "markdown",
         title: noteType === "report" ? "Report" : "",
@@ -1060,7 +1061,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   function createRecord(kind: NotesKind) {
     if (kind === "resource") {
-      openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } });
+      openDrawer({ type: "resource", mode: "edit", entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) } });
       return;
     }
     if (kind === "prompt") {

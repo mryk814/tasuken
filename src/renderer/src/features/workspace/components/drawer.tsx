@@ -4,6 +4,7 @@ import { IconArrowsMaximize, IconClock, IconCopyPlus, IconFileTypePdf, IconFolde
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { noteExportSignature } from "../../../../../shared/fileExport";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import type {
   BaseRecord,
   DrawerConfig,
@@ -224,7 +225,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
               try {
                 await saveEntity("sketch", {
                   ...sketch,
-                  project_id: select.value || null,
+                  project_id: canonicalThemeId(select.value, { defaultPersonal: true }),
                 });
                 setToast("SketchのThemeを更新しました。", "success");
               } catch (error) {
@@ -788,7 +789,7 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
-      <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
+      <ThemeSelect themes={data.themes} value={str(entity.project_id ?? entity.theme_id)} allowPersonal />
       <Field label="種別">
         <select name="note_type" value={noteType} onChange={(event) => chooseNoteType(event.target.value)}>
           {NOTE_TYPE_OPTIONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
@@ -872,14 +873,14 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
 function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const isChatRef = isChatReferenceEntity(entity);
   const allResources = [...(data.resources || []), ...data.links];
-  const [projectId, setProjectId] = useState(str(entity.project_id || entity.theme_id));
+  const [projectId, setProjectId] = useState(canonicalThemeId(str(entity.project_id || entity.theme_id), { defaultPersonal: true }));
   const [url, setUrl] = useState(str(entity.url));
   const [linkType, setLinkType] = useState(initialChatLinkType(entity.link_type));
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <Field label="URL"><input name="url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} /></Field>
-      <ThemeSelect themes={data.themes} value={projectId} fieldName="project_id" onChange={setProjectId} />
+      <ThemeSelect themes={data.themes} value={projectId} fieldName="project_id" allowPersonal onChange={setProjectId} />
       {isChatRef && (
         <>
           <ChatGroupPicker value={str(entity.chat_group)} resources={allResources as { chat_group?: string | null; project_id?: string | null; theme_id?: string | null }[]} projectId={projectId} />
