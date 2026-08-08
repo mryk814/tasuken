@@ -117,6 +117,7 @@ export function registerIpc(
   ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
   ipcMain.handle(IPC.clipboardWriteHtml, (_event, payload) => service.writeClipboardHtml(payload));
   ipcMain.handle(IPC.clipboardWriteImage, (_event, payload) => service.writeClipboardImage(payload));
+  ipcMain.handle(IPC.clipboardWriteSvg, (_event, payload) => service.writeClipboardSvg(payload));
   ipcMain.handle(IPC.fileOpen, (_event, filePath) => service.openPath(requireText(filePath, "開くファイル")));
   ipcMain.handle(IPC.fileShowInFolder, (_event, filePath) => service.showItemInFolder(requireText(filePath, "表示するファイル")));
   ipcMain.handle(IPC.filePathExists, (_event, filePath) => service.pathExists(requireText(filePath, "確認する場所")));
@@ -205,6 +206,8 @@ export function registerIpc(
   ipcMain.handle(IPC.markdownPdfExport, (_event, request) => service.exportMarkdownPdf(request));
   ipcMain.handle(IPC.sketchExport, (_event, request) => service.exportSketch(request));
   ipcMain.handle(IPC.slideTimelineExport, (_event, request) => service.exportSlideTimeline(request));
+  ipcMain.handle(IPC.mermaidSvgExport, (_event, request) => service.exportMermaidSvg(request));
+  ipcMain.handle(IPC.mermaidPptxExport, (_event, request) => service.exportMermaidPptx(request));
   ipcMain.handle(IPC.calendarStatus, () => calendar.getStatus());
   ipcMain.handle(IPC.calendarConnect, (_event, request) => calendar.connect(request));
   ipcMain.handle(IPC.calendarDisconnect, (_event, request) => calendar.disconnect(request));

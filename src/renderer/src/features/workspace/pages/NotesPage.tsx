@@ -22,6 +22,7 @@ import {
 } from "react";
 
 import { noteExportSignature } from "../../../../../shared/fileExport";
+import type { MermaidPowerPointAction } from "../../../../../shared/mermaidPowerPoint";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import {
   markdownSignature,
@@ -62,7 +63,8 @@ import {
   type HeadingNumberLevel,
   type MarkdownHeadingItem,
 } from "../lib/markdown";
-import { renderMermaidDocumentForPdf } from "../lib/mermaid";
+import { extractMermaidPptxDiagram, mermaidPowerPointCapabilities } from "../lib/mermaidPowerPoint";
+import { renderMermaidDocumentForPdf, renderMermaidSvgForOffice } from "../lib/mermaid";
 import {
   captureNoteModeScroll,
   rawHeadingScrollTop,
@@ -1669,6 +1671,44 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     }
   }
 
+  async function exportMermaidForPowerPoint(request: { action: MermaidPowerPointAction; blockId: string; source: string }): Promise<void> {
+    const title = `${str(selected?.title) || "Mermaid"}-${request.blockId}`;
+    try {
+      const svg = await renderMermaidSvgForOffice(request.source);
+      if (request.action === "copy-svg") {
+        const result = await workspaceApi.copySvg({ svg });
+        if (result.verified) {
+          setToast("PowerPoint編集用SVGをクリップボードへコピーしました。貼り付け結果はPowerPointのversionに依存します。", "success");
+        } else {
+          setToast("WindowsのSVGクリップボード形式を確認できませんでした。SVGを書き出すか、編集可能なPowerPointを作成してください。", "warning");
+        }
+        return;
+      }
+      if (request.action === "export-svg") {
+        const result = await workspaceApi.exportMermaidSvg({ title, svg });
+        setToast(result.canceled ? "Mermaid SVG出力をキャンセルしました。" : `PowerPoint用SVGを保存しました。${result.filePath || ""}`, result.canceled ? "info" : "success");
+        return;
+      }
+      const capability = mermaidPowerPointCapabilities(request.source);
+      if (!capability.nativePptx) {
+        setToast(capability.reason || "ネイティブPPTXの対象外です。SVGを書き出してください。", "warning");
+        return;
+      }
+      const diagram = extractMermaidPptxDiagram(svg, request.source);
+      const result = await workspaceApi.exportMermaidPptx({ title, diagram });
+      if (result.canceled) {
+        setToast("編集可能なPowerPoint出力をキャンセルしました。", "info");
+        return;
+      }
+      const warningText = result.warnings.length
+        ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）`
+        : "";
+      setToast(`編集可能なPowerPointを保存しました。${result.filePath || ""}${warningText}`, result.warnings.length ? "warning" : "success");
+    } catch (error) {
+      setToast(`MermaidのPowerPoint出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
   async function exportSelectedPdf() {
     if (!selected || !showDocumentPublish) return;
     setPdfExporting(true);
@@ -2297,6 +2337,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   <MarkdownPreview className="note-main-preview markdown-preview"
                     html={previewHtml(draftBody, "markdown", previewRenderOptions)}
                     onClick={openEmbeddedSketch}
+                    onMermaidAction={exportMermaidForPowerPoint}
                   />
                 ) : (
                   <textarea

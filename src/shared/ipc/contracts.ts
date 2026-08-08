@@ -11,6 +11,14 @@ import type { CanonicalRootStatusMap } from "../types/workspace";
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
+import type {
+  MermaidPowerPointPptxExportRequest,
+  MermaidPowerPointPptxExportResult,
+  MermaidPowerPointSvgExportRequest,
+  MermaidPowerPointSvgExportResult,
+  MermaidSvgClipboardRequest,
+  MermaidSvgClipboardResult,
+} from "../mermaidPowerPoint";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../slideTimelineExport";
 import type { AiNoteGenerateRequest, AiNoteGenerateResult, AiProviderConfig, AiProviderConfigUpdate } from "../ai";
 import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
@@ -31,6 +39,7 @@ export const IPC = {
   clipboardWriteText: "clipboard:write-text",
   clipboardWriteHtml: "clipboard:write-html",
   clipboardWriteImage: "clipboard:write-image",
+  clipboardWriteSvg: "clipboard:write-svg",
   fileOpen: "file:open",
   fileShowInFolder: "file:show-in-folder",
   filePathExists: "file:path-exists",
@@ -88,6 +97,8 @@ export const IPC = {
   markdownPdfExport: "markdown-pdf:export",
   sketchExport: "sketch:export",
   slideTimelineExport: "slide-timeline:export",
+  mermaidSvgExport: "mermaid:svg-export",
+  mermaidPptxExport: "mermaid:pptx-export",
   aiConfigGet: "ai:config-get",
   aiConfigSave: "ai:config-save",
   aiNoteGenerate: "ai:note-generate",
@@ -242,6 +253,7 @@ export interface ResearchDeskApi {
     writeText(text: string): Promise<boolean>;
     writeHtml(payload: { html: string; text: string }): Promise<boolean>;
     writeImage(payload: ImageClipboardRequest): Promise<boolean>;
+    writeSvg(payload: MermaidSvgClipboardRequest): Promise<MermaidSvgClipboardResult>;
   };
   files: {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
@@ -326,6 +338,8 @@ export interface ResearchDeskApi {
     markdownPdf(request: MarkdownPdfExportRequest): Promise<MarkdownPdfExportResult>;
     sketch(request: SketchExportRequest): Promise<SketchExportResult>;
     slideTimeline(request: SlideTimelineExportRequest): Promise<SlideTimelineExportResult>;
+    mermaidSvg(request: MermaidPowerPointSvgExportRequest): Promise<MermaidPowerPointSvgExportResult>;
+    mermaidPptx(request: MermaidPowerPointPptxExportRequest): Promise<MermaidPowerPointPptxExportResult>;
   };
   calendar: {
     getStatus(): Promise<CalendarConnectionStatus>;
