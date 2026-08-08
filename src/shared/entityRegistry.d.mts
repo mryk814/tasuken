@@ -10,6 +10,7 @@ export const entityTypes: readonly RegistryEntityType[];
 export const entityDefinitions: readonly Record<string, unknown>[];
 export function collectionKeyForEntityType(type: RegistryEntityType): string;
 export function themeFieldForEntityType(type: RegistryEntityType): string | null;
+export function legacyThemeFieldsForEntityType(type: RegistryEntityType): readonly string[];
 export function requiredFieldsForEntityType(type: RegistryEntityType): readonly string[];
 export function assertEntityType(type: string): RegistryEntityType;
 export function assertEntityPayload(type: RegistryEntityType, payload: unknown): Record<string, unknown>;

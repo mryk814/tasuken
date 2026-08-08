@@ -17,7 +17,11 @@ import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMet
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { isThemeDeletable, planPersonalDefaultTheme } from "../../shared/personalTheme.mjs";
 import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
-import { collectionKeyForEntityType } from "../../shared/entityRegistry.mjs";
+import {
+  collectionKeyForEntityType,
+  legacyThemeFieldsForEntityType,
+  themeFieldForEntityType,
+} from "../../shared/entityRegistry.mjs";
 
 const SCHEMA_VERSION = 2;
 
@@ -432,7 +436,6 @@ export class WorkspaceDatabase {
       }
     };
 
-    requireReference("theme", entity.theme_id, "theme_id");
     requireReference("item", entity.item_id, "item_id");
     requireReference("note", entity.note_id, "note_id");
     requireReference("source_record", entity.source_record_id, "source_record_id");
@@ -458,17 +461,26 @@ export class WorkspaceDatabase {
       throw new Error(`${type}.${field}が存在しない${targetType}を参照しています。`);
     };
 
+    // Theme参照の正本はRegistryのcanonical field。legacyThemeFieldsは
+    // migration境界からまだ届くraw recordだけを検証し、独自type mappingは持たない。
+    const themeField = themeFieldForEntityType(type);
+    if (themeField === "project_id") {
+      requireV2("project", entity[themeField], themeField);
+    } else if (themeField) {
+      requireReference("theme", entity[themeField], themeField);
+    }
+    for (const legacyField of legacyThemeFieldsForEntityType(type)) {
+      if (legacyField !== themeField) requireReference("theme", entity[legacyField], legacyField);
+    }
+
     if (type === "task") {
-      requireV2("project", entity.project_id, "project_id");
       requireV2("plan_node", entity.plan_node_id, "plan_node_id");
       requireV2("task", entity.parent_task_id, "parent_task_id");
     }
     if (type === "waiting") {
-      requireV2("project", entity.project_id, "project_id");
       requireV2("task", entity.task_id, "task_id");
     }
     if (type === "plan_node") {
-      requireV2("project", entity.project_id, "project_id");
       requireV2("plan_node", entity.parent_plan_node_id, "parent_plan_node_id");
     }
     if (type === "schedule") {
@@ -476,9 +488,6 @@ export class WorkspaceDatabase {
       if (ownerType && entity.owner_id) {
         requireV2(ownerType, entity.owner_id, "owner_id");
       }
-    }
-    if (type === "resource") {
-      requireV2("project", entity.project_id, "project_id");
     }
     if (type === "reference") {
       requireV2(entity.source_type, entity.source_id, "source_id");
@@ -556,24 +565,32 @@ export class WorkspaceDatabase {
           if (field !== "project_id" && activeIds.get(targetType)?.has(String(id))) return;
           throw new Error(`${type}.${field}がSnapshot内に存在しない${targetType}を参照しています。`);
         };
+
+        // Snapshotも同じRegistry契約を使う。canonical project_idと、
+        // compatibility boundaryのlegacy theme_idを混同しない。
+        const themeField = themeFieldForEntityType(type);
+        if (themeField === "project_id") {
+          requireV2Ref("project", record[themeField], themeField);
+        } else if (themeField) {
+          requireSnapshotReference(type, record, "theme", record[themeField], themeField);
+        }
+        for (const legacyField of legacyThemeFieldsForEntityType(type)) {
+          if (legacyField !== themeField) {
+            requireSnapshotReference(type, record, "theme", record[legacyField], legacyField);
+          }
+        }
         if (type === "task") {
-          requireV2Ref("project", record.project_id, "project_id");
           requireV2Ref("plan_node", record.plan_node_id, "plan_node_id");
           requireV2Ref("task", record.parent_task_id, "parent_task_id");
         }
         if (type === "waiting") {
-          requireV2Ref("project", record.project_id, "project_id");
           requireV2Ref("task", record.task_id, "task_id");
         }
         if (type === "plan_node") {
-          requireV2Ref("project", record.project_id, "project_id");
           requireV2Ref("plan_node", record.parent_plan_node_id, "parent_plan_node_id");
         }
         if (type === "schedule" && record.owner_type && record.owner_id) {
           requireV2Ref(record.owner_type, record.owner_id, "owner_id");
-        }
-        if (type === "resource") {
-          requireV2Ref("project", record.project_id, "project_id");
         }
         if (type === "reference") {
           requireV2Ref(record.source_type, record.source_id, "source_id");

@@ -26,7 +26,7 @@ const definitions = [
   { type: "task", collectionKey: "tasks", label: "Task", iconKey: "check", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "state"] },
   { type: "waiting", collectionKey: "waitings", label: "Waiting", iconKey: "clock", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "waiting_for", "state"] },
   { type: "plan_node", collectionKey: "plan_nodes", label: "Plan node", iconKey: "route", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "type", "state"] },
-  { type: "schedule", collectionKey: "schedules", label: "Schedule", iconKey: "calendar", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["owner_type", "owner_id", "date_kind", "confidence", "granularity"] },
+  { type: "schedule", collectionKey: "schedules", label: "Schedule", iconKey: "calendar", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["owner_type", "owner_id", "date_kind", "confidence", "granularity"] },
   { type: "reference", collectionKey: "references", label: "Reference", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["source_type", "source_id", "target_type", "target_id", "relation_type"] },
   { type: "task_dependency", collectionKey: "task_dependencies", label: "Task dependency", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["task_id", "depends_on_task_id"] },
   { type: "plan_dependency", collectionKey: "plan_dependencies", label: "Plan dependency", iconKey: "arrows", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["plan_node_id", "depends_on_plan_node_id"] },
@@ -83,6 +83,10 @@ export function requiredFieldsForEntityType(type) {
 
 export function themeFieldForEntityType(type) {
   return entityDefinition(type).themeField;
+}
+
+export function legacyThemeFieldsForEntityType(type) {
+  return entityDefinition(type).legacyThemeFields;
 }
 
 export function assertEntityType(type) {

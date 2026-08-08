@@ -379,6 +379,30 @@ test("snapshot validation rejects directional knowledge edge cycles", () => {
   }));
 });
 
+test("snapshot validation follows Registry Theme fields and keeps Schedule owner-scoped", () => {
+  const repo = fakeGraphRepository();
+  assert.throws(
+    () => repo.validateSnapshotWorkspace({
+      notes: [{ id: "note-project-ref", title: "Canonical Note", project_id: "missing-project" }],
+    }),
+    /note\.project_idがSnapshot内に存在しないprojectを参照しています/,
+  );
+
+  assert.doesNotThrow(() => repo.validateSnapshotWorkspace({
+    projects: [{ id: "project-1", name: "Project", state: "active" }],
+    tasks: [{ id: "task-1", title: "Task", state: "todo", project_id: "project-1" }],
+    schedules: [{
+      id: "schedule-owner-scoped",
+      owner_type: "task",
+      owner_id: "task-1",
+      date_kind: "deadline",
+      confidence: "fixed",
+      granularity: "day",
+      end_date: "2026-08-08",
+    }],
+  }));
+});
+
 
 test("snapshot create never overwrites an existing local record", () => {
   const change = {
