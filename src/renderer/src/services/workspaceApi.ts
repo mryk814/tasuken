@@ -10,6 +10,11 @@ import type { AppUpdateCheckResult, SatelliteWindowStatePayload } from "../../..
 import type { CommandEnvelope } from "../../../shared/applicationCommand";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
 import type { SketchExportRequest } from "../../../shared/sketchExport";
+import type {
+  MermaidPowerPointPptxExportRequest,
+  MermaidPowerPointSvgExportRequest,
+  MermaidSvgClipboardRequest,
+} from "../../../shared/mermaidPowerPoint";
 import type { ImageClipboardRequest, SlideTimelineExportRequest } from "../../../shared/slideTimelineExport";
 import type { CalendarConnectRequest, CalendarDisconnectRequest } from "../../../shared/calendar";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
@@ -95,6 +100,9 @@ export const workspaceApi = {
   },
   copyImage(payload: ImageClipboardRequest) {
     return desktopApi().clipboard.writeImage(payload);
+  },
+  copySvg(payload: MermaidSvgClipboardRequest) {
+    return desktopApi().clipboard.writeSvg(payload);
   },
   openPath(filePath: string) {
     return desktopApi().files.openPath(filePath);
@@ -218,6 +226,12 @@ export const workspaceApi = {
   },
   exportSlideTimeline(request: SlideTimelineExportRequest) {
     return desktopApi().exports.slideTimeline(request);
+  },
+  exportMermaidSvg(request: MermaidPowerPointSvgExportRequest) {
+    return desktopApi().exports.mermaidSvg(request);
+  },
+  exportMermaidPptx(request: MermaidPowerPointPptxExportRequest) {
+    return desktopApi().exports.mermaidPptx(request);
   },
   calendarStatus() {
     return desktopApi().calendar.getStatus();

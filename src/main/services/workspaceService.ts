@@ -7,6 +7,16 @@ import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactPropo
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type { AppUpdateCheckResult, FilePreviewReadResult, McpBridgeInfo } from "../../shared/ipc/contracts";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
+import {
+  validateMermaidPptxDiagram,
+  validateOfficeSvg,
+  type MermaidPowerPointPptxExportRequest,
+  type MermaidPowerPointPptxExportResult,
+  type MermaidPowerPointSvgExportRequest,
+  type MermaidPowerPointSvgExportResult,
+  type MermaidSvgClipboardRequest,
+  type MermaidSvgClipboardResult,
+} from "../../shared/mermaidPowerPoint";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
 import type { Workspace } from "../../shared/types/workspace";
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
@@ -20,6 +30,7 @@ import {
   resolveUniqueArtifactFileName,
 } from "./artifactStorage.mjs";
 import { prepareMarkdownHtmlForPdf } from "./markdownPdfImages.mjs";
+import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
 
 type SnapshotDecisions = Record<string, string>;
@@ -270,6 +281,23 @@ export class WorkspaceService {
       throw new Error("Windowsのクリップボードへ画像を書き込めませんでした。クリップボードを使う別アプリを閉じて、もう一度試してください。");
     }
     return true;
+  }
+
+  writeClipboardSvg(payloadValue: unknown): MermaidSvgClipboardResult {
+    if (!payloadValue || typeof payloadValue !== "object" || Array.isArray(payloadValue)) {
+      throw new Error("コピーするSVGの形式が不正です。画面を再読み込みしてください。");
+    }
+    const payload = payloadValue as Partial<MermaidSvgClipboardRequest>;
+    const svg = validateOfficeSvg(payload.svg);
+    clipboard.clear();
+    clipboard.write({ html: svg, text: "Tasken PowerPoint SVG" });
+    clipboard.writeBuffer("image/svg+xml", Buffer.from(svg, "utf8"));
+    const formats = clipboard.availableFormats();
+    const writtenSvg = clipboard.readBuffer("image/svg+xml").toString("utf8");
+    return {
+      verified: writtenSvg === svg && formats.some((format) => /svg/i.test(format)),
+      formats,
+    };
   }
 
   async openPath(filePathValue: unknown): Promise<{ ok: boolean; error?: string }> {
@@ -971,6 +999,41 @@ export class WorkspaceService {
     if (result.canceled || !result.filePath) return { canceled: true };
     fs.writeFileSync(result.filePath, request.svg, "utf8");
     return { canceled: false, filePath: result.filePath };
+  }
+
+  async exportMermaidSvg(requestValue: unknown): Promise<MermaidPowerPointSvgExportResult> {
+    if (!requestValue || typeof requestValue !== "object" || Array.isArray(requestValue)) {
+      throw new Error("MermaidのSVG出力内容が不正です。画面を再読み込みしてください。");
+    }
+    const request = requestValue as Partial<MermaidPowerPointSvgExportRequest>;
+    const svg = validateOfficeSvg(request.svg);
+    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Mermaid");
+    const result = await dialog.showSaveDialog({
+      title: "MermaidをPowerPoint用SVGで書き出す",
+      defaultPath: path.join(app.getPath("documents"), `${safeTitle || "Mermaid"}.svg`),
+      filters: [{ name: "SVG", extensions: ["svg"] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    fs.writeFileSync(result.filePath, svg, "utf8");
+    return { canceled: false, filePath: result.filePath };
+  }
+
+  async exportMermaidPptx(requestValue: unknown): Promise<MermaidPowerPointPptxExportResult> {
+    if (!requestValue || typeof requestValue !== "object" || Array.isArray(requestValue)) {
+      throw new Error("MermaidのPPTX出力内容が不正です。画面を再読み込みしてください。");
+    }
+    const request = requestValue as Partial<MermaidPowerPointPptxExportRequest>;
+    const diagram = validateMermaidPptxDiagram(request.diagram);
+    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Mermaid");
+    const result = await dialog.showSaveDialog({
+      title: "Mermaidを編集可能なPowerPointで書き出す",
+      defaultPath: path.join(app.getPath("documents"), `${safeTitle || "Mermaid"}.pptx`),
+      filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true, warnings: diagram.warnings };
+    const buffer = await buildMermaidPptxBuffer(diagram, safeTitle || "Mermaid");
+    fs.writeFileSync(result.filePath, buffer);
+    return { canceled: false, filePath: result.filePath, warnings: diagram.warnings };
   }
 
   applySnapshot(token: string, decisions: SnapshotDecisions): Workspace {

@@ -1,4 +1,5 @@
 import { mermaidSvgPresentation } from "./mermaidSizing";
+import { normalizeMermaidOfficeSvg } from "./mermaidPowerPoint";
 
 let mermaidSequence = 0;
 let mermaidModulePromise: Promise<typeof import("mermaid")> | null = null;
@@ -110,6 +111,7 @@ async function renderMermaidBlockNow(node: HTMLElement, mode: MermaidRenderMode)
   try {
     const { default: mermaid } = await loadMermaid();
     const source = node.querySelector("code")?.textContent || "";
+    node.dataset.mermaidSource = source;
     const id = `tasken-mermaid-${mermaidSequence++}`;
     const result = await mermaid.render(id, source);
     node.innerHTML = `<div class="md-mermaid-svg">${result.svg}</div>`;
@@ -126,6 +128,45 @@ async function renderMermaidBlockNow(node: HTMLElement, mode: MermaidRenderMode)
   } finally {
     node.classList.remove("is-rendering");
   }
+}
+
+/**
+ * Mermaidの通常Previewとは別設定でOffice向けSVGを作る。
+ * Previewと同じsingletonを使うが、render queue内で設定を保存・復元するため、
+ * htmlLabels:falseが通常表示へ漏れたり、長い図の描画と競合したりしない。
+ */
+export function renderMermaidSvgForOffice(source: string): Promise<string> {
+  const task = mermaidRenderQueue.then(async () => {
+    const { default: mermaid } = await loadMermaid();
+    // Mermaid config contains function-valued hooks, so structuredClone would
+    // fail before the Office render. Keep the existing config object intact
+    // and restore it after this serialized render task.
+    const previousConfig = mermaid.mermaidAPI.getConfig();
+    mermaid.initialize({
+      ...previousConfig,
+      startOnLoad: false,
+      htmlLabels: false,
+      fontFamily: "Arial, Yu Gothic UI, sans-serif",
+      flowchart: {
+        ...previousConfig.flowchart,
+        htmlLabels: false,
+      },
+      themeVariables: {
+        ...previousConfig.themeVariables,
+        fontFamily: "Arial, Yu Gothic UI, sans-serif",
+      },
+      securityLevel: "strict",
+    });
+    try {
+      const id = `tasken-mermaid-office-${mermaidSequence++}`;
+      const result = await mermaid.render(id, source);
+      return normalizeMermaidOfficeSvg(result.svg);
+    } finally {
+      mermaid.initialize(previousConfig);
+    }
+  });
+  mermaidRenderQueue = task.catch(() => undefined);
+  return task;
 }
 
 export function renderMermaidBlock(node: HTMLElement, mode: MermaidRenderMode = "screen"): Promise<boolean> {
