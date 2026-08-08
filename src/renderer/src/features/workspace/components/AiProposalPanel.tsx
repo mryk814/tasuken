@@ -14,6 +14,7 @@ import { ActionButton, Button } from "./common";
 
 type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work";
 type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact" | "task_work";
+const taskEntityType = "task" as const;
 
 interface ProposalCandidate {
   type: CandidateType;
@@ -338,7 +339,7 @@ export function AiProposalPanel(props: PageProps) {
         const taskId = str(candidate.entry.task_id);
         const task = domain.tasks.find((entry) => entry.id === taskId);
         if (!task) throw new Error("対象Taskが見つかりません。Taskを再読み込みしてください。");
-        const expectedVersions = [{ type: "task" as const, id: task.id, version: Number((task as unknown as BaseRecord).version || 0) }];
+        const expectedVersions = [{ type: taskEntityType, id: task.id, version: Number((task as unknown as BaseRecord).version || 0) }];
         const action = str(candidate.entry.action);
         let name: CommandEnvelope["name"];
         let payload: CommandEnvelope["payload"];
