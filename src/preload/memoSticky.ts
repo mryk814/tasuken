@@ -15,11 +15,11 @@ contextBridge.exposeInMainWorld("memoStickyApi", {
   archive: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyArchive),
   remove: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyDelete),
   isAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyIsAlwaysOnTop),
-  setAlwaysOnTop: (pinned: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyAlwaysOnTop, pinned),
+  setAlwaysOnTop: (pinned: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickySetAlwaysOnTop, pinned),
   // 本体や他のウィンドウでの変更を受けて、同じMemoの表示を追従させる。
   onWorkspaceChanged: (callback: () => void): Unsubscribe => {
     const handler = (): void => callback();
-    ipcRenderer.on(IPC.workspaceChanged, handler);
-    return () => { ipcRenderer.removeListener(IPC.workspaceChanged, handler); };
+    ipcRenderer.on("workspace:changed", handler);
+    return () => { ipcRenderer.removeListener("workspace:changed", handler); };
   },
 });

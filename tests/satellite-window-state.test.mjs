@@ -20,6 +20,7 @@ async function importBundled(relativePath) {
 }
 
 const state = await importBundled("src/main/satelliteWindowState.ts");
+const memoPresentation = await importBundled("src/shared/memoPresentation.ts");
 
 function tempStatePath() {
   return path.join(mkdtempSync(path.join(tmpdir(), "tasken-satellite-")), "windows.json");
@@ -301,23 +302,27 @@ test("Noteウィンドウから本体へ表示を渡せる（#290）", () => {
   assert.match(workspaceAppSource, /if \(detachedNoteId \|\| loadState !== "success"\) return undefined;/);
 });
 
-test("上部バーのランチャーが切り離しウィンドウと連携する（#299）", () => {
+test("上部バーはPopoverを経由せずRegistryの衛星ウィンドウを操作する（#327）", () => {
   const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
   const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
-  // 浮かせている付箋を一覧し、前面へ出せる。開閉状態の正本はMainのregistry。
-  assert.match(shellSource, /stickyMemos: Array<\{ id: string; text: string \}>;/);
-  assert.match(shellSource, /titlebar-popover-group">付箋 \{launcher\.stickyMemos\.length\}/);
-  assert.match(shellSource, /onClick=\{\(\) => go\(\(\) => launcher\.floatMemo\(memo\.id\)\)\}/);
-  assert.match(shellSource, /付箋をすべて閉じる/);
-  assert.match(workspaceAppSource, /return workspaceApi\.onMemoStickyOpenChanged\(setOpenStickyMemoIds\);/);
-  // 既に浮いていれば前面へ出すだけなので、重複ウィンドウを作らない。
-  assert.match(workspaceAppSource, /floatMemo: \(memoId\) => \{ void workspaceApi\.showMemoStickyWindow\(memoId\); \}/);
+  assert.match(shellSource, /todayWindowOpen: boolean;/);
+  assert.match(shellSource, /stickyWindowsShown: boolean;/);
+  assert.match(shellSource, /aria-pressed=\{launcher\.todayWindowOpen\}/);
+  assert.match(shellSource, /aria-pressed=\{launcher\.stickyWindowsShown\}/);
+  assert.doesNotMatch(shellSource, /titlebar-popover/);
+  assert.match(workspaceAppSource, /workspaceApi\.getSatelliteWindowState\(\)/);
+  assert.match(workspaceAppSource, /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/);
+  assert.match(workspaceAppSource, /workspaceApi\.showAllMemoStickies\(\)/);
+  assert.match(workspaceAppSource, /workspaceApi\.closeAllMemoStickies\(\)/);
+});
 
-  // Activity / Scratchpad はボタンを増やさず日次メニューへまとめる。
-  assert.match(shellSource, /titlebar-popover-group">日次</);
-  assert.match(shellSource, /onClick=\{\(\) => go\(launcher\.openScratchpad\)\}>Daily Scratchpad</);
-  assert.match(shellSource, /onClick=\{\(\) => go\(launcher\.openActivity\)\}>今日のActivity</);
-  // Activityは既存のToday画面の面を使い、別実装を作らない。
-  assert.match(workspaceAppSource, /document\.getElementById\("daily-activity"\)\?\.scrollIntoView/);
+test("付箋表示対象は同じMemoのproperties_jsonへ保存し、閉じても状態を消さない（#327）", () => {
+  const memo = { id: "memo-1", kind: "micro_memo", state: "untriaged", properties_json: { color: "amber" } };
+  const marked = memoPresentation.markStickyMemoTarget(memo, true);
+  assert.equal(memoPresentation.isStickyMemoTarget(marked), true);
+  assert.equal(marked.properties_json.presentation, "floating");
+  assert.equal(marked.properties_json.color, "amber");
+  assert.equal(memoPresentation.isStickyMemoTarget({ ...marked, state: "archived" }), false);
+  assert.equal(memoPresentation.isStickyMemoTarget({ ...marked, deleted_at: "2026-08-08T00:00:00Z" }), false);
 });

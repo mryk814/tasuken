@@ -4,8 +4,9 @@ import path from "node:path";
 import type { SatelliteWindowRegistry } from "./satelliteWindowRegistry";
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type { MemoStickyContent } from "../shared/ipc/contracts";
-import type { Entity, EntityType } from "../shared/types/workspace";
 import { IPC } from "../shared/ipc/contracts";
+import { isStickyMemoTarget, markStickyMemoTarget } from "../shared/memoPresentation";
+import type { Entity, EntityType } from "../shared/types/workspace";
 
 /**
  * InboxのMemoをデスクトップ付箋として浮かせる（#298）。
@@ -34,6 +35,9 @@ export interface MemoStickyController {
   open: (memoId: string) => boolean;
   /** いま浮いているMemoのID。本体側で「付箋表示中」を区別するために使う。 */
   openMemoIds: () => string[];
+  /** 利用者が付箋表示対象にしたMemoのID。閉じてもこの指定は残る。 */
+  stickyMemoIds: () => string[];
+  showAll: () => number;
   registerIpc: () => void;
 }
 
@@ -58,15 +62,24 @@ function toContent(memo: Entity): MemoStickyContent {
 export function createMemoStickyController(options: MemoStickyControllerOptions): MemoStickyController {
   function readMemo(memoId: string): Entity | null {
     const memo = options.repository.get("capture_entry", memoId) as Entity | null;
-    if (!memo || memo.kind !== MEMO_KIND) return null;
+    if (!memo || memo.kind !== MEMO_KIND || memo.state === "archived" || memo.deleted_at) return null;
     return memo;
   }
 
   function open(memoId: string): boolean {
     const memo = readMemo(memoId);
     if (!memo) return false;
+    if (!isStickyMemoTarget(memo)) {
+      const marked = options.repository.save(
+        "capture_entry",
+        markStickyMemoTarget(memo, true),
+        { source: "memo-sticky" },
+      ) as Entity;
+      options.notifyWorkspaceChanged({ type: "capture_entry", entity: marked });
+    }
     // 同じMemoの二枚目は作らない。既に浮いていれば前面へ出すだけ（#298）。
-    options.satelliteWindows.open({ kind: "memo", entityId: memoId }, {
+    const key = { kind: "memo" as const, entityId: memoId };
+    options.satelliteWindows.open(key, {
       title: memoTitle(memo),
       width: STICKY_DEFAULT_WIDTH,
       height: STICKY_DEFAULT_HEIGHT,
@@ -79,11 +92,25 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
       frame: false,
       skipTaskbar: true,
     });
+    options.satelliteWindows.arrange([key]);
     return true;
   }
 
   function openMemoIds(): string[] {
     return options.satelliteWindows.list("memo").map((entry) => entry.entityId);
+  }
+
+  function stickyMemoIds(): string[] {
+    return (options.repository.list("capture_entry") as Entity[])
+      .filter(isStickyMemoTarget)
+      .map((memo) => String(memo.id));
+  }
+
+  function showAll(): number {
+    const ids = stickyMemoIds();
+    for (const memoId of ids) open(memoId);
+    options.satelliteWindows.arrange(ids.map((entityId) => ({ kind: "memo", entityId })));
+    return ids.length;
   }
 
   /** IPCの送り元ウィンドウから対象Memoを特定する。renderer側のIDを信用しない。 */
@@ -134,7 +161,7 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
       return options.satelliteWindows.close({ kind: "memo", entityId: memoId });
     });
 
-    ipcMain.handle(IPC.memoStickyAlwaysOnTop, (event, pinned: unknown) => {
+    ipcMain.handle(IPC.memoStickySetAlwaysOnTop, (event, pinned: unknown) => {
       const window = BrowserWindow.fromWebContents(event.sender);
       if (!window || !options.satelliteWindows.has(window)) return false;
       window.setAlwaysOnTop(pinned === true);
@@ -152,7 +179,7 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
       if (!memoId) return false;
       const mainWindow = options.showMainWindow();
       const send = (): void => {
-        if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceOpenMemo, memoId);
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:open-memo", memoId);
       };
       if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
       else send();
@@ -161,13 +188,10 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
 
     // 本体側からの状態確認（付箋になっているMemoを一覧で区別する）。
     ipcMain.handle(IPC.memoStickyListOpen, () => openMemoIds());
+    ipcMain.handle(IPC.memoStickyListTargets, () => stickyMemoIds());
 
-    // 「開いている付箋」の一括操作。すべて閉じてもMemoは削除しない。
-    ipcMain.handle(IPC.memoStickyShowAll, () => {
-      const ids = openMemoIds();
-      for (const memoId of ids) options.satelliteWindows.focus({ kind: "memo", entityId: memoId });
-      return ids.length;
-    });
+    // 「付箋表示対象」の一括操作。すべて閉じてもMemoは削除しない。
+    ipcMain.handle(IPC.memoStickyShowAll, () => showAll());
     ipcMain.handle(IPC.memoStickyCloseAll, () => {
       const ids = openMemoIds();
       for (const memoId of ids) options.satelliteWindows.close({ kind: "memo", entityId: memoId });
@@ -197,5 +221,5 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
     });
   }
 
-  return { open, openMemoIds, registerIpc };
+  return { open, openMemoIds, stickyMemoIds, showAll, registerIpc };
 }

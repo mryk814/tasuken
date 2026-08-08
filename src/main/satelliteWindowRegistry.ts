@@ -53,6 +53,7 @@ export interface SatelliteWindowInfo extends SatelliteWindowKey {
 export interface SatelliteWindowRegistry {
   open: (key: SatelliteWindowKey, spec: SatelliteWindowSpec) => BrowserWindow;
   focus: (key: SatelliteWindowKey) => boolean;
+  hide: (key: SatelliteWindowKey) => boolean;
   close: (key: SatelliteWindowKey) => boolean;
   get: (key: SatelliteWindowKey) => BrowserWindow | null;
   isOpen: (key: SatelliteWindowKey) => boolean;
@@ -60,8 +61,10 @@ export interface SatelliteWindowRegistry {
   keyOf: (window: BrowserWindow) => SatelliteWindowKey | null;
   /** 本体ウィンドウ判定のための所属確認。 */
   has: (window: BrowserWindow) => boolean;
-  /** 上部バーのランチャー用（#299）。 */
+  /** Top Barが表示状態を読むためのRegistry投影（#327）。 */
   list: (kind?: SatelliteWindowKind) => SatelliteWindowInfo[];
+  /** 複数の補助窓を、保存位置を尊重しながら初回・重複・画面外だけ安全に並べる。 */
+  arrange: (keys: SatelliteWindowKey[]) => number;
   /** 開いている切り離しウィンドウへ一斉送信する。 */
   broadcast: (channel: string, payload?: unknown) => void;
   /** 特定Entityの窓だけへ送る。 */
@@ -82,6 +85,7 @@ interface Entry {
   key: SatelliteWindowKey;
   window: BrowserWindow;
   title: string;
+  restoredFromState: boolean;
   saveTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -96,10 +100,13 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
   }
 
   /** 保存済みの位置を、いまの画面構成に合わせて補正して返す。無ければ既定サイズ。 */
-  function restoreBounds(key: SatelliteWindowKey, spec: SatelliteWindowSpec): Partial<WindowBounds> {
+  function restoreBounds(key: SatelliteWindowKey, spec: SatelliteWindowSpec): { bounds: Partial<WindowBounds>; restoredFromState: boolean } {
     const saved = store.read(key);
-    if (!saved) return { width: spec.width, height: spec.height };
-    return clampBoundsToDisplays(saved, displays(), { minWidth: spec.minWidth, minHeight: spec.minHeight });
+    if (!saved) return { bounds: { width: spec.width, height: spec.height }, restoredFromState: false };
+    return {
+      bounds: clampBoundsToDisplays(saved, displays(), { minWidth: spec.minWidth, minHeight: spec.minHeight }),
+      restoredFromState: true,
+    };
   }
 
   function scheduleSaveBounds(entry: Entry): void {
@@ -120,9 +127,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
   }
 
   function createWindow(key: SatelliteWindowKey, spec: SatelliteWindowSpec): BrowserWindow {
-    const bounds = restoreBounds(key, spec);
+    const restored = restoreBounds(key, spec);
     const window = new BrowserWindow({
-      ...bounds,
+      ...restored.bounds,
       minWidth: spec.minWidth,
       minHeight: spec.minHeight,
       show: false,
@@ -147,7 +154,13 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     if ("url" in target) void window.loadURL(search ? `${target.url}?${search}` : target.url);
     else void window.loadFile(target.file, search ? { search } : undefined);
 
-    const entry: Entry = { key, window, title: spec.title, saveTimer: null };
+    const entry: Entry = {
+      key,
+      window,
+      title: spec.title,
+      restoredFromState: restored.restoredFromState,
+      saveTimer: null,
+    };
     entries.set(satelliteWindowKeyOf(key), entry);
     options.onChanged?.();
 
@@ -181,6 +194,62 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     return entry.window;
   }
 
+  function overlaps(a: WindowBounds, b: WindowBounds): boolean {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
+  function sameBounds(a: WindowBounds, b: WindowBounds): boolean {
+    return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+  }
+
+  function arrange(keys: SatelliteWindowKey[]): number {
+    const wanted = [...new Map(keys.map((key) => [satelliteWindowKeyOf(key), key])).values()]
+      .map((key) => entries.get(satelliteWindowKeyOf(key)))
+      .filter((entry): entry is Entry => entry !== undefined && !entry.window.isDestroyed());
+    if (!wanted.length) return 0;
+
+    const areas = displays();
+    if (!areas.length) return 0;
+    const occupied: WindowBounds[] = [];
+    for (const entry of entries.values()) {
+      if (wanted.includes(entry) || entry.window.isDestroyed()) continue;
+      const bounds = normalizeBounds(entry.window.getBounds());
+      if (bounds) occupied.push(bounds);
+    }
+    let changed = 0;
+    for (const entry of wanted) {
+      const current = normalizeBounds(entry.window.getBounds());
+      if (!current) continue;
+      const clamped = clampBoundsToDisplays(current, areas, { minWidth: 1, minHeight: 1 });
+      const needsPlacement = !entry.restoredFromState
+        || !sameBounds(current, clamped)
+        || occupied.some((other) => overlaps(current, other));
+      let next = current;
+      if (needsPlacement) {
+        const candidates = areas.flatMap((area) => {
+          const maxX = Math.max(area.x, area.x + area.width - current.width);
+          const maxY = Math.max(area.y, area.y + area.height - current.height);
+          const result: WindowBounds[] = [];
+          for (let y = area.y + 16; y <= maxY; y += current.height + 16) {
+            for (let x = area.x + 16; x <= maxX; x += current.width + 16) {
+              result.push({ ...current, x, y });
+            }
+          }
+          return result;
+        });
+        next = candidates.find((candidate) => !occupied.some((other) => overlaps(candidate, other)))
+          || clampBoundsToDisplays(current, areas, { minWidth: 1, minHeight: 1 });
+      }
+      if (!sameBounds(current, next)) {
+        entry.window.setBounds(next, false);
+        store.write(entry.key, next);
+        changed += 1;
+      }
+      occupied.push(next);
+    }
+    return changed;
+  }
+
   return {
     open(key, spec) {
       // 同じEntityは二度開かない。既にあれば前面へ出すだけにして、
@@ -201,6 +270,12 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       const window = get(key);
       if (!window) return false;
       reveal(window);
+      return true;
+    },
+    hide(key) {
+      const window = get(key);
+      if (!window) return false;
+      window.hide();
       return true;
     },
     close(key) {
@@ -232,6 +307,7 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       }
       return result.sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title, "ja"));
     },
+    arrange,
     broadcast(channel, payload) {
       for (const entry of entries.values()) {
         if (entry.window.isDestroyed() || entry.window.webContents.isLoading()) continue;

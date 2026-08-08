@@ -1,7 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import type { TodayMiniTask } from "../shared/ipc/contracts";
-import { IPC } from "../shared/ipc/contracts";
+import { IPC, type TodayMiniTask } from "../shared/ipc/contracts";
 
 type Unsubscribe = () => void;
 

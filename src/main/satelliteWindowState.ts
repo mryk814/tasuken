@@ -12,7 +12,7 @@ import path from "node:path";
  */
 
 /** 切り離せる面の種類。EntityのtypeではなくUIの面としてのkind。 */
-export type SatelliteWindowKind = "memo" | "note";
+export type SatelliteWindowKind = "memo" | "note" | "today";
 
 export interface SatelliteWindowKey {
   kind: SatelliteWindowKind;
@@ -50,7 +50,7 @@ export function parseSatelliteWindowKey(value: string): SatelliteWindowKey | nul
   const kind = value.slice(0, separator);
   const entityId = value.slice(separator + 1);
   if (!entityId) return null;
-  if (kind !== "memo" && kind !== "note") return null;
+  if (kind !== "memo" && kind !== "note" && kind !== "today") return null;
   return { kind, entityId };
 }
 
