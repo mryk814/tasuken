@@ -177,7 +177,7 @@ test("DeleteTask uses the same expected-version boundary and keeps deletion undo
   assert.equal(receipt.changes.find(({ type }) => type === "task").entity.deleted_at, "2026-08-08T00:00:00.000Z");
   assert.equal(repo.get("task", "delete-task"), null);
   assert.equal(repo.get("task", "delete-task", true).deleted_at, "2026-08-08T00:00:00.000Z");
-  assert.throws(() => service.execute(envelope("DeleteTask", { taskId: "delete-task" }, "delete-task-stale", [{ type: "task", id: "delete-task", version: 1 }])), /対象Taskがありません/);
+  assert.throws(() => service.execute(envelope("DeleteTask", { taskId: "delete-task" }, "delete-task-stale", [{ type: "task", id: "delete-task", version: 1 }])), /削除対象のTaskがありません/);
 });
 
 test("Main Today and Today mini use the same explicit-date Task selector", () => {
