@@ -280,7 +280,7 @@ function preserveEditorViewport(anchor: HTMLElement | null, update: () => void):
   restore();
 }
 
-const StableMermaidPreview = memo(MarkdownPreview, () => true);
+const LazyMermaidPreview = memo(MarkdownPreview, () => true);
 
 function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   const [editing, setEditing] = useState(false);
@@ -359,7 +359,7 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
           setEditing(true);
         }}
       >
-        <StableMermaidPreview key={rendered} className="note-mermaid-preview markdown-preview" html={rendered} />
+        <LazyMermaidPreview key={rendered} className="note-mermaid-preview markdown-preview" html={rendered} />
       </div>
       <div className="note-mermaid-width-control" aria-label="Mermaidの表示幅">
         <span>幅</span>
