@@ -6,6 +6,8 @@ import type { WorkspaceService } from "../services/workspaceService";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
+import type { ApplicationCommandService } from "../services/applicationCommandService";
+import type { CommandReceipt } from "../../shared/applicationCommand";
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -60,7 +62,9 @@ export function registerIpc(
   sharedSync: SharedFolderSyncService,
   aiProvider: AiProviderService,
   calendar: CalendarService,
+  applicationCommands: ApplicationCommandService,
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
+  notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number) => void = () => {},
 ): void {
   ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
@@ -127,6 +131,17 @@ export function registerIpc(
     const restored = repository.restore(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
     return restored;
+  });
+  ipcMain.handle(IPC.applicationCommand, (event, envelope) => {
+    const receipt = applicationCommands.execute(envelope);
+    notifyCommandApplied(receipt, event.sender.id);
+    return receipt;
+  });
+  ipcMain.handle(IPC.applicationCommandBatch, (event, envelopes) => {
+    if (!Array.isArray(envelopes) || !envelopes.length) throw new Error("Application Command batchが空です。");
+    const receipts = applicationCommands.executeBatch(envelopes);
+    notifyCommandApplied(receipts, event.sender.id);
+    return receipts;
   });
   ipcMain.handle(IPC.snapshotExport, () => service.exportSnapshot());
   ipcMain.handle(IPC.snapshotInspect, () => service.inspectSnapshot());

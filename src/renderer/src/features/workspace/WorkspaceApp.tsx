@@ -47,6 +47,8 @@ import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
 import { FocusSessionDialog } from "./components/FocusSessionDialog";
 import { findActiveFocusSession, focusSessionProperties, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
 import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
+import type { ApplicationCommandSource, ApplyAiProposalCommandPayload, CommandEnvelope, CommandReceipt, ExpectedVersion } from "../../../../shared/applicationCommand";
+import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -58,6 +60,7 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "knowledge_edges", "change_events", "artifacts",
   "sketches",
 ];
+const TASK_REFERENCE_TYPE: EntityType = "reference";
 
 function normalizeRoute(route: string): string {
   if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
@@ -99,6 +102,7 @@ export function WorkspaceApp() {
   const loadWorkspaceAction = useWorkspaceStore((state) => state.load);
   const saveWorkspaceEntity = useWorkspaceStore((state) => state.save);
   const saveWorkspaceEntities = useWorkspaceStore((state) => state.saveMany);
+  const applyCommandReceipt = useWorkspaceStore((state) => state.applyCommandReceipt);
   const removeWorkspaceEntity = useWorkspaceStore((state) => state.remove);
   const restoreWorkspaceEntity = useWorkspaceStore((state) => state.restore);
   // 切り離しNoteウィンドウは本体と同じrendererを別モードで動かす（#290）。
@@ -188,7 +192,6 @@ export function WorkspaceApp() {
     return window.api.app.onWorkspaceChanged((change) => {
       if (change?.entities?.length) {
         applyExternalSaves(change.entities);
-        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`, "danger"));
         return;
       }
       if (change?.type && change.entity) {
@@ -642,6 +645,29 @@ export function WorkspaceApp() {
 
   const saveEntity: SaveEntity = async (type, entity, options = {}) => {
     try {
+      if (type === "task") {
+        const existing = fullDomain.tasks.find((candidate) => candidate.id === entity.id);
+        const isCompleting = Boolean(existing && existing.state !== "done" && entity.state === "done");
+        const isReopening = Boolean(existing && existing.state === "done" && entity.state !== "done");
+        const taskId = entity.id as string;
+        const commandSource = drawer?.commandSource || "main_ui";
+        const receipt = await workspaceApi.executeCommand({
+          commandId: uuid(),
+          name: !existing ? "CreateTask" : isCompleting ? "CompleteTask" : isReopening ? "ReopenTask" : "UpdateTask",
+          payload: !existing || (!isCompleting && !isReopening)
+            ? { task: entity as Entity }
+            : { taskId, task: entity as Entity, completionNote: entity.completion_note as string | null },
+          actor: { kind: "user" },
+          source: commandSource,
+          expectedVersions: existing
+            ? [{ type: "task", id: taskId, version: Number((existing as unknown as Entity).version || 0) }]
+            : [],
+          issuedAt: new Date().toISOString(),
+        });
+        applyCommandReceipt(receipt);
+        if (!options.quiet) setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
+        return (receipt.changes.find((change) => change.type === "task")?.entity || entity) as Entity;
+      }
       const saved = await saveWorkspaceEntity(type, entity as Entity, options);
       if (!options.quiet) setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
       return saved;
@@ -651,9 +677,247 @@ export function WorkspaceApp() {
     }
   };
 
-  const saveEntities: SaveEntities = async (operations, successMessage = "変更を保存しました。") => {
+  const createTaskFromCapture = async (task: Entity, schedule: Entity | null, capture: Entity, artifactIds: string[]): Promise<CommandReceipt> => {
+    const currentCapture = fullData.capture_entrys?.find((entry) => entry.id === capture.id) || capture;
+    const expectedVersions: ExpectedVersion[] = [{ type: "capture_entry", id: currentCapture.id, version: Number(currentCapture.version || 0) }];
+    for (const artifactId of artifactIds) {
+      const artifact = (fullData.artifacts || []).find((entry) => entry.id === artifactId);
+      if (!artifact) throw new Error(`Artifactが見つかりません: ${artifactId}`);
+      expectedVersions.push({ type: "artifact", id: artifact.id, version: Number(artifact.version || 0) });
+    }
+    if (schedule) {
+      const existingSchedule = fullDomain.schedules.find((entry) => entry.id === schedule.id);
+      if (existingSchedule) expectedVersions.push({ type: "schedule", id: existingSchedule.id, version: Number((existingSchedule as unknown as Entity).version || 0) });
+    }
+    const receipt = await workspaceApi.executeCommand({
+      commandId: uuid(),
+      name: "CreateTaskFromCapture",
+      payload: {
+        task,
+        schedule,
+        captureId: currentCapture.id,
+        captureVersion: Number(currentCapture.version || 0),
+        transition: "triage_to_task",
+        artifactIds,
+      },
+      actor: { kind: "user" },
+      source: "inbox",
+      expectedVersions,
+      issuedAt: new Date().toISOString(),
+    });
+    applyCommandReceipt(receipt);
+    setToast("CaptureをTaskに整理しました。", "success");
+    return receipt;
+  };
+
+  const saveEntities: SaveEntities = async (operations, successMessage = "変更を保存しました。", source: ApplicationCommandSource = drawer?.commandSource || "main_ui") => {
     try {
-      const saved = await saveWorkspaceEntities(operations);
+      // Taskの書き込みは、画面・Today・Inbox・補助windowを問わず同じ
+      // Application Commandへ集約する。旧renderer event生成はここで除去し、
+      // Main側のbefore/after判定を唯一のChange Event producerにする。
+      let saved: Entity[] = [];
+      const taskOperations = operations.filter((operation) => operation.type === "task");
+      const taskIds = new Set(taskOperations.map((operation) => operation.entity.id));
+      const remaining = operations.filter((operation) => {
+        if (operation.type === "task" && taskIds.has(operation.entity.id)) return false;
+        if (operation.type === "schedule" && operation.entity.owner_type === "task" && taskIds.has(String(operation.entity.owner_id))) return false;
+        return !(operation.type === "change_event"
+          && operation.entity.entity_type === "task"
+          && taskIds.has(String(operation.entity.entity_id)));
+      });
+      const taskReferences = remaining.filter((operation) => (
+        operation.type === TASK_REFERENCE_TYPE
+        && (taskIds.has(String(operation.entity.source_id)) || taskIds.has(String(operation.entity.target_id)))
+      ));
+      const unsupportedMixed = remaining.filter((operation) => !taskReferences.includes(operation));
+
+      const entityOperations = operations.filter((operation) => operation.type !== "change_event");
+      const existingRecord = (type: EntityType, id: string): Entity | undefined => {
+        const collection = collectionKeyForEntityType(type);
+        const records = (fullData as unknown as Record<string, unknown>)[collection];
+        return Array.isArray(records) ? records.find((record): record is Entity => Boolean(record) && typeof record === "object" && (record as Entity).id === id) : undefined;
+      };
+      const expectedFor = (type: EntityType, id: string): ExpectedVersion | null => {
+        const existing = existingRecord(type, id);
+        return existing ? { type, id, version: Number(existing.version || 0) } : null;
+      };
+      const executeTyped = async (envelope: CommandEnvelope): Promise<CommandReceipt> => {
+        const receipt = await workspaceApi.executeCommand(envelope);
+        applyCommandReceipt(receipt);
+        saved = [...saved, ...receipt.changes.map(({ entity }) => entity)];
+        return receipt;
+      };
+
+      // 学び付き完了は、繰返しの次Task/Scheduleも含めて一つのCommandへ写す。
+      const learningNoteOperation = entityOperations.find((operation) => (
+        operation.type === "note" && operation.entity.note_type === "learning" && typeof operation.entity.item_id === "string"
+      ));
+      if (taskOperations.length && learningNoteOperation?.type === "note") {
+        const taskId = String(learningNoteOperation.entity.item_id);
+        const currentTaskOperation = taskOperations.find((operation) => operation.entity.id === taskId);
+        const nextTaskOperations = taskOperations.filter((operation) => operation.entity.id !== taskId);
+        const nextScheduleOperations = entityOperations.filter((operation) => operation.type === "schedule" && nextTaskOperations.some((task) => task.entity.id === operation.entity.owner_id));
+        const learningRepresentedCount = taskOperations.length + 1 + nextScheduleOperations.length;
+        const learningEntitiesAreExplicit = currentTaskOperation
+          && nextTaskOperations.length <= 1
+          && nextScheduleOperations.length <= 1
+          && learningRepresentedCount === entityOperations.length
+          && entityOperations.every((operation) => operation.type === "task" || operation.type === "note" || operation.type === "schedule")
+          && entityOperations.filter((operation) => operation.type === "note").length === 1;
+        if (learningEntitiesAreExplicit && currentTaskOperation) {
+          const expected = expectedFor("task", taskId);
+          if (!expected) throw new Error("学び付き完了のTaskがWorkspaceにありません。");
+          await executeTyped({
+            commandId: uuid(),
+            name: "CompleteTaskWithLearning",
+            payload: {
+              task: currentTaskOperation.entity,
+              note: learningNoteOperation.entity,
+              nextTask: nextTaskOperations[0]?.entity || null,
+              nextSchedule: nextScheduleOperations[0]?.entity || null,
+            },
+            actor: { kind: "user" },
+            source,
+            expectedVersions: [expected],
+            issuedAt: new Date().toISOString(),
+          });
+          setToast(successMessage, "success");
+          return saved;
+        }
+      }
+
+      // Focus終了はsession、選択Note、学びのpromoted Note/Reference、次Task、
+      // status updateを名前付きpayloadへ写し、旧saveManyの部分commitを許さない。
+      const focusSessionOperations = entityOperations.filter((operation) => (
+        operation.type === "note"
+        && (operation.entity.properties_json as Record<string, unknown> | undefined)?.document_role === "focus_session"
+        && (operation.entity.properties_json as Record<string, unknown> | undefined)?.session_state === "ended"
+      ));
+      const focusSessionOperation = focusSessionOperations[0];
+      if (taskOperations.length && focusSessionOperation?.type === "note") {
+        const sessionProps = focusSessionOperation.entity.properties_json as Record<string, unknown>;
+        const focusTaskId = typeof sessionProps.task_id === "string" ? sessionProps.task_id : "";
+        const currentTaskOperation = taskOperations.find((operation) => operation.entity.id === focusTaskId);
+        const noteOperations = entityOperations.filter((operation) => operation.type === "note" && operation !== focusSessionOperation);
+        const existingNotes = noteOperations.filter((operation) => Boolean(existingRecord("note", operation.entity.id)));
+        const promotedNotes = noteOperations.filter((operation) => !existingRecord("note", operation.entity.id));
+        const referenceOperations = entityOperations.filter((operation) => operation.type === TASK_REFERENCE_TYPE);
+        const statusOperations = entityOperations.filter((operation) => operation.type === "status_update");
+        const nextTaskOperations = taskOperations.filter((operation) => operation.entity.id !== focusTaskId);
+        const representedCount = 1 + (currentTaskOperation ? 1 : 0) + noteOperations.length + referenceOperations.length + statusOperations.length + nextTaskOperations.length;
+        const focusTypesAreExplicit = entityOperations.every((operation) => operation.type === "task" || operation.type === "note" || operation.type === TASK_REFERENCE_TYPE || operation.type === "status_update")
+          && representedCount === entityOperations.length
+          && focusSessionOperations.length === 1
+          && existingNotes.length <= 1
+          && promotedNotes.length <= 1
+          && referenceOperations.length <= 1
+          && statusOperations.length <= 1
+          && nextTaskOperations.length <= 1
+          && !entityOperations.some((operation) => operation.type === "task" && operation.entity.id === focusTaskId && operation.entity.state !== "done");
+        if (focusTypesAreExplicit && focusTaskId && (!currentTaskOperation || currentTaskOperation.entity.state === "done")) {
+          const sessionExpected = expectedFor("note", focusSessionOperation.entity.id);
+          if (!sessionExpected) throw new Error("Focus SessionがWorkspaceにありません。");
+          const expectedVersions = [sessionExpected];
+          if (currentTaskOperation) {
+            const taskExpected = expectedFor("task", focusTaskId);
+            if (!taskExpected) throw new Error("Focus SessionのTaskがWorkspaceにありません。");
+            expectedVersions.push(taskExpected);
+          }
+          if (existingNotes[0]) {
+            const noteExpected = expectedFor("note", existingNotes[0].entity.id);
+            if (!noteExpected) throw new Error("Focus Sessionの選択NoteがWorkspaceにありません。");
+            expectedVersions.push(noteExpected);
+          }
+          await executeTyped({
+            commandId: uuid(),
+            name: "EndFocusSession",
+            payload: {
+              session: focusSessionOperation.entity,
+              task: currentTaskOperation?.entity || existingRecord("task", focusTaskId) || null,
+              selectedNote: existingNotes[0]?.entity || null,
+              promotedNote: promotedNotes[0]?.entity || null,
+              promotedReference: referenceOperations[0]?.type === TASK_REFERENCE_TYPE ? referenceOperations[0].entity : null,
+              nextTask: nextTaskOperations[0]?.entity || null,
+              statusUpdate: statusOperations[0]?.type === "status_update" ? statusOperations[0].entity : null,
+              completeTask: Boolean(currentTaskOperation),
+            },
+            actor: { kind: "user" },
+            source,
+            expectedVersions,
+            issuedAt: new Date().toISOString(),
+          });
+          setToast(successMessage, "success");
+          return saved;
+        }
+      }
+
+      // AI Proposalは候補集合を型付きcandidateへ変換する。候補数・型に制限を
+      // 設けた汎用SaveOperationの代替であり、proposal状態更新まで同じtransaction。
+      const proposalOperation = entityOperations.find((operation) => operation.type === "ai_proposal");
+      const aiCandidateOperations = entityOperations.filter((operation) => operation.type !== "ai_proposal");
+      if (proposalOperation?.type === "ai_proposal" && aiCandidateOperations.length) {
+        const candidates = aiCandidateOperations.map((operation) => ({ type: operation.type, entity: operation.entity })) as unknown as ApplyAiProposalCommandPayload["candidates"];
+        const candidateExpected = candidates.map(({ type, entity }) => expectedFor(type, entity.id)).filter((entry): entry is ExpectedVersion => Boolean(entry));
+        const proposalExpected = expectedFor("ai_proposal", proposalOperation.entity.id);
+        if (!proposalExpected) throw new Error("AI ProposalがWorkspaceにありません。");
+        await executeTyped({
+          commandId: uuid(),
+          name: "ApplyAiProposal",
+          payload: { proposal: proposalOperation.entity, candidates },
+          actor: { kind: "user" },
+          source,
+          expectedVersions: [proposalExpected, ...candidateExpected],
+          issuedAt: new Date().toISOString(),
+        });
+        setToast(successMessage, "success");
+        return saved;
+      }
+      if (taskOperations.length && unsupportedMixed.length) {
+        throw new Error("Taskの保存に未対応の混在操作が含まれています。Task Commandへ分解してから再試行してください。");
+      }
+      const envelopes: CommandEnvelope[] = [];
+      for (const taskOperation of taskOperations) {
+        const task = taskOperation.entity;
+        const existing = fullDomain.tasks.find((candidate) => candidate.id === task.id);
+        const scheduleOperation = operations.find((operation) => (
+          operation.type === "schedule"
+          && operation.entity.owner_type === "task"
+          && operation.entity.owner_id === task.id
+        ));
+        const isCompleting = Boolean(existing && existing.state !== "done" && task.state === "done");
+        const isReopening = Boolean(existing && existing.state === "done" && task.state !== "done");
+        const existingSchedule = scheduleOperation
+          ? fullDomain.schedules.find((schedule) => schedule.id === scheduleOperation.entity.id)
+          : undefined;
+        const references = taskReferences
+          .filter((operation) => taskIds.has(task.id) && (
+            String(operation.entity.source_id) === task.id || String(operation.entity.target_id) === task.id
+          ))
+          .map((operation) => operation.entity);
+        const envelope: CommandEnvelope = {
+          commandId: uuid(),
+          name: !existing ? "CreateTask" : isCompleting ? "CompleteTask" : isReopening ? "ReopenTask" : "UpdateTask",
+          payload: !existing || (!isCompleting && !isReopening)
+            ? { task, schedule: scheduleOperation?.entity || null, references: references.length ? references : undefined }
+            : { taskId: task.id, task, completionNote: task.completion_note as string | null, schedule: scheduleOperation?.entity || null, references: references.length ? references : undefined },
+          actor: { kind: "user" },
+          source,
+          expectedVersions: existing
+            ? [
+              { type: "task", id: task.id, version: Number((existing as unknown as Entity).version || 0) },
+              ...(existingSchedule ? [{ type: "schedule" as const, id: existingSchedule.id, version: Number((existingSchedule as unknown as Entity).version || 0) }] : []),
+            ]
+            : [],
+          issuedAt: new Date().toISOString(),
+        };
+        envelopes.push(envelope);
+      }
+      const receipts: CommandReceipt[] = envelopes.length ? await workspaceApi.executeCommands(envelopes) : [];
+      for (const receipt of receipts) {
+        applyCommandReceipt(receipt);
+        saved = [...saved, ...receipt.changes.map(({ entity }) => entity)];
+      }
+      if (!taskOperations.length && remaining.length) saved = [...saved, ...(await saveWorkspaceEntities(remaining))];
       setToast(successMessage, "success");
       return saved;
     } catch (error) {
@@ -991,7 +1255,12 @@ export function WorkspaceApp() {
       label: "Taskを作る",
       keywords: ["追加", "todo", "新規"],
       category: "Commands",
-      execute: () => openDrawer({ type: "task", mode: "edit", entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) } }),
+      execute: () => openDrawer({
+        type: "task",
+        mode: "edit",
+        commandSource: "command_palette",
+        entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) },
+      }),
     },
     {
       id: "create:note",
@@ -1224,6 +1493,7 @@ export function WorkspaceApp() {
     openDailyScratchpad: (date?: string) => setScratchpadDate(date || todayIso()),
     saveEntity,
     saveEntities,
+    createTaskFromCapture,
     removeEntity,
     removeEntityQuiet,
     setToast,

@@ -30,7 +30,6 @@ import { ActionButton, Button, EmptyState, PageHeader } from "../components/comm
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { buildInboxView, buildMicroMemoView } from "../domain-model/selectors";
 import {
-  buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSaveScheduleOperations,
   buildSaveResourceOperations,
@@ -41,6 +40,7 @@ import {
 } from "../domain-model/persistence";
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
+import type { Entity } from "../../../../../shared/types/workspace";
 import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
@@ -153,7 +153,7 @@ function copyTextForTarget(result: OrganizedResult): string {
   return [result.title, description].filter(Boolean).join("\n");
 }
 
-export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, removeEntity, setToast }: PageProps) {
+export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, createTaskFromCapture, removeEntity, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
   const { artifacts } = data;
   const [query, setQuery] = useState("");
@@ -335,8 +335,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
           source_record_id: sourceRecordId,
           created_at: new Date().toISOString(),
         };
-        const ops: SaveOperation[] = [...buildSaveTaskOperations(task)];
-        ops.push(...retargetArtifactOperations(row.entry.id, "task", taskId, themeId));
+        const artifactIds = captureArtifacts(row.entry.id).map((artifact) => artifact.id);
         if (draft.planned_end || draft.today_flag) {
           schedule = {
             id: crypto.randomUUID(),
@@ -347,10 +346,8 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
             confidence: "tentative",
             granularity: "day",
           };
-          ops.push(...buildSaveScheduleOperations(schedule));
         }
-        ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "task", id: taskId }));
-        await saveEntities(ops, `タスク「${title}」に整理しました。`);
+        await createTaskFromCapture(task as unknown as Entity, schedule as unknown as Entity | null, row.entry as unknown as Entity, artifactIds);
         rememberOrganized("task", taskId, title, task, schedule);
 
       } else if (draft.output === "waiting") {

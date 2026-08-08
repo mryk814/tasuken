@@ -7,6 +7,7 @@ import {
   todayIso,
 } from "./scheduleSemantics";
 import type { CaptureEntry, PlanNode, Schedule, Task, WorkspaceDomain } from "./types";
+import { selectTodayTasks, TODAY_TASK_POLICY } from "../../../../../shared/todayTasks.mjs";
 import type { ExecutionWindowTaskRow, InboxView, MicroMemoView, OngoingPeriodTaskRow, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
 
 // 日付境界はローカル日付で揃える（UTC変換で前日へずれるため toISOString は使わない）。
@@ -129,9 +130,9 @@ export function buildTodayView(domain: WorkspaceDomain, date = todayString()): T
   const schedules = schedulesByOwner(domain);
   const entries: TodayEntry[] = [];
 
-  for (const task of domain.tasks) {
-    const schedule = schedules.get(scheduleKey("task", task.id));
-    if (isActiveTask(task.state) && scheduleHasExplicitDate(schedule, date)) entries.push({ type: "task", task, schedule });
+  const taskRows = selectTodayTasks(domain.tasks, domain.schedules, date, TODAY_TASK_POLICY) as Array<{ task: Task; schedule?: Schedule }>;
+  for (const row of taskRows) {
+    entries.push({ type: "task", task: row.task, schedule: row.schedule });
   }
 
   for (const waiting of domain.waitings) {

@@ -14,6 +14,8 @@ import {
   splitQuickCaptureInput,
 } from "../shared/quickCapture.mjs";
 import { canonicalThemeId } from "../shared/themeRef.mjs";
+import type { CommandEnvelope, CommandReceipt } from "../shared/applicationCommand";
+import { IPC } from "../shared/ipc/contracts";
 
 export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task" | "due-task";
 
@@ -22,6 +24,8 @@ interface QuickCaptureControllerOptions {
   notifyWorkspaceChanged: (
     change: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> },
   ) => void;
+  notifyCommandApplied: (receipt: CommandReceipt, senderId: number) => void;
+  executeCommand: (envelope: CommandEnvelope) => CommandReceipt;
 }
 
 type QuickCaptureScheduleParse =
@@ -90,9 +94,9 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
     ];
     const uniqueThemes = [...new Map(themes.map((theme) => [theme.id, theme])).values()]
       .sort((a, b) => a.name.localeCompare(b.name, "ja-JP"));
-    win.webContents.send("quick-capture:theme", themeMode);
-    win.webContents.send("quick-capture:themes", uniqueThemes);
-    win.webContents.send("quick-capture:shown", mode);
+    win.webContents.send(IPC.quickCaptureTheme, themeMode);
+    win.webContents.send(IPC.quickCaptureThemes, uniqueThemes);
+    win.webContents.send(IPC.quickCaptureShown, mode);
   }
 
   function show(mode: QuickCaptureMode = "inbox"): void {
@@ -114,7 +118,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
   }
 
   function registerIpc(): void {
-    ipcMain.handle("quick-capture:save", (_event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string, selectedRangeSemantics?: "once_within_window" | "ongoing") => {
+    ipcMain.handle(IPC.quickCaptureSave, (event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string, selectedRangeSemantics?: "once_within_window" | "ongoing") => {
       const trimmed = (text || "").trim();
       if (!trimmed) throw new Error("入力が空です。");
       if (mode === "today-task" || mode === "done-task" || mode === "due-task") {
@@ -134,11 +138,11 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
         const rangeSemantics = parsedDue?.kind === "range"
           ? selectedRangeSemantics === "ongoing" ? "ongoing" : selectedRangeSemantics === "once_within_window" ? "once_within_window" : parsedDue.rangeSemantics
           : null;
-        const saved = options.repository.saveMany([
-          {
-            action: "save",
-            type: "task",
-            entity: {
+        const receipt = options.executeCommand({
+          commandId: randomUUID(),
+          name: "CreateTask",
+          payload: {
+            task: {
               id: taskId,
               title: main,
               // 期限modeの補足は日付として消費するので本文へは残さない。
@@ -152,12 +156,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               reminder_at: parsedDue?.kind === "single" && parsedDue.time ? `${parsedDue.date}T${parsedDue.time}` : null,
               created_at: now,
             },
-            options: { source: "quick-capture" },
-          },
-          {
-            action: "save",
-            type: "schedule",
-            entity: {
+            schedule: {
               id: randomUUID(),
               owner_type: "task",
               owner_id: taskId,
@@ -168,16 +167,13 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               confidence: "fixed",
               granularity: "day",
             },
-            options: { source: "quick-capture" },
           },
-        ]);
-        options.notifyWorkspaceChanged({
-          entities: [
-            { type: "task", entity: saved[0] as Entity },
-            { type: "schedule", entity: saved[1] as Entity },
-          ],
+          actor: { kind: "user" },
+          source: "quick_capture",
+          issuedAt: new Date().toISOString(),
         });
-        return saved[0];
+        options.notifyCommandApplied(receipt, event.sender.id);
+        return receipt.changes.find((change) => change.type === "task")?.entity;
       }
       const contentType = quickCaptureContentType(trimmed);
       const saved = options.repository.save("capture_entry", {
@@ -197,7 +193,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
     });
 
     // 期限は保存前に解釈結果を確認できるようにする（#308）。解釈はmain側の一箇所だけで行う。
-    ipcMain.handle("quick-capture:preview-due", (_event, text: unknown) => {
+    ipcMain.handle(IPC.quickCapturePreviewDue, (_event, text: unknown) => {
       const { extra } = splitQuickCaptureInput(typeof text === "string" ? text : "");
       if (!extra) return { state: "empty" as const };
       const due = parseSchedule(extra, localDateString());
@@ -211,7 +207,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
       };
     });
 
-    ipcMain.on("quick-capture:hide", () => {
+    ipcMain.on(IPC.quickCaptureHide, () => {
       if (captureWindow && !captureWindow.isDestroyed()) captureWindow.hide();
     });
   }

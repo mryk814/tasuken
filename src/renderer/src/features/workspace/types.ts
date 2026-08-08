@@ -6,6 +6,7 @@ import type {
   WorkspaceMeta,
 } from "../../../../shared/types/workspace";
 import type { WorkspaceDomain } from "./domain-model/types";
+import type { ApplicationCommandSource, CommandReceipt } from "../../../../shared/applicationCommand";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
 export type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
@@ -289,6 +290,7 @@ export interface DrawerConfig {
   type: DrawerEntityType;
   mode?: "edit" | "view";
   entity: DrawerEntity;
+  commandSource?: import("../../../../shared/applicationCommand").ApplicationCommandSource;
 }
 
 export interface SnapshotChange {
@@ -317,6 +319,7 @@ export type SaveEntity = (
 export type SaveEntities = (
   operations: SaveOperation[],
   successMessage?: string,
+  source?: ApplicationCommandSource,
 ) => Promise<Entity[]>;
 
 export type RemoveEntity = (type: EntityType, entity: DrawerEntity) => Promise<void>;
@@ -356,6 +359,7 @@ export interface PageProps {
   openDailyScratchpad: OpenDailyScratchpad;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  createTaskFromCapture(task: Entity, schedule: Entity | null, capture: Entity, artifactIds: string[]): Promise<CommandReceipt>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
   setToast(message: string, tone?: "info" | "success" | "warning" | "danger"): void;

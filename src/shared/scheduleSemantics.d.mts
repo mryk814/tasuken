@@ -1,0 +1,10 @@
+export type ScheduleKind = "none" | "point" | "deadline" | "execution_window" | "ongoing_period" | "unspecified_range";
+export function getScheduleKind(schedule?: object | null): ScheduleKind;
+export function isScheduleDueOn(schedule: object | null | undefined, date: string): boolean;
+export function isScheduleOverdueOn(schedule: object | null | undefined, date: string): boolean;
+export function isScheduleOngoingOn(schedule: object | null | undefined, date: string): boolean;
+export function isExecutionWindowOpenOn(schedule: object | null | undefined, date: string): boolean;
+export function isScheduleAvailableOn(schedule: object | null | undefined, date: string): boolean;
+export function isOngoingPeriodPastEnd(schedule: object | null | undefined, date: string): boolean;
+export function daysUntil(from: string, to: string): number;
+export function inclusiveDays(start: string, end: string): number;

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../shared/types/workspace";
+import type { CommandReceipt } from "../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../shared/entityRegistry.mjs";
 import { workspaceApi } from "../services/workspaceApi";
 
@@ -19,6 +20,7 @@ interface WorkspaceState {
   refresh(): Promise<Workspace>;
   applyExternalSave(type: EntityType, entity: Entity): void;
   applyExternalSaves(changes: Array<{ type: EntityType; entity: Entity }>): void;
+  applyCommandReceipt(receipt: CommandReceipt): void;
 }
 
 function replaceEntity(workspace: Workspace, type: EntityType, saved: Entity): Workspace {
@@ -28,6 +30,13 @@ function replaceEntity(workspace: Workspace, type: EntityType, saved: Entity): W
     ? records.map((entry) => entry.id === saved.id ? saved : entry)
     : [saved, ...records];
   return { ...workspace, [key]: next };
+}
+
+function replaceIfNewer(workspace: Workspace, type: EntityType, saved: Entity): Workspace {
+  const key = collectionKeyForEntityType(type) as keyof Workspace;
+  const current = ((workspace[key] as Entity[] | undefined) || []).find((entry) => entry.id === saved.id);
+  if (current && Number(current.version || 0) >= Number(saved.version || 0)) return workspace;
+  return replaceEntity(workspace, type, saved);
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -91,8 +100,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     let workspace = get().workspace;
     if (!workspace) return;
     for (const change of changes) {
-      workspace = replaceEntity(workspace, change.type, change.entity);
+      workspace = replaceIfNewer(workspace, change.type, change.entity);
     }
+    set({ workspace });
+  },
+  applyCommandReceipt(receipt) {
+    const changes = [...receipt.changes, ...(receipt.eventChanges || [])];
+    if (!changes.length) return;
+    let workspace = get().workspace;
+    if (!workspace) return;
+    for (const change of changes) workspace = replaceIfNewer(workspace, change.type, change.entity);
     set({ workspace });
   },
 }));

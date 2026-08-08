@@ -24,6 +24,9 @@ import { AiProviderService } from "./services/aiProviderService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
+import { ApplicationCommandService } from "./services/applicationCommandService";
+import type { CommandReceipt } from "../shared/applicationCommand";
+import { IPC } from "../shared/ipc/contracts";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
@@ -133,8 +136,8 @@ function notifyMemoStickyWindowsChanged(): void {
   const openNoteIds = noteWindowController?.openNoteIds() || [];
   for (const win of BrowserWindow.getAllWindows()) {
     if (isAuxiliaryWindow(win) || win.isDestroyed() || win.webContents.isLoading()) continue;
-    win.webContents.send("memo-sticky:open-changed", openMemoIds);
-    win.webContents.send("note-window:open-changed", openNoteIds);
+    win.webContents.send(IPC.memoStickyOpenChanged, openMemoIds);
+    win.webContents.send(IPC.noteWindowOpenChanged, openNoteIds);
   }
 }
 
@@ -142,13 +145,13 @@ function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } |
   const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!isAuxiliaryWindow(win) && !win.isDestroyed()) {
-      win.webContents.send("workspace:changed", change);
+      win.webContents.send(IPC.workspaceChanged, change);
     }
   }
   // 切り離したウィンドウも同じ正本を見ているので、同じ変更を配る（#290）。
-  satelliteWindows?.broadcast("workspace:changed", change);
+  satelliteWindows?.broadcast(IPC.workspaceChanged, change);
   if (todayMiniWindow && !todayMiniWindow.isDestroyed()) {
-    todayMiniWindow.webContents.send("today-mini:refresh");
+    todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
   }
 }
 
@@ -160,7 +163,34 @@ function notifyTodayMiniRefresh(types: EntityType[]): void {
   const todayMiniWindow = todayMiniController?.getWindow();
   if (!todayMiniWindow || todayMiniWindow.isDestroyed()) return;
   if (todayMiniWindow.webContents.isLoading()) return;
-  todayMiniWindow.webContents.send("today-mini:refresh");
+  todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
+}
+
+function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId: number): void {
+  const receipts = (Array.isArray(input) ? input : [input]).filter((receipt) => (
+    receipt.status !== "no_change" && !(receipt as CommandReceipt & { replayed?: boolean }).replayed
+  ));
+  if (!receipts.length) return;
+  const entityChanges = receipts.flatMap((receipt) => receipt.changes);
+  const eventChanges = receipts.flatMap((receipt) => receipt.eventChanges || receipt.events
+    .map((eventId) => workspaceRepository?.get("change_event", eventId, true))
+    .filter((event): event is Entity => Boolean(event))
+    .map((event) => ({ type: "change_event" as const, entity: event })));
+  const changes = [...entityChanges, ...eventChanges];
+  if (!changes.length) return;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || isAuxiliaryWindow(win)) continue;
+    const delta = win.webContents.id === senderId ? eventChanges : changes;
+    if (delta.length) win.webContents.send(IPC.workspaceChanged, { entities: delta });
+  }
+  // Satellite windows do not issue the main command IPC, so they can always
+  // receive the delta.  The mini window refreshes its projection from the same
+  // repository rather than applying a second delta.
+  satelliteWindows?.broadcast(IPC.workspaceChanged, { entities: changes });
+  if (changes.some(({ type }) => TODAY_MINI_ENTITY_TYPES.has(type))) {
+    const mini = todayMiniController?.getWindow();
+    if (mini && !mini.isDestroyed() && mini.webContents.id !== senderId) mini.webContents.send(IPC.todayMiniRefresh);
+  }
 }
 
 function findMainWindow(): BrowserWindow | null {
@@ -406,7 +436,7 @@ flowchart LR
       const markdownTheme = markdownForm.querySelector('input[name="theme_id"]');
       if (!markdownTitleInput || !markdownTheme) throw new Error("Markdown入力フォームの項目が見つかりません");
       setInputValue(markdownTitleInput, ${JSON.stringify(markdownTitle)});
-      // Theme保存のworkspace:changed反映を待って、実際の共通ThemeSelectを操作する。
+      // Theme保存のworkspace change通知を待って、実際の共通ThemeSelectを操作する。
       // hidden inputへの直接fallbackはproduct pathを検証しないため持たない。
       const smokeThemeChip = await waitFor(
         () => [...markdownForm.querySelectorAll(".theme-chip")]
@@ -536,8 +566,18 @@ flowchart LR
       };
       const saveDraftButton = [...(notesPane?.querySelectorAll(".note-preview-actions button") || [])].find((button) => button.textContent.trim() === "保存");
       saveDraftButton?.click();
-      await delay(220);
-      const notesLiveEditSaved = notesLiveEditRendered && document.body.innerText.includes("保存しました。");
+      const savedNotesPane = await waitFor(
+        () => {
+          const currentNotesPane = document.querySelector(".note-preview-panel");
+          return currentNotesPane?.querySelector(".note-draft-state")?.textContent?.trim() === "保存しました"
+            ? currentNotesPane
+            : null;
+        },
+        "Live Preview保存状態",
+        40,
+      );
+      notesPane = savedNotesPane;
+      const notesLiveEditSaved = notesLiveEditRendered && Boolean(savedNotesPane);
       clickPaneButton(notesPane, "Preview");
       await delay(180);
       const editedPreview = notesPane.querySelector(".note-main-preview.markdown-preview");
@@ -601,28 +641,44 @@ flowchart LR
         status: "active",
         default_ai_visibility: ["m365"]
       });
-      await window.api.entities.save("task", {
-        id: ${JSON.stringify(smokeTaskId)},
-        title: ${JSON.stringify(smokeTaskTitle)},
-        project_id: ${JSON.stringify(smokeThemeId)},
-        state: "todo",
-        priority: "high",
-        checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
-        created_at: new Date().toISOString(),
-        ai_summary: "Todayミニの動作確認",
-        ai_summary_authority: "user_confirmed",
-        ai_freshness: "current",
-        ai_authority: "user_confirmed",
-        ai_visibility: ["coding_agent"],
-        ai_source_refs: [{ kind: "canonical_document", locator: "smoke.md", storage_root_id: "smoke-root" }]
-      }, { source: "smoke" });
-      let aiMetadataRejectedInvalid = false;
-      try {
-        await window.api.entities.save("task", {
+      const smokeTaskReceipt = await window.api.commands.execute({
+        commandId: crypto.randomUUID(),
+        name: "CreateTask",
+        payload: { task: {
           id: ${JSON.stringify(smokeTaskId)},
           title: ${JSON.stringify(smokeTaskTitle)},
+          project_id: ${JSON.stringify(smokeThemeId)},
           state: "todo",
-          ai_authority: "guessed"
+          priority: "high",
+          checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
+          created_at: new Date().toISOString(),
+          ai_summary: "Todayミニの動作確認",
+          ai_summary_authority: "user_confirmed",
+          ai_freshness: "current",
+          ai_authority: "user_confirmed",
+          ai_visibility: ["coding_agent"],
+          ai_source_refs: [{ kind: "canonical_document", locator: "smoke.md", storage_root_id: "smoke-root" }]
+        } },
+        actor: { kind: "user", id: "electron-smoke" },
+        source: "main_ui",
+        issuedAt: new Date().toISOString(),
+      });
+      const smokeTaskVersion = smokeTaskReceipt.saved.find((entry) => entry.type === "task")?.version || 0;
+      let aiMetadataRejectedInvalid = false;
+      try {
+        await window.api.commands.execute({
+          commandId: crypto.randomUUID(),
+          name: "UpdateTask",
+          payload: { task: {
+            id: ${JSON.stringify(smokeTaskId)},
+            title: ${JSON.stringify(smokeTaskTitle)},
+            state: "todo",
+            ai_authority: "guessed"
+          } },
+          actor: { kind: "user", id: "electron-smoke" },
+          source: "main_ui",
+          expectedVersions: [{ type: "task", id: ${JSON.stringify(smokeTaskId)}, version: smokeTaskVersion }],
+          issuedAt: new Date().toISOString(),
         });
       } catch {
         aiMetadataRejectedInvalid = true;
@@ -1061,6 +1117,7 @@ async function startDesktopApp(): Promise<void> {
   migrateLegacyUserDataIfNeeded();
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
+  const applicationCommands = new ApplicationCommandService(workspaceRepository);
   sharedFolderSyncService = new SharedFolderSyncService(
     workspaceRepository,
     notifyMainWindowRefresh,
@@ -1072,10 +1129,12 @@ async function startDesktopApp(): Promise<void> {
     sharedFolderSyncService,
     new AiProviderService(app.getPath("userData")),
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
+    applicationCommands,
     (types) => {
       notifyMainWindowRefresh();
       notifyTodayMiniRefresh(types);
     },
+    notifyCommandApplied,
   );
   mcpProposalInboxService = new McpProposalInboxService(
     workspaceRepository,
@@ -1114,6 +1173,8 @@ async function startDesktopApp(): Promise<void> {
   quickCaptureController = createQuickCaptureController({
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
+    notifyCommandApplied,
+    executeCommand: (envelope) => applicationCommands.execute(envelope),
   });
   quickCaptureController.registerIpc();
   todayMiniController = createTodayMiniController({
@@ -1121,6 +1182,8 @@ async function startDesktopApp(): Promise<void> {
     getAppIconPath,
     showMainWindow,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
+    notifyCommandApplied,
+    executeCommand: (envelope) => applicationCommands.execute(envelope),
   });
   todayMiniController.registerIpc();
   reminderController = createReminderController({

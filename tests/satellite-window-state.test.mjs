@@ -139,7 +139,7 @@ test("本体ウィンドウ判定を一箇所へ集約する（#290）", () => {
   assert.match(mainSource, /return satelliteWindows\?\.has\(win\) === true;/);
   assert.match(mainSource, /\.find\(\(win\) => !isAuxiliaryWindow\(win\) && !win\.isDestroyed\(\)\)/);
   // 切り離しウィンドウにも同じ変更通知を配る（正本が分裂しない）。
-  assert.match(mainSource, /satelliteWindows\?\.broadcast\("workspace:changed", change\);/);
+  assert.match(mainSource, /satelliteWindows\?\.broadcast\(IPC\.workspaceChanged, change\);/);
 });
 
 test("位置・サイズを覚え、画面外へ復元しない配線がある（#290）", () => {
@@ -158,7 +158,7 @@ test("付箋は同じMemoの表示状態であり、別Entityを作らない（#
   assert.match(memoStickySource, /function memoIdOf\(event: Electron\.IpcMainInvokeEvent\): string \| null/);
   assert.match(memoStickySource, /options\.satelliteWindows\.keyOf\(window\)/);
   // ×は表示を閉じるだけで、Memoは削除しない。削除は memo-sticky:delete という別の操作。
-  const closeHandler = memoStickySource.slice(memoStickySource.indexOf('ipcMain.handle("memo-sticky:close"'));
+  const closeHandler = memoStickySource.slice(memoStickySource.indexOf("ipcMain.handle(IPC.memoStickyClose"));
   const closeBody = closeHandler.slice(0, closeHandler.indexOf("\n    });"));
   assert.match(closeBody, /return options\.satelliteWindows\.close\(\{ kind: "memo", entityId: memoId \}\)/);
   assert.doesNotMatch(closeBody, /repository\.remove/);
@@ -190,8 +190,8 @@ test("付箋を閉じる・アーカイブ・削除を別の操作として区�
   assert.match(stickyHtml, /role="menuitem" id="delete" class="danger">メモを削除</);
   // 削除は取り消せないので確認する。閉じる操作には確認を出さない。
   assert.match(stickyHtml, /window\.confirm\("このメモを削除しますか。/);
-  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:archive"/);
-  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:delete"/);
+  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyArchive/);
+  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyDelete/);
 
   // Inbox側: アーカイブと削除を別ボタンで並べる。
   assert.match(inboxSource, /aria-label="付箋メモをアーカイブ"/);
@@ -218,8 +218,8 @@ test("付箋で開いているMemoを本体から区別できる（#298）", () 
   // 開いている付箋の一括操作。
   assert.match(inboxSource, /すべて前面へ/);
   assert.match(inboxSource, /すべて閉じる/);
-  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:show-all"/);
-  assert.match(memoStickySource, /ipcMain\.handle\("memo-sticky:close-all"/);
+  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyShowAll/);
+  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyCloseAll/);
 });
 
 // --- 切り離しNote編集ウィンドウ（#290） ---
@@ -291,10 +291,10 @@ test("Noteウィンドウから本体へ表示を渡せる（#290）", () => {
   const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
   // 本体へ戻すと、本体で同じNoteを開き直してからウィンドウを閉じる。
-  assert.match(noteWindowSource, /ipcMain\.handle\("note-window:return-to-main"/);
-  assert.match(noteWindowSource, /mainWindow\.webContents\.send\("workspace:open-note", noteId\)/);
+  assert.match(noteWindowSource, /ipcMain\.handle\(IPC\.noteWindowReturnToMain/);
+  assert.match(noteWindowSource, /mainWindow\.webContents\.send\(IPC\.workspaceOpenNote, noteId\)/);
   // 関連Entityは本体側で開き、Noteウィンドウ自体は閉じない。
-  assert.match(noteWindowSource, /ipcMain\.handle\("note-window:open-in-main"/);
+  assert.match(noteWindowSource, /ipcMain\.handle\(IPC\.noteWindowOpenInMain/);
   assert.match(workspaceAppSource, /window\.api\?\.app\?\.onOpenNote\?\.\(/);
   assert.match(workspaceAppSource, /window\.api\?\.app\?\.onNavigate\?\.\(/);
   // 受け側は本体だけ。切り離しウィンドウは自分で自分を移動させない。

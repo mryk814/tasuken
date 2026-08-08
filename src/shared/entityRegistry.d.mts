@@ -7,7 +7,18 @@ export type RegistryEntityType =
   | "change_event" | "artifact" | "sketch";
 
 export const entityTypes: readonly RegistryEntityType[];
-export const entityDefinitions: readonly Record<string, unknown>[];
+export const referenceTargetEntityTypes: readonly Exclude<RegistryEntityType, "theme" | "item" | "link" | "view" | "status_update" | "source_record" | "entity_source" | "field_definition" | "field_value" | "log_entry" | "import_batch" | "ai_proposal" | "schedule" | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge" | "change_event">[];
+export const referenceRelationTypes: readonly ["related_to", "derived_from", "mentions", "blocks", "supports"];
+export interface EntityDefinition {
+  readonly type: RegistryEntityType;
+  readonly collectionKey: string;
+  readonly themePolicy: "none" | "optional" | "required";
+  readonly themeField: string | null;
+  readonly parseCreate(payload: unknown): Record<string, unknown>;
+  readonly parseUpdate(payload: unknown): Record<string, unknown>;
+}
+export const entityDefinitions: readonly EntityDefinition[];
+export function entityDefinition(type: RegistryEntityType): EntityDefinition;
 export function collectionKeyForEntityType(type: RegistryEntityType): string;
 export function themeFieldForEntityType(type: RegistryEntityType): string | null;
 export function legacyThemeFieldsForEntityType(type: RegistryEntityType): readonly string[];
