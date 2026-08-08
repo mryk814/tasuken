@@ -7,7 +7,6 @@ import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { formatDate } from "../lib/format";
-import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
 import {
   DEFAULT_TASK_VIEW_FILTERS,
@@ -108,9 +107,6 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   const [sortMode, setSortMode] = useState<TodoSortMode>("default");
   const [sortDirection, setSortDirection] = useState<TodoSortDirection>("desc");
   const [groupMode, setGroupMode] = useState<TodoGroupMode>("none");
-  const [showPaste, setShowPaste] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const [pastePreview, setPastePreview] = useState<ParsedTaskRow[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState("");
@@ -225,52 +221,6 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     openTaskDetail(duplicated.task, duplicated.schedule);
   }
 
-  function previewPaste() {
-    const rows = parseTaskTable(pasteText, themes);
-    if (!rows.length) {
-      setToast("貼り付け内容を読み取れませんでした。1行に1件、またはTSV/CSVの表を貼り付けてください。");
-      return;
-    }
-    setPastePreview(rows);
-  }
-
-  async function importPaste() {
-    const now = new Date().toISOString();
-    const ops = pastePreview.flatMap((row) => {
-      const taskId = crypto.randomUUID();
-      const task: Task = {
-        id: taskId,
-        title: row.title,
-        project_id: row.theme_id || null,
-        state: "todo",
-        priority: row.priority === "high" ? "high" : "normal",
-        description: row.description || null,
-        created_at: now,
-      };
-      const result = buildSaveTaskOperations(task, { source: "import" });
-      if (row.planned_end || row.planned_start) {
-        const hasRange = row.planned_start && row.planned_end && row.planned_start !== row.planned_end;
-        const schedule: Schedule = {
-          id: crypto.randomUUID(),
-          owner_type: "task",
-          owner_id: taskId,
-          start_date: row.planned_start || null,
-          end_date: row.planned_end || null,
-          date_kind: hasRange ? "range" : "deadline",
-          confidence: "fixed",
-          granularity: "day",
-        };
-        result.push(...buildSaveScheduleOperations(schedule, { source: "import" }));
-      }
-      return result;
-    });
-    if (!ops.length) return;
-    await saveEntities(ops, `${pastePreview.length}件を追加しました。`);
-    setPasteText("");
-    setPastePreview([]);
-    setShowPaste(false);
-  }
-
   function copyRows() {
     const header = "タスク\t状態\tテーマ\t今日\t予定終了\t完了日\tリマインダー\t旗\t繰り返し";
     const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.completed_at ? task.completed_at.slice(0, 10) : ""}\t${reminderTimeLabel(task.reminder_at, today)}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
@@ -351,7 +301,6 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     <div className="page">
       <PageHeader route="todo">
         <button className="secondary-button" onClick={copyRows}>一覧をコピー</button>
-        <button className="secondary-button" onClick={() => setShowPaste((current) => !current)}>表から追加</button>
         <button className="primary-button" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</button>
       </PageHeader>
       {showAdd && (
@@ -372,27 +321,6 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           <button key={id} className={filter === id ? "is-active" : ""} onClick={() => selectFilterTab(id)}>{label}<span className="tab-count">{count}</span></button>
         ))}
       </div>
-      {showPaste && (
-        <section className="panel paste-panel">
-          <div className="section-heading"><h2>表から追加</h2><span>タイトル / Theme / 予定終了 / 状態 / 説明</span></div>
-          <textarea value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPastePreview([]); }} placeholder={"タイトル\tTheme\t予定終了\t状態\t説明\n測定条件を確認\t材料A評価\t2026-06-20\t未着手\t条件表と照合"} />
-          {pastePreview.length > 0 && (
-            <div className="paste-preview">
-              {pastePreview.map((row, index) => (
-                <div key={`${row.title}-${index}`}>
-                  <strong>{row.title}</strong>
-                  <span>{themes.find((theme) => theme.id === row.theme_id)?.name || "個人業務"}</span>
-                  <time>{row.planned_end || "予定なし"}</time>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="form-actions">
-            <button className="secondary-button" onClick={() => { setShowPaste(false); setPastePreview([]); }}>閉じる</button>
-            {pastePreview.length ? <button className="primary-button" onClick={importPaste}>追加する</button> : <button className="primary-button" onClick={previewPaste}>内容を確認</button>}
-          </div>
-        </section>
-      )}
       <section className="panel list-page">
         <div className="todo-table-toolbar">
           <select value={taskFilters.themeId} onChange={(event) => patchTaskFilters({ themeId: event.target.value })} aria-label="Themeで絞り込み">

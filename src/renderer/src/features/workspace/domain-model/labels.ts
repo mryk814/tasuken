@@ -1,5 +1,15 @@
+import type { TimelineItemState } from "../lib/timeline";
+import type {
+  AiAudience,
+  AiAuthority,
+  AiFreshness,
+  AiSourceRefKind,
+  AiSummaryAuthority,
+  AiVisibilityPreset,
+} from "../../../../../shared/aiMetadata.mjs";
 import type {
   CaptureEntryState,
+  EntityRefType,
   PlanNodeState,
   PlanNodeType,
   ProjectState,
@@ -111,4 +121,97 @@ export const ARTIFACT_LINK_STATUS_LABELS: Record<string, string> = {
   ok: "到達可",
   broken: "リンク切れ",
   inaccessible: "アクセス不可",
+};
+
+/** AI可読metadata（#294）。内部コードを画面へ出さないための対応表。 */
+export const AI_AUDIENCE_LABELS: Record<AiAudience, string> = {
+  m365: "Microsoft 365",
+  coding_agent: "Coding Agent",
+  external_ai: "外部AI",
+};
+
+export const AI_VISIBILITY_PRESET_LABELS: Record<AiVisibilityPreset, string> = {
+  local_only: "ローカルのみ",
+  m365_allowed: "Microsoft 365まで",
+  coding_agent_allowed: "Coding Agentまで",
+  m365_and_coding_agent_allowed: "M365とCoding Agent",
+  external_ai_allowed: "外部AIまで",
+};
+
+export const AI_FRESHNESS_LABELS: Record<AiFreshness, string> = {
+  current: "現在有効",
+  stale: "要再確認",
+  superseded: "置き換え済み",
+  unknown: "未判定",
+};
+
+export const AI_AUTHORITY_LABELS: Record<AiAuthority, string> = {
+  user_confirmed: "ユーザー確認済み",
+  imported: "取り込み原文",
+  ai_generated: "AI生成",
+  inferred: "推定",
+  external_source: "外部資料の要約",
+};
+
+export const AI_SUMMARY_AUTHORITY_LABELS: Record<AiSummaryAuthority, string> = {
+  user_confirmed: "ユーザー確定",
+  rule_generated: "ルール生成",
+  ai_generated: "AI生成",
+  excerpt: "本文からの暫定",
+};
+
+export const AI_SOURCE_REF_KIND_LABELS: Record<AiSourceRefKind, string> = {
+  url: "URL",
+  file: "ファイル",
+  canonical_document: "正本文書",
+  conversation: "会話",
+  meeting: "会議",
+  repository: "リポジトリ",
+  external_system: "外部システム",
+};
+
+/** 公開範囲がどこから来たか。未設定と明示許可を混同させないための語。 */
+export const AI_VISIBILITY_SOURCE_LABELS: Record<"entity" | "theme" | "workspace_default", string> = {
+  entity: "この項目で設定",
+  theme: "Themeの既定を継承",
+  workspace_default: "全体の既定",
+};
+
+/** 未設定であることを示す語。「無い」ではなく「決めていない」と読ませる。 */
+export const AI_UNSET_LABEL = "未設定";
+
+/** Entity参照の種別。置き換え先の指定など、種別を選ばせる場面で使う。 */
+export const ENTITY_REF_TYPE_LABELS: Record<EntityRefType, string> = {
+  project: "Theme",
+  capture_entry: "Inbox",
+  task: "タスク",
+  waiting: "待ち",
+  plan_node: "計画ノード",
+  note: "メモ",
+  resource: "リソース",
+  knowledge_node: "Knowledge",
+  sketch: "Sketch",
+  artifact: "Artifact",
+};
+
+/** Timeline itemの状態（#318）。色だけで伝えないための語と記号の対応表。 */
+export const TIMELINE_ITEM_STATE_LABELS: Record<TimelineItemState, string> = {
+  completed: "完了",
+  cancelled: "中止",
+  overdue: "期限超過",
+  ongoing: "継続中",
+  execution_window: "期間内に一度",
+  active: "進行中",
+  planned: "未着手",
+};
+
+/** barの中でも状態が分かるようにする記号。読み上げからは外し、labelを正本にする。 */
+export const TIMELINE_ITEM_STATE_MARKS: Record<TimelineItemState, string> = {
+  completed: "✓",
+  cancelled: "×",
+  overdue: "!",
+  ongoing: "→",
+  execution_window: "◇",
+  active: "▶",
+  planned: "",
 };

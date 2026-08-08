@@ -246,9 +246,30 @@ test("Note編集ウィンドウはEditorを二重に実装せず本体と同じr
   assert.match(workspaceAppSource, /const route = detachedNoteId \? "notes" : storedRoute;/);
   assert.match(workspaceAppSource, /\{!detachedNoteId && \(\s*\n\s*<Sidebar/);
   assert.match(workspaceAppSource, /route !== "sketch-editor" && !detachedNoteId \? \(/);
-  assert.match(cssSourceForNotes, /\.app-shell\.is-detached-window \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  // 狭幅でも高さの制約を失わないよう、Sidebarを積む760px以下のblockフォールバックへ落とさない（#329）。
+  assert.match(cssSourceForNotes, /\.app-shell\.is-detached-window \{ display: grid; grid-template-columns: minmax\(0, 1fr\); \}/);
   // 一覧はgridの列を保ったまま畳む。display:noneにすると本文の列がずれる。
   assert.match(cssSourceForNotes, /\.app-shell\.is-detached-window \.notes-page \.notes-resize-handle \{ visibility: hidden; width: 0; \}/);
+});
+
+test("狭くしたNote別ウィンドウでも本文の領域が残る（#329）", () => {
+  const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+
+  // 一覧を畳んでいるときは本文が唯一の列。760px以下でも積み上げず、列構成と高さの制約を保つ。
+  assert.match(cssSourceForNotes, /\.notes-workbench\.is-list-collapsed \{ grid-template-columns: 0px auto minmax\(0, 1fr\) !important; \}/);
+  assert.match(cssSourceForNotes, /\.notes-workbench\.is-list-collapsed \.note-preview-panel \{ min-height: 0; max-height: 100%; \}/);
+
+  // 上部バーは幅が足りなくても縮めず畳む。縮めると日本語ラベルが一文字ずつ縦積みになる。
+  assert.match(cssSourceForNotes, /\.app-titlebar > \*, \.titlebar-controls > \*, \.titlebar-launcher > \* \{ flex-shrink: 0; \}/);
+  assert.match(cssSourceForNotes, /\.app-titlebar button, \.app-titlebar \.titlebar-brand \{ white-space: nowrap; \}/);
+
+  // Sidebarが無いウィンドウで開閉トグルを出さない。
+  assert.match(shellSource, /\{!detached && \(\s*\n\s*<button\s*\n\s*className="titlebar-sidebar-toggle"/);
+  assert.match(workspaceAppSource, /detached=\{Boolean\(detachedNoteId\)\}/);
+
+  // 見出しは上部が持つ。本文側で二重に出さない。
+  assert.match(cssSourceForNotes, /\.notes-page\.is-detached-note \.note-preview-header h2 \{ display: none; \}/);
 });
 
 test("同じNoteを二つのEditorで黙って同時編集させない（#290）", () => {
@@ -259,8 +280,8 @@ test("同じNoteを二つのEditorで黙って同時編集させない（#290）
   assert.match(notesSource, /if \(detachedElsewhere\) setPreviewMode\("preview"\);/);
   assert.match(notesSource, /このノートは別ウィンドウで編集中です。/);
   assert.match(notesSource, /disabled=\{detachedElsewhere\}/);
-  // 既に開いていればボタンの意味が「前面へ出す」に変わる。
-  assert.match(notesSource, /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを表示" : "別ウィンドウで開く"/);
+  // 常設buttonから「この文書」menuの項目へ移した（#331）。意味の切り替えは維持する。
+  assert.match(notesSource, /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを前面に出す" : "別ウィンドウで開く"/);
   // 切り離す前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする。
   assert.match(notesSource, /await autoSaveDraft\(\);\s*\n\s*const opened = await workspaceApi\.openNoteWindow\(selected\.id\)/);
 });

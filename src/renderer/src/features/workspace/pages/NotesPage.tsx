@@ -1,13 +1,13 @@
 import {
+  IconBulb,
   IconExternalLink,
-  IconFileTypePdf,
   IconFolder,
   IconLink,
   IconNotes,
   IconPrompt,
   IconReport,
+  IconSearch,
   IconSparkles,
-  IconWriting,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -41,6 +41,9 @@ import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
 import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { NoteAiDialog, type NoteAiTarget } from "../components/NoteAiDialog";
+import { NoteCreateMenu } from "../components/NoteCreateMenu";
+import { ToolbarMenu, type ToolbarMenuItem } from "../components/ToolbarMenu";
+import type { SelectionCommandRequest } from "../components/MarkdownRichEditor";
 import { clipboardImageFile, readFileAsDataUrl } from "../lib/clipboardImage";
 import { isChatReference } from "../lib/chatRefs";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
@@ -232,6 +235,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [draftState, setDraftState] = useState("");
   // 直近の正本Markdown同期の結果（#291）。署名比較では分からない外部変更・失敗を保持する。
   const [canonicalSyncState, setCanonicalSyncState] = useState<CanonicalMarkdownFileState | null>(null);
+  /** 選択範囲の変換を明示commandで呼ぶための合図（#313）。 */
+  const [selectionCommand, setSelectionCommand] = useState<SelectionCommandRequest | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
@@ -726,6 +731,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     return written === noteExportSignature(currentDraftBody() || selectedBody) ? "synced" : "pending";
   })();
 
+  /**
+   * 保存状態（#331）。一時messageが無くても「いまどうなっているか」を必ず言う。
+   * 保存直後にEditorのonChangeで一時messageが消えても、静止状態を読み取れるようにする。
+   */
+  const saveStateLabel = draftState
+    || (draftDirty
+      ? "未保存の変更があります"
+      : noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
+
   /** 選択中のNoteが、この画面ではない別ウィンドウで編集中か（#290）。 */
   const detachedElsewhere = !detachedNoteId && Boolean(selected && openNoteWindowIds.includes(selected.id));
 
@@ -931,6 +945,33 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         ...(noteType === "report" ? { properties_json: { report_type: "weekly" } } : {}),
       },
     });
+  }
+
+  /**
+   * 選択範囲の変換はCommand Palette等からの明示commandで呼ぶ（#313）。
+   * 選択しただけでtoolbarを出すと、通常のコピー・IME操作を妨げる。
+   */
+  function requestSelectionCommand(kind: SelectionCommandRequest["kind"]) {
+    if (previewMode !== "edit") {
+      setToast("Editで本文の範囲を選んでから実行してください。", "warning");
+      return;
+    }
+    setSelectionCommand((current) => ({ kind, nonce: (current?.nonce ?? 0) + 1 }));
+  }
+
+  /** 追加の既定種別（#313）。種別filter中はその種類、`すべて`ではNote。 */
+  const createDefaultKind: NotesKind = scope === "all" ? "note" : scope;
+
+  function createRecord(kind: NotesKind) {
+    if (kind === "resource") {
+      openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } });
+      return;
+    }
+    if (kind === "prompt") {
+      addPrompt();
+      return;
+    }
+    addNote(kind);
   }
 
   async function copySelectedRaw() {
@@ -1605,7 +1646,113 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     draft: () => selected?.recordType === "note"
       ? setDraftWorkspaceTarget(selected)
       : setToast("Draft Workspaceで扱うNoteまたはMarkdown文書を選択してください。", "warning"),
+    // 選択範囲の変換（#313）。自動toolbarを撤去したので、ここが正規の入口。
+    "selection-task": () => requestSelectionCommand("task"),
+    "selection-note": () => requestSelectionCommand("note"),
+    "selection-ai": () => requestSelectionCommand("ai"),
   };
+
+  /**
+   * 派生出力（#331）。Note正本の`保存`と語彙を分け、出力先を選ぶ操作と混同させない。
+   */
+  const outputMenuItems: ToolbarMenuItem[] = showDocumentPublish ? [
+    { kind: "group", id: "group-export", label: "書き出し" },
+    {
+      id: "export-markdown",
+      label: markdownExporting ? "Markdownを書き出しています" : "Markdownを書き出す",
+      hint: markdownExportStale ? "本文が変わっています。書き出し直せます。" : undefined,
+      disabled: markdownExporting,
+      onSelect: () => void exportSelectedMarkdown(false),
+    },
+    {
+      id: "export-pdf",
+      label: pdfExporting ? "PDFを作成しています" : "PDFを作成",
+      disabled: pdfExporting,
+      onSelect: () => void exportSelectedPdf(),
+    },
+    { kind: "group", id: "group-destination", label: "保存先" },
+    ...(markdownExportOpenPath ? [{
+      id: "open-destination",
+      label: "保存先フォルダを開く",
+      hint: markdownExportDirectory || markdownExportFilePath,
+      onSelect: () => void openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath),
+    } as ToolbarMenuItem] : []),
+    ...(hasMarkdownExportDirectory ? [{
+      id: "change-destination",
+      label: "保存先を変更",
+      disabled: markdownExporting,
+      onSelect: () => void exportSelectedMarkdown(true),
+    } as ToolbarMenuItem] : []),
+    { kind: "group", id: "group-heading", label: "見出し番号" },
+    {
+      kind: "toggle",
+      id: "heading-numbers",
+      label: "Edit・Preview・PDFに通し番号を付ける",
+      hint: "本文は書き換えません。Markdownファイル出力には含めません。",
+      checked: headingNumbersEnabled,
+      onToggle: (checked) => updateHeadingNumberSettings({ heading_numbers: checked }),
+    },
+    ...(headingNumbersEnabled ? HEADING_NUMBER_LEVELS.map((level): ToolbarMenuItem => ({
+      kind: "toggle",
+      id: `heading-level-${level}`,
+      label: HEADING_NUMBER_LEVEL_LABELS[level],
+      checked: headingNumberLevels.includes(level),
+      onToggle: (checked) => updateHeadingNumberSettings({
+        heading_number_levels: normalizeHeadingNumberLevels(
+          checked
+            ? [...headingNumberLevels, level]
+            : headingNumberLevels.filter((current) => current !== level),
+        ),
+      }),
+    })) : []),
+  ] : [
+    {
+      id: "export-unavailable",
+      label: "この種別では書き出しできません",
+      disabled: true,
+      onSelect: () => {},
+    },
+  ];
+
+  /**
+   * この文書に対する低頻度操作（#331）。
+   * 同格buttonとして並べず、意味の分かる一つのlabelの下へ畳む。
+   */
+  const documentMenuItems: ToolbarMenuItem[] = selected ? [
+    { kind: "group", id: "group-editor", label: "本文" },
+    { id: "format", label: "整形する", hint: "行末空白と過剰な空行を整えます", onSelect: () => formatSelectedDraft() },
+    {
+      id: "insert-sketch",
+      label: "Sketchを挿入",
+      hint: sketches.length ? "カーソル位置に既存Sketchを挿入します" : "先にSketchを作成してください",
+      disabled: previewMode !== "edit" || !sketches.length,
+      onSelect: () => showSketchPicker(),
+    },
+    { id: "copy-body", label: "本文をすべてコピー", onSelect: () => void copySelectedRaw() },
+    ...(!detachedNoteId && selected.recordType === "note" ? [{
+      kind: "group" as const, id: "group-window", label: "ウィンドウ",
+    }, {
+      id: "detach",
+      label: openNoteWindowIds.includes(selected.id) ? "別ウィンドウを前面に出す" : "別ウィンドウで開く",
+      hint: "本文を別ウィンドウへ切り離し、本体では別の画面へ移動できます",
+      onSelect: () => void detachSelectedNote(),
+    } as ToolbarMenuItem] : []),
+    { kind: "group", id: "group-ai", label: "AI・関連付け" },
+    ...(selected.recordType === "note" ? [{
+      id: "draft-workspace",
+      label: "Draft WorkspaceでAIと書く",
+      onSelect: () => setDraftWorkspaceTarget(selected),
+    } as ToolbarMenuItem, {
+      id: "ai-edit",
+      label: "AIで編集する",
+      onSelect: () => openNoteAi(),
+    } as ToolbarMenuItem] : []),
+    ...(canCreateKnowledge(selected) ? [{
+      id: "knowledge",
+      label: "Knowledgeにする",
+      onSelect: () => knowledgeFromNote(selected),
+    } as ToolbarMenuItem] : []),
+  ] : [];
 
   useEffect(() => {
     const runCommand = (event: Event) => {
@@ -1629,10 +1776,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
           <>
             <button className="secondary-button" onClick={copy}>一覧をコピー</button>
             <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
-            <button className="primary-button" onClick={() => addNote("note")}>Note</button>
-            <button className="primary-button" onClick={() => openDrawer({ type: "resource", mode: "edit", entity: { project_id: activeTheme?.id || null } })}>Resource</button>
-            <button className="primary-button" onClick={() => addNote("report")}>Report</button>
-            <button className="primary-button" onClick={() => addPrompt()}>Prompt</button>
+            {/* 作成は一つのprimary actionへ集約する。既定の種類は現在のfilterから決める（#313）。 */}
+            <NoteCreateMenu defaultKind={createDefaultKind} onCreate={createRecord} />
           </>
         )}
       </PageHeader>
@@ -1738,7 +1883,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     aria-label={`${str(record.title) || "Note"}をKnowledge化`}
                     title="Knowledge化"
                   >
-                    <IconSparkles size={15} />
+                    {/* Knowledge化はAIの操作ではない。AI iconを流用しない（#312）。 */}
+                    <IconBulb size={15} />
                   </button>
                 )}
                 {url && (
@@ -1791,7 +1937,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     <div className="note-date-meta">
                       {selected.created_at && <span>追加 {noteDateLabel(selected.created_at)}</span>}
                       {selected.updated_at && <span>更新 {noteDateLabel(selected.updated_at)}</span>}
-                      {draftState && <span className="note-draft-state" role="status" aria-live="polite">{draftState}</span>}
                       {recentExtraction && (
                         <button
                           type="button"
@@ -1810,28 +1955,20 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     <a className="note-preview-url" href={selectedUrl} target="_blank" rel="noreferrer">{selectedUrl}</a>
                   )}
                 </div>
+                {/*
+                  文書レベルの操作（#331）。この段は「この文書を確定する」ことだけを扱う。
+                  Editor操作は下のtoolbarへ、低頻度・派生出力はmenuへ置く。
+                */}
                 <div className="note-preview-actions">
-                  <button className="secondary-button compact" onClick={copySelectedRaw}>本文をコピー</button>
-                  {selected.recordType === "note" && (
-                    <button className="secondary-button compact" onClick={() => setDraftWorkspaceTarget(selected)}><IconSparkles size={15} />Draft Workspace</button>
-                  )}
-                  {selected.recordType === "note" && (
-                    <button className="secondary-button compact" onClick={openNoteAi}><IconSparkles size={15} />AI編集</button>
-                  )}
+                  {/* 保存状態は保存操作の隣に置く。自動保存と手動保存の関係を読み取れるようにする（#331）。 */}
+                  <span className="note-draft-state" role="status" aria-live="polite">{saveStateLabel}</span>
                   <button className="secondary-button compact" disabled={!draftDirty} onClick={() => {
                     setDraftBody(selectedBody);
                     setRichEditorDirty(false);
                     setDraftState("変更を戻しました。");
                   }}>戻す</button>
                   <button className="primary-button compact" disabled={!draftDirty} onClick={saveSelectedDraft} title="Ctrl+S">保存</button>
-                  {canCreateKnowledge(selected) && (
-                    <button
-                      className="secondary-button compact"
-                      onClick={() => knowledgeFromNote(selected)}
-                    >
-                      Knowledge化
-                    </button>
-                  )}
+                  <ToolbarMenu label="この文書" title="この文書に対する操作" items={documentMenuItems} />
                 </div>
               </div>
               <div className={`document-publish-panel document-publish-strip ${markdownExportStale && showDocumentPublish ? "needs-export" : ""}`}>
@@ -1877,37 +2014,19 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                       onClick={() => switchPreviewMode("raw")}
                     >Raw</button>
                   </div>
-                  {!detachedNoteId && (
-                    <button
-                      className="secondary-button compact"
-                      aria-pressed={documentFocus}
-                      onClick={toggleDocumentFocus}
-                      title={documentFocus ? "元の表示へ戻す（Esc）" : "一覧と補助行を畳んで本文を縦いっぱいに広げます"}
-                    >
-                      {documentFocus ? "表示を戻す" : "本文を広げる"}
-                    </button>
-                  )}
-                  {/* 同じNoteの二枚目は作らない。既に開いていれば前面へ出すだけ（#290）。 */}
-                  {!detachedNoteId && selected?.recordType === "note" && (
-                    <button
-                      className={`secondary-button compact ${openNoteWindowIds.includes(selected.id) ? "is-active" : ""}`}
-                      onClick={() => void detachSelectedNote()}
-                      title={openNoteWindowIds.includes(selected.id)
-                        ? "別ウィンドウを前面に表示します"
-                        : "本文を別ウィンドウへ切り離し、本体では別の画面へ移動できます"}
-                    >
-                      {openNoteWindowIds.includes(selected.id) ? "別ウィンドウを表示" : "別ウィンドウで開く"}
-                    </button>
-                  )}
-                  <button className="secondary-button compact" onClick={formatSelectedDraft} title="行末空白と過剰な空行を整えます">整形</button>
+                  {/* Editorの高頻度操作。本体と別ウィンドウで同じ位置・順序にする（#331）。 */}
                   <button
-                    className="secondary-button compact"
-                    disabled={previewMode !== "edit" || !sketches.length}
-                    onClick={showSketchPicker}
-                    title={sketches.length ? "カーソル位置に既存Sketchを挿入" : "先にSketchを作成してください"}
+                    className="secondary-button compact icon-only"
+                    onClick={() => {
+                      const liveBody = mdxMarkdownSourceRef.current?.();
+                      if (typeof liveBody === "string") setDraftBody(liveBody);
+                      setSearchOpen(true);
+                      window.requestAnimationFrame(() => searchInputRef.current?.focus());
+                    }}
+                    aria-label="本文を検索・置換"
+                    title="本文を検索・置換（Ctrl+F）"
                   >
-                    <IconWriting size={15} stroke={1.8} aria-hidden />
-                    Sketch
+                    <IconSearch size={15} stroke={1.8} aria-hidden="true" />
                   </button>
                   <button
                     className={`secondary-button compact ${diffOpen ? "is-active" : ""}`}
@@ -1923,54 +2042,18 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   >
                     {markdownDiffHunks.length ? `変更 ${markdownDiffHunks.length}か所` : "変更を確認"}
                   </button>
-                  {showDocumentPublish && (
-                    <>
-                      <label className="toggle note-heading-number-toggle" title="本文は書き換えず、Edit・Preview・PDF に通し番号を付けます。Markdownファイル出力には含めません">
-                        <input
-                          type="checkbox"
-                          checked={headingNumbersEnabled}
-                          onChange={(event) => updateHeadingNumberSettings({ heading_numbers: event.target.checked })}
-                        />
-                        見出し番号
-                      </label>
-                      {headingNumbersEnabled && (
-                        <details className="note-heading-level-picker">
-                          <summary title="番号を付ける見出しレベル">{headingNumberLevelSummary}</summary>
-                          <div className="note-heading-level-menu" aria-label="番号を付ける見出し">
-                            {HEADING_NUMBER_LEVELS.map((level) => (
-                              <label key={level}>
-                                <input
-                                  type="checkbox"
-                                  checked={headingNumberLevels.includes(level)}
-                                  onChange={(event) => updateHeadingNumberSettings({
-                                    heading_number_levels: normalizeHeadingNumberLevels(
-                                      event.target.checked
-                                        ? [...headingNumberLevels, level]
-                                        : headingNumberLevels.filter((current) => current !== level),
-                                    ),
-                                  })}
-                                />
-                                {HEADING_NUMBER_LEVEL_LABELS[level]}
-                              </label>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-                      <button className="primary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(false)}>
-                        {markdownExporting ? "保存中" : "保存"}
-                      </button>
-                      {hasMarkdownExportDirectory && (
-                        <button className="secondary-button compact" disabled={markdownExporting} onClick={() => exportSelectedMarkdown(true)} title="保存先フォルダを変更">
-                          <IconFolder size={15} stroke={1.8} aria-hidden />
-                          保存先を変更
-                        </button>
-                      )}
-                      <button className="secondary-button compact" disabled={pdfExporting} onClick={exportSelectedPdf} title="PDFを出力">
-                        <IconFileTypePdf size={15} stroke={1.8} aria-hidden />
-                        {pdfExporting ? "出力中" : "PDF"}
-                      </button>
-                    </>
+                  {!detachedNoteId && (
+                    <button
+                      className="secondary-button compact"
+                      aria-pressed={documentFocus}
+                      onClick={toggleDocumentFocus}
+                      title={documentFocus ? "元の表示へ戻す（Esc）" : "一覧と補助行を畳んで本文を縦いっぱいに広げます"}
+                    >
+                      {documentFocus ? "表示を戻す" : "本文を広げる"}
+                    </button>
                   )}
+                  {/* 派生出力は正本保存と語彙を分ける（#331）。`保存`とは呼ばない。 */}
+                  <ToolbarMenu label="出力" title="書き出しと保存先" items={outputMenuItems} />
                 </div>
               </div>
               {showDocumentPublish && exportTargets.length > 0 && (
@@ -2141,6 +2224,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                         onError={reportRichEditorError}
                         onExtractSelection={selected.recordType === "note" ? extractSelection : undefined}
                         onAiEditSelection={selected.recordType === "note" ? openSelectionAi : undefined}
+                        selectionCommand={selectionCommand}
+                        onSelectionUnavailable={() => setToast("先に本文の範囲を選択してください。", "warning")}
                       />
                     </Suspense>
                   </MarkdownEditorBoundary>

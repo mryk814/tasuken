@@ -16,6 +16,8 @@ function taskToItem(task: Task, schedule?: Schedule): Item {
     description: task.description ?? undefined,
     planned_start: schedule?.start_date ?? null,
     planned_end: schedule?.end_date ?? null,
+    // 日付範囲の意味（#309）。Timelineの状態表示で「継続中」と「期間内に一度」を分ける。
+    range_semantics: schedule?.range_semantics ?? null,
     completed_at: task.completed_at,
     source_record_id: task.source_record_id,
     created_at: task.created_at,
@@ -35,6 +37,8 @@ function waitingToItem(waiting: Waiting, schedule?: Schedule): Item {
     description: waiting.description ?? undefined,
     planned_start: schedule?.start_date ?? null,
     planned_end: schedule?.end_date ?? null,
+    // 日付範囲の意味（#309）。Timelineの状態表示で「継続中」と「期間内に一度」を分ける。
+    range_semantics: schedule?.range_semantics ?? null,
     source_record_id: waiting.source_record_id,
     created_at: waiting.created_at,
     updated_at: waiting.updated_at,
@@ -51,6 +55,8 @@ function planNodeToItem(planNode: PlanNode, schedule?: Schedule): Item {
     description: planNode.description ?? undefined,
     planned_start: schedule?.start_date ?? null,
     planned_end: schedule?.end_date ?? null,
+    // 日付範囲の意味（#309）。Timelineの状態表示で「継続中」と「期間内に一度」を分ける。
+    range_semantics: schedule?.range_semantics ?? null,
     source_record_id: planNode.source_record_id,
     created_at: planNode.created_at,
     updated_at: planNode.updated_at,

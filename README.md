@@ -35,6 +35,16 @@ npm run smoke:desktop
 npm run smoke:model
 ```
 
+狭幅・表示倍率ごとのレイアウト崩れを自動確認（本体の主要画面 / Note別ウィンドウ）:
+
+```powershell
+npm run audit:responsive
+```
+
+```powershell
+npm run audit:note-window
+```
+
 Read-only MCP Serverを起動:
 
 ```powershell
@@ -105,3 +115,4 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 
 詳細な実装状況は [`PLAN.md`](./docs/PLAN.md) を参照してください。
 Knowledge ModelとAI/MCP連携の次期方針は [`knowledge-mcp-policy.md`](./docs/knowledge-mcp-policy.md) を参照してください。
+AIへ渡す概要・鮮度・根拠・公開範囲の共通契約は [`ai-metadata-contract.md`](./docs/ai-metadata-contract.md) を参照してください。

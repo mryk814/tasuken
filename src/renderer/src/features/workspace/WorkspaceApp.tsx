@@ -27,6 +27,8 @@ import { entityTitle } from "./lib/domain";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import { activityDatesToAutoExport, localDateAndTime, runActivityAutoExport } from "./lib/activityAutoExport";
 import { buildActivityLog } from "./lib/activityLog";
+import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
+import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
@@ -43,7 +45,7 @@ import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPa
 import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
 import { FocusSessionDialog } from "./components/FocusSessionDialog";
-import { findActiveFocusSession, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
+import { findActiveFocusSession, focusSessionProperties, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -140,6 +142,8 @@ export function WorkspaceApp() {
   const noteAutoSaveTimer = useRef<number | null>(null);
   const noteAutoSaveTriggerRef = useRef<() => void>(() => {});
   const updateCheckStarted = useRef(false);
+  /** 実行中Focusのtask id（#316）。global shortcutから最新値を読むため。 */
+  const activeFocusTaskIdRef = useRef<string>("");
   const activityAutoExportRunning = useRef(false);
   const activityAutoExportFailedTarget = useRef("");
 
@@ -298,6 +302,13 @@ export function WorkspaceApp() {
         event.preventDefault();
         (document.querySelector("[data-search]") as HTMLElement | null)?.focus();
       }
+      // 実行中のFocus Sessionをどの画面からでも開く（#316）。Alt+N（クイック記録）と同系列。
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "f") {
+        const taskId = activeFocusTaskIdRef.current;
+        if (!taskId) return;
+        event.preventDefault();
+        setFocusTaskId(taskId);
+      }
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
@@ -369,6 +380,8 @@ export function WorkspaceApp() {
     [fullData.notes],
   );
   const activeFocusTask = fullDomain.tasks.find((task) => task.id === focusSessionTaskId(activeFocusSession)) || null;
+  // global shortcutは登録時のclosureを見るので、最新のtask idはrefで渡す（#316）。
+  activeFocusTaskIdRef.current = activeFocusTask?.id || "";
 
   function startFocusSession(taskId: string) {
     const activeTaskId = focusSessionTaskId(activeFocusSession);
@@ -740,6 +753,8 @@ export function WorkspaceApp() {
         color: formText(values, "color") || (base.color as string) || "",
         group: formText(values, "group"),
         storage_root: formText(values, "storage_root") || null,
+        // 配下EntityのAI公開既定（#294）。未設定に戻すとworkspace既定を使う。
+        default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, (name) => Boolean(named(name))),
       };
     } else if (type === "sketch") {
       const title = formText(values, "title");
@@ -853,6 +868,7 @@ export function WorkspaceApp() {
         source_item_id: (sourceType === "task" || sourceType === "waiting" || sourceType === "plan_node") ? sourceId : (base.source_item_id as string | null) ?? null,
         confidence: formText(values, "confidence", "medium"),
         status: formText(values, "status", "active"),
+        ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))),
       };
       if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return false; }
       delete entity._auto_edge_target_id;
@@ -889,6 +905,11 @@ export function WorkspaceApp() {
     }
 
     if (!entity) return false;
+
+    // AI共通metadata（#294）。欄があるフォームからは読み、無い保存経路では既存値を保つ。
+    if (hasAiMetadataContract(type)) {
+      entity = { ...entity, ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))) };
+    }
 
     // Note の Theme 変更時は添付 Artifact の theme_id も揃える（ファイルは動かさない）。
     if (type === "note" && entity.id) {
@@ -1024,6 +1045,10 @@ export function WorkspaceApp() {
       { id: "notes:format", label: "現在のMarkdownを整形", keywords: ["format", "空行"], category: "Commands" as const, execute: () => dispatchNotesCommand("format") },
       { id: "notes:pdf", label: "現在の文書をPDF出力", keywords: ["export", "出力"], category: "Commands" as const, execute: () => dispatchNotesCommand("pdf") },
       { id: "notes:folder", label: "現在の文書の保存先を開く", keywords: ["folder", "directory", "フォルダ"], category: "Commands" as const, execute: () => dispatchNotesCommand("folder") },
+      // 選択しただけでtoolbarを出すのをやめたので、変換はここが正規の入口（#313）。
+      { id: "notes:selection-task", label: "選択範囲からTaskを作る", keywords: ["選択", "切り出し", "task", "抽出"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-task") },
+      { id: "notes:selection-note", label: "選択範囲からNoteを作る", keywords: ["選択", "切り出し", "note", "抽出"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-note") },
+      { id: "notes:selection-ai", label: "選択範囲をAIで編集", keywords: ["選択", "AI", "書き換え"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-ai") },
     ] : []),
     ...domain.tasks.map((task) => ({
       id: `task:${task.id}`,
@@ -1156,6 +1181,7 @@ export function WorkspaceApp() {
   const titleBar = (
     <AppTitleBar
       launcher={titleBarLauncher}
+      detached={Boolean(detachedNoteId)}
       collapsed={sidebarCollapsed}
       setCollapsed={setSidebarCollapsed}
       zoomFactor={zoomFactor}
@@ -1222,6 +1248,13 @@ export function WorkspaceApp() {
               setActiveThemeId={setActiveThemeId}
               domain={domain}
               openDrawer={openDrawer}
+              activeFocus={activeFocusTask && activeFocusSession ? {
+                taskTitle: activeFocusTask.title,
+                // 開始時刻は properties_json 側が正本。共有helperを通す。
+                startedAt: str(focusSessionProperties(activeFocusSession).started_at)
+                  || str(activeFocusSession.created_at),
+              } : null}
+              openActiveFocus={activeFocusTask ? () => setFocusTaskId(activeFocusTask.id) : undefined}
             />
           )}
           <main className="main-area">
@@ -1313,11 +1346,7 @@ export function WorkspaceApp() {
               close={() => setScratchpadDate(null)}
             />
           )}
-          {activeFocusSession && !focusTaskId && activeFocusTask && (
-            <button className="focus-resume-chip" onClick={() => setFocusTaskId(activeFocusTask.id)}>
-              <span>FOCUS</span>{activeFocusTask.title}を再開
-            </button>
-          )}
+          {/* 実行中Focusの表示はSidebar下部へ移した（#316）。右下floatingは目に入りにくい。 */}
           {focusTaskId && fullDomain.tasks.find((task) => task.id === focusTaskId) && (
             <FocusSessionDialog
               task={fullDomain.tasks.find((task) => task.id === focusTaskId) as typeof fullDomain.tasks[number]}

@@ -5,6 +5,9 @@ import type { AppUpdateCheckResult, McpBridgeInfo, SharedSyncStatus } from "../.
 import type { AiProviderConfig } from "../../../../../shared/ai";
 import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
+import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMetadata.mjs";
+import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
+import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
 import { entityTitle } from "../lib/domain";
 import { PageHeader } from "../components/common";
 
@@ -30,6 +33,37 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [aiBusy, setAiBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
+  // AI公開範囲のworkspace既定（#294）。Theme・項目が未設定のときだけ使う。
+  const [aiVisibilityDefault, setAiVisibilityDefault] = useState<AiAudience[]>([...DEFAULT_AI_VISIBILITY]);
+  const [aiVisibilityBusy, setAiVisibilityBusy] = useState(false);
+
+  useEffect(() => {
+    workspaceApi.getPreference("aiVisibilityDefault")
+      .then((value) => {
+        if (Array.isArray(value)) setAiVisibilityDefault(value as AiAudience[]);
+      })
+      .catch(() => {
+        // 取得できないときは契約の既定を表示し、変更操作時に改めてエラーを出す。
+      });
+  }, []);
+
+  async function updateAiVisibilityDefault(audience: AiAudience, allowed: boolean) {
+    const next = allowed
+      ? AI_AUDIENCES.filter((entry) => entry === audience || aiVisibilityDefault.includes(entry))
+      : aiVisibilityDefault.filter((entry) => entry !== audience);
+    const previous = aiVisibilityDefault;
+    setAiVisibilityDefault(next);
+    setAiVisibilityBusy(true);
+    try {
+      await workspaceApi.setPreference("aiVisibilityDefault", next);
+      setToast("AI公開範囲の既定を変更しました。", "success");
+    } catch (error) {
+      setAiVisibilityDefault(previous);
+      setToast(`AI公開範囲の既定を変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setAiVisibilityBusy(false);
+    }
+  }
 
   useEffect(() => {
     workspaceApi.calendarStatus()
@@ -424,6 +458,26 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             <button className="primary-button" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</button>
             <button className="secondary-button" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</button>
           </div>
+        </section>
+        <section className="panel settings-form ai-visibility-settings-panel">
+          <div className="settings-section-heading">
+            <h2>AI公開範囲の既定</h2>
+          </div>
+          <p className="field-help">Theme・各項目で個別に決めていないときに使う既定です。項目側の設定が常に優先されます。</p>
+          <fieldset className="ai-context-visibility">
+            <legend>渡してよい相手</legend>
+            {AI_AUDIENCES.map((audience) => (
+              <label key={audience}>
+                <input
+                  type="checkbox"
+                  checked={aiVisibilityDefault.includes(audience)}
+                  disabled={aiVisibilityBusy}
+                  onChange={(event) => updateAiVisibilityDefault(audience, event.target.checked)}
+                />
+                {AI_AUDIENCE_LABELS[audience]}
+              </label>
+            ))}
+          </fieldset>
         </section>
         <section className="panel settings-form calendar-settings-panel">
           <div className="settings-section-heading">

@@ -17,12 +17,14 @@ test("Sketch image clipboard uses an image-only Windows write with read-back ver
   assert.doesNotMatch(shared, /text: string/);
 });
 
-test("AI handoff is an explicit image-then-prompt flow", () => {
-  assert.match(page, /1\. AIへ画像をコピー/);
-  assert.match(page, /2\. AI向け指示をコピー/);
-  assert.match(page, /copyImageForAi/);
-  assert.match(page, /copyAiPrompt/);
-  assert.match(page, /workspaceApi\.copyText\(sketchAiPrompt\(selected\.title\)\)/);
+test("画像コピーはAI専用ではなく通常のclipboard操作にする（#320）", () => {
+  // AI専用文言とpromptの自動付加をやめ、一般のclipboard consumerへ貼れる操作へ戻す。
+  assert.doesNotMatch(page, /AIへ画像をコピー/);
+  assert.doesNotMatch(page, /AI向け指示をコピー/);
+  assert.doesNotMatch(page, /sketchAiPrompt/);
+  assert.match(page, /async function copyImage\(\)/);
+  assert.match(page, />画像をコピー</);
+  assert.match(page, /setToast\("Sketch画像をコピーしました。", "success"\)/);
 });
 
 test("desktop smoke crosses the native Sketch clipboard boundary", () => {

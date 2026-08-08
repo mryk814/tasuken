@@ -5,6 +5,7 @@ import {
   IconArrowsLeftRight,
   IconChevronDown,
   IconCircle,
+  IconCopy,
   IconDiamond,
   IconEraser,
   IconFile,
@@ -36,6 +37,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { SketchCanvas } from "../components/SketchCanvas";
+import { ToolbarMenu } from "../components/ToolbarMenu";
 import {
   resolveSketchPageSize,
   SketchPageSizePicker,
@@ -52,7 +54,6 @@ import {
   infiniteCanvasExportPage,
   minimumSketchPageSize,
   renderSketchPageToDataUrl,
-  sketchAiPrompt,
   sketchCanvasMode,
   sketchPageToSvg,
   type SketchDocument,
@@ -362,7 +363,12 @@ export function SketchPage({
     }
   }
 
-  async function copyImageForAi() {
+  /**
+   * 画像をWindows Clipboardへコピーする（#320）。
+   * AI専用の操作にせず、PowerPoint・Teams・Paint等へも同じ操作で貼れるようにする。
+   * promptや説明を自動で付けない。
+   */
+  async function copyImage() {
     if (!selected || !activePage) return;
     try {
       await workspaceApi.copyImage({
@@ -370,19 +376,9 @@ export function SketchPage({
           canvasMode === "infinite" ? cropSketchPageToContent(activePage) : activePage,
         ),
       });
-      setToast("1/2 Sketch画像をコピーしました。AIの入力欄へ貼り付けてください。", "success");
+      setToast("Sketch画像をコピーしました。", "success");
     } catch (error) {
       setToast(`Sketch画像をコピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
-    }
-  }
-
-  async function copyAiPrompt() {
-    if (!selected) return;
-    try {
-      await workspaceApi.copyText(sketchAiPrompt(selected.title));
-      setToast("2/2 AI向け指示をコピーしました。画像を貼った会話へ続けて貼り付けてください。", "success");
-    } catch (error) {
-      setToast(`AI向け指示をコピーできませんでした。${error instanceof Error ? error.message : String(error)} もう一度試してください。`, "danger");
     }
   }
 
@@ -409,7 +405,8 @@ export function SketchPage({
         <div className="sketch-header-meta">
           {selected.origin_capture_id && <span>Ink Captureから</span>}
           <span className={saveState.includes("できません") ? "is-error" : ""} role="status">{saveState}</span>
-          <button className="secondary-button" onClick={() => openDrawer({ type: "sketch", entity: selected })}>情報</button>
+          {/* 画像コピーは日常操作なので常設する。AI専用ではない（#320）。 */}
+          <button className="secondary-button" onClick={() => void copyImage()}><IconCopy size={15} />画像をコピー</button>
           <div className="sketch-menu">
             <button className="secondary-button" onClick={() => setExportOpen((value) => !value)}>エクスポート <IconChevronDown size={15} /></button>
             {exportOpen && (
@@ -426,11 +423,22 @@ export function SketchPage({
                     </select>
                   </label>
                 )}
-                <button role="menuitem" onClick={() => void copyImageForAi()}><IconSparkles size={15} />1. AIへ画像をコピー</button>
-                <button role="menuitem" onClick={() => void copyAiPrompt()}><IconSparkles size={15} />2. AI向け指示をコピー</button>
               </div>
             )}
           </div>
+          {/* metadataはcanvasを閉じずに触れる二次操作へ置く（#320）。 */}
+          <ToolbarMenu
+            label="この Sketch"
+            title="タイトル・Themeなどの設定"
+            items={[
+              {
+                id: "sketch-info",
+                label: "タイトル・Themeを編集",
+                onSelect: () => openDrawer({ type: "sketch", mode: "edit", entity: selected as unknown as Record<string, unknown> }),
+              },
+              { id: "sketch-list", label: "Sketch一覧へ戻る", onSelect: () => navigate("sketch") },
+            ]}
+          />
         </div>
       </header>
 

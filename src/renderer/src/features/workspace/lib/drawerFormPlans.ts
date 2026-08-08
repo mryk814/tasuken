@@ -23,6 +23,7 @@ import type {
 import type { DrawerEntityType, SaveOperation, WorkspaceData } from "../types";
 import { inferChatServiceFromUrl } from "./chatServices";
 import { resolveSubmittedChatCapturedAt } from "./chatRefs";
+import { aiMetadataFromForm } from "./aiMetadataForm";
 import { formText, uuid } from "./format";
 import { normalizeReminderDateTime } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
@@ -140,6 +141,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       checklist_items: taskChecklistFromForm(values),
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       created_at: (base.created_at as string) || new Date().toISOString(),
+      ...aiMetadataFromForm(values, base, hasField),
     };
     const operations = buildSaveTaskOperations(task);
     const startDate = formText(values, "start_date") || null;
@@ -197,6 +199,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       description: formText(values, "description") || null,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       created_at: (base.created_at as string) || new Date().toISOString(),
+      ...aiMetadataFromForm(values, base, hasField),
     };
     const operations = buildSaveWaitingOperations(waiting);
     const endDate = formText(values, "end_date") || null;
@@ -242,6 +245,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       description: formText(values, "description") || null,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       created_at: (base.created_at as string) || new Date().toISOString(),
+      ...aiMetadataFromForm(values, base, hasField),
     };
     const operations = buildSavePlanNodeOperations(planNode);
     const inputUnit = formText(values, "schedule_input_unit")
@@ -294,6 +298,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
         || new Date().toISOString().slice(0, 10),
       state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
+      ...aiMetadataFromForm(values, base, hasField),
     };
     return {
       kind: "operations",
@@ -346,6 +351,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       fidelity: (base.fidelity as string | null) ?? null,
       parser_version: (base.parser_version as string | null) ?? null,
       message_count: typeof base.message_count === "number" ? base.message_count : null,
+      ...aiMetadataFromForm(values, base, hasField),
     };
     return {
       kind: "operations",

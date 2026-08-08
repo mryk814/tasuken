@@ -144,6 +144,8 @@ export function createTaskenMcpServer() {
       max_chars: z.number().int().positive().max(8000).optional(),
       format: z.enum(["markdown", "json"]).optional(),
       include_raw_body: z.boolean().optional(),
+      // 既定はcoding_agent。M365向けPackを作るときだけ明示的に切り替える（#294）。
+      audience: z.enum(["m365", "coding_agent", "external_ai"]).optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolExportAiContext(args)));

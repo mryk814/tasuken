@@ -42,6 +42,8 @@ import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt 
 import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { isConversationMarkdown } from "../lib/conversationParser";
+import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
+import { AiContextFields, AiContextSummary, ThemeAiVisibilityField, workspaceAiVisibility } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
 import { ConversationPreview } from "./ConversationPreview";
 import {
@@ -241,6 +243,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <dt>作成</dt><dd>{formatDate(sketch.created_at)}</dd>
           <dt>更新</dt><dd>{formatDate(sketch.updated_at)}</dd>
         </dl>
+        <AiContextSummary type="sketch" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
       </DetailDrawer>
     );
   }
@@ -316,6 +319,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             ? <ConversationPreview body={str(entity.body_markdown)} />
             : <MarkdownPreview className="markdown-preview" html={previewHtml(str(entity.body_markdown), "markdown")} />
         )}
+        <AiContextSummary type="resource" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
         {isChatRef && (
           <ArtifactSection
             sourceType="chat_ref"
@@ -473,6 +477,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             removeEntity={removeEntity}
             setToast={setToast}
           />
+          <AiContextSummary type="task" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="primary-button" onClick={() => startFocusSession?.(task.id)}><IconClock size={16} />集中して作業する</button>
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
@@ -508,6 +513,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>期限</dt><dd>{formatDate(schedule?.end_date)}</dd>
           </dl>
           {waiting.description && <p>{waiting.description}</p>}
+          <AiContextSummary type="waiting" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "waiting", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             {waiting.state === "waiting" ? (
@@ -551,6 +557,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>Theme</dt><dd>{themeName}</dd>
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
+          <AiContextSummary type="plan_node" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "plan_node", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
             <button className="primary-button" onClick={async () => {
@@ -573,6 +580,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <StatusBadge value={entry.state} label={CAPTURE_ENTRY_STATE_LABELS[entry.state]} />
           <h2>{entry.title || entry.text}</h2>
           <dl><dt>記録日</dt><dd>{formatDate(entry.captured_at)}</dd></dl>
+          <AiContextSummary type="capture_entry" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "capture_entry", mode: "edit", entity })}><IconPencil size={16} />編集する</button>
             <button className="danger-button" onClick={() => removeEntity("capture_entry", entity)}><IconTrash size={16} />削除する</button>
@@ -637,6 +645,7 @@ function EditDrawer({
   const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   const entityId = str(entity.id);
+  const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
   // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。
   const artifactSource = (() => {
     if (!entityId || !saveEntities || !removeEntity) return null;
@@ -677,6 +686,10 @@ function EditDrawer({
             <ThemeColorPicker value={str(entity.color)} />
             <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
             <ThemeStorageRootField value={str(entity.storage_root)} setToast={setToast} />
+            <ThemeAiVisibilityField
+              value={entity.default_ai_visibility as AiAudience[] | null | undefined}
+              workspaceDefault={workspaceAiVisibilityDefault}
+            />
           </>
         )}
         {type === "note" && <NoteFields entity={entity} data={data} />}
@@ -716,6 +729,13 @@ function EditDrawer({
             )}
           </>
         )}
+        {/* AI共通metadata（#294）。通常編集の主目的を圧迫しないよう折りたたみで置く。 */}
+        <AiContextFields
+          type={type}
+          entity={entity}
+          themes={data.themes}
+          workspaceDefault={workspaceAiVisibilityDefault}
+        />
         <button className="primary-button" type="submit">保存する</button>
       </form>
       {(artifactSource || (entityId && removeEntity)) && (
@@ -1622,6 +1642,12 @@ function NoteDetailDrawer({
             </div>
           )}
         </section>
+        <AiContextSummary
+          type="note"
+          entity={note as unknown as Record<string, unknown>}
+          themes={data.themes}
+          workspaceDefault={workspaceAiVisibility(data)}
+        />
         <div className="drawer-actions">
           <button
             className="secondary-button"

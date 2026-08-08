@@ -208,6 +208,11 @@ interface SmokeCreatedResult {
   clipboardWritten: boolean;
   sketchClipboardWritten: boolean;
   sketchClipboardPasted: boolean;
+  /** AI共通metadata（#294）の保存・継承・検証。 */
+  aiMetadataPersisted: boolean;
+  aiThemeDefaultPersisted: boolean;
+  aiMetadataRejectedInvalid: boolean;
+  aiVisibilityDefaultSaved: string;
 }
 
 interface SmokeReloadResult {
@@ -218,6 +223,8 @@ interface SmokeReloadResult {
   markdownLiveEditPersisted: boolean;
   markdownPastePersisted: boolean;
   themeMode: string;
+  aiVisibilityDefault: string;
+  aiTaskMetadataPersisted: boolean;
 }
 
 interface SmokeMiniResult {
@@ -322,6 +329,14 @@ flowchart LR
           return firstLabel === label || button.textContent.trim() === label;
         });
       }, label + " ボタン");
+      // Notesの作成は一つのprimary actionへ集約した（#313）。filterの種別buttonと取り違えない。
+      const clickCreateNote = async () => {
+        const button = await waitFor(
+          () => document.querySelector(".notes-page .note-create-primary"),
+          "Note作成ボタン",
+        );
+        button.click();
+      };
       const clickPaneButton = (pane, label) => {
         const button = [...pane.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label);
         if (!button) throw new Error(label + " ボタンがNotesパネル内に見つかりません。");
@@ -352,7 +367,7 @@ flowchart LR
       // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
       (await waitForButton("Notes")).click();
       await delay(80);
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
 
       const form = await waitFor(() => document.querySelector(".drawer-form"), "メモ入力フォーム");
@@ -376,7 +391,7 @@ flowchart LR
       const markdownContent = ${JSON.stringify(markdownBody)}.replace("__SMOKE_IMAGE_URL__", smokeImage.url);
 
       // Markdown 確認用 Note を作成（本文は中央 Raw で投入）
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
       const markdownForm = await waitFor(() => document.querySelector(".drawer-form"), "Markdown入力フォーム");
       const markdownTitleInput = markdownForm.querySelector('input[name="title"]');
@@ -420,8 +435,14 @@ flowchart LR
         && smokePreviewImage?.naturalWidth > 0
       );
 
-      clickPaneButton(notesPane, "本文をコピー");
-      await delay(140);
+      // 全文コピーは「この文書」menuの項目へ移した（#313 / #331）。
+      clickPaneButton(notesPane, "この文書");
+      await delay(160);
+      const copyBodyItem = [...notesPane.querySelectorAll(".toolbar-menu-list button")]
+        .find((candidate) => candidate.textContent.trim() === "本文をすべてコピー");
+      if (!copyBodyItem) throw new Error("本文をすべてコピー が「この文書」menuに見つかりません。");
+      copyBodyItem.click();
+      await delay(160);
       const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
 
       // Edit（Live Preview）面での追記・貼り付け
@@ -518,7 +539,7 @@ flowchart LR
       const notesEditReopened = Boolean(notesPane.querySelector(".note-mdx-content[contenteditable='true']")?.textContent?.includes("Live edit smoke"));
 
       // 脚注MarkdownをEditで更新し、Previewへ切り替えて脚注表示と保存値を確認する。
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
       const footnoteForm = await waitFor(() => document.querySelector(".drawer-form"), "脚注Note入力フォーム");
       const footnoteTitleInput = footnoteForm.querySelector('input[name="title"]');
@@ -555,6 +576,16 @@ flowchart LR
         String(now.getMonth() + 1).padStart(2, "0"),
         String(now.getDate()).padStart(2, "0"),
       ].join("-");
+      // AI共通metadata（#294）: 保存 → 再読込 → 公開範囲の継承まで正本データで確認する。
+      await window.api.preferences.set("aiVisibilityDefault", ["coding_agent"]);
+      const aiVisibilityDefaultSaved = await window.api.preferences.get("aiVisibilityDefault");
+      await window.api.entities.save("theme", {
+        id: ${JSON.stringify(smokeThemeId)},
+        name: "Smoke Theme",
+        code: "SMOKE",
+        status: "active",
+        default_ai_visibility: ["m365"]
+      });
       await window.api.entities.save("task", {
         id: ${JSON.stringify(smokeTaskId)},
         title: ${JSON.stringify(smokeTaskTitle)},
@@ -562,8 +593,34 @@ flowchart LR
         state: "todo",
         priority: "high",
         checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        ai_summary: "Todayミニの動作確認",
+        ai_summary_authority: "user_confirmed",
+        ai_freshness: "current",
+        ai_authority: "user_confirmed",
+        ai_visibility: ["coding_agent"],
+        ai_source_refs: [{ kind: "canonical_document", locator: "smoke.md", storage_root_id: "smoke-root" }]
       }, { source: "smoke" });
+      let aiMetadataRejectedInvalid = false;
+      try {
+        await window.api.entities.save("task", {
+          id: ${JSON.stringify(smokeTaskId)},
+          title: ${JSON.stringify(smokeTaskTitle)},
+          state: "todo",
+          ai_authority: "guessed"
+        });
+      } catch {
+        aiMetadataRejectedInvalid = true;
+      }
+      const reloadedWorkspace = await window.api.workspace.load();
+      const reloadedSmokeTask = (reloadedWorkspace.tasks || []).find((task) => task.id === ${JSON.stringify(smokeTaskId)});
+      const reloadedSmokeTheme = (reloadedWorkspace.themes || []).find((theme) => theme.id === ${JSON.stringify(smokeThemeId)});
+      const aiMetadataPersisted = reloadedSmokeTask?.ai_summary === "Todayミニの動作確認"
+        && reloadedSmokeTask?.ai_freshness === "current"
+        && Array.isArray(reloadedSmokeTask?.ai_visibility)
+        && reloadedSmokeTask.ai_visibility.join(",") === "coding_agent"
+        && reloadedSmokeTask?.ai_source_refs?.[0]?.storage_root_id === "smoke-root";
+      const aiThemeDefaultPersisted = reloadedSmokeTheme?.default_ai_visibility?.join(",") === "m365";
       await window.api.entities.save("schedule", {
         id: crypto.randomUUID(),
         owner_type: "task",
@@ -574,6 +631,7 @@ flowchart LR
         confidence: "fixed",
         granularity: "day"
       }, { source: "smoke" });
+
       const todayMiniWindowOpened = await window.api.app.showTodayMiniWindow();
       const themeMode = await window.api.preferences.get("themeMode");
       const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
@@ -613,6 +671,12 @@ flowchart LR
         themeMode,
         clipboardWritten,
         sketchClipboardWritten,
+        aiMetadataPersisted,
+        aiThemeDefaultPersisted,
+        aiMetadataRejectedInvalid,
+        aiVisibilityDefaultSaved: Array.isArray(aiVisibilityDefaultSaved)
+          ? aiVisibilityDefaultSaved.join(",")
+          : String(aiVisibilityDefaultSaved),
       };
     })()
   `) as SmokeCreatedResult;
@@ -695,7 +759,9 @@ flowchart LR
         Promise.all([
           window.api.entities.list("note"),
           window.api.preferences.get("themeMode"),
-        ]).then(([notes, themeMode]) => {
+          window.api.preferences.get("aiVisibilityDefault"),
+          window.api.entities.list("task"),
+        ]).then(([notes, themeMode, aiVisibilityDefault, tasks]) => {
           const markdown = notes.find((note) => note.title === ${JSON.stringify(markdownTitle)});
           return ({
           persisted: notes.some((note) => note.title === ${JSON.stringify(testTitle)}),
@@ -705,6 +771,10 @@ flowchart LR
           markdownLiveEditPersisted: Boolean(markdown?.body_markdown?.includes("Live edit smoke")),
           markdownPastePersisted: Boolean(markdown?.body_markdown?.includes("## Pasted Markdown Heading") && markdown?.body_markdown?.includes("**Pasted Bold Text**")),
           themeMode,
+          aiVisibilityDefault: Array.isArray(aiVisibilityDefault) ? aiVisibilityDefault.join(",") : String(aiVisibilityDefault),
+          aiTaskMetadataPersisted: Boolean(
+            tasks.find((task) => task.id === ${JSON.stringify(smokeTaskId)})?.ai_summary === "Todayミニの動作確認"
+          ),
         });
         })
       `) as SmokeReloadResult;
@@ -717,6 +787,8 @@ flowchart LR
         markdownLiveEditPersistedAfterReload: afterReload.markdownLiveEditPersisted,
         markdownPastePersistedAfterReload: afterReload.markdownPastePersisted,
         themeModeAfterReload: afterReload.themeMode,
+        aiVisibilityDefaultAfterReload: afterReload.aiVisibilityDefault,
+        aiMetadataPersistedAfterReload: afterReload.aiTaskMetadataPersisted,
         ...mini,
       };
       console.log(JSON.stringify(result));
@@ -755,6 +827,12 @@ flowchart LR
         && result.sketchClipboardPasted
         && result.themeMode === "dark"
         && result.themeModeAfterReload === "dark"
+        && result.aiMetadataPersisted
+        && result.aiThemeDefaultPersisted
+        && result.aiMetadataRejectedInvalid
+        && result.aiVisibilityDefaultSaved === "coding_agent"
+        && result.aiMetadataPersistedAfterReload
+        && result.aiVisibilityDefaultAfterReload === "coding_agent"
           ? 0
           : 1,
       );

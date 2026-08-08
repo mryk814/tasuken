@@ -3,9 +3,43 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  DEFAULT_AI_VISIBILITY,
+  normalizeAiVisibility,
+  projectEntityForAi,
+  summarizeAiExclusions,
+} from "../../shared/aiMetadata.mjs";
 import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../shared/knowledgeHealth.mjs";
 
 const DEFAULT_LIMIT = 20;
+/** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
+const DEFAULT_AUDIENCE = "coding_agent";
+/** mergedItemsのkindから、公開範囲を判定する実体の種別へ戻す。 */
+const ITEM_KIND_ENTITY_TYPES = {
+  task: "task",
+  waiting: "waiting",
+  milestone: "plan_node",
+  period: "plan_node",
+};
+/** AI共通metadataは投影後も判定に使うため、legacy item形へ持ち回る。 */
+const AI_METADATA_KEYS = [
+  "ai_summary",
+  "ai_summary_authority",
+  "ai_freshness",
+  "ai_authority",
+  "ai_visibility",
+  "ai_last_verified_at",
+  "ai_superseded_by",
+  "ai_source_refs",
+];
+
+function pickAiMetadata(entity) {
+  const picked = {};
+  for (const key of AI_METADATA_KEYS) {
+    if (entity[key] !== undefined) picked[key] = entity[key];
+  }
+  return picked;
+}
 const MAX_LIMIT = 100;
 const DEFAULT_TEXT_LIMIT = 1200;
 const MAX_TEXT_LIMIT = 8000;
@@ -109,6 +143,8 @@ export class ReadOnlyTaskenContext {
     this.workspace = options.workspace || null;
     this.dbPath = dbPath;
     this.db = null;
+    this.audience = options.audience || DEFAULT_AUDIENCE;
+    this.aiVisibilityDefault = normalizeAiVisibility(options.aiVisibilityDefault) || null;
     if (!this.workspace) {
       this.db = new Database(dbPath, { readonly: true, fileMustExist: true });
       this.db.pragma("query_only = ON");
@@ -117,6 +153,56 @@ export class ReadOnlyTaskenContext {
 
   close() {
     this.db?.close();
+  }
+
+  /** Entity・Themeが未設定のときに使うworkspace既定（#294）。 */
+  workspaceVisibilityDefault() {
+    if (this.aiVisibilityDefault) return this.aiVisibilityDefault;
+    if (!this.db) {
+      this.aiVisibilityDefault = [...DEFAULT_AI_VISIBILITY];
+      return this.aiVisibilityDefault;
+    }
+    const row = this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'ai_visibility_default'").get();
+    try {
+      this.aiVisibilityDefault = row ? (normalizeAiVisibility(JSON.parse(row.value)) || []) : [...DEFAULT_AI_VISIBILITY];
+    } catch {
+      this.aiVisibilityDefault = [...DEFAULT_AI_VISIBILITY];
+    }
+    return this.aiVisibilityDefault;
+  }
+
+  themeById(themeId) {
+    if (!themeId) return null;
+    if (!this.themeCache) {
+      this.themeCache = new Map(this.list("theme", true).map((theme) => [theme.id, theme]));
+    }
+    return this.themeCache.get(themeId) || null;
+  }
+
+  /**
+   * AI公開範囲で絞り込み、通ったrecordにだけ共通headerを付ける。
+   * 通らなかったrecordは本文・headerとも返さず、件数と理由だけを返す。
+   */
+  filterForAi(type, records) {
+    const included = [];
+    const exclusions = [];
+    for (const record of records) {
+      const entityType = type === "item" ? (ITEM_KIND_ENTITY_TYPES[record.kind] || "item") : type;
+      const themeId = record.theme_id || record.project_id || null;
+      // Theme自身は自分のdefault_ai_visibilityを継承元にする。
+      const theme = type === "theme" ? record : this.themeById(themeId);
+      const result = projectEntityForAi(entityType, record, {
+        audience: this.audience,
+        theme,
+        workspaceDefault: this.workspaceVisibilityDefault(),
+      });
+      if (!result.included) {
+        exclusions.push(result.exclusion);
+        continue;
+      }
+      included.push({ ...record, ai: result.header });
+    }
+    return { records: included, exclusions };
   }
 
   list(type, includeArchived = false) {
@@ -166,6 +252,8 @@ export class ReadOnlyTaskenContext {
         created_at: t.created_at,
         updated_at: t.updated_at,
         deleted_at: t.deleted_at,
+        source: t.source,
+        ...pickAiMetadata(t),
       });
     }
     for (const w of waitings) {
@@ -188,6 +276,8 @@ export class ReadOnlyTaskenContext {
         created_at: w.created_at,
         updated_at: w.updated_at,
         deleted_at: w.deleted_at,
+        source: w.source,
+        ...pickAiMetadata(w),
       });
     }
     for (const p of planNodes) {
@@ -208,6 +298,8 @@ export class ReadOnlyTaskenContext {
         created_at: p.created_at,
         updated_at: p.updated_at,
         deleted_at: p.deleted_at,
+        source: p.source,
+        ...pickAiMetadata(p),
       });
     }
     const deduped = legacyItems.filter((item) => !v2Ids.has(item.id));
@@ -216,50 +308,73 @@ export class ReadOnlyTaskenContext {
 
   toolSearchItems(args = {}) {
     const limit = clampLimit(args.limit);
-    const records = this.mergedItems(Boolean(args.include_archived))
+    // 公開範囲の判定を件数制限より先に行う。除外分でlimitを消費させない。
+    const filtered = this.filterForAi("item", this.mergedItems(Boolean(args.include_archived))
       .filter((item) => matchQuery(item, ["title", "description", "next_action", "waiting_for"], args.query))
-      .filter((item) => !args.theme_id || item.theme_id === args.theme_id)
-      .slice(0, limit);
-    return { items: records, limit };
+      .filter((item) => !args.theme_id || item.theme_id === args.theme_id));
+    return {
+      items: filtered.records.slice(0, limit),
+      limit,
+      ai_audience: this.audience,
+      ...summarizeAiExclusions(filtered.exclusions),
+    };
   }
 
   toolListOpenItems(args = {}) {
     const limit = clampLimit(args.limit);
-    const items = this.mergedItems(Boolean(args.include_archived))
+    const filtered = this.filterForAi("item", this.mergedItems(Boolean(args.include_archived))
       .filter(isOpenItem)
       .filter((item) => !args.theme_id || item.theme_id === args.theme_id)
-      .sort((a, b) => (itemDate(a) || "9999-12-31").localeCompare(itemDate(b) || "9999-12-31"))
-      .slice(0, limit);
-    return { items, limit };
+      .sort((a, b) => (itemDate(a) || "9999-12-31").localeCompare(itemDate(b) || "9999-12-31")));
+    return {
+      items: filtered.records.slice(0, limit),
+      limit,
+      ai_audience: this.audience,
+      ...summarizeAiExclusions(filtered.exclusions),
+    };
   }
 
   toolGetRecentNotes(args = {}) {
     const limit = clampLimit(args.limit);
     const textLimit = clampTextLimit(args.max_chars);
-    const notes = this.list("note", Boolean(args.include_archived))
-      .filter((note) => !args.theme_id || note.theme_id === args.theme_id)
+    const filtered = this.filterForAi("note", this.list("note", Boolean(args.include_archived))
+      .filter((note) => !args.theme_id || note.theme_id === args.theme_id));
+    const notes = filtered.records
       .slice(0, limit)
       .map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
-    return { notes, limit, include_raw_body: Boolean(args.include_raw_body) };
+    return {
+      notes,
+      limit,
+      include_raw_body: Boolean(args.include_raw_body),
+      ai_audience: this.audience,
+      ...summarizeAiExclusions(filtered.exclusions),
+    };
   }
 
   toolSearchKnowledge(args = {}) {
     const limit = clampLimit(args.limit);
     const nodeTypes = Array.isArray(args.node_types) ? new Set(args.node_types) : null;
-    const nodes = this.list("knowledge_node", Boolean(args.include_archived))
+    const filtered = this.filterForAi("knowledge_node", this.list("knowledge_node", Boolean(args.include_archived))
       .filter((node) => matchQuery(node, ["title", "body", "node_type"], args.query))
       .filter((node) => !args.theme_id || node.theme_id === args.theme_id)
-      .filter((node) => !nodeTypes || nodeTypes.has(node.node_type))
+      .filter((node) => !nodeTypes || nodeTypes.has(node.node_type)));
+    const nodes = filtered.records
       .slice(0, limit)
       .map((node) => ({ ...node, body: truncate(node.body, clampTextLimit(args.max_chars)) }));
-    return { knowledge_nodes: nodes, limit };
+    return {
+      knowledge_nodes: nodes,
+      limit,
+      ai_audience: this.audience,
+      ...summarizeAiExclusions(filtered.exclusions),
+    };
   }
 
   toolGetKnowledgeContext(args = {}) {
     const limit = clampLimit(args.limit, 50);
     const textLimit = clampTextLimit(args.max_chars);
-    const nodes = this.list("knowledge_node", Boolean(args.include_archived))
-      .filter((node) => !args.theme_id || node.theme_id === args.theme_id)
+    const filteredNodes = this.filterForAi("knowledge_node", this.list("knowledge_node", Boolean(args.include_archived))
+      .filter((node) => !args.theme_id || node.theme_id === args.theme_id));
+    const nodes = filteredNodes.records
       .slice(0, limit)
       .map((node) => ({ ...node, body: truncate(node.body, textLimit) }));
     const nodeIds = new Set(nodes.map((node) => node.id));
@@ -267,27 +382,40 @@ export class ReadOnlyTaskenContext {
       ? this.list("knowledge_edge", Boolean(args.include_archived))
         .filter((relation) => nodeIds.has(relation.source_node_id) || nodeIds.has(relation.target_node_id))
       : [];
+    const sourceExclusions = [];
     const sources = Boolean(args.include_sources)
       ? (() => {
         const legacyLinks = this.list("link");
         const resources = this.list("resource");
-        const matchedNotes = this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id || (node.source_type === "note" && node.source_id === note.id))).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
+        const filteredNotes = this.filterForAi("note", this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id || (node.source_type === "note" && node.source_id === note.id))));
+        sourceExclusions.push(...filteredNotes.exclusions);
+        const matchedNotes = filteredNotes.records.map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
         const matchedLegacyLinks = legacyLinks.filter((link) => nodes.some((node) => node.source_link_id === link.id));
         const matchedResources = resources.filter((r) => nodes.some((node) => (node.source_type === "resource" && node.source_id === r.id)));
         const resourceIds = new Set(matchedResources.map((r) => r.id));
-        const mergedResources = [...matchedResources, ...matchedLegacyLinks.filter((l) => !resourceIds.has(l.id))];
-        const matchedItems = this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id || (node.source_type === "task" && node.source_id === item.id) || (node.source_type === "waiting" && node.source_id === item.id) || (node.source_type === "plan_node" && node.source_id === item.id)));
-        return { notes: matchedNotes, resources: mergedResources, items: matchedItems };
+        const filteredResources = this.filterForAi("resource", [...matchedResources, ...matchedLegacyLinks.filter((l) => !resourceIds.has(l.id))]);
+        sourceExclusions.push(...filteredResources.exclusions);
+        const filteredItems = this.filterForAi("item", this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id || (node.source_type === "task" && node.source_id === item.id) || (node.source_type === "waiting" && node.source_id === item.id) || (node.source_type === "plan_node" && node.source_id === item.id))));
+        sourceExclusions.push(...filteredItems.exclusions);
+        return { notes: matchedNotes, resources: filteredResources.records, items: filteredItems.records };
       })()
       : undefined;
-    return { knowledge_nodes: nodes, knowledge_edges: relations, sources, limit };
+    return {
+      knowledge_nodes: nodes,
+      knowledge_edges: relations,
+      sources,
+      limit,
+      ai_audience: this.audience,
+      ...summarizeAiExclusions([...filteredNodes.exclusions, ...sourceExclusions]),
+    };
   }
 
   buildPlanHealth(themeId = "") {
     const today = new Date().toISOString().slice(0, 10);
-    const tasks = this.list("task").filter((t) => !themeId || t.project_id === themeId);
-    const waitings = this.list("waiting").filter((w) => !themeId || w.project_id === themeId);
-    const planNodes = this.list("plan_node").filter((p) => !themeId || p.project_id === themeId);
+    // healthもタイトルを返すため、一覧と同じ公開範囲判定を通す（#294）。
+    const tasks = this.filterForAi("task", this.list("task").filter((t) => !themeId || t.project_id === themeId)).records;
+    const waitings = this.filterForAi("waiting", this.list("waiting").filter((w) => !themeId || w.project_id === themeId)).records;
+    const planNodes = this.filterForAi("plan_node", this.list("plan_node").filter((p) => !themeId || p.project_id === themeId)).records;
     const schedules = this.list("schedule");
     const scheduleMap = new Map();
     for (const s of schedules) scheduleMap.set(`${s.owner_type}:${s.owner_id}`, s);
@@ -319,13 +447,13 @@ export class ReadOnlyTaskenContext {
   }
 
   buildKnowledgeHealth(themeId = "") {
-    const nodes = this.list("knowledge_node").filter((node) => !themeId || node.theme_id === themeId);
+    const nodes = this.filterForAi("knowledge_node", this.list("knowledge_node").filter((node) => !themeId || node.theme_id === themeId)).records;
     const relations = this.list("knowledge_edge");
     const entities = [
-      ...this.list("task"),
-      ...this.list("waiting"),
-      ...this.list("plan_node"),
-      ...this.list("item"),
+      ...this.filterForAi("task", this.list("task")).records,
+      ...this.filterForAi("waiting", this.list("waiting")).records,
+      ...this.filterForAi("plan_node", this.list("plan_node")).records,
+      ...this.filterForAi("item", this.list("item")).records,
     ];
     return groupKnowledgeHealthIssues(buildKnowledgeHealth(nodes, relations, entities));
   }
@@ -333,17 +461,27 @@ export class ReadOnlyTaskenContext {
   toolGetThemeContext(args = {}) {
     const limit = clampLimit(args.limit, 50);
     const textLimit = clampTextLimit(args.max_chars);
-    const themes = this.list("theme").filter((theme) => !args.theme_id || theme.id === args.theme_id).slice(0, limit);
+    const filteredThemes = this.filterForAi("theme", this.list("theme").filter((theme) => !args.theme_id || theme.id === args.theme_id));
+    const themes = filteredThemes.records.slice(0, limit);
     const themeIds = new Set(themes.map((theme) => theme.id));
+    const filteredItems = this.filterForAi("item", this.mergedItems().filter((item) => themeIds.has(item.theme_id) && isOpenItem(item)));
+    const filteredNotes = this.filterForAi("note", this.list("note").filter((note) => themeIds.has(note.theme_id)));
+    const knowledge = this.toolGetKnowledgeContext({ theme_id: args.theme_id, limit, max_chars: textLimit, include_relations: true });
     return {
       themes,
-      open_items: this.mergedItems().filter((item) => themeIds.has(item.theme_id) && isOpenItem(item)).slice(0, limit),
-      recent_notes: this.list("note").filter((note) => themeIds.has(note.theme_id)).slice(0, limit).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
-      knowledge: this.toolGetKnowledgeContext({ theme_id: args.theme_id, limit, max_chars: textLimit, include_relations: true }),
+      open_items: filteredItems.records.slice(0, limit),
+      recent_notes: filteredNotes.records.slice(0, limit).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
+      knowledge,
       health: {
         plan: this.buildPlanHealth(args.theme_id),
         knowledge: this.buildKnowledgeHealth(args.theme_id),
       },
+      ai_audience: this.audience,
+      ...summarizeAiExclusions([
+        ...filteredThemes.exclusions,
+        ...filteredItems.exclusions,
+        ...filteredNotes.exclusions,
+      ]),
     };
   }
 
@@ -355,7 +493,22 @@ export class ReadOnlyTaskenContext {
     return this.buildKnowledgeHealth(args.theme_id || "");
   }
 
+  /** OneDrive AI Pack等はm365で、Coding Agentはcoding_agentで同じ関数を呼ぶ（#294 / #295）。 */
+  withAudience(audience, run) {
+    if (!audience || audience === this.audience) return run();
+    const previous = this.audience;
+    this.audience = audience;
+    try {
+      return run();
+    } finally {
+      this.audience = previous;
+    }
+  }
+
   toolExportAiContext(args = {}) {
+    if (args.audience && args.audience !== this.audience) {
+      return this.withAudience(args.audience, () => this.toolExportAiContext({ ...args, audience: null }));
+    }
     const format = args.format === "json" ? "json" : "markdown";
     const scope = args.scope || "recent";
     const maxItems = clampLimit(args.max_items, 40);
@@ -363,18 +516,21 @@ export class ReadOnlyTaskenContext {
     const maxKnowledgeNodes = clampLimit(args.max_knowledge_nodes, 50);
     const textLimit = clampTextLimit(args.max_chars);
     const themeId = args.theme_id || "";
-    const themes = this.list("theme").filter((theme) => !themeId || theme.id === themeId);
+    const filteredThemes = this.filterForAi("theme", this.list("theme").filter((theme) => !themeId || theme.id === themeId));
+    const themes = filteredThemes.records;
     const themeIds = new Set(themes.map((theme) => theme.id));
     const allItems = this.mergedItems().filter((item) => !themeId || item.theme_id === themeId);
-    const items = (scope === "open_items" ? allItems.filter(isOpenItem) : allItems).slice(0, maxItems);
-    const notes = this.list("note")
-      .filter((note) => !themeId || themeIds.has(note.theme_id))
+    const filteredItems = this.filterForAi("item", scope === "open_items" ? allItems.filter(isOpenItem) : allItems);
+    const items = filteredItems.records.slice(0, maxItems);
+    const filteredNotes = this.filterForAi("note", this.list("note").filter((note) => !themeId || themeIds.has(note.theme_id)));
+    const notes = filteredNotes.records
       .slice(0, maxNotes)
       .map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
     const legacyLinks = this.list("link").filter((link) => !themeId || themeIds.has(link.theme_id));
     const resources = this.list("resource").filter((r) => !themeId || themeIds.has(r.project_id));
     const resourceIds = new Set(resources.map((r) => r.id));
-    const mergedResources = [...resources, ...legacyLinks.filter((l) => !resourceIds.has(l.id))].slice(0, maxItems);
+    const filteredResources = this.filterForAi("resource", [...resources, ...legacyLinks.filter((l) => !resourceIds.has(l.id))]);
+    const mergedResources = filteredResources.records.slice(0, maxItems);
     const knowledge = this.toolGetKnowledgeContext({
       theme_id: themeId,
       limit: maxKnowledgeNodes,
@@ -385,6 +541,7 @@ export class ReadOnlyTaskenContext {
     const pack = {
       generated_at: new Date().toISOString(),
       scope,
+      ai_audience: this.audience,
       themes,
       items,
       notes,
@@ -395,24 +552,52 @@ export class ReadOnlyTaskenContext {
         ...this.buildPlanHealth(themeId),
         ...this.buildKnowledgeHealth(themeId),
       },
+      ...summarizeAiExclusions([
+        ...filteredThemes.exclusions,
+        ...filteredItems.exclusions,
+        ...filteredNotes.exclusions,
+        ...filteredResources.exclusions,
+      ]),
     };
     if (format === "json") return pack;
     return renderContextMarkdown(pack);
   }
 }
 
+/** 鮮度・根拠を本文の横へ短く添える。stale / supersededやAI生成を黙って混ぜない（#294）。 */
+function aiMark(record) {
+  const header = record?.ai;
+  if (!header) return "";
+  const marks = [];
+  if (header.freshness === "stale") marks.push("要再確認");
+  if (header.freshness === "superseded") marks.push("置き換え済み");
+  if (header.freshness === "unknown") marks.push("鮮度不明");
+  if (header.authority === "ai_generated") marks.push("AI生成");
+  if (header.authority === "inferred") marks.push("推定");
+  if (header.authority === "imported") marks.push("取り込み");
+  if (header.authority === "user_confirmed") marks.push("確認済み");
+  return marks.length ? ` [${marks.join(" / ")}]` : "";
+}
+
+function exclusionLines(pack) {
+  if (!pack.excluded_count) return ["- 除外なし"];
+  return pack.excluded_reasons.map((entry) => `- ${entry.type}: ${entry.reason}（${entry.count}件）`);
+}
+
 function renderContextMarkdown(pack) {
   const lines = [
     "# Tasken Context",
     "",
+    `> 公開先: ${pack.ai_audience} / 除外: ${pack.excluded_count || 0}件`,
+    "",
     "## Theme",
-    ...(pack.themes.length ? pack.themes.map((theme) => `- ${theme.name}: ${theme.description || ""}`) : ["- なし"]),
+    ...(pack.themes.length ? pack.themes.map((theme) => `- ${theme.name}: ${theme.description || ""}${aiMark(theme)}`) : ["- なし"]),
     "",
     "## Current Open Items",
-    ...(pack.items.length ? pack.items.map((item) => `- ${itemDate(item) || "予定なし"} / ${item.status || "todo"}: ${item.title}`) : ["- なし"]),
+    ...(pack.items.length ? pack.items.map((item) => `- ${itemDate(item) || "予定なし"} / ${item.status || "todo"}: ${item.title}${aiMark(item)}`) : ["- なし"]),
     "",
     "## Recent Notes",
-    ...(pack.notes.length ? pack.notes.map((note) => `- ${note.title}: ${note.body_excerpt || ""}`) : ["- なし"]),
+    ...(pack.notes.length ? pack.notes.map((note) => `- ${note.title}: ${note.body_excerpt || ""}${aiMark(note)}`) : ["- なし"]),
     "",
     "## Questions",
     ...nodeLines(pack.knowledge_nodes, "question"),
@@ -431,11 +616,14 @@ function renderContextMarkdown(pack) {
     "",
     "## Suggested Next Actions",
     ...(pack.health.unresolved_questions.length ? pack.health.unresolved_questions.map((node) => `- Questionを処理: ${node.title}`) : ["- なし"]),
+    "",
+    "## AI公開範囲で除外した情報",
+    ...exclusionLines(pack),
   ];
   return lines.join("\n");
 }
 
 function nodeLines(nodes, nodeType) {
   const scoped = nodes.filter((node) => node.node_type === nodeType);
-  return scoped.length ? scoped.map((node) => `- ${node.title}${node.body ? `: ${node.body}` : ""}`) : ["- なし"];
+  return scoped.length ? scoped.map((node) => `- ${node.title}${node.body ? `: ${node.body}` : ""}${aiMark(node)}`) : ["- なし"];
 }

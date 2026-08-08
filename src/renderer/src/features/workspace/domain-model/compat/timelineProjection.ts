@@ -38,6 +38,8 @@ export function projectTimelineItems(domain: WorkspaceDomain): TimelineItem[] {
       sort_order: planNode.sort_order,
       planned_start: schedule?.start_date,
       planned_end: schedule?.end_date,
+      // 日付範囲の意味（#309）。Timelineで「継続中」と「期間内に一度」を分ける（#318）。
+      range_semantics: schedule?.range_semantics ?? null,
       due_date: null,
       baseline_start: schedule?.baseline_start,
       baseline_end: schedule?.baseline_end,

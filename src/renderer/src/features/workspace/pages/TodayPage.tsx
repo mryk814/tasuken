@@ -25,6 +25,7 @@ import { findReminderSettingsView, normalizeReminderSettings } from "../lib/remi
 import { taskShelfStatus } from "../lib/taskShelves";
 import { EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
+import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
@@ -1060,20 +1061,37 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
 
   return (
     <div className="page today-page">
+      {/*
+        Todayは今日のTaskを確認・追加・完了する面（#316）。
+        primary actionは一つにし、コピーやActivityへの移動はmenuへ畳む。
+      */}
       <PageHeader route="today">
-        <button className="primary-button" onClick={() => openDailyScratchpad(today)}>
+        <button className="secondary-button" onClick={() => openDailyScratchpad(today)}>
           <IconNotebook size={16} /> 今日のScratchpad
-        </button>
-        <button className="secondary-button" onClick={() => workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。"))}>
-          <IconClipboard size={16} /> コピー
-        </button>
-        <button className="secondary-button" onClick={() => document.getElementById("daily-activity")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-          <IconClipboard size={16} /> Activity
         </button>
         <button className="secondary-button" onClick={openTodayTasksWindow}>
           <IconCalendarCheck size={16} /> 今日やること
         </button>
-        <button className="secondary-button" onClick={() => setShowAdd((v) => !v)}><IconPlus size={16} /> 今日のタスクを追加</button>
+        <ToolbarMenu
+          label="その他"
+          title="Todayのその他の操作"
+          items={[
+            {
+              id: "copy-today",
+              label: "Todayの内容をコピー",
+              onSelect: () => void workspaceApi.copyText(todayMarkdown).then(() => setToast("Todayの内容をコピーしました。")),
+            },
+            {
+              id: "goto-activity",
+              label: "Activityへ移動",
+              hint: "今日実際に完了・更新したことの記録",
+              onSelect: () => document.getElementById("daily-activity")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+            },
+          ]}
+        />
+        <button className="primary-button" onClick={() => setShowAdd((v) => !v)} aria-expanded={showAdd}>
+          <IconPlus size={16} /> 今日のTaskを追加
+        </button>
       </PageHeader>
 
       {showAdd && (

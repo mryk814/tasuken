@@ -1,3 +1,4 @@
+import { hasAiMetadataContract, normalizeAiMetadata } from "../../shared/aiMetadata.mjs";
 import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
 
 export const workspaceEntityTypes = [
@@ -295,6 +296,9 @@ export function validateEntity(type, input) {
   assertEntityType(type);
   if (!isPlainObject(input)) throw new Error(`${type}の保存内容が不正です。`);
 
+  // AI共通metadata（#294）は正規化と同じ規則で検証する。規則の正本は aiMetadata.mjs 側。
+  if (hasAiMetadataContract(type)) normalizeAiMetadata(type, input);
+
   for (const field of requiredTextFields[type] || []) {
     if (typeof input[field] !== "string" || !input[field].trim()) {
       throw new Error(`${type}.${field}を入力してください。`);
@@ -455,6 +459,8 @@ export function validateEntity(type, input) {
 
 export function normalizeEntity(type, input) {
   const normalized = { ...input };
+  // AI共通metadata（#294）。本文フィールドには触れず、概要・鮮度・根拠・公開範囲だけを揃える。
+  if (hasAiMetadataContract(type)) Object.assign(normalized, normalizeAiMetadata(type, normalized));
   for (const field of requiredTextFields[type] || []) {
     if (typeof normalized[field] === "string") normalized[field] = normalized[field].trim();
   }

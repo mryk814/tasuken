@@ -166,6 +166,30 @@ export function createEmptySketchDocument(
   };
 }
 
+/** 既定titleの形（#320）。`無題のSketch` と、衝突回避の連番付き。 */
+export const DEFAULT_SKETCH_TITLE = "無題のSketch";
+const DEFAULT_SKETCH_TITLE_PATTERN = /^無題のSketch( \d+)?$/;
+
+/**
+ * まだ何も入っていない使い捨てSketchか（#320）。
+ *
+ * 押すだけで作れるようにした代わりに、空のSketchが溜まりやすい。
+ * 削除で消すと描いたものを失う危険があるので、
+ * 「空で無題のものは作り直さず開き直す」ための判定に使う。
+ */
+export function isDisposableSketch(sketch: {
+  title?: string;
+  project_id?: string | null;
+  origin_capture_id?: string | null;
+  document?: SketchDocument;
+}): boolean {
+  if (!DEFAULT_SKETCH_TITLE_PATTERN.test(String(sketch.title || ""))) return false;
+  if (sketch.origin_capture_id) return false;
+  const pages = sketch.document?.pages || [];
+  if (pages.length !== 1) return false;
+  return (pages[0]?.objects?.length || 0) === 0;
+}
+
 export function createSketchDraft(
   title = "新しいSketch",
   projectId: string | null = null,
@@ -856,8 +880,4 @@ export function sketchPageToSvg(page: SketchPage): string {
     return `<image href="${escapeXml(object.data_url)}" x="${object.x}" y="${object.y}" width="${object.w}" height="${object.h}"/>`;
   }).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="context-stroke"/></marker><marker id="arrow-start" markerWidth="10" markerHeight="10" refX="1" refY="3" orient="auto"><path d="M9,0 L9,6 L0,3 z" fill="context-stroke"/></marker></defs><rect width="100%" height="100%" fill="#fffdfb"/>${objects}</svg>`;
-}
-
-export function sketchAiPrompt(title: string): string {
-  return `添付した手書きSketch「${title}」を読み取り、次の順で整理してください。\n1. 読み取れた文字・数式\n2. 図の構造と矢印の関係\n3. Markdownとして再構成した本文\n4. Mermaidで表現できる図があればコード\n5. 判読に自信がない箇所`;
 }

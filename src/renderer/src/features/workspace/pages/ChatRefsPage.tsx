@@ -27,6 +27,7 @@ import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type Keyb
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ConversationImportDialog } from "../components/ConversationImportDialog";
 import { isConversationMarkdown } from "../lib/conversationParser";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
@@ -93,6 +94,11 @@ function themeTitle(themes: Theme[], id?: string | null): string {
   return themes.find((theme) => theme.id === id)?.name || "未設定";
 }
 
+/** 一覧に出す時刻（#322）。取り込み時刻があればそれ、無ければ更新時刻。 */
+function chatRefTimeValue(resource: Resource): string {
+  return str(resource.captured_at) || str((resource as { updated_at?: string }).updated_at);
+}
+
 function ChatServiceIcon({ service }: { service: ChatServiceType }) {
   if (service === "chatgpt") return <IconBrandOpenai size={16} />;
   if (service === "claude") return <IconMessageCircleQuestion size={16} />;
@@ -112,6 +118,7 @@ export function ChatRefsPage({
   setToast,
 }: PageProps) {
   const chatResources = useMemo(() => domain.resources.filter(isChatReference), [domain.resources]);
+  const themeNameOf = (resource: Resource) => themeTitle(themes, str(resource.project_id) || null);
   const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || themes[0]?.id || "");
   const [query, setQuery] = useState("");
   const [prefs, setPrefs] = usePersistentState<ChatRefsPrefs>("chat-refs:prefs:v1", DEFAULT_CHAT_REFS_PREFS);
@@ -480,8 +487,19 @@ export function ChatRefsPage({
         route="chat-refs"
         info={isArchiveView ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。" : undefined}
       >
-        <button className="secondary-button" onClick={copyUrls} disabled={!visibleResources.length}><IconCopy size={16} />URLをコピー</button>
-        <button className="secondary-button" onClick={copyList} disabled={!visibleResources.length}><IconCopy size={16} />一覧をコピー</button>
+        {/*
+          主操作は会話へ戻る・ログを読む・必要な部分を再利用すること（#322）。
+          URL・一覧のまとめコピーは低頻度なのでmenuへ畳む。
+          会話の再利用はConversation側のmessage / turn / codeコピー（#305）が実用。
+        */}
+        <ToolbarMenu
+          label="コピー"
+          title="一覧のまとめコピー"
+          items={[
+            { id: "copy-urls", label: "表示中のURLをまとめてコピー", disabled: !visibleResources.length, onSelect: copyUrls },
+            { id: "copy-list", label: "表示中の一覧をコピー", disabled: !visibleResources.length, onSelect: copyList },
+          ]}
+        />
         {!isArchiveView && (
           <>
             <button className="secondary-button" onClick={() => setImportDialogOpen(true)}><IconFileImport size={16} />会話ログを取り込む</button>
@@ -787,10 +805,17 @@ export function ChatRefsPage({
                       <span className={`chat-service-chip chat-service-${service}`} title={CHAT_SERVICE_LABELS[service]} aria-label={CHAT_SERVICE_LABELS[service]}>
                         <ChatServiceIcon service={service} />
                       </span>
+                      {/*
+                        一覧で短く分かるのは provider / title / Theme / ログ有無 / 時刻 / URL有無（#322）。
+                        URL文字列そのものは長いので出さず、開くのはactionへ寄せる。
+                      */}
                       <span className="chat-link-title">
                         {r.title || "無題"}
-                        {archived && <small className="chat-thread-meta">Archive</small>}
-                        {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
+                        <span className="chat-link-meta">
+                          <span>{themeNameOf(r)}</span>
+                          {archived && <small className="chat-thread-meta">Archive</small>}
+                          {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
+                        </span>
                       </span>
                       {parent && (
                         <button
@@ -869,7 +894,8 @@ export function ChatRefsPage({
                           <IconArchive size={15} />
                         </button>
                       )}
-                      <span className="chat-link-date">{formatChatResourceDate(r)}</span>
+                      {/* 取り込み / 更新の時刻。読み上げと並べ替えのため time で持つ（#322）。 */}
+                      <time className="chat-link-date" dateTime={chatRefTimeValue(r)}>{formatChatResourceDate(r)}</time>
                     </div>
                   );
                 })}

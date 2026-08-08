@@ -24,15 +24,15 @@ test("元文書の見出しと短い引用を参照情報に残せる", () => {
   assert.ok(selectionExcerpt("長文".repeat(200)).length <= 280);
 });
 
-test("Notesの選択ツールバーはTask・Noteとderived_from参照を同じ保存経路へ接続する", () => {
+test("選択範囲からのTask・Note作成はderived_from参照を同じ保存経路へ接続する", () => {
   const editor = fs.readFileSync(new URL("../src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", import.meta.url), "utf8");
   const page = fs.readFileSync(new URL("../src/renderer/src/features/workspace/pages/NotesPage.tsx", import.meta.url), "utf8");
   const extraction = fs.readFileSync(new URL("../src/renderer/src/features/workspace/lib/selectionExtraction.ts", import.meta.url), "utf8");
   const drawer = fs.readFileSync(new URL("../src/renderer/src/features/workspace/components/drawer.tsx", import.meta.url), "utf8");
 
-  assert.match(editor, /選択範囲から/);
-  assert.match(editor, /beginSelectionExtraction\("task"\)/);
-  assert.match(editor, /beginSelectionExtraction\("note"\)/);
+  // 入口は選択直後のtoolbarではなく明示command（#313）。作成後の保存経路は変えない。
+  assert.match(editor, /aria-label="選択範囲から作成"/);
+  assert.match(editor, /setExtractionKind\(selectionCommand\.kind\);/);
   assert.match(page, /onExtractSelection=\{selected\.recordType === "note"/);
   assert.match(page, /await saveEntities\(\s*result\.operations/);
   assert.match(extraction, /relation_type:\s*"derived_from"/);

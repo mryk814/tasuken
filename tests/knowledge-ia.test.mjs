@@ -33,11 +33,12 @@ test("Notes owns prompt inventory and creation", () => {
 test("Notes kinds are simplified to Note Resource Report Prompt", () => {
   assert.match(notesPageSource, /PageHeader route="notes"/);
   assert.doesNotMatch(notesPageSource, /Notes & Resources/);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Note</);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Resource</);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Report</);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Prompt</);
-  // 4種別は同格の primary。コピー操作だけ secondary。
+  // 4種別は残すが、常設buttonは1つのprimary actionへ集約した（#313）。
+  const createMenuSource = readFileSync("src/renderer/src/features/workspace/components/NoteCreateMenu.tsx", "utf8");
+  assert.match(notesPageSource, /<NoteCreateMenu /);
+  assert.match(createMenuSource, /\["note", "resource", "report", "prompt"\]/);
+  assert.match(createMenuSource, /className="primary-button note-create-primary"/);
+  // コピー操作は secondary のまま。
   assert.match(notesPageSource, /secondary-button[\s\S]*?>一覧をコピー</);
   assert.match(notesPageSource, /body_markdown/);
   assert.match(notesPageSource, /recordType === "resource"/);

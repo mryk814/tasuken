@@ -47,6 +47,7 @@ import {
 } from "lexical";
 import {
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -112,6 +113,19 @@ type MarkdownRichEditorProps = {
     title: string,
   ) => Promise<void>;
   onAiEditSelection?: (selection: MarkdownTextSelection) => void;
+  /**
+   * 選択範囲の変換を明示的に呼ぶための合図（#313）。
+   * 選択しただけでtoolbarを出すと通常のコピー・IME操作を妨げるので、
+   * Command Palette等からこの値を更新したときだけ動く。
+   */
+  selectionCommand?: SelectionCommandRequest | null;
+  onSelectionUnavailable?: () => void;
+};
+
+export type SelectionCommandRequest = {
+  kind: SelectionExtractionKind | "ai";
+  /** 同じ操作を続けて呼べるようにするための連番。値が変わったときだけ実行する。 */
+  nonce: number;
 };
 
 const LONG_DOCUMENT_SPELLCHECK_LIMIT = 20_000;
@@ -475,6 +489,8 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onImagePreview,
   onExtractSelection,
   onAiEditSelection,
+  selectionCommand,
+  onSelectionUnavailable,
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
@@ -484,6 +500,8 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const headingNumberLevelKey = headingNumberLevels.join(",");
   const editorRef = useRef<MDXEditorMethods | null>(null);
   const editorScopeRef = useRef<HTMLDivElement | null>(null);
+  /** 直前の本文選択（#313）。Command Paletteでfocusが移っても変換対象を見失わない。 */
+  const lastSelectionRangeRef = useRef<Range | null>(null);
   const hoverHideTimerRef = useRef<number | null>(null);
   const [editorFailed, setEditorFailed] = useState(false);
   const [hoverLink, setHoverLink] = useState<HoverLinkCard | null>(null);
@@ -613,76 +631,104 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     setEditorFailed(false);
   }, [markdown]);
 
+  const contentElement = () => editorScopeRef.current?.querySelector<HTMLElement>(".note-mdx-content") || null;
+
+  /** 本文内の選択範囲か。エディタ外の選択に反応しないための判定。 */
+  const rangeInsideContent = (range: Range, content: HTMLElement) => {
+    const container = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+      ? range.commonAncestorContainer.parentElement
+      : range.commonAncestorContainer as Element;
+    return Boolean(container && content.contains(container));
+  };
+
+  /**
+   * 直前の本文選択を覚えておく（#313）。
+   * Command Paletteを開くとfocusが移って選択が消えるため、
+   * 表示は一切変えずrefだけを更新して、明示commandから使えるようにする。
+   */
   useEffect(() => {
-    if (!onExtractSelection && !onAiEditSelection) return;
-    const scope = editorScopeRef.current;
-    if (!scope) return;
-    let frame = 0;
-
-    const refreshSelection = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        if (extractionKind) return;
-        const selection = window.getSelection();
-        const content = scope.querySelector<HTMLElement>(".note-mdx-content");
-        if (!selection || !content || selection.rangeCount === 0 || selection.isCollapsed) {
-          setTextSelection(null);
-          return;
-        }
-        const range = selection.getRangeAt(0);
-        const container = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-          ? range.commonAncestorContainer.parentElement
-          : range.commonAncestorContainer as Element;
-        if (!container || !content.contains(container)) {
-          setTextSelection(null);
-          return;
-        }
-        const text = selection.toString().trim();
-        if (!text) {
-          setTextSelection(null);
-          return;
-        }
-        const anchorNode = selection.anchorNode;
-        let heading: string | null = null;
-        if (anchorNode) {
-          for (const candidate of content.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")) {
-            const position = candidate.compareDocumentPosition(anchorNode);
-            if (position & Node.DOCUMENT_POSITION_FOLLOWING || candidate.contains(anchorNode)) {
-              heading = candidate.textContent?.trim() || null;
-            } else if (heading) {
-              break;
-            }
-          }
-        }
-        const rangeRect = range.getBoundingClientRect();
-        const panelWidth = Math.min(360, window.innerWidth - 16);
-        const panelHeight = 176;
-        const nextSelection = {
-          text,
-          heading,
-          top: rangeRect.bottom + panelHeight <= window.innerHeight
-            ? rangeRect.bottom + 6
-            : Math.max(8, rangeRect.top - panelHeight - 6),
-          left: Math.max(8, Math.min(window.innerWidth - panelWidth - 8, rangeRect.left)),
-        };
-        setTextSelection((current) => (
-          current
-          && current.text === nextSelection.text
-          && current.heading === nextSelection.heading
-          && current.top === nextSelection.top
-          && current.left === nextSelection.left
-            ? current
-            : nextSelection
-        ));
-      });
+    const remember = () => {
+      const content = contentElement();
+      const selection = window.getSelection();
+      if (!content || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+      const range = selection.getRangeAt(0);
+      if (!rangeInsideContent(range, content) || !selection.toString().trim()) return;
+      lastSelectionRangeRef.current = range.cloneRange();
     };
+    document.addEventListener("selectionchange", remember);
+    return () => document.removeEventListener("selectionchange", remember);
+  }, []);
 
-    document.addEventListener("selectionchange", refreshSelection);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("selectionchange", refreshSelection);
+  // 本文が変わったら覚えていた範囲は当てにならない。
+  useEffect(() => {
+    lastSelectionRangeRef.current = null;
+  }, [markdown]);
+
+  /**
+   * いま本文で選択されている範囲を読む（#313）。
+   * 呼ばれたときだけ見る。生きた選択が無ければ直前に覚えた範囲を使う。
+   */
+  const captureSelection = useCallback((): FloatingTextSelection | null => {
+    const content = contentElement();
+    if (!content) return null;
+    const selection = window.getSelection();
+    const liveRange = selection && selection.rangeCount > 0 && !selection.isCollapsed
+      ? selection.getRangeAt(0)
+      : null;
+    const range = liveRange && rangeInsideContent(liveRange, content)
+      ? liveRange
+      : lastSelectionRangeRef.current;
+    if (!range || !rangeInsideContent(range, content)) return null;
+    const text = range.toString().trim();
+    if (!text) return null;
+
+    // 覚えていた範囲から呼ばれることもあるので、live selectionではなくrangeを基準にする。
+    const anchorNode = range.startContainer;
+    let heading: string | null = null;
+    if (anchorNode) {
+      for (const candidate of content.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")) {
+        const position = candidate.compareDocumentPosition(anchorNode);
+        if (position & Node.DOCUMENT_POSITION_FOLLOWING || candidate.contains(anchorNode)) {
+          heading = candidate.textContent?.trim() || null;
+        } else if (heading) {
+          break;
+        }
+      }
+    }
+    const rangeRect = range.getBoundingClientRect();
+    const panelWidth = Math.min(360, window.innerWidth - 16);
+    const panelHeight = 176;
+    return {
+      text,
+      heading,
+      top: rangeRect.bottom + panelHeight <= window.innerHeight
+        ? rangeRect.bottom + 6
+        : Math.max(8, rangeRect.top - panelHeight - 6),
+      left: Math.max(8, Math.min(window.innerWidth - panelWidth - 8, rangeRect.left)),
     };
-  }, [extractionKind, onAiEditSelection, onExtractSelection]);
+  }, []);
+
+  useEffect(() => {
+    if (!selectionCommand) return;
+    const selection = captureSelection();
+    if (!selection) {
+      onSelectionUnavailable?.();
+      return;
+    }
+    if (selectionCommand.kind === "ai") {
+      onAiEditSelection?.(selection);
+      return;
+    }
+    if (!onExtractSelection) {
+      onSelectionUnavailable?.();
+      return;
+    }
+    // タイトルを決める段だけpanelを出す。選択しただけでは何も出さない。
+    setTextSelection(selection);
+    setExtractionTitle(selectionTitleCandidate(selection.text));
+    setExtractionError("");
+    setExtractionKind(selectionCommand.kind);
+  }, [selectionCommand?.nonce]);
 
   useEffect(() => {
     if (!textSelection) return;
@@ -696,13 +742,6 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
       window.removeEventListener("scroll", closeOnViewportChange, true);
     };
   }, [extractionKind, textSelection]);
-
-  function beginSelectionExtraction(kind: SelectionExtractionKind) {
-    if (!textSelection) return;
-    setExtractionKind(kind);
-    setExtractionTitle(selectionTitleCandidate(textSelection.text));
-    setExtractionError("");
-  }
 
   async function submitSelectionExtraction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -981,16 +1020,16 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
         plugins={plugins}
         spellCheck={spellCheck}
       />
-      {textSelection && (onExtractSelection || onAiEditSelection) && (
+      {/* 選択しただけでは何も出さない。明示commandでタイトルを決める段だけ出す（#313）。 */}
+      {textSelection && extractionKind && (
         <div
-          className={`note-selection-extract-panel ${extractionKind ? "is-composing" : ""}`}
+          className="note-selection-extract-panel is-composing"
           style={{ top: textSelection.top, left: textSelection.left }}
-          role={extractionKind ? "group" : "toolbar"}
-          aria-label={extractionKind ? "選択範囲から作成" : "選択範囲の操作"}
+          role="group"
+          aria-label="選択範囲から作成"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          {extractionKind ? (
-            <form onSubmit={submitSelectionExtraction}>
+          <form onSubmit={submitSelectionExtraction}>
               <label>
                 <span>{extractionKind === "task" ? "Taskのタイトル" : "Noteのタイトル"}</span>
                 <input
@@ -1019,38 +1058,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
                   取消
                 </button>
               </div>
-            </form>
-          ) : (
-            <>
-              <span>選択範囲から</span>
-              <button
-                type="button"
-                className="secondary-button compact"
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => beginSelectionExtraction("task")}
-              >
-                Task
-              </button>
-              <button
-                type="button"
-                className="secondary-button compact"
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => beginSelectionExtraction("note")}
-              >
-                Note
-              </button>
-              {onAiEditSelection && (
-                <button
-                  type="button"
-                  className="primary-button compact"
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => onAiEditSelection(textSelection)}
-                >
-                  AIで編集
-                </button>
-              )}
-            </>
-          )}
+          </form>
         </div>
       )}
       {hoverLink && (

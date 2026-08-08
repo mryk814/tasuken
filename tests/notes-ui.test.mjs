@@ -158,3 +158,97 @@ test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本
   assert.match(styles, /\.notes-page\.is-document-focus > \.page-header/);
   assert.match(styles, /\.notes-page\.is-document-focus \.note-export-handoff \{ display: none; \}/);
 });
+
+test("Notesの作成導線が一つのprimary actionへ集約される（#313）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const menu = readFileSync("src/renderer/src/features/workspace/components/NoteCreateMenu.tsx", "utf8");
+
+  // 種類ごとのbuttonを4つ常設しない。
+  assert.equal(/<button className="primary-button" onClick=\{\(\) => addNote\("note"\)\}/.test(source), false);
+  assert.equal(/<button className="primary-button" onClick=\{\(\) => addPrompt\(\)\}/.test(source), false);
+  assert.match(source, /<NoteCreateMenu defaultKind=\{createDefaultKind\} onCreate=\{createRecord\} \/>/);
+
+  // 既定の種類は現在のfilterから決める。`すべて`ではNote。
+  assert.match(source, /const createDefaultKind: NotesKind = scope === "all" \? "note" : scope;/);
+
+  // dropdownから4種を選べ、keyboard / screen readerからも辿れる。
+  assert.match(menu, /const CREATE_ORDER: NotesKind\[\] = \["note", "resource", "report", "prompt"\];/);
+  assert.match(menu, /aria-haspopup="menu"/);
+  assert.match(menu, /aria-label="追加する種類を選ぶ"/);
+  assert.match(menu, /role="menuitem"/);
+});
+
+test("本文を選択しただけでは変換toolbarを出さない（#313）", () => {
+  const editor = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+
+  // 選択そのものでpanelを開かない。開くのはタイトルを決める段だけ。
+  assert.match(editor, /\{textSelection && extractionKind && \(/);
+  assert.equal(/beginSelectionExtraction/.test(editor), false);
+  assert.equal(/選択範囲から<\/span>/.test(editor), false);
+
+  // 明示commandで呼ぶ。Command Paletteでfocusが移っても対象を見失わない。
+  assert.match(editor, /selectionCommand\?: SelectionCommandRequest \| null;/);
+  assert.match(editor, /lastSelectionRangeRef\.current = range\.cloneRange\(\);/);
+  assert.match(source, /"selection-task": \(\) => requestSelectionCommand\("task"\)/);
+  assert.match(app, /id: "notes:selection-task", label: "選択範囲からTaskを作る"/);
+  assert.match(app, /id: "notes:selection-ai", label: "選択範囲をAIで編集"/);
+});
+
+test("本文の全文コピーは大きなbuttonから外す（#313）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+
+  // 大きなtext buttonは撤去。#331でoverflow menuの項目になった。
+  assert.equal(/>本文をコピー</.test(source), false);
+  assert.match(source, /id: "copy-body", label: "本文をすべてコピー", onSelect: \(\) => void copySelectedRaw\(\)/);
+});
+
+test("Notesのtoolbarがpage / document / editor / outputへ分かれる（#331）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+
+  // 文書の段は「この文書を確定する」ことだけを扱う。
+  assert.match(source, /<span className="note-draft-state" role="status" aria-live="polite">\{saveStateLabel\}<\/span>/);
+  assert.match(source, /<ToolbarMenu label="この文書" title="この文書に対する操作" items=\{documentMenuItems\} \/>/);
+  // Editorの段はmode切替と高頻度操作、派生出力はmenuへ。
+  assert.match(source, /<ToolbarMenu label="出力" title="書き出しと保存先" items=\{outputMenuItems\} \/>/);
+  assert.match(source, /aria-label="本文を検索・置換"/);
+
+  // 低頻度actionは同格buttonとして並べない。
+  for (const removed of [
+    />整形<\/button>/,
+    />Draft Workspace<\/button>/,
+    />AI編集<\/button>/,
+    /Knowledge化\s*\n\s*<\/button>/,
+    /別ウィンドウで開く"\}\s*\n\s*<\/button>/,
+  ]) {
+    assert.equal(removed.test(source), false, `${removed} は常設buttonから外れているはず`);
+  }
+});
+
+test("`保存`はNote正本の確定だけに使い、派生出力と語彙を分ける（#331）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+
+  // 画面上で `保存` と表示されるbuttonは、内部Entityを確定する一つだけ。
+  const saveButtons = source.match(/>保存<\/button>/g) || [];
+  assert.equal(saveButtons.length, 1);
+  assert.match(source, /onClick=\{saveSelectedDraft\} title="Ctrl\+S">保存<\/button>/);
+
+  // 派生出力は `保存` と呼ばない。
+  assert.match(source, /label: markdownExporting \? "Markdownを書き出しています" : "Markdownを書き出す"/);
+  assert.match(source, /label: pdfExporting \? "PDFを作成しています" : "PDFを作成"/);
+  assert.equal(/\{markdownExporting \? "保存中" : "保存"\}/.test(source), false);
+
+  // 保存状態は一時messageが無くても静止状態を言う。
+  assert.match(source, /const saveStateLabel = draftState\s*\n\s*\|\| \(draftDirty/);
+  assert.match(source, /noteSaveStateLabel\(\{ internalSaved: true, fileState: canonicalFileState \}\)/);
+});
+
+test("AI iconはAIの操作にだけ使う（#312）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+
+  // Knowledge化はAIが実行する操作ではない。
+  assert.match(source, /title="Knowledge化"\s*\n\s*>\s*\n[^<]*\n\s*<IconBulb size=\{15\} \/>/);
+  // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
+  assert.match(source, /<IconSparkles size=\{16\} \/>AI Draft/);
+});

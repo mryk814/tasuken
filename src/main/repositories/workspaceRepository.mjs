@@ -13,6 +13,7 @@ import {
   validateEntity,
   workspaceEntityTypes,
 } from "./domain.mjs";
+import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { isThemeDeletable, planPersonalDefaultTheme } from "../../shared/personalTheme.mjs";
 import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
@@ -190,6 +191,7 @@ export class WorkspaceDatabase {
       themeMode: this.getPreference("themeMode"),
       activeGroups: this.getPreference("activeGroups"),
       activeGroup: this.getPreference("activeGroup"),
+      aiVisibilityDefault: this.getPreference("aiVisibilityDefault"),
       entityCount: this.db.prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL").get().count,
       syncPendingCount: this.syncPendingCount(),
       syncConflictCount: this.syncConflictCount(),
@@ -216,6 +218,15 @@ export class WorkspaceDatabase {
     if (key === "sharedSyncEnabled") return this.ensureMeta("shared_sync_enabled", "false") === "true";
     if (key === "sharedSyncLastAt") return this.ensureMeta("shared_sync_last_at", "");
     if (key === "sharedSyncLastError") return this.ensureMeta("shared_sync_last_error", "");
+    // AI公開範囲のworkspace既定（#294）。Entity・Themeが未設定のときだけ使う。
+    if (key === "aiVisibilityDefault") {
+      const raw = this.ensureMeta("ai_visibility_default", JSON.stringify(DEFAULT_AI_VISIBILITY));
+      try {
+        return normalizeAiVisibility(JSON.parse(raw)) || [];
+      } catch {
+        return [...DEFAULT_AI_VISIBILITY];
+      }
+    }
     throw new Error(`未対応の設定です: ${key}`);
   }
 
@@ -294,6 +305,14 @@ export class WorkspaceDatabase {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `).run(metaKey, text);
       return text;
+    }
+    if (key === "aiVisibilityDefault") {
+      const audiences = normalizeAiVisibility(value) || [];
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('ai_visibility_default', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(JSON.stringify(audiences));
+      return audiences;
     }
     if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);
     this.db.prepare(`

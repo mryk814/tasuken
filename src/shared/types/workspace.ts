@@ -46,6 +46,8 @@ export interface WorkspaceMeta {
   workspaceId?: string;
   deviceId?: string;
   themeMode?: "light" | "dark";
+  /** AI公開範囲のworkspace既定（#294）。Entity・Themeが未設定のときに使う。 */
+  aiVisibilityDefault?: ("m365" | "coding_agent" | "external_ai")[];
   [key: string]: unknown;
 }
 

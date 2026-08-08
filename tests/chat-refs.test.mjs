@@ -372,3 +372,24 @@ test("Notes page no longer offers moving resources to Chat References", () => {
   assert.doesNotMatch(source, /チャット参照へ移す/);
   assert.doesNotMatch(source, /moveResourceToChatRefs/);
 });
+
+test("ChatRefsは会話閲覧へ集中し、まとめコピーをmenuへ畳む（#322）", () => {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/ChatRefsPage.tsx", "utf8");
+  const header = source.slice(source.indexOf("<PageHeader"), source.indexOf("</PageHeader>"));
+
+  // 常設buttonからは外す。機能はmenuへ退避し、主toolbarへは戻さない。
+  assert.equal(/<IconCopy size=\{16\} \/>URLをコピー/.test(header), false);
+  assert.equal(/<IconCopy size=\{16\} \/>一覧をコピー/.test(header), false);
+  assert.match(header, /id: "copy-urls", label: "表示中のURLをまとめてコピー"/);
+  assert.match(header, /id: "copy-list", label: "表示中の一覧をコピー"/);
+
+  // 主操作は会話へ戻る・取り込む・追加。
+  assert.match(header, /会話ログを取り込む/);
+  assert.match(header, /className="primary-button"/);
+
+  // 一覧はprovider / title / Theme / 時刻を短く出し、URL文字列は載せない。
+  assert.match(source, /className="chat-link-meta"/);
+  assert.match(source, /<span>\{themeNameOf\(r\)\}<\/span>/);
+  assert.match(source, /<time className="chat-link-date" dateTime=\{chatRefTimeValue\(r\)\}>/);
+  assert.equal(/\{r\.url\}<\/span>|>\{url\}</.test(source), false);
+});

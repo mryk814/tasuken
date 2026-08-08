@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { EmptyState, PageHeader } from "../components/common";
+import { ToolbarMenu } from "../components/ToolbarMenu";
 import {
   resolveSketchPageSize,
   SketchPageSizePicker,
@@ -12,11 +13,14 @@ import {
 import {
   cropSketchPageToContent,
   createSketchDraft,
+  DEFAULT_SKETCH_TITLE,
   drawSketchPage,
+  isDisposableSketch,
   SKETCH_PAGE_PRESETS,
   sketchCanvasMode,
   type SketchCanvasMode,
   type SketchPage,
+  type SketchPageSize,
 } from "../lib/sketch";
 import type { PageProps, Sketch } from "../types";
 
@@ -45,6 +49,20 @@ function SketchPreview({ page }: { page?: SketchPage }) {
   return <canvas ref={canvasRef} width={page.width} height={page.height} aria-hidden="true" />;
 }
 
+/**
+ * title入力なしで始めるための既定title（#320）。
+ * 同名が並んで見分けられなくならないよう、既存と衝突する間だけ連番を足す。
+ */
+export function defaultSketchTitle(existing: Sketch[], base = DEFAULT_SKETCH_TITLE): string {
+  const taken = new Set(existing.map((sketch) => String(sketch.title || "")));
+  if (!taken.has(base)) return base;
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return base;
+}
+
 function updatedLabel(sketch: Sketch): string {
   const value = sketch.updated_at || sketch.created_at;
   if (!value) return "—";
@@ -57,6 +75,8 @@ export function SketchLibraryPage({
   activeTheme,
   navigate,
   openDrawer,
+  saveEntity,
+  setToast,
 }: PageProps) {
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -97,28 +117,67 @@ export function SketchLibraryPage({
     setCreateOpen(true);
   }
 
+  /**
+   * 作って即描き始める（#320）。
+   * 描きたい瞬間にmetadata整理を挟まない。titleとThemeは後からcanvasのmenuで変えられる。
+   * 保存してからcanvasを開くので、初期Pageを失わない。
+   */
+  async function startSketch(mode: SketchCanvasMode, size: SketchPageSize) {
+    setCreateOpen(false);
+    // 空Sketchを増やさない（#320）。まだ何も描いていない無題のものがあれば作り直さず開く。
+    const reusable = (data.sketches as Sketch[]).find(
+      (sketch) => isDisposableSketch(sketch) && sketchCanvasMode(sketch.document) === mode,
+    );
+    if (reusable) {
+      localStorage.setItem(ACTIVE_SKETCH_KEY, reusable.id);
+      navigate("sketch-editor");
+      return;
+    }
+    const draft = createSketchDraft(defaultSketchTitle(data.sketches as Sketch[]), activeTheme?.id || null, null, mode, size);
+    try {
+      const saved = await saveEntity("sketch", draft, { quiet: true });
+      localStorage.setItem(ACTIVE_SKETCH_KEY, String(saved?.id || draft.id));
+      navigate("sketch-editor");
+    } catch (error) {
+      setToast(`Sketchを作成できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
   function createSketch() {
     const resolvedPageSize = createMode === "page" ? resolveSketchPageSize(pageSize) : SKETCH_PAGE_PRESETS.landscape;
     if (!resolvedPageSize) return;
-    const draft = createSketchDraft("新しいSketch", activeTheme?.id || null, null, createMode, resolvedPageSize);
-    setCreateOpen(false);
-    openDrawer({
-      type: "sketch",
-      mode: "edit",
-      entity: { ...draft, id: undefined },
-    });
+    void startSketch(createMode, resolvedPageSize);
   }
 
   function openSketch(sketch: Sketch) {
+    // 行を選んだら編集canvasへ直行する。詳細drawerを経由しない（#320）。
     localStorage.setItem(ACTIVE_SKETCH_KEY, sketch.id);
     navigate("sketch-editor");
-    openDrawer({ type: "sketch", entity: sketch });
   }
 
   return (
     <div className="page sketch-library-page">
+      {/*
+        押したらすぐ描き始める（#320）。用紙を選びたいときとInfiniteだけmenuへ回す。
+      */}
       <PageHeader route="sketch">
-        <button className="primary-button" onClick={openCreateDialog}>
+        <ToolbarMenu
+          label="作業面を選ぶ"
+          title="用紙やInfinite Canvasを選んで作成する"
+          items={[
+            { id: "create-page-choose", label: "用紙を選んでPageを作成", onSelect: openCreateDialog },
+            {
+              id: "create-infinite",
+              label: "Infinite Canvasを作成",
+              hint: "2400 × 1600から始まり、描画に合わせて広がります",
+              onSelect: () => void startSketch("infinite", SKETCH_PAGE_PRESETS.landscape),
+            },
+          ]}
+        />
+        <button
+          className="primary-button"
+          onClick={() => void startSketch("page", SKETCH_PAGE_PRESETS.landscape)}
+        >
           <IconPlus size={16} />新しいSketch
         </button>
       </PageHeader>

@@ -35,6 +35,8 @@ interface AppTitleBarProps {
   openSettings: () => void;
   openCommandPalette: () => void;
   launcher?: TitleBarLauncherData;
+  /** 切り離しウィンドウ（#290）。Sidebarが無いので開閉トグルを出さない（#329）。 */
+  detached?: boolean;
 }
 
 export interface TitleBarLauncherData {
@@ -237,6 +239,7 @@ export function AppTitleBar({
   openSettings,
   openCommandPalette,
   launcher,
+  detached = false,
 }: AppTitleBarProps) {
   const [openMenu, setOpenMenu] = useState<"view" | "help" | null>(null);
   const controlsRef = useRef<HTMLDivElement | null>(null);
@@ -264,18 +267,20 @@ export function AppTitleBar({
   };
 
   return (
-    <header className="app-titlebar">
-      <button
-        className="titlebar-sidebar-toggle"
-        type="button"
-        aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
-        title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        {collapsed
-          ? <IconLayoutSidebarLeftExpand size={17} aria-hidden="true" />
-          : <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />}
-      </button>
+    <header className={`app-titlebar${detached ? " is-detached" : ""}`}>
+      {!detached && (
+        <button
+          className="titlebar-sidebar-toggle"
+          type="button"
+          aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+          title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed
+            ? <IconLayoutSidebarLeftExpand size={17} aria-hidden="true" />
+            : <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />}
+        </button>
+      )}
       <div className="titlebar-brand" aria-label="Tasken">
         <img src={taskenIconUrl} alt="" aria-hidden="true" />
         <strong>Tasken</strong>
@@ -396,6 +401,58 @@ interface SidebarProps {
   setActiveThemeId: (id: string) => void;
   domain: WorkspaceDomain;
   openDrawer: OpenDrawer;
+  /** 実行中のFocus Session（#316）。右下floatingではなくSidebar下部で見せる。 */
+  activeFocus?: { taskTitle: string; startedAt: string } | null;
+  openActiveFocus?: () => void;
+}
+
+function elapsedFocusLabel(startedAt: string, now: number): string {
+  const started = new Date(startedAt).getTime();
+  const seconds = Number.isNaN(started) ? 0 : Math.max(0, Math.floor((now - started) / 1000));
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+}
+
+/**
+ * 実行中のFocus Session（#316）。
+ * navigationを圧迫しないよう下部の固定領域に置き、色だけでなくlabelと経過時間で示す。
+ * pulse等の動きは `prefers-reduced-motion` をCSS側で尊重する。
+ */
+function SidebarFocus({
+  focus,
+  collapsed,
+  onOpen,
+}: {
+  focus: { taskTitle: string; startedAt: string };
+  collapsed: boolean;
+  onOpen: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const elapsed = elapsedFocusLabel(focus.startedAt, now);
+  return (
+    <button
+      type="button"
+      className="sidebar-focus"
+      onClick={onOpen}
+      title={`集中して作業中: ${focus.taskTitle}（${elapsed}）`}
+      aria-label={`集中して作業中: ${focus.taskTitle}。経過${elapsed}。開く`}
+    >
+      <span className="sidebar-focus-label">
+        <span className="sidebar-focus-dot" aria-hidden="true" />
+        {!collapsed && "FOCUS"}
+      </span>
+      {!collapsed && (
+        <>
+          <span className="sidebar-focus-title">{focus.taskTitle}</span>
+          <span className="sidebar-focus-time">{elapsed}</span>
+        </>
+      )}
+    </button>
+  );
 }
 
 export function Sidebar({
@@ -407,6 +464,8 @@ export function Sidebar({
   setActiveThemeId,
   domain,
   openDrawer,
+  activeFocus,
+  openActiveFocus,
 }: SidebarProps) {
   const navIconByRoute = ROUTE_ICONS;
   const inbox = domain.capture_entries.filter((e) => e.state === "untriaged" && e.kind !== "micro_memo").length;
@@ -516,6 +575,9 @@ export function Sidebar({
         <div className="nav-heading"><span>ツール</span></div>
         {toolNavigation.map(renderNavButton)}
       </nav>
+      {activeFocus && openActiveFocus && (
+        <SidebarFocus focus={activeFocus} collapsed={collapsed} onOpen={openActiveFocus} />
+      )}
     </aside>
   );
 }
@@ -536,7 +598,8 @@ export function ShortcutDialog({ close }: { close: () => void }) {
           <dt><kbd>Ctrl</kbd>+ホイール</dt><dd>カーソル位置を基準にSketchを拡大縮小</dd>
           <dt><kbd>Shift</kbd>+ホイール</dt><dd>Sketchを横スクロール</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>検索へ移動</dd>
-          <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる</dd>
+          <dt><kbd>Alt</kbd>+<kbd>F</kbd></dt><dd>実行中のFocus Sessionを開く</dd>
+          <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる（Focusは終了しない）</dd>
         </dl>
       </div>
     </div>
