@@ -233,4 +233,3 @@ export function normalizeViewPreferenceEnvelope(value) {
     values: normalized,
   };
 }
-

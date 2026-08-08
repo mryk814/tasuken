@@ -36,4 +36,3 @@ export function clearOptimisticSortOrders(overlays, token) {
     Object.entries(overlays || {}).filter(([, entry]) => entry.token !== token),
   );
 }
-
