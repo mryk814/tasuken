@@ -43,8 +43,18 @@ test("document publish uses Markdown as primary output and removes Word", () => 
 
   assert.match(notesSource, /showDocumentPublish/);
   assert.match(notesSource, /exportSelectedMarkdown/);
+  assert.match(notesSource, /const flushed = await flushDraftSnapshot\(current\)/);
+  assert.match(notesSource, /const persisted = await workspaceApi\.get\("note", selected\.id\)/);
+  assert.match(notesSource, /makeNoteDraftSnapshot\(owner, body, body, Number\(latest\.version \|\| 0\)\)/);
+  assert.match(notesSource, /MarkdownコピーはNote本体を再保存しない/);
+  assert.match(notesSource, /autoLinkExportArtifacts\(exported, "copy"\)/);
+  assert.doesNotMatch(notesSource, /saveEntity\("note"/);
+  assert.match(notesSource, /async function saveCurrentNoteMetadata/);
+  assert.match(notesSource, /const exportNote = await flushCurrentNoteAndReadLatest\(selected\)/);
+  assert.match(notesSource, /await saveCurrentNoteMetadata\(target, \(latest\) =>/);
+  assert.match(notesSource, /const next = \[\.\.\.new Set\(\[\.\.\.noteArtifactExportTargetIds\(latest\), chatRefId\]\)\]/);
+  assert.match(notesSource, /cancelAutosaveTimer\(\);[\s\S]*let latest = await workspaceApi\.get\("note", target\.id\)/);
   assert.match(notesSource, /document-publish-open|IconFolder/);
-  assert.match(notesSource, /markdown_export/);
   assert.match(notesSource, /exportSelectedMarkdown\(false\)/);
   assert.doesNotMatch(notesSource, /Document Publish|Publish対象|Word出力|exportSelectedWord|word_export|exportMarkdownNoteToWord|Markdown=AI|document-publish-inline-meta/);
 

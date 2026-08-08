@@ -18,7 +18,15 @@ import {
   type MermaidSvgClipboardResult,
 } from "../../shared/mermaidPowerPoint";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
-import type { Workspace } from "../../shared/types/workspace";
+import type { DocumentSaveRequest, SaveOptions, Workspace } from "../../shared/types/workspace";
+import {
+  buildCanonicalMarkdownContent,
+  canonicalMarkdownBindingFromProperties,
+  markdownSignature,
+  normalizeCanonicalMarkdownBinding,
+  planCanonicalMarkdownWrite,
+  withCanonicalMarkdownBinding,
+} from "../../shared/canonicalMarkdown.mjs";
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
 import { THEME_FOLDER_MANIFEST, buildThemeFolderManifest } from "../../shared/storageResolver.mjs";
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
@@ -30,6 +38,13 @@ import {
   resolveUniqueArtifactFileName,
 } from "./artifactStorage.mjs";
 import { prepareMarkdownHtmlForPdf } from "./markdownPdfImages.mjs";
+import { writeAtomicTextFile } from "./atomicText.mjs";
+import { bufferSignature } from "./canonicalHash.mjs";
+import {
+  assertConfiguredCanonicalPath,
+  assertExplicitCanonicalPath,
+  assertGeneratedCanonicalPath,
+} from "./canonicalPath.mjs";
 import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
 
@@ -77,12 +92,43 @@ interface GitHubLatestRelease {
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
+  save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
 }
+
+interface CanonicalFileSnapshot {
+  exists: boolean;
+  content: string;
+  signature: string;
+  size: number | null;
+  mtimeMs: number | null;
+  error?: string;
+}
+
+interface CanonicalTarget {
+  filePath: string;
+  directory: string;
+  rootIdentity: string;
+  configuredRoot: boolean;
+}
+
+interface CanonicalRecoveryReceipt {
+  operationId: string;
+  noteId: string;
+  entity: Record<string, unknown>;
+  filePath: string;
+  content: string;
+  binding: Record<string, unknown>;
+  operationAt?: string;
+  baseRevision?: number;
+  bodySignature?: string;
+}
+
+type CanonicalSaveOptions = SaveOptions & { __canonicalOperationAt?: string };
 
 function localDateIso(date = new Date()): string {
   const year = date.getFullYear();
@@ -106,6 +152,52 @@ function safeMarkdownFileName(value: string): string {
 
 function safePdfFileName(value: string): string {
   return safeExportFileName(value, "pdf");
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeDocumentSaveRequest(value: unknown): DocumentSaveRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("文書保存のrequestが不正です。画面を再読み込みして、もう一度試してください。");
+  }
+  const request = value as Record<string, unknown>;
+  const entity = objectValue(request.entity);
+  const snapshot = objectValue(request.snapshot);
+  const owner = objectValue(snapshot.owner);
+  const entityId = typeof owner.entityId === "string" ? owner.entityId.trim() : "";
+  if (owner.recordType !== "note" || !entityId) {
+    throw new Error("文書保存のownerが不正です。対象Noteを開き直して再試行してください。");
+  }
+  if (typeof entity.id !== "string" || entity.id !== entityId) {
+    throw new Error("文書保存のownerとEntityが一致しません。古い編集画面を閉じて再試行してください。");
+  }
+  if (typeof snapshot.body !== "string") {
+    throw new Error("文書保存の本文snapshotがありません。編集内容を保持したまま再試行してください。");
+  }
+  const expectedRevision = snapshot.expectedRevision;
+  if (typeof expectedRevision !== "number" || !Number.isInteger(expectedRevision) || expectedRevision < 0) {
+    throw new Error("文書保存のexpected revisionが不正です。対象Noteを開き直して再試行してください。");
+  }
+  if (String(entity.body_markdown ?? "") !== snapshot.body) {
+    throw new Error("文書保存の本文snapshotとEntityが一致しません。古い編集画面を閉じて再試行してください。");
+  }
+  return {
+    entity: entity as DocumentSaveRequest["entity"],
+    snapshot: {
+      owner: { recordType: "note", entityId },
+      body: snapshot.body,
+      expectedRevision,
+    },
+    options: objectValue(request.options) as SaveOptions,
+  };
 }
 
 function normalizeMarkdownFileExportRequest(value: unknown): MarkdownFileExportRequest {
@@ -231,11 +323,682 @@ function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachme
 
 export class WorkspaceService {
   private readonly pendingSnapshots = new Map<string, Workspace>();
+  private readonly canonicalRecoveryPath: string;
+  private readonly canonicalRecoveryWarningPath: string;
 
   constructor(
     private readonly repository: WorkspaceRepository,
     private readonly userDataPath: string,
-  ) {}
+    private readonly now: () => string = () => new Date().toISOString(),
+  ) {
+    this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
+    this.canonicalRecoveryWarningPath = path.join(userDataPath, "canonical-markdown-recovery-warning.json");
+  }
+
+  loadWorkspace(includeDeleted = false): unknown {
+    this.recoverCanonicalMarkdownReceipts();
+    this.migrateCanonicalMarkdownBindings();
+    return this.repository.loadWorkspace(includeDeleted);
+  }
+
+  private writeAtomicText(filePath: string, content: string, operationId: string): string | null {
+    return writeAtomicTextFile(filePath, content, operationId);
+  }
+
+  private readCanonicalFile(filePath: string): CanonicalFileSnapshot {
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) return { exists: false, content: "", signature: "", size: null, mtimeMs: null, error: "正本Markdownが通常のファイルではありません。" };
+      const rawContent = fs.readFileSync(filePath);
+      const content = rawContent.toString("utf8");
+      return {
+        exists: true,
+        content,
+        signature: bufferSignature(rawContent),
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+        try {
+          fs.statSync(path.dirname(filePath));
+          return { exists: false, content: "", signature: "", size: null, mtimeMs: null };
+        } catch (directoryError) {
+          return { exists: false, content: "", signature: "", size: null, mtimeMs: null, error: errorText(directoryError) };
+        }
+      }
+      return { exists: false, content: "", signature: "", size: null, mtimeMs: null, error: errorText(error) };
+    }
+  }
+
+  private readCanonicalRecoveryReceipts(): CanonicalRecoveryReceipt[] {
+    try {
+      const parsed: unknown = JSON.parse(fs.readFileSync(this.canonicalRecoveryPath, "utf8"));
+      if (!Array.isArray(parsed)) throw new Error("recovery receiptのJSON配列が必要です。");
+      const receipts = parsed.filter((entry): entry is CanonicalRecoveryReceipt => (
+        Boolean(entry)
+        && typeof entry === "object"
+        && typeof (entry as Record<string, unknown>).operationId === "string"
+        && typeof (entry as Record<string, unknown>).noteId === "string"
+        && typeof (entry as Record<string, unknown>).filePath === "string"
+        && typeof (entry as Record<string, unknown>).content === "string"
+        && typeof (entry as Record<string, unknown>).entity === "object"
+        && typeof (entry as Record<string, unknown>).binding === "object"
+      ));
+      if (receipts.length !== parsed.length) throw new Error("recovery receiptの項目形式が不正です。");
+      return receipts;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+      this.quarantineCorruptCanonicalRecovery(error);
+      return [];
+    }
+  }
+
+  private quarantineCorruptCanonicalRecovery(error: unknown): void {
+    const corruptPath = `${this.canonicalRecoveryPath}.corrupt-${Date.now()}-${randomUUID()}.json`;
+    let quarantinedPath = "";
+    try {
+      if (fs.existsSync(this.canonicalRecoveryPath)) {
+        fs.renameSync(this.canonicalRecoveryPath, corruptPath);
+        quarantinedPath = corruptPath;
+      }
+    } catch (quarantineError) {
+      quarantinedPath = `退避失敗: ${errorText(quarantineError)}`;
+    }
+    const warning = {
+      detectedAt: new Date().toISOString(),
+      recoveryPath: this.canonicalRecoveryPath,
+      quarantinedPath,
+      reason: errorText(error),
+    };
+    try {
+      this.writeAtomicText(this.canonicalRecoveryWarningPath, `${JSON.stringify(warning, null, 2)}\n`, randomUUID());
+    } catch (warningError) {
+      // JSON破損を握りつぶさないため、警告ファイルの作成失敗もMainログへ残す。
+      console.warn(`canonical Markdown recovery receiptの警告保存に失敗しました。${errorText(warningError)}`);
+    }
+    console.warn(`canonical Markdown recovery receiptを検証できませんでした。${errorText(error)}`);
+  }
+
+  private writeCanonicalRecoveryReceipts(receipts: CanonicalRecoveryReceipt[]): void {
+    if (!receipts.length) {
+      try {
+        if (fs.existsSync(this.canonicalRecoveryPath)) fs.unlinkSync(this.canonicalRecoveryPath);
+      } catch {
+        // 復旧済みreceiptの掃除失敗は、次回起動時に再確認できるよう無視する。
+      }
+      return;
+    }
+    this.writeAtomicText(this.canonicalRecoveryPath, `${JSON.stringify(receipts, null, 2)}\n`, randomUUID());
+  }
+
+  private addCanonicalRecoveryReceipt(receipt: CanonicalRecoveryReceipt): void {
+    const receipts = this.readCanonicalRecoveryReceipts().filter((entry) => entry.operationId !== receipt.operationId);
+    receipts.push(receipt);
+    this.writeCanonicalRecoveryReceipts(receipts);
+  }
+
+  private removeCanonicalRecoveryReceipt(operationId: string): void {
+    this.writeCanonicalRecoveryReceipts(
+      this.readCanonicalRecoveryReceipts().filter((entry) => entry.operationId !== operationId),
+    );
+  }
+
+  private sameCanonicalBinding(
+    left: ReturnType<typeof normalizeCanonicalMarkdownBinding> | null,
+    right: ReturnType<typeof normalizeCanonicalMarkdownBinding> | null,
+  ): boolean {
+    if (!left || !right) return left === right;
+    const keys: Array<keyof typeof left> = [
+      "schema_version",
+      "binding_id",
+      "mode",
+      "canonical_path",
+      "directory",
+      "root_identity",
+      "file_name",
+      "body_signature",
+      "file_signature",
+      "file_size",
+      "file_mtime_ms",
+      "last_synced_revision",
+      "sync_state",
+      "last_operation_id",
+      "last_attempt_at",
+      "last_synced_at",
+      "last_error",
+      "file_ahead_signature",
+    ];
+    return keys.every((key) => left[key] === right[key]);
+  }
+
+  private resolveCanonicalRecoveryReceiptsForSave(
+    noteId: string,
+    operationId: string,
+    actualRevision: number,
+  ): void {
+    // 同じNoteの、今回の保存開始時点以前のreceiptは新しいin_sync正本で
+    // supersedeされたものとして解決する。別Noteや未来のrevisionは残す。
+    try {
+      this.writeCanonicalRecoveryReceipts(
+        this.readCanonicalRecoveryReceipts().filter((receipt) => (
+          receipt.noteId !== noteId
+          || (receipt.operationId !== operationId && Number(receipt.baseRevision || 0) > actualRevision)
+        )),
+      );
+    } catch (error) {
+      // DB/fileの正本保存自体は成功している。receipt掃除だけ失敗した場合は
+      // warningを残し、次回起動のin_sync照合で安全に解決できるようreceiptを保つ。
+      console.warn(`canonical Markdown recovery receiptの解決に失敗しました。${errorText(error)}`);
+    }
+  }
+
+  private recoverCanonicalMarkdownReceipts(): void {
+    const receipts = this.readCanonicalRecoveryReceipts();
+    if (!receipts.length) return;
+    const remaining: CanonicalRecoveryReceipt[] = [];
+    for (const receipt of receipts) {
+      try {
+        const current = this.repository.get("note", receipt.noteId, true);
+        // receiptはfile write後の復旧候補であり、DBのcurrentを上書きする正本ではない。
+        const snapshot = this.readCanonicalFile(receipt.filePath);
+        const expectedSignature = markdownSignature(receipt.content);
+        const binding = normalizeCanonicalMarkdownBinding(receipt.binding, { noteId: receipt.noteId });
+        const baseRevision = Number.isInteger(receipt.baseRevision)
+          ? Number(receipt.baseRevision)
+          : Number(receipt.entity.version || 0);
+        const currentBody = String(current?.body_markdown || "");
+        // receipt.entity is the attempted new state, so its body/title naturally
+        // differ from the unchanged DB row after a file-success/DB-failure. A
+        // repository save always advances the entity revision; use that typed
+        // revision boundary to distinguish a later DB edit from the original
+        // operation instead of treating the expected file contents as evidence
+        // that the DB was edited concurrently.
+        const currentAdvanced = Boolean(current && Number(current.version || 0) > baseRevision);
+        // 同じrevisionのcurrentはDB保存に失敗した元の行なので、receiptの
+        // intended entityを適用する。後続revisionだけはcurrentを正本として保つ。
+        const entity: Record<string, unknown> = currentAdvanced && current ? current : receipt.entity;
+        if (currentAdvanced && current) {
+          const currentBinding = canonicalMarkdownBindingFromProperties(objectValue(current.properties_json), { noteId: receipt.noteId });
+          // 後続のcanonical saveがすでにin_syncへ到達していれば、この旧receiptを
+          // 再度conflict化しない。本文・実ファイル署名も一致する場合だけ解決する。
+          if (
+            currentBinding?.sync_state === "in_sync"
+            && currentBinding.body_signature === markdownSignature(currentBody)
+            && currentBinding.file_signature === snapshot.signature
+            && snapshot.exists
+            && !snapshot.error
+          ) {
+            continue;
+          }
+          const conflict = normalizeCanonicalMarkdownBinding({
+            ...binding,
+            ...(currentBinding || {}),
+            sync_state: snapshot.error || !snapshot.exists ? "unavailable" : "conflict",
+            body_signature: markdownSignature(currentBody),
+            file_signature: snapshot.signature,
+            file_size: snapshot.size,
+            file_mtime_ms: snapshot.mtimeMs,
+            last_synced_revision: null,
+            file_ahead_signature: snapshot.signature,
+            last_error: "復旧receiptより新しいDB変更があるため、旧MarkdownをDBへ戻さずconflictとして保持しています。確認してから再保存してください。",
+          }, { noteId: receipt.noteId });
+          if (!this.sameCanonicalBinding(currentBinding, conflict)) {
+            this.repository.save("note", {
+              ...current,
+              properties_json: withCanonicalMarkdownBinding(objectValue(current.properties_json), conflict),
+            }, { source: "canonical-recovery", __canonicalOperationAt: this.now() });
+          }
+          remaining.push(receipt);
+          continue;
+        }
+        if (!snapshot.exists || snapshot.error || snapshot.signature !== expectedSignature) {
+          const errorMessage = snapshot.error
+            || (!snapshot.exists ? "保存したMarkdownが見つかりません。" : "保存したMarkdownの内容が一致しません。");
+          const conflict = normalizeCanonicalMarkdownBinding({
+            ...binding,
+            sync_state: snapshot.error ? "unavailable" : "conflict",
+            file_ahead_signature: snapshot.signature,
+            last_error: errorMessage,
+          }, { noteId: receipt.noteId });
+          const currentBinding = current
+            ? canonicalMarkdownBindingFromProperties(objectValue(current.properties_json), { noteId: receipt.noteId })
+            : null;
+          if (
+            !current
+            || current.body_markdown !== entity.body_markdown
+            || currentBinding?.sync_state !== conflict.sync_state
+            || currentBinding?.file_ahead_signature !== conflict.file_ahead_signature
+            || currentBinding?.last_error !== conflict.last_error
+          ) {
+            this.repository.save("note", {
+              ...entity,
+              properties_json: withCanonicalMarkdownBinding(objectValue(entity.properties_json), conflict),
+            }, { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() });
+          }
+          remaining.push(receipt);
+          continue;
+        }
+        const synced = normalizeCanonicalMarkdownBinding({
+          ...binding,
+          sync_state: "in_sync",
+          body_signature: markdownSignature(String(entity.body_markdown || "")),
+          file_signature: snapshot.signature,
+          file_size: snapshot.size,
+          file_mtime_ms: snapshot.mtimeMs,
+          last_synced_revision: Number(current?.version || 0) + 1,
+          last_synced_at: receipt.operationAt || this.now(),
+          last_error: "",
+          file_ahead_signature: "",
+        }, { noteId: receipt.noteId });
+        this.repository.save("note", {
+          ...entity,
+          properties_json: withCanonicalMarkdownBinding(objectValue(entity.properties_json), synced),
+        }, { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() });
+      } catch {
+        // receiptは検証とDB保存の両方が成功するまで残し、次回起動で再試行する。
+        remaining.push(receipt);
+      }
+    }
+    this.writeCanonicalRecoveryReceipts(remaining);
+  }
+
+  private resolveCanonicalTarget(
+    note: Record<string, unknown>,
+    binding: ReturnType<typeof normalizeCanonicalMarkdownBinding> | null,
+  ): CanonicalTarget | null {
+    const noteId = String(note.id || "");
+    const themeId = String(note.project_id || note.theme_id || "").trim() || null;
+    if (binding?.canonical_path) {
+      assertExplicitCanonicalPath(binding.canonical_path);
+      const filePath = path.resolve(binding.canonical_path);
+      if (path.extname(filePath).toLowerCase() !== ".md") {
+        throw new Error("canonical Markdownの保存先は.mdファイルにしてください。");
+      }
+      return {
+        filePath,
+        directory: path.dirname(filePath),
+        rootIdentity: binding.root_identity || markdownSignature(path.dirname(filePath)),
+        configuredRoot: false,
+      };
+    }
+
+    const location = this.resolveThemeContentDirectory(themeId, "notes");
+    if (location.kind === "needs_directory") return null;
+    const directory = location.directory;
+    const baseName = safeMarkdownFileName(String(note.title || noteId || "markdown-document"));
+    const extension = path.extname(baseName);
+    const stem = baseName.slice(0, -extension.length);
+    let fileName = baseName;
+    let filePath = path.join(directory, fileName);
+    if (fs.existsSync(filePath)) {
+      const stableSuffix = noteId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 8) || "note";
+      fileName = `${stem}-${stableSuffix}${extension}`;
+      filePath = path.join(directory, fileName);
+      let duplicate = 2;
+      while (fs.existsSync(filePath)) {
+        fileName = `${stem}-${stableSuffix}-${duplicate}${extension}`;
+        filePath = path.join(directory, fileName);
+        duplicate += 1;
+      }
+    }
+    assertGeneratedCanonicalPath(directory, filePath);
+    return {
+      filePath,
+      directory,
+      rootIdentity: markdownSignature(path.resolve(directory)),
+      configuredRoot: true,
+    };
+  }
+
+  private bindingForAttempt(
+    binding: ReturnType<typeof normalizeCanonicalMarkdownBinding> | null,
+    noteId: string,
+    target: CanonicalTarget | null,
+    operationId: string,
+    attemptAt: string,
+    patch: Record<string, unknown> = {},
+  ): ReturnType<typeof normalizeCanonicalMarkdownBinding> {
+    return normalizeCanonicalMarkdownBinding({
+      ...(binding || {}),
+      binding_id: binding?.binding_id || `note:${noteId}`,
+      canonical_path: target?.filePath || binding?.canonical_path || "",
+      directory: target?.directory || binding?.directory || "",
+      root_identity: target?.rootIdentity || binding?.root_identity || "",
+      file_name: target ? path.basename(target.filePath) : binding?.file_name || "",
+      last_operation_id: operationId,
+      last_attempt_at: attemptAt,
+      ...patch,
+    }, { noteId });
+  }
+
+  private saveNoteInternally(
+    note: Record<string, unknown>,
+    binding: ReturnType<typeof normalizeCanonicalMarkdownBinding>,
+    options: CanonicalSaveOptions,
+  ): Record<string, unknown> {
+    return this.repository.save("note", {
+      ...note,
+      properties_json: withCanonicalMarkdownBinding(objectValue(note.properties_json), binding),
+    }, options);
+  }
+
+  private canonicalThemeName(note: Record<string, unknown>): string {
+    const themeId = String(note.project_id || note.theme_id || "").trim();
+    if (!themeId) return "";
+    const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+    return String(theme?.name || theme?.title || "");
+  }
+
+  saveCanonicalNote(requestValue: unknown): Record<string, unknown> {
+    const request = normalizeDocumentSaveRequest(requestValue);
+    const input = { ...request.entity, body_markdown: request.snapshot.body };
+    const noteId = request.snapshot.owner.entityId;
+    const current = this.repository.get("note", noteId, true);
+    const actualRevision = Number(current?.version || 0);
+    if (actualRevision !== request.snapshot.expectedRevision) {
+      throw new Error(`Noteが更新済みです（expected revision ${request.snapshot.expectedRevision}, actual ${actualRevision}）。古い編集画面を閉じて再試行してください。`);
+    }
+    const note: Record<string, unknown> = { ...(current || {}), ...input, id: noteId };
+    const properties = objectValue(note.properties_json);
+    const binding = canonicalMarkdownBindingFromProperties(properties, { noteId });
+    const operationId = randomUUID();
+    const attemptAt = this.now();
+    const options: CanonicalSaveOptions = { ...(request.options || {}), __canonicalOperationAt: attemptAt };
+    const content = buildCanonicalMarkdownContent({
+      title: String(note.title || ""),
+      themeName: this.canonicalThemeName(note),
+      updatedAt: attemptAt,
+      body: String(note.body_markdown || ""),
+    });
+    const nextRevision = Number(current?.version || 0) + 1;
+    const target = this.resolveCanonicalTarget(note, binding);
+    const baseAttempt = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt);
+
+    if (!target) {
+      return this.saveNoteInternally(note, baseAttempt, options);
+    }
+
+    try {
+      fs.mkdirSync(target.directory, { recursive: true });
+      if (target.configuredRoot) {
+        assertConfiguredCanonicalPath(target.directory, target.filePath);
+      } else {
+        assertExplicitCanonicalPath(target.filePath);
+      }
+    } catch (error) {
+      const unavailable = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+        sync_state: "unavailable",
+        last_error: errorText(error),
+      });
+      return this.saveNoteInternally(note, unavailable, options);
+    }
+    const snapshot = this.readCanonicalFile(target.filePath);
+    if (snapshot.error) {
+      const unavailable = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+        sync_state: "unavailable",
+        last_error: snapshot.error,
+      });
+      return this.saveNoteInternally(note, unavailable, options);
+    }
+
+    const plan = planCanonicalMarkdownWrite({
+      canonicalPath: target.filePath,
+      nextContent: content,
+      lastWrittenSignature: baseAttempt.file_signature,
+      currentFileSignature: snapshot.exists ? snapshot.signature : null,
+      fileExists: snapshot.exists,
+      rootAvailable: true,
+    });
+    const overwrite = options.canonicalMarkdown === "overwrite";
+    if (plan.action === "confirm" && !overwrite) {
+      const conflict = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+        sync_state: "conflict",
+        file_ahead_signature: plan.externalSignature,
+        last_error: "外部で変更されたMarkdownを確認してから上書きしてください。",
+      });
+      return this.saveNoteInternally(note, conflict, options);
+    }
+
+    // overwriteは外部変更との確認を経た明示操作なので、同じ内容に見えても
+    // 必ずatomic write→実ファイル再読込→in_syncの経路を通す。
+    if (plan.action === "skip" && !overwrite) {
+      const synced = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+        sync_state: "in_sync",
+        body_signature: markdownSignature(String(note.body_markdown || "")),
+        file_signature: snapshot.signature || markdownSignature(content),
+        file_size: snapshot.size,
+        file_mtime_ms: snapshot.mtimeMs,
+        last_synced_revision: nextRevision,
+        last_synced_at: attemptAt,
+        last_error: "",
+        file_ahead_signature: "",
+      });
+      const saved = this.saveNoteInternally(note, synced, options);
+      this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
+      return saved;
+    }
+
+    const pending = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+      sync_state: "internal_ahead",
+      file_signature: markdownSignature(content),
+      last_synced_revision: null,
+    });
+    this.addCanonicalRecoveryReceipt({
+      operationId,
+      noteId,
+      entity: {
+        ...note,
+        properties_json: withCanonicalMarkdownBinding(properties, pending),
+      },
+      filePath: target.filePath,
+      content,
+      binding: { ...pending },
+      operationAt: attemptAt,
+      baseRevision: actualRevision,
+      bodySignature: markdownSignature(String(note.body_markdown || "")),
+    });
+    let writeWarning: string | null = null;
+    try {
+      writeWarning = this.writeAtomicText(target.filePath, content, operationId);
+    } catch (error) {
+      const failed = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+        sync_state: "internal_ahead",
+        last_error: errorText(error),
+      });
+      this.removeCanonicalRecoveryReceipt(operationId);
+      return this.saveNoteInternally(note, failed, options);
+    }
+
+    const written = this.readCanonicalFile(target.filePath);
+    const expectedSignature = markdownSignature(content);
+    if (written.error || !written.exists || written.signature !== expectedSignature) {
+      const failed = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+        sync_state: "internal_ahead",
+        body_signature: markdownSignature(String(note.body_markdown || "")),
+        file_signature: expectedSignature,
+        last_error: written.error || "書き込んだMarkdownの内容を検証できませんでした。再試行してください。",
+      });
+      this.saveNoteInternally(note, failed, options);
+      // 実ファイルの再検証に成功するまでreceiptは残す。
+      return this.repository.get("note", noteId, true) || note;
+    }
+    const synced = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt, {
+      sync_state: "in_sync",
+      body_signature: markdownSignature(String(note.body_markdown || "")),
+      file_signature: written.signature,
+      file_size: written.size,
+      file_mtime_ms: written.mtimeMs,
+      last_synced_revision: nextRevision,
+      last_synced_at: attemptAt,
+      last_error: writeWarning || "",
+      file_ahead_signature: "",
+    });
+    try {
+      const saved = this.saveNoteInternally(note, synced, options);
+      this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
+      return saved;
+    } catch (error) {
+      throw new Error(`Markdownは更新しましたが、Tasken内部への保存に失敗しました。再起動後に復旧します。${errorText(error)}`);
+    }
+  }
+
+  private migrateCanonicalMarkdownBindings(): void {
+    const notes = this.repository.list("note");
+    for (const note of notes) {
+      const properties = objectValue(note.properties_json);
+      if (properties.canonical_markdown && typeof properties.canonical_markdown === "object" && !Array.isArray(properties.canonical_markdown)) continue;
+      const noteId = String(note.id || "");
+      if (!noteId) continue;
+      const legacy = canonicalMarkdownBindingFromProperties(properties, { noteId });
+      const operationId = randomUUID();
+      const attemptAt = this.now();
+      const migrationOptions: CanonicalSaveOptions = { source: "canonical-migration", quiet: true, __canonicalOperationAt: attemptAt };
+      let target: CanonicalTarget | null;
+      try {
+        target = this.resolveCanonicalTarget(note, legacy);
+      } catch (error) {
+        const binding = this.bindingForAttempt(legacy, noteId, null, operationId, attemptAt, {
+          sync_state: "unavailable",
+          last_error: errorText(error),
+        });
+        this.saveNoteInternally(note, binding, migrationOptions);
+        continue;
+      }
+      if (!target) {
+        const binding = this.bindingForAttempt(legacy, noteId, null, operationId, attemptAt, {
+          sync_state: "unavailable",
+          last_error: "設定済みのMarkdown保存ルートがありません。Settingsで保存先を確認してください。",
+        });
+        this.saveNoteInternally(note, binding, migrationOptions);
+        continue;
+      }
+      try {
+        fs.mkdirSync(target.directory, { recursive: true });
+        if (target.configuredRoot) {
+          assertConfiguredCanonicalPath(target.directory, target.filePath);
+        } else {
+          assertExplicitCanonicalPath(target.filePath);
+        }
+      } catch (error) {
+        const binding = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
+          sync_state: "unavailable",
+          last_error: errorText(error),
+        });
+        this.saveNoteInternally(note, binding, migrationOptions);
+        continue;
+      }
+      const content = buildCanonicalMarkdownContent({
+        title: String(note.title || ""),
+        themeName: this.canonicalThemeName(note),
+        updatedAt: attemptAt,
+        body: String(note.body_markdown || ""),
+      });
+      const expectedSignature = markdownSignature(content);
+      // 既存legacy fileの照合はmigration実行時刻に依存させない。
+      // 新規作成時だけoperationAtをfrontmatterへ使い、既存fileはNote保存時刻で比較する。
+      const legacyContent = buildCanonicalMarkdownContent({
+        title: String(note.title || ""),
+        themeName: this.canonicalThemeName(note),
+        updatedAt: String(note.updated_at || note.created_at || ""),
+        body: String(note.body_markdown || ""),
+      });
+      const legacyExpectedSignature = markdownSignature(legacyContent);
+      const snapshot = this.readCanonicalFile(target.filePath);
+      if (snapshot.error) {
+        const binding = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
+          sync_state: "unavailable",
+          last_error: snapshot.error,
+        });
+        this.saveNoteInternally(note, binding, migrationOptions);
+        continue;
+      }
+      if (snapshot.exists) {
+        const knownFileSignature = legacy?.file_signature || "";
+        const contentMatches = snapshot.signature === legacyExpectedSignature;
+        // 既知signatureがある場合は、同じ実fileを指すこと自体が前回保存の根拠になる。
+        // signatureが無いlegacyだけは、migration時刻ではなくNote保存時刻でcanonical本文を照合する。
+        const externallyChanged = Boolean(
+          knownFileSignature
+            ? knownFileSignature !== snapshot.signature
+            : !contentMatches,
+        );
+        const binding = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
+          sync_state: externallyChanged ? "conflict" : "in_sync",
+          body_signature: markdownSignature(String(note.body_markdown || "")),
+          file_signature: snapshot.signature,
+          file_size: snapshot.size,
+          file_mtime_ms: snapshot.mtimeMs,
+          last_synced_revision: externallyChanged ? null : Number(note.version || 0) + 1,
+          last_synced_at: externallyChanged ? "" : attemptAt,
+          last_error: externallyChanged
+            ? (contentMatches
+              ? "既存Markdownが前回保存時から外部で変更されています。確認してから上書きしてください。"
+              : "既存Markdownの内容がNoteから生成したcanonical本文と一致しません。確認してから上書きしてください。")
+            : "",
+          file_ahead_signature: externallyChanged ? snapshot.signature : "",
+        });
+        this.saveNoteInternally(note, binding, migrationOptions);
+        continue;
+      }
+      const pending = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
+        sync_state: "internal_ahead",
+        body_signature: markdownSignature(String(note.body_markdown || "")),
+        file_signature: expectedSignature,
+        last_synced_revision: null,
+        last_error: "既存Noteから正本Markdownへ移行中です。失敗時は次回起動で再試行します。",
+      });
+      this.addCanonicalRecoveryReceipt({
+        operationId,
+        noteId,
+        entity: {
+          ...note,
+          properties_json: withCanonicalMarkdownBinding(properties, pending),
+        },
+      filePath: target.filePath,
+      content,
+      binding: { ...pending },
+      operationAt: attemptAt,
+      baseRevision: Number(note.version || 0),
+      bodySignature: markdownSignature(String(note.body_markdown || "")),
+      });
+      let fileWriteCompleted = false;
+      try {
+        const writeWarning = this.writeAtomicText(target.filePath, content, operationId);
+        fileWriteCompleted = true;
+        const written = this.readCanonicalFile(target.filePath);
+        if (written.error || !written.exists || written.signature !== expectedSignature) {
+          throw new Error(written.error || "移行したMarkdownの内容を検証できませんでした。次回起動で再試行します。");
+        }
+        const binding = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
+          sync_state: "in_sync",
+          body_signature: markdownSignature(String(note.body_markdown || "")),
+          file_signature: written.signature,
+          file_size: written.size,
+          file_mtime_ms: written.mtimeMs,
+          last_synced_revision: Number(note.version || 0) + 1,
+          last_synced_at: attemptAt,
+          last_error: writeWarning || "",
+        });
+        this.saveNoteInternally(note, binding, migrationOptions);
+        this.removeCanonicalRecoveryReceipt(operationId);
+      } catch (error) {
+        const failed = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
+          sync_state: fileWriteCompleted ? "conflict" : "internal_ahead",
+          body_signature: markdownSignature(String(note.body_markdown || "")),
+          file_signature: expectedSignature,
+          file_ahead_signature: fileWriteCompleted ? this.readCanonicalFile(target.filePath).signature : "",
+          last_error: errorText(error),
+        });
+        try {
+          this.saveNoteInternally(note, failed, migrationOptions);
+        } catch {
+          // DB自体が使用できない場合はreceiptを残し、次回起動で保存と検証を再試行する。
+        }
+        if (!fileWriteCompleted) this.removeCanonicalRecoveryReceipt(operationId);
+      }
+    }
+  }
 
   writeClipboard(text: unknown): boolean {
     clipboard.writeText(String(text));

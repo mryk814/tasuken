@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type { SatelliteWindowRegistry } from "./satelliteWindowRegistry";
@@ -25,6 +26,7 @@ interface NoteWindowControllerOptions {
   repository: InstanceType<typeof WorkspaceDatabase>;
   satelliteWindows: SatelliteWindowRegistry;
   showMainWindow: () => BrowserWindow;
+  isAppQuitApproved?: () => boolean;
 }
 
 export interface NoteWindowController {
@@ -40,6 +42,15 @@ function noteTitle(note: Entity): string {
 }
 
 export function createNoteWindowController(options: NoteWindowControllerOptions): NoteWindowController {
+  const attachedWindows = new WeakSet<BrowserWindow>();
+  const pendingCloseWindows = new WeakSet<BrowserWindow>();
+  const approvedCloseWindows = new WeakSet<BrowserWindow>();
+  const pendingFlushes = new Map<string, {
+    senderId: number;
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (ok: boolean) => void;
+  }>();
+
   function readNote(noteId: string): Entity | null {
     return (options.repository.get("note", noteId) as Entity | null) ?? null;
   }
@@ -49,7 +60,7 @@ export function createNoteWindowController(options: NoteWindowControllerOptions)
     if (!note) return false;
     // 同じNoteの二枚目は作らない。既にあれば前面へ出すだけにして、
     // 同一Noteを別Editorで同時編集させない（#290）。
-    options.satelliteWindows.open({ kind: "note", entityId: noteId }, {
+    const window = options.satelliteWindows.open({ kind: "note", entityId: noteId }, {
       title: noteTitle(note),
       width: NOTE_DEFAULT_WIDTH,
       height: NOTE_DEFAULT_HEIGHT,
@@ -60,6 +71,7 @@ export function createNoteWindowController(options: NoteWindowControllerOptions)
       query: { window: "note", noteId },
       preload: path.join(__dirname, "../preload/index.mjs"),
     });
+    attachCloseHandshake(noteId, window);
     return true;
   }
 
@@ -74,6 +86,63 @@ export function createNoteWindowController(options: NoteWindowControllerOptions)
     return key?.kind === "note" ? key.entityId : null;
   }
 
+  function windowOf(noteId: string): BrowserWindow | null {
+    return options.satelliteWindows.get({ kind: "note", entityId: noteId });
+  }
+
+  function requestRendererFlush(noteId: string, window: BrowserWindow): Promise<boolean> {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return Promise.resolve(true);
+    const requestId = randomUUID();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const pending = pendingFlushes.get(requestId);
+        if (!pending) return;
+        pendingFlushes.delete(requestId);
+        resolve(false);
+      }, 10_000);
+      pendingFlushes.set(requestId, { senderId: window.webContents.id, timer, resolve });
+      try {
+        window.webContents.send(IPC.noteWindowFlushRequested, { requestId, noteId });
+      } catch {
+        pendingFlushes.delete(requestId);
+        clearTimeout(timer);
+        resolve(false);
+      }
+    });
+  }
+
+  async function flushAndClose(
+    noteId: string,
+    window: BrowserWindow,
+    afterFlush?: () => void,
+  ): Promise<boolean> {
+    if (pendingCloseWindows.has(window)) return false;
+    pendingCloseWindows.add(window);
+    try {
+      const flushed = await requestRendererFlush(noteId, window);
+      if (!flushed) return false;
+      afterFlush?.();
+      approvedCloseWindows.add(window);
+      if (!window.isDestroyed()) window.close();
+      return true;
+    } finally {
+      pendingCloseWindows.delete(window);
+    }
+  }
+
+  function attachCloseHandshake(noteId: string, window: BrowserWindow): void {
+    if (attachedWindows.has(window)) return;
+    attachedWindows.add(window);
+    window.on("close", (event) => {
+      if (approvedCloseWindows.has(window) || options.isAppQuitApproved?.() === true) return;
+      event.preventDefault();
+      if (pendingCloseWindows.has(window)) return;
+      void flushAndClose(noteId, window).then((closed) => {
+        if (!closed) console.warn("Note windowの終了前flushが完了しなかったため、ウィンドウを開いたままにします。");
+      });
+    });
+  }
+
   function registerIpc(): void {
     ipcMain.handle(IPC.noteWindowOpen, (_event, noteId: unknown) => {
       if (typeof noteId !== "string" || !noteId.trim()) return false;
@@ -81,20 +150,32 @@ export function createNoteWindowController(options: NoteWindowControllerOptions)
     });
 
     ipcMain.handle(IPC.noteWindowListOpen, () => openNoteIds());
+    ipcMain.handle(IPC.noteWindowFlushAck, (event, payload: unknown) => {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+      const value = payload as Record<string, unknown>;
+      if (typeof value.requestId !== "string" || typeof value.ok !== "boolean") return false;
+      const pending = pendingFlushes.get(value.requestId);
+      if (!pending || pending.senderId !== event.sender.id) return false;
+      pendingFlushes.delete(value.requestId);
+      clearTimeout(pending.timer);
+      pending.resolve(value.ok);
+      return true;
+    });
 
     // 切り離しウィンドウを閉じ、本体で同じNoteを続けて編集できるようにする。
-    ipcMain.handle(IPC.noteWindowReturnToMain, (event) => {
+    ipcMain.handle(IPC.noteWindowReturnToMain, async (event) => {
       const noteId = noteIdOf(event);
       if (!noteId) return false;
+      const noteWindow = windowOf(noteId);
+      if (!noteWindow) return false;
       const mainWindow = options.showMainWindow();
       const send = (): void => {
         if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceOpenNote, noteId);
       };
-      if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
-      else send();
-      // 閉じるのは本体へ渡した後。未保存分は既存のautosave契約で保存済み。
-      options.satelliteWindows.close({ kind: "note", entityId: noteId });
-      return true;
+      return flushAndClose(noteId, noteWindow, () => {
+        if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
+        else send();
+      });
     });
 
     // Noteウィンドウから関連Entityを開くときは、本体ウィンドウ側で表示する。
@@ -110,10 +191,11 @@ export function createNoteWindowController(options: NoteWindowControllerOptions)
       return true;
     });
 
-    ipcMain.handle(IPC.noteWindowClose, (event) => {
+    ipcMain.handle(IPC.noteWindowClose, async (event) => {
       const noteId = noteIdOf(event);
       if (!noteId) return false;
-      return options.satelliteWindows.close({ kind: "note", entityId: noteId });
+      const noteWindow = windowOf(noteId);
+      return noteWindow ? flushAndClose(noteId, noteWindow) : false;
     });
   }
 

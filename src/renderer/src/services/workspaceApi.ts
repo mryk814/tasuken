@@ -1,6 +1,7 @@
 import type {
   Entity,
   EntityType,
+  DocumentSaveRequest,
   SaveOperation,
   SaveOptions,
   Workspace,
@@ -45,6 +46,9 @@ export const workspaceApi = {
   save(type: EntityType, entity: Entity, options: SaveOptions = {}) {
     if (type === "task") throw new Error("Taskの保存はApplication Command経由で実行してください。");
     return desktopApi().entities.save(type, entity, options);
+  },
+  saveDocument(request: DocumentSaveRequest) {
+    return desktopApi().documents.save(request);
   },
   get(type: EntityType, id: string) {
     return desktopApi().entities.get(type, id);
@@ -194,6 +198,12 @@ export const workspaceApi = {
   onSatelliteWindowStateChanged(callback: (state: SatelliteWindowStatePayload) => void) {
     return desktopApi().app.onSatelliteWindowStateChanged(callback);
   },
+  onAppFlushRequested(callback: (request: { requestId: string; noteId?: string }) => void) {
+    return desktopApi().app.onAppFlushRequested(callback);
+  },
+  ackAppFlush(requestId: string, ok: boolean) {
+    return desktopApi().app.ackAppFlush(requestId, ok);
+  },
   onMemoStickyOpenChanged(callback: (memoIds: string[]) => void) {
     return desktopApi().app.onMemoStickyOpenChanged(callback);
   },
@@ -211,6 +221,12 @@ export const workspaceApi = {
   },
   onNoteWindowOpenChanged(callback: (noteIds: string[]) => void) {
     return desktopApi().app.onNoteWindowOpenChanged(callback);
+  },
+  onNoteWindowFlushRequested(callback: (request: { requestId: string; noteId?: string }) => void) {
+    return desktopApi().app.onNoteWindowFlushRequested(callback);
+  },
+  ackNoteWindowFlush(requestId: string, ok: boolean) {
+    return desktopApi().app.ackNoteWindowFlush(requestId, ok);
   },
   exportSnapshot() {
     return desktopApi().snapshots.exportFile();

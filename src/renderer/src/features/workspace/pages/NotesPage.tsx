@@ -21,13 +21,15 @@ import {
   type MouseEvent,
 } from "react";
 
-import { noteExportSignature } from "../../../../../shared/fileExport";
 import type { MermaidPowerPointAction } from "../../../../../shared/mermaidPowerPoint";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import {
   markdownSignature,
+  buildCanonicalMarkdownContent,
+  canonicalMarkdownBindingFromProperties,
+  canonicalMarkdownFileState,
+  withCanonicalMarkdownBinding,
   noteSaveStateLabel,
-  planCanonicalMarkdownWrite,
   shouldCreateExportArtifact,
   type CanonicalMarkdownFileState,
 } from "../../../../../shared/canonicalMarkdown.mjs";
@@ -99,7 +101,7 @@ import {
   sketchEmbedMarkdown,
   type SketchEmbedPreview,
 } from "../lib/sketchEmbed";
-import type { Artifact, BaseRecord, Entity, NoteComment, PageProps, SaveOperation, Sketch } from "../types";
+import type { Artifact, BaseRecord, Entity, NoteComment, PageProps, SaveOperation, SaveOptions, Sketch } from "../types";
 import { usePreference } from "../../../utils/usePreference";
 import { compactNotesBodyPreview, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
 import {
@@ -117,10 +119,24 @@ import {
   type MarkdownTextSelection,
   type SelectionExtractionKind,
 } from "../lib/selectionExtraction";
+import { flushPendingNoteDraftSaves, trackPendingNoteDraftSave } from "../lib/noteDraftFlushRegistry";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
 type PreviewMode = "edit" | "preview" | "raw";
 type NoteScope = "all" | NotesKind;
+type DraftSaveJob = {
+  request: { selected: Combined; snapshot: NoteDraftSnapshot };
+  options: SaveOptions;
+  entityPatch: Record<string, unknown>;
+};
+type DraftSaveQueue = {
+  current: DraftSaveJob | null;
+  latest: DraftSaveJob | null;
+  inFlight: Promise<CanonicalMarkdownFileState> | null;
+  lastSavedBody: string | null;
+  lastSavedRevision: number | null;
+};
+type DraftSaveResult = { ok: boolean; fileState: CanonicalMarkdownFileState };
 
 const NOTES_RENDER_BATCH_SIZE = 48;
 const loadMarkdownRichEditor = async () => {
@@ -247,7 +263,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [draftBodyState, setDraftBodyState] = useState(() => normalizeRichEditorMarkdown(selectedBody));
   // 選択切替のrenderでは、前文書のsnapshotを新文書へ渡さない。切替先の保存済み本文を使う。
   const draftSnapshotState: NoteDraftSnapshot | null = draftOwner
-    ? { owner: draftOwner, body: draftBodyState, dirty: true }
+    ? { owner: draftOwner, body: draftBodyState, dirty: true, expectedRevision: Number(selected?.version || 0) }
     : null;
   const draftBody = renderNoteDraftBody(selectedOwner, draftSnapshotState, selectedBody);
   const [richEditorDirty, setRichEditorDirty] = useState(false);
@@ -385,7 +401,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     const body = currentDraftBodyForSelected();
     return {
       selected,
-      snapshot: makeNoteDraftSnapshot(selectedOwner, body, selectedBody),
+      snapshot: makeNoteDraftSnapshot(selectedOwner, body, selectedBody, Number(selected.version || 0)),
     };
   }
 
@@ -412,16 +428,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }
   const mdxMarkdownInsertRef = useRef<((markdown: string) => void) | null>(null);
   const selectedBodyRef = useRef<NoteDraftSnapshot | null>(selectedOwner
-    ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody)
+    ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody, Number(selected?.version || 0))
     : null);
   const ctxRef = useRef<{ selected: Combined | null; snapshot: NoteDraftSnapshot | null }>({ selected: null, snapshot: null });
   const commandActionsRef = useRef<Record<string, () => void | Promise<void>>>({});
   const selectedKind = selected ? recordKind(selected) : null;
   // Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
   const showDocumentPublish = selectedKind === "note" || selectedKind === "report";
-  const selectedTheme = selected
-    ? themes.find((theme) => theme.id === (selected.theme_id || selected.project_id))
-    : null;
   const pickerSketch = sketches.find((entry) => entry.id === pickerSketchId) || null;
   const pickerPage = pickerSketch?.document.pages.find((entry) => entry.id === pickerPageId) || null;
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
@@ -442,13 +455,19 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const headingNumberLevelSummary = headingNumberLevels.length
     ? headingNumberLevels.map((level) => HEADING_NUMBER_LEVEL_LABELS[level as HeadingNumberLevel]).join("–")
     : "選択なし";
-  const markdownExport = selectedProperties.markdown_export && typeof selectedProperties.markdown_export === "object" && !Array.isArray(selectedProperties.markdown_export)
-    ? selectedProperties.markdown_export as Record<string, unknown>
-    : null;
+  const canonicalBinding = canonicalMarkdownBindingFromProperties(selectedProperties, { noteId: selected?.id || "" });
+  const markdownExport = canonicalBinding ? {
+    filePath: canonicalBinding.canonical_path,
+    directory: canonicalBinding.directory,
+    fileSignature: canonicalBinding.file_signature,
+    bodySignature: canonicalBinding.body_signature,
+    storageMode: "linked",
+    syncState: canonicalBinding.sync_state,
+  } : null;
   const markdownExportFilePath = str(markdownExport?.filePath);
   const markdownExportDirectory = str(markdownExport?.directory);
   const markdownExportOpenPath = markdownExportFilePath || markdownExportDirectory;
-  const currentExportSignature = noteExportSignature(selectedBody);
+  const currentExportSignature = markdownSignature(selectedBody);
   const markdownExportStale = Boolean(str(markdownExport?.bodySignature) && str(markdownExport?.bodySignature) !== currentExportSignature);
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && (richEditorDirty || draftBody !== selectedBody));
@@ -553,7 +572,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   function flushCurrentDraft(): void {
     const current = captureCurrentDraftSnapshot();
     if (!current?.snapshot.dirty) return;
-    void autoSaveDraft(current);
+    void flushDraftSnapshot(current);
     // 選択切替effectが同じsnapshotを二重保存しないよう、明示flushの所有権を移す。
     if (autosaveRef.current && sameNoteDraftOwner(autosaveRef.current.snapshot.owner, current.snapshot.owner)) {
       autosaveRef.current = null;
@@ -703,7 +722,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (!selected || selected.recordType !== "note") return;
     // 切り離す前に、この画面の未保存分を確定させる。別ウィンドウが古い本文を読まないようにする。
     const current = captureCurrentDraftSnapshot();
-    await autoSaveDraft(current);
+    await flushDraftSnapshot(current);
     const opened = await workspaceApi.openNoteWindow(selected.id);
     if (!opened) setToast("別ウィンドウで開けませんでした。ノートが見つかりません。", "danger");
   }
@@ -764,10 +783,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   useEffect(() => {
     const previous = autosaveRef.current;
     if (previous && (!selectedOwnerKey || noteDraftOwnerKey(previous.snapshot.owner) !== selectedOwnerKey)) {
-      void autoSaveDraft(previous);
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      void flushDraftSnapshot(previous);
     }
     selectedBodyRef.current = selectedOwner
-      ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody)
+      ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody, Number(selected?.version || 0))
       : null;
     setDraftOwner(selectedOwner);
     setDraftBodyState(normalizeRichEditorMarkdown(selectedBody));
@@ -782,12 +805,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   ctxRef.current = {
     selected,
-    snapshot: selectedOwner ? makeNoteDraftSnapshot(selectedOwner, draftBody, selectedBody) : null,
+    snapshot: selectedOwner ? makeNoteDraftSnapshot(selectedOwner, draftBody, selectedBody, Number(selected?.version || 0)) : null,
   };
 
-  // 未保存の変更を、Markdown本文が画面から外れる時だけ自動保存する。
   // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
   const autosaveRef = useRef<{ selected: Combined; snapshot: NoteDraftSnapshot } | null>(null);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const draftSaveQueuesRef = useRef(new Map<string, DraftSaveQueue>());
   const saveEntityRef = useRef(saveEntity);
   const setToastRef = useRef(setToast);
   saveEntityRef.current = saveEntity;
@@ -795,6 +819,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   useEffect(() => {
     const current = captureCurrentDraftSnapshot();
     autosaveRef.current = current;
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = null;
+    if (current?.snapshot.dirty) {
+      autosaveTimerRef.current = window.setTimeout(() => {
+        autosaveTimerRef.current = null;
+        void autoSaveDraft(autosaveRef.current);
+      }, 1500);
+    }
   }, [selectedOwnerKey, selectedBody, draftBody, draftDirty]);
 
   // 本体へ戻すときに、対象Noteを選び直す（#290）。
@@ -817,9 +849,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (!canonicalPath) return "none";
     // 直近の同期結果があればそれを優先する。外部変更や失敗は署名比較では分からない。
     if (canonicalSyncState && canonicalSyncState !== "synced") return canonicalSyncState;
+    if (markdownExport?.syncState) return canonicalMarkdownFileState(str(markdownExport.syncState));
     const written = str(markdownExport?.bodySignature);
     if (!written) return "pending";
-    return written === noteExportSignature(currentDraftBody() || selectedBody) ? "synced" : "pending";
+    return written === markdownSignature(currentDraftBody() || selectedBody) ? "synced" : "pending";
   })();
 
   /**
@@ -846,126 +879,274 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     return workspaceApi.onNoteWindowOpenChanged(setOpenNoteWindowIds);
   }, [detachedNoteId]);
 
-  async function persistDraftSnapshot(request: { selected: Combined; snapshot: NoteDraftSnapshot }): Promise<void> {
+  async function persistDraftSnapshot(
+    request: { selected: Combined; snapshot: NoteDraftSnapshot },
+    options: SaveOptions = {},
+    entityPatch: Record<string, unknown> = {},
+  ): Promise<CanonicalMarkdownFileState> {
     const { selected: previous, snapshot } = request;
     const expectedOwner = noteDraftOwner(previous.recordType, previous.id);
-    if (!sameNoteDraftOwner(snapshot.owner, expectedOwner)) return;
+    if (!sameNoteDraftOwner(snapshot.owner, expectedOwner)) return "none";
     const body = snapshot.body;
-    if (body === recordBody(previous)) return;
+    if (body === recordBody(previous) && Object.keys(entityPatch).length === 0) return "none";
     // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
-    if (previous.recordType === "note" && !body.trim()) return;
+    if (previous.recordType === "note" && !body.trim()) return "none";
     // Theme選択など別の保存経路が先に完了しても、古いselected行で本文保存が
     // canonical project_idを巻き戻さない。保存直前に同じownerの正本を読み直し、
     // snapshotは本文だけを担う。
     const latest = await workspaceApi.get(previous.recordType, previous.id);
     const current = latest ? { ...previous, ...latest } : previous;
     const { recordType, ...entity } = current;
-    const saved = await saveEntityRef.current(recordType, { ...entity, body_markdown: body });
+    const saved = previous.recordType === "note"
+      ? await saveEntityRef.current(
+        recordType,
+        { ...entity, ...entityPatch, body_markdown: body },
+        options,
+        {
+          owner: { recordType: "note", entityId: previous.id },
+          body,
+          expectedRevision: snapshot.expectedRevision,
+        },
+      )
+      : await saveEntityRef.current(recordType, { ...entity, body_markdown: body }, options);
+    const ownerKey = noteDraftOwnerKey(snapshot.owner);
+    const queue = draftSaveQueuesRef.current.get(ownerKey);
+    const savedRevision = Number(saved.version);
+    const nextRevision = Number.isInteger(savedRevision) && savedRevision >= 0
+      ? savedRevision
+      : snapshot.expectedRevision + 1;
+    if (queue) {
+      queue.lastSavedBody = body;
+      queue.lastSavedRevision = nextRevision;
+    }
+    const savedBinding = canonicalMarkdownBindingFromProperties(
+      saved.properties_json,
+      { noteId: saved.id },
+    );
+    const savedFileState = canonicalMarkdownFileState(savedBinding?.sync_state);
     // 保存対象がまだ表示中のownerならEditorの基準本文も同じsnapshotへ進める。
-    if (selectedOwnerKeyRef.current === noteDraftOwnerKey(snapshot.owner)) {
+    const currentDraft = autosaveRef.current;
+    const stillEditingSavedSnapshot = Boolean(
+      currentDraft
+      && sameNoteDraftOwner(currentDraft.snapshot.owner, snapshot.owner)
+      && currentDraft.snapshot.body === body,
+    );
+    if (selectedOwnerKeyRef.current === ownerKey && stillEditingSavedSnapshot) {
       selectedBodyRef.current = snapshot;
+      autosaveRef.current = {
+        selected: { ...previous, ...saved, recordType: previous.recordType },
+        snapshot: makeNoteDraftSnapshot(snapshot.owner, body, body, nextRevision),
+      };
       setDraftOwner(snapshot.owner);
       setDraftBodyState(snapshot.body);
       setRichEditorDirty(false);
+      setCanonicalSyncState(savedFileState);
     }
-    // 自動保存・Ctrl+S・手動保存は同じowner付きsnapshot経路で正本Markdownも更新する（#291）。
-    await syncCanonicalMarkdown({ ...current, ...saved, recordType }, snapshot);
+    return savedFileState;
   }
 
-  async function autoSaveDraft(snapshot = autosaveRef.current): Promise<void> {
-    if (!snapshot) return;
+  function cancelAutosaveTimer(): void {
+    if (!autosaveTimerRef.current) return;
+    window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = null;
+  }
+
+  function sameDraftSaveJob(left: DraftSaveJob, right: DraftSaveJob): boolean {
+    return sameNoteDraftOwner(left.request.snapshot.owner, right.request.snapshot.owner)
+      && left.request.snapshot.body === right.request.snapshot.body
+      && left.request.snapshot.expectedRevision === right.request.snapshot.expectedRevision
+      && left.options.canonicalMarkdown === right.options.canonicalMarkdown
+      && left.options.reason === right.options.reason
+      && left.options.source === right.options.source
+      && left.options.quiet === right.options.quiet
+      && JSON.stringify(left.entityPatch) === JSON.stringify(right.entityPatch);
+  }
+
+  async function drainDraftSaveQueue(queue: DraftSaveQueue): Promise<CanonicalMarkdownFileState> {
+    let fileState: CanonicalMarkdownFileState = "none";
+    while (queue.latest) {
+      let job = queue.latest;
+      queue.latest = null;
+      if (
+        queue.lastSavedRevision !== null
+        && job.request.snapshot.expectedRevision < queue.lastSavedRevision
+      ) {
+        job = {
+          ...job,
+          request: {
+            ...job.request,
+            snapshot: {
+              ...job.request.snapshot,
+              expectedRevision: queue.lastSavedRevision,
+            },
+          },
+        };
+      }
+      queue.current = job;
+      try {
+        fileState = await persistDraftSnapshot(job.request, job.options, job.entityPatch);
+      } finally {
+        queue.current = null;
+      }
+    }
+    return fileState;
+  }
+
+  function enqueueDraftSave(
+    request: { selected: Combined; snapshot: NoteDraftSnapshot },
+    options: SaveOptions = {},
+    entityPatch: Record<string, unknown> = {},
+  ): Promise<CanonicalMarkdownFileState> {
+    const ownerKey = noteDraftOwnerKey(request.snapshot.owner);
+    let queue = draftSaveQueuesRef.current.get(ownerKey);
+    if (!queue) {
+      queue = {
+        current: null,
+        latest: null,
+        inFlight: null,
+        lastSavedBody: null,
+        lastSavedRevision: null,
+      };
+      draftSaveQueuesRef.current.set(ownerKey, queue);
+    }
+    const job = { request, options, entityPatch };
+    if (queue.current && sameDraftSaveJob(queue.current, job)) return queue.inFlight || Promise.resolve("none");
+    if (queue.latest && sameDraftSaveJob(queue.latest, job)) return queue.inFlight || Promise.resolve("none");
+    // 同じownerでは最新snapshotだけを残す。古いsnapshotを順番待ちにすると、
+    // 前の保存がversionを進めた後に同じexpectedRevisionで自分自身をstaleにする。
+    queue.latest = job;
+    if (!queue.inFlight) {
+      const running = drainDraftSaveQueue(queue);
+      queue.inFlight = running;
+      trackPendingNoteDraftSave(running);
+      void running.then(
+        () => { if (queue?.inFlight === running) queue.inFlight = null; },
+        () => { if (queue?.inFlight === running) queue.inFlight = null; },
+      );
+      return running;
+    }
+    return queue.inFlight;
+  }
+
+  async function saveQueuedDraft(
+    request: { selected: Combined; snapshot: NoteDraftSnapshot },
+    options: SaveOptions = {},
+    entityPatch: Record<string, unknown> = {},
+  ): Promise<DraftSaveResult> {
     try {
-      await persistDraftSnapshot(snapshot);
+      return { ok: true, fileState: await enqueueDraftSave(request, options, entityPatch) };
     } catch (error: unknown) {
       setToastRef.current(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+      return { ok: false, fileState: "none" };
     }
   }
 
-  /**
-   * 正本Markdownを、Tasken内部の保存に続けて更新する（#291）。
-   *
-   * 正本パスを持つNoteだけが対象。自動保存から呼ばれるので、外部変更を見つけても
-   * ここでは確認を出さず、書き込みを見送って状態だけ伝える。上書きするかどうかは
-   * 手動保存（確認あり）で選ばせる。ファイル側が失敗しても内部の保存は残す。
-   */
-  async function syncCanonicalMarkdown(note: Combined, snapshot: NoteDraftSnapshot): Promise<void> {
-    const noteOwner = noteDraftOwner(note.recordType, note.id);
-    if (!sameNoteDraftOwner(noteOwner, snapshot.owner) || note.recordType !== "note") return;
-    const body = snapshot.body;
-    const ownerKey = noteDraftOwnerKey(snapshot.owner);
-    const setSyncState = (state: CanonicalMarkdownFileState) => {
-      if (selectedOwnerKeyRef.current === ownerKey) setCanonicalSyncState(state);
-    };
-    const properties = noteProperties(note);
-    const exportState = properties.markdown_export && typeof properties.markdown_export === "object" && !Array.isArray(properties.markdown_export)
-      ? properties.markdown_export as Record<string, unknown>
-      : null;
-    const canonicalPath = str(exportState?.filePath);
-    const directory = str(exportState?.directory);
-    if (!canonicalPath || !directory) return;
-
-    const themeName = themes.find((theme) => theme.id === str(note.project_id || note.theme_id))?.name || "";
-    const content = publishMarkdownContent(note, themeName, body);
-    const preview = await workspaceApi.readFilePreview(canonicalPath).catch(() => null);
-    const plan = planCanonicalMarkdownWrite({
-      canonicalPath,
-      nextContent: content,
-      lastWrittenSignature: str(exportState?.fileSignature),
-      currentFileSignature: preview?.ok && preview.kind === "text" ? markdownSignature(preview.text) : null,
-      fileExists: Boolean(preview?.ok),
-    });
-    if (plan.action === "skip") {
-      setSyncState("synced");
-      return;
-    }
-    if (plan.action === "confirm") {
-      // 黙って上書きしない。手動保存で内容を確認してから決めてもらう。
-      setSyncState("external_change");
-      return;
-    }
-    if (plan.action === "unavailable") {
-      setSyncState("pending");
-      return;
-    }
-    try {
-      const result = await workspaceApi.exportMarkdownFile({
-        title: str(note.title),
-        content,
-        directory,
-        chooseDirectory: false,
-        fileName: `${str(note.title) || "markdown-document"}.md`,
-        themeId: str(note.project_id || note.theme_id) || null,
-      });
-      if (result.canceled) return;
-      const { recordType: _recordType, ...entity } = note;
-      await saveEntityRef.current("note", {
-        ...entity,
-        body_markdown: body,
-        properties_json: {
-          ...properties,
-          markdown_export: {
-            ...exportState,
-            directory: result.directory,
-            filePath: result.filePath,
-            exportedAt: result.exportedAt,
-            bodySignature: noteExportSignature(body),
-            fileSignature: markdownSignature(content),
-          },
-        },
-      });
-      setSyncState("synced");
-    } catch {
-      // ルートが一時的に見えない場合もここへ来る。内部の保存は残っているので
-      // 失敗として示し、次の保存で再試行できるようにする。
-      setSyncState("failed");
-    }
+  async function autoSaveDraft(snapshot = autosaveRef.current): Promise<boolean> {
+    if (!snapshot) return true;
+    return (await saveQueuedDraft(snapshot)).ok;
   }
+
+  async function flushDraftSnapshot(
+    snapshot: { selected: Combined; snapshot: NoteDraftSnapshot } | null,
+    options: SaveOptions = {},
+  ): Promise<DraftSaveResult> {
+    cancelAutosaveTimer();
+    if (!snapshot?.snapshot.dirty) return { ok: true, fileState: "none" };
+    const ownerKey = noteDraftOwnerKey(snapshot.snapshot.owner);
+    const first = await saveQueuedDraft(snapshot, options);
+    if (!first.ok) return first;
+
+    // 保存中に入力された最新版があれば、in-flight完了後に同じownerで一度だけ続けて保存する。
+    const latest = autosaveRef.current;
+    const queue = draftSaveQueuesRef.current.get(ownerKey);
+    if (
+      latest?.snapshot.dirty
+      && sameNoteDraftOwner(latest.snapshot.owner, snapshot.snapshot.owner)
+      && latest.snapshot.body !== queue?.lastSavedBody
+    ) {
+      return saveQueuedDraft(latest, options);
+    }
+    return first;
+  }
+
+  async function flushCurrentNoteAndReadLatest(target: Combined): Promise<Combined> {
+    cancelAutosaveTimer();
+    const targetOwner = noteDraftOwner("note", target.id);
+    const current = captureCurrentDraftSnapshot();
+    if (current && sameNoteDraftOwner(current.snapshot.owner, targetOwner)) {
+      const flushed = await flushDraftSnapshot(current);
+      if (!flushed.ok) throw new Error("本文を先に保存できませんでした。入力を保持したまま再試行してください。");
+    }
+
+    let latest = await workspaceApi.get("note", target.id);
+    if (!latest) throw new Error("対象Noteが見つかりません。");
+    let latestNote: Combined = { ...target, ...latest, recordType: "note" };
+
+    // 初回flush中に入力された最新版がある場合は、metadata-only更新が古い本文を
+    // patchしないよう、同じowner queueでその最新版まで確定してから再読込する。
+    const pending = autosaveRef.current;
+    if (
+      pending?.snapshot.dirty
+      && sameNoteDraftOwner(pending.snapshot.owner, targetOwner)
+      && pending.snapshot.body !== recordBody(latestNote)
+    ) {
+      const flushed = await flushDraftSnapshot(pending);
+      if (!flushed.ok) throw new Error("本文を先に保存できませんでした。入力を保持したまま再試行してください。");
+      latest = await workspaceApi.get("note", target.id);
+      if (!latest) throw new Error("対象Noteが見つかりません。");
+      latestNote = { ...target, ...latest, recordType: "note" };
+    }
+    return latestNote;
+  }
+
+  async function saveCurrentNoteMetadata(
+    target: Combined,
+    buildPatch: (latest: Combined) => Record<string, unknown>,
+    options: SaveOptions = {},
+  ): Promise<CanonicalMarkdownFileState> {
+    if (target.recordType !== "note") return "none";
+    const latest = await flushCurrentNoteAndReadLatest(target);
+    const body = recordBody(latest);
+    const owner = noteDraftOwner("note", latest.id);
+    const snapshot = makeNoteDraftSnapshot(owner, body, body, Number(latest.version || 0));
+    const result = await saveQueuedDraft(
+      { selected: latest, snapshot },
+      options,
+      buildPatch(latest),
+    );
+    if (!result.ok) throw new Error("Noteの設定を保存できませんでした。入力を保持したまま再試行してください。");
+    return result.fileState;
+  }
+
+  useEffect(() => () => {
+    cancelAutosaveTimer();
+    const pending = autosaveRef.current;
+    if (pending?.snapshot.dirty) void saveQueuedDraft(pending);
+  }, []);
 
   useEffect(() => {
-    return () => {
-      void autoSaveDraft(autosaveRef.current);
+    const onAppFlushRequested = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        handled: boolean;
+        flush: Promise<boolean> | null;
+      }>).detail;
+      if (!detail || detail.handled) return;
+      detail.handled = true;
+      detail.flush = flushDraftSnapshot(captureCurrentDraftSnapshot()).then((result) => result.ok);
     };
-  }, []);
+    window.addEventListener("tasken:app-flush-requested", onAppFlushRequested);
+    return () => window.removeEventListener("tasken:app-flush-requested", onAppFlushRequested);
+  }, [detachedNoteId, draftBody, draftDirty, selectedBody, selectedOwnerKey, saveEntity]);
+
+  useEffect(() => {
+    if (!detachedNoteId) return undefined;
+    return workspaceApi.onNoteWindowFlushRequested((request) => {
+      const pageFlush = flushDraftSnapshot(captureCurrentDraftSnapshot()).then((result) => result.ok);
+      void Promise.all([pageFlush, flushPendingNoteDraftSaves()])
+        .then(([pageOk, pendingOk]) => workspaceApi.ackNoteWindowFlush(request.requestId, pageOk && pendingOk))
+        .catch(() => workspaceApi.ackNoteWindowFlush(request.requestId, false));
+    });
+  }, [detachedNoteId, draftBody, draftDirty, selectedBody, selectedOwnerKey, saveEntity]);
 
   // Noteを切り替えたら、前のNoteの同期結果を持ち越さない（#291）。
   useEffect(() => {
@@ -994,6 +1175,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
         event.preventDefault();
+        cancelAutosaveTimer();
         const request = captureCurrentDraftSnapshot();
         const s = request?.selected;
         const body = request?.snapshot.body || "";
@@ -1003,9 +1185,16 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             return;
           }
           setDraftState("保存しています。");
-          persistDraftSnapshot(request)
-            .then(() => {
-              setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
+          const overwrite = canonicalFileState === "external_change" && window.confirm(
+            "Markdownが外部で変更されています。Taskenの本文で上書きしますか。",
+          );
+          flushDraftSnapshot(request, overwrite ? { canonicalMarkdown: "overwrite" } : {})
+            .then((result) => {
+              if (!result.ok) {
+                setDraftState("保存できませんでした。入力は保持しています。再試行してください。");
+                return;
+              }
+              setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: result.fileState }));
             })
             .catch((error: unknown) => setDraftState(error instanceof Error ? error.message : "保存できませんでした。"));
         }
@@ -1398,8 +1587,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     }
     setDraftState("保存しています。");
     try {
-      await persistDraftSnapshot(request);
-      setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
+      const overwrite = canonicalFileState === "external_change" && window.confirm(
+        "Markdownが外部で変更されています。Taskenの本文で上書きしますか。",
+      );
+      const result = await flushDraftSnapshot(request, overwrite ? { canonicalMarkdown: "overwrite" } : {});
+      if (!result.ok) {
+        setDraftState("保存できませんでした。入力は保持しています。再試行してください。");
+        return;
+      }
+      setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: result.fileState }));
     } catch (error) {
       setDraftState(error instanceof Error ? error.message : "保存できませんでした。");
     }
@@ -1469,19 +1665,18 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_levels?: HeadingNumberLevel[] }) {
     if (!selected || selected.recordType !== "note") return;
     try {
+      const target = selected;
       const nextEnabled = patch.heading_numbers ?? headingNumbersEnabled;
       const nextLevels = patch.heading_number_levels ?? headingNumberLevels;
-      await saveEntity("note", {
-        ...selected,
-        body_markdown: draftDirty ? draftBody : selectedBody,
+      await saveCurrentNoteMetadata(target, (latest) => ({
         properties_json: {
-          ...selectedProperties,
+          ...noteProperties(latest),
           heading_numbers: nextEnabled,
           heading_number_levels: nextLevels,
           // 旧版が読めるよう開始階層も併記する。表示の正本はlevels。
           heading_number_start: nextLevels[0] ?? headingNumberStart,
         },
-      });
+      }));
       if (patch.heading_numbers !== undefined && patch.heading_number_levels === undefined) {
         setToast(nextEnabled ? "見出し番号を表示します（Edit / Preview / PDF）。" : "見出し番号を非表示にしました。", "success");
       } else if (patch.heading_number_levels !== undefined) {
@@ -1493,25 +1688,22 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }
 
   function publishMarkdownContent(note: Combined, themeName: string, bodyMarkdown: string): string {
-    const metadata = [
-      "---",
-      `title: ${JSON.stringify(str(note.title))}`,
-      themeName ? `theme: ${JSON.stringify(themeName)}` : "",
-      str(note.updated_at || note.created_at) ? `updated_at: ${JSON.stringify(str(note.updated_at || note.created_at))}` : "",
-      "---",
-      "",
-    ].filter((line) => line !== "").join("\n");
-    return `${metadata}${bodyMarkdown.trim()}\n`;
+    return buildCanonicalMarkdownContent({
+      title: str(note.title),
+      themeName,
+      updatedAt: str(note.updated_at || note.created_at),
+      body: bodyMarkdown,
+    });
   }
 
   /**
    * 出力先ChatRefが確定済みなら、書き出したArtifactを確認なしで同じ参照へ追加する（#288）。
    * 追加に失敗しても書き出したファイルと文書は触らず、通常の紐づけ導線へ戻す。
    */
-  async function autoLinkExportArtifacts(exported: NoteDocumentExport) {
-    // 正本Markdownは保存のたびに更新される同じファイルなので、Artifactを増やさない（#291）。
-    // 派生出力（PDF・SVG等）だけをChatRefへ追加する。
-    if (!shouldCreateExportArtifact(exported.format)) {
+  async function autoLinkExportArtifacts(exported: NoteDocumentExport, purpose: "canonical" | "copy" | "derived" = "derived") {
+    // canonical保存は同じ正本ファイルを更新するだけなのでArtifactを増やさない（#291）。
+    // 明示的なMarkdownコピーと派生出力（PDF・SVG等）は別ファイルとして扱う。
+    if (!shouldCreateExportArtifact(exported.format, purpose)) {
       setRecentExport(exported);
       return;
     }
@@ -1565,102 +1757,98 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   /** 明示的に選ばれたChatRefだけを、次回以降の出力先として記憶する。 */
   async function rememberExportTarget(chatRefId: string) {
     if (!selected || !chatRefId) return;
-    const next = [...new Set([...noteArtifactExportTargetIds(selected), chatRefId])];
-    await saveEntity("note", {
-      ...selected,
-      properties_json: withNoteArtifactExportTargets(noteProperties(selected), next),
-    }, { quiet: true });
+    const target = selected;
+    try {
+      await saveCurrentNoteMetadata(target, (latest) => {
+        const next = [...new Set([...noteArtifactExportTargetIds(latest), chatRefId])];
+        return { properties_json: withNoteArtifactExportTargets(noteProperties(latest), next) };
+      }, { quiet: true });
+    } catch (error) {
+      setToast(`Markdown出力先の記憶に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
   }
 
   async function clearExportTargets() {
     if (!selected) return;
-    await saveEntity("note", {
-      ...selected,
-      properties_json: withNoteArtifactExportTargets(noteProperties(selected), []),
-    }, { quiet: true });
-    setToast("自動追加先を解除しました。次回の書き出しでは紐づけ先を選び直します。", "success");
+    const target = selected;
+    try {
+      await saveCurrentNoteMetadata(target, (latest) => ({
+        properties_json: withNoteArtifactExportTargets(noteProperties(latest), []),
+      }), { quiet: true });
+      setToast("自動追加先を解除しました。次回の書き出しでは紐づけ先を選び直します。", "success");
+    } catch (error) {
+      setToast(`自動追加先を解除できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
   }
 
-  /**
-   * 正本Markdownを上書きしてよいか確かめる（#291）。
-   *
-   * 前回Taskenが書いた署名と、いまのファイルの署名を比べる。食い違えば外部変更なので
-   * 利用者へ選ばせる。ファイルを読めない場合は保存自体は止めず、そのまま書き込む
-   * （読めない理由がFiles On-Demand等の一時的なものでも、保存を失わせない）。
-   */
-  async function confirmCanonicalMarkdownOverwrite(nextContent: string): Promise<boolean> {
-    const canonicalPath = str(markdownExport?.filePath);
-    const lastWritten = str(markdownExport?.fileSignature);
-    if (!canonicalPath || !lastWritten) return true;
-
-    const preview = await workspaceApi.readFilePreview(canonicalPath).catch(() => null);
-    if (!preview?.ok || preview.kind !== "text") return true;
-
-    const plan = planCanonicalMarkdownWrite({
-      canonicalPath,
-      nextContent,
-      lastWrittenSignature: lastWritten,
-      currentFileSignature: markdownSignature(preview.text),
-    });
-    if (plan.action !== "confirm") return true;
-    return window.confirm(
-      `${canonicalPath}\n\nこのMarkdownはTaskenの外で変更されています。Taskenの内容で上書きすると、外部の変更は失われます。\n\n上書きしますか。中止すると、ファイルを確認してから保存し直せます。`,
-    );
-  }
-
-  async function exportSelectedMarkdown(chooseDirectory: boolean) {
+  async function exportSelectedMarkdown(changeCanonicalPath: boolean) {
     if (!selected || !showDocumentPublish) return;
     setMarkdownExporting(true);
     try {
-      const bodyForExport = currentDraftBody() || selectedBody;
-      const content = publishMarkdownContent(selected, selectedTheme?.name || "", bodyForExport);
-      // 正本Markdownは同じファイルを更新し続ける。Tasken外（別端末・エディタ・
-      // OneDriveの競合コピー）で変わっていたら、黙って上書きしない（#291）。
-      if (!chooseDirectory && !(await confirmCanonicalMarkdownOverwrite(content))) {
-        setToast("Markdownの更新を中止しました。ファイルの内容を確認してください。", "warning");
+      // Exportも現在のEditor本文を先にowner queueへ通す。古いselectedをそのまま
+      // 履歴保存へ渡して、copyだけ新本文になるpartial saveを作らない。
+      const current = captureCurrentDraftSnapshot();
+      const flushed = await flushDraftSnapshot(current);
+      if (!flushed.ok) {
+        setToast("Markdownを作成できませんでした。入力は保持しています。保存を再試行してください。", "danger");
         return;
       }
+      const persisted = await workspaceApi.get("note", selected.id);
+      const exportNote: Combined = { ...selected, ...(persisted || {}), recordType: "note" as const };
+      const bodyForExport = str(exportNote.body_markdown);
+      const exportThemeId = str(exportNote.project_id || exportNote.theme_id);
+      const exportThemeName = themes.find((theme) => theme.id === exportThemeId)?.name || "";
+      const content = publishMarkdownContent(exportNote, exportThemeName, bodyForExport);
       const result = await workspaceApi.exportMarkdownFile({
-        title: str(selected.title),
+        title: str(exportNote.title),
         content,
-        directory: str(markdownExport?.directory) || null,
-        chooseDirectory,
-        fileName: `${str(selected.title) || "markdown-document"}.md`,
-        themeId: str(selected.project_id || selected.theme_id) || null,
+        directory: changeCanonicalPath ? str(markdownExport?.directory) || null : null,
+        chooseDirectory: true,
+        fileName: `${str(exportNote.title) || "markdown-document"}.md`,
+        themeId: exportThemeId || null,
       });
       if (result.canceled) {
         setToast("Markdown出力をキャンセルしました。", "info");
         return;
       }
-      const exported = createNoteDocumentExport(selected, {
+      const exported = createNoteDocumentExport(exportNote, {
         format: "markdown",
         filePath: str(result.filePath),
         directory: str(result.directory),
         exportedAt: str(result.exportedAt) || new Date().toISOString(),
-        storageMode: chooseDirectory
-          ? "linked"
-          : str(markdownExport?.storageMode) === "linked" ? "linked" : "managed",
+        storageMode: "linked",
       });
-      await saveEntity("note", {
-        ...selected,
-        properties_json: withNoteDocumentExport({
-          ...selectedProperties,
-          markdown_export: {
-            directory: result.directory,
-            filePath: result.filePath,
-            exportedAt: result.exportedAt,
-            bodySignature: noteExportSignature(bodyForExport),
-            // 外部変更の判定は「前回書いたファイル内容」と比べる。本文の署名とは別物（#291）。
-            fileSignature: markdownSignature(content),
-            storageMode: exported.storageMode,
-          },
-        }, exported),
-      });
-      setToast(`Markdownを保存しました。${result.filePath || ""}`, "success");
-      // 保存済み表示は内部とファイルの両方を反映する（#291）。
-      setCanonicalSyncState("synced");
-      setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "synced" }));
-      await autoLinkExportArtifacts(exported);
+      if (changeCanonicalPath) {
+        await saveCurrentNoteMetadata(exportNote, (latest) => {
+          const latestBody = recordBody(latest);
+          const latestThemeId = str(latest.project_id || latest.theme_id);
+          const latestThemeName = themes.find((theme) => theme.id === latestThemeId)?.name || "";
+          const latestContent = publishMarkdownContent(latest, latestThemeName, latestBody);
+          const exportBinding = canonicalMarkdownBindingFromProperties(latest.properties_json, { noteId: latest.id });
+          const nextBinding = {
+            ...(exportBinding || {}),
+            binding_id: exportBinding?.binding_id || `note:${latest.id}`,
+            canonical_path: str(result.filePath),
+            directory: str(result.directory),
+            file_name: str(result.filePath).split(/[\\/]/).pop() || "",
+            body_signature: markdownSignature(latestBody),
+            file_signature: markdownSignature(latestContent),
+            sync_state: "in_sync",
+            last_synced_at: str(result.exportedAt) || new Date().toISOString(),
+            last_error: "",
+          };
+          return { properties_json: withCanonicalMarkdownBinding(noteProperties(latest), nextBinding) };
+        }, { canonicalMarkdown: "overwrite" });
+        setToast(`Markdownの保存先を変更しました。${result.filePath || ""}`, "success");
+        setCanonicalSyncState("synced");
+        setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "synced" }));
+      } else {
+        // MarkdownコピーはNote本体を再保存しない。直前flushでDB/canonicalと本文を揃え、
+        // Recent exportと明示Artifactだけを更新するので、古いselected/versionをcanonicalへ戻さない。
+        setRecentExport(exported);
+        setToast(`Markdownコピーを作成しました。${result.filePath || ""}`, "success");
+        await autoLinkExportArtifacts(exported, "copy");
+      }
     } catch (error) {
       // Tasken内部は保存済みでもファイルだけ失敗しうる。片方だけの失敗を区別して示す。
       setCanonicalSyncState("failed");
@@ -1713,29 +1901,31 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (!selected || !showDocumentPublish) return;
     setPdfExporting(true);
     try {
-      const content = publishMarkdownContent(selected, selectedTheme?.name || "", currentDraftBody() || selectedBody);
+      const exportNote = await flushCurrentNoteAndReadLatest(selected);
+      const exportThemeId = str(exportNote.project_id || exportNote.theme_id);
+      const exportThemeName = themes.find((theme) => theme.id === exportThemeId)?.name || "";
+      const content = publishMarkdownContent(exportNote, exportThemeName, recordBody(exportNote));
       const result = await workspaceApi.exportMarkdownPdf({
-        title: str(selected.title),
+        title: str(exportNote.title),
         html: await renderMermaidDocumentForPdf(previewDocument(content, "markdown", publishRenderOptions)),
         chooseDirectory: true,
-        fileName: `${str(selected.title) || "markdown-document"}.pdf`,
-        themeId: str(selected.project_id || selected.theme_id) || null,
+        fileName: `${str(exportNote.title) || "markdown-document"}.pdf`,
+        themeId: exportThemeId || null,
       });
       if (result.canceled) {
         setToast("PDF出力をキャンセルしました。", "info");
         return;
       }
-      const exported = createNoteDocumentExport(selected, {
+      const exported = createNoteDocumentExport(exportNote, {
         format: "pdf",
         filePath: str(result.filePath),
         directory: str(result.directory),
         exportedAt: str(result.exportedAt) || new Date().toISOString(),
         storageMode: "linked",
       });
-      await saveEntity("note", {
-        ...selected,
-        properties_json: withNoteDocumentExport(selectedProperties, exported),
-      }, { quiet: true });
+      await saveCurrentNoteMetadata(exportNote, (latest) => ({
+        properties_json: withNoteDocumentExport(noteProperties(latest), exported),
+      }), { quiet: true });
       const warningText = result.warnings?.length ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）` : "";
       setToast(`PDFを出力しました。${result.filePath || ""}${warningText}`, result.warnings?.length ? "warning" : "success");
       await autoLinkExportArtifacts(exported);
@@ -1764,7 +1954,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     pdf: () => showDocumentPublish ? exportSelectedPdf() : setToast("PDF出力できるNoteまたはReportを選択してください。", "warning"),
     folder: () => markdownExportOpenPath
       ? openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)
-      : setToast("先にMarkdownを出力して保存先を決めてください。", "warning"),
+      : setToast("先にNoteを保存して正本Markdownの保存先を決めてください。", "warning"),
     draft: () => selected?.recordType === "note"
       ? setDraftWorkspaceTarget(selected)
       : setToast("Draft Workspaceで扱うNoteまたはMarkdown文書を選択してください。", "warning"),
@@ -1781,8 +1971,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     { kind: "group", id: "group-export", label: "書き出し" },
     {
       id: "export-markdown",
-      label: markdownExporting ? "Markdownを書き出しています" : "Markdownを書き出す",
-      hint: markdownExportStale ? "本文が変わっています。書き出し直せます。" : undefined,
+      label: markdownExporting ? "Markdownコピーを作成しています" : "Markdownコピーを作成",
+      hint: "正本Markdownとは別のファイルを作成します。",
       disabled: markdownExporting,
       onSelect: () => void exportSelectedMarkdown(false),
     },
