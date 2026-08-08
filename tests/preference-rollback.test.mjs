@@ -54,3 +54,29 @@ test("a scope change invalidates a pending write from the previous Theme", () =>
     currentExternalGeneration: 0,
   }), false);
 });
+
+test("a delayed initial load cannot overwrite a newer local write", () => {
+  assert.equal(preference.shouldApplyPreferenceLoad({
+    effectGeneration: 1,
+    currentEffectGeneration: 1,
+    writeSequence: 0,
+    currentWriteSequence: 1,
+    externalGeneration: 0,
+    currentExternalGeneration: 0,
+    revision: 3,
+    currentRevision: 4,
+  }), false);
+});
+
+test("a delayed initial load cannot overwrite a newer external change", () => {
+  assert.equal(preference.shouldApplyPreferenceLoad({
+    effectGeneration: 1,
+    currentEffectGeneration: 1,
+    writeSequence: 0,
+    currentWriteSequence: 0,
+    externalGeneration: 0,
+    currentExternalGeneration: 1,
+    revision: 3,
+    currentRevision: 4,
+  }), false);
+});

@@ -19,6 +19,24 @@ export interface PreferenceRollbackToken {
   currentExternalGeneration: number;
 }
 
+export interface PreferenceLoadToken {
+  effectGeneration: number;
+  currentEffectGeneration: number;
+  writeSequence: number;
+  currentWriteSequence: number;
+  externalGeneration: number;
+  currentExternalGeneration: number;
+  revision: number;
+  currentRevision: number;
+}
+
+export function shouldApplyPreferenceLoad(token: PreferenceLoadToken): boolean {
+  return token.effectGeneration === token.currentEffectGeneration
+    && token.writeSequence === token.currentWriteSequence
+    && token.externalGeneration === token.currentExternalGeneration
+    && token.revision >= token.currentRevision;
+}
+
 export function shouldRollbackPreferenceWrite(token: PreferenceRollbackToken): boolean {
   return token.effectGeneration === token.currentEffectGeneration
     && token.writeSequence === token.latestWriteSequence
@@ -74,8 +92,20 @@ export function usePreference<K extends PreferenceId>(
     const effectGeneration = ++effectGenerationRef.current;
     let active = true;
     const slot = viewPreferenceSlotKey(id, normalizedScopeKey);
+    const loadToken = {
+      effectGeneration,
+      writeSequence: writeSequenceRef.current,
+      externalGeneration: externalGenerationRef.current,
+      revision: revisionRef.current,
+    };
     void workspaceApi.getViewPreferences().then((envelope) => {
-      if (!active || effectGeneration !== effectGenerationRef.current) return;
+      if (!active || !shouldApplyPreferenceLoad({
+        ...loadToken,
+        currentEffectGeneration: effectGenerationRef.current,
+        currentWriteSequence: writeSequenceRef.current,
+        currentExternalGeneration: externalGenerationRef.current,
+        currentRevision: revisionRef.current,
+      })) return;
       const entry = envelope.values[slot];
       if (entry) {
         const next = normalizeViewPreference(id, entry.value, entry.schemaVersion);
