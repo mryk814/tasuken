@@ -19,6 +19,7 @@ async function importBundled(relativePath) {
 
 const presets = await importBundled("src/renderer/src/features/workspace/lib/sketchToolPresets.ts");
 const pageSource = readFileSync("src/renderer/src/features/workspace/pages/SketchPage.tsx", "utf8");
+const registrySource = readFileSync("src/shared/viewPreferenceRegistry.mjs", "utf8");
 
 test("pen highlighter and eraser start with independent practical defaults", () => {
   assert.deepEqual(presets.DEFAULT_SKETCH_TOOL_PRESETS.pen, { color: "#211e1d", width: 2 });
@@ -37,10 +38,10 @@ test("invalid stored presets fall back per tool without overwriting valid peers"
 });
 
 test("tool presets and shape choice persist as UI state", () => {
-  assert.match(pageSource, /usePersistentState<SketchToolPresets>/);
-  assert.match(pageSource, /"sketch:tool-presets:v1"/);
-  assert.match(pageSource, /"sketch:shape-kind:v2", "rectangle"/);
-  assert.match(pageSource, /"sketch:eraser-mode:v1"/);
+  assert.match(pageSource, /usePreference\("sketch\.toolPresets"\)/);
+  assert.match(registrySource, /tasken:sketch:tool-presets:v1/);
+  assert.match(pageSource, /usePreference\("sketch\.shapeKind"\)/);
+  assert.match(pageSource, /usePreference\("sketch\.eraserMode"\)/);
   assert.match(pageSource, /tool !== "eraser"/);
 });
 

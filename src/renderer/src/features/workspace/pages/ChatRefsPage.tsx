@@ -22,11 +22,12 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { applyOptimisticSortOrders, clearOptimisticSortOrders } from "../../../../../shared/viewOrdering.mjs";
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID, themePickerOptions } from "../../../../../shared/themeRef.mjs";
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
 import { Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ConversationImportDialog } from "../components/ConversationImportDialog";
@@ -49,6 +50,7 @@ import {
   moveCollapsedChatGroupPreference,
   renameChatGroupResources,
   reorderChatGroupResources,
+  sortChatResources,
   restoreChatResource,
   restoreChatResources,
   UNGROUPED_CHAT_GROUP,
@@ -66,6 +68,7 @@ type StatusFilter = "all" | "inbox" | "adopted";
 type ListMode = "active" | "archive";
 type DragPlacement = "before" | "after";
 type DragTarget = { id: string; placement: DragPlacement } | null;
+type OptimisticSortOrder = { token: string; value: number };
 
 interface ChatRefsPrefs {
   /** グループ内リンクの並び */
@@ -78,14 +81,6 @@ interface ChatRefsPrefs {
   /** 通常一覧の検索時に Archive も含める */
   includeArchivedInSearch: boolean;
 }
-
-const DEFAULT_CHAT_REFS_PREFS: ChatRefsPrefs = {
-  sortOrder: "newest",
-  groupSortOrder: "recent",
-  statusFilter: "all",
-  listMode: "active",
-  includeArchivedInSearch: false,
-};
 
 function isAdopted(r: Resource): boolean {
   return str(r.reference_status) === "adopted";
@@ -118,11 +113,20 @@ export function ChatRefsPage({
   saveEntities,
   setToast,
 }: PageProps) {
-  const chatResources = useMemo(() => domain.resources.filter(isChatReference), [domain.resources]);
+  const [optimisticSortOrders, setOptimisticSortOrders] = useState<Record<string, OptimisticSortOrder>>({});
+  const optimisticSortOrdersRef = useRef(optimisticSortOrders);
+  optimisticSortOrdersRef.current = optimisticSortOrders;
+  const reorderQueueRef = useRef(Promise.resolve());
+  const chatResources = useMemo(() => applyOptimisticSortOrders(
+    domain.resources.filter(isChatReference),
+    optimisticSortOrders,
+  ), [domain.resources, optimisticSortOrders]);
+  const latestChatResourcesRef = useRef(chatResources);
+  latestChatResourcesRef.current = chatResources;
   const themeNameOf = (resource: Resource) => themeTitle(themes, str(resource.project_id) || null);
   const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || PERSONAL_DEFAULT_THEME_ID);
   const [query, setQuery] = useState("");
-  const [prefs, setPrefs] = usePersistentState<ChatRefsPrefs>("chat-refs:prefs:v1", DEFAULT_CHAT_REFS_PREFS);
+  const [prefs, setPrefs] = usePreference("chatRefs.preferences");
   const {
     sortOrder,
     groupSortOrder,
@@ -132,7 +136,7 @@ export function ChatRefsPage({
   } = prefs;
   const updatePrefs = (patch: Partial<ChatRefsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const isArchiveView = listMode === "archive";
-  const [collapsedPreferences, setCollapsedPreferences] = usePersistentState<string[]>("chat-refs:collapsed-groups:v1", []);
+  const [collapsedPreferences, setCollapsedPreferences] = usePreference("chatRefs.collapsedGroups");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
@@ -325,9 +329,34 @@ export function ChatRefsPage({
   }
 
   function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
-    const reordered = reorderChatGroupResources(group.resources, draggedId, targetId, placement);
-    if (!reordered.length) return;
-    saveGroupResources(reordered, "並び替えを保存しました。");
+    const token = crypto.randomUUID();
+    const operation = reorderQueueRef.current.then(async () => {
+      // 手動順の正本全体を渡し、検索・Archive・採用フィルタで隠れた同一Groupの順序を保つ。
+      // overlayはsort_orderだけなので、保存中に届いたtitle/state等の更新を隠さない。
+      const latestScoped = latestChatResourcesRef.current.filter((resource) => {
+        const sameTheme = selectedThemeId ? resource.project_id === selectedThemeId : !resource.project_id;
+        const key = String(resource.chat_group || "").trim() || UNGROUPED_CHAT_GROUP;
+        return sameTheme && key === group.key;
+      });
+      const fullGroup = sortChatResources(latestScoped, "manual");
+      const reordered = reorderChatGroupResources(fullGroup, draggedId, targetId, placement, group.resources.map((resource) => resource.id));
+      if (!reordered.length) return;
+      optimisticSortOrdersRef.current = {
+        ...optimisticSortOrdersRef.current,
+        ...Object.fromEntries(reordered.map((resource) => [resource.id, { token, value: Number(resource.sort_order) || 0 }])),
+      };
+      setOptimisticSortOrders(optimisticSortOrdersRef.current);
+      try {
+        await saveEntities(reordered.flatMap((resource) => buildSaveResourceOperations(resource)), "並び替えを保存しました。");
+        optimisticSortOrdersRef.current = clearOptimisticSortOrders(optimisticSortOrdersRef.current, token);
+        setOptimisticSortOrders(optimisticSortOrdersRef.current);
+      } catch {
+        // saveEntitiesが原因と復旧操作をtoastへ出す。ここでは自分のtokenだけを解除する。
+        optimisticSortOrdersRef.current = clearOptimisticSortOrders(optimisticSortOrdersRef.current, token);
+        setOptimisticSortOrders(optimisticSortOrdersRef.current);
+      }
+    });
+    reorderQueueRef.current = operation.catch(() => {});
   }
 
   function archiveChatLink(resource: Resource) {

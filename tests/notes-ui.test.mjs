@@ -34,7 +34,7 @@ test("Notes defaults to Note and keeps deterministic date ordering", () => {
 
 test("Notes UI persists filter and sort preferences and exposes save-folder actions", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  assert.match(source, /usePersistentState<NotesPreferences>\("notes:prefs:v1", DEFAULT_NOTES_PREFS\)/);
+  assert.match(source, /usePreference\("notes\.preferences"\)/);
   assert.match(source, /compareNotesRecords\(a, b, sortOrder\)/);
   assert.match(source, /aria-label="Notesの並び順"/);
   assert.match(source, /openMarkdownExportDirectory/);

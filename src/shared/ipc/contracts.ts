@@ -22,6 +22,9 @@ export const IPC = {
   workspaceMeta: "workspace:meta",
   preferenceGet: "preference:get",
   preferenceSet: "preference:set",
+  viewPreferenceGet: "view-preference:get",
+  viewPreferenceSet: "view-preference:set",
+  viewPreferenceChanged: "view-preference:changed",
   clipboardWriteText: "clipboard:write-text",
   clipboardWriteHtml: "clipboard:write-html",
   clipboardWriteImage: "clipboard:write-image",
@@ -116,6 +119,20 @@ export interface WorkspaceChangePayload {
   entities?: Array<{ type: EntityType; entity: Entity }>;
 }
 
+export interface ViewPreferenceEnvelope {
+  schemaVersion: 1;
+  revision: number;
+  values: Record<string, { schemaVersion: number; value: unknown }>;
+}
+
+export interface ViewPreferenceChange {
+  id: string;
+  scopeKey: string;
+  schemaVersion: number;
+  value: unknown;
+  revision: number;
+}
+
 export interface TodayMiniTask {
   id: string;
   title: string;
@@ -204,6 +221,9 @@ export interface ResearchDeskApi {
   preferences: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<boolean>;
+    getView(): Promise<ViewPreferenceEnvelope>;
+    setView(id: string, scopeKey: string, value: unknown, schemaVersion: number): Promise<ViewPreferenceChange>;
+    onViewChanged(callback: (change: ViewPreferenceChange) => void): () => void;
   };
   ai: {
     getConfig(): Promise<AiProviderConfig>;

@@ -8,24 +8,9 @@ export const NOTES_SORT_OPTIONS = [
 export type NotesSortOrder = (typeof NOTES_SORT_OPTIONS)[number]["value"];
 export type NotesScope = "all" | "note" | "resource" | "report" | "prompt";
 
-export type NotesPreferences = {
-  scope: NotesScope;
-  sortOrder: NotesSortOrder;
-  themeId: string;
-  listWidth: number | null;
-  listCollapsed: boolean;
-  /** 本文へ集中する表示。一覧と上部の補助行を畳み、縦方向をすべて本文へ回す（#292）。 */
-  documentFocus: boolean;
-};
+export type NotesPreferences = NotesPreferenceValue;
 
-export const DEFAULT_NOTES_PREFS: NotesPreferences = {
-  scope: "note",
-  sortOrder: "updated_desc",
-  themeId: "all",
-  listWidth: null,
-  listCollapsed: false,
-  documentFocus: false,
-};
+export const DEFAULT_NOTES_PREFS: NotesPreferences = defaultViewPreference("notes.preferences");
 
 export function compactNotesBodyPreview(value: unknown, limit = 180): string {
   const compact = String(value || "").slice(0, limit + 40).replace(/\s+/g, " ").trim();
@@ -52,3 +37,5 @@ export function sortNotesRecords<T extends { id: string; created_at?: string; up
 ): T[] {
   return [...records].sort((left, right) => compareNotesRecords(left, right, order));
 }
+import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
+import type { NotesPreferenceValue } from "../../../../../shared/viewPreferenceRegistry.mjs";

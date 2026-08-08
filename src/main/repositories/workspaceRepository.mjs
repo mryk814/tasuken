@@ -181,6 +181,44 @@ export class WorkspaceDatabase {
     return fallback;
   }
 
+  getViewPreferences() {
+    const raw = this.ensureMeta("view_preferences", JSON.stringify({ schemaVersion: 1, revision: 0, values: {} }));
+    try {
+      const parsed = JSON.parse(raw);
+      const values = isPlainObject(parsed?.values) ? parsed.values : {};
+      return {
+        schemaVersion: 1,
+        revision: Number.isFinite(Number(parsed?.revision)) ? Number(parsed.revision) : 0,
+        values,
+      };
+    } catch {
+      return { schemaVersion: 1, revision: 0, values: {} };
+    }
+  }
+
+  setViewPreference(id, scopeKey, value, schemaVersion) {
+    const current = this.getViewPreferences();
+    const next = {
+      schemaVersion: 1,
+      revision: current.revision + 1,
+      values: {
+        ...current.values,
+        [`${id}::${scopeKey || ""}`]: { schemaVersion: Number(schemaVersion) || 1, value },
+      },
+    };
+    this.db.prepare(`
+      INSERT INTO workspace_meta(key, value) VALUES('view_preferences', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(JSON.stringify(next));
+    return {
+      id,
+      scopeKey: scopeKey || "",
+      schemaVersion: Number(schemaVersion) || 1,
+      value,
+      revision: next.revision,
+    };
+  }
+
   getMeta() {
     return {
       schemaVersion: SCHEMA_VERSION,

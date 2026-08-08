@@ -8,6 +8,13 @@ import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import type { CommandReceipt } from "../../shared/applicationCommand";
+import {
+  isViewPreferenceId,
+  normalizeViewPreference,
+  normalizeViewPreferenceEnvelope,
+  getViewPreferenceDefinition,
+} from "../../shared/viewPreferenceRegistry.mjs";
+import type { ViewPreferenceEnvelope, ViewPreferenceChange } from "../../shared/ipc/contracts";
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -15,6 +22,8 @@ interface WorkspaceRepository {
   getMeta(): unknown;
   getPreference(key: string): unknown;
   setPreference(key: string, value: unknown): unknown;
+  getViewPreferences(): unknown;
+  setViewPreference(id: string, scopeKey: string, value: unknown, schemaVersion: number): unknown;
   list(type: EntityType, includeDeleted?: boolean): unknown;
   get(type: EntityType, id: string): unknown;
   save(type: EntityType, entity: unknown, options?: unknown): unknown;
@@ -77,6 +86,18 @@ export function registerIpc(
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => repository.setPreference(requireId(key), value));
+  ipcMain.handle(IPC.viewPreferenceGet, () => normalizeViewPreferenceEnvelope(repository.getViewPreferences()) as ViewPreferenceEnvelope);
+  ipcMain.handle(IPC.viewPreferenceSet, (_event, id, scopeKey, value, schemaVersion) => {
+    if (!isViewPreferenceId(id)) throw new Error("未登録の表示設定です。画面を再読み込みしてください。");
+    const definition = getViewPreferenceDefinition(id);
+    const normalizedScopeKey = definition?.scope === "theme" ? requireText(scopeKey, "Theme") : "";
+    const normalized = normalizeViewPreference(id, value, Number(schemaVersion) || 1);
+    const change = repository.setViewPreference(id, normalizedScopeKey, normalized, definition?.schemaVersion || 1) as ViewPreferenceChange;
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC.viewPreferenceChanged, change);
+    }
+    return change;
+  });
   ipcMain.handle(IPC.aiConfigGet, () => aiProvider.getConfig());
   ipcMain.handle(IPC.aiConfigSave, (_event, update) => aiProvider.saveConfig(update));
   ipcMain.handle(IPC.aiNoteGenerate, (_event, request) => aiProvider.generateNote(request));

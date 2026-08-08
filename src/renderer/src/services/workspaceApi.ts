@@ -63,6 +63,15 @@ export const workspaceApi = {
   getPreference(key: string) {
     return desktopApi().preferences.get(key);
   },
+  getViewPreferences() {
+    return desktopApi().preferences.getView();
+  },
+  setViewPreference(id: string, scopeKey: string, value: unknown, schemaVersion: number) {
+    return desktopApi().preferences.setView(id, scopeKey, value, schemaVersion);
+  },
+  onViewPreferenceChanged(callback: Parameters<Window["api"]["preferences"]["onViewChanged"]>[0]) {
+    return desktopApi().preferences.onViewChanged(callback);
+  },
   getAiConfig() {
     return desktopApi().ai.getConfig();
   },

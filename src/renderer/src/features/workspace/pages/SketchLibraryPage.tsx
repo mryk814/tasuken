@@ -1,7 +1,8 @@
 import { IconArrowsMaximize, IconFile, IconPlus, IconWriting, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
+import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import {
@@ -31,10 +32,7 @@ interface SketchLibraryPreferences {
   sortOrder: "updated_desc" | "updated_asc" | "title";
 }
 
-const DEFAULT_PREFERENCES: SketchLibraryPreferences = {
-  themeId: "all",
-  sortOrder: "updated_desc",
-};
+const DEFAULT_PREFERENCES: SketchLibraryPreferences = defaultViewPreference("sketch.libraryPreferences");
 
 function SketchPreview({ page }: { page?: SketchPage }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -82,10 +80,7 @@ export function SketchLibraryPage({
   const [createOpen, setCreateOpen] = useState(false);
   const [createMode, setCreateMode] = useState<SketchCanvasMode>("page");
   const [pageSize, setPageSize] = useState<SketchPageSizeValue>(() => sketchPageSizeValue());
-  const [preferences, setPreferences] = usePersistentState<SketchLibraryPreferences>(
-    "sketch:library-prefs:v1",
-    DEFAULT_PREFERENCES,
-  );
+  const [preferences, setPreferences] = usePreference("sketch.libraryPreferences");
 
   const sketches = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("ja");
