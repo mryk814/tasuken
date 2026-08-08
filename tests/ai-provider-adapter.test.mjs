@@ -190,6 +190,7 @@ test("capability resolver intersects model claims with implemented adapter surfa
   };
   assert.equal(adapterCapabilities("openai-compatible", "responses").includes("text"), true);
   assert.equal(adapterCapabilities("openai-compatible", "chat_completions").length, 0);
+  assert.equal(adapterCapabilities("anthropic", "native").length, 0);
   assert.equal(resolveFeatureAvailability("vision", provider, model).available, false);
   assert.equal(resolveFeatureAvailability("note_assistant", provider, model).available, true);
   assert.equal(resolveFeatureAvailability("note_assistant", { ...provider, apiSurface: "chat_completions", adapterStatus: "planned" }, model).available, false);

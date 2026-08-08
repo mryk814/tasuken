@@ -21,6 +21,34 @@ interface SettingsPageProps extends PageProps {
 
 type SettingsSectionId = "general" | "appearance" | "storage" | "integrations" | "ai-mcp" | "advanced";
 
+const AI_SURFACES_BY_ADAPTER: Record<AiAdapterKind, AiApiSurface[]> = {
+  "openai-native": ["responses"],
+  "openai-compatible": ["responses", "chat_completions"],
+  "azure-openai": ["responses", "chat_completions"],
+  anthropic: ["native"],
+  gemini: ["native"],
+  bedrock: ["native"],
+  ollama: ["chat_completions"],
+};
+
+const AI_AUTHS_BY_ADAPTER: Record<AiAdapterKind, AiAuthKind[]> = {
+  "openai-native": ["api_key"],
+  "openai-compatible": ["api_key", "bearer_token"],
+  "azure-openai": ["api_key", "bearer_token"],
+  anthropic: ["api_key"],
+  gemini: ["api_key", "bearer_token"],
+  bedrock: ["bearer_token"],
+  ollama: ["none"],
+};
+
+function defaultAiSurface(adapterKind: AiAdapterKind): AiApiSurface {
+  return AI_SURFACES_BY_ADAPTER[adapterKind][0];
+}
+
+function defaultAiAuth(adapterKind: AiAdapterKind): AiAuthKind {
+  return AI_AUTHS_BY_ADAPTER[adapterKind][0];
+}
+
 const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; description: string }> = [
   { id: "general", label: "General", description: "基本の使い方" },
   { id: "appearance", label: "Appearance", description: "表示と編集" },
@@ -438,6 +466,12 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
     setAiApiKey("");
     setAiTestStatus("idle");
     setAiTestMessage("");
+  }
+
+  function changeAiAdapter(adapterKind: AiAdapterKind) {
+    setAiAdapterKind(adapterKind);
+    setAiApiSurface(defaultAiSurface(adapterKind));
+    setAiAuthKind(defaultAiAuth(adapterKind));
   }
 
   function startNewAiProvider() {
@@ -858,7 +892,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                     <input value={aiProviderLabel} onChange={(event) => setAiProviderLabel(event.target.value)} placeholder="OpenAI" />
                   </label>
                   <label>Adapter
-                    <select value={aiAdapterKind} onChange={(event) => setAiAdapterKind(event.target.value as AiAdapterKind)}>
+                    <select value={aiAdapterKind} onChange={(event) => changeAiAdapter(event.target.value as AiAdapterKind)}>
                       <option value="openai-native">OpenAI native</option>
                       <option value="openai-compatible">Generic OpenAI-compatible</option>
                       <option value="azure-openai">Azure OpenAI / Foundry</option>
@@ -870,15 +904,16 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                   </label>
                   <label>Auth
                     <select value={aiAuthKind} onChange={(event) => setAiAuthKind(event.target.value as AiAuthKind)}>
-                      <option value="api_key">API key</option>
-                      <option value="bearer_token">Bearer token</option>
-                      <option value="none">なし（local adapterのみ）</option>
+                      {AI_AUTHS_BY_ADAPTER[aiAdapterKind].map((authKind) => (
+                        <option value={authKind} key={authKind}>{authKind === "api_key" ? "API key" : authKind === "bearer_token" ? "Bearer token" : "なし（local adapterのみ）"}</option>
+                      ))}
                     </select>
                   </label>
                   <label>API surface
                     <select value={aiApiSurface} onChange={(event) => setAiApiSurface(event.target.value as AiApiSurface)}>
-                      <option value="responses">Responses</option>
-                      <option value="chat_completions">Chat Completions</option>
+                      {AI_SURFACES_BY_ADAPTER[aiAdapterKind].map((apiSurface) => (
+                        <option value={apiSurface} key={apiSurface}>{apiSurface === "responses" ? "Responses" : apiSurface === "chat_completions" ? "Chat Completions" : "Native provider API（未実装）"}</option>
+                      ))}
                     </select>
                   </label>
                   <label className="toggle">有効

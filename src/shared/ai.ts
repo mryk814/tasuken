@@ -32,7 +32,7 @@ export const AI_ADAPTER_KINDS = [
 
 export type AiAdapterKind = (typeof AI_ADAPTER_KINDS)[number];
 export type AiAuthKind = "api_key" | "bearer_token" | "none";
-export type AiApiSurface = "responses" | "chat_completions";
+export type AiApiSurface = "responses" | "chat_completions" | "native";
 export type AiModelLifecycle = "available" | "unavailable" | "deprecated" | "experimental";
 export type AiFeature = "note_assistant" | "structured_output" | "tool_use" | "vision" | "embeddings";
 
