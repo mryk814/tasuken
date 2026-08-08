@@ -6,21 +6,71 @@ import path from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
 
-async function importBundled(relativePath) {
+async function importBundled(relativePath, plugins = []) {
   const result = await build({
     entryPoints: [path.resolve(relativePath)],
     bundle: true,
     platform: "node",
     format: "esm",
     packages: "external",
+    plugins,
     write: false,
     logLevel: "silent",
   });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 }
 
+const electronMockPlugin = {
+  name: "mock-electron",
+  setup(buildContext) {
+    buildContext.onResolve({ filter: /^electron$/ }, () => ({ path: "electron", namespace: "mock-electron" }));
+    buildContext.onLoad({ filter: /.*/, namespace: "mock-electron" }, () => ({
+      loader: "js",
+      contents: `
+        export const screen = {
+          getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 800, height: 600 } }],
+        };
+        export class BrowserWindow {
+          constructor(options = {}) {
+            this.bounds = {
+              x: options.x ?? 0,
+              y: options.y ?? 0,
+              width: options.width ?? 300,
+              height: options.height ?? 200,
+            };
+            this.visible = false;
+            this.destroyed = false;
+            this.minimized = false;
+            this.focused = false;
+            this.webContents = { isLoading: () => false, send: () => {} };
+          }
+          isDestroyed() { return this.destroyed; }
+          isVisible() { return this.visible; }
+          isMinimized() { return this.minimized; }
+          restore() { this.minimized = false; }
+          show() { this.visible = true; }
+          hide() { this.visible = false; }
+          focus() { this.focused = true; }
+          isFocused() { return this.focused; }
+          getBounds() { return { ...this.bounds }; }
+          setBounds(next) { this.bounds = { ...this.bounds, ...next }; }
+          setTitle() {}
+          loadURL() {}
+          loadFile() {}
+          setAlwaysOnTop() {}
+          close() { this.destroyed = true; this.visible = false; }
+          on() { return this; }
+          once() { return this; }
+          removeAllListeners() { return this; }
+        }
+      `,
+    }));
+  },
+};
+
 const state = await importBundled("src/main/satelliteWindowState.ts");
 const memoPresentation = await importBundled("src/shared/memoPresentation.ts");
+const registryModule = await importBundled("src/main/satelliteWindowRegistry.ts", [electronMockPlugin]);
 
 function tempStatePath() {
   return path.join(mkdtempSync(path.join(tmpdir(), "tasken-satellite-")), "windows.json");
@@ -116,6 +166,49 @@ test("状態ファイルに未知のキーや不正な値が混ざっても無�
   const store = state.createSatelliteWindowStateStore(filePath);
   assert.deepEqual(store.read({ kind: "memo", entityId: "ok" }), { x: 1, y: 2, width: 300, height: 400 });
   assert.equal(store.read({ kind: "memo", entityId: "broken" }), null);
+});
+
+function satelliteSpec() {
+  return {
+    title: "Memo",
+    width: 300,
+    height: 200,
+    minWidth: 220,
+    minHeight: 160,
+    page: "memo-sticky",
+    preload: "preload",
+  };
+}
+
+function createTestRegistry() {
+  return registryModule.createSatelliteWindowRegistry({
+    stateFilePath: tempStatePath(),
+    getAppIconPath: () => "",
+    resolvePageUrl: () => ({ file: "memo-sticky.html" }),
+  });
+}
+
+test("arrangeは非表示の非対象ウィンドウを占有矩形に含めない（#327）", () => {
+  const registry = createTestRegistry();
+  const hidden = registry.open({ kind: "today", entityId: "today" }, satelliteSpec());
+  hidden.setBounds({ x: 16, y: 16 });
+  const target = registry.open({ kind: "memo", entityId: "memo-target" }, satelliteSpec());
+
+  registry.arrange([{ kind: "memo", entityId: "memo-target" }]);
+
+  assert.deepEqual(target.getBounds(), { x: 16, y: 16, width: 300, height: 200 });
+});
+
+test("初回配置後は手動移動した新規ウィンドウを再配置しない（#327）", () => {
+  const registry = createTestRegistry();
+  const fresh = registry.open({ kind: "memo", entityId: "memo-fresh" }, satelliteSpec());
+
+  assert.equal(registry.arrange([{ kind: "memo", entityId: "memo-fresh" }]), 1);
+  fresh.setBounds({ x: 500, y: 300 });
+  const moved = fresh.getBounds();
+
+  assert.equal(registry.arrange([{ kind: "memo", entityId: "memo-fresh" }]), 0);
+  assert.deepEqual(fresh.getBounds(), moved);
 });
 
 // --- 配線（source assertion）: Electron依存部分はここで契約だけ固定する ---

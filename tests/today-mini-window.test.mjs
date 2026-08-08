@@ -26,6 +26,7 @@ const mainSource = [
 const preloadSource = readFileSync("src/preload/todayMini.ts", "utf8");
 const htmlSource = readFileSync("src/renderer/today-mini.html", "utf8");
 const contractsSource = readFileSync("src/shared/ipc/global.d.ts", "utf8");
+const ipcContractsSource = readFileSync("src/shared/ipc/contracts.ts", "utf8");
 
 test("Today no longer exposes the daily loop shelf or morning planning flow", () => {
   assert.doesNotMatch(todaySource, /DailyLoopPanel/);

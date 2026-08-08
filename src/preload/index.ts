@@ -49,8 +49,22 @@ const api: ResearchDeskApi = {
     showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
     showMemoStickyWindow: (memoId) => ipcRenderer.invoke(IPC.memoStickyOpen, memoId),
     listOpenMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyListOpen),
+    listStickyMemoTargets: () => ipcRenderer.invoke(IPC.memoStickyListTargets),
     showAllMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyShowAll),
     closeAllMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyCloseAll),
+    getSatelliteWindowState: () => ipcRenderer.invoke(IPC.satelliteWindowState),
+    onSatelliteWindowStateChanged: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, state: unknown): void => {
+        const value = state && typeof state === "object" ? state as Record<string, unknown> : {};
+        callback({
+          todayOpen: value.todayOpen === true,
+          openMemoIds: Array.isArray(value.openMemoIds) ? value.openMemoIds.map(String) : [],
+          stickyMemoIds: Array.isArray(value.stickyMemoIds) ? value.stickyMemoIds.map(String) : [],
+        });
+      };
+      ipcRenderer.on(IPC.satelliteWindowState, handler);
+      return () => { ipcRenderer.removeListener(IPC.satelliteWindowState, handler); };
+    },
     openNoteWindow: (noteId) => ipcRenderer.invoke(IPC.noteWindowOpen, noteId),
     listOpenNoteWindows: () => ipcRenderer.invoke(IPC.noteWindowListOpen),
     returnNoteWindowToMain: () => ipcRenderer.invoke(IPC.noteWindowReturnToMain),

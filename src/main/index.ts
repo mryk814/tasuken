@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Menu, safeStorage, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

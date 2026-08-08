@@ -214,7 +214,7 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     if (!areas.length) return 0;
     const occupied: WindowBounds[] = [];
     for (const entry of entries.values()) {
-      if (wanted.includes(entry) || entry.window.isDestroyed()) continue;
+      if (wanted.includes(entry) || entry.window.isDestroyed() || !entry.window.isVisible()) continue;
       const bounds = normalizeBounds(entry.window.getBounds());
       if (bounds) occupied.push(bounds);
     }
@@ -247,6 +247,7 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
         store.write(entry.key, next);
         changed += 1;
       }
+      entry.restoredFromState = true;
       occupied.push(next);
     }
     return changed;
