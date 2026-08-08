@@ -23,7 +23,7 @@ interface ArtifactsPrefs {
   sortOrder: SortOrder;
 }
 
-const DEFAULT_PREFS: ArtifactsPrefs = defaultViewPreference("artifacts.preferences");
+const DEFAULT_PREFS: ArtifactsPrefs = defaultViewPreference("artifacts.preferences") as ArtifactsPrefs;
 
 const TYPE_FILTER_LABELS: Record<TypeFilter, string> = {
   all: "すべて",

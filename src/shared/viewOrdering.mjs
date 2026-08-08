@@ -24,3 +24,16 @@ export function reindexScopedIds(ids) {
   return new Map(ids.map((id, index) => [id, (index + 1) * 10]));
 }
 
+export function applyOptimisticSortOrders(records, overlays) {
+  return records.map((record) => {
+    const overlay = overlays?.[record.id];
+    return overlay ? { ...record, sort_order: overlay.value } : record;
+  });
+}
+
+export function clearOptimisticSortOrders(overlays, token) {
+  return Object.fromEntries(
+    Object.entries(overlays || {}).filter(([, entry]) => entry.token !== token),
+  );
+}
+
