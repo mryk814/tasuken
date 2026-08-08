@@ -4,6 +4,7 @@ import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeTaskAssignment } from "../repositories/domain.mjs";
+import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import type { Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
 import {
   ApplicationCommandError,
@@ -516,7 +517,9 @@ export class ApplicationCommandService {
       changed_or_created_items: Array.isArray(payload.receipt.changed_or_created_items) ? payload.receipt.changed_or_created_items : [],
       ...(Array.isArray(payload.receipt.verification) ? { verification: payload.receipt.verification } : {}),
       ...(Array.isArray(payload.receipt.remaining_work) ? { remaining_work: payload.receipt.remaining_work } : {}),
-      ...(Array.isArray(payload.receipt.external_references) ? { external_references: payload.receipt.external_references } : {}),
+      ...(payload.receipt.external_references !== undefined
+        ? { external_references: normalizeExternalReferences(payload.receipt.external_references) }
+        : {}),
       ...(payload.receipt.repository_context && typeof payload.receipt.repository_context === "object" ? { repository_context: payload.receipt.repository_context } : {}),
       ...(provenance.sourceSession ? { source_session: provenance.sourceSession } : {}),
       ...(payload.receipt.runtime_metadata && typeof payload.receipt.runtime_metadata === "object" ? { runtime_metadata: payload.receipt.runtime_metadata } : {}),

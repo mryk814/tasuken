@@ -33,6 +33,9 @@ export interface Theme extends BaseRecord {
   group?: string;
   /** managed Artifact の任意保存ルート（絶対パス）。未設定時は共通ルート配下に自動配置 */
   storage_root?: string | null;
+  repository_context_ids?: string[];
+  primary_repository_context_id?: string | null;
+  repository_context_detachments?: Array<Record<string, unknown>>;
 }
 
 export interface Item extends BaseRecord {
@@ -255,6 +258,7 @@ export interface WorkspaceData {
   projects: BaseRecord[];
   capture_entrys: BaseRecord[];
   tasks: BaseRecord[];
+  repository_contexts?: BaseRecord[];
   work_receipts: WorkReceipt[];
   waitings: BaseRecord[];
   plan_nodes: BaseRecord[];

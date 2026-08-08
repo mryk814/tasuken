@@ -4,10 +4,12 @@ import os from "node:os";
 import path from "node:path";
 
 import { validateArtifactProposal, validateSafeSvg } from "../../shared/proposalMedia.mjs";
+import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
+import { normalizeRepositoryContext, publicRepositoryContext } from "../../shared/repositoryContext.mjs";
 
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 1024 * 1024;
-const PAYLOAD_TYPES = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work"]);
+const PAYLOAD_TYPES = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work", "repository_contexts"]);
 
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -24,7 +26,7 @@ function validatePayload(payloadType, payload) {
     throw new Error(`${payloadType}は1〜100件の配列にしてください。`);
   }
   if (payloadType === "task_work") {
-    for (const entry of entries) {
+    payload[payloadType] = entries.map((entry) => {
       if (!plainObject(entry)) throw new Error("task_workの各要素はJSON objectにしてください。");
       if (!text(entry.task_id) || !["start", "append_receipt", "report_done"].includes(entry.action)) {
         throw new Error("task_workにはtask_idとstart/append_receipt/report_doneのactionが必要です。");
@@ -36,7 +38,36 @@ function validatePayload(payloadType, payload) {
           if (entry[field] != null && (!Array.isArray(entry[field]) || entry[field].length > 100 || entry[field].some((item) => !text(item)))) throw new Error(`task_work.${field}が不正です。`);
         }
       }
-    }
+      const normalized = { ...entry };
+      if (entry.external_references != null) {
+        if (!["append_receipt", "report_done"].includes(entry.action)) throw new Error("external_referencesはReceipt報告にだけ指定できます。");
+        normalized.external_references = normalizeExternalReferences(entry.external_references);
+      }
+      return normalized;
+    });
+    return;
+  }
+  if (payloadType === "repository_contexts") {
+    payload[payloadType] = entries.map((entry) => {
+      if (!plainObject(entry)) throw new Error("repository_contextsの各要素はJSON objectにしてください。");
+      if (!['create', 'merge'].includes(entry.action)) throw new Error("repository_contextsのactionはcreateまたはmergeにしてください。");
+      if (!text(entry.label)) throw new Error("repository_contextsにはlabelが必要です。");
+      if (entry.action === "merge" && (!text(entry.target_id) || !Number.isInteger(entry.base_version))) {
+        throw new Error("repository_contextsのmergeにはtarget_idとbase_versionが必要です。");
+      }
+      const normalized = normalizeRepositoryContext(entry);
+      const publicNormalized = publicRepositoryContext(normalized);
+      if (normalized.provider === "local" || String(normalized.canonical_identity || "").startsWith("local:")) {
+        throw new Error("local repository contextはprivate pathを含むためMCP Proposalでは作成できません。TaskenのUIから登録してください。");
+      }
+      return {
+        action: entry.action,
+        ...(entry.target_id ? { target_id: text(entry.target_id) } : {}),
+        ...(entry.base_version != null ? { base_version: entry.base_version } : {}),
+        ...publicNormalized,
+        reason: text(entry.reason),
+      };
+    });
     return;
   }
   for (const entry of entries) {

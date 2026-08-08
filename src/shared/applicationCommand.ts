@@ -1,4 +1,6 @@
 import { entityTypes, type Entity, type EntityType } from "./types/workspace";
+import { normalizeExternalReferences } from "./externalReference.mjs";
+import type { ExternalReference } from "./externalReference.mjs";
 
 export const applicationCommandNames = [
   "CreateTask",
@@ -102,7 +104,7 @@ export interface StartTaskWorkCommandPayload {
 
 export interface AppendWorkReceiptCommandPayload {
   taskId: string;
-  receipt: Entity;
+  receipt: Entity & { external_references?: ExternalReference[] };
 }
 
 export interface TaskWorkReviewCommandPayload {
@@ -236,6 +238,13 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
   if (name === "AppendWorkReceipt") {
     if (!isRecord(value.payload.receipt) || typeof value.payload.receipt.id !== "string" || !value.payload.receipt.id.trim()) {
       throw new ApplicationCommandError("INVALID_PAYLOAD", "AppendWorkReceiptのreceiptが不正です。");
+    }
+    if (value.payload.receipt.external_references !== undefined) {
+      try {
+        normalizeExternalReferences(value.payload.receipt.external_references);
+      } catch (error) {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", `Work Receiptのexternal_referencesが不正です: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
   if (name === "ReturnTaskWork" && value.payload.reviewNote !== undefined
