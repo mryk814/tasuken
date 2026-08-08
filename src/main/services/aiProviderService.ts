@@ -68,6 +68,7 @@ interface StoredAiConfig {
 }
 
 type LegacyAiConfig = {
+  schemaVersion?: unknown;
   provider?: unknown;
   model?: unknown;
   encryptedApiKey?: unknown;
@@ -123,8 +124,14 @@ function validateAuthKind(value: unknown): AiAuthKind {
 }
 
 function validateApiSurface(value: unknown): AiApiSurface {
-  if (value !== "responses" && value !== "chat_completions") throw new AiProviderServiceError("API surfaceが不正です。", "invalid_request");
+  if (value !== "responses" && value !== "chat_completions" && value !== "native") throw new AiProviderServiceError("API surfaceが不正です。", "invalid_request");
   return value;
+}
+
+function defaultApiSurfaceForAdapter(adapterKind: AiAdapterKind): AiApiSurface {
+  if (adapterKind === "anthropic" || adapterKind === "gemini" || adapterKind === "bedrock") return "native";
+  if (adapterKind === "ollama") return "chat_completions";
+  return "responses";
 }
 
 function isLocalEndpoint(hostname: string): boolean {
@@ -172,9 +179,9 @@ function validateAdapterCombination(adapterKind: AiAdapterKind, authKind: AiAuth
     "openai-native": { auth: ["api_key"], surfaces: ["responses"] },
     "openai-compatible": { auth: ["api_key", "bearer_token"], surfaces: ["responses", "chat_completions"] },
     "azure-openai": { auth: ["api_key", "bearer_token"], surfaces: ["responses", "chat_completions"] },
-    anthropic: { auth: ["api_key"], surfaces: ["responses"] },
-    gemini: { auth: ["api_key", "bearer_token"], surfaces: ["responses"] },
-    bedrock: { auth: ["bearer_token"], surfaces: ["responses"] },
+    anthropic: { auth: ["api_key"], surfaces: ["native"] },
+    gemini: { auth: ["api_key", "bearer_token"], surfaces: ["native"] },
+    bedrock: { auth: ["bearer_token"], surfaces: ["native"] },
     ollama: { auth: ["none"], surfaces: ["chat_completions"] },
   };
   if (!allowed[adapterKind].auth.includes(authKind) || !allowed[adapterKind].surfaces.includes(apiSurface)) {
@@ -326,14 +333,14 @@ export class AiProviderService {
 
   saveProviderProfile(update: AiProviderProfileUpdate): AiProviderConfig {
     const config = this.readConfig();
+    const id = update.id || randomUUID();
+    const current = config.providers.find((profile) => profile.id === id);
     const adapterKind = validateAdapterKind(update?.adapterKind);
     const authKind = validateAuthKind(update?.authKind);
-    const apiSurface = validateApiSurface(update?.apiSurface || (adapterKind === "openai-native" ? "responses" : "responses"));
+    const apiSurface = validateApiSurface(update?.apiSurface || (current?.adapterKind === adapterKind ? current.apiSurface : defaultApiSurfaceForAdapter(adapterKind)));
     validateAdapterCombination(adapterKind, authKind, apiSurface);
     const endpoint = validateCredentialFreeEndpoint(update?.endpoint, adapterKind);
     if ((adapterKind === "openai-compatible" || adapterKind === "azure-openai") && !endpoint) throw new AiProviderServiceError("このadapterにはendpointが必要です。", "invalid_request");
-    const id = update.id || randomUUID();
-    const current = config.providers.find((profile) => profile.id === id);
     const nextEnabled = update.enabled ?? current?.enabled ?? true;
     if (current && current.id === config.defaultProviderProfileId && !nextEnabled) throw new AiProviderServiceError("default providerは無効化できません。先に別のproviderをdefaultにしてください。", "invalid_request");
     const next: StoredProviderProfile = {
@@ -567,19 +574,30 @@ export class AiProviderService {
     if (!fs.existsSync(this.configPath)) return migrateLegacyConfig({}, this.storage);
     try {
       const parsed = record(JSON.parse(fs.readFileSync(this.configPath, "utf8"))) as Partial<StoredAiConfig> & LegacyAiConfig;
-      if (parsed.schemaVersion !== AI_CONFIG_SCHEMA_VERSION || !Array.isArray(parsed.providers) || !Array.isArray(parsed.models)) {
+      const schemaVersion: unknown = parsed.schemaVersion;
+      if (typeof schemaVersion === "number" && Number.isInteger(schemaVersion) && schemaVersion > AI_CONFIG_SCHEMA_VERSION) {
+        throw new AiProviderServiceError("AI設定のschemaVersionが新しすぎます。アプリを更新してください。設定ファイルは変更していません。", "invalid_request");
+      }
+      if (schemaVersion === undefined || schemaVersion === 1) {
+        if (Array.isArray(parsed.providers) || Array.isArray(parsed.models)) throw new AiProviderServiceError("旧AI設定のprofile形式を移行できません。設定ファイルを確認してください。", "invalid_request");
         const migrated = migrateLegacyConfig(parsed, this.storage);
         this.writeConfig(migrated);
         return migrated;
       }
+      if (schemaVersion !== AI_CONFIG_SCHEMA_VERSION) throw new AiProviderServiceError("AI設定のschemaVersionが不正です。設定ファイルを確認してください。", "invalid_request");
+      if (!Array.isArray(parsed.providers) || !Array.isArray(parsed.models)) throw new AiProviderServiceError("AI設定のprofile配列が不正です。設定ファイルを確認してください。", "invalid_request");
+      const providerIds = new Set<string>();
       const providers = parsed.providers.map((entry) => {
         const item = record(entry);
         const adapterKind = validateAdapterKind(item.adapterKind);
         const authKind = validateAuthKind(item.authKind);
         const apiSurface = validateApiSurface(item.apiSurface);
         validateAdapterCombination(adapterKind, authKind, apiSurface);
+        const id = text(item.id, "provider id", 120);
+        if (providerIds.has(id)) throw new AiProviderServiceError("provider profileのidが重複しています。設定ファイルを確認してください。", "invalid_request");
+        providerIds.add(id);
         return {
-          id: text(item.id, "provider id", 120),
+          id,
           label: text(item.label, "provider名", 120),
           adapterKind,
           authKind,
@@ -595,15 +613,18 @@ export class AiProviderService {
           ...(typeof item.encryptedCredential === "string" ? { encryptedCredential: item.encryptedCredential } : {}),
         } satisfies StoredProviderProfile;
       });
-      const providerIds = new Set(providers.map((provider) => provider.id));
+      const modelIds = new Set<string>();
       const models = parsed.models.map((entry) => {
         const item = record(entry);
         const providerProfileId = text(item.providerProfileId, "provider profile id", 120);
         if (!providerIds.has(providerProfileId)) throw new AiProviderServiceError("model profileのprovider参照が不正です。", "invalid_request");
         const provider = providers.find((candidate) => candidate.id === providerProfileId)!;
         const supportedCapabilities = new Set(adapterCapabilities(provider.adapterKind, provider.apiSurface));
+        const id = text(item.id, "model profile id", 120);
+        if (modelIds.has(id)) throw new AiProviderServiceError("model profileのidが重複しています。設定ファイルを確認してください。", "invalid_request");
+        modelIds.add(id);
         return {
-          id: text(item.id, "model profile id", 120),
+          id,
           providerProfileId,
           model: cleanModel(item.model),
           displayName: optionalText(item.displayName, 120) || cleanModel(item.model),
@@ -618,7 +639,6 @@ export class AiProviderService {
         && providers.some((provider) => provider.id === parsed.defaultProviderProfileId && provider.enabled)
         ? parsed.defaultProviderProfileId
         : providers.find((provider) => provider.enabled)?.id || null;
-      const modelIds = new Set(models.map((model) => model.id));
       const parsedDefaultModel = typeof parsed.defaultModelProfileId === "string" && modelIds.has(parsed.defaultModelProfileId) ? parsed.defaultModelProfileId : null;
       const defaultModelProfileId = chooseDefaultModelId(models, defaultProviderProfileId, parsedDefaultModel);
       return { schemaVersion: AI_CONFIG_SCHEMA_VERSION, providers, models, defaultProviderProfileId, defaultModelProfileId };
