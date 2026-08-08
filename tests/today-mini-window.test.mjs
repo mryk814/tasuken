@@ -26,7 +26,7 @@ test("Today mini can snap and resize to the top right and fades strongly while i
   assert.match(mainSource, /PINNED_WIDTH\s*=\s*360/);
   assert.match(mainSource, /PINNED_HEIGHT\s*=\s*560/);
   assert.match(mainSource, /setBounds\(/);
-  assert.match(mainSource, /today-mini:pin-top-right/);
+  assert.match(mainSource, /IPC\.todayMiniPinTopRight/);
   assert.match(mainSource, /INACTIVE_OPACITY\s*=\s*0\.5/);
   assert.match(mainSource, /setOpacity\(1\)/);
   assert.match(mainSource, /setOpacity\(INACTIVE_OPACITY\)/);
@@ -66,7 +66,7 @@ test("Today mini keeps the clean surface but uses Tasken tone and compact task m
   assert.match(contractsSource, /addTask/);
   assert.match(readFileSync("src/shared/ipc/contracts.ts", "utf8"), /themeColor: string/);
   assert.match(readFileSync("src/shared/ipc/contracts.ts", "utf8"), /hasReminder: boolean/);
-  assert.match(mainSource, /today-mini:add-task/);
+  assert.match(mainSource, /IPC\.todayMiniAddTask/);
   assert.match(mainSource, /themeColor:/);
   assert.match(mainSource, /hasReminder:/);
 });

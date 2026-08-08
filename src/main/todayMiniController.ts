@@ -7,6 +7,10 @@ import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type { TodayMiniTask } from "../shared/ipc/contracts";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { canonicalThemeId } from "../shared/themeRef.mjs";
+import { selectTodayTasks, TODAY_TASK_POLICY } from "../shared/todayTasks.mjs";
+import type { CommandEnvelope, CommandReceipt } from "../shared/applicationCommand";
+import { IPC } from "../shared/ipc/contracts";
+
 
 const INACTIVE_OPACITY = 0.5;
 const FADE_DELAY_MS = 30000;
@@ -33,6 +37,8 @@ interface TodayMiniControllerOptions {
   notifyWorkspaceChanged: (
     change: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> },
   ) => void;
+  notifyCommandApplied: (receipt: CommandReceipt, senderId: number) => void;
+  executeCommand: (envelope: CommandEnvelope) => CommandReceipt;
 }
 
 export interface TodayMiniController {
@@ -116,7 +122,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     win.show();
     win.focus();
     win.setAlwaysOnTop(true);
-    if (!win.webContents.isLoading()) win.webContents.send("today-mini:refresh");
+    if (!win.webContents.isLoading()) win.webContents.send(IPC.todayMiniRefresh);
   }
 
   function hide(): boolean {
@@ -172,17 +178,13 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
 
   function listTasks(): TodayMiniTask[] {
     const today = localDateString();
-    const tasks = (options.repository.list("task") as Entity[])
-      .filter((task) => task.state !== "done" && task.state !== "cancelled");
-    const schedules = (options.repository.list("schedule") as Entity[])
-      .filter((schedule) => schedule.owner_type === "task" && (schedule.start_date === today || schedule.end_date === today));
-    const scheduleByTask = new Map(schedules.map((schedule) => [String(schedule.owner_id), schedule]));
+    const tasks = options.repository.list("task") as Entity[];
+    const schedules = options.repository.list("schedule") as Entity[];
     const themes = themeMap();
 
-    return tasks
-      .filter((task) => scheduleByTask.has(String(task.id)))
-      .map((task): TodayMiniTask => {
-        const schedule = scheduleByTask.get(String(task.id));
+    const selected = selectTodayTasks(tasks, schedules, today, TODAY_TASK_POLICY) as Array<{ task: Entity; schedule?: Entity }>;
+    return selected
+      .map(({ task, schedule }): TodayMiniTask => {
         const counts = checklistCounts(task);
         const theme = typeof task.project_id === "string" ? themes.get(task.project_id) : null;
         return {
@@ -196,20 +198,19 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
           checklistDone: counts.done,
           checklistTotal: counts.total,
         };
-      })
-      .sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high") || a.title.localeCompare(b.title, "ja-JP"));
+      });
   }
 
-  function addTask(title: string): TodayMiniTask[] {
+  function addTask(title: string, senderId = 0): TodayMiniTask[] {
     const trimmed = title.trim();
     if (!trimmed) throw new Error("タスク名を入力してください。");
     const today = localDateString();
     const taskId = randomUUID();
-    const saved = options.repository.saveMany([
-      {
-        action: "save",
-        type: "task",
-        entity: {
+    const receipt = options.executeCommand({
+      commandId: randomUUID(),
+      name: "CreateTask",
+      payload: {
+        task: {
           id: taskId,
           title: trimmed,
           state: "todo",
@@ -217,12 +218,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
           project_id: canonicalThemeId(null, { defaultPersonal: true }),
           source: "today-mini",
         },
-        options: { source: "today-mini" },
-      },
-      {
-        action: "save",
-        type: "schedule",
-        entity: {
+        schedule: {
           id: randomUUID(),
           owner_type: "task",
           owner_id: taskId,
@@ -232,15 +228,12 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
           confidence: "fixed",
           granularity: "day",
         },
-        options: { source: "today-mini" },
       },
-    ]) as Entity[];
-    options.notifyWorkspaceChanged({
-      entities: [
-        { type: "task", entity: saved[0] },
-        { type: "schedule", entity: saved[1] },
-      ],
+      actor: { kind: "user" },
+      source: "today_window",
+      issuedAt: new Date().toISOString(),
     });
+    options.notifyCommandApplied(receipt, senderId);
     return listTasks();
   }
 
@@ -251,7 +244,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     const send = () => {
       setTimeout(() => {
         if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("workspace:open-task-detail", taskId);
+          mainWindow.webContents.send(IPC.workspaceOpenTaskDetail, taskId);
         }
       }, 150);
     };
@@ -261,34 +254,38 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
   }
 
   function registerIpc(): void {
-    ipcMain.handle("today-mini:show", () => {
+    ipcMain.handle(IPC.todayMiniShow, () => {
       show();
       return true;
     });
-    ipcMain.handle("today-mini:pin-top-right", () => pinTopRight());
-    ipcMain.handle("today-mini:hide", () => hide());
-    ipcMain.handle("today-mini:list", () => listTasks());
-    ipcMain.handle("today-mini:refresh", () => listTasks());
-    ipcMain.handle("today-mini:add-task", (_event, title: unknown) => {
+    ipcMain.handle(IPC.todayMiniPinTopRight, () => pinTopRight());
+    ipcMain.handle(IPC.todayMiniHide, () => hide());
+    ipcMain.handle(IPC.todayMiniList, () => listTasks());
+    ipcMain.handle(IPC.todayMiniRefresh, () => listTasks());
+    ipcMain.handle(IPC.todayMiniAddTask, (event, title: unknown) => {
       if (typeof title !== "string") throw new Error("タスク名を入力してください。");
-      return addTask(title);
+      return addTask(title, event.sender.id);
     });
-    ipcMain.handle("today-mini:toggle", (_event, taskId: unknown) => {
+    ipcMain.handle(IPC.todayMiniToggle, (event, taskId: unknown) => {
       if (typeof taskId !== "string" || !taskId.trim()) {
         throw new Error("対象タスクがありません。");
       }
       const task = options.repository.get("task", taskId) as Entity | null;
       if (!task) throw new Error("タスクが見つかりません。");
-      const nextState = task.state === "done" ? "todo" : "done";
-      const saved = options.repository.save("task", {
-        ...task,
-        state: nextState,
-        completed_at: nextState === "done" ? new Date().toISOString() : null,
-      }, { source: "today-mini" }) as Entity;
-      options.notifyWorkspaceChanged({ type: "task", entity: saved });
+      const completing = task.state !== "done";
+      const receipt = options.executeCommand({
+        commandId: randomUUID(),
+        name: completing ? "CompleteTask" : "ReopenTask",
+        payload: { taskId: task.id },
+        actor: { kind: "user" },
+        source: "today_window",
+        expectedVersions: [{ type: "task", id: task.id, version: Number(task.version || 0) }],
+        issuedAt: new Date().toISOString(),
+      });
+      if (receipt.changes.length) options.notifyCommandApplied(receipt, event.sender.id);
       return listTasks();
     });
-    ipcMain.handle("today-mini:open-task", (_event, taskId: unknown) => {
+    ipcMain.handle(IPC.todayMiniOpenTask, (_event, taskId: unknown) => {
       if (typeof taskId !== "string" || !taskId.trim()) return false;
       return openTask(taskId);
     });

@@ -4,6 +4,7 @@ import path from "node:path";
 import type { SatelliteWindowRegistry } from "./satelliteWindowRegistry";
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type { Entity } from "../shared/types/workspace";
+import { IPC } from "../shared/ipc/contracts";
 
 /**
  * Note / Markdown文書を別ウィンドウで編集する（#290）。
@@ -74,20 +75,20 @@ export function createNoteWindowController(options: NoteWindowControllerOptions)
   }
 
   function registerIpc(): void {
-    ipcMain.handle("note-window:open", (_event, noteId: unknown) => {
+    ipcMain.handle(IPC.noteWindowOpen, (_event, noteId: unknown) => {
       if (typeof noteId !== "string" || !noteId.trim()) return false;
       return open(noteId);
     });
 
-    ipcMain.handle("note-window:list-open", () => openNoteIds());
+    ipcMain.handle(IPC.noteWindowListOpen, () => openNoteIds());
 
     // 切り離しウィンドウを閉じ、本体で同じNoteを続けて編集できるようにする。
-    ipcMain.handle("note-window:return-to-main", (event) => {
+    ipcMain.handle(IPC.noteWindowReturnToMain, (event) => {
       const noteId = noteIdOf(event);
       if (!noteId) return false;
       const mainWindow = options.showMainWindow();
       const send = (): void => {
-        if (!mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:open-note", noteId);
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceOpenNote, noteId);
       };
       if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
       else send();
@@ -98,18 +99,18 @@ export function createNoteWindowController(options: NoteWindowControllerOptions)
 
     // Noteウィンドウから関連Entityを開くときは、本体ウィンドウ側で表示する。
     // Noteウィンドウ自体は閉じず、編集位置も保つ（#290）。
-    ipcMain.handle("note-window:open-in-main", (_event, route: unknown) => {
+    ipcMain.handle(IPC.noteWindowOpenInMain, (_event, route: unknown) => {
       const mainWindow = options.showMainWindow();
       if (typeof route !== "string" || !route.trim()) return true;
       const send = (): void => {
-        if (!mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:navigate", route);
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceNavigate, route);
       };
       if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
       else send();
       return true;
     });
 
-    ipcMain.handle("note-window:close", (event) => {
+    ipcMain.handle(IPC.noteWindowClose, (event) => {
       const noteId = noteIdOf(event);
       if (!noteId) return false;
       return options.satelliteWindows.close({ kind: "note", entityId: noteId });

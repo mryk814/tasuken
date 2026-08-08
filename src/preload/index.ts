@@ -46,58 +46,58 @@ const api: ResearchDeskApi = {
     openReleasePage: (url) => ipcRenderer.invoke(IPC.appReleasePageOpen, url),
     setTitleBarTheme: (theme) => ipcRenderer.invoke(IPC.appTitleBarTheme, theme),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
-    showTodayMiniWindow: () => ipcRenderer.invoke("today-mini:show"),
-    showMemoStickyWindow: (memoId) => ipcRenderer.invoke("memo-sticky:open", memoId),
-    listOpenMemoStickies: () => ipcRenderer.invoke("memo-sticky:list-open"),
-    showAllMemoStickies: () => ipcRenderer.invoke("memo-sticky:show-all"),
-    closeAllMemoStickies: () => ipcRenderer.invoke("memo-sticky:close-all"),
-    openNoteWindow: (noteId) => ipcRenderer.invoke("note-window:open", noteId),
-    listOpenNoteWindows: () => ipcRenderer.invoke("note-window:list-open"),
-    returnNoteWindowToMain: () => ipcRenderer.invoke("note-window:return-to-main"),
-    openNoteWindowInMain: (route) => ipcRenderer.invoke("note-window:open-in-main", route),
+    showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
+    showMemoStickyWindow: (memoId) => ipcRenderer.invoke(IPC.memoStickyOpen, memoId),
+    listOpenMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyListOpen),
+    showAllMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyShowAll),
+    closeAllMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyCloseAll),
+    openNoteWindow: (noteId) => ipcRenderer.invoke(IPC.noteWindowOpen, noteId),
+    listOpenNoteWindows: () => ipcRenderer.invoke(IPC.noteWindowListOpen),
+    returnNoteWindowToMain: () => ipcRenderer.invoke(IPC.noteWindowReturnToMain),
+    openNoteWindowInMain: (route) => ipcRenderer.invoke(IPC.noteWindowOpenInMain, route),
     onNoteWindowOpenChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, noteIds: unknown): void => {
         callback(Array.isArray(noteIds) ? noteIds.map(String) : []);
       };
-      ipcRenderer.on("note-window:open-changed", handler);
-      return () => { ipcRenderer.removeListener("note-window:open-changed", handler); };
+      ipcRenderer.on(IPC.noteWindowOpenChanged, handler);
+      return () => { ipcRenderer.removeListener(IPC.noteWindowOpenChanged, handler); };
     },
     onMemoStickyOpenChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, memoIds: unknown): void => {
         callback(Array.isArray(memoIds) ? memoIds.map(String) : []);
       };
-      ipcRenderer.on("memo-sticky:open-changed", handler);
-      return () => { ipcRenderer.removeListener("memo-sticky:open-changed", handler); };
+      ipcRenderer.on(IPC.memoStickyOpenChanged, handler);
+      return () => { ipcRenderer.removeListener(IPC.memoStickyOpenChanged, handler); };
     },
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {
         callback(change as Parameters<typeof callback>[0]);
       };
-      ipcRenderer.on("workspace:changed", handler);
-      return () => { ipcRenderer.removeListener("workspace:changed", handler); };
+      ipcRenderer.on(IPC.workspaceChanged, handler);
+      return () => { ipcRenderer.removeListener(IPC.workspaceChanged, handler); };
     },
     // 切り離しウィンドウから本体へ表示を渡す（#290 / #298）。
     onOpenNote: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, noteId: string): void => callback(noteId);
-      ipcRenderer.on("workspace:open-note", handler);
-      return () => { ipcRenderer.removeListener("workspace:open-note", handler); };
+      ipcRenderer.on(IPC.workspaceOpenNote, handler);
+      return () => { ipcRenderer.removeListener(IPC.workspaceOpenNote, handler); };
     },
     onOpenMemo: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, memoId: string): void => callback(memoId);
-      ipcRenderer.on("workspace:open-memo", handler);
-      return () => { ipcRenderer.removeListener("workspace:open-memo", handler); };
+      ipcRenderer.on(IPC.workspaceOpenMemo, handler);
+      return () => { ipcRenderer.removeListener(IPC.workspaceOpenMemo, handler); };
     },
     onNavigate: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, route: string): void => callback(route);
-      ipcRenderer.on("workspace:navigate", handler);
-      return () => { ipcRenderer.removeListener("workspace:navigate", handler); };
+      ipcRenderer.on(IPC.workspaceNavigate, handler);
+      return () => { ipcRenderer.removeListener(IPC.workspaceNavigate, handler); };
     },
     onOpenTaskDetail: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, taskId: string): void => {
         callback(taskId);
       };
-      ipcRenderer.on("workspace:open-task-detail", handler);
-      return () => { ipcRenderer.removeListener("workspace:open-task-detail", handler); };
+      ipcRenderer.on(IPC.workspaceOpenTaskDetail, handler);
+      return () => { ipcRenderer.removeListener(IPC.workspaceOpenTaskDetail, handler); };
     },
   },
   entities: {
@@ -107,6 +107,10 @@ const api: ResearchDeskApi = {
     saveMany: (operations) => ipcRenderer.invoke(IPC.entitySaveMany, operations),
     remove: (type, id) => ipcRenderer.invoke(IPC.entityRemove, type, id),
     restore: (type, id) => ipcRenderer.invoke(IPC.entityRestore, type, id),
+  },
+  commands: {
+    execute: (envelope) => ipcRenderer.invoke(IPC.applicationCommand, envelope),
+    executeBatch: (envelopes) => ipcRenderer.invoke(IPC.applicationCommandBatch, envelopes),
   },
   snapshots: {
     exportFile: () => ipcRenderer.invoke(IPC.snapshotExport),

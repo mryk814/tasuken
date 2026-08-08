@@ -717,7 +717,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
       const nextState = row.v2.task.state === "done" ? "todo" : "done";
       if (nextState === "done") playCompleteSound();
       const nextMessage = nextState === "done" && row.v2.task.repeat_rule ? "完了しました。次のタスクを作成しました。" : nextState === "done" ? "完了しました。" : "未完了に戻しました。";
-      await saveEntities(buildCompleteTaskOperations(row.v2.task, row.v2.schedule), nextMessage);
+      await saveEntities(buildCompleteTaskOperations(row.v2.task, row.v2.schedule), nextMessage, "today_window");
       return;
     }
     if (row.v2?.type === "waiting") {
@@ -807,7 +807,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
       confidence: "fixed",
       granularity: "day",
     };
-    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日の作業を作成しました。");
+    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日の作業を作成しました。", "today_window");
   }
 
   /**
@@ -843,13 +843,14 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     await saveEntities(
       [...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)],
       "今日の実施を記録しました。継続は終了していません。",
+      "today_window",
     );
   }
 
   /** 継続そのものを終える操作。今日の実施記録とは別に扱う（#309）。 */
   async function handleFinishOngoingPeriod(row: OngoingPeriodTaskRow) {
     if (row.task.state !== "done") playCompleteSound();
-    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), "継続を終了しました。");
+    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), "継続を終了しました。", "today_window");
   }
 
   /** 終了予定日を過ぎた継続Taskを、完了させずに延ばす（#309）。 */
@@ -864,7 +865,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   async function handleCompleteExecutionWindow(row: ExecutionWindowTaskRow) {
     if (row.task.state !== "done") playCompleteSound();
     const message = row.task.repeat_rule ? "完了しました。次のタスクを作成しました。" : "完了しました。";
-    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), message);
+    await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), message, "today_window");
   }
 
   /** 期間内に一度やるTaskを、今日やることへ明示的に持ち上げる（#309）。 */
@@ -935,7 +936,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           granularity: "day",
         };
     const task: Task = { ...row.task, planning_shelf: null };
-    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(nextSchedule)], "今日やることへ移しました。");
+    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(nextSchedule)], "今日やることへ移しました。", "today_window");
   }
 
   async function addTask() {
@@ -959,7 +960,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
       confidence: "fixed",
       granularity: "day",
     };
-    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日のタスクを追加しました。");
+    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日のタスクを追加しました。", "today_window");
     setAddTitle("");
   }
 

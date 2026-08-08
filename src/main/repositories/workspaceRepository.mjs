@@ -382,6 +382,20 @@ export class WorkspaceDatabase {
     return transaction();
   }
 
+  /** Application Command専用。読み取りとsaveWithinTransactionを同じtransactionへ束ねる。 */
+  runTransaction(callback) {
+    const transaction = this.db.transaction(() => callback({
+      list: (type, includeDeleted = false) => this.list(type, includeDeleted),
+      get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
+      save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),
+      saveMany: (operations) => operations.map((operation) => {
+        if (!operation || operation.action !== "save") throw new Error("Application Commandの保存内容が不正です。");
+        return this.saveWithinTransaction(operation.type, operation.entity, operation.options || {});
+      }),
+    }));
+    return transaction();
+  }
+
   saveWithinTransaction(type, input, options = {}) {
     assertEntityType(type);
     const id = String(input.id || uuid());

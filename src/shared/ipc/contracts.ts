@@ -13,6 +13,7 @@ import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../slideTimelineExport";
 import type { AiNoteGenerateRequest, AiNoteGenerateResult, AiProviderConfig, AiProviderConfigUpdate } from "../ai";
 import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
+import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -62,6 +63,47 @@ export const IPC = {
   calendarConnect: "calendar:connect",
   calendarDisconnect: "calendar:disconnect",
   calendarEvents: "calendar:events",
+  applicationCommand: "application:command",
+  applicationCommandBatch: "application:command-batch",
+  workspaceChanged: "workspace:changed",
+  todayMiniRefresh: "today-mini:refresh",
+  todayMiniShow: "today-mini:show",
+  todayMiniPinTopRight: "today-mini:pin-top-right",
+  todayMiniHide: "today-mini:hide",
+  todayMiniList: "today-mini:list",
+  todayMiniAddTask: "today-mini:add-task",
+  todayMiniToggle: "today-mini:toggle",
+  todayMiniOpenTask: "today-mini:open-task",
+  quickCaptureSave: "quick-capture:save",
+  quickCapturePreviewDue: "quick-capture:preview-due",
+  quickCaptureHide: "quick-capture:hide",
+  quickCaptureShown: "quick-capture:shown",
+  quickCaptureTheme: "quick-capture:theme",
+  quickCaptureThemes: "quick-capture:themes",
+  memoStickyOpen: "memo-sticky:open",
+  memoStickyLoad: "memo-sticky:load",
+  memoStickySave: "memo-sticky:save",
+  memoStickyCopy: "memo-sticky:copy",
+  memoStickyClose: "memo-sticky:close",
+  memoStickyOpenInMain: "memo-sticky:open-in-main",
+  memoStickyAlwaysOnTop: "memo-sticky:set-always-on-top",
+  memoStickyIsAlwaysOnTop: "memo-sticky:is-always-on-top",
+  memoStickyListOpen: "memo-sticky:list-open",
+  memoStickyShowAll: "memo-sticky:show-all",
+  memoStickyCloseAll: "memo-sticky:close-all",
+  memoStickyArchive: "memo-sticky:archive",
+  memoStickyDelete: "memo-sticky:delete",
+  memoStickyOpenChanged: "memo-sticky:open-changed",
+  noteWindowOpen: "note-window:open",
+  noteWindowListOpen: "note-window:list-open",
+  noteWindowReturnToMain: "note-window:return-to-main",
+  noteWindowOpenInMain: "note-window:open-in-main",
+  noteWindowClose: "note-window:close",
+  noteWindowOpenChanged: "note-window:open-changed",
+  workspaceOpenNote: "workspace:open-note",
+  workspaceOpenMemo: "workspace:open-memo",
+  workspaceNavigate: "workspace:navigate",
+  workspaceOpenTaskDetail: "workspace:open-task-detail",
 } as const;
 
 export interface WorkspaceChangePayload {
@@ -200,7 +242,7 @@ export interface ResearchDeskApi {
     onOpenNote(callback: (noteId: string) => void): () => void;
     onOpenMemo(callback: (memoId: string) => void): () => void;
     onNavigate(callback: (route: string) => void): () => void;
-    onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
+  onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
   };
   entities: {
@@ -210,6 +252,10 @@ export interface ResearchDeskApi {
     saveMany(operations: SaveOperation[]): Promise<Entity[]>;
     remove(type: EntityType, id: string): Promise<Entity>;
     restore(type: EntityType, id: string): Promise<Entity>;
+  };
+  commands: {
+    execute(envelope: CommandEnvelope): Promise<CommandReceipt>;
+    executeBatch(envelopes: CommandEnvelope[]): Promise<CommandReceipt[]>;
   };
   snapshots: {
     exportFile(): Promise<{ canceled: boolean; filePath?: string }>;

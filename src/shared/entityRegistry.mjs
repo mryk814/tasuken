@@ -63,6 +63,12 @@ const definitionsByCollection = new Map(entityDefinitions.map((definition) => [d
 
 export const entityTypes = Object.freeze(entityDefinitions.map((definition) => definition.type));
 
+/** Referenceのsource/targetは、Repositoryの内部enumではなくRegistryのdomain境界を正本にする。 */
+export const referenceTargetEntityTypes = Object.freeze([
+  "project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact",
+]);
+export const referenceRelationTypes = Object.freeze(["related_to", "derived_from", "mentions", "blocks", "supports"]);
+
 export function entityDefinition(type) {
   const definition = definitionsByType.get(type);
   if (!definition) throw new Error(`未知のEntity typeです: ${String(type)}`);

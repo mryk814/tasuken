@@ -1,0 +1,879 @@
+import { randomUUID } from "node:crypto";
+
+import { canonicalThemeId } from "../../shared/themeRef.mjs";
+import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
+import type { Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
+import {
+  ApplicationCommandError,
+  parseCommandEnvelope,
+  type ApplicationCommandName,
+  type CommandEnvelope,
+  type CommandReceipt,
+  type ExpectedVersion,
+} from "../../shared/applicationCommand";
+import { applicationCommandSources } from "../../shared/applicationCommand";
+
+interface Repository {
+  list(type: EntityType, includeDeleted?: boolean): Entity[];
+  get(type: EntityType, id: string, includeDeleted?: boolean): Entity | null;
+  saveMany(operations: SaveOperation[]): Entity[];
+  save(type: EntityType, entity: Entity): Entity;
+  runTransaction<T>(callback: (repository: Repository) => T): T;
+}
+
+const now = () => new Date().toISOString();
+const taskDefinition = entityDefinition("task");
+const referenceDefinition = entityDefinition("reference");
+
+function asTask(payload: unknown): Entity {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task payloadが不正です。");
+  }
+  const task = (payload as { task?: unknown }).task;
+  if (!task || typeof task !== "object" || Array.isArray(task)) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task recordが不正です。");
+  }
+  taskDefinition.parseCreate(task);
+  if (typeof (task as Entity).id !== "string" || !(task as Entity).id.trim()) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task IDがありません。");
+  }
+  const title = (task as Record<string, unknown>).title;
+  if (typeof title !== "string" || !title.trim()) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Taskタイトルがありません。");
+  }
+  return task as Entity;
+}
+
+function asTaskId(payload: unknown): string {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task command payloadが不正です。");
+  }
+  const taskId = (payload as { taskId?: unknown }).taskId;
+  if (typeof taskId !== "string" || !taskId.trim()) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task IDがありません。");
+  }
+  return taskId;
+}
+
+function expectedVersionFor(envelope: CommandEnvelope, type: EntityType, id: string): ExpectedVersion | undefined {
+  return envelope.expectedVersions?.find((expected) => expected.type === type && expected.id === id);
+}
+
+function changeType(before: Entity | null, after: Entity, command: ApplicationCommandName): "created" | "updated" | "completed" {
+  if (!before) return "created";
+  if (before.state !== "done" && after.state === "done") return "completed";
+  // Reopen and an edit of an already completed task are ordinary updates.  A
+  // completed task must never receive another completed event just because its
+  // title/checklist was edited.
+  return "updated";
+}
+
+function commandEvent(
+  command: CommandEnvelope,
+  entityType: EntityType,
+  entityId: string,
+  kind: "created" | "updated" | "completed" | "rescheduled" | "triaged",
+  before: Entity | null,
+  after: Entity,
+): Entity {
+  return {
+    id: randomUUID(),
+    entity_type: entityType === "schedule" ? "task" : entityType,
+    record_type: entityType,
+    entity_id: entityId,
+    changed_at: now(),
+    change_type: kind,
+    source: command.actor.kind === "system" ? "migration" : "manual",
+    before_json: before ? JSON.stringify(before) : null,
+    after_json: JSON.stringify(after),
+    reason: `application-command:${command.name}`,
+    command_id: command.commandId,
+    command_name: command.name,
+  };
+}
+
+function savedRef(type: EntityType, entity: Entity): { type: EntityType; id: string; version: number } {
+  return { type, id: entity.id, version: Number(entity.version || 0) };
+}
+
+function receiptFor(command: CommandEnvelope, status: CommandReceipt["status"], changes: Array<{ type: EntityType; entity: Entity }> = [], events: string[] = []): CommandReceipt {
+  const saved = changes.map(({ type, entity }) => savedRef(type, entity));
+  return {
+    commandId: command.commandId,
+    name: command.name,
+    status,
+    saved,
+    deleted: [],
+    events,
+    warnings: [],
+    revisions: saved,
+    changes,
+  };
+}
+
+function withoutReceiptJson(entity: Entity): Entity {
+  const { receipt_json: _receiptJson, ...event } = entity;
+  return event;
+}
+
+function annotateEvent(command: CommandEnvelope, event: Entity): Entity {
+  return {
+    ...event,
+    command_source: command.source,
+    actor_kind: command.actor.kind,
+    actor_id: command.actor.id || null,
+    command_fingerprint: commandFingerprint(command),
+  };
+}
+
+function eventChangesFor(repository: Repository, eventIds: string[]): CommandReceipt["eventChanges"] {
+  return eventIds
+    .map((eventId) => repository.get("change_event", eventId, true))
+    .filter((event): event is Entity => Boolean(event))
+    .map((event) => ({ type: "change_event" as const, entity: withoutReceiptJson(event) }));
+}
+
+function commandFingerprint(command: CommandEnvelope): string {
+  return JSON.stringify({
+    name: command.name,
+    payload: command.payload,
+    actor: command.actor,
+    source: command.source,
+    windowId: command.windowId || null,
+    sessionId: command.sessionId || null,
+    expectedVersions: command.expectedVersions || [],
+    issuedAt: command.issuedAt,
+  });
+}
+
+function readIdempotent(repository: Repository, command: CommandEnvelope): CommandReceipt | null {
+  const existing = repository.list("change_event", true).find((event) => event.command_id === command.commandId);
+  if (!existing) return null;
+  if (existing.command_name !== command.name || existing.command_fingerprint !== commandFingerprint(command) || typeof existing.receipt_json !== "string") {
+    throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdを別のCommandで再利用できません。", { commandId: command.commandId });
+  }
+  const storedReceipt = JSON.parse(existing.receipt_json) as CommandReceipt;
+  const receipt = storedReceipt.status === "applied"
+    ? { ...storedReceipt, eventChanges: eventChangesFor(repository, storedReceipt.events) }
+    : storedReceipt;
+  // This is process-local notification metadata, not part of receipt_json.  The
+  // IPC handler uses it to avoid rebroadcasting a retry while the renderer still
+  // receives the exact persisted receipt.
+  Object.defineProperty(receipt, "replayed", { value: true, enumerable: false });
+  return receipt;
+}
+
+function assertThemeExists(repository: Repository, task: Entity): void {
+  const themeId = task.project_id;
+  if (typeof themeId !== "string" || !themeId.trim()) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Taskのcanonical Theme IDがありません。");
+  }
+  const exists = repository.list("theme").some((theme) => theme.id === themeId);
+  if (!exists) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", `Themeが存在しません: ${themeId}`, { themeId });
+  }
+}
+
+function persistReceipt(repository: Repository, command: CommandEnvelope, operations: SaveOperation[], eventIds: string[], changeTypes: EntityType[]): CommandReceipt {
+  const saved = repository.saveMany(operations);
+  const changes = saved
+    .map((entity, index) => ({ type: operations[index].type, entity }))
+    .filter(({ type }) => changeTypes.includes(type));
+  const baseReceipt = receiptFor(command, "applied", changes, eventIds);
+  for (const eventId of eventIds) {
+    const event = repository.get("change_event", eventId, true);
+    if (!event) throw new Error(`Change Eventが保存されていません: ${eventId}`);
+    const actualAfter = event.record_type === "schedule"
+      ? changes.find(({ type, entity }) => type === "schedule" && entity.owner_type === "task" && entity.owner_id === event.entity_id)?.entity
+      : changes.find(({ type, entity }) => type === event.record_type && entity.id === event.entity_id)?.entity;
+    repository.save("change_event", {
+      ...event,
+      after_json: actualAfter ? JSON.stringify(actualAfter) : event.after_json,
+      receipt_json: JSON.stringify(baseReceipt),
+    });
+  }
+  return { ...baseReceipt, eventChanges: eventChangesFor(repository, eventIds) };
+}
+
+function persistNoChange(repository: Repository, command: CommandEnvelope, taskId: string, current: Entity): CommandReceipt {
+  const marker: Entity = {
+    id: randomUUID(),
+    entity_type: "task",
+    entity_id: taskId,
+    changed_at: now(),
+    change_type: "updated",
+    no_change: true,
+    source: command.actor.kind === "system" ? "migration" : "manual",
+    command_id: command.commandId,
+    command_name: command.name,
+    command_source: command.source,
+    actor_kind: command.actor.kind,
+    actor_id: command.actor.id || null,
+    command_fingerprint: commandFingerprint(command),
+    before_json: JSON.stringify(current),
+    after_json: JSON.stringify(current),
+  };
+  const receipt = receiptFor(command, "no_change", [], [marker.id]);
+  repository.saveMany([{ action: "save", type: "change_event", entity: { ...marker, receipt_json: JSON.stringify(receipt) } }]);
+  return receipt;
+}
+
+function assertExpectedVersion(repository: Repository, envelope: CommandEnvelope, type: EntityType, id: string, current: Entity | null): void {
+  const expected = expectedVersionFor(envelope, type, id);
+  if (!expected) return;
+  const actual = Number(current?.version || 0);
+  if (actual !== expected.version) {
+    throw new ApplicationCommandError("CONFLICT", "保存対象が更新済みです。画面を再読み込みしてから再試行してください。", {
+      type, id, expected: expected.version, actual,
+    });
+  }
+}
+
+function validateScheduleWrite(repository: Repository, command: CommandEnvelope, schedule: Entity | null | undefined, taskId: string, isCreate: boolean): Entity | null {
+  if (!schedule) return null;
+  if (schedule.owner_type !== "task" || schedule.owner_id !== taskId) {
+    throw new ApplicationCommandError("CONFLICT", "Scheduleのownerを別Taskへ変更できません。", { id: schedule.id });
+  }
+  const existing = repository.get("schedule", schedule.id, true);
+  if (existing) {
+    if (isCreate) throw new ApplicationCommandError("CONFLICT", "CreateTaskで既存Schedule IDを再利用できません。", { id: schedule.id });
+    if (existing.owner_type !== "task" || existing.owner_id !== taskId) {
+      throw new ApplicationCommandError("CONFLICT", "Scheduleのownerを別Taskへ変更できません。", { id: schedule.id });
+    }
+    if (!expectedVersionFor(command, "schedule", schedule.id)) {
+      throw new ApplicationCommandError("CONFLICT", "既存Scheduleの更新にはexpected versionが必要です。", { type: "schedule", id: schedule.id });
+    }
+    assertExpectedVersion(repository, command, "schedule", schedule.id, existing);
+  }
+  return { ...schedule, owner_type: "task", owner_id: taskId };
+}
+
+function referencesForTask(repository: Repository, command: CommandEnvelope, taskId: string): SaveOperation[] {
+  const references = (command.payload as { references?: Entity[] }).references || [];
+  return references.map((reference) => {
+    referenceDefinition.parseCreate(reference);
+    if (!referenceTargetEntityTypes.includes(reference.source_type as never)
+      || !referenceTargetEntityTypes.includes(reference.target_type as never)
+      || !referenceRelationTypes.includes(reference.relation_type as never)) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Referenceのsource/target typeまたはrelationが不正です。", { id: reference.id });
+    }
+    if (reference.source_id !== taskId && reference.target_id !== taskId) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Task Commandのreferenceは対象Taskを参照する必要があります。", { id: reference.id });
+    }
+    if (repository.get("reference", reference.id, true)) {
+      throw new ApplicationCommandError("CONFLICT", "既存Reference IDをCommandで再利用できません。", { id: reference.id });
+    }
+    for (const [side, type, id] of [
+      ["source", reference.source_type, reference.source_id],
+      ["target", reference.target_type, reference.target_id],
+    ] as const) {
+      const referenceType = type as EntityType;
+      const referenceId = String(id);
+      if (referenceType === "task" && referenceId === taskId) continue;
+      const active = repository.get(referenceType, referenceId);
+      if (!active) {
+        const deleted = repository.get(referenceType, referenceId, true);
+        throw new ApplicationCommandError("NOT_FOUND", deleted
+          ? `Referenceの${side} entityが削除済みです。`
+          : `Referenceの${side} entityが存在しません。`, { type: referenceType, id: referenceId, side });
+      }
+    }
+    return { action: "save", type: "reference", entity: reference };
+  });
+}
+
+function normalizeCanonicalEntity(type: EntityType, entity: Entity, fallbackThemeId?: string): Entity {
+  if (type !== "task") return entity;
+  const next: Entity = {
+    ...entity,
+    project_id: canonicalThemeId(entity.project_id ?? entity.theme_id ?? fallbackThemeId, { defaultPersonal: true }),
+  };
+  delete next.theme_id;
+  return next;
+}
+
+function normalizeCanonicalNote(entity: Entity, fallbackThemeId?: string): Entity {
+  const next: Entity = {
+    ...entity,
+    project_id: entity.project_id ?? entity.theme_id ?? fallbackThemeId ?? null,
+  };
+  delete next.theme_id;
+  return next;
+}
+
+export class ApplicationCommandService {
+  constructor(private readonly repository: Repository) {}
+
+  execute(input: unknown): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    if (!applicationCommandSources.includes(command.source)) throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
+    return this.repository.runTransaction((transactionRepository) => (
+      new ApplicationCommandService(transactionRepository).executeParsed(command)
+    ));
+  }
+
+  executeBatch(inputs: unknown[]): CommandReceipt[] {
+    const commands = inputs.map((input) => parseCommandEnvelope(input));
+    for (const command of commands) {
+      if (!applicationCommandSources.includes(command.source)) throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
+    }
+    return this.repository.runTransaction((transactionRepository) => {
+      const service = new ApplicationCommandService(transactionRepository);
+      return commands.map((command) => service.executeParsed(command));
+    });
+  }
+
+  private executeParsed(command: CommandEnvelope): CommandReceipt {
+    const previous = readIdempotent(this.repository, command);
+    if (previous) return previous;
+
+    if (command.name === "CreateTaskFromCapture") {
+      return this.createTaskFromCapture(command);
+    }
+    if (command.name === "CompleteTaskWithLearning") {
+      return this.completeTaskWithLearning(command);
+    }
+    if (command.name === "EndFocusSession") {
+      return this.endFocusSession(command);
+    }
+    if (command.name === "ApplyAiProposal") {
+      return this.applyAiProposal(command);
+    }
+    if (command.name === "CreateTask" || command.name === "UpdateTask") {
+      return this.saveTask(command, command.name === "CreateTask");
+    }
+    return this.transitionTask(command, command.name === "CompleteTask");
+  }
+
+  private completeTaskWithLearning(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as {
+      task: Entity;
+      note: Entity;
+      nextTask?: Entity | null;
+      nextSchedule?: Entity | null;
+    };
+    const inputTask = asTask({ task: payload.task });
+    const current = this.repository.get("task", inputTask.id);
+    if (!current) throw new ApplicationCommandError("NOT_FOUND", "完了対象のTaskがありません。", { id: inputTask.id });
+    if (!expectedVersionFor(command, "task", inputTask.id)) {
+      throw new ApplicationCommandError("CONFLICT", "CompleteTaskWithLearningにはexpected versionが必要です。", { type: "task", id: inputTask.id });
+    }
+    assertExpectedVersion(this.repository, command, "task", inputTask.id, current);
+    if (current.state === "cancelled" || current.state === "done") {
+      throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みまたは完了済みTaskは学び付き完了できません。", { id: inputTask.id });
+    }
+    const completedAt = typeof inputTask.completed_at === "string" && inputTask.completed_at.trim()
+      ? inputTask.completed_at : command.issuedAt;
+    const completedTask = normalizeCanonicalEntity("task", {
+      ...current,
+      ...inputTask,
+      id: inputTask.id,
+      state: "done",
+      completed_at: completedAt,
+    });
+    taskDefinition.parseUpdate(completedTask);
+    assertThemeExists(this.repository, completedTask);
+
+    const note = normalizeCanonicalNote({
+      ...payload.note,
+      project_id: payload.note.project_id ?? completedTask.project_id,
+      item_id: inputTask.id,
+      note_type: payload.note.note_type || "learning",
+    }, completedTask.project_id as string);
+    if (this.repository.get("note", note.id, true)) {
+      throw new ApplicationCommandError("CONFLICT", "学びNoteのIDを再利用できません。", { id: note.id });
+    }
+    entityDefinition("note").parseCreate(note);
+
+    const operations: SaveOperation[] = [{ action: "save", type: "task", entity: completedTask }];
+    const eventIds: string[] = [];
+    const taskEvent = annotateEvent(command, commandEvent(command, "task", completedTask.id, "completed", current, completedTask));
+    operations.push({ action: "save", type: "change_event", entity: taskEvent });
+    eventIds.push(taskEvent.id);
+    operations.push({ action: "save", type: "note", entity: note });
+    const noteEvent = annotateEvent(command, commandEvent(command, "note", note.id, "created", null, note));
+    operations.push({ action: "save", type: "change_event", entity: noteEvent });
+    eventIds.push(noteEvent.id);
+
+    if (payload.nextTask) {
+      const nextTask = normalizeCanonicalEntity("task", payload.nextTask, completedTask.project_id as string);
+      if (this.repository.get("task", nextTask.id, true)) {
+        throw new ApplicationCommandError("CONFLICT", "繰返しTaskのIDを再利用できません。", { id: nextTask.id });
+      }
+      if (nextTask.parent_task_id !== completedTask.id && nextTask.repeat_parent_task_id !== completedTask.id) {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", "繰返しTaskは完了したTaskを親にする必要があります。", { id: nextTask.id });
+      }
+      taskDefinition.parseCreate(nextTask);
+      assertThemeExists(this.repository, nextTask);
+      operations.push({ action: "save", type: "task", entity: nextTask });
+      const nextEvent = annotateEvent(command, commandEvent(command, "task", nextTask.id, "created", null, nextTask));
+      operations.push({ action: "save", type: "change_event", entity: nextEvent });
+      eventIds.push(nextEvent.id);
+      if (payload.nextSchedule) {
+        const nextSchedule = validateScheduleWrite(this.repository, command, payload.nextSchedule, nextTask.id, true);
+        if (!nextSchedule) throw new ApplicationCommandError("INVALID_PAYLOAD", "繰返しTaskのScheduleが不正です。");
+        operations.push({ action: "save", type: "schedule", entity: nextSchedule });
+        const scheduleEvent = annotateEvent(command, commandEvent(command, "schedule", nextTask.id, "rescheduled", null, nextSchedule));
+        operations.push({ action: "save", type: "change_event", entity: scheduleEvent });
+        eventIds.push(scheduleEvent.id);
+      }
+    } else if (payload.nextSchedule) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "nextScheduleにはnextTaskが必要です。");
+    }
+    return persistReceipt(this.repository, command, operations, eventIds, ["task", "note", "schedule"]);
+  }
+
+  private endFocusSession(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as {
+      session: Entity;
+      task?: Entity | null;
+      selectedNote?: Entity | null;
+      promotedNote?: Entity | null;
+      promotedReference?: Entity | null;
+      nextTask?: Entity | null;
+      statusUpdate?: Entity | null;
+      completeTask: boolean;
+    };
+    const currentSession = this.repository.get("note", payload.session.id);
+    if (!currentSession) throw new ApplicationCommandError("NOT_FOUND", "Focus Sessionがありません。", { id: payload.session.id });
+    if (!expectedVersionFor(command, "note", payload.session.id)) {
+      throw new ApplicationCommandError("CONFLICT", "EndFocusSessionにはSessionのexpected versionが必要です。", { type: "note", id: payload.session.id });
+    }
+    assertExpectedVersion(this.repository, command, "note", payload.session.id, currentSession);
+    const sessionProps = payload.session.properties_json && typeof payload.session.properties_json === "object"
+      ? payload.session.properties_json as Record<string, unknown> : {};
+    const taskId = typeof payload.task?.id === "string"
+      ? payload.task.id
+      : typeof sessionProps.task_id === "string" ? sessionProps.task_id : "";
+    if (!taskId) throw new ApplicationCommandError("INVALID_PAYLOAD", "Focus SessionのTask IDがありません。");
+    const currentTask = this.repository.get("task", taskId);
+    if (!currentTask) throw new ApplicationCommandError("NOT_FOUND", "Focus SessionのTaskがありません。", { id: taskId });
+
+    const nextSessionProps = payload.session.properties_json && typeof payload.session.properties_json === "object"
+      ? payload.session.properties_json as Record<string, unknown> : {};
+    if (nextSessionProps.session_state !== "ended") {
+      throw new ApplicationCommandError("INVALID_TRANSITION", "Focus Sessionはended状態へ遷移する必要があります。");
+    }
+    const endedAt = typeof nextSessionProps.ended_at === "string" && nextSessionProps.ended_at.trim()
+      ? nextSessionProps.ended_at : command.issuedAt;
+    const session: Entity = normalizeCanonicalNote({
+      ...payload.session,
+      properties_json: { ...nextSessionProps, ended_at: endedAt },
+    }, currentTask.project_id as string);
+    entityDefinition("note").parseUpdate(session);
+    const operations: SaveOperation[] = [{ action: "save", type: "note", entity: session }];
+    const eventIds: string[] = [];
+    const sessionEvent = annotateEvent(command, commandEvent(command, "note", session.id, "updated", currentSession, session));
+    operations.push({ action: "save", type: "change_event", entity: sessionEvent });
+    eventIds.push(sessionEvent.id);
+
+    if (payload.selectedNote) {
+      const currentNote = this.repository.get("note", payload.selectedNote.id);
+      if (!currentNote) throw new ApplicationCommandError("NOT_FOUND", "Focus Sessionの選択Noteがありません。", { id: payload.selectedNote.id });
+      assertExpectedVersion(this.repository, command, "note", currentNote.id, currentNote);
+      const selectedNote = normalizeCanonicalNote(payload.selectedNote, currentTask.project_id as string);
+      entityDefinition("note").parseUpdate(selectedNote);
+      operations.push({ action: "save", type: "note", entity: selectedNote });
+      const selectedEvent = annotateEvent(command, commandEvent(command, "note", selectedNote.id, "updated", currentNote, selectedNote));
+      operations.push({ action: "save", type: "change_event", entity: selectedEvent });
+      eventIds.push(selectedEvent.id);
+    }
+
+    if (payload.completeTask) {
+      if (!expectedVersionFor(command, "task", taskId)) {
+        throw new ApplicationCommandError("CONFLICT", "完了するTaskにはexpected versionが必要です。", { type: "task", id: taskId });
+      }
+      assertExpectedVersion(this.repository, command, "task", taskId, currentTask);
+      if (currentTask.state === "cancelled" || currentTask.state === "done") {
+        throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みまたは完了済みTaskはFocus終了で完了できません。", { id: taskId });
+      }
+      const task = normalizeCanonicalEntity("task", {
+        ...currentTask,
+        ...(payload.task || {}),
+        id: taskId,
+        state: "done",
+        completed_at: endedAt,
+      });
+      taskDefinition.parseUpdate(task);
+      assertThemeExists(this.repository, task);
+      operations.push({ action: "save", type: "task", entity: task });
+      const taskEvent = annotateEvent(command, commandEvent(command, "task", taskId, "completed", currentTask, task));
+      operations.push({ action: "save", type: "change_event", entity: taskEvent });
+      eventIds.push(taskEvent.id);
+    }
+
+    if (payload.promotedNote) {
+      const promotedNote = normalizeCanonicalNote(payload.promotedNote, currentTask.project_id as string);
+      if (this.repository.get("note", promotedNote.id, true)) throw new ApplicationCommandError("CONFLICT", "Promoted NoteのIDを再利用できません。", { id: promotedNote.id });
+      entityDefinition("note").parseCreate(promotedNote);
+      operations.push({ action: "save", type: "note", entity: promotedNote });
+      const promotedEvent = annotateEvent(command, commandEvent(command, "note", promotedNote.id, "created", null, promotedNote));
+      operations.push({ action: "save", type: "change_event", entity: promotedEvent });
+      eventIds.push(promotedEvent.id);
+    }
+    if (payload.promotedReference) {
+      const reference = payload.promotedReference;
+      referenceDefinition.parseCreate(reference);
+      if (reference.source_type !== "note" || reference.target_type !== "task" || reference.target_id !== taskId
+        || !payload.promotedNote || reference.source_id !== payload.promotedNote.id || reference.relation_type !== "related_to") {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", "Focus SessionのPromoted ReferenceがNote↔Task契約に一致しません。", { id: reference.id });
+      }
+      if (this.repository.get("reference", reference.id, true)) throw new ApplicationCommandError("CONFLICT", "Promoted ReferenceのIDを再利用できません。", { id: reference.id });
+      operations.push({ action: "save", type: "reference", entity: reference });
+      const referenceEvent = annotateEvent(command, commandEvent(command, "reference", reference.id, "created", null, reference));
+      operations.push({ action: "save", type: "change_event", entity: referenceEvent });
+      eventIds.push(referenceEvent.id);
+    }
+    if (payload.nextTask) {
+      const nextTask = normalizeCanonicalEntity("task", payload.nextTask, currentTask.project_id as string);
+      if (this.repository.get("task", nextTask.id, true)) throw new ApplicationCommandError("CONFLICT", "Focus Sessionの次Task IDを再利用できません。", { id: nextTask.id });
+      if (nextTask.parent_task_id !== taskId) throw new ApplicationCommandError("INVALID_PAYLOAD", "Focus Sessionの次Taskは現在Taskを親にする必要があります。", { id: nextTask.id });
+      taskDefinition.parseCreate(nextTask);
+      assertThemeExists(this.repository, nextTask);
+      operations.push({ action: "save", type: "task", entity: nextTask });
+      const nextEvent = annotateEvent(command, commandEvent(command, "task", nextTask.id, "created", null, nextTask));
+      operations.push({ action: "save", type: "change_event", entity: nextEvent });
+      eventIds.push(nextEvent.id);
+    }
+    if (payload.statusUpdate) {
+      const statusUpdate = payload.statusUpdate;
+      if (this.repository.get("status_update", statusUpdate.id, true)) throw new ApplicationCommandError("CONFLICT", "Status UpdateのIDを再利用できません。", { id: statusUpdate.id });
+      entityDefinition("status_update").parseCreate(statusUpdate);
+      const themeId = statusUpdate.theme_id;
+      if (typeof themeId !== "string" || !this.repository.get("theme", themeId)) throw new ApplicationCommandError("INVALID_PAYLOAD", "Status UpdateのThemeが存在しません。", { themeId });
+      operations.push({ action: "save", type: "status_update", entity: statusUpdate });
+      const statusEvent = annotateEvent(command, commandEvent(command, "status_update", statusUpdate.id, "created", null, statusUpdate));
+      operations.push({ action: "save", type: "change_event", entity: statusEvent });
+      eventIds.push(statusEvent.id);
+    }
+    return persistReceipt(this.repository, command, operations, eventIds, ["note", "task", "reference", "status_update"]);
+  }
+
+  private applyAiProposal(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as { proposal: Entity; candidates: Array<{ type: EntityType; entity: Entity }> };
+    const currentProposal = this.repository.get("ai_proposal", payload.proposal.id);
+    if (!currentProposal) throw new ApplicationCommandError("NOT_FOUND", "AI Proposalがありません。", { id: payload.proposal.id });
+    if (!expectedVersionFor(command, "ai_proposal", currentProposal.id)) {
+      throw new ApplicationCommandError("CONFLICT", "ApplyAiProposalにはProposalのexpected versionが必要です。", { type: "ai_proposal", id: currentProposal.id });
+    }
+    assertExpectedVersion(this.repository, command, "ai_proposal", currentProposal.id, currentProposal);
+    if (currentProposal.status !== "pending") throw new ApplicationCommandError("INVALID_TRANSITION", "Pending以外のProposalは採用できません。", { id: currentProposal.id });
+    const proposal = payload.proposal;
+    if (!["accepted", "partially_accepted", "rejected"].includes(String(proposal.status))) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Proposalの採用状態が不正です。");
+    }
+    entityDefinition("ai_proposal").parseUpdate(proposal);
+    const operations: SaveOperation[] = [];
+    const eventIds: string[] = [];
+    const seen = new Set<string>();
+    for (const candidate of payload.candidates) {
+      const type = candidate.type;
+      if (type === "schedule") {
+        const schedule = candidate.entity;
+        if (schedule.owner_type !== "task" && schedule.owner_type !== "waiting" && schedule.owner_type !== "plan_node") {
+          throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのSchedule ownerが不正です。", { id: schedule.id });
+        }
+      }
+      const key = `${type}:${candidate.entity.id}`;
+      if (seen.has(key)) throw new ApplicationCommandError("INVALID_PAYLOAD", "AI Proposal candidateが重複しています。", { key });
+      seen.add(key);
+      const before = this.repository.get(type, candidate.entity.id, true);
+      if (before?.deleted_at) throw new ApplicationCommandError("CONFLICT", "削除済みEntityをAI Proposalから更新できません。", { type, id: candidate.entity.id });
+      if (before) {
+        if (!expectedVersionFor(command, type, candidate.entity.id)) throw new ApplicationCommandError("CONFLICT", "既存candidateにはexpected versionが必要です。", { type, id: candidate.entity.id });
+        assertExpectedVersion(this.repository, command, type, candidate.entity.id, before);
+      }
+      if (type === "schedule") {
+        const ownerType = String(candidate.entity.owner_type) as EntityType;
+        const ownerId = String(candidate.entity.owner_id || "");
+        const ownerCandidate = payload.candidates.find((entry) => entry.type === ownerType && entry.entity.id === ownerId);
+        const owner = ownerCandidate?.entity || this.repository.get(ownerType, ownerId);
+        if (!owner || owner.deleted_at) {
+          throw new ApplicationCommandError("NOT_FOUND", "AI ProposalのSchedule ownerが存在しません。", { type: ownerType, id: ownerId });
+        }
+      }
+      if (type === "knowledge_edge") {
+        const sourceId = String(candidate.entity.source_node_id || "");
+        const targetId = String(candidate.entity.target_node_id || "");
+        const source = payload.candidates.find((entry) => entry.type === "knowledge_node" && entry.entity.id === sourceId)?.entity || this.repository.get("knowledge_node", sourceId);
+        const target = payload.candidates.find((entry) => entry.type === "knowledge_node" && entry.entity.id === targetId)?.entity || this.repository.get("knowledge_node", targetId);
+        if (!source || source.deleted_at || !target || target.deleted_at || sourceId === targetId) {
+          throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのKnowledge Edge両端が存在しないか不正です。", { id: candidate.entity.id });
+        }
+        if (!["supports", "contradicts", "explains", "causes", "example_of", "generalizes", "depends_on", "derived_from", "answers", "raises", "similar_to", "leads_to"].includes(String(candidate.entity.relation_type))) {
+          throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのKnowledge Edge relationが不正です.", { id: candidate.entity.id });
+        }
+      }
+      if (type === "task") {
+        const task = normalizeCanonicalEntity(type, candidate.entity);
+        taskDefinition[before ? "parseUpdate" : "parseCreate"](task);
+        assertThemeExists(this.repository, task);
+        operations.push({ action: "save", type, entity: task });
+        const event = annotateEvent(command, commandEvent(command, type, task.id, changeType(before, task, command.name), before, task));
+        operations.push({ action: "save", type: "change_event", entity: event });
+        eventIds.push(event.id);
+      } else {
+        const entity = candidate.entity;
+        if (before) entityDefinition(type).parseUpdate(entity);
+        else entityDefinition(type).parseCreate(entity);
+        operations.push({ action: "save", type, entity });
+        const event = annotateEvent(command, commandEvent(command, type, entity.id, before ? "updated" : "created", before, entity));
+        operations.push({ action: "save", type: "change_event", entity: event });
+        eventIds.push(event.id);
+      }
+    }
+    operations.push({ action: "save", type: "ai_proposal", entity: proposal });
+    const proposalEvent = annotateEvent(command, commandEvent(command, "ai_proposal", proposal.id, "updated", currentProposal, proposal));
+    operations.push({ action: "save", type: "change_event", entity: proposalEvent });
+    eventIds.push(proposalEvent.id);
+    return persistReceipt(this.repository, command, operations, eventIds, [...new Set([...payload.candidates.map((candidate) => candidate.type), "ai_proposal"])] as EntityType[]);
+  }
+
+  private saveTask(command: CommandEnvelope, isCreate: boolean): CommandReceipt {
+    const inputTask = asTask(command.payload);
+    const taskId = inputTask.id;
+    const current = this.repository.get("task", taskId, true);
+    if (isCreate && current) {
+      throw new ApplicationCommandError("CONFLICT", "同じTask IDが既に存在します。", { type: "task", id: taskId });
+    }
+    if (!isCreate && !current) throw new ApplicationCommandError("NOT_FOUND", "更新対象のTaskがありません。", { id: taskId });
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+
+    const task: Entity = {
+      ...inputTask,
+      project_id: canonicalThemeId(inputTask.project_id, { defaultPersonal: true }),
+    };
+    if (!isCreate && !expectedVersionFor(command, "task", taskId)) {
+      throw new ApplicationCommandError("CONFLICT", "UpdateTaskにはexpected versionが必要です。", { type: "task", id: taskId });
+    }
+    taskDefinition.parseUpdate(task);
+    assertThemeExists(this.repository, task);
+    if (!isCreate && current && current.state !== task.state && (current.state === "done" || task.state === "done")) {
+      throw new ApplicationCommandError("INVALID_TRANSITION", "完了状態の変更はCompleteTask/ReopenTaskを使用してください。");
+    }
+
+    const schedule = validateScheduleWrite(this.repository, command, (command.payload as { schedule?: Entity | null }).schedule, taskId, isCreate);
+    const operations: SaveOperation[] = [{ action: "save", type: "task", entity: task }];
+    if (schedule) {
+      operations.push({
+        action: "save",
+        type: "schedule",
+        entity: schedule,
+      });
+    }
+    const event = commandEvent(command, "task", taskId, changeType(current, task, command.name), current, task);
+    event.command_source = command.source;
+    event.actor_kind = command.actor.kind;
+    event.actor_id = command.actor.id || null;
+    event.command_fingerprint = commandFingerprint(command);
+    operations.push({ action: "save", type: "change_event", entity: event });
+    const previousSchedule = schedule ? this.repository.get("schedule", schedule.id, true) : null;
+    const scheduleEvent = schedule
+      ? commandEvent(command, "schedule", taskId, "rescheduled", previousSchedule, schedule)
+      : null;
+    if (scheduleEvent) {
+      scheduleEvent.command_source = command.source;
+      scheduleEvent.actor_kind = command.actor.kind;
+      scheduleEvent.actor_id = command.actor.id || null;
+      scheduleEvent.command_fingerprint = commandFingerprint(command);
+    }
+    if (scheduleEvent) operations.push({ action: "save", type: "change_event", entity: scheduleEvent });
+    operations.push(...referencesForTask(this.repository, command, taskId));
+
+    return persistReceipt(
+      this.repository,
+      command,
+      operations,
+      [event.id, ...(scheduleEvent ? [scheduleEvent.id] : [])],
+      operations.map((operation) => operation.type).filter((type) => type !== "change_event"),
+    );
+  }
+
+  private transitionTask(command: CommandEnvelope, completing: boolean): CommandReceipt {
+    const taskId = asTaskId(command.payload);
+    const current = this.repository.get("task", taskId);
+    if (!current) throw new ApplicationCommandError("NOT_FOUND", "対象Taskがありません。", { id: taskId });
+    if (!expectedVersionFor(command, "task", taskId)) {
+      throw new ApplicationCommandError("CONFLICT", `${command.name}にはexpected versionが必要です。`, { type: "task", id: taskId });
+    }
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    if (current.state === "cancelled") {
+      throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みTaskはこのCommandで変更できません。", { id: taskId });
+    }
+    const requestedTask = (command.payload as { task?: Entity }).task;
+    if (requestedTask) {
+      asTask({ task: requestedTask });
+      taskDefinition.parseUpdate(requestedTask);
+    }
+    const alreadyInTarget = completing ? current.state === "done" : current.state !== "done";
+    if (alreadyInTarget) {
+      if (requestedTask || (command.payload as { references?: Entity[] }).references?.length) {
+        return this.saveTask(command, false);
+      }
+      return persistNoChange(this.repository, command, taskId, current);
+    }
+    const next: Entity = completing
+      ? {
+        ...current,
+        ...(requestedTask || {}),
+        id: taskId,
+        project_id: canonicalThemeId(requestedTask?.project_id ?? current.project_id, { defaultPersonal: true }),
+        state: "done",
+        completed_at: now(),
+        completion_note: (command.payload as { completionNote?: string | null }).completionNote ?? current.completion_note ?? null,
+      }
+      : {
+        ...current,
+        ...(requestedTask || {}),
+        id: taskId,
+        project_id: canonicalThemeId(requestedTask?.project_id ?? current.project_id, { defaultPersonal: true }),
+        state: "todo",
+        completed_at: null,
+      };
+    taskDefinition.parseUpdate(next);
+    assertThemeExists(this.repository, next);
+    const event = commandEvent(command, "task", taskId, completing ? "completed" : "updated", current, next);
+    event.command_source = command.source;
+    event.actor_kind = command.actor.kind;
+    event.actor_id = command.actor.id || null;
+    event.command_fingerprint = commandFingerprint(command);
+    const normalizedSchedule = validateScheduleWrite(this.repository, command, (command.payload as { schedule?: Entity | null }).schedule, taskId, false);
+    const scheduleEvent = normalizedSchedule
+      ? commandEvent(command, "schedule", taskId, "rescheduled", this.repository.get("schedule", normalizedSchedule.id, true), normalizedSchedule)
+      : null;
+    if (scheduleEvent) {
+      scheduleEvent.command_source = command.source;
+      scheduleEvent.actor_kind = command.actor.kind;
+      scheduleEvent.actor_id = command.actor.id || null;
+      scheduleEvent.command_fingerprint = commandFingerprint(command);
+    }
+    const operations: SaveOperation[] = [
+      { action: "save", type: "task", entity: next },
+      ...(normalizedSchedule ? [{ action: "save" as const, type: "schedule" as const, entity: normalizedSchedule }] : []),
+      { action: "save", type: "change_event", entity: event },
+      ...(scheduleEvent ? [{ action: "save" as const, type: "change_event" as const, entity: scheduleEvent }] : []),
+    ];
+    operations.push(...referencesForTask(this.repository, command, taskId));
+    return persistReceipt(
+      this.repository,
+      command,
+      operations,
+      [event.id, ...(scheduleEvent ? [scheduleEvent.id] : [])],
+      operations.map((operation) => operation.type).filter((type) => type !== "change_event"),
+    );
+  }
+
+  private createTaskFromCapture(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as {
+      task: Entity;
+      schedule?: Entity | null;
+      captureId: string;
+      captureVersion: number;
+      transition: "triage_to_task";
+      artifactIds?: string[];
+      references?: Entity[];
+    };
+    if (command.source !== "inbox") {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "CreateTaskFromCaptureはInbox経路専用です。");
+    }
+    const inputTask = asTask(payload);
+    const currentTask = this.repository.get("task", inputTask.id, true);
+    if (currentTask) {
+      throw new ApplicationCommandError("CONFLICT", "同じTask IDが既に存在します。", { type: "task", id: inputTask.id });
+    }
+    const capture = this.repository.get("capture_entry", payload.captureId);
+    if (!capture) throw new ApplicationCommandError("NOT_FOUND", "整理対象のCaptureがありません。", { id: payload.captureId });
+    if (capture.state !== "untriaged") {
+      throw new ApplicationCommandError("INVALID_TRANSITION", "このCaptureはすでに整理済みです。", { id: payload.captureId, state: capture.state });
+    }
+    if (Number(capture.version || 0) !== payload.captureVersion) {
+      throw new ApplicationCommandError("CONFLICT", "Captureが更新済みです。Inboxを再読み込みしてから再試行してください。", {
+        type: "capture_entry", id: payload.captureId, expected: payload.captureVersion, actual: Number(capture.version || 0),
+      });
+    }
+    const expectedCapture = expectedVersionFor(command, "capture_entry", payload.captureId);
+    if (!expectedCapture || expectedCapture.version !== payload.captureVersion) {
+      throw new ApplicationCommandError("CONFLICT", "Captureのexpected versionが必要です。", { type: "capture_entry", id: payload.captureId });
+    }
+
+    const task: Entity = { ...inputTask, project_id: canonicalThemeId(inputTask.project_id, { defaultPersonal: true }) };
+    taskDefinition.parseCreate(task);
+    assertThemeExists(this.repository, task);
+    const schedule = validateScheduleWrite(this.repository, command, payload.schedule, task.id, true);
+    const operations: SaveOperation[] = [{ action: "save", type: "task", entity: task }];
+    const changed: EntityType[] = ["task"];
+    const eventIds: string[] = [];
+    if (schedule) {
+      operations.push({ action: "save", type: "schedule", entity: schedule });
+      changed.push("schedule");
+    }
+    const references = referencesForTask(this.repository, command, task.id);
+    operations.push(...references);
+    changed.push(...references.map(() => "reference" as const));
+
+    const triagedCapture: Entity = {
+      ...capture,
+      state: "triaged",
+      triaged_to_type: "task",
+      triaged_to_id: task.id,
+    };
+    operations.push({ action: "save", type: "capture_entry", entity: triagedCapture });
+    changed.push("capture_entry");
+
+    const artifactIds = payload.artifactIds || [];
+    const seenArtifactIds = new Set<string>();
+    for (const artifactId of artifactIds) {
+      if (seenArtifactIds.has(artifactId)) throw new ApplicationCommandError("INVALID_PAYLOAD", "artifactIdsに重複があります。", { artifactId });
+      seenArtifactIds.add(artifactId);
+      const artifact = this.repository.get("artifact", artifactId);
+      if (!artifact) throw new ApplicationCommandError("NOT_FOUND", "Captureに紐づくArtifactがありません。", { id: artifactId });
+      if (artifact.source_type !== "capture_entry" || artifact.source_id !== payload.captureId) {
+        throw new ApplicationCommandError("CONFLICT", "Captureに紐づかないArtifactは移管できません。", { id: artifactId });
+      }
+      const expectedArtifact = expectedVersionFor(command, "artifact", artifactId);
+      if (!expectedArtifact) throw new ApplicationCommandError("CONFLICT", "移管するArtifactにはexpected versionが必要です。", { type: "artifact", id: artifactId });
+      assertExpectedVersion(this.repository, command, "artifact", artifactId, artifact);
+      const artifactWithoutLegacyTheme = { ...artifact };
+      delete artifactWithoutLegacyTheme.theme_id;
+      operations.push({
+        action: "save",
+        type: "artifact",
+        entity: { ...artifactWithoutLegacyTheme, source_type: "task", source_id: task.id, project_id: task.project_id },
+      });
+      changed.push("artifact");
+    }
+
+    const taskEvent = commandEvent(command, "task", task.id, "created", null, task);
+    const captureEvent = commandEvent(command, "capture_entry", capture.id, "triaged", capture, triagedCapture);
+    for (const event of [taskEvent, captureEvent]) {
+      event.command_source = command.source;
+      event.actor_kind = command.actor.kind;
+      event.actor_id = command.actor.id || null;
+      event.command_fingerprint = commandFingerprint(command);
+      operations.push({ action: "save", type: "change_event", entity: event });
+      eventIds.push(event.id);
+    }
+    if (schedule) {
+      const scheduleEvent = commandEvent(command, "schedule", task.id, "rescheduled", null, schedule);
+      scheduleEvent.command_source = command.source;
+      scheduleEvent.actor_kind = command.actor.kind;
+      scheduleEvent.actor_id = command.actor.id || null;
+      scheduleEvent.command_fingerprint = commandFingerprint(command);
+      operations.push({ action: "save", type: "change_event", entity: scheduleEvent });
+      eventIds.push(scheduleEvent.id);
+    }
+    for (const artifactId of artifactIds) {
+      const artifact = operations.find((operation) => operation.type === "artifact" && operation.entity.id === artifactId)?.entity;
+      if (!artifact) continue;
+      const before = this.repository.get("artifact", artifactId);
+      const artifactEvent = commandEvent(command, "artifact", artifactId, "updated", before, artifact);
+      artifactEvent.command_source = command.source;
+      artifactEvent.actor_kind = command.actor.kind;
+      artifactEvent.actor_id = command.actor.id || null;
+      artifactEvent.command_fingerprint = commandFingerprint(command);
+      operations.push({ action: "save", type: "change_event", entity: artifactEvent });
+      eventIds.push(artifactEvent.id);
+    }
+    return persistReceipt(this.repository, command, operations, eventIds, changed);
+  }
+}

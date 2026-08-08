@@ -7,6 +7,7 @@ import type {
 } from "../../../shared/types/workspace";
 import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
 import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
+import type { CommandEnvelope } from "../../../shared/applicationCommand";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
 import type { SketchExportRequest } from "../../../shared/sketchExport";
 import type { ImageClipboardRequest, SlideTimelineExportRequest } from "../../../shared/slideTimelineExport";
@@ -44,6 +45,12 @@ export const workspaceApi = {
   },
   restore(type: EntityType, id: string) {
     return desktopApi().entities.restore(type, id);
+  },
+  executeCommand(envelope: CommandEnvelope) {
+    return desktopApi().commands.execute(envelope);
+  },
+  executeCommands(envelopes: CommandEnvelope[]) {
+    return desktopApi().commands.executeBatch(envelopes);
   },
   setPreference(key: string, value: unknown) {
     return desktopApi().preferences.set(key, value);
