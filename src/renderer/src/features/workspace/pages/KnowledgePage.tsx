@@ -18,7 +18,7 @@ import { str, uuid } from "../lib/format";
 import { buildKnowledgeHealth, type KnowledgeHealthIssue } from "../lib/knowledgeHealth";
 import { parseWikiLinks } from "../lib/knowledgeLinks";
 import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
-import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { ActionButton, Button, EmptyState, PageHeader, StatusBadge } from "../components/common";
 import type { KnowledgeEdge } from "../domain-model/types";
 
 const ALL = "all";
@@ -589,9 +589,9 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
   return (
     <div className="page knowledge-page">
       <PageHeader route="knowledge">
-        {knowledgePrompt && <button className="secondary-button" onClick={copyKnowledgePrompt}>Knowledgeプロンプトをコピー</button>}
-        <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-        <button className="primary-button" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: { node_type: "question" } })}>問いを追加</button>
+        {knowledgePrompt && <Button variant="secondary" onClick={copyKnowledgePrompt}>Knowledgeプロンプトをコピー</Button>}
+        <Button variant="secondary" onClick={copy}>一覧をコピー</Button>
+        <ActionButton action="knowledgeAddQuestion" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: { node_type: "question" } })}>問いを追加</ActionButton>
       </PageHeader>
       <div className="filter-bar panel">
         <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル・本文を検索" />
@@ -629,7 +629,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
           placeholder="短いKnowledgeを追加"
           aria-label="短いKnowledge"
         />
-        <button className="primary-button" onClick={createQuickKnowledge}>追加する</button>
+        <ActionButton action="knowledgeQuickAdd" onClick={createQuickKnowledge}>追加する</ActionButton>
       </section>
       <section className="knowledge-explorer panel">
         <div className="section-heading">
@@ -643,7 +643,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
               <strong>{selectedNode.title}</strong>
               <span>{nodeBody(selectedNode)}</span>
             </div>
-            <button className="secondary-button compact" onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: selectedNode })}>開く</button>
+            <Button variant="secondary" compact onClick={() => openDrawer({ type: "knowledge_node", mode: "edit", entity: selectedNode })}>開く</Button>
           </div>
         )}
         {viewMode === "graph" && (
@@ -774,7 +774,7 @@ export function KnowledgePage({ data, domain, themes, openDrawer, saveEntities, 
                 <strong>{issue.node.title}</strong>
                 <span>{issue.message}</span>
               </button>
-              <button className="secondary-button compact" onClick={() => openIssueAction(issue)}>{ISSUE_ACTIONS[issue.kind]}</button>
+              <Button variant="secondary" compact onClick={() => openIssueAction(issue)}>{ISSUE_ACTIONS[issue.kind]}</Button>
             </article>
           ))}
           {!healthIssues.length && <div className="empty-state"><strong>目立つ問題はありません</strong></div>}

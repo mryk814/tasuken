@@ -13,9 +13,9 @@ const drawer = read("src/renderer/src/features/workspace/components/drawer.tsx")
 const inbox = read("src/renderer/src/features/workspace/pages/InboxPage.tsx");
 
 test("Sketch is an independent Knowledge shelf with a dedicated editor route", () => {
-  assert.match(routes, /sketch: \{ label: "Sketch" \}/);
+  assert.match(routes, /id: "sketch", label: "Sketch"/);
   assert.match(routes, /id: "sketch"[\s\S]*group: "knowledge"/);
-  assert.match(routes, /"sketch-editor":\s*"sketch"/);
+  assert.match(routes, /id: "sketch-editor", parent: "sketch"/);
   assert.match(router, /case "sketch":[\s\S]*?<SketchLibraryPage/);
   assert.match(router, /case "sketch-editor":[\s\S]*?<SketchPage/);
   assert.match(app, /route === "sketch-editor"/);

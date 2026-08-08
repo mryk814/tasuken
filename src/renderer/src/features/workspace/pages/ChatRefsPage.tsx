@@ -503,7 +503,7 @@ export function ChatRefsPage({
         />
         {!isArchiveView && (
           <>
-            <button className="secondary-button" onClick={() => setImportDialogOpen(true)}><IconFileImport size={16} />会話ログを取り込む</button>
+            <Button variant="secondary" onClick={() => setImportDialogOpen(true)}><IconFileImport size={16} />会話ログを取り込む</Button>
             <Button variant="primary" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</Button>
           </>
         )}
@@ -574,7 +574,7 @@ export function ChatRefsPage({
         </select>
         {groups.length > 1 && (
           <button
-            className="secondary-button compact icon-only"
+            className="icon-only"
             onClick={toggleAllGroups}
             aria-label={allCollapsed ? "すべて展開" : "すべて折りたたむ"}
             title={allCollapsed ? "すべて展開" : "すべて折りたたむ"}

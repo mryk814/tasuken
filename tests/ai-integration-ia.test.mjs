@@ -12,7 +12,7 @@ test("AI proposals use the existing AI route as a review inbox", () => {
   assert.match(routesSource, /id: "ai-io", label: "AI Inbox"/);
   assert.match(routesSource, /group: "tools", order: 1/);
   assert.match(routesSource, /group: "tools", order: 2/);
-  assert.match(routesSource, /"proposal-inbox": "ai-io"/);
+  assert.match(routesSource, /id: "proposal-inbox", parent: "ai-io"/);
   assert.match(workspaceAppSource, /route === "proposal-inbox" \? "ai-io"/);
   assert.doesNotMatch(workspaceAppSource, /ProposalInboxPage/);
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ProposalInboxPage.tsx"), false);
@@ -27,5 +27,9 @@ test("AI Inbox contains only the safe proposal review surface", () => {
   assert.match(aiProposalPanelSource, /処理履歴/);
   assert.match(aiProposalPanelSource, /proposalTargetLabel/);
   assert.match(aiProposalPanelSource, /quarantine/);
+  assert.match(aiProposalPanelSource, /ActionButton action="aiProposalPreview"/);
+  assert.match(aiProposalPanelSource, /ActionButton action="actionReject"/);
+  assert.match(aiProposalPanelSource, /ActionButton action="aiProposalAccept"/);
+  assert.doesNotMatch(aiProposalPanelSource, /danger-button/);
   assert.doesNotMatch(importExportPageSource, /buildAiImportPrompt|buildAiOrganizePrompt|buildExportData/);
 });

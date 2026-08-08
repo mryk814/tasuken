@@ -14,6 +14,10 @@ test("RouteDefinition is the only route label/icon/navigation registry", () => {
   ];
   assert.match(routes, /export const ROUTE_DEFINITIONS/);
   for (const id of routeIds) assert.match(routes, new RegExp(`id: "${id}"`));
+  assert.match(routes, /semanticRole: "hub"/);
+  assert.match(routes, /availability: "requires-active-theme"/);
+  assert.match(routes, /navigation: \{ group: "tools", order: 1 \}/);
+  assert.match(routes, /shortcut\?: string/);
   assert.match(routes, /export const routeAliases: Record<string, string> = Object\.fromEntries/);
   assert.match(routes, /export const routeParent: Record<string, string> = Object\.fromEntries/);
   assert.match(routes, /export function routeIcon\(id: string\)/);
@@ -27,12 +31,12 @@ test("ActionDefinition covers practical action and toast semantics", () => {
   for (const id of [
     "todayAddTask", "todoAddTask", "inboxAddMemo", "timelineAddPlan", "knowledgeAddQuestion",
     "notesCreate", "chatRefsAdd", "aiAnswer", "aiDraft", "aiContext", "actionCancel",
-    "actionReject", "actionDelete", "toastInfo", "toastSuccess", "toastWarning", "toastDanger",
+    "actionReject", "actionDelete", "aiProposalPreview", "notesSave", "toastInfo", "toastSuccess", "toastWarning", "toastDanger",
   ]) {
     assert.match(actions, new RegExp(`${id}: \\{`));
   }
   assert.match(actions, /role: "(?:primary|secondary|danger|ai|status)"/);
-  assert.match(actions, /availability: "(?:always|when-selection|when-ai-enabled)"/);
+  assert.match(actions, /availability: "(?:always|when-selection|when-editing|when-ai-enabled|when-theme-selected)"/);
   assert.match(actions, /TOAST_ACTIONS/);
   assert.match(common, /export function ActionButton/);
   assert.match(workspaceApp, /TOAST_ACTIONS/);

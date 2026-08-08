@@ -1,6 +1,7 @@
 import type { KeyboardEvent, ReactNode } from "react";
 
 import type { Theme } from "../types";
+import { Button } from "./common";
 
 export function InlineAddPanel({
   heading,
@@ -48,7 +49,7 @@ export function InlineAddPanel({
           <option value="">個人業務</option>
           {themes.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
         </select>
-        <button className="primary-button compact" onClick={() => void onSubmit()}>{submitLabel}</button>
+        <Button variant="primary" compact onClick={() => void onSubmit()}>{submitLabel}</Button>
       </div>
     </section>
   );

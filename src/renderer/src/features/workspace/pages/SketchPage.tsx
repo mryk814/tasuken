@@ -37,6 +37,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { SketchCanvas } from "../components/SketchCanvas";
 import { ToolbarMenu } from "../components/ToolbarMenu";
+import { Button } from "../components/common";
 import {
   resolveSketchPageSize,
   SketchPageSizePicker,
@@ -386,7 +387,7 @@ export function SketchPage({
       <div className="page sketch-empty">
         <IconWriting size={48} aria-hidden="true" />
         <h1>Sketchを選択できません</h1>
-        <button className="primary-button" onClick={() => navigate("sketch")}>Sketch一覧へ</button>
+        <Button variant="primary" onClick={() => navigate("sketch")}>Sketch一覧へ</Button>
       </div>
     );
   }
@@ -634,13 +635,14 @@ export function SketchPage({
                     <SketchPageSizePicker value={pageSize} onChange={setPageSize} />
                     <div className="sketch-page-size-actions">
                       <button className="secondary-button compact" onClick={() => setPageSizeOpen(false)}>閉じる</button>
-                      <button
-                        className="primary-button compact"
+                      <Button
+                        variant="primary"
+                        compact
                         disabled={!resolveSketchPageSize(pageSize)}
                         onClick={applyPageSize}
                       >
                         適用
-                      </button>
+                      </Button>
                     </div>
                   </section>
                 )}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconCheck, IconPlus, IconX } from "@tabler/icons-react";
+import { IconCheck, IconX } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -7,7 +7,7 @@ import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
 import { themeColor } from "../lib/domain";
-import { Button, EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { ActionButton, Button, EmptyState, PageHeader, StatusBadge } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
@@ -93,8 +93,8 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
   return (
     <div className="page">
       <PageHeader route="waiting">
-        <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-        <button className="primary-button" onClick={() => setShowAdd((c) => !c)}><IconPlus size={16} /> 待ちを追加</button>
+        <Button variant="secondary" onClick={copy}>一覧をコピー</Button>
+        <ActionButton action="waitingAdd" onClick={() => setShowAdd((c) => !c)}>待ちを追加</ActionButton>
       </PageHeader>
       {showAdd && (
         <InlineAddPanel

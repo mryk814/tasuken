@@ -320,7 +320,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   return (
     <div className="page">
       <PageHeader route="todo">
-        <button className="secondary-button" onClick={copyRows}>一覧をコピー</button>
+        <Button variant="secondary" onClick={copyRows}>一覧をコピー</Button>
         <Button variant="primary" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</Button>
       </PageHeader>
       {showAdd && (

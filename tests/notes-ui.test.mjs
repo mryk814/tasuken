@@ -139,8 +139,8 @@ test("navigation, page headings and command palette share one canonical label", 
   }
 
   // 表示名を変えてもrouteとdeep linkは触らない。
-  assert.match(routes, /"todo-done": "todo"/);
-  assert.match(routes, /"chat-refs": "knowledge"/);
+  assert.match(routes, /aliases: \[\{ id: "todo-done" \}\]/);
+  assert.match(routes, /id: "chat-refs", label: "Chat Refs"/);
 });
 
 test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本文へ回す（#292）", () => {
@@ -231,9 +231,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
   // 画面上で `保存` と表示されるbuttonは、内部Entityを確定する一つだけ。
-  const saveButtons = source.match(/>保存<\/button>/g) || [];
-  assert.equal(saveButtons.length, 1);
-  assert.match(source, /onClick=\{saveSelectedDraft\} title="Ctrl\+S">保存<\/button>/);
+  assert.match(source, /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/);
 
   // 派生出力は `保存` と呼ばない。
   assert.match(source, /label: markdownExporting \? "Markdownを書き出しています" : "Markdownを書き出す"/);

@@ -545,7 +545,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   return (
     <div className="page timeline-wide">
       <PageHeader route="timeline">
-        <button className="secondary-button" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</button>
+        <Button variant="secondary" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</Button>
         <Button variant="primary" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</Button>
       </PageHeader>
       {/* 狭幅では横一列に詰め込まず、意味単位で行送りする。表示切替と一括開閉は
@@ -562,8 +562,10 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         </div>
         {/* 中長期の把握が主用途（#318）。週間はTodayと役割が重なるのでmenuへ畳む。 */}
         <div className="segmented" aria-label="表示倍率">{LONG_RANGE_ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => applyZoom(pw)}>{label}</button>)}</div>
-        <button
-          className={`secondary-button compact ${connectMode || connecting ? "is-active" : ""}`}
+        <Button
+          variant="secondary"
+          compact
+          className={connectMode || connecting ? "is-active" : ""}
           onClick={() => {
             const next = !(connectMode || connecting);
             setConnectMode(next);
@@ -572,15 +574,16 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
           }}
         >
           依存をつなぐ
-        </button>
+        </Button>
         {/* 展開と折りたたみは同時に出さず、いまの状態から次の操作だけを出す（#318）。 */}
-        <button
-          className="secondary-button compact"
+        <Button
+          variant="secondary"
+          compact
           aria-expanded={!allThemesCollapsed}
           onClick={() => setCollapsedThemes(allThemesCollapsed ? [] : groupKeys)}
         >
           {allThemesCollapsed ? "すべて展開" : "すべて折りたたむ"}
-        </button>
+        </Button>
         <ToolbarOverflow label="表示" ariaLabel="タイムラインの表示切替">
           <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
           <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>

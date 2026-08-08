@@ -2,7 +2,7 @@ import { IconArrowsMaximize, IconFile, IconPlus, IconWriting, IconX } from "@tab
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { usePersistentState } from "../../../utils/usePersistentState";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import {
   resolveSketchPageSize,
@@ -174,12 +174,12 @@ export function SketchLibraryPage({
             },
           ]}
         />
-        <button
-          className="primary-button"
+        <Button
+          variant="primary"
           onClick={() => void startSketch("page", SKETCH_PAGE_PRESETS.landscape)}
         >
           <IconPlus size={16} />新しいSketch
-        </button>
+        </Button>
       </PageHeader>
 
       <div className="filter-bar panel sketch-library-filters">
@@ -304,13 +304,13 @@ export function SketchLibraryPage({
             ) : (
               <p className="sketch-mode-description">2400 × 1600から始まり、描画に合わせて右・下へ広がります。</p>
             )}
-            <button
-              className="primary-button"
+            <Button
+              variant="primary"
               disabled={createMode === "page" && !resolveSketchPageSize(pageSize)}
               onClick={createSketch}
             >
               {createMode === "page" ? "Pageを作成" : "Infiniteを作成"}
-            </button>
+            </Button>
           </section>
         </div>
       )}
