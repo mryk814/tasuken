@@ -21,6 +21,8 @@
     "audit:note-window": "node scripts/note-window-audit.mjs",
     "bench:notes": "npm run build && node scripts/notes-performance.mjs",
     "workspace:materials-demo": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/seed-materials-informatics-workspace.mjs --apply-local",
+    "workspace:materials-demo:today": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/update-materials-informatics-workspace.mjs --apply-local --mode refresh",
+    "workspace:materials-demo:add": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/update-materials-informatics-workspace.mjs --apply-local --mode add",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
     "mcp": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/mcp-server.mjs",
     "rebuild:electron": "electron-rebuild --force -w better-sqlite3",

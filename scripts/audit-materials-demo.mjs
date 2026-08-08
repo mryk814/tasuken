@@ -32,9 +32,17 @@ const results = [];
 const entityCounts = await page.evaluate(async () => Object.fromEntries(await Promise.all([
   "theme", "task", "schedule", "note", "resource", "knowledge_node", "artifact", "sketch", "ai_proposal",
 ].map(async (type) => [type, (await window.api.entities.list(type)).length]))));
+const hasUpdatedExperiment = await page.evaluate(async () => (await window.api.entities.list("task"))
+  .some((entry) => entry.title === "候補バッチ 2026-08-08 の焼成後密度を測定"));
+if (hasUpdatedExperiment) {
+  routes.find((route) => route.label === "Today")?.expected.push("候補バッチ 2026-08-08 の焼成後密度を測定");
+  routes.find((route) => route.label === "ToDo")?.expected.push("候補バッチ 2026-08-08 の焼成後密度を測定");
+  routes.find((route) => route.label === "Inbox")?.expected.push("候補2 ペレット表面");
+  routes.find((route) => route.label === "Notes")?.expected.push("候補バッチ 2026-08-08 実験ログ");
+}
 const expectedCounts = { theme: 3, task: 22, schedule: 28, note: 12, resource: 6, knowledge_node: 9, artifact: 5, sketch: 2, ai_proposal: 2 };
 for (const [type, expected] of Object.entries(expectedCounts)) {
-  if (entityCounts[type] !== expected) failures.push(`${type}: ${entityCounts[type]}件（期待 ${expected}件）`);
+  if (entityCounts[type] < expected) failures.push(`${type}: ${entityCounts[type]}件（最低 ${expected}件）`);
 }
 async function visibleText() {
   const body = await page.locator("body").innerText();
@@ -74,7 +82,7 @@ await page.waitForTimeout(3500);
 const reloadedText = await page.locator("body").innerText();
 if (!reloadedText.includes("Ta置換LLZO 固体電解質探索")) failures.push("再読み込み後にLLZO Themeを確認できません。");
 
-console.log(JSON.stringify({ entityCounts, results, reloadPersisted: reloadedText.includes("Ta置換LLZO 固体電解質探索"), outputDirectory }, null, 2));
+console.log(JSON.stringify({ entityCounts, hasUpdatedExperiment, results, reloadPersisted: reloadedText.includes("Ta置換LLZO 固体電解質探索"), outputDirectory }, null, 2));
 await app.close();
 
 if (failures.length) {
