@@ -118,14 +118,15 @@ test("navigation, page headings and command palette share one canonical label", 
   const common = readFileSync("src/renderer/src/features/workspace/components/common.tsx", "utf8");
   const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
-  // 名称の正本は ROUTE_META だけ。Sidebarもページ見出しもここを引く。
-  assert.match(routes, /export const ROUTE_META/);
-  assert.match(routes, /"chat-refs": \{ label: "Chat Refs"/);
-  assert.match(routes, /inbox: \{ label: "Inbox"/);
-  assert.match(routes, /"ai-io": \{ label: "AI Inbox"/);
+  // RouteDefinitionがlabel・description・iconの唯一の正本。Sidebarもページ見出しもここを引く。
+  assert.match(routes, /export const ROUTE_DEFINITIONS/);
+  assert.match(routes, /label: "Chat Refs"/);
+  assert.match(routes, /label: "Inbox"/);
+  assert.match(routes, /label: "AI Inbox"/);
   assert.match(shell, /const label = routeLabel\(id\);/);
   assert.match(common, /routeLabel\(route\)/);
-  assert.match(common, /ROUTE_ICONS\[route\]/);
+  assert.match(routes, /export function routeIcon\(id: string\)/);
+  assert.match(common, /routeIcon\(route\)/);
   assert.match(app, /routeLabel\("inbox"\)/);
 
   // 説明語をページ名へ混ぜない。

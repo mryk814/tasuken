@@ -12,8 +12,7 @@ import {
   IconSun,
 } from "@tabler/icons-react";
 
-import { crossNavigation, knowledgeHubTabs, routeLabel, todayHubTabs, toolNavigation } from "../../../pages/routes";
-import { ROUTE_ICONS } from "../../../pages/routeIcons";
+import { crossNavigation, knowledgeHubTabs, routeIcon, routeLabel, todayHubTabs, toolNavigation } from "../../../pages/routes";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { KnowledgeNode as WorkspaceKnowledgeNode, OpenDrawer, Theme } from "../types";
 import type { KnowledgeEdge, WorkspaceDomain } from "../domain-model/types";
@@ -467,7 +466,6 @@ export function Sidebar({
   activeFocus,
   openActiveFocus,
 }: SidebarProps) {
-  const navIconByRoute = ROUTE_ICONS;
   const inbox = domain.capture_entries.filter((e) => e.state === "untriaged" && e.kind !== "micro_memo").length;
   const today = todayIso();
   const schedulesByOwner = new Map(domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
@@ -503,7 +501,7 @@ export function Sidebar({
   const renderNavButton = (id: string) => {
     const label = routeLabel(id);
     const count = countByRoute[id] || 0;
-    const NavIcon = navIconByRoute[id];
+    const NavIcon = routeIcon(id);
     return (
       <button
         key={id}

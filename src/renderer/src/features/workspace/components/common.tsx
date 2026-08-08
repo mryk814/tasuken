@@ -1,8 +1,8 @@
 import { IconChevronDown, IconInfoCircle } from "@tabler/icons-react";
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useState } from "react";
 
-import { ROUTE_ICONS } from "../../../pages/routeIcons";
-import { routeDescription, routeLabel } from "../../../pages/routes";
+import { actionDefinition, type ActionId } from "../../../pages/semanticActions";
+import { routeDescription, routeIcon, routeLabel } from "../../../pages/routes";
 import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
 import { PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
@@ -23,6 +23,42 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; compact?: boolean }) {
   const classes = ["semantic-button", `semantic-button-${variant}`, compact ? "compact" : "", className].filter(Boolean).join(" ");
   return <button {...props} type={type} className={classes} />;
+}
+
+export function ActionButton({
+  action,
+  compact = false,
+  className = "",
+  iconOnly = false,
+  iconSize = 16,
+  children,
+  type = "button",
+  "aria-label": ariaLabel,
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "type"> & {
+  action: ActionId;
+  compact?: boolean;
+  iconOnly?: boolean;
+  iconSize?: number;
+  children?: ReactNode;
+  type?: ButtonHTMLAttributes<HTMLButtonElement>["type"];
+}) {
+  const definition = actionDefinition(action);
+  const variant: ButtonVariant = definition.role === "status" ? "secondary" : definition.role;
+  const ActionIcon = definition.icon;
+  return (
+    <Button
+      {...props}
+      type={type}
+      variant={variant}
+      compact={compact}
+      className={className}
+      aria-label={ariaLabel || definition.label}
+    >
+      {ActionIcon && <ActionIcon size={iconSize} aria-hidden="true" />}
+      {!iconOnly && (children || definition.label)}
+    </Button>
+  );
 }
 
 export type ContextMenuItem = {
@@ -74,7 +110,7 @@ export function PageInfo({ text }: { text: string }) {
 }
 
 /**
- * routeを渡すと画面名・用途説明・アイコンを正本（ROUTE_META / ROUTE_ICONS）から取る（#301）。
+ * routeを渡すと画面名・用途説明・アイコンを単一のRouteDefinitionから取る（#301 / #312）。
  * titleを直接渡すのは、Theme詳細のように利用者データを見出しにする画面だけにする。
  */
 export function PageHeader({ route, title, subtitle, info, children }: {
@@ -86,7 +122,7 @@ export function PageHeader({ route, title, subtitle, info, children }: {
 }) {
   const heading = title || (route ? routeLabel(route) : "");
   const description = info ?? (route ? routeDescription(route) : undefined);
-  const HeadingIcon = route ? ROUTE_ICONS[route] : undefined;
+  const HeadingIcon = route ? routeIcon(route) : undefined;
   return (
     <header className="page-header">
       <div>
