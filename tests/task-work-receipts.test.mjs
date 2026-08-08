@@ -188,10 +188,24 @@ test("AI report stays needs_human_review and cannot complete before human accept
       summary: "Implemented the requested change.",
       completed_items: ["domain"],
       changed_or_created_items: ["src/domain.ts"],
+      external_references: [{
+        kind: "merge_request",
+        provider: "gitlab",
+        display_label: "!42",
+        url: "https://gitlab.example/group/project/-/merge_requests/42?token=drop#overview",
+        external_id: "42",
+      }],
     },
   }, "report-ai", [{ type: "task", id: "task-ai", version: 2 }], { kind: "ai_agent", id: "codex" }, "mcp"));
   assert.equal(repo.get("task", "task-ai").work_state, "needs_human_review");
   assert.ok(report.changes.some(({ type }) => type === "work_receipt"));
+  assert.deepEqual(repo.get("work_receipt", "receipt-ai-1").external_references, [{
+    kind: "merge_request",
+    provider: "gitlab",
+    display_label: "!42",
+    url: "https://gitlab.example/group/project/-/merge_requests/42",
+    external_id: "42",
+  }]);
   assert.throws(() => service.execute(envelope("CompleteTask", { taskId: "task-ai" }, "complete-too-early", [{ type: "task", id: "task-ai", version: 3 }])), /AIの報告だけではTaskを完了できません/);
   assert.throws(() => service.execute(envelope("AcceptTaskWork", { taskId: "task-ai" }, "ai-accept", [{ type: "task", id: "task-ai", version: 3 }], { kind: "ai_agent", id: "codex" }, "mcp")), /人間UIからのみ/);
   assert.throws(() => service.execute(envelope("ReturnTaskWork", { taskId: "task-ai", reviewNote: "再確認してください。" }, "mcp-return", [{ type: "task", id: "task-ai", version: 3 }], { kind: "user" }, "mcp")), /人間UIからのみ/);

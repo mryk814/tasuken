@@ -2214,6 +2214,22 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .drawer-form .large-textarea { min-height: 280px; font-family: var(--font-mono); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .drawer-subsection { display: grid; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--color-border-subtle); }
+.repository-context-options { display: grid; gap: var(--space-1); min-width: 0; }
+.repository-context-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-1) var(--space-2); min-width: 0; padding: var(--space-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-subtle); }
+.repository-context-row:hover { border-color: var(--color-border); background: var(--color-surface-muted); }
+.repository-context-row.is-archived { opacity: .68; }
+.repository-context-option { display: flex !important; align-items: flex-start; gap: var(--space-2) !important; min-width: 0; padding: var(--space-1); border-radius: var(--radius-sm); color: var(--color-text-primary) !important; }
+.repository-context-option:hover { background: var(--color-surface-muted); }
+.repository-context-option:focus-within { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.repository-context-option input { flex: none; margin-top: 3px; accent-color: var(--color-accent); }
+.repository-context-option > span { display: grid; gap: 2px; min-width: 0; }
+.repository-context-option strong, .repository-context-option small { overflow-wrap: anywhere; }
+.repository-context-option small { color: var(--color-text-secondary); font-size: var(--text-xs); }
+.repository-context-row-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-1); }
+.repository-context-row-actions .text-button { min-height: 28px; padding: var(--space-1) var(--space-2); }
+.repository-context-edit { grid-column: 1 / -1; padding-top: var(--space-1); border-top: 1px solid var(--color-border-subtle); }
+.repository-context-archived { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-sm); }
+.repository-context-archived summary { cursor: pointer; color: var(--color-text-secondary); }
 .weekday-picker { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .weekday-choice { display: inline-flex !important; align-items: center; gap: var(--space-1) !important; min-height: 30px; padding: 0 var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary) !important; }
 .weekday-choice input, .checklist-toggle input { accent-color: var(--color-accent); }
@@ -3893,6 +3909,10 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .task-learning-list { display: grid; gap: var(--space-2); }
 .task-learning-item { display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); }
 .task-learning-item p { margin: 0; color: var(--color-text); white-space: pre-wrap; }
+.task-work-external-references { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.task-work-external-references a { display: inline-flex; max-width: 100%; overflow: hidden; align-items: center; padding: 2px var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-pill); background: var(--color-surface); color: var(--color-accent-strong); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.task-work-external-references a:hover { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); }
+.task-work-external-references a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 
 /* --- Sketch workspace --- */
 .app-shell.is-canvas-route { grid-template-columns: 220px minmax(0, 1fr); }

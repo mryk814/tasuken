@@ -22,6 +22,7 @@ import type {
   TaskWorkState,
   WaitingState,
 } from "./types";
+import type { RepositoryContextMode } from "../../../../../shared/repositoryContext.mjs";
 import type { ScheduleKind } from "./scheduleSemantics";
 
 export const PROJECT_STATE_LABELS: Record<ProjectState, string> = {
@@ -86,6 +87,32 @@ export const TASK_WORK_STATE_LABELS: Record<TaskWorkState, string> = {
   accepted: "確認済み",
   blocked: "ブロック",
   failed: "失敗",
+};
+
+export const REPOSITORY_PROVIDER_LABELS: Record<string, string> = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  azure_devops: "Azure DevOps",
+  local: "Local",
+  generic_git: "Generic Git",
+  unknown: "Unknown",
+};
+
+export const REPOSITORY_CONTEXT_MODE_LABELS: Record<RepositoryContextMode, string> = {
+  inherit: "Themeを継承",
+  extend: "Theme + 追加",
+  override: "Taskで置換",
+};
+
+export const EXTERNAL_REFERENCE_KIND_LABELS: Record<string, string> = {
+  issue: "Issue",
+  pull_request: "Pull Request",
+  merge_request: "Merge Request",
+  commit: "Commit",
+  branch: "Branch",
+  file: "File",
+  pipeline: "Pipeline",
+  other: "External reference",
 };
 
 /** 日付範囲の意味（#309）。内部コードを画面へ出さないための対応表。 */

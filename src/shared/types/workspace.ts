@@ -50,6 +50,7 @@ export interface Workspace {
   knowledge_nodes?: Entity[];
   ai_proposals?: Entity[];
   projects?: Entity[];
+  repository_contexts?: Entity[];
   capture_entrys?: Entity[];
   tasks?: Entity[];
   work_receipts?: Entity[];

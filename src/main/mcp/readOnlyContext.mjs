@@ -14,6 +14,14 @@ import { collectionKeyForEntityType, entityTypes } from "../../shared/entityRegi
 import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../shared/contextGraph.mjs";
 import { projectActivityJson, projectActivityMarkdown, queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
+import {
+  findTasksForRepository,
+  findThemesForRepository,
+  publicRepositoryContext,
+  resolveRepositoryContext,
+  resolveTaskRepositoryContexts,
+  resolveThemeRepositoryContexts,
+} from "../../shared/repositoryContext.mjs";
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -107,6 +115,30 @@ function matchQuery(record, fields, query) {
   const normalized = text(query).toLowerCase();
   if (!normalized) return true;
   return fields.some((field) => text(record[field]).toLowerCase().includes(normalized));
+}
+
+function repositoryCurrentFromArgs(args = {}) {
+  return {
+    repository_id: args.repository_id || args.repositoryId || args.repository_context_id,
+    provider: args.provider,
+    remote_url: args.remote_url,
+    remote_urls: args.remote_urls,
+    repository_slug: args.repository_slug || args.repositorySlug,
+    git_root: args.git_root || args.gitRoot,
+    cwd: args.cwd || args.working_directory,
+    workspace_folder: args.workspace_folder || args.workspaceFolder,
+  };
+}
+
+function publicRepositoryMatch(match) {
+  return {
+    ...match,
+    selected: publicRepositoryContext(match.selected),
+    candidates: (match.candidates || []).map((candidate) => ({
+      ...candidate,
+      context: publicRepositoryContext(candidate.context),
+    })),
+  };
 }
 
 export function defaultTaskenDbPath(env = process.env) {
@@ -357,9 +389,24 @@ export class ReadOnlyTaskenContext {
     const receipts = this.list("work_receipt", Boolean(args.include_archived))
       .filter((receipt) => receipt.task_id === taskId)
       .slice(0, clampLimit(args.limit, 50));
+    const theme = this.themeById(task.project_id || task.theme_id);
+    const repositoryResolution = resolveTaskRepositoryContexts({
+      task,
+      theme,
+      contexts: this.visibleRepositoryContexts(Boolean(args.include_archived)),
+    });
     return {
       task: filtered.records[0],
       receipts,
+      repository_contexts: repositoryResolution.contexts.map(publicRepositoryContext),
+      repository_context_resolution: {
+        mode: repositoryResolution.mode,
+        context_ids: repositoryResolution.contextIds,
+        missing_context_ids: repositoryResolution.missingContextIds,
+        missing_context_reasons: repositoryResolution.missingContextReasons,
+        subdirectory: repositoryResolution.subdirectory,
+        branch_hint: repositoryResolution.branchHint,
+      },
       task_id: taskId,
       read_only: true,
       ai_audience: this.audience,
@@ -491,6 +538,107 @@ export class ReadOnlyTaskenContext {
     return groupKnowledgeHealthIssues(buildKnowledgeHealth(nodes, relations, entities));
   }
 
+  repositoryContexts(includeArchived = false) {
+    const contexts = this.list("repository_context", includeArchived);
+    return includeArchived ? contexts : contexts.filter((context) => context.active !== false);
+  }
+
+  visibleRepositoryContextIds(includeArchived = false) {
+    const allContexts = this.repositoryContexts(true);
+    const visibleIds = new Set();
+    const visibleThemes = this.filterForAi("theme", this.list("theme", includeArchived)).records;
+    for (const theme of visibleThemes) {
+      for (const id of Array.isArray(theme.repository_context_ids) ? theme.repository_context_ids : []) {
+        visibleIds.add(String(id));
+      }
+    }
+    const visibleTasks = this.filterForAi("task", this.list("task", includeArchived)).records;
+    for (const task of visibleTasks) {
+      const theme = this.themeById(task.project_id || task.theme_id);
+      const resolution = resolveTaskRepositoryContexts({ task, theme, contexts: allContexts });
+      for (const id of resolution.contextIds) visibleIds.add(String(id));
+    }
+    return visibleIds;
+  }
+
+  visibleRepositoryContexts(includeArchived = false) {
+    const visibleIds = this.visibleRepositoryContextIds(includeArchived);
+    return this.repositoryContexts(includeArchived).filter((context) => visibleIds.has(String(context.id)));
+  }
+
+  toolResolveRepositoryContext(args = {}) {
+    const contexts = this.visibleRepositoryContexts(Boolean(args.include_archived));
+    const match = resolveRepositoryContext({
+      current: repositoryCurrentFromArgs(args),
+      contexts,
+    });
+    return { ...publicRepositoryMatch(match), read_only: true, ai_audience: this.audience, visible_context_count: contexts.length };
+  }
+
+  toolFindThemesForRepository(args = {}) {
+    const themes = this.filterForAi("theme", this.list("theme", Boolean(args.include_archived))).records;
+    const contexts = this.visibleRepositoryContexts(Boolean(args.include_archived));
+    const result = findThemesForRepository({ current: repositoryCurrentFromArgs(args), contexts, themes });
+    const matchedContextIds = new Set(result.matched_context_ids || []);
+    return {
+      ...publicRepositoryMatch(result),
+      themes: result.themes,
+      repository_contexts: contexts
+        .filter((context) => matchedContextIds.has(String(context.id)))
+        .map(publicRepositoryContext),
+      read_only: true,
+      ai_audience: this.audience,
+    };
+  }
+
+  toolFindTasksForRepository(args = {}) {
+    const filteredTasks = this.filterForAi("task", this.list("task", Boolean(args.include_archived)));
+    const result = findTasksForRepository({
+      current: repositoryCurrentFromArgs(args),
+      contexts: this.visibleRepositoryContexts(Boolean(args.include_archived)),
+      themes: this.list("theme", Boolean(args.include_archived)),
+      tasks: filteredTasks.records,
+    });
+    return {
+      ...publicRepositoryMatch(result),
+      tasks: result.tasks,
+      read_only: true,
+      ai_audience: this.audience,
+      ...summarizeAiExclusions(filteredTasks.exclusions),
+    };
+  }
+
+  toolGetRepositoryContext(args = {}) {
+    const id = text(args.repository_context_id || args.id);
+    const contexts = this.visibleRepositoryContexts(Boolean(args.include_archived));
+    const context = contexts.find((candidate) => String(candidate.id) === id);
+    if (!context) {
+      return {
+        repository_context: null,
+        repository_context_id: id,
+        excluded_reasons: ["repository_context_not_visible"],
+        read_only: true,
+        ai_audience: this.audience,
+      };
+    }
+    const themes = this.filterForAi("theme", this.list("theme", Boolean(args.include_archived)))
+      .records
+      .filter((theme) => (theme.repository_context_ids || []).map(String).includes(id));
+    const tasks = this.filterForAi("task", this.list("task", Boolean(args.include_archived))).records
+      .filter((task) => {
+        const theme = this.themeById(task.project_id || task.theme_id);
+        return resolveTaskRepositoryContexts({ task, theme, contexts }).contextIds.includes(id);
+      });
+    return {
+      repository_context: publicRepositoryContext(context),
+      themes,
+      tasks,
+      repository_context_id: id,
+      read_only: true,
+      ai_audience: this.audience,
+    };
+  }
+
   toolGetThemeContext(args = {}) {
     const limit = clampLimit(args.limit, 50);
     const textLimit = clampTextLimit(args.max_chars);
@@ -500,8 +648,21 @@ export class ReadOnlyTaskenContext {
     const filteredItems = this.filterForAi("item", this.mergedItems().filter((item) => themeIds.has(item.theme_id) && isOpenItem(item)));
     const filteredNotes = this.filterForAi("note", this.list("note").filter((note) => themeIds.has(note.theme_id)));
     const knowledge = this.toolGetKnowledgeContext({ theme_id: args.theme_id, limit, max_chars: textLimit, include_relations: true });
+    const contextRecords = this.visibleRepositoryContexts(false);
+    const repositoryContextsById = new Map();
+    const themeRepositoryContexts = themes.map((theme) => {
+      const resolution = resolveThemeRepositoryContexts(theme, contextRecords);
+      resolution.contexts.forEach((context) => repositoryContextsById.set(String(context.id), publicRepositoryContext(context)));
+      return {
+        theme_id: theme.id,
+        ...resolution,
+        contexts: resolution.contexts.map(publicRepositoryContext),
+      };
+    });
     return {
       themes,
+      repository_contexts: [...repositoryContextsById.values()],
+      theme_repository_contexts: themeRepositoryContexts,
       open_items: filteredItems.records.slice(0, limit),
       recent_notes: filteredNotes.records.slice(0, limit).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
       knowledge,
@@ -628,6 +789,18 @@ export class ReadOnlyTaskenContext {
     const filteredThemes = this.filterForAi("theme", this.list("theme").filter((theme) => !themeId || theme.id === themeId));
     const themes = filteredThemes.records;
     const themeIds = new Set(themes.map((theme) => theme.id));
+    const contextRecords = this.visibleRepositoryContexts(false);
+    const repositoryContextsById = new Map();
+    const themeRepositoryContexts = themes.map((theme) => {
+      const resolution = resolveThemeRepositoryContexts(theme, contextRecords);
+      resolution.contexts.forEach((context) => repositoryContextsById.set(String(context.id), publicRepositoryContext(context)));
+      return {
+        theme_id: theme.id,
+        context_ids: resolution.contextIds,
+        missing_context_ids: resolution.missingContextIds,
+        missing_context_reasons: resolution.missingContextReasons,
+      };
+    });
     const allItems = this.mergedItems().filter((item) => !themeId || item.theme_id === themeId);
     const filteredItems = this.filterForAi("item", scope === "open_items" ? allItems.filter(isOpenItem) : allItems);
     const items = filteredItems.records.slice(0, maxItems);
@@ -661,6 +834,8 @@ export class ReadOnlyTaskenContext {
       scope,
       ai_audience: this.audience,
       themes,
+      repository_contexts: [...repositoryContextsById.values()],
+      theme_repository_contexts: themeRepositoryContexts,
       items,
       notes,
       resources: mergedResources,

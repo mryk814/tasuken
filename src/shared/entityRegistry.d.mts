@@ -2,12 +2,12 @@ export type RegistryEntityType =
   | "theme" | "item" | "note" | "link" | "view" | "status_update"
   | "source_record" | "entity_source" | "field_definition" | "field_value"
   | "log_entry" | "import_batch" | "knowledge_node" | "ai_proposal" | "resource"
-  | "project" | "capture_entry" | "task" | "waiting" | "plan_node" | "schedule"
+  | "project" | "repository_context" | "capture_entry" | "task" | "waiting" | "plan_node" | "schedule"
   | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge"
   | "change_event" | "work_receipt" | "artifact" | "sketch";
 
 export const entityTypes: readonly RegistryEntityType[];
-export const referenceTargetEntityTypes: readonly Exclude<RegistryEntityType, "theme" | "item" | "link" | "view" | "status_update" | "source_record" | "entity_source" | "field_definition" | "field_value" | "log_entry" | "import_batch" | "ai_proposal" | "schedule" | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge" | "change_event" | "work_receipt">[];
+export const referenceTargetEntityTypes: readonly Exclude<RegistryEntityType, "theme" | "item" | "link" | "view" | "status_update" | "source_record" | "entity_source" | "field_definition" | "field_value" | "log_entry" | "import_batch" | "ai_proposal" | "repository_context" | "schedule" | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge" | "change_event" | "work_receipt">[];
 export const referenceRelationTypes: readonly ["related_to", "derived_from", "mentions", "blocks", "supports"];
 export interface EntityDefinition {
   readonly type: RegistryEntityType;
