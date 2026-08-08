@@ -9,7 +9,7 @@ import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
 import { buildTimelineRows, scaleFromDayWidth, timelineItemScheduleKind, timelineItemState, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
 import { SCHEDULE_KIND_LABELS, TIMELINE_ITEM_STATE_LABELS } from "../domain-model/labels";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttGridBackground, ganttRowHeight } from "../components/gantt";
-import { Button, PageHeader, StatusBadge, ToolbarOverflow } from "../components/common";
+import { Button, PageHeader, StatusBadge, ThemePickerSelect, ToolbarOverflow } from "../components/common";
 import { SlideTimelineDialog } from "../components/SlideTimelineDialog";
 import {
   isTimelineCompleted,
@@ -552,10 +552,15 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
           利用頻度が低いのでメニューへ畳み、幅が変わっても位置を動かさない（#300）。 */}
       <section className="timeline-toolbar toolbar-row panel">
         <label>Theme
-          <select value={themeFilter} onChange={(event) => updatePrefs({ themeFilter: event.target.value })}>
-            <option value="all">すべて</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
-          </select>
+          <ThemePickerSelect
+            themes={themes}
+            value={themeFilter}
+            onChange={(next) => updatePrefs({ themeFilter: next })}
+            allowAll
+            allowNone
+            allLabel="すべて"
+            ariaLabel="Themeで絞り込み"
+          />
         </label>
         <div className="segmented" aria-label="表示範囲">
           {RANGE_BUFFER_OPTIONS.map((option) => <button key={option.value} className={rangeBufferMonths === option.value ? "is-active" : ""} onClick={() => updatePrefs({ rangeBufferMonths: option.value })}>{option.label}</button>)}

@@ -1,11 +1,15 @@
 import { IconChevronDown, IconInfoCircle } from "@tabler/icons-react";
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useState } from "react";
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { actionDefinition, type ActionId } from "../../../pages/semanticActions";
 import { routeDescription, routeIcon, routeLabel } from "../../../pages/routes";
 import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
-import { PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
+import {
+  PERSONAL_DEFAULT_THEME_ID,
+  themePickerOptions,
+  THEME_NONE_VALUE,
+} from "../../../../../shared/themeRef.mjs";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "ai";
@@ -320,6 +324,7 @@ export function ThemeSelect({
   value,
   allowPersonal = false,
   allowAll = false,
+  allowNone,
   fieldName = "theme_id",
   onChange,
 }: {
@@ -327,15 +332,18 @@ export function ThemeSelect({
   value?: string | null;
   allowPersonal?: boolean;
   allowAll?: boolean;
+  allowNone?: boolean;
   fieldName?: string;
   onChange?: (value: string) => void;
 }) {
-  const initialValue = !value && allowPersonal && !allowAll ? PERSONAL_DEFAULT_THEME_ID : (value || "");
+  const includeNone = allowNone ?? (!allowPersonal && !allowAll);
+  const defaultValue = allowAll ? "all" : allowPersonal ? PERSONAL_DEFAULT_THEME_ID : THEME_NONE_VALUE;
+  const initialValue = value !== undefined && value !== null ? value : defaultValue;
   const [selected, setSelected] = useState(initialValue);
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    setSelected(!value && allowPersonal && !allowAll ? PERSONAL_DEFAULT_THEME_ID : (value || ""));
-  }, [allowAll, allowPersonal, value]);
+    setSelected(value !== undefined && value !== null ? value : defaultValue);
+  }, [allowAll, allowPersonal, defaultValue, value]);
   function choose(next: string) {
     // Keep the native form boundary coherent before React commits the state
     // update. This matters for programmatic requestSubmit() and for the same
@@ -344,42 +352,73 @@ export function ThemeSelect({
     setSelected(next);
     onChange?.(next);
   }
-  const noneLabel = allowAll ? "全体共通" : "未設定";
+  const options = [
+    ...(allowAll ? [{ value: "all", label: "全体共通", kind: "all" as const }] : []),
+    ...themePickerOptions(themes, { allowPersonal, allowNone: includeNone }),
+  ];
   return (
     <Field label="Theme">
       <input ref={hiddenInputRef} type="hidden" name={fieldName} value={selected} readOnly />
       <div className="theme-chips">
-        {allowPersonal ? (
+        {options.map((option, index) => {
+          const theme = themes.find((candidate) => candidate.id === option.value);
+          const isTheme = option.kind === "theme" && theme;
+          return (
           <button
+            key={`${option.kind}-${option.value}`}
             type="button"
-            className={`theme-chip ${selected === PERSONAL_DEFAULT_THEME_ID ? "is-selected" : ""}`}
-            onClick={() => choose(PERSONAL_DEFAULT_THEME_ID)}
+            className={`theme-chip ${selected === option.value ? "is-selected" : ""}`}
+            style={isTheme ? { "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties : undefined}
+            onClick={() => choose(option.value)}
           >
-            個人業務
+            {isTheme && <span className="chip-dot" />}
+            {option.label}
           </button>
-        ) : (
-          <button
-            type="button"
-            className={`theme-chip ${!selected ? "is-selected" : ""}`}
-            onClick={() => choose("")}
-          >
-            {noneLabel}
-          </button>
-        )}
-        {themes.filter((theme) => theme.id !== PERSONAL_DEFAULT_THEME_ID).map((theme, index) => (
-          <button
-            key={theme.id}
-            type="button"
-            className={`theme-chip ${selected === theme.id ? "is-selected" : ""}`}
-            style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
-            onClick={() => choose(theme.id)}
-          >
-            <span className="chip-dot" />
-            {theme.name}
-          </button>
-        ))}
+          );
+        })}
       </div>
     </Field>
+  );
+}
+
+/**
+ * Native select projection of the canonical ThemeRef options.
+ * Use this for compact filters and inline creation surfaces; ThemeSelect above
+ * is the chip projection used by drawer forms with a hidden form field.
+ */
+export function ThemePickerSelect({
+  themes = [],
+  value,
+  onChange,
+  allowPersonal = true,
+  allowNone = false,
+  allowAll = false,
+  allLabel = "全体共通",
+  ariaLabel = "Theme",
+  className = "",
+}: {
+  themes?: Theme[];
+  value?: string | null;
+  onChange: (value: string) => void;
+  allowPersonal?: boolean;
+  allowNone?: boolean;
+  allowAll?: boolean;
+  allLabel?: string;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  const options = themePickerOptions(themes, { allowPersonal, allowNone });
+  const selected = value ?? (allowAll ? "all" : allowPersonal ? PERSONAL_DEFAULT_THEME_ID : THEME_NONE_VALUE);
+  return (
+    <select
+      className={className}
+      value={selected}
+      onChange={(event) => onChange(event.target.value)}
+      aria-label={ariaLabel}
+    >
+      {allowAll && <option value="all">{allLabel}</option>}
+      {options.map((option) => <option key={`${option.kind}-${option.value}`} value={option.value}>{option.label}</option>)}
+    </select>
   );
 }
 

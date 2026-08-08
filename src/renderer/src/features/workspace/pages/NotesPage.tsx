@@ -34,7 +34,7 @@ import {
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { AI_ICON } from "../../../pages/semanticIcons";
-import { ActionButton, Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { ActionButton, Button, ContextMenu, EmptyState, PageHeader, ThemePickerSelect, type ContextMenuItem } from "../components/common";
 import { ChatRefArtifactLinkDialog } from "../components/ChatRefArtifactLinkDialog";
 import { DraftWorkspaceDialog } from "../components/DraftWorkspaceDialog";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
@@ -218,12 +218,12 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       .filter((resource) => !isChatReference(resource))
       .map((resource) => ({ ...resource, recordType: "resource" as const } as Combined)),
   ].sort((a, b) => compareNotesRecords(a, b, sortOrder)), [domain.notes, domain.resources, sortOrder]);
-  const themeId = prefs.themeId && prefs.themeId !== "all" && prefs.themeId !== "none"
-    && !themes.some((t) => t.id === prefs.themeId) ? "all" : (prefs.themeId || "all");
+  const themeId = prefs.themeId !== "all" && prefs.themeId !== ""
+    && !themes.some((t) => t.id === prefs.themeId) ? "all" : prefs.themeId;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visible = useMemo(() => records.filter((record) => {
     if (scope !== "all" && recordKind(record) !== scope) return false;
-    if (themeId === "none") {
+    if (themeId === "") {
       if (str(record.project_id || record.theme_id)) return false;
     } else if (themeId !== "all") {
       if (str(record.project_id || record.theme_id) !== themeId) return false;
@@ -1888,24 +1888,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             </button>
           ))}
         </div>
-        <select
+        <ThemePickerSelect
+          themes={themes}
           value={themeId}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (next !== "all" && !themes.some((t) => t.id === next) && next !== "none") {
-              updatePrefs({ themeId: "all" });
-            } else {
-              updatePrefs({ themeId: next });
-            }
-          }}
-          aria-label="Themeで絞り込み"
-        >
-          <option value="all">Theme: すべて</option>
-          <option value="none">Themeなし</option>
-          {themes.map((theme) => (
-            <option key={theme.id} value={theme.id}>{theme.name}</option>
-          ))}
-        </select>
+          onChange={(next) => updatePrefs({ themeId: next })}
+          allowAll
+          allowNone
+          allLabel="Theme: すべて"
+          ariaLabel="Themeで絞り込み"
+        />
         <label className="notes-sort-field">
           <span className="sr-only">Notesの並び順</span>
           <select

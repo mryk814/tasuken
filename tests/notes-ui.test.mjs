@@ -47,9 +47,9 @@ test("Notes UI persists filter and sort preferences and exposes save-folder acti
 
 test("Notes theme filter, resizable list pane, and collapse are wired", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  assert.match(source, /aria-label="Themeで絞り込み"/);
-  assert.match(source, /value="none">Themeなし/);
-  assert.match(source, /themeId === "none"/);
+  assert.match(source, /ariaLabel="Themeで絞り込み"/);
+  assert.match(source, /ThemePickerSelect/);
+  assert.match(source, /themeId === ""/);
   assert.match(source, /notes-resize-handle/);
   assert.match(source, /is-list-collapsed/);
   assert.match(source, /onPointerDown=\{handleResize\}/);

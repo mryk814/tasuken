@@ -12,7 +12,7 @@ import { InlineAddPanel } from "../components/InlineAddPanel";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Schedule, Waiting } from "../domain-model/types";
-import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 
 function scheduledDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
@@ -23,7 +23,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addWaitingFor, setAddWaitingFor] = useState("");
-  const [addTheme, setAddTheme] = useState("");
+  const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
   const schedulesByOwner = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));

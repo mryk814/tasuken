@@ -25,7 +25,7 @@ import {
 import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID, themePickerOptions } from "../../../../../shared/themeRef.mjs";
 import { usePersistentState } from "../../../utils/usePersistentState";
 import { Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
@@ -120,7 +120,7 @@ export function ChatRefsPage({
 }: PageProps) {
   const chatResources = useMemo(() => domain.resources.filter(isChatReference), [domain.resources]);
   const themeNameOf = (resource: Resource) => themeTitle(themes, str(resource.project_id) || null);
-  const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || themes[0]?.id || "");
+  const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || PERSONAL_DEFAULT_THEME_ID);
   const [query, setQuery] = useState("");
   const [prefs, setPrefs] = usePersistentState<ChatRefsPrefs>("chat-refs:prefs:v1", DEFAULT_CHAT_REFS_PREFS);
   const {
@@ -143,7 +143,7 @@ export function ChatRefsPage({
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   useEffect(() => {
-    if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
+    if (!selectedThemeId) setSelectedThemeId(PERSONAL_DEFAULT_THEME_ID);
   }, [selectedThemeId, themes]);
 
   useEffect(() => {
@@ -591,20 +591,21 @@ export function ChatRefsPage({
             <span>{themes.length}件</span>
           </div>
           <div className="chat-theme-list">
-            {themes.map((theme, index) => {
+            {themePickerOptions(themes, { allowPersonal: true, allowNone: false }).map((option, index) => {
+              const theme = themes.find((entry) => entry.id === option.value);
               const count = chatResources.filter((r) => {
-                if (r.project_id !== theme.id) return false;
+                if (r.project_id !== option.value) return false;
                 return isArchiveView ? isChatArchived(r) : !isChatArchived(r);
               }).length;
               return (
                 <button
-                  key={theme.id}
-                  className={selectedThemeId === theme.id ? "is-active" : ""}
-                  style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
-                  onClick={() => selectTheme(theme.id)}
+                  key={`${option.kind}-${option.value}`}
+                  className={selectedThemeId === option.value ? "is-active" : ""}
+                  style={theme ? { "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties : undefined}
+                  onClick={() => selectTheme(option.value)}
                 >
-                  <span className="chip-dot" />
-                  <strong>{theme.name}</strong>
+                  {theme && <span className="chip-dot" />}
+                  <strong>{option.label}</strong>
                   <span className="count">{count}</span>
                 </button>
               );

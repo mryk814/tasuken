@@ -13,7 +13,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { CalendarConnectionStatus, CalendarEvent, CalendarEventsResult } from "../../../../../shared/calendar";
-import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
@@ -661,7 +661,7 @@ function buildDisconnectedCalendarStatus(): CalendarConnectionStatus {
 export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, openDailyScratchpad, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
-  const [addTheme, setAddTheme] = useState("");
+  const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [activityDate, setActivityDate] = useState(todayIso());
   const [activityDirectory, setActivityDirectory] = useState("");
   const [activityAutoExportTime, setActivityAutoExportTime] = useState("");

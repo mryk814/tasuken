@@ -74,3 +74,20 @@ Today mini、Quick Capture、Memo stickyのstandalone windowも `electron.vite.c
 - `NotesPage` の検索・差分・Sketch挿入: 編集中の補助操作。文書作成・保存の主操作はActionDefinitionへ接続
 
 残存クラスを単に `data-*` で互換表示する二重経路は作らず、変更対象surfaceではsemantic variantを正本とする。
+
+## Theme picker audit
+
+Themeの選択値は `shared/themeRef.mjs` の `themePickerOptions` を正本とする。`theme-personal-default`（個人業務）と空文字（明示的なThemeなし）は別値であり、filterの `all`（全体共通／すべて）とも混同しない。
+
+| Surface | 共通picker | 選択値 | 判定 |
+|---|---|---|---|
+| Today / ToDo / Waiting inline add | `InlineAddPanel` → `ThemePickerSelect` | personal ID、必要ならTheme ID | canonical |
+| ToDo / Timeline / Knowledge / Notes / Sketch Library / Artifacts filter | `ThemePickerSelect` + `allowAll` + `allowNone` | `all`、`""`、personal/Theme ID | canonical projection |
+| DrawerのEntity Theme field | `ThemeSelect` + hidden form input | personal ID、`""`、Theme ID | canonical chip projection |
+| Chat Refs Theme column | `themePickerOptions` | personal ID、Theme ID | canonical list projection |
+| Conversation import | `ThemePickerSelect` + `allowNone` | personal ID、`""`、Theme ID | canonical |
+| `SlideTimelineDialog` | 独自native select | slide出力範囲の `all` / Theme ID | 専門出力UIとして残存 |
+| `DraftWorkspaceDialog` | 独自native select | draft作業対象のTheme | 専門AI draft UIとして残存 |
+| Sketch detail drawer | `ThemePickerSelect` + `allowNone` | personal ID、`""`、Theme ID | canonical即時保存 |
+
+残存native selectは上表の専門UIに限定し、作成・編集・一覧filterの主要surfaceには残していない。`ThemeSelect` は空文字を含む選択値をhidden inputと `onChange` に同じまま渡す。

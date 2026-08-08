@@ -15,7 +15,7 @@ import {
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/savedTaskViews";
-import { Button, EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
 import { SCHEDULE_KIND_LABELS, TASK_STATE_LABELS } from "../domain-model/labels";
@@ -25,7 +25,7 @@ import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { Schedule, Task } from "../domain-model/types";
-import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 
 type TodoRow = {
   task: Task;
@@ -128,7 +128,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   const [groupMode, setGroupMode] = useState<TodoGroupMode>("none");
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
-  const [addTheme, setAddTheme] = useState("");
+  const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
 
@@ -343,10 +343,15 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
       </div>
       <section className="panel list-page">
         <div className="todo-table-toolbar">
-          <select value={taskFilters.themeId} onChange={(event) => patchTaskFilters({ themeId: event.target.value })} aria-label="Themeで絞り込み">
-            <option value="">すべてのTheme</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-          </select>
+          <ThemePickerSelect
+            themes={themes}
+            value={taskFilters.themeId}
+            onChange={(themeId) => patchTaskFilters({ themeId })}
+            allowAll
+            allowNone
+            allLabel="すべてのTheme"
+            ariaLabel="Themeで絞り込み"
+          />
           <select value={taskFilters.state} onChange={(event) => patchTaskFilters({ state: event.target.value })} aria-label="状態で絞り込み">
             <option value="">すべての状態</option>
             {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}

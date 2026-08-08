@@ -7,7 +7,7 @@ import {
   resolveArtifactSourceLabel,
   themeNameOf,
 } from "../components/artifacts";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
 import { readRecentArtifactIds } from "../lib/artifactRecent";
 import type { ArtifactSourceType, PageProps } from "../types";
@@ -119,7 +119,7 @@ export function ArtifactsPage({
   return (
     <div className="page artifacts-page">
       <PageHeader route="artifacts">
-        <button className="secondary-button" onClick={copyList} disabled={!artifacts.length}>一覧をコピー</button>
+        <Button variant="secondary" onClick={copyList} disabled={!artifacts.length}>一覧をコピー</Button>
       </PageHeader>
 
       <section className="panel artifact-role-panel" aria-label="役割の整理">
@@ -138,16 +138,15 @@ export function ArtifactsPage({
           placeholder="ファイル名・元Entity・Themeで検索"
           aria-label="Artifact を検索"
         />
-        <select
+        <ThemePickerSelect
+          themes={themes}
           value={prefs.themeId}
-          onChange={(event) => updatePrefs({ themeId: event.target.value })}
-          aria-label="Themeで絞り込み"
-        >
-          <option value="all">Theme: すべて</option>
-          {themes.map((theme) => (
-            <option key={theme.id} value={theme.id}>{theme.name}</option>
-          ))}
-        </select>
+          onChange={(themeId) => updatePrefs({ themeId })}
+          allowAll
+          allowNone
+          allLabel="Theme: すべて"
+          ariaLabel="Themeで絞り込み"
+        />
         <select
           value={prefs.sourceType}
           onChange={(event) => updatePrefs({ sourceType: event.target.value as ArtifactsPrefs["sourceType"] })}
@@ -186,15 +185,16 @@ export function ArtifactsPage({
         <div className="empty-state">
           <strong>条件に合う Artifact がありません</strong>
           {filterActive && (
-            <button
-              className="secondary-button compact"
+            <Button
+              variant="secondary"
+              compact
               onClick={() => {
                 setQuery("");
                 setPrefs(DEFAULT_PREFS);
               }}
             >
               フィルタを解除
-            </button>
+            </Button>
           )}
         </div>
       ) : (

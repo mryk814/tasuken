@@ -1,7 +1,8 @@
 import type { KeyboardEvent, ReactNode } from "react";
 
 import type { Theme } from "../types";
-import { Button } from "./common";
+import { Button, ThemePickerSelect } from "./common";
+import { PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 
 export function InlineAddPanel({
   heading,
@@ -45,10 +46,12 @@ export function InlineAddPanel({
           autoFocus
         />
         {extraFields}
-        <select value={theme} onChange={(event) => onThemeChange(event.target.value)}>
-          <option value="">個人業務</option>
-          {themes.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-        </select>
+        <ThemePickerSelect
+          themes={themes}
+          value={theme || PERSONAL_DEFAULT_THEME_ID}
+          onChange={onThemeChange}
+          ariaLabel="Theme"
+        />
         <Button variant="primary" compact onClick={() => void onSubmit()}>{submitLabel}</Button>
       </div>
     </section>

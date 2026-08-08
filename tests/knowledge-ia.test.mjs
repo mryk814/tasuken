@@ -39,7 +39,7 @@ test("Notes kinds are simplified to Note Resource Report Prompt", () => {
   assert.match(createMenuSource, /\["note", "resource", "report", "prompt"\]/);
   assert.match(createMenuSource, /action="notesCreate"/);
   // コピー操作は secondary のまま。
-  assert.match(notesPageSource, /secondary-button[\s\S]*?>一覧をコピー</);
+  assert.match(notesPageSource, /<Button variant="secondary" onClick=\{copy\}>一覧をコピー<\/Button>/);
   assert.match(notesPageSource, /body_markdown/);
   assert.match(notesPageSource, /recordType === "resource"/);
 });
