@@ -30,6 +30,7 @@ const electronMockPlugin = {
         export const screen = {
           getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 800, height: 600 } }],
         };
+        export const ipcMain = { handle: () => {} };
         export class BrowserWindow {
           constructor(options = {}) {
             this.bounds = {
@@ -71,6 +72,7 @@ const electronMockPlugin = {
 const state = await importBundled("src/main/satelliteWindowState.ts");
 const memoPresentation = await importBundled("src/shared/memoPresentation.ts");
 const registryModule = await importBundled("src/main/satelliteWindowRegistry.ts", [electronMockPlugin]);
+const ipcRegistration = await importBundled("src/main/ipc/registerIpc.ts", [electronMockPlugin]);
 
 function tempStatePath() {
   return path.join(mkdtempSync(path.join(tmpdir(), "tasken-satellite-")), "windows.json");
@@ -223,6 +225,10 @@ test("初回配置後は手動移動した新規ウィンドウを再配置し�
 const registrySource = readFileSync("src/main/satelliteWindowRegistry.ts", "utf8");
 const memoStickySource = readFileSync("src/main/memoStickyController.ts", "utf8");
 const mainSource = readFileSync("src/main/index.ts", "utf8");
+const noteWindowControllerSource = readFileSync("src/main/noteWindowController.ts", "utf8");
+const notesPageSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+const workspaceAppFlushSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+const registerIpcSource = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const stickyHtml = readFileSync("src/renderer/memo-sticky.html", "utf8");
 const viteConfig = readFileSync("electron.vite.config.ts", "utf8");
 const cssSourceForNotes = readFileSync("src/renderer/src/styles/app.css", "utf8");
@@ -275,6 +281,34 @@ test("位置・サイズを覚え、画面外へ復元しない配線がある�
   assert.match(registrySource, /window\.on\("resize", \(\) => scheduleSaveBounds\(entry\)\)/);
   // 端末ごとの見え方なので、正本DBではなくuserData配下のJSONへ置く。
   assert.match(mainSource, /stateFilePath: path\.join\(app\.getPath\("userData"\), "satellite-windows\.json"\)/);
+});
+
+test("Notesのdebounce/manual/route flushはowner queueと終了registryを共有する（#291 / #290）", () => {
+  assert.match(notesPageSource, /window\.setTimeout\(\(\) => \{[\s\S]*\}, 1500\)/);
+  assert.match(notesPageSource, /draftSaveQueuesRef/);
+  assert.match(notesPageSource, /sameDraftSaveJob/);
+  assert.match(notesPageSource, /cancelAutosaveTimer\(\);[\s\S]*flushDraftSnapshot/);
+  assert.match(notesPageSource, /detail\.flush = flushDraftSnapshot/);
+  assert.match(notesPageSource, /if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\)/);
+  assert.match(notesPageSource, /const pageFlush = flushDraftSnapshot\(captureCurrentDraftSnapshot\(\)\)\.then/);
+  assert.match(notesPageSource, /Promise\.all\(\[pageFlush, flushPendingNoteDraftSaves\(\)\]\)/);
+  assert.match(notesPageSource, /ackNoteWindowFlush\(request\.requestId, pageOk && pendingOk\)/);
+  assert.match(workspaceAppFlushSource, /Promise\.all\(\[pageFlush, flushPendingNoteDraftSaves\(\)\]\)/);
+  assert.match(workspaceAppFlushSource, /respond\(pageOk && pendingOk\)/);
+  assert.match(noteWindowControllerSource, /flushAndClose/);
+  assert.match(noteWindowControllerSource, /IPC\.noteWindowFlushAck/);
+  assert.match(noteWindowControllerSource, /event\.preventDefault\(\)/);
+});
+
+test("generic entity save IPCはMain内部timestampをRendererへ公開しない（#291）", () => {
+  assert.match(registerIpcSource, /function normalizeIpcSaveOptions/);
+  assert.match(registerIpcSource, /repository\.save\(entityType, entity, normalizeIpcSaveOptions\(options\)\)/);
+  assert.doesNotMatch(registerIpcSource, /repository\.save\(entityType, entity, options\)/);
+  assert.doesNotMatch(registerIpcSource, /updatedAt|__canonicalOperationAt/);
+  assert.deepEqual(
+    ipcRegistration.normalizeIpcSaveOptions({ reason: "manual", source: "renderer", quiet: true, __canonicalOperationAt: "1999-01-01T00:00:00.000Z" }),
+    { reason: "manual", source: "renderer", quiet: true },
+  );
 });
 
 test("付箋は同じMemoの表示状態であり、別Entityを作らない（#298）", () => {
@@ -410,7 +444,7 @@ test("同じNoteを二つのEditorで黙って同時編集させない（#290）
   // 常設buttonから「この文書」menuの項目へ移した（#331）。意味の切り替えは維持する。
   assert.match(notesSource, /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを前面に出す" : "別ウィンドウで開く"/);
   // 切り離す前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする。
-  assert.match(notesSource, /const current = captureCurrentDraftSnapshot\(\);\s*\n\s*await autoSaveDraft\(current\);\s*\n\s*const opened = await workspaceApi\.openNoteWindow\(selected\.id\)/);
+  assert.match(notesSource, /const current = captureCurrentDraftSnapshot\(\);\s*\n\s*await flushDraftSnapshot\(current\);\s*\n\s*const opened = await workspaceApi\.openNoteWindow\(selected\.id\)/);
 });
 
 test("Noteウィンドウから本体へ表示を渡せる（#290）", () => {

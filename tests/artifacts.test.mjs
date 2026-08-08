@@ -273,7 +273,12 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
 
   const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
-  assert.match(notesSource, /themeId:\s*str\(selected\.project_id \|\| selected\.theme_id\)/);
+  // Markdown copy is built from the latest entity after the owner queue flush,
+  // so Theme routing must not read the detached/stale selected snapshot.
+  assert.match(notesSource, /const persisted = await workspaceApi\.get\("note", selected\.id\);/);
+  assert.match(notesSource, /const exportNote: Combined = \{ \.\.\.selected, \.\.\.\(persisted \|\| \{\}\), recordType: "note" as const \};/);
+  assert.match(notesSource, /const exportThemeId = str\(exportNote\.project_id \|\| exportNote\.theme_id\);/);
+  assert.match(notesSource, /themeId: exportThemeId \|\| null/);
   assert.match(drawerSource, /themeId:\s*str\(note\.theme_id\)/);
 });
 

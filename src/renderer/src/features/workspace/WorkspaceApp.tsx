@@ -10,6 +10,7 @@ import { usePreference } from "../../utils/usePreference";
 import type {
   BaseRecord,
   ContentViewerTarget,
+  DocumentSaveSnapshot,
   DrawerConfig,
   DrawerEntityType,
   Entity,
@@ -48,6 +49,7 @@ import { findActiveFocusSession, focusSessionProperties, focusSessionTaskId } fr
 import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 import type { ApplicationCommandSource, ApplyAiProposalCommandPayload, CommandEnvelope, CommandReceipt, ExpectedVersion } from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
+import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -188,6 +190,27 @@ export function WorkspaceApp() {
     void loadWorkspace();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Mainの終了要求はrendererの保存完了ackを受け取ってから完了させる。
+  // NotesPageの現在snapshotと、route unmount後も残るpending saveを合成してackする。
+  useEffect(() => workspaceApi.onAppFlushRequested((request) => {
+    let settled = false;
+    const respond = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      void workspaceApi.ackAppFlush(request.requestId, ok).catch(() => undefined);
+    };
+    const detail: {
+      handled: boolean;
+      flush: Promise<boolean> | null;
+    } = { handled: false, flush: null };
+    window.dispatchEvent(new CustomEvent("tasken:app-flush-requested", { detail }));
+    // Notes routeがunmount済みでも、route cleanupが開始したsaveをここで待つ。
+    const pageFlush = detail.flush || Promise.resolve(true);
+    void Promise.all([pageFlush, flushPendingNoteDraftSaves()])
+      .then(([pageOk, pendingOk]) => respond(pageOk && pendingOk))
+      .catch(() => respond(false));
+  }), []);
 
   useEffect(() => {
     if (!window.api?.app?.onWorkspaceChanged) return;
@@ -655,7 +678,7 @@ export function WorkspaceApp() {
     return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
   }, [detachedNoteId, loadState, setInboxLane, setRoute]);
 
-  const saveEntity: SaveEntity = async (type, entity, options = {}) => {
+  const saveEntity: SaveEntity = async (type, entity, options = {}, documentSnapshot?: DocumentSaveSnapshot) => {
     try {
       if (type === "task") {
         const existing = fullDomain.tasks.find((candidate) => candidate.id === entity.id);
@@ -680,8 +703,32 @@ export function WorkspaceApp() {
         if (!options.quiet) setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
         return (receipt.changes.find((change) => change.type === "task")?.entity || entity) as Entity;
       }
-      const saved = await saveWorkspaceEntity(type, entity as Entity, options);
-      if (!options.quiet) setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
+      const saved = type === "note"
+        ? await workspaceApi.saveDocument({
+          entity: entity as Entity,
+          snapshot: documentSnapshot || {
+            owner: { recordType: "note", entityId: String(entity.id) },
+            body: String(entity.body_markdown ?? ""),
+            expectedRevision: Number(entity.version || 0),
+          },
+          options,
+        })
+        : await saveWorkspaceEntity(type, entity as Entity, options);
+      if (!options.quiet) {
+        const binding = saved.properties_json && typeof saved.properties_json === "object"
+          ? (saved.properties_json as Record<string, unknown>).canonical_markdown
+          : null;
+        const syncState = binding && typeof binding === "object" && !Array.isArray(binding)
+          ? String((binding as Record<string, unknown>).sync_state || "")
+          : "";
+        if (type === "note" && syncState === "conflict") {
+          setToast("Taskenへ保存しましたが、Markdownが外部で変更されています。内容を確認して再試行してください。", "warning");
+        } else if (type === "note" && ["internal_ahead", "unavailable"].includes(syncState)) {
+          setToast("Taskenへ保存しましたが、Markdownを更新できませんでした。保存先を確認して再試行してください。", "warning");
+        } else {
+          setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
+        }
+      }
       return saved;
     } catch (error) {
       setToast(`保存できませんでした。${errorMessage(error)}`, "danger");
@@ -1115,6 +1162,10 @@ export function WorkspaceApp() {
       const { theme_id: _legacyThemeId, ...canonicalBase } = base;
       entity = {
         ...canonicalBase,
+        // Canonical document IPC requires a stable owner ID even for a new Note.
+        // Allocate it before the first save so the drawer create path and the
+        // later editor snapshots share the same typed owner.
+        id: str(base.id) || uuid(),
         title,
         body_markdown: body,
         note_type: noteType,

@@ -64,6 +64,16 @@ const api: ResearchDeskApi = {
     checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),
     openReleasePage: (url) => ipcRenderer.invoke(IPC.appReleasePageOpen, url),
     setTitleBarTheme: (theme) => ipcRenderer.invoke(IPC.appTitleBarTheme, theme),
+    onAppFlushRequested: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, request: unknown): void => {
+        const value = request && typeof request === "object" ? request as Record<string, unknown> : {};
+        if (typeof value.requestId !== "string" || !value.requestId) return;
+        callback({ requestId: value.requestId, noteId: typeof value.noteId === "string" ? value.noteId : undefined });
+      };
+      ipcRenderer.on(IPC.appFlushRequested, handler);
+      return () => { ipcRenderer.removeListener(IPC.appFlushRequested, handler); };
+    },
+    ackAppFlush: (requestId, ok) => ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok }),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
     showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
     showMemoStickyWindow: (memoId) => ipcRenderer.invoke(IPC.memoStickyOpen, memoId),
@@ -95,6 +105,16 @@ const api: ResearchDeskApi = {
       ipcRenderer.on(IPC.noteWindowOpenChanged, handler);
       return () => { ipcRenderer.removeListener(IPC.noteWindowOpenChanged, handler); };
     },
+    onNoteWindowFlushRequested: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, request: unknown): void => {
+        const value = request && typeof request === "object" ? request as Record<string, unknown> : {};
+        if (typeof value.requestId !== "string" || !value.requestId) return;
+        callback({ requestId: value.requestId, noteId: typeof value.noteId === "string" ? value.noteId : undefined });
+      };
+      ipcRenderer.on(IPC.noteWindowFlushRequested, handler);
+      return () => { ipcRenderer.removeListener(IPC.noteWindowFlushRequested, handler); };
+    },
+    ackNoteWindowFlush: (requestId, ok) => ipcRenderer.invoke(IPC.noteWindowFlushAck, { requestId, ok }),
     onMemoStickyOpenChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, memoIds: unknown): void => {
         callback(Array.isArray(memoIds) ? memoIds.map(String) : []);
@@ -140,6 +160,9 @@ const api: ResearchDeskApi = {
     saveMany: (operations) => ipcRenderer.invoke(IPC.entitySaveMany, operations),
     remove: (type, id) => ipcRenderer.invoke(IPC.entityRemove, type, id),
     restore: (type, id) => ipcRenderer.invoke(IPC.entityRestore, type, id),
+  },
+  documents: {
+    save: (request) => ipcRenderer.invoke(IPC.documentSave, request),
   },
   commands: {
     execute: (envelope) => ipcRenderer.invoke(IPC.applicationCommand, envelope),

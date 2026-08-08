@@ -20,6 +20,8 @@ async function importBundled(relativePath) {
 const identity = await importBundled("src/renderer/src/features/workspace/lib/noteDraftIdentity.ts");
 const notesPageSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 const editorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+const serviceSource = readFileSync("src/main/services/workspaceService.ts", "utf8");
+const workspaceTypesSource = readFileSync("src/shared/types/workspace.ts", "utf8");
 
 const fixtures = [
   { recordType: "note", id: "note-a", body: "NOTE_A_ONLY", theme: "theme-a" },
@@ -182,4 +184,15 @@ test("NotesPageの全保存経路はowner付きsnapshotを使い、current Edito
   assert.doesNotMatch(notesPageSource, /mdxMarkdownSourceRef\.current\?\.\(\)/);
   assert.match(editorSource, /ownerKey: string/);
   assert.match(editorSource, /markdownSourceRef\.current = \{\s*ownerKey/);
+  assert.match(notesPageSource, /expectedRevision: snapshot\.expectedRevision/);
+  assert.match(workspaceTypesSource, /interface DocumentSaveSnapshot/);
+  assert.match(workspaceTypesSource, /expectedRevision: number/);
+  assert.match(serviceSource, /actualRevision !== request\.snapshot\.expectedRevision/);
+  assert.match(serviceSource, /ownerとEntityが一致しません/);
+});
+
+test("draft snapshotはownerと取得時revisionを同時に保持する", () => {
+  const snapshot = identity.makeNoteDraftSnapshot(owner(fixtures[0]), "edited", fixtures[0].body, 7);
+  assert.deepEqual(snapshot.owner, { recordType: "note", entityId: "note-a" });
+  assert.equal(snapshot.expectedRevision, 7);
 });
