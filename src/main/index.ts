@@ -1150,9 +1150,9 @@ function createWindow(): BrowserWindow {
       });
     }
   });
-  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+  window.webContents.on("console-message", ({ level, message, lineNumber: line, sourceId }) => {
     if (!isSmokeTest) return;
-    if (level < 2 && !/mermaid|markdown|unhandled|exception/i.test(message)) return;
+    if (level !== "warning" && level !== "error" && !/mermaid|markdown|unhandled|exception/i.test(message)) return;
     const entry = { level, message, line, sourceId };
     recordSmoke("renderer-console", entry);
     console.error("Renderer console: " + JSON.stringify(entry));
