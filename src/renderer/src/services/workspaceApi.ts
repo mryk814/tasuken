@@ -75,8 +75,29 @@ export const workspaceApi = {
   getAiConfig() {
     return desktopApi().ai.getConfig();
   },
-  saveAiConfig(update: import("../../../shared/ai").AiProviderConfigUpdate) {
-    return desktopApi().ai.saveConfig(update);
+  saveAiProviderProfile(update: import("../../../shared/ai").AiProviderProfileUpdate) {
+    return desktopApi().ai.saveProviderProfile(update);
+  },
+  deleteAiProviderProfile(id: string) {
+    return desktopApi().ai.deleteProviderProfile(id);
+  },
+  saveAiModelProfile(update: import("../../../shared/ai").AiModelProfileUpdate) {
+    return desktopApi().ai.saveModelProfile(update);
+  },
+  deleteAiModelProfile(id: string) {
+    return desktopApi().ai.deleteModelProfile(id);
+  },
+  setDefaultAiProviderProfile(id: string) {
+    return desktopApi().ai.setDefaultProviderProfile(id);
+  },
+  setDefaultAiModelProfile(id: string) {
+    return desktopApi().ai.setDefaultModelProfile(id);
+  },
+  testAiConnection(request: import("../../../shared/ai").AiTestConnectionRequest) {
+    return desktopApi().ai.testConnection(request);
+  },
+  getAiFeatureAvailability(feature: import("../../../shared/ai").AiFeature, providerProfileId?: string, modelProfileId?: string) {
+    return desktopApi().ai.featureAvailability(feature, providerProfileId, modelProfileId);
   },
   generateNoteWithAi(request: import("../../../shared/ai").AiNoteGenerateRequest) {
     return desktopApi().ai.generateNote(request);

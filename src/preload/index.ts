@@ -23,7 +23,14 @@ const api: ResearchDeskApi = {
   },
   ai: {
     getConfig: () => ipcRenderer.invoke(IPC.aiConfigGet),
-    saveConfig: (update) => ipcRenderer.invoke(IPC.aiConfigSave, update),
+    saveProviderProfile: (update) => ipcRenderer.invoke(IPC.aiProviderSave, update),
+    deleteProviderProfile: (id) => ipcRenderer.invoke(IPC.aiProviderDelete, id),
+    saveModelProfile: (update) => ipcRenderer.invoke(IPC.aiModelSave, update),
+    deleteModelProfile: (id) => ipcRenderer.invoke(IPC.aiModelDelete, id),
+    setDefaultProviderProfile: (id) => ipcRenderer.invoke(IPC.aiDefaultProvider, id),
+    setDefaultModelProfile: (id) => ipcRenderer.invoke(IPC.aiDefaultModel, id),
+    testConnection: (request) => ipcRenderer.invoke(IPC.aiTestConnection, request),
+    featureAvailability: (feature, providerProfileId, modelProfileId) => ipcRenderer.invoke(IPC.aiFeatureAvailability, feature, providerProfileId, modelProfileId),
     generateNote: (request) => ipcRenderer.invoke(IPC.aiNoteGenerate, request),
   },
   clipboard: {

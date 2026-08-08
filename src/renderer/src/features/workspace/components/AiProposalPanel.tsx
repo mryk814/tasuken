@@ -353,7 +353,7 @@ export function AiProposalPanel(props: PageProps) {
             source_id: proposal.id,
             theme_id: candidate.theme?.id || null,
             description: str(candidate.entry.reason),
-            generated_by: str(proposal.source) === "embedded_llm" ? "openai" : "manual",
+            generated_by: null,
           },
           options: { source: "ai_proposal" },
         });
