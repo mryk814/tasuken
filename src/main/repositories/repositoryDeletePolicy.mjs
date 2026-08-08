@@ -6,6 +6,12 @@ const themeReferenceTargets = entityTypes
   .filter((entry) => entry[1]);
 
 export function applyRepositoryDeletePolicy(repository, type, id) {
+  if (type === "repository_context") {
+    // Context deletion is logical, but live Theme/Task links must not dangle.
+    // The repository stores a reversible, explicit detach marker.
+    repository.nullifyRepositoryContextReferences(id);
+  }
+
   if (type === "theme") {
     repository.cascadeWhere("artifact", (entry) => entry.source_type === "theme" && entry.source_id === id, type, id);
     repository.nullifyReferences(type, themeReferenceTargets, id);

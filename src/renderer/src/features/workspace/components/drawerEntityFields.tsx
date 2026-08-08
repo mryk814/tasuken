@@ -22,6 +22,7 @@ import { buildSaveTaskOperations } from "../domain-model/persistence";
 import { DEFAULT_RANGE_SEMANTICS } from "../domain-model/scheduleSemantics";
 import type { Schedule, ScheduleRangeSemantics, Task } from "../domain-model/types";
 import { Field, ThemeSelect } from "./common";
+import { TaskRepositoryContextFields } from "./repositoryContextFields";
 
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
@@ -120,6 +121,14 @@ export function TaskFields({
       repeat_series_id: (entity.repeat_series_id as string | null) ?? null,
       repeat_parent_task_id: (entity.repeat_parent_task_id as string | null) ?? null,
       checklist_items: items,
+      repository_context_mode: (str(entity.repository_context_mode) || "inherit") as Task["repository_context_mode"],
+      repository_context_ids: Array.isArray(entity.repository_context_ids) ? entity.repository_context_ids.map(String) : [],
+      primary_repository_context_id: (entity.primary_repository_context_id as string | null) ?? null,
+      repository_subdirectory: (entity.repository_subdirectory as string | null) ?? null,
+      repository_branch_hint: (entity.repository_branch_hint as string | null) ?? null,
+      repository_context_detachments: Array.isArray(entity.repository_context_detachments)
+        ? entity.repository_context_detachments as Array<Record<string, unknown>>
+        : undefined,
       legacy_item_id: (entity.legacy_item_id as string | null) ?? null,
       created_at: str(entity.created_at) || new Date().toISOString(),
     };
@@ -144,6 +153,7 @@ export function TaskFields({
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
+      <TaskRepositoryContextFields entity={entity} data={data} />
       <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
       <section className="drawer-subsection">
         <div className="section-heading"><h2>依頼と実行</h2><span className="field-help">本文とは別に、担当と作業状態を記録します。</span></div>

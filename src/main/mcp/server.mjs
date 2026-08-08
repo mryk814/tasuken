@@ -92,6 +92,45 @@ export function createTaskenMcpServer() {
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolGetTaskAssignment(args)));
 
+  const repositoryLookupSchema = {
+    repository_context_id: optionalText,
+    repository_id: optionalText,
+    provider: optionalText,
+    remote_url: optionalText,
+    remote_urls: z.array(z.string().trim().max(2000)).max(20).optional(),
+    repository_slug: optionalText,
+    git_root: optionalText,
+    cwd: optionalText,
+    workspace_folder: optionalText,
+    include_archived: z.boolean().optional(),
+  };
+  server.registerTool("tasken.resolve_repository_context", {
+    description: "Resolve a current workspace to a RepositoryContext without choosing an ambiguous candidate.",
+    inputSchema: repositoryLookupSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolResolveRepositoryContext(args)));
+
+  server.registerTool("tasken.find_themes_for_repository", {
+    description: "Find AI-visible Themes associated with a current repository workspace.",
+    inputSchema: repositoryLookupSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolFindThemesForRepository(args)));
+
+  server.registerTool("tasken.find_tasks_for_repository", {
+    description: "Find AI-visible Tasks associated with a current repository workspace, respecting Task subdirectories.",
+    inputSchema: repositoryLookupSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolFindTasksForRepository(args)));
+
+  server.registerTool("tasken.get_repository_context", {
+    description: "Read one RepositoryContext and its AI-visible Theme/Task associations. Private local paths are redacted.",
+    inputSchema: {
+      repository_context_id: z.string().trim().min(1).max(200),
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetRepositoryContext(args)));
+
   server.registerTool("tasken.get_theme_context", {
     description: "Return themes, open work, recent notes, knowledge, and health.",
     inputSchema: {
@@ -205,6 +244,21 @@ export function createTaskenMcpServer() {
   }, withReadContext((context, args) => context.toolExportAiContext(args)));
 
   const workItemList = z.array(z.string().trim().min(1).max(1000)).max(100).optional();
+  const externalReferenceInput = z.object({
+    kind: z.enum(["issue", "pull_request", "merge_request", "commit", "branch", "file", "pipeline", "other"]),
+    provider: z.string().trim().max(120).optional(),
+    display_label: z.string().trim().min(1).max(200),
+    url: z.string().trim().url().refine((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === "https:" && !parsed.username && !parsed.password;
+      } catch {
+        return false;
+      }
+    }, "HTTPS URL without credentialsが必要です。"),
+    external_id: z.string().trim().max(200).optional(),
+  }).strict();
+  const externalReferenceList = z.array(externalReferenceInput).max(100).optional();
   const taskWorkBase = {
     task_id: z.string().trim().min(1).max(200),
     source_app: z.string().trim().min(1).max(120).optional(),
@@ -242,6 +296,7 @@ export function createTaskenMcpServer() {
     changed_or_created_items: workItemList,
     verification: workItemList,
     remaining_work: workItemList,
+    external_references: externalReferenceList,
     provider: z.string().trim().max(120).optional(),
     model: z.string().trim().max(200).optional(),
   };
@@ -253,6 +308,7 @@ export function createTaskenMcpServer() {
     changed_or_created_items: args.changed_or_created_items || [],
     verification: args.verification || [],
     remaining_work: args.remaining_work || [],
+    external_references: args.external_references || [],
     runtime_metadata: args.provider || args.model ? { provider: args.provider || null, model: args.model || null } : null,
   });
 
@@ -267,6 +323,41 @@ export function createTaskenMcpServer() {
     inputSchema: receiptProposalSchema,
     annotations: PROPOSAL_ANNOTATIONS,
   }, async (args) => queueTaskWork(args, "report_done", receiptProposalFields(args)));
+
+  server.registerTool("tasken.propose_repository_context", {
+    description: "Queue a RepositoryContext proposal for user review. This never writes a context directly and never stores credentials.",
+    inputSchema: {
+      label: z.string().trim().min(1).max(200),
+      provider: z.enum(["github", "gitlab", "azure_devops", "local", "generic_git", "unknown"]).optional(),
+      remote_url: optionalText,
+      local_path: optionalText,
+      web_url: optionalText,
+      repository_slug: optionalText,
+      subdirectory: optionalText,
+      default_branch: optionalText,
+      reason: z.string().max(2000).optional(),
+      source_app: z.string().trim().min(1).max(120).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => toolResult(queueMcpProposal({
+    payloadType: "repository_contexts",
+    sourceApp: sourceApp(args),
+    payload: {
+      repository_contexts: [{
+        action: "create",
+        label: args.label,
+        provider: args.provider || "unknown",
+        remote_url: args.remote_url || null,
+        local_path: args.local_path || null,
+        web_url: args.web_url || null,
+        repository_slug: args.repository_slug || null,
+        subdirectory: args.subdirectory || null,
+        default_branch: args.default_branch || null,
+        reason: args.reason || "",
+      }],
+    },
+    request: { tool: "tasken.propose_repository_context" },
+  })));
 
   server.registerTool("tasken.propose_task", {
     description: "Queue a new Task proposal. This does not create the Task until the user accepts it in Tasken.",

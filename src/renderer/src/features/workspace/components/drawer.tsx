@@ -5,6 +5,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
 import type {
   BaseRecord,
   DrawerConfig,
@@ -58,11 +59,13 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { DrawerHeader, Field, StatusBadge, ThemePickerSelect, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import { ChatGroupPicker, ThemeColorPicker, ThemeGroupPicker, ThemeStorageRootField } from "./drawerPickers";
+import { ThemeRepositoryContextFields } from "./repositoryContextFields";
 import {
   TASK_STATE_LABELS,
   TASK_REQUESTER_LABELS,
   TASK_INTENDED_EXECUTOR_LABELS,
   TASK_WORK_STATE_LABELS,
+  EXTERNAL_REFERENCE_KIND_LABELS,
   WAITING_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -165,6 +168,14 @@ function splitWorkLines(value: string): string[] {
   return value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+function receiptExternalReferences(receipt: WorkReceipt) {
+  try {
+    return normalizeExternalReferences(receipt.external_references);
+  } catch {
+    return [];
+  }
+}
+
 function TaskWorkSection({
   task,
   receipts,
@@ -258,6 +269,15 @@ function TaskWorkSection({
               {receipt.changed_or_created_items?.length > 0 && <p><strong>変更・作成:</strong> {receipt.changed_or_created_items.join("、")}</p>}
               {receipt.verification?.length ? <p><strong>検証:</strong> {receipt.verification.join("、")}</p> : null}
               {receipt.remaining_work?.length ? <p><strong>残り:</strong> {receipt.remaining_work.join("、")}</p> : null}
+              {receiptExternalReferences(receipt).length > 0 && (
+                <div className="task-work-external-references" aria-label="External references">
+                  {receiptExternalReferences(receipt).map((reference) => (
+                    <a key={`${reference.kind}:${reference.url}`} href={reference.url} target="_blank" rel="noreferrer" title={EXTERNAL_REFERENCE_KIND_LABELS[reference.kind]}>
+                      {reference.display_label}
+                    </a>
+                  ))}
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -794,6 +814,7 @@ function EditDrawer({
             <ThemeColorPicker value={str(entity.color)} />
             <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
             <ThemeStorageRootField value={str(entity.storage_root)} setToast={setToast} />
+            <ThemeRepositoryContextFields entity={entity} data={data} saveEntities={saveEntities} removeEntity={removeEntity} />
             <ThemeAiVisibilityField
               value={entity.default_ai_visibility as AiAudience[] | null | undefined}
               workspaceDefault={workspaceAiVisibilityDefault}
