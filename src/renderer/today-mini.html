@@ -203,7 +203,7 @@
       .open-button:hover { background: var(--color-surface); }
       .add-task-bar {
         display: grid;
-        grid-template-columns: 28px minmax(0, 1fr);
+        grid-template-columns: 22px minmax(0, 1fr) minmax(112px, 148px);
         align-items: center;
         gap: var(--space-2);
         min-height: 48px;
@@ -230,6 +230,34 @@
       }
       .add-input::placeholder { color: color-mix(in srgb, var(--color-on-accent) 88%, transparent); }
       .add-input:disabled { opacity: .62; }
+      .add-theme-picker {
+        min-width: 0;
+        width: 100%;
+        grid-column: 2 / -1;
+        overflow-x: auto;
+      }
+      .theme-picker-standalone { display: flex; gap: var(--space-1); min-width: max-content; }
+      .theme-picker-standalone .theme-chip {
+        min-height: 28px;
+        padding: 0 var(--space-2);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        background: var(--color-glass);
+        color: var(--color-text-light);
+        white-space: nowrap;
+      }
+      .theme-picker-standalone .theme-chip:hover { background: var(--color-glass-hover); }
+      .theme-picker-standalone .theme-chip.is-selected {
+        border-color: var(--color-text-light);
+        background: var(--color-panel-strong);
+        color: var(--color-accent);
+        font-weight: 800;
+      }
+      .theme-picker-standalone .theme-chip:disabled { cursor: not-allowed; opacity: .62; }
+      @media (max-width: 390px) {
+        .app-shell { padding-inline: 12px; }
+        .add-task-bar { grid-template-columns: 22px minmax(0, 1fr); }
+      }
     </style>
   </head>
   <body>
@@ -258,9 +286,12 @@
       <form class="add-task-bar" id="add-task-form">
         <span class="add-icon" aria-hidden="true"></span>
         <input class="add-input" id="add-task-input" autocomplete="off" placeholder="タスクの追加" aria-label="タスクの追加" />
+        <div class="add-theme-picker" id="add-task-theme-picker"></div>
       </form>
     </div>
     <script type="module">
+      import { createThemePicker } from "../shared/themePickerDom";
+
       const content = document.querySelector("#content");
       const count = document.querySelector("#count");
       const todayDate = document.querySelector("#today-date");
@@ -269,6 +300,8 @@
       const closeWindowButton = document.querySelector("#close-window");
       const addTaskForm = document.querySelector("#add-task-form");
       const addTaskInput = document.querySelector("#add-task-input");
+      const addTaskThemePicker = createThemePicker({ label: "TaskのTheme" });
+      document.querySelector("#add-task-theme-picker").append(addTaskThemePicker.element);
 
       // 日付は起動時に固定せず、日付をまたいでも表示が古くならないよう都度更新する。
       const dateFormat = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" });
@@ -303,6 +336,11 @@
 
       function stateHtml(title, body, tone = "") {
         return `<div class="state ${tone}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(body)}</span></div>`;
+      }
+
+      async function loadThemeOptions() {
+        const options = await window.todayMiniApi.listThemes();
+        addTaskThemePicker.setOptions(options);
       }
 
       function scheduleHint(task) {
@@ -360,11 +398,13 @@
         const title = addTaskInput.value.trim();
         if (!title) return;
         addTaskInput.disabled = true;
+        addTaskThemePicker.setDisabled(true);
         try {
-          await render(() => window.todayMiniApi.addTask(title));
+          await render(() => window.todayMiniApi.addTask({ title, themeId: addTaskThemePicker.getValue() }));
           addTaskInput.value = "";
         } finally {
           addTaskInput.disabled = false;
+          addTaskThemePicker.setDisabled(false);
           addTaskInput.focus();
         }
       });
@@ -405,6 +445,10 @@
         const dayChanged = applyToday();
         if (dayChanged || document.visibilityState === "visible") void syncNow();
       }, CONSISTENCY_INTERVAL_MS);
+      void loadThemeOptions().catch((error) => {
+        addTaskThemePicker.setDisabled(true);
+        addTaskThemePicker.element.title = error instanceof Error ? error.message : String(error);
+      });
       render();
     </script>
   </body>

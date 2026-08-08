@@ -125,6 +125,7 @@ const mainSource = readFileSync("src/main/index.ts", "utf8");
 const stickyHtml = readFileSync("src/renderer/memo-sticky.html", "utf8");
 const viteConfig = readFileSync("electron.vite.config.ts", "utf8");
 const cssSourceForNotes = readFileSync("src/renderer/src/styles/app.css", "utf8");
+const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
 
 test("同じEntityの切り離しウィンドウを二枚作らない（#290 / #298）", () => {
   // 既にあれば作らずに前面へ出す。黙って別Editorを開かないための契約。
@@ -141,6 +142,30 @@ test("本体ウィンドウ判定を一箇所へ集約する（#290）", () => {
   assert.match(mainSource, /\.find\(\(win\) => !isAuxiliaryWindow\(win\) && !win\.isDestroyed\(\)\)/);
   // 切り離しウィンドウにも同じ変更通知を配る（正本が分裂しない）。
   assert.match(mainSource, /satelliteWindows\?\.broadcast\(IPC\.workspaceChanged, change\);/);
+});
+
+test("Todayの表示状態はregistryのvisibility遷移を通知する（#327）", () => {
+  assert.match(mainSource, /function isVisibleWindow\(win: BrowserWindow \| null\): boolean/);
+  assert.match(mainSource, /todayOpen: isVisibleWindow\(todayMiniController\?\.getWindow\(\) \|\| null\)/g);
+  assert.doesNotMatch(mainSource, /todayOpen: Boolean\(todayMiniController\?\.getWindow\(\)\)/);
+  assert.match(registrySource, /const wasVisible = window\.isVisible\(\);/);
+  assert.match(registrySource, /window\.show\(\);/);
+  assert.match(registrySource, /window\.focus\(\);/);
+  assert.match(registrySource, /if \(!wasVisible && window\.isVisible\(\)\) options\.onChanged\?\.\(\);/);
+  assert.match(registrySource, /window\.hide\(\);/);
+  assert.match(registrySource, /if \(wasVisible && !window\.isVisible\(\)\) options\.onChanged\?\.\(\);/);
+  assert.match(registrySource, /focus\(key\)[\s\S]*reveal\(window\)/);
+  assert.match(registrySource, /window\.on\("closed"[\s\S]*options\.onChanged\?\.\(\);/);
+});
+
+test("Top BarのToday／付箋はicon中心で状態を色だけに頼らない（#327）", () => {
+  assert.match(shellSource, /aria-label="Todayウィンドウを表示"[\s\S]*title="Todayウィンドウを表示"[\s\S]*aria-pressed=\{launcher\.todayWindowOpen\}/);
+  assert.match(shellSource, /aria-label="付箋を展開または収納"[\s\S]*title="付箋を展開または収納"[\s\S]*aria-pressed=\{launcher\.stickyWindowsShown\}/);
+  assert.match(shellSource, /className="titlebar-launcher-state"/);
+  assert.doesNotMatch(shellSource, />Today<\/span>/);
+  assert.doesNotMatch(shellSource, />付箋<\/span>/);
+  assert.match(cssSourceForNotes, /\.titlebar-launcher button \{ position: relative;[\s\S]*width: 30px/);
+  assert.match(cssSourceForNotes, /\.titlebar-launcher button\.is-active \.titlebar-launcher-state \{ display: block; \}/);
 });
 
 test("位置・サイズを覚え、画面外へ復元しない配線がある（#290）", () => {

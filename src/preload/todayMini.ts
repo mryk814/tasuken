@@ -1,12 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import { IPC, type TodayMiniTask } from "../shared/ipc/contracts";
+import { IPC, type TodayMiniAddTaskRequest, type TodayMiniTask, type TodayMiniThemeOption } from "../shared/ipc/contracts";
 
 type Unsubscribe = () => void;
 
 contextBridge.exposeInMainWorld("todayMiniApi", {
   list: (): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniList),
-  addTask: (title: string): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniAddTask, title),
+  listThemes: (): Promise<TodayMiniThemeOption[]> => ipcRenderer.invoke(IPC.todayMiniThemes),
+  addTask: (request: TodayMiniAddTaskRequest): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniAddTask, request),
   toggle: (taskId: string): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniToggle, taskId),
   openTask: (taskId: string): Promise<boolean> => ipcRenderer.invoke(IPC.todayMiniOpenTask, taskId),
   pinTopRight: (): Promise<boolean> => ipcRenderer.invoke(IPC.todayMiniPinTopRight),

@@ -121,9 +121,11 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
 
   function reveal(window: BrowserWindow): void {
     if (window.isDestroyed()) return;
+    const wasVisible = window.isVisible();
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
+    if (!wasVisible && window.isVisible()) options.onChanged?.();
   }
 
   function createWindow(key: SatelliteWindowKey, spec: SatelliteWindowSpec): BrowserWindow {
@@ -275,7 +277,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     hide(key) {
       const window = get(key);
       if (!window) return false;
+      const wasVisible = window.isVisible();
       window.hide();
+      if (wasVisible && !window.isVisible()) options.onChanged?.();
       return true;
     },
     close(key) {

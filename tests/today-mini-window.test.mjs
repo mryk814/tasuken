@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { build } from "esbuild";
+
+async function importBundled(relativePath) {
+  const result = await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+}
 
 const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
 const mainSource = [
@@ -69,4 +85,31 @@ test("Today mini keeps the clean surface but uses Tasken tone and compact task m
   assert.match(mainSource, /IPC\.todayMiniAddTask/);
   assert.match(mainSource, /themeColor:/);
   assert.match(mainSource, /hasReminder:/);
+});
+
+test("Today mini task追加は共通Theme pickerの選択をcanonical project_idへ渡す", () => {
+  assert.match(ipcContractsSource, /todayMiniThemes: "today-mini:themes"/);
+  assert.match(preloadSource, /listThemes/);
+  assert.match(contractsSource, /listThemes\(\): Promise<TodayMiniThemeOption\[\]>/);
+  assert.match(htmlSource, /createThemePicker/);
+  assert.match(htmlSource, /id="add-task-theme-picker"/);
+  assert.match(htmlSource, /window\.todayMiniApi\.listThemes/);
+  assert.match(htmlSource, /themeId: addTaskThemePicker\.getValue\(\)/);
+  assert.doesNotMatch(htmlSource, /<select[^>]+add-task-theme/);
+  assert.match(mainSource, /themePickerOptions\(options\.repository\.list\("theme"\)/);
+  assert.match(mainSource, /resolveTodayMiniThemeRef\(listThemeOptions\(\), themeId\)/);
+  assert.doesNotMatch(mainSource, /project_id: canonicalThemeId\(null/);
+});
+
+test("Today miniのTheme IPC境界はpersonalまたは実在Themeだけを許可する", async () => {
+  const theme = await importBundled("src/shared/todayMiniTheme.ts");
+  const options = [
+    { value: "theme-personal-default", kind: "personal" },
+    { value: "theme-a", kind: "theme" },
+    { value: "", kind: "none" },
+  ];
+  assert.equal(theme.resolveTodayMiniThemeRef(options, undefined).id, "theme-personal-default");
+  assert.equal(theme.resolveTodayMiniThemeRef(options, "theme-a").id, "theme-a");
+  assert.throws(() => theme.resolveTodayMiniThemeRef(options, "missing-theme"), /選択したThemeが見つかりません/);
+  assert.equal(theme.resolveTodayMiniThemeRef(options, "").id, "theme-personal-default");
 });

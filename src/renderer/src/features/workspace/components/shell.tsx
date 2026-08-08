@@ -60,7 +60,7 @@ function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
           onClick={launcher.openTodayWindow}
         >
           <IconCalendarCheck size={16} aria-hidden="true" />
-          <span>Today</span>
+          <span className="titlebar-launcher-state" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -71,7 +71,7 @@ function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
           onClick={launcher.toggleStickyWindows}
         >
           <IconNotes size={16} aria-hidden="true" />
-          <span>付箋</span>
+          <span className="titlebar-launcher-state" aria-hidden="true" />
         </button>
     </div>
   );

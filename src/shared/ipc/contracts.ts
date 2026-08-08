@@ -43,6 +43,7 @@ export const IPC = {
   todayMiniPinTopRight: "today-mini:pin-top-right",
   todayMiniHide: "today-mini:hide",
   todayMiniList: "today-mini:list",
+  todayMiniThemes: "today-mini:themes",
   todayMiniAddTask: "today-mini:add-task",
   todayMiniToggle: "today-mini:toggle",
   todayMiniOpenTask: "today-mini:open-task",
@@ -146,6 +147,17 @@ export interface TodayMiniTask {
   priority: "normal" | "high";
   checklistDone: number;
   checklistTotal: number;
+}
+
+export interface TodayMiniThemeOption {
+  value: string;
+  label: string;
+  kind: "personal" | "theme" | "none";
+}
+
+export interface TodayMiniAddTaskRequest {
+  title: string;
+  themeId?: string;
 }
 
 export interface SatelliteWindowStatePayload {
