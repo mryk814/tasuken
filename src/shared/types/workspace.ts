@@ -52,6 +52,7 @@ export interface Workspace {
   projects?: Entity[];
   capture_entrys?: Entity[];
   tasks?: Entity[];
+  work_receipts?: Entity[];
   waitings?: Entity[];
   plan_nodes?: Entity[];
   schedules?: Entity[];

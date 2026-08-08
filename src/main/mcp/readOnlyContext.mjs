@@ -329,6 +329,44 @@ export class ReadOnlyTaskenContext {
     };
   }
 
+  toolListAgentReadyTasks(args = {}) {
+    const limit = clampLimit(args.limit);
+    const candidates = this.list("task", Boolean(args.include_archived))
+      .filter((task) => task.intended_executor === "ai_agent")
+      .filter((task) => (task.work_state || "ready_for_agent") === "ready_for_agent")
+      .filter((task) => task.state !== "done" && task.state !== "cancelled")
+      .filter((task) => !args.theme_id || task.project_id === args.theme_id);
+    const filtered = this.filterForAi("task", candidates);
+    return {
+      tasks: filtered.records.slice(0, limit),
+      limit,
+      ai_audience: this.audience,
+      read_only: true,
+      ...summarizeAiExclusions(filtered.exclusions),
+    };
+  }
+
+  toolGetTaskAssignment(args = {}) {
+    const taskId = text(args.task_id || args.id);
+    const task = this.list("task", Boolean(args.include_archived)).find((candidate) => candidate.id === taskId);
+    if (!task) return { task: null, receipts: [], task_id: taskId, read_only: true, ai_audience: this.audience };
+    const filtered = this.filterForAi("task", [task]);
+    if (!filtered.records.length) {
+      return { task: null, receipts: [], task_id: taskId, read_only: true, ai_audience: this.audience, ...summarizeAiExclusions(filtered.exclusions) };
+    }
+    const receipts = this.list("work_receipt", Boolean(args.include_archived))
+      .filter((receipt) => receipt.task_id === taskId)
+      .slice(0, clampLimit(args.limit, 50));
+    return {
+      task: filtered.records[0],
+      receipts,
+      task_id: taskId,
+      read_only: true,
+      ai_audience: this.audience,
+      ...summarizeAiExclusions(filtered.exclusions),
+    };
+  }
+
   toolGetRecentNotes(args = {}) {
     const limit = clampLimit(args.limit);
     const textLimit = clampTextLimit(args.max_chars);

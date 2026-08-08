@@ -72,6 +72,26 @@ export function createTaskenMcpServer() {
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolListOpenItems(args)));
 
+  server.registerTool("tasken.list_agent_ready_tasks", {
+    description: "List AI-assigned Tasks that are ready for an agent. Read-only; a Work Receipt never completes a Task.",
+    inputSchema: {
+      theme_id: optionalText,
+      limit: optionalLimit,
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolListAgentReadyTasks(args)));
+
+  server.registerTool("tasken.get_task_assignment", {
+    description: "Read one Task assignment and its append-only Work Receipts. Read-only.",
+    inputSchema: {
+      task_id: z.string().trim().min(1).max(200),
+      limit: optionalLimit,
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetTaskAssignment(args)));
+
   server.registerTool("tasken.get_theme_context", {
     description: "Return themes, open work, recent notes, knowledge, and health.",
     inputSchema: {
@@ -183,6 +203,70 @@ export function createTaskenMcpServer() {
     },
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolExportAiContext(args)));
+
+  const workItemList = z.array(z.string().trim().min(1).max(1000)).max(100).optional();
+  const taskWorkBase = {
+    task_id: z.string().trim().min(1).max(200),
+    source_app: z.string().trim().min(1).max(120).optional(),
+  };
+  const queueTaskWork = (args, action, extra = {}) => toolResult(queueMcpProposal({
+    payloadType: "task_work",
+    sourceApp: sourceApp(args),
+    payload: { task_work: [{ action, task_id: args.task_id, ...extra }] },
+    request: { tool: {
+      start: "tasken.start_task_work",
+      append_receipt: "tasken.append_work_receipt",
+      report_done: "tasken.report_task_done",
+    }[action] || `tasken.${action}` },
+  }));
+
+  server.registerTool("tasken.start_task_work", {
+    description: "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",
+    inputSchema: {
+      ...taskWorkBase,
+      executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
+      executor_identity: z.string().trim().max(200).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => queueTaskWork(args, "start", {
+    executor_kind: args.executor_kind || "ai_agent",
+    executor_identity: args.executor_identity || null,
+  }));
+
+  const receiptProposalSchema = {
+    ...taskWorkBase,
+    executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]),
+    executor_label: z.string().trim().min(1).max(200),
+    summary: z.string().trim().min(1).max(10000),
+    completed_items: workItemList,
+    changed_or_created_items: workItemList,
+    verification: workItemList,
+    remaining_work: workItemList,
+    provider: z.string().trim().max(120).optional(),
+    model: z.string().trim().max(200).optional(),
+  };
+  const receiptProposalFields = (args) => ({
+    executor_kind: args.executor_kind,
+    executor_label: args.executor_label,
+    summary: args.summary,
+    completed_items: args.completed_items || [],
+    changed_or_created_items: args.changed_or_created_items || [],
+    verification: args.verification || [],
+    remaining_work: args.remaining_work || [],
+    runtime_metadata: args.provider || args.model ? { provider: args.provider || null, model: args.model || null } : null,
+  });
+
+  server.registerTool("tasken.append_work_receipt", {
+    description: "Queue an append-only Work Receipt proposal. It enters Tasken review and does not complete the Task.",
+    inputSchema: receiptProposalSchema,
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => queueTaskWork(args, "append_receipt", receiptProposalFields(args)));
+
+  server.registerTool("tasken.report_task_done", {
+    description: "Queue an AI work report as a proposal. The report is not Task completion and requires human review.",
+    inputSchema: receiptProposalSchema,
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => queueTaskWork(args, "report_done", receiptProposalFields(args)));
 
   server.registerTool("tasken.propose_task", {
     description: "Queue a new Task proposal. This does not create the Task until the user accepts it in Tasken.",

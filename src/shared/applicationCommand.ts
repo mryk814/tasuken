@@ -10,6 +10,10 @@ export const applicationCommandNames = [
   "CompleteTaskWithLearning",
   "EndFocusSession",
   "ApplyAiProposal",
+  "StartTaskWork",
+  "AppendWorkReceipt",
+  "AcceptTaskWork",
+  "ReturnTaskWork",
 ] as const;
 export type ApplicationCommandName = (typeof applicationCommandNames)[number];
 
@@ -23,7 +27,7 @@ export type ApplicationCommandSource =
 export const applicationCommandSources = ["main_ui", "today_window", "quick_capture", "inbox", "command_palette", "mcp"] as const;
 
 export interface CommandActor {
-  kind: "user" | "system";
+  kind: "user" | "system" | "ai_agent";
   id?: string;
 }
 
@@ -89,6 +93,23 @@ export interface ApplyAiProposalCommandPayload {
   }>;
 }
 
+export interface StartTaskWorkCommandPayload {
+  taskId: string;
+  executorKind?: string;
+  executorIdentity?: string | null;
+  startedAt?: string | null;
+}
+
+export interface AppendWorkReceiptCommandPayload {
+  taskId: string;
+  receipt: Entity;
+}
+
+export interface TaskWorkReviewCommandPayload {
+  taskId: string;
+  reviewNote?: string | null;
+}
+
 export type ApplicationCommandPayload =
   | CreateTaskCommandPayload
   | CreateTaskFromCaptureCommandPayload
@@ -96,7 +117,10 @@ export type ApplicationCommandPayload =
   | TaskIdCommandPayload
   | CompleteTaskWithLearningCommandPayload
   | EndFocusSessionCommandPayload
-  | ApplyAiProposalCommandPayload;
+  | ApplyAiProposalCommandPayload
+  | StartTaskWorkCommandPayload
+  | AppendWorkReceiptCommandPayload
+  | TaskWorkReviewCommandPayload;
 
 export interface CommandEnvelope<TPayload extends ApplicationCommandPayload = ApplicationCommandPayload> {
   commandId: string;
@@ -177,7 +201,7 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     throw new ApplicationCommandError("INVALID_ENVELOPE", "Command名が不正です。");
   }
   const actor = value.actor;
-  if (!isRecord(actor) || (actor.kind !== "user" && actor.kind !== "system")) {
+  if (!isRecord(actor) || (actor.kind !== "user" && actor.kind !== "system" && actor.kind !== "ai_agent")) {
     throw new ApplicationCommandError("INVALID_ENVELOPE", "Command actorが不正です。");
   }
   const source = requireString(value.source, "Command source") as ApplicationCommandSource;
@@ -204,6 +228,19 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
   if ((name === "CompleteTask" || name === "ReopenTask" || name === "DeleteTask")
     && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
+  }
+  if (["StartTaskWork", "AppendWorkReceipt", "AcceptTaskWork", "ReturnTaskWork"].includes(name)
+    && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
+  }
+  if (name === "AppendWorkReceipt") {
+    if (!isRecord(value.payload.receipt) || typeof value.payload.receipt.id !== "string" || !value.payload.receipt.id.trim()) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "AppendWorkReceiptのreceiptが不正です。");
+    }
+  }
+  if (name === "ReturnTaskWork" && value.payload.reviewNote !== undefined
+    && value.payload.reviewNote !== null && typeof value.payload.reviewNote !== "string") {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "ReturnTaskWorkのreviewNoteが不正です。");
   }
   if (name === "CompleteTaskWithLearning") {
     const required = ["task", "note"];

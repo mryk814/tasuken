@@ -33,7 +33,10 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   }
 
   if (type === "link") repository.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
-  if (type === "task") repository.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
+  if (type === "task") {
+    repository.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
+    repository.cascadeWhere("work_receipt", (entry) => entry.task_id === id, type, id);
+  }
   if (type === "resource") repository.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
   if (type === "capture_entry") repository.cascadeWhere("artifact", (entry) => entry.source_type === "capture_entry" && entry.source_id === id, type, id);
   if (type === "ai_proposal") repository.cascadeWhere("artifact", (entry) => entry.source_type === "ai_proposal" && entry.source_id === id, type, id);

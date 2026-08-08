@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { IconAlertTriangle, IconArchive, IconHistory, IconPencil, IconShieldCheck } from "@tabler/icons-react";
 
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
+import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { str, uuid } from "../lib/format";
 import { assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { applyMarkdownDiffHunks, buildMarkdownDiffHunks, diffMarkdownLines } from "../lib/markdownEditing";
@@ -11,8 +12,9 @@ import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ActionButton, Button } from "./common";
 
-type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update";
-type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact";
+type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work";
+type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact" | "task_work";
+const taskEntityType = "task" as const;
 
 interface ProposalCandidate {
   type: CandidateType;
@@ -47,6 +49,14 @@ function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data" | "the
     return { candidates: [], payloadIssues: ["status_updateは内容確認後にProposalの状態だけ更新します"] };
   }
   const payload = wrapPayload(parsePayload(proposal.payload, payloadType), payloadType);
+  if (payloadType === "task_work") {
+    const entries = Array.isArray(payload.task_work) ? payload.task_work as Record<string, unknown>[] : [];
+    if (!entries.length) throw new Error("task_workがありません。");
+    return {
+      candidates: entries.map((entry) => ({ type: "task_work", entry, action: "create", issues: [] })),
+      payloadIssues: ["Work Receiptの採用はTask本文を変更せず、typed work commandとして適用します。"],
+    };
+  }
   if (payloadType === "sketches" || payloadType === "artifacts") {
     const entries = Array.isArray(payload[payloadType]) ? payload[payloadType] as Record<string, unknown>[] : [];
     if (!entries.length) throw new Error(`${payloadType}がありません。`);
@@ -267,7 +277,7 @@ function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperatio
 }
 
 export function AiProposalPanel(props: PageProps) {
-  const { data, themes, items, saveEntities, setToast } = props;
+  const { data, domain, themes, items, saveEntities, executeCommand, setToast } = props;
   const [selectedId, setSelectedId] = useState("");
   const [preview, setPreview] = useState<ProposalPreview | null>(null);
   const [quarantineId, setQuarantineId] = useState("");
@@ -315,6 +325,69 @@ export function AiProposalPanel(props: PageProps) {
   async function acceptProposal(proposal: BaseRecord) {
     if (!preview) {
       previewProposal(proposal);
+      return;
+    }
+    if (str(proposal.payload_type) === "task_work") {
+      try {
+        const candidate = preview.candidates.find((entry) => entry.action !== "ignore");
+        if (!candidate) {
+          await saveEntities([{ action: "save", type: "ai_proposal", entity: { ...proposal, status: "rejected" } }], "Work proposalを却下しました。");
+          setPreview(null);
+          return;
+        }
+        if (preview.candidates.filter((entry) => entry.action !== "ignore").length !== 1) throw new Error("Work proposalは1件ずつ採用してください。");
+        const taskId = str(candidate.entry.task_id);
+        const task = domain.tasks.find((entry) => entry.id === taskId);
+        if (!task) throw new Error("対象Taskが見つかりません。Taskを再読み込みしてください。");
+        const expectedVersions = [{ type: taskEntityType, id: task.id, version: Number((task as unknown as BaseRecord).version || 0) }];
+        const action = str(candidate.entry.action);
+        let name: CommandEnvelope["name"];
+        let payload: CommandEnvelope["payload"];
+        if (action === "start") {
+          name = "StartTaskWork";
+          payload = {
+            taskId,
+            executorKind: str(candidate.entry.executor_kind) || "ai_agent",
+            executorIdentity: str(candidate.entry.executor_identity) || null,
+          };
+        } else if (action === "append_receipt" || action === "report_done") {
+          name = "AppendWorkReceipt";
+          const reportedAt = str(candidate.entry.reported_at) || new Date().toISOString();
+          payload = {
+            taskId,
+            receipt: {
+              id: uuid(),
+              task_id: taskId,
+              executor_kind: str(candidate.entry.executor_kind) || "ai_agent",
+              executor_label: str(candidate.entry.executor_label) || "AI agent",
+              started_at: str(candidate.entry.started_at) || task.work_started_at || reportedAt,
+              reported_at: reportedAt,
+              summary: str(candidate.entry.summary),
+              completed_items: Array.isArray(candidate.entry.completed_items) ? candidate.entry.completed_items : [],
+              changed_or_created_items: Array.isArray(candidate.entry.changed_or_created_items) ? candidate.entry.changed_or_created_items : [],
+              verification: Array.isArray(candidate.entry.verification) ? candidate.entry.verification : [],
+              remaining_work: Array.isArray(candidate.entry.remaining_work) ? candidate.entry.remaining_work : [],
+              source_session: proposal.id,
+              runtime_metadata: candidate.entry.runtime_metadata && typeof candidate.entry.runtime_metadata === "object" ? candidate.entry.runtime_metadata : null,
+            },
+          };
+        } else {
+          throw new Error("未対応のtask_work actionです。");
+        }
+        await executeCommand({
+          commandId: uuid(),
+          name,
+          payload,
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions,
+          issuedAt: new Date().toISOString(),
+        } as CommandEnvelope);
+        await saveEntities([{ action: "save", type: "ai_proposal", entity: { ...proposal, status: "accepted" } }], "Work proposalを採用しました。Task本文は変更していません。");
+        setPreview(null);
+      } catch (error) {
+        setToast(`Work proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`);
+      }
       return;
     }
     try {
@@ -446,8 +519,8 @@ export function AiProposalPanel(props: PageProps) {
           {preview.candidates.map((candidate, index) => (
             <div className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`} key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
               <div>
-                <strong>{str(candidate.entry.title) || str(candidate.entry.relation_type) || "無題"}</strong>
-                <small>{candidate.type} / {candidate.theme?.name || "Theme未解決"}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title)}` : ""}</small>
+                <strong>{str(candidate.entry.title) || str(candidate.entry.summary) || str(candidate.entry.task_id) || str(candidate.entry.relation_type) || "無題"}</strong>
+                <small>{candidate.type === "task_work" ? `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}` : `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title)}` : ""}</small>
                 {candidate.issues.length > 0 && <p className="field-help">確認: {candidate.issues.join(" / ")}</p>}
               </div>
               <select value={candidate.action} onChange={(event) => setPreview((current) => current ? { ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) } : current)}>
@@ -527,6 +600,7 @@ function proposalTypeLabel(proposal: BaseRecord): string {
     sketches: "Sketch",
     artifacts: "Artifact",
     status_update: "Status Update",
+    task_work: "Task Work Receipt",
   };
   return labels[str(proposal.payload_type)] || "Proposal";
 }

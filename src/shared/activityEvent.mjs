@@ -16,6 +16,7 @@ export const ACTIVITY_EVENT_KINDS = Object.freeze([
   "task_work_recorded",
   "task_ai_reported",
   "task_ai_accepted",
+  "task_ai_returned",
   "waiting_received",
   "waiting_updated",
   "plan_node_created",
@@ -247,6 +248,10 @@ export function activityEventKind({ entityType, changeType, commandName, before,
 
 function defaultSummary(kind, entity, entityRefValue) {
   const title = text(entity?.title || entity?.name) || `${entityRefValue?.type || "Entity"} ${entityRefValue?.id || ""}`.trim();
+  if (kind === "task_work_recorded") return `Task work recorded: ${title}`;
+  if (kind === "task_ai_reported") return `AI reported work: ${title}`;
+  if (kind === "task_ai_accepted") return `AI work accepted: ${title}`;
+  if (kind === "task_ai_returned") return `AI work returned: ${title}`;
   return `${kind}: ${title}`;
 }
 

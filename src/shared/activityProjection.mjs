@@ -16,6 +16,7 @@ const DEFAULT_ACTIVITY_KINDS = new Set([
   "task_work_recorded",
   "task_ai_reported",
   "task_ai_accepted",
+  "task_ai_returned",
   "waiting_received",
   "waiting_updated",
   "plan_node_created",

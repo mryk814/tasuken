@@ -16,6 +16,10 @@ import type {
   ScheduleRangeSemantics,
   TaskShelf,
   TaskState,
+  TaskRequester,
+  TaskIntendedExecutor,
+  TaskExecutorKind,
+  TaskWorkState,
   WaitingState,
 } from "./types";
 import type { ScheduleKind } from "./scheduleSemantics";
@@ -48,6 +52,40 @@ export const TASK_SHELF_LABELS: Record<TaskShelf, string> = {
   this_week: "今週",
   someday: "いつか",
   backlog: "Backlog",
+};
+
+export const TASK_REQUESTER_LABELS: Record<TaskRequester, string> = {
+  self: "自分",
+  human: "人",
+  ai_agent: "AI agent",
+  external: "外部",
+  unknown: "不明",
+};
+
+export const TASK_INTENDED_EXECUTOR_LABELS: Record<TaskIntendedExecutor, string> = {
+  self: "自分",
+  human: "他の人",
+  ai_agent: "AI agent",
+  unassigned: "未割当",
+};
+
+export const TASK_EXECUTOR_KIND_LABELS: Record<TaskExecutorKind, string> = {
+  self: "自分",
+  human: "人",
+  ai_agent: "AI agent",
+  external: "外部",
+  unknown: "不明",
+};
+
+export const TASK_WORK_STATE_LABELS: Record<TaskWorkState, string> = {
+  not_delegated: "未委譲",
+  ready_for_agent: "AIへ依頼可",
+  in_progress: "作業中",
+  reported_done: "報告済み",
+  needs_human_review: "確認待ち",
+  accepted: "確認済み",
+  blocked: "ブロック",
+  failed: "失敗",
 };
 
 /** 日付範囲の意味（#309）。内部コードを画面へ出さないための対応表。 */

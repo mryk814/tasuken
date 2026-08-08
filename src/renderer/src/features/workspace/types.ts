@@ -6,8 +6,8 @@ import type {
   SaveOptions,
   WorkspaceMeta,
 } from "../../../../shared/types/workspace";
-import type { WorkspaceDomain } from "./domain-model/types";
-import type { ApplicationCommandSource, CommandReceipt } from "../../../../shared/applicationCommand";
+import type { WorkReceipt, WorkspaceDomain } from "./domain-model/types";
+import type { ApplicationCommandSource, CommandEnvelope, CommandReceipt } from "../../../../shared/applicationCommand";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
 export type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
@@ -255,6 +255,7 @@ export interface WorkspaceData {
   projects: BaseRecord[];
   capture_entrys: BaseRecord[];
   tasks: BaseRecord[];
+  work_receipts: WorkReceipt[];
   waitings: BaseRecord[];
   plan_nodes: BaseRecord[];
   schedules: BaseRecord[];
@@ -326,6 +327,8 @@ export type SaveEntities = (
 
 export type RemoveEntity = (type: EntityType, entity: DrawerEntity) => Promise<void>;
 
+export type ExecuteCommand = (envelope: CommandEnvelope) => Promise<CommandReceipt>;
+
 export type OpenDrawer = (config: DrawerConfig) => void;
 
 /** Notes以外から本文・画像を読むためのモーダルビューア対象（#130）。 */
@@ -361,6 +364,7 @@ export interface PageProps {
   openDailyScratchpad: OpenDailyScratchpad;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  executeCommand: ExecuteCommand;
   createTaskFromCapture(task: Entity, schedule: Entity | null, capture: Entity, artifactIds: string[]): Promise<CommandReceipt>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;

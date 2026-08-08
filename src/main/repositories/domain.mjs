@@ -45,11 +45,16 @@ const knowledgeDirectionalRelationTypes = new Set(["depends_on", "causes", "lead
 const confidenceValues = new Set(["low", "medium", "high"]);
 const knowledgeStatusValues = new Set(["active", "resolved", "deprecated", "rejected"]);
 const proposalSources = new Set(["mcp", "ai_import", "manual", "embedded_llm"]);
-const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update"]);
+const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work"]);
 const proposalStatuses = new Set(["pending", "accepted", "rejected", "partially_accepted", "quarantined"]);
 const projectStates = new Set(["idea", "active", "paused", "closed"]);
 const captureEntryStates = new Set(["untriaged", "triaged", "archived"]);
 const taskStates = new Set(["todo", "doing", "waiting", "review", "done", "cancelled"]);
+const taskRequesters = new Set(["self", "human", "ai_agent", "external", "unknown"]);
+const taskIntendedExecutors = new Set(["self", "human", "ai_agent", "unassigned"]);
+const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
+const taskWorkStates = new Set(["not_delegated", "ready_for_agent", "in_progress", "reported_done", "needs_human_review", "accepted", "blocked", "failed"]);
+const taskAssignmentInFlightStates = new Set(["in_progress", "reported_done", "needs_human_review"]);
 const taskRepeatFrequencies = new Set(["daily", "weekly", "monthly"]);
 const taskRepeatNextFromValues = new Set(["scheduled", "completed"]);
 const waitingStates = new Set(["waiting", "received", "cancelled"]);
@@ -96,6 +101,15 @@ function localDateIso(date = new Date()) {
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateWorkItemList(value, field, maxItems = 100) {
+  if (value == null) return;
+  if (!Array.isArray(value) || value.length > maxItems) throw new Error(`${field}は${maxItems}件以内の配列にしてください。`);
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim()) throw new Error(`${field}は空でない文字列の配列にしてください。`);
+    if (item.length > 1000) throw new Error(`${field}の各項目は1000文字以内にしてください。`);
+  }
 }
 
 function isIsoDate(value) {
@@ -311,6 +325,35 @@ export function validateEntity(type, input) {
     }
     validateTaskRepeatRule(input.repeat_rule);
     validateTaskChecklist(input.checklist_items);
+    if (input.requester != null && !taskRequesters.has(input.requester)) throw new Error("task.requesterが不正です。");
+    if (input.intended_executor != null && !taskIntendedExecutors.has(input.intended_executor)) throw new Error("task.intended_executorが不正です。");
+    if (input.executor_identity != null && input.executor_identity !== "" && (typeof input.executor_identity !== "string" || input.executor_identity.length > 200)) throw new Error("task.executor_identityは200文字以内で入力してください。");
+    if (input.work_state != null && !taskWorkStates.has(input.work_state)) throw new Error("task.work_stateが不正です。");
+    if (input.intended_executor === "ai_agent" && input.state === "done" && input.work_state !== "accepted") {
+      throw new Error("AI担当のdone Taskは、人間確認済みのwork_state=acceptedだけ保存できます。");
+    }
+    for (const field of ["work_started_at", "work_reported_at"]) {
+      if (input[field] != null && input[field] !== "" && Number.isNaN(new Date(input[field]).getTime())) throw new Error(`task.${field}が不正です。`);
+    }
+    if (input.work_review_note != null && input.work_review_note.length > 2000) throw new Error("task.work_review_noteは2000文字以内で入力してください。");
+  }
+  if (type === "work_receipt") {
+    if (typeof input.task_id !== "string" || !input.task_id.trim()) throw new Error("work_receipt.task_idを入力してください。");
+    if (!taskExecutorKinds.has(input.executor_kind)) throw new Error("work_receipt.executor_kindが不正です。");
+    if (typeof input.executor_label !== "string" || !input.executor_label.trim() || input.executor_label.length > 200) throw new Error("work_receipt.executor_labelは1〜200文字で入力してください。");
+    if (typeof input.reported_at !== "string" || Number.isNaN(new Date(input.reported_at).getTime())) throw new Error("work_receipt.reported_atが不正です。");
+    if (input.started_at != null && input.started_at !== "" && Number.isNaN(new Date(input.started_at).getTime())) throw new Error("work_receipt.started_atが不正です。");
+    if (typeof input.summary !== "string" || !input.summary.trim() || input.summary.length > 10000) throw new Error("work_receipt.summaryは1〜10000文字で入力してください。");
+    validateWorkItemList(input.completed_items, "work_receipt.completed_items");
+    validateWorkItemList(input.changed_or_created_items, "work_receipt.changed_or_created_items");
+    validateWorkItemList(input.verification, "work_receipt.verification");
+    validateWorkItemList(input.remaining_work, "work_receipt.remaining_work");
+    if (input.external_references != null && (!Array.isArray(input.external_references) || input.external_references.length > 100 || input.external_references.some((entry) => !isPlainObject(entry)))) throw new Error("work_receipt.external_referencesが不正です。");
+    for (const field of ["repository_context", "runtime_metadata"]) {
+      if (input[field] != null && !isPlainObject(input[field])) throw new Error(`work_receipt.${field}が不正です。`);
+    }
+    if (input.source_session != null && input.source_session !== "" && (typeof input.source_session !== "string" || input.source_session.length > 200)) throw new Error("work_receipt.source_sessionは200文字以内で入力してください。");
+    if (input.provenance != null && !isPlainObject(input.provenance)) throw new Error("work_receipt.provenanceが不正です。");
   }
   if (type === "waiting" && !waitingStates.has(input.state)) throw new Error("waiting.stateが不正です。");
   if (type === "plan_node") {
@@ -409,6 +452,37 @@ export function validateEntity(type, input) {
   }
 
   return input;
+}
+
+/**
+ * Assignment変更はフォームのhidden work_stateを信頼せず、この関数へ正規化規則を集約する。
+ * Repositoryが最終write時にも同じ関数を適用する。
+ * 作業中・確認中の再割当は、暗黙にReceiptの帰属を変えないため拒否する。
+ * @template {Record<string, unknown>} T
+ * @param {T} input
+ * @param {T | null | undefined} [previous]
+ * @returns {T}
+ */
+export function normalizeTaskAssignment(input, previous = null) {
+  const normalized = { ...input };
+  if (!Object.prototype.hasOwnProperty.call(normalized, "intended_executor")) return normalized;
+  if (!taskIntendedExecutors.has(normalized.intended_executor)) return normalized;
+
+  const changed = !previous || previous.intended_executor !== normalized.intended_executor;
+  if (!changed) return normalized;
+
+  const previousWorkState = previous?.work_state
+    || (previous?.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+  if (previous && taskAssignmentInFlightStates.has(previousWorkState)) {
+    throw new Error("作業中または確認中のTaskは、先にWork Receiptを受け入れるか差し戻してから再割当してください。");
+  }
+
+  const assignedToAi = normalized.intended_executor === "ai_agent";
+  normalized.work_state = assignedToAi ? "ready_for_agent" : "not_delegated";
+  normalized.work_started_at = null;
+  normalized.work_reported_at = null;
+  normalized.work_review_note = null;
+  return normalized;
 }
 
 export function normalizeEntity(type, input) {

@@ -57,7 +57,7 @@ const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
   "schedules", "references", "task_dependencies", "plan_dependencies",
   "knowledge_edges", "change_events", "artifacts",
-  "sketches",
+  "sketches", "work_receipts",
 ];
 const TASK_REFERENCE_TYPE: EntityType = "reference";
 
@@ -687,6 +687,12 @@ export function WorkspaceApp() {
       setToast(`保存できませんでした。${errorMessage(error)}`, "danger");
       throw error;
     }
+  };
+
+  const executeTaskWorkCommand = async (envelope: CommandEnvelope): Promise<CommandReceipt> => {
+    const receipt = await workspaceApi.executeCommand(envelope);
+    applyCommandReceipt(receipt);
+    return receipt;
   };
 
   const createTaskFromCapture = async (task: Entity, schedule: Entity | null, capture: Entity, artifactIds: string[]): Promise<CommandReceipt> => {
@@ -1469,6 +1475,7 @@ export function WorkspaceApp() {
     openDailyScratchpad: (date?: string) => setScratchpadDate(date || todayIso()),
     saveEntity,
     saveEntities,
+    executeCommand: executeTaskWorkCommand,
     createTaskFromCapture,
     removeEntity,
     removeEntityQuiet,
@@ -1524,6 +1531,7 @@ export function WorkspaceApp() {
               saveEntity={saveEntity}
               saveEntities={saveEntities}
               setToast={setToast}
+              executeCommand={executeTaskWorkCommand}
               openContentViewer={openContentViewer}
               startFocusSession={startFocusSession}
               navigate={navigate}

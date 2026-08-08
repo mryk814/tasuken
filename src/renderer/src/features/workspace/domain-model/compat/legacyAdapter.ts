@@ -28,6 +28,7 @@ import type {
   TaskState,
   Waiting,
   WaitingState,
+  WorkReceipt,
   WorkspaceDomain,
 } from "../types";
 import { PERSONAL_DEFAULT_THEME_ID, canonicalThemeId } from "../../../../../../shared/themeRef.mjs";
@@ -409,6 +410,7 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
     knowledge_edges: [],
     ai_proposals: [],
     change_events: [],
+    work_receipts: [],
   };
 }
 
@@ -648,6 +650,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pPlanDeps = castRecords<PlanDependency>(data.plan_dependencies);
   const pKnowledgeEdges = castRecords<KnowledgeEdge>(data.knowledge_edges);
   const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
+  const pWorkReceipts = castRecords<WorkReceipt>(data.work_receipts);
   const pResources = castRecords<Resource>(data.resources);
   const pSketches = castRecords<Sketch>(data.sketches);
 
@@ -655,7 +658,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     pProjects.length || pCaptures.length || pTasks.length ||
     pWaitings.length || pPlanNodes.length || pSchedules.length ||
     pReferences.length || pTaskDeps.length || pPlanDeps.length ||
-    pKnowledgeEdges.length || pChangeEvents.length || pResources.length || pSketches.length;
+    pKnowledgeEdges.length || pChangeEvents.length || pWorkReceipts.length || pResources.length || pSketches.length;
 
   if (!hasPersistedDomain) return legacy;
 
@@ -676,6 +679,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     knowledge_edges: mergeById(pKnowledgeEdges, legacy.knowledge_edges),
     ai_proposals: legacy.ai_proposals,
     change_events: mergePersistedDomain(pChangeEvents, legacy.change_events, "legacy_item_id"),
+    work_receipts: pWorkReceipts,
   };
 }
 
@@ -902,6 +906,7 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     ],
     notes: domain.notes as WorkspaceData["notes"],
     sketches: domain.sketches as WorkspaceData["sketches"],
+    work_receipts: domain.work_receipts as WorkspaceData["work_receipts"],
     links: domain.resources.map((resource) => ({
       id: resource.id,
       title: resource.title,
