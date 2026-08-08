@@ -1,6 +1,5 @@
 import {
   IconAlertTriangle,
-  IconBulb,
   IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
@@ -41,8 +40,6 @@ export const ACTION_DEFINITIONS = {
   themeAddReport: { id: "themeAddReport", label: "報告書を追加", icon: IconFileText, role: "primary", availability: "when-theme-selected" },
   timelineAddPlan: { id: "timelineAddPlan", label: "実施事項を追加", icon: IconPlus, role: "primary", availability: "always" },
   waitingAdd: { id: "waitingAdd", label: "待ちを追加", icon: IconPlus, role: "primary", availability: "always" },
-  knowledgeAddQuestion: { id: "knowledgeAddQuestion", label: "問いを追加", icon: IconBulb, role: "primary", availability: "always" },
-  knowledgeQuickAdd: { id: "knowledgeQuickAdd", label: "追加する", icon: IconPlus, role: "secondary", availability: "always" },
   notesCreate: { id: "notesCreate", label: "Noteを追加", icon: IconPlus, role: "primary", availability: "always" },
   notesCreateMenu: { id: "notesCreateMenu", label: "追加する種類を選ぶ", icon: IconChevronDown, role: "primary", availability: "always" },
   notesSave: { id: "notesSave", label: "保存", icon: IconDeviceFloppy, role: "primary", shortcut: "Ctrl+S", availability: "when-editing" },

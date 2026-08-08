@@ -101,7 +101,7 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 - AI Import / Export: JSON / YAMLの取り込み、Note内OpenAI編集、Proposal差分確認、JSON / YAML / Markdownの書き出し
 - Workspace Snapshot: ZIPによるバックアップ、差分プレビュー、競合選択付きImport
 - Theme Status / Plan Revision / 情報源管理 / Settings
-- Knowledge / MCP: 思考・根拠・問い・決定をAIが安全に参照するKnowledge一覧、read-only context、Preview必須のSafe Write Proposal
+- Knowledge / Context Graph / MCP: 既存Knowledge・Relationの診断、read-only context、Preview必須のSafe Write Proposal。Context GraphとAI ContextはKnowledge画面の手動整理に依存しない
 
 ## 使い始める流れ
 

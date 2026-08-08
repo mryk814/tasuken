@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { IconArrowsMaximize, IconClock, IconCopyPlus, IconFileTypePdf, IconFolder, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -22,8 +22,7 @@ import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOT
 import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
-import { buildKnowledgeNodeDraftFromNote, isLongKnowledgeSource } from "../lib/knowledgeExtraction";
-import { buildKnowledgeLinkContext, type KnowledgeLinkEntry } from "../lib/knowledgeLinks";
+import { buildKnowledgeLinkContext } from "../lib/knowledgeLinks";
 import { sketchCanvasMode } from "../lib/sketch";
 import {
   escapeHtml,
@@ -40,7 +39,6 @@ import {
 } from "../lib/markdown";
 import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import { PROMPT_PURPOSE_LABELS, promptPurpose, promptVariables, isDefaultPrompt } from "../lib/prompts";
-import { AI_IMPORT_SCHEMA, assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
 import { CHAT_SERVICE_LABELS, CHAT_SERVICE_TYPES, isKnownChatService, resolveChatService } from "../lib/chatServices";
 import { isConversationMarkdown } from "../lib/conversationParser";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
@@ -94,14 +92,6 @@ const isChatReferenceEntity = (entity: Record<string, unknown>) => (
   Boolean(entity.reference_status || entity.chat_group)
 );
 const PRIMARY_KNOWLEDGE_NODE_TYPES = ["question", "claim", "evidence", "decision"];
-interface ImportCandidate {
-  type: "item" | "note" | "link" | "knowledge_node" | "knowledge_edge";
-  entry: Record<string, unknown>;
-  theme?: { id: string; name: string };
-  duplicate?: BaseRecord;
-  action: string;
-  issues: string[];
-}
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
   weekly: "毎週",
@@ -198,7 +188,8 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
       />
     );
   }
-  if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} removeEntity={removeEntity} saveEntities={saveEntities} />;
+  if (type === "knowledge_node") return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} />;
+  if (type === "knowledge_edge") return <KnowledgeEdgeDetailDrawer edge={entity as unknown as import("../domain-model/types").KnowledgeEdge} data={data} close={close} />;
   if (type === "sketch") {
     const sketch = entity as unknown as Sketch;
     return (
@@ -436,25 +427,6 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
                   <div className="task-learning-item" key={note.id}>
                     <strong>{note.title}</strong>
                     <p>{str(note.body_markdown)}</p>
-                    <button
-                      className="text-button compact"
-                      onClick={() => close({
-                        type: "knowledge_node",
-                        mode: "edit",
-                        entity: {
-                          node_type: "insight",
-                          title: note.title,
-                          body: note.body_markdown,
-                          theme_id: note.theme_id || null,
-                          source_type: "note",
-                          source_id: note.id,
-                          confidence: "medium",
-                          status: "active",
-                        },
-                      })}
-                    >
-                      Knowledge化
-                    </button>
                   </div>
                 ))}
               </div>
@@ -1065,83 +1037,6 @@ function DetailDrawer({
   );
 }
 
-function buildNoteKnowledgePrompt(note: Note, themeName: string, schema: string) {
-  return `あなたはTaskenのNote本文からKnowledge候補を抽出します。JSONだけを返してください。
-説明文、Markdownコードブロック、コメントは禁止です。
-
-出力形式:
-${schema}
-
-ルール:
-- knowledge_nodes と knowledge_edges だけを返す
-- node_typeは question / claim / evidence / decision を優先する
-- 各knowledge_nodeには temp_id を付ける
-- knowledge_edgesは同じ出力内のtemp_idで接続する
-- Note本文にない断定は作らない
-- confidenceは low / medium / high のいずれか
-- actionは create または ignore
-
-Theme:
-${themeName || "未設定"}
-
-Note:
-${note.title}
-
-本文:
-${note.body_markdown || ""}`;
-}
-
-function buildKnowledgeCandidateOperations(candidates: ImportCandidate[], note: Note, data: WorkspaceData): SaveOperation[] {
-  const acceptedNodeIds = new Map<string, string>();
-  const operations: SaveOperation[] = [];
-  const noteTheme = data.themes.find((theme) => theme.id === note.theme_id);
-  for (const candidate of candidates.filter((entry) => entry.type === "knowledge_node")) {
-    if (candidate.action === "ignore") continue;
-    const entry = candidate.entry;
-    const id = str(candidate.duplicate?.id) || uuid();
-    if (str(entry.temp_id)) acceptedNodeIds.set(str(entry.temp_id), id);
-    operations.push({
-      action: "save",
-      type: "knowledge_node",
-      entity: {
-        ...(candidate.duplicate || {}),
-        id,
-        node_type: str(entry.node_type) || "insight",
-        title: str(entry.title) || "無題",
-        body: str(entry.body),
-        theme_id: candidate.theme?.id || note.theme_id || noteTheme?.id || null,
-        source_type: "note",
-        source_id: note.id,
-        source_note_id: note.id,
-        confidence: str(entry.confidence) || "medium",
-        status: str(entry.status) || "active",
-      },
-      options: { source: "imported" },
-    });
-  }
-  for (const candidate of candidates.filter((entry) => entry.type === "knowledge_edge")) {
-    if (candidate.action === "ignore") continue;
-    const entry = candidate.entry;
-    const sourceNodeId = str(entry.source_node_id) || acceptedNodeIds.get(str(entry.source_temp_id)) || "";
-    const targetNodeId = str(entry.target_node_id) || acceptedNodeIds.get(str(entry.target_temp_id)) || "";
-    if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) continue;
-    operations.push({
-      action: "save",
-      type: "knowledge_edge",
-      entity: {
-        ...(candidate.duplicate || {}),
-        id: str(candidate.duplicate?.id) || uuid(),
-        source_node_id: sourceNodeId,
-        target_node_id: targetNodeId,
-        relation_type: str(entry.relation_type) || "supports",
-        description: str(entry.description),
-      },
-      options: { source: "imported" },
-    });
-  }
-  return operations;
-}
-
 function NoteDetailDrawer({
   note,
   data,
@@ -1162,15 +1057,11 @@ function NoteDetailDrawer({
   openContentViewer?: OpenContentViewer;
 }) {
   const [comment, setComment] = useState("");
-  const [knowledgeText, setKnowledgeText] = useState("");
-  const [knowledgePreview, setKnowledgePreview] = useState<{ candidates: ImportCandidate[]; payloadIssues: string[] } | null>(null);
   const [artifactMode, setArtifactMode] = useState<"preview" | "raw">("preview");
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
-  const knowledgeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const comments = note.comments || [];
   const theme = data.themes.find((entry) => entry.id === note.theme_id);
-  const extractionPrompt = buildNoteKnowledgePrompt(note, theme?.name || "", AI_IMPORT_SCHEMA);
   const contentFormat = str(note.content_format) || (note.note_type === "artifact" ? "markdown" : "plain");
   const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
   const body = note.body_markdown || "";
@@ -1180,7 +1071,6 @@ function NoteDetailDrawer({
   const headingNumberLevelSummary = headingNumberLevels.length ? headingNumberLevels.map((level) => `h${level}`).join("–") : "選択なし";
   const publishEnabled = notePublishEnabled(note);
   const isReport = note.note_type === "report";
-  const isLongKnowledgeBody = isLongKnowledgeSource(body);
   const reportType = str(properties.report_type) || "weekly";
   const reportTypeLabel = REPORT_TYPE_LABELS[reportType] || "報告";
   const periodStart = str(properties.period_start);
@@ -1285,64 +1175,6 @@ function NoteDetailDrawer({
     close({ type: "note", entity: saved });
   }
 
-  async function startKnowledgeExtraction() {
-    await workspaceApi.copyText(extractionPrompt);
-    setToast("要点抽出プロンプトをコピーしました。AIのJSONを貼り付けて候補を確認してください。", "success");
-    knowledgeTextareaRef.current?.focus();
-  }
-
-  function openManualKnowledgeDraft() {
-    close({
-      type: "knowledge_node",
-      mode: "edit",
-      entity: buildKnowledgeNodeDraftFromNote(note, { bodyMode: isLongKnowledgeBody ? "empty" : "source" }),
-    });
-  }
-
-  function previewKnowledgeCandidates() {
-    try {
-      const parsed = parseAiImportPayload(knowledgeText, data.themes || [], {
-        items: [],
-        notes: [],
-        links: [],
-        knowledge_nodes: data.knowledge_nodes || [],
-        knowledge_edges: data.knowledge_edges || [],
-      });
-      const candidates = parsed.candidates
-        .filter((candidate: ImportCandidate) => candidate.type === "knowledge_node" || candidate.type === "knowledge_edge")
-        .map((candidate: ImportCandidate): ImportCandidate => {
-          if (candidate.type !== "knowledge_node") return candidate;
-          return {
-            ...candidate,
-            action: candidate.issues.length ? "ignore" : candidate.action === "ignore" ? "ignore" : "create",
-            entry: {
-              ...candidate.entry,
-              source_note_id: note.id,
-              source_type: "note",
-              source_id: note.id,
-              theme: str(candidate.entry.theme) || theme?.name || "",
-            },
-          };
-        });
-      setKnowledgePreview({ candidates, payloadIssues: parsed.payloadIssues });
-    } catch (error) {
-      alert(`候補を解析できませんでした。${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  async function saveKnowledgeCandidates() {
-    if (!knowledgePreview) return;
-    try {
-      knowledgePreview.candidates.forEach(assertImportCandidateSavable);
-      const operations = buildKnowledgeCandidateOperations(knowledgePreview.candidates, note, data);
-      if (!operations.length) return;
-      await saveEntities(operations, `${operations.length}件のKnowledge候補を保存しました。`);
-      setKnowledgeText("");
-      setKnowledgePreview(null);
-    } catch (error) {
-      alert(`保存できませんでした。${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
 
   async function exportMarkdown(chooseDirectory: boolean) {
     if (!canExportDocument) return;
@@ -1594,50 +1426,6 @@ function NoteDetailDrawer({
             <button className="secondary-button compact" type="submit">コメントする</button>
           </form>
         </section>
-        <section className="comment-thread">
-          <div className="section-heading">
-            <h3>Knowledge候補</h3>
-            <button className="secondary-button compact" onClick={() => workspaceApi.copyText(extractionPrompt)}>プロンプトをコピー</button>
-          </div>
-          {isLongKnowledgeBody && (
-            <div className="long-knowledge-source">
-              <div>
-                <strong>本文が長いため、このまま1つのKnowledgeにはしません。</strong>
-                <span>要点を抽出して候補にするか、短い本文を自分で作成します。元Noteへの参照は残ります。</span>
-              </div>
-              <div className="document-publish-actions">
-                <button className="primary-button compact" onClick={startKnowledgeExtraction}>要点抽出する</button>
-                <button className="secondary-button compact" onClick={openManualKnowledgeDraft}>自分で短くして作成</button>
-              </div>
-            </div>
-          )}
-          <textarea
-            ref={knowledgeTextareaRef}
-            value={knowledgeText}
-            onChange={(event) => { setKnowledgeText(event.target.value); setKnowledgePreview(null); }}
-            placeholder="AIが返したknowledge_nodes / knowledge_edges JSONを貼り付ける"
-            aria-label="Knowledge候補JSON"
-          />
-          <button className="secondary-button compact" onClick={previewKnowledgeCandidates}>候補を確認</button>
-          {knowledgePreview && (
-            <div className="import-preview inline-preview">
-              {knowledgePreview.payloadIssues.length > 0 && <p className="alert-note warning">注意: {knowledgePreview.payloadIssues.join(" / ")}</p>}
-              {knowledgePreview.candidates.map((candidate, index) => (
-                <div className="import-candidate" key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
-                  <div>
-                    <strong>{str(candidate.entry.title) || str(candidate.entry.relation_type) || "無題"}</strong>
-                    <small>{candidate.type}{candidate.issues.length ? ` / 確認: ${candidate.issues.join(" / ")}` : ""}</small>
-                  </div>
-                  <select value={candidate.action} onChange={(event) => setKnowledgePreview((current) => current ? { ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) } : current)}>
-                    <option value="create">採用</option>
-                    <option value="ignore">無視</option>
-                  </select>
-                </div>
-              ))}
-              <button className="primary-button compact" onClick={saveKnowledgeCandidates}>採用した候補を保存</button>
-            </div>
-          )}
-        </section>
         <AiContextSummary
           type="note"
           entity={note as unknown as Record<string, unknown>}
@@ -1645,12 +1433,6 @@ function NoteDetailDrawer({
           workspaceDefault={workspaceAiVisibility(data)}
         />
         <div className="drawer-actions">
-          <button
-            className="secondary-button"
-            onClick={openManualKnowledgeDraft}
-          >
-            {isLongKnowledgeBody ? "短くしてKnowledge化" : "Knowledge化する"}
-          </button>
           <button className="primary-button" onClick={() => close({ type: "note", mode: "edit", entity: note })}><IconPencil size={16} />編集する</button>
           <button className="danger-button" onClick={() => removeEntity("note", note)}><IconTrash size={16} />削除する</button>
         </div>
@@ -1663,14 +1445,10 @@ function KnowledgeNodeDetailDrawer({
   node,
   data,
   close,
-  removeEntity,
-  saveEntities,
 }: {
   node: KnowledgeNode;
   data: WorkspaceData;
   close: CloseDrawer;
-  removeEntity: RemoveEntity;
-  saveEntities: SaveEntities;
 }) {
   const relations = ((data.knowledge_edges || []) as unknown as import("../domain-model/types").KnowledgeEdge[]).filter((relation) => relation.source_node_id === node.id || relation.target_node_id === node.id);
   const linkContext = buildKnowledgeLinkContext(node as unknown as BaseRecord, {
@@ -1692,46 +1470,6 @@ function KnowledgeNodeDetailDrawer({
     if (node.source_item_id) return `タスク: ${allTasks.find((t) => t.id === node.source_item_id)?.title || "不明"}`;
     return "未設定";
   })();
-
-  async function adoptMention(entry: KnowledgeLinkEntry) {
-    const operations: SaveOperation[] = [
-      {
-        action: "save",
-        type: "reference",
-        entity: {
-          id: uuid(),
-          source_type: entry.type,
-          source_id: entry.id,
-          target_type: "knowledge_node",
-          target_id: node.id,
-          relation_type: "mentions",
-          note: `[[${node.title}]]`,
-        } as SaveOperation["entity"],
-      },
-    ];
-    if (entry.type === "knowledge_node") {
-      operations.push({
-        action: "save",
-        type: "knowledge_edge",
-        entity: {
-          id: uuid(),
-          source_node_id: entry.id,
-          target_node_id: node.id,
-          relation_type: "similar_to",
-          description: `未リンク候補から採用: ${entry.title}`,
-        },
-      });
-    }
-    await saveEntities(operations, "Knowledgeリンク候補を採用しました。");
-  }
-
-  function openLinkEntry(entry: KnowledgeLinkEntry) {
-    if (entry.type === "note") {
-      close({ type: "note", mode: "edit", entity: entry.record });
-      return;
-    }
-    close({ type: "knowledge_node", mode: "edit", entity: entry.record });
-  }
 
   return (
     <aside className="drawer">
@@ -1766,10 +1504,10 @@ function KnowledgeNodeDetailDrawer({
             <h3>Backlinks</h3>
             {linkContext.backlinks.map((entry) => (
               <div key={`${entry.type}-${entry.id}`}>
-                <button className="knowledge-link-row" onClick={() => openLinkEntry(entry)}>
+                <div className="knowledge-link-row">
                   <strong>{entry.title}</strong>
                   <span>{entry.type === "note" ? "Note" : "Knowledge"} / {entry.body.slice(0, 80) || "本文なし"}</span>
-                </button>
+                </div>
               </div>
             ))}
           </div>
@@ -1779,20 +1517,42 @@ function KnowledgeNodeDetailDrawer({
             <h3>未リンク候補</h3>
             {linkContext.unlinkedMentions.map((entry) => (
               <div className="knowledge-link-candidate" key={`${entry.type}-${entry.id}`}>
-                <button className="knowledge-link-row" onClick={() => openLinkEntry(entry)}>
+                <div className="knowledge-link-row">
                   <strong>{entry.title}</strong>
                   <span>{entry.type === "note" ? "Note" : "Knowledge"} / {entry.body.slice(0, 80) || "本文なし"}</span>
-                </button>
-                <button className="secondary-button compact" onClick={() => adoptMention(entry)}>リンク化</button>
+                </div>
               </div>
             ))}
           </div>
         )}
-        <div className="drawer-actions">
-          <button className="secondary-button" onClick={() => close({ type: "knowledge_edge", mode: "edit", entity: { source_node_id: node.id } })}>関係を追加</button>
-          <button className="primary-button" onClick={() => close({ type: "knowledge_node", mode: "edit", entity: node })}><IconPencil size={16} />編集する</button>
-          <button className="danger-button" onClick={() => removeEntity("knowledge_node", node)}><IconTrash size={16} />削除する</button>
-        </div>
+      </div>
+    </aside>
+  );
+}
+
+function KnowledgeEdgeDetailDrawer({
+  edge,
+  data,
+  close,
+}: {
+  edge: import("../domain-model/types").KnowledgeEdge;
+  data: WorkspaceData;
+  close: CloseDrawer;
+}) {
+  const source = data.knowledge_nodes.find((node) => node.id === edge.source_node_id);
+  const target = data.knowledge_nodes.find((node) => node.id === edge.target_node_id);
+  return (
+    <aside className="drawer">
+      <DrawerHeader title="Knowledge Relation詳細" close={close} />
+      <div className="drawer-content">
+        <StatusBadge value="neutral" label="read-only" />
+        <dl>
+          <dt>関係元</dt><dd>{source?.title || edge.source_node_id || "不明"}</dd>
+          <dt>関係種別</dt><dd>{KNOWLEDGE_RELATION_LABELS[edge.relation_type] || edge.relation_type || "未設定"}</dd>
+          <dt>関係先</dt><dd>{target?.title || edge.target_node_id || "不明"}</dd>
+        </dl>
+        {edge.description && <p className="note-body">{edge.description}</p>}
+        <p className="field-help">既存Relationの確認専用です。この画面からの追加・編集・削除は行いません。</p>
       </div>
     </aside>
   );

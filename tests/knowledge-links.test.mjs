@@ -57,14 +57,17 @@ test("markdown preview renders wiki links as knowledge chips", () => {
   assert.match(html, />この仮説</);
 });
 
-test("Knowledge detail and page expose quick creation, backlinks, unlinked mentions, and graph", () => {
+test("Knowledge detail keeps shared links while page is read-only experimental", () => {
   const pageSource = readFileSync("src/renderer/src/features/workspace/pages/KnowledgePage.tsx", "utf8");
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
 
-  assert.match(pageSource, /quickKnowledgeTitle/);
-  assert.match(pageSource, /Knowledge Graph/);
+  assert.match(pageSource, /実データ棚卸し/);
+  assert.match(pageSource, /Data Health/);
+  assert.doesNotMatch(pageSource, /Context Graph|#332の共有projection/);
+  assert.doesNotMatch(pageSource, /quickKnowledgeTitle|Knowledgeを追加|Knowledge化/);
+  assert.doesNotMatch(drawerSource, /Knowledge候補|Knowledge化する/);
   assert.match(drawerSource, /buildKnowledgeLinkContext/);
   assert.match(drawerSource, /Backlinks/);
   assert.match(drawerSource, /未リンク候補/);
-  assert.match(drawerSource, /relation_type: "mentions"/);
+  assert.doesNotMatch(drawerSource, /relation_type: "mentions"/);
 });

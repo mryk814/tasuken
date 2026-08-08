@@ -23,7 +23,7 @@ function hasEvidenceSupport(claim, nodes, relations) {
   });
 }
 
-export function buildKnowledgeHealth(nodes, relations, entities = [], options = {}) {
+export function buildDataHealth(nodes, relations, entities = [], options = {}) {
   const issues = [];
   const now = Number(options.now) || Date.now();
   const openItemIds = new Set(
@@ -93,7 +93,7 @@ export function buildKnowledgeHealth(nodes, relations, entities = [], options = 
   return issues;
 }
 
-export function groupKnowledgeHealthIssues(issues) {
+export function groupDataHealthIssues(issues) {
   return {
     issues,
     unresolved_questions: issues.filter((issue) => issue.kind === "unanswered_question").map((issue) => issue.node),
@@ -104,3 +104,8 @@ export function groupKnowledgeHealthIssues(issues) {
     stale_decisions: issues.filter((issue) => issue.kind === "stale_decision").map((issue) => issue.node),
   };
 }
+
+// Compatibility names keep the existing MCP/renderer contracts stable while the
+// projection itself is now a shared Data Health contract, not a Knowledge-page action.
+export const buildKnowledgeHealth = buildDataHealth;
+export const groupKnowledgeHealthIssues = groupDataHealthIssues;

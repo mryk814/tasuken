@@ -287,7 +287,7 @@ export type DrawerEntityType =
 
 export interface DrawerConfig {
   type: DrawerEntityType;
-  mode?: "edit";
+  mode?: "edit" | "view";
   entity: DrawerEntity;
 }
 

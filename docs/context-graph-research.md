@@ -7,6 +7,8 @@
 TaskenのGraphは、全データを別のKnowledgeNodeへ変換する機能でも、巨大なCanvasでもない。
 正本SQLiteにある明示的な関係と履歴を、AI Contextと人間の確認に使える「根拠付きの限定経路」として投影する。
 
+Knowledge UIはこのprojectionの所有者ではない。Knowledge画面は既存データのResearch / Diagnostic表示に限定し、Context GraphとAI ContextはKnowledgeを手動整理しなくても独立して成立する。
+
 今回の実証では、既存Workspace collectionをread-onlyで走査する純粋なprojection/queryを追加した。
 正本のINSERT/UPDATE、schema migration、backfillは行わない。
 MCPには `tasken.get_context_subgraph` をread-onlyで追加し、既存の#294 AI公開範囲判定を通過したEntityだけを、最大2 hop・件数・edge数・token概算で返す。
