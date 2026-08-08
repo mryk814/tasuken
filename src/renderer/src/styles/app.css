@@ -157,6 +157,21 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .section-heading > span { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
 
 .primary-button, .secondary-button, .danger-button, .text-button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); padding: var(--pad-button); border-radius: var(--radius-md); font-weight: var(--weight-medium); transition: background var(--duration-fast) var(--ease), border var(--duration-fast) var(--ease); }
+.semantic-button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); padding: var(--pad-button); border: 1px solid transparent; border-radius: var(--radius-md); font: inherit; font-weight: var(--weight-medium); cursor: pointer; transition: background var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease); }
+.semantic-button-primary { border-color: var(--action-primary-bg); background: var(--action-primary-bg); color: var(--action-primary-fg); }
+.semantic-button-primary:hover:not(:disabled) { border-color: var(--action-primary-hover); background: var(--action-primary-hover); }
+.semantic-button-primary:active:not(:disabled) { border-color: var(--action-primary-active); background: var(--action-primary-active); }
+.semantic-button-secondary { border-color: var(--action-secondary-bd); background: var(--action-secondary-bg); color: var(--color-text); }
+.semantic-button-secondary:hover:not(:disabled) { border-color: var(--color-border-strong); background: var(--action-secondary-hover); }
+.semantic-button-secondary:active:not(:disabled) { background: var(--color-surface-muted); }
+.semantic-button-ghost { border-color: transparent; background: transparent; color: var(--action-ghost-fg); }
+.semantic-button-ghost:hover:not(:disabled) { background: var(--color-accent-subtle-bg); }
+.semantic-button-danger { border-color: var(--action-danger-bd); background: transparent; color: var(--action-danger-fg); }
+.semantic-button-danger:hover:not(:disabled) { background: var(--action-danger-bg); }
+.semantic-button-ai { border-color: var(--action-ai-bd); background: var(--action-ai-bg); color: var(--action-ai-fg); }
+.semantic-button-ai:hover:not(:disabled) { border-color: var(--action-ai-fg); background: color-mix(in srgb, var(--action-ai-hover) 44%, var(--color-surface)); }
+.semantic-button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.semantic-button:disabled { cursor: not-allowed; opacity: .58; }
 .primary-button { border: 1px solid var(--color-accent); background: var(--color-accent); color: var(--color-on-accent); }
 .primary-button:hover { background: var(--color-accent-hover); }
 .secondary-button { border: 1px solid var(--color-border); background: var(--color-surface); }
@@ -219,7 +234,8 @@ kbd { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono);
 .context-menu button:disabled { color: var(--color-text-tertiary); cursor: not-allowed; }
 input, select, textarea { padding: var(--pad-input); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
 input:hover, select:hover, textarea:hover { border-color: var(--color-border-strong); }
-.status-badge { display: inline-flex; width: fit-content; padding: 2px var(--space-2); border: 1px solid; border-radius: var(--radius-pill); font-size: var(--text-xs); line-height: var(--lh-tight); }
+.status-badge { display: inline-flex; align-items: center; gap: 3px; width: fit-content; padding: 2px var(--space-2); border: 1px solid; border-radius: var(--radius-pill); font-size: var(--text-xs); line-height: var(--lh-tight); }
+.status-badge-mark { font-weight: var(--weight-bold); line-height: 1; }
 .status-badge.success { color: var(--color-success-strong); border-color: var(--color-success-bd); background: var(--color-success-bg); }
 .status-badge.warning { color: var(--color-warning-strong); border-color: var(--color-warning-bd); background: var(--color-warning-bg); }
 .status-badge.danger { color: var(--color-danger-strong); border-color: var(--color-danger-bd); background: var(--color-danger-bg); }

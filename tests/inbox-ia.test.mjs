@@ -67,9 +67,9 @@ test("Inboxを未整理Task候補へ絞る（#317）", () => {
   assert.match(header, /label: "チャットリンクを追加"/);
 
   // primaryはMemoひとつ。
-  const primaries = header.match(/className="primary-button"/g) || [];
+  const primaries = header.match(/<Button variant="primary"/g) || [];
   assert.equal(primaries.length, 1);
-  assert.match(header, /<IconPlus size=\{16\} \/>Memo<\/button>/);
+  assert.match(header, /<IconPlus size=\{16\} \/>Memo<\/Button>/);
 
   // Quick Captureと同じcapture_entryへ保存し、保存先を分裂させない。
   assert.match(inboxPageSource, /function addMemo\(\) \{[\s\S]*?type: "capture_entry"/);

@@ -1,5 +1,5 @@
 import { IconChevronDown, IconInfoCircle } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useState } from "react";
 
 import { ROUTE_ICONS } from "../../../pages/routeIcons";
 import { routeDescription, routeLabel } from "../../../pages/routes";
@@ -8,6 +8,23 @@ import { statusTone, themeColor } from "../lib/domain";
 import { PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 
 export type CloseDrawer = (next?: DrawerConfig | null) => void;
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "ai";
+
+/**
+ * 操作の意味をclassNameの組み合わせではなくvariantで宣言する共通button。
+ * 既定typeはbuttonにして、フォーム外のクリックが暗黙submitにならないようにする。
+ */
+export function Button({
+  variant = "secondary",
+  compact = false,
+  className = "",
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; compact?: boolean }) {
+  const classes = ["semantic-button", `semantic-button-${variant}`, compact ? "compact" : "", className].filter(Boolean).join(" ");
+  return <button {...props} type={type} className={classes} />;
+}
+
 export type ContextMenuItem = {
   label: string;
   onSelect: () => void;
@@ -145,8 +162,25 @@ export function ToolbarOverflow({ label, ariaLabel, children }: {
   );
 }
 
-export function StatusBadge({ value, label }: { value?: string; label?: ReactNode }) {
-  return <span className={`status-badge ${statusTone(value)}`}>{label || value || "未設定"}</span>;
+const STATUS_MARKS: Record<string, string> = {
+  idle: "○",
+  active: "●",
+  review: "◌",
+  blocked: "!",
+  done: "✓",
+  dropped: "—",
+  danger: "!",
+  neutral: "•",
+};
+
+export function StatusBadge({ value, label, className = "" }: { value?: string; label?: ReactNode; className?: string }) {
+  const tone = statusTone(value);
+  return (
+    <span className={`status-badge ${tone} ${className}`.trim()} data-status={tone}>
+      <span className="status-badge-mark" aria-hidden="true">{STATUS_MARKS[tone] || STATUS_MARKS.idle}</span>
+      <span>{label || value || "未設定"}</span>
+    </span>
+  );
 }
 
 export function Metric({ label, value, tone = "" }: { label: string; value: ReactNode; tone?: string }) {

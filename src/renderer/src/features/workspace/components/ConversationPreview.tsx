@@ -1,7 +1,8 @@
-import { IconSparkles, IconTerminal2, IconTool, IconUser } from "@tabler/icons-react";
+import { IconTerminal2, IconTool, IconUser } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useUiStore } from "../../../stores/uiStore";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { conversationMessageMarkdown, conversationRangeMarkdown, conversationTurnRange } from "../lib/conversationCopy";
 import { parseConversation, type ConversationMessage } from "../lib/conversationParser";
@@ -12,7 +13,7 @@ function RoleIcon({ role }: { role: ConversationMessage["role"] }) {
   if (role === "user") return <IconUser size={14} />;
   if (role === "tool") return <IconTool size={14} />;
   if (role === "system") return <IconTerminal2 size={14} />;
-  return <IconSparkles size={14} />;
+  return <AI_ICON size={14} />;
 }
 
 export function ConversationPreview({ body, className, showCount = true }: { body: string; className?: string; showCount?: boolean }) {

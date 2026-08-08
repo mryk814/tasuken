@@ -26,7 +26,7 @@ import type { PageProps } from "../types";
 import { inferChatServiceFromUrl } from "../lib/chatServices";
 import { themeColor } from "../lib/domain";
 import { formatDate, uuid } from "../lib/format";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { buildInboxView, buildMicroMemoView } from "../domain-model/selectors";
 import {
@@ -643,7 +643,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
             },
           ]}
         />
-        <button className="primary-button" onClick={addMemo}><IconPlus size={16} />Memo</button>
+        <Button variant="primary" onClick={addMemo}><IconPlus size={16} />Memo</Button>
       </PageHeader>
       <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
         <button className={lane === "untriaged" ? "is-active" : ""} aria-current={lane === "untriaged" ? "page" : undefined} onClick={() => setLane("untriaged")}>
@@ -690,7 +690,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
           </label>
           <button className="secondary-button compact" onClick={() => bulkPatch({ today_flag: true, planned_end: today })}>今日やる</button>
           <button className="secondary-button compact" onClick={() => bulkPatch({ priority: "high" })}>優先</button>
-          <button className="primary-button compact" onClick={organizeSelected}>一括整理</button>
+          <Button variant="primary" compact onClick={organizeSelected}>一括整理</Button>
         </section>
       )}
       {lane === "untriaged" ? <section className="panel inbox-panel">

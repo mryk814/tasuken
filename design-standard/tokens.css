@@ -54,6 +54,29 @@
   --color-info-bg:           #E8F1F8;
   --color-info-bd:           #C3DCEE;
 
+  /* ---- AI action（AIへ依頼・生成・提案の確認だけに使う。通常操作には流用しない） ---- */
+  --color-ai:                var(--color-info-strong);
+  --color-ai-hover:          var(--color-info);
+  --color-ai-bg:             var(--color-info-bg);
+  --color-ai-bd:             var(--color-info-bd);
+
+  /* ---- Action semantics（操作色とworkflow statusを別の契約として参照する） ---- */
+  --action-primary-bg:       var(--color-accent);
+  --action-primary-hover:    var(--color-accent-hover);
+  --action-primary-active:   var(--color-accent-active);
+  --action-primary-fg:       var(--color-on-accent);
+  --action-secondary-bg:     var(--color-surface);
+  --action-secondary-hover:  var(--color-surface-muted);
+  --action-secondary-bd:     var(--color-border);
+  --action-ghost-fg:         var(--color-accent-strong);
+  --action-danger-fg:        var(--color-danger-strong);
+  --action-danger-bg:        var(--color-danger-bg);
+  --action-danger-bd:        var(--color-danger);
+  --action-ai-fg:            var(--color-ai);
+  --action-ai-bg:            var(--color-ai-bg);
+  --action-ai-hover:         var(--color-ai-bd);
+  --action-ai-bd:            var(--color-ai-bd);
+
   /* ---- Workflow status palette（固定の状態enum専用＝第4の役割。
          danger/success 等の「意味固定色」とも chart-* の「区別だけ」とも別ロール。
          能動的な状態を前に出し、終端・不明はニュートラルへ後退させる。色は補助、テキストは必須。
@@ -167,6 +190,7 @@
   --color-success:           #5BB98B; --color-success-strong:#5BB98B; --color-success-bg:#16271F; --color-success-bd:#2E4A3A;
   --color-warning:           #D89B4E; --color-warning-strong:#D89B4E; --color-warning-bg:#2A2114; --color-warning-bd:#4D3D22;
   --color-info:              #5FA3D6; --color-info-strong:   #5FA3D6; --color-info-bg:   #16242F; --color-info-bd:   #294454;
+  --color-ai:                var(--color-info-strong); --color-ai-hover: var(--color-info); --color-ai-bg: var(--color-info-bg); --color-ai-bd: var(--color-info-bd);
 
   /* Workflow status: review のみ独自値（他は意味固定色の別名参照で自動追従） */
   --color-status-review-fg:  #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
@@ -197,6 +221,7 @@
     --color-success: #5BB98B; --color-success-strong: #5BB98B; --color-success-bg: #16271F; --color-success-bd: #2E4A3A;
     --color-warning: #D89B4E; --color-warning-strong: #D89B4E; --color-warning-bg: #2A2114; --color-warning-bd: #4D3D22;
     --color-info: #5FA3D6; --color-info-strong: #5FA3D6; --color-info-bg: #16242F; --color-info-bd: #294454;
+    --color-ai: var(--color-info-strong); --color-ai-hover: var(--color-info); --color-ai-bg: var(--color-info-bg); --color-ai-bd: var(--color-info-bd);
     --color-status-review-fg: #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
     --color-chart-1: #D06A78; --color-chart-2: #67A9D8; --color-chart-3: #63BD91;
     --color-chart-4: #DCA45D; --color-chart-5: #9A8BE0; --color-chart-6: #B7ABA6;

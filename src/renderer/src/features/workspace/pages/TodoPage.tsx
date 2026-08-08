@@ -15,7 +15,7 @@ import {
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/savedTaskViews";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
 import { SCHEDULE_KIND_LABELS, TASK_STATE_LABELS } from "../domain-model/labels";
@@ -321,7 +321,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     <div className="page">
       <PageHeader route="todo">
         <button className="secondary-button" onClick={copyRows}>一覧をコピー</button>
-        <button className="primary-button" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</button>
+        <Button variant="primary" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</Button>
       </PageHeader>
       {showAdd && (
         <InlineAddPanel

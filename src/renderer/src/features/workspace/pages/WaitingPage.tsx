@@ -7,7 +7,7 @@ import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
 import { themeColor } from "../lib/domain";
-import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { Button, EmptyState, PageHeader, StatusBadge } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
@@ -154,9 +154,9 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
                 <span>{waiting.waiting_for}</span>
                 <span className="waiting-state-actions">
                   {waiting.state === "waiting" ? (
-                    <button className="danger-button compact waiting-cancel-button" onClick={() => changeState(waiting, "cancelled")}>
+                    <Button variant="secondary" compact className="waiting-cancel-button" onClick={() => changeState(waiting, "cancelled")}>
                       <IconX size={14} /> 中止
-                    </button>
+                    </Button>
                   ) : (
                     <span className="inline-actions" style={{ gap: "var(--space-xs)" }}>
                       <StatusBadge value={waiting.state} label={WAITING_STATE_LABELS[waiting.state]} />

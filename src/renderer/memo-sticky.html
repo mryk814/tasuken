@@ -5,27 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>付箋メモ</title>
     <style>
-      :root {
-        color-scheme: light;
-        --color-paper: #FFFBF0;
-        --color-paper-edge: #F2E7CE;
-        --color-text: #2f2927;
-        --color-text-secondary: #70615d;
-        --color-accent: #8a2f3b;
-        --color-danger: #ce3b3b;
-        --radius-sm: 5px;
-        --radius-md: 7px;
-        --space-1: 4px;
-        --space-2: 8px;
-        --space-3: 12px;
-        --font-base: "Nunito", "Yu Gothic UI", "Meiryo", sans-serif;
-        --font-mono: "Cascadia Mono", "Consolas", monospace;
-      }
       * { box-sizing: border-box; }
       body {
         min-height: 100vh;
         margin: 0;
-        background: var(--color-paper);
+        background: var(--color-surface);
         color: var(--color-text);
         font-family: var(--font-base);
         font-size: 13px;
@@ -37,7 +21,7 @@
         min-height: 100vh;
         display: grid;
         grid-template-rows: auto minmax(0, 1fr) auto;
-        background: linear-gradient(180deg, var(--color-paper-edge) 0%, var(--color-paper) 26%);
+        background: linear-gradient(180deg, var(--color-accent-subtle-bg-strong) 0%, var(--color-surface) 26%);
       }
       header {
         display: flex;
@@ -68,7 +52,7 @@
         background: transparent;
         color: var(--color-text-secondary);
       }
-      .icon-button:hover { border-color: var(--color-paper-edge); background: #fff; color: var(--color-accent); }
+      .icon-button:hover { border-color: var(--color-border); background: var(--color-surface-subtle); color: var(--color-accent); }
       .icon-button.is-active { border-color: var(--color-accent); color: var(--color-accent); }
       .icon-button.danger:hover { color: var(--color-danger); }
       .icon-button svg {
@@ -101,8 +85,8 @@
       .menu {
         position: absolute; top: calc(100% + 2px); right: 0; z-index: 10;
         min-width: 128px; display: grid; gap: 2px; padding: var(--space-1);
-        border: 1px solid var(--color-paper-edge); border-radius: var(--radius-md);
-        background: #fff; box-shadow: 0 6px 18px rgba(47, 41, 39, .18);
+        border: 1px solid var(--color-border); border-radius: var(--radius-md);
+        background: var(--color-surface); box-shadow: var(--shadow-lg);
       }
       .menu[hidden] { display: none; }
       .menu button {
@@ -110,7 +94,7 @@
         border: 0; border-radius: var(--radius-sm);
         background: transparent; text-align: left; white-space: nowrap;
       }
-      .menu button:hover { background: var(--color-paper); }
+      .menu button:hover { background: var(--color-surface-subtle); }
       .menu button.danger { color: var(--color-danger); }
       footer .state { font-variant-numeric: tabular-nums; }
       footer .state.is-error { color: var(--color-danger); font-weight: 700; }

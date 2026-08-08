@@ -6,12 +6,12 @@ import {
   IconNotes,
   IconPaperclip,
   IconSettings,
-  IconSparkles,
   IconSun,
   IconTimeline,
   IconWriting,
   type Icon,
 } from "@tabler/icons-react";
+import { AI_ICON } from "./semanticIcons";
 
 /**
  * Sidebarとページ見出しで同じアイコンを使うための正本（#301）。
@@ -27,6 +27,6 @@ export const ROUTE_ICONS: Record<string, Icon> = {
   sketch: IconWriting,
   "chat-refs": IconMessageCircle,
   artifacts: IconPaperclip,
-  "ai-io": IconSparkles,
+  "ai-io": AI_ICON,
   settings: IconSettings,
 };

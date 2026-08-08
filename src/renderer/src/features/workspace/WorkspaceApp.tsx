@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { IconAlertTriangle, IconCheck, IconInfoCircle, IconTrash } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCheck, IconInfoCircle } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../services/workspaceApi";
 import { routeAliases, routeLabel } from "../../pages/routes";
@@ -84,7 +84,7 @@ function errorMessage(error: unknown): string {
 
 function toastIcon(tone: ToastTone) {
   if (tone === "danger") return <IconAlertTriangle size={18} />;
-  if (tone === "warning") return <IconTrash size={18} />;
+  if (tone === "warning") return <IconAlertTriangle size={18} />;
   if (tone === "success") return <IconCheck size={18} />;
   return <IconInfoCircle size={18} />;
 }

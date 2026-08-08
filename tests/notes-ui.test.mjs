@@ -250,5 +250,5 @@ test("AI iconはAIの操作にだけ使う（#312）", () => {
   // Knowledge化はAIが実行する操作ではない。
   assert.match(source, /title="Knowledge化"\s*\n\s*>\s*\n[^<]*\n\s*<IconBulb size=\{15\} \/>/);
   // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
-  assert.match(source, /<IconSparkles size=\{16\} \/>AI Draft/);
+  assert.match(source, /<AI_ICON size=\{16\} \/>AI Draft/);
 });

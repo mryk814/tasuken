@@ -7,7 +7,6 @@ import {
   IconPrompt,
   IconReport,
   IconSearch,
-  IconSparkles,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -34,7 +33,8 @@ import {
 } from "../../../../../shared/canonicalMarkdown.mjs";
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { AI_ICON } from "../../../pages/semanticIcons";
+import { Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { ChatRefArtifactLinkDialog } from "../components/ChatRefArtifactLinkDialog";
 import { DraftWorkspaceDialog } from "../components/DraftWorkspaceDialog";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
@@ -1867,7 +1867,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         ) : (
           <>
             <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-            <button className="secondary-button" onClick={() => setDraftWorkspaceTarget(null)}><IconSparkles size={16} />AI Draft</button>
+            <Button variant="ai" onClick={() => setDraftWorkspaceTarget(null)}><AI_ICON size={16} />AI Draft</Button>
             {/* 作成は一つのprimary actionへ集約する。既定の種類は現在のfilterから決める（#313）。 */}
             <NoteCreateMenu defaultKind={createDefaultKind} onCreate={createRecord} />
           </>

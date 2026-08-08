@@ -27,7 +27,7 @@ import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type Keyb
 import { workspaceApi } from "../../../services/workspaceApi";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { usePersistentState } from "../../../utils/usePersistentState";
-import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ConversationImportDialog } from "../components/ConversationImportDialog";
 import { isConversationMarkdown } from "../lib/conversationParser";
@@ -504,7 +504,7 @@ export function ChatRefsPage({
         {!isArchiveView && (
           <>
             <button className="secondary-button" onClick={() => setImportDialogOpen(true)}><IconFileImport size={16} />会話ログを取り込む</button>
-            <button className="primary-button" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</button>
+            <Button variant="primary" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</Button>
           </>
         )}
       </PageHeader>

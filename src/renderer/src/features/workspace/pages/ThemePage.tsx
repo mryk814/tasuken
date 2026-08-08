@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { IconCopy, IconFileText, IconMessage2Plus, IconSparkles } from "@tabler/icons-react";
+import { IconCopy, IconFileText, IconMessage2Plus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import type { BaseRecord, PageProps, SaveOperation } from "../types";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
@@ -10,7 +11,7 @@ import { compactNotesBodyPreview } from "../lib/notes";
 import { buildCompleteTaskOperations } from "../domain-model/taskRecurrence";
 import { buildTaskSection, groupTasksBySection, listTaskSections, type TaskSection, type TaskSectionGroup } from "../lib/taskSections";
 import { ArtifactSection } from "../components/artifacts";
-import { EmptyState, PageHeader, SimpleRows, StatusBadge } from "../components/common";
+import { Button, EmptyState, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 import type { Schedule, Task } from "../domain-model/types";
 
 const REPORT_TYPE_LABELS: Record<string, string> = {
@@ -214,7 +215,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
     <div className="page">
       <PageHeader title={theme.name} subtitle={theme.description}>
         {theme.code && <span className="theme-code">{theme.code}</span>}
-        <button className="secondary-button" onClick={() => openContextPack(theme.id)}><IconSparkles size={16} />AI向けContext</button>
+        <Button variant="ai" onClick={() => openContextPack(theme.id)}><AI_ICON size={16} />AI向けContext</Button>
         <button className="secondary-button" onClick={() => openDrawer({ type: "status_update", mode: "edit", entity: { theme_id: theme.id } })}>現在地を記録</button>
         <button className="primary-button" onClick={() => openDrawer({ type: "task", mode: "edit", entity: { project_id: theme.id } })}>タスクを追加</button>
       </PageHeader>

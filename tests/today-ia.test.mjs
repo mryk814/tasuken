@@ -121,9 +121,9 @@ test("Todayのprimary actionはTask追加ひとつにする（#316）", () => {
   );
 
   // 画面上部で強いのは「今日のTaskを追加」だけ。
-  const primaries = header.match(/className="primary-button"/g) || [];
+  const primaries = header.match(/<Button variant="primary"/g) || [];
   assert.equal(primaries.length, 1);
-  assert.match(header, /className="primary-button" onClick=\{\(\) => setShowAdd\(\(v\) => !v\)\}/);
+  assert.match(header, /<Button variant="primary" onClick=\{\(\) => setShowAdd\(\(v\) => !v\)\}/);
   assert.match(header, /今日のTaskを追加/);
 
   // コピーとActivityは常設buttonから外し、menuへ移す。

@@ -1,8 +1,24 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+
+const designTokens = readFileSync(resolve(__dirname, "design-standard/tokens.css"), "utf8");
+
+function sharedDesignTokensPlugin() {
+  return {
+    name: "tasken-shared-design-tokens",
+    transformIndexHtml(html: string, ctx: { path: string }) {
+      if (ctx.path.endsWith("/index.html") || ctx.path === "/") return html;
+      return html.replace(
+        "</head>",
+        `<style data-tasken-design-tokens>\n${designTokens}\n</style>\n</head>`,
+      );
+    },
+  };
+}
 
 export default defineConfig({
   main: {
@@ -28,7 +44,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, "src/renderer"),
-    plugins: [react(), tailwindcss()],
+    plugins: [sharedDesignTokensPlugin(), react(), tailwindcss()],
     build: {
       rollupOptions: {
         input: {

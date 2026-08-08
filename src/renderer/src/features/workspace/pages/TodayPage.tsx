@@ -24,7 +24,7 @@ import { buildActivityLog, collectActivityLogEntries } from "../lib/activityLog"
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import { taskShelfStatus } from "../lib/taskShelves";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
@@ -1090,9 +1090,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
             },
           ]}
         />
-        <button className="primary-button" onClick={() => setShowAdd((v) => !v)} aria-expanded={showAdd}>
+        <Button variant="primary" onClick={() => setShowAdd((v) => !v)} aria-expanded={showAdd}>
           <IconPlus size={16} /> 今日のTaskを追加
-        </button>
+        </Button>
       </PageHeader>
 
       {showAdd && (

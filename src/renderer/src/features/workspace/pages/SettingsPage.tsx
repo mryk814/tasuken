@@ -9,7 +9,7 @@ import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMet
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
 import { entityTitle } from "../lib/domain";
-import { PageHeader } from "../components/common";
+import { Button, PageHeader } from "../components/common";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -504,16 +504,16 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                 </div>
               </dl>
               <div className="settings-action-row">
-                <button className="danger-button" disabled={calendarBusy} onClick={disconnectCalendar}>
+                <Button variant="danger" disabled={calendarBusy} onClick={disconnectCalendar}>
                   {calendarBusy ? "処理中" : "接続を解除"}
-                </button>
+                </Button>
               </div>
             </>
           ) : (
             <div className="settings-action-row">
-              <button className="primary-button" disabled={calendarBusy} onClick={connectCalendar}>
+              <Button variant="primary" disabled={calendarBusy} onClick={connectCalendar}>
                 {calendarBusy ? "接続中…" : "Microsoftアカウントで接続"}
-              </button>
+              </Button>
             </div>
           )}
         </section>
@@ -541,11 +541,11 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             />
           </label>
           <div className="settings-action-row">
-            <button className="primary-button" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
+            <Button variant="primary" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
               {aiBusy ? "保存中" : "設定を保存"}
-            </button>
+            </Button>
             {aiConfig?.hasApiKey && (
-              <button className="danger-button" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</button>
+              <Button variant="danger" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</Button>
             )}
           </div>
         </section>

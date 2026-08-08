@@ -24,7 +24,6 @@ import {
   IconRectangle,
   IconSquareRounded,
   IconShape,
-  IconSparkles,
   IconTextSize,
   IconTriangle,
   IconTrash,
@@ -88,7 +87,7 @@ const SHAPE_ITEMS: Array<{ id: SketchShapeKind; label: string; description?: str
   { id: "sticky_note", label: "付箋", icon: IconNote },
   { id: "callout", label: "吹き出し", icon: IconMessage },
   { id: "bidirectional_arrow", label: "両矢印", icon: IconArrowsLeftRight },
-  { id: "auto", label: "手描き認識", description: "描いた線から、直線・四角・楕円を判定します", icon: IconSparkles },
+  { id: "auto", label: "手描き認識", description: "描いた線から、直線・四角・楕円を判定します", icon: IconShape },
 ];
 const TOOL_ITEMS: Array<{ id: SketchTool; label: string; icon: typeof IconPointer }> = [
   { id: "select", label: "選択", icon: IconPointer },
