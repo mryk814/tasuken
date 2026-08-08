@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { AppUpdateCheckResult, McpBridgeInfo, SharedSyncStatus } from "../../../../../shared/ipc/contracts";
-import type { AiProviderConfig } from "../../../../../shared/ai";
+import type { AiAdapterKind, AiApiSurface, AiAuthKind, AiCapability, AiFeatureAvailability, AiModelLifecycle, AiProviderConfig } from "../../../../../shared/ai";
 import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMetadata.mjs";
@@ -20,6 +20,34 @@ interface SettingsPageProps extends PageProps {
 }
 
 type SettingsSectionId = "general" | "appearance" | "storage" | "integrations" | "ai-mcp" | "advanced";
+
+const AI_SURFACES_BY_ADAPTER: Record<AiAdapterKind, AiApiSurface[]> = {
+  "openai-native": ["responses"],
+  "openai-compatible": ["responses", "chat_completions"],
+  "azure-openai": ["responses", "chat_completions"],
+  anthropic: ["native"],
+  gemini: ["native"],
+  bedrock: ["native"],
+  ollama: ["chat_completions"],
+};
+
+const AI_AUTHS_BY_ADAPTER: Record<AiAdapterKind, AiAuthKind[]> = {
+  "openai-native": ["api_key"],
+  "openai-compatible": ["api_key", "bearer_token"],
+  "azure-openai": ["api_key", "bearer_token"],
+  anthropic: ["api_key"],
+  gemini: ["api_key", "bearer_token"],
+  bedrock: ["bearer_token"],
+  ollama: ["none"],
+};
+
+function defaultAiSurface(adapterKind: AiAdapterKind): AiApiSurface {
+  return AI_SURFACES_BY_ADAPTER[adapterKind][0];
+}
+
+function defaultAiAuth(adapterKind: AiAdapterKind): AiAuthKind {
+  return AI_AUTHS_BY_ADAPTER[adapterKind][0];
+}
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; description: string }> = [
   { id: "general", label: "General", description: "基本の使い方" },
@@ -49,9 +77,31 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [syncBusy, setSyncBusy] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
   const [aiConfig, setAiConfig] = useState<AiProviderConfig | null>(null);
+  const [aiConfigState, setAiConfigState] = useState<"loading" | "empty" | "error" | "success">("loading");
+  const [aiConfigError, setAiConfigError] = useState("");
+  const [aiConfigReloadToken, setAiConfigReloadToken] = useState(0);
+  const [aiProviderId, setAiProviderId] = useState("");
+  const [aiProviderLabel, setAiProviderLabel] = useState("OpenAI");
+  const [aiAdapterKind, setAiAdapterKind] = useState<AiAdapterKind>("openai-native");
+  const [aiAuthKind, setAiAuthKind] = useState<AiAuthKind>("api_key");
+  const [aiApiSurface, setAiApiSurface] = useState<AiApiSurface>("responses");
+  const [aiEndpoint, setAiEndpoint] = useState("");
+  const [aiOrganization, setAiOrganization] = useState("");
+  const [aiProject, setAiProject] = useState("");
+  const [aiRegion, setAiRegion] = useState("");
+  const [aiDeployment, setAiDeployment] = useState("");
+  const [aiRequestTimeoutMs, setAiRequestTimeoutMs] = useState(120_000);
+  const [aiEnabled, setAiEnabled] = useState(true);
   const [aiModel, setAiModel] = useState("gpt-5.6");
+  const [aiModelProfileId, setAiModelProfileId] = useState("");
+  const [aiModelDisplayName, setAiModelDisplayName] = useState("");
+  const [aiModelCapabilities, setAiModelCapabilities] = useState<AiCapability[]>(["text", "streaming", "tool_calling", "structured_output"]);
+  const [aiModelLifecycle, setAiModelLifecycle] = useState<AiModelLifecycle>("available");
   const [aiApiKey, setAiApiKey] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiTestStatus, setAiTestStatus] = useState<"idle" | "loading" | "connected" | "missing_credential" | "unsupported" | "connection_failed" | "model_unavailable">("idle");
+  const [aiTestMessage, setAiTestMessage] = useState("");
+  const [aiAvailability, setAiAvailability] = useState<AiFeatureAvailability | null>(null);
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
   // AI公開範囲のworkspace既定（#294）。Theme・項目が未設定のときだけ使う。
@@ -123,15 +173,54 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   }, [setToast]);
 
   useEffect(() => {
+    setAiConfigState("loading");
+    setAiConfigError("");
     workspaceApi.getAiConfig()
       .then((config) => {
         setAiConfig(config);
-        setAiModel(config.model);
+        setAiConfigState(config.providers.length === 0 ? "empty" : "success");
+        const provider = config.providers.find((candidate) => candidate.id === config.defaultProviderProfileId) || config.providers[0];
+        const model = config.models.find((candidate) => candidate.id === config.defaultModelProfileId)
+          || (provider ? config.models.find((candidate) => candidate.providerProfileId === provider.id) : undefined);
+        if (provider) {
+          setAiProviderId(provider.id);
+          setAiProviderLabel(provider.label);
+          setAiAdapterKind(provider.adapterKind);
+          setAiAuthKind(provider.authKind);
+          setAiApiSurface(provider.apiSurface);
+          setAiEndpoint(provider.endpoint || "");
+          setAiOrganization(provider.organization || "");
+          setAiProject(provider.project || "");
+          setAiRegion(provider.region || "");
+          setAiDeployment(provider.deployment || "");
+          setAiRequestTimeoutMs(provider.requestTimeoutMs);
+          setAiEnabled(provider.enabled);
+        }
+        if (model) {
+          setAiModelProfileId(model.id);
+          setAiModel(model.model);
+          setAiModelDisplayName(model.displayName);
+          setAiModelCapabilities(model.capabilities);
+          setAiModelLifecycle(model.lifecycle);
+        }
       })
       .catch((error) => {
-        setToast(`AI設定を取得できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+        const message = error instanceof Error ? error.message : String(error);
+        setAiConfigState("error");
+        setAiConfigError(message);
+        setToast(`AI設定を取得できませんでした。${message}`, "danger");
       });
-  }, [setToast]);
+  }, [aiConfigReloadToken, setToast]);
+
+  useEffect(() => {
+    if (!aiProviderId || !aiModelProfileId) {
+      setAiAvailability(null);
+      return;
+    }
+    workspaceApi.getAiFeatureAvailability("note_assistant", aiProviderId, aiModelProfileId)
+      .then(setAiAvailability)
+      .catch(() => setAiAvailability(null));
+  }, [aiProviderId, aiModelProfileId]);
 
   useEffect(() => {
     let canceled = false;
@@ -305,20 +394,156 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   async function saveAiSettings(clearApiKey = false) {
     setAiBusy(true);
     try {
-      const config = await workspaceApi.saveAiConfig({
-        provider: "openai",
-        model: aiModel,
-        apiKey: aiApiKey || undefined,
-        clearApiKey,
+      const providerConfig = await workspaceApi.saveAiProviderProfile({
+        id: aiProviderId || undefined,
+        label: aiProviderLabel,
+        adapterKind: aiAdapterKind,
+        authKind: aiAuthKind,
+        apiSurface: aiApiSurface,
+        endpoint: aiEndpoint || null,
+        organization: aiOrganization || null,
+        project: aiProject || null,
+        region: aiRegion || null,
+        deployment: aiDeployment || null,
+        requestTimeoutMs: aiRequestTimeoutMs,
+        enabled: aiEnabled,
+        credential: aiApiKey || undefined,
+        clearCredential: clearApiKey,
       });
+      const provider = providerConfig.providers.find((candidate) => candidate.id === aiProviderId)
+        || providerConfig.providers[providerConfig.providers.length - 1];
+      if (!provider) throw new Error("provider profileを作成できませんでした。");
+      const existingModel = providerConfig.models.find((candidate) => candidate.id === aiModelProfileId && candidate.providerProfileId === provider.id);
+      const config = await workspaceApi.saveAiModelProfile({
+        id: existingModel?.id,
+        providerProfileId: provider.id,
+        model: aiModel,
+        displayName: aiModelDisplayName || aiModel,
+        capabilities: aiModelCapabilities,
+        lifecycle: aiModelLifecycle,
+      });
+      const savedModel = config.models.find((candidate) => candidate.providerProfileId === provider.id && (candidate.id === existingModel?.id || candidate.model === aiModel))
+        || config.models.find((candidate) => candidate.providerProfileId === provider.id);
       setAiConfig(config);
-      setAiModel(config.model);
+      setAiConfigState(config.providers.length === 0 ? "empty" : "success");
+      setAiProviderId(provider.id);
+      setAiProviderLabel(provider.label);
+      setAiModelProfileId(savedModel?.id || "");
+      setAiModel(savedModel?.model || aiModel);
+      setAiModelDisplayName(savedModel?.displayName || aiModelDisplayName || aiModel);
       setAiApiKey("");
-      setToast(clearApiKey ? "OpenAI APIキーを削除しました。" : "AI設定を安全に保存しました。", "success");
+      setToast(clearApiKey ? "credentialを削除しました。" : "AI profileを安全に保存しました。", "success");
     } catch (error) {
       setToast(`AI設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     } finally {
       setAiBusy(false);
+    }
+  }
+
+  function selectAiProvider(id: string, sourceConfig: AiProviderConfig | null = aiConfig) {
+    if (!sourceConfig) return;
+    const provider = sourceConfig.providers.find((candidate) => candidate.id === id);
+    if (!provider) return;
+    const model = sourceConfig.models.find((candidate) => candidate.id === sourceConfig.defaultModelProfileId && candidate.providerProfileId === provider.id)
+      || sourceConfig.models.find((candidate) => candidate.providerProfileId === provider.id);
+    setAiProviderId(provider.id);
+    setAiProviderLabel(provider.label);
+    setAiAdapterKind(provider.adapterKind);
+    setAiAuthKind(provider.authKind);
+    setAiApiSurface(provider.apiSurface);
+    setAiEndpoint(provider.endpoint || "");
+    setAiOrganization(provider.organization || "");
+    setAiProject(provider.project || "");
+    setAiRegion(provider.region || "");
+    setAiDeployment(provider.deployment || "");
+    setAiRequestTimeoutMs(provider.requestTimeoutMs);
+    setAiEnabled(provider.enabled);
+    setAiModelProfileId(model?.id || "");
+    setAiModel(model?.model || "");
+    setAiModelDisplayName(model?.displayName || "");
+    setAiModelCapabilities(model?.capabilities || ["text"]);
+    setAiModelLifecycle(model?.lifecycle || "available");
+    setAiApiKey("");
+    setAiTestStatus("idle");
+    setAiTestMessage("");
+  }
+
+  function changeAiAdapter(adapterKind: AiAdapterKind) {
+    setAiAdapterKind(adapterKind);
+    setAiApiSurface(defaultAiSurface(adapterKind));
+    setAiAuthKind(defaultAiAuth(adapterKind));
+  }
+
+  function startNewAiProvider() {
+    setAiProviderId("");
+    setAiProviderLabel("新しいprovider");
+    setAiAdapterKind("openai-compatible");
+    setAiAuthKind("api_key");
+    setAiApiSurface("responses");
+    setAiEndpoint("");
+    setAiOrganization("");
+    setAiProject("");
+    setAiRegion("");
+    setAiDeployment("");
+    setAiRequestTimeoutMs(120_000);
+    setAiEnabled(true);
+    setAiModelProfileId("");
+    setAiModel("");
+    setAiModelDisplayName("");
+    setAiModelCapabilities(["text"]);
+    setAiModelLifecycle("available");
+    setAiApiKey("");
+    setAiTestStatus("idle");
+    setAiTestMessage("");
+  }
+
+  async function testAiProviderConnection() {
+    if (!aiProviderId) return;
+    setAiTestStatus("loading");
+    setAiTestMessage("");
+    try {
+      const result = await workspaceApi.testAiConnection({ providerProfileId: aiProviderId, modelProfileId: aiModelProfileId || undefined });
+      setAiTestStatus(result.status);
+      setAiTestMessage(result.message);
+      if (result.status === "connected") setToast("AI providerへ接続できました。", "success");
+    } catch (error) {
+      setAiTestStatus("connection_failed");
+      setAiTestMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function setAiProviderDefault() {
+    if (!aiProviderId) return;
+    try {
+      const config = await workspaceApi.setDefaultAiProviderProfile(aiProviderId);
+      setAiConfig(config);
+      setToast("default providerを変更しました。", "success");
+    } catch (error) {
+      setToast(`default providerを変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function setAiModelDefault() {
+    if (!aiModelProfileId) return;
+    try {
+      const config = await workspaceApi.setDefaultAiModelProfile(aiModelProfileId);
+      setAiConfig(config);
+      setToast("default modelを変更しました。", "success");
+    } catch (error) {
+      setToast(`default modelを変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function deleteAiProvider() {
+    if (!aiProviderId) return;
+    try {
+      const config = await workspaceApi.deleteAiProviderProfile(aiProviderId);
+      setAiConfig(config);
+      setAiConfigState(config.providers.length === 0 ? "empty" : "success");
+      selectAiProvider(config.defaultProviderProfileId || config.providers[0]?.id || "", config);
+      setToast("provider profileを削除しました。", "info");
+    } catch (error) {
+      setToast(`provider profileを削除できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
     }
   }
 
@@ -370,17 +595,34 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
       ? { label: "接続済み", tone: "normal" as const, detail: calendarStatus.accountName }
       : { label: "未接続", tone: "neutral" as const }
     : { label: "確認中", tone: "loading" as const };
-  const aiSummary = aiConfig
-    ? aiConfig.hasApiKey
-      ? { label: `${aiConfig.provider} · ${aiConfig.model}`, tone: "normal" as const }
-      : { label: "未設定", tone: "neutral" as const }
-    : { label: "確認中", tone: "loading" as const };
+  const aiSummary = aiConfigState === "loading"
+    ? { label: "確認中", tone: "loading" as const }
+    : aiConfigState === "error"
+      ? { label: "取得失敗", tone: "error" as const }
+      : aiConfigState === "empty" || !aiConfig || aiConfig.providers.length === 0
+        ? { label: "未設定", tone: "neutral" as const }
+        : aiConfig.providers.some((provider) => provider.enabled && provider.credentialConfigured)
+          ? { label: `${aiConfig.providers.length} profile · ${aiConfig.models.length} model`, tone: "normal" as const }
+          : { label: "credential未設定", tone: "neutral" as const };
   const mcpSummary = mcpInfo
     ? mcpInfo.pendingFileCount > 0
       ? { label: `要確認 · ${mcpInfo.pendingFileCount}件`, tone: "attention" as const }
       : { label: "正常", tone: "normal" as const }
-    : { label: "確認中", tone: "loading" as const };
+      : { label: "確認中", tone: "loading" as const };
   const activeSectionDefinition = SETTINGS_SECTIONS.find((entry) => entry.id === activeSection) || SETTINGS_SECTIONS[0];
+  const selectedAiProvider = aiConfig?.providers.find((provider) => provider.id === aiProviderId);
+  const selectedAiModel = aiConfig?.models.find((model) => model.id === aiModelProfileId);
+  const aiTestSummary = aiTestStatus === "loading"
+    ? { label: "接続中", tone: "loading" as const }
+    : aiTestStatus === "connected"
+      ? { label: "接続済み", tone: "normal" as const }
+      : aiTestStatus === "idle"
+        ? { label: "未テスト", tone: "neutral" as const }
+        : aiTestStatus === "missing_credential" || aiTestStatus === "model_unavailable"
+          ? { label: aiTestStatus === "missing_credential" ? "credential未設定" : "model unavailable", tone: "attention" as const }
+          : aiTestStatus === "unsupported"
+            ? { label: "未実装adapter", tone: "neutral" as const }
+            : { label: "接続失敗", tone: "error" as const };
 
   return (
     <div className="page">
@@ -624,37 +866,143 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                 <h2>AI Provider</h2>
                 <IntegrationStatus label={aiSummary.label} tone={aiSummary.tone} />
               </div>
-              <p className="field-help">明示操作時だけ送信し、返答はPending Proposalとして差分確認します。</p>
-              <details className="settings-detail" open={!aiConfig?.hasApiKey}>
-                <summary>Provider設定を編集</summary>
+              <p className="field-help">Providerとmodelを分けて管理します。返答はPending Proposalへ入り、別providerへの自動fallbackはありません。</p>
+              {aiConfigState === "loading" && <p className="field-help">AI profileを読み込んでいます…</p>}
+              {aiConfigState === "error" && (
+                <div className="settings-current-state">
+                  <strong>AI設定を読み込めませんでした。</strong>
+                  <span>{aiConfigError || "設定ファイルを確認してください。"}</span>
+                  <Button variant="secondary" compact onClick={() => setAiConfigReloadToken((value) => value + 1)}>再試行</Button>
+                </div>
+              )}
+              {aiConfigState === "empty" && <p className="field-help">Provider profileがまだありません。追加してから接続をテストしてください。</p>}
+              <div className="ai-profile-list" aria-label="Provider profiles">
+                {(aiConfig?.providers || []).map((provider) => (
+                  <button type="button" key={provider.id} className={`ai-profile-row ${provider.id === aiProviderId ? "is-selected" : ""}`} onClick={() => selectAiProvider(provider.id)}>
+                    <span><strong>{provider.label}</strong><small>{provider.adapterKind} · {provider.endpointExposure === "local_private" ? "local/private" : "external"} · {provider.credentialConfigured ? "credential設定済み" : "credential未設定"}</small></span>
+                    <span>{provider.id === aiConfig?.defaultProviderProfileId ? "default" : provider.enabled ? "enabled" : "disabled"}</span>
+                  </button>
+                ))}
+                <Button variant="secondary" compact onClick={startNewAiProvider}>Providerを追加</Button>
+              </div>
+              <details className="settings-detail" open>
+                <summary>Provider profileを編集</summary>
                 <div className="settings-detail-body">
-                  <label>Provider
-                    <select value="openai" disabled><option value="openai">OpenAI</option></select>
+                  <label>Label
+                    <input value={aiProviderLabel} onChange={(event) => setAiProviderLabel(event.target.value)} placeholder="OpenAI" />
                   </label>
-                  <label>Model
-                    <input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="gpt-5.6" />
+                  <label>Adapter
+                    <select value={aiAdapterKind} onChange={(event) => changeAiAdapter(event.target.value as AiAdapterKind)}>
+                      <option value="openai-native">OpenAI native</option>
+                      <option value="openai-compatible">Generic OpenAI-compatible</option>
+                      <option value="azure-openai">Azure OpenAI / Foundry</option>
+                      <option value="anthropic">Anthropic（未実装）</option>
+                      <option value="gemini">Gemini（未実装）</option>
+                      <option value="bedrock">Bedrock（未実装）</option>
+                      <option value="ollama">Ollama（未実装）</option>
+                    </select>
                   </label>
-                  <label>API key
+                  <label>Auth
+                    <select value={aiAuthKind} onChange={(event) => setAiAuthKind(event.target.value as AiAuthKind)}>
+                      {AI_AUTHS_BY_ADAPTER[aiAdapterKind].map((authKind) => (
+                        <option value={authKind} key={authKind}>{authKind === "api_key" ? "API key" : authKind === "bearer_token" ? "Bearer token" : "なし（local adapterのみ）"}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>API surface
+                    <select value={aiApiSurface} onChange={(event) => setAiApiSurface(event.target.value as AiApiSurface)}>
+                      {AI_SURFACES_BY_ADAPTER[aiAdapterKind].map((apiSurface) => (
+                        <option value={apiSurface} key={apiSurface}>{apiSurface === "responses" ? "Responses" : apiSurface === "chat_completions" ? "Chat Completions" : "Native provider API（未実装）"}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="toggle">有効
+                    <input type="checkbox" checked={aiEnabled} onChange={(event) => setAiEnabled(event.target.checked)} />
+                  </label>
+                  <label>Endpoint
+                    <input value={aiEndpoint} onChange={(event) => setAiEndpoint(event.target.value)} placeholder={aiAdapterKind === "openai-native" ? "固定: https://api.openai.com" : "https://…（credentialなし）"} />
+                  </label>
+                  {selectedAiProvider && <p className="field-help endpoint-exposure-note">
+                    Endpoint scope: <strong>{selectedAiProvider.endpointExposure === "local_private" ? "local/private" : "external"}</strong>
+                    {selectedAiProvider.endpointExposure === "local_private" ? "。外部providerへは送信しません。" : "。入力したendpointへ送信します。"}
+                  </p>}
+                  <div className="settings-meta-list ai-profile-meta-fields">
+                    <label>Organization<input value={aiOrganization} onChange={(event) => setAiOrganization(event.target.value)} /></label>
+                    <label>Project<input value={aiProject} onChange={(event) => setAiProject(event.target.value)} /></label>
+                    <label>Region<input value={aiRegion} onChange={(event) => setAiRegion(event.target.value)} /></label>
+                    <label>Deployment<input value={aiDeployment} onChange={(event) => setAiDeployment(event.target.value)} /></label>
+                    <label>Generation timeout (sec)<input type="number" min="30" max="600" value={Math.round(aiRequestTimeoutMs / 1000)} onChange={(event) => setAiRequestTimeoutMs(Number(event.target.value) * 1000)} /></label>
+                  </div>
+                  <label>API key / credential
                     <input
                       type="password"
                       autoComplete="off"
                       value={aiApiKey}
                       onChange={(event) => setAiApiKey(event.target.value)}
-                      placeholder={aiConfig?.hasApiKey ? "保存済み（変更時だけ入力）" : "保存時だけ入力。再表示しません"}
+                      placeholder={selectedAiProvider?.credentialConfigured ? "保存済み（変更時だけ入力）" : "保存時だけ入力。再表示しません"}
                     />
                   </label>
                   <div className="settings-action-row">
                     <Button variant="primary" disabled={aiBusy || !aiModel.trim()} onClick={() => saveAiSettings(false)}>
                       {aiBusy ? "保存中" : "設定を保存"}
                     </Button>
+                    <Button variant="secondary" disabled={aiBusy || !aiProviderId} onClick={testAiProviderConnection}>
+                      {aiTestStatus === "loading" ? "接続中…" : "接続をテスト"}
+                    </Button>
+                    <Button variant="secondary" disabled={aiBusy || !aiProviderId || aiProviderId === aiConfig?.defaultProviderProfileId} onClick={setAiProviderDefault}>default providerにする</Button>
                   </div>
+                  <IntegrationStatus label={aiTestSummary.label} tone={aiTestSummary.tone} detail={aiTestMessage} />
+                  {aiTestMessage && <p className={`field-help ${aiTestStatus === "connection_failed" ? "form-error" : ""}`}>{aiTestMessage}</p>}
                 </div>
               </details>
-              {aiConfig?.hasApiKey && (
+              <details className="settings-detail" open>
+                <summary>Model profiles</summary>
+                <div className="settings-detail-body">
+                  <div className="ai-model-list">
+                    {(aiConfig?.models || []).filter((model) => model.providerProfileId === aiProviderId).map((model) => (
+                      <button type="button" key={model.id} className={`ai-profile-row ${model.id === aiModelProfileId ? "is-selected" : ""}`} onClick={() => { setAiModelProfileId(model.id); setAiModel(model.model); setAiModelDisplayName(model.displayName); setAiModelCapabilities(model.capabilities); setAiModelLifecycle(model.lifecycle); }}>
+                        <span><strong>{model.displayName}</strong><small className="mono-value">{model.model} · {model.capabilities.join(", ")}</small></span>
+                        <span>{model.id === aiConfig?.defaultModelProfileId ? "default" : model.lifecycle}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <label>Model ID
+                    <input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="gpt-5.6" />
+                  </label>
+                  <label>Display name
+                    <input value={aiModelDisplayName} onChange={(event) => setAiModelDisplayName(event.target.value)} placeholder={aiModel || "表示名"} />
+                  </label>
+                  <label>Lifecycle
+                    <select value={aiModelLifecycle} onChange={(event) => setAiModelLifecycle(event.target.value as AiModelLifecycle)}>
+                      <option value="available">available</option>
+                      <option value="experimental">experimental</option>
+                      <option value="unavailable">unavailable</option>
+                      <option value="deprecated">deprecated</option>
+                    </select>
+                  </label>
+                  <fieldset className="ai-capability-list">
+                    <legend>Capabilities</legend>
+                    {(["text", "streaming", "tool_calling", "parallel_tool_calling", "structured_output", "vision", "file_input", "citations", "embeddings"] as AiCapability[]).map((capability) => (
+                      <label key={capability}><input type="checkbox" checked={aiModelCapabilities.includes(capability)} onChange={(event) => setAiModelCapabilities((current) => event.target.checked ? [...new Set([...current, capability])] : current.filter((entry) => entry !== capability))} />{capability}</label>
+                    ))}
+                  </fieldset>
+                  <div className="settings-action-row">
+                    <Button variant="primary" disabled={aiBusy || !aiModel.trim() || !aiProviderId} onClick={() => saveAiSettings(false)}>Modelを保存</Button>
+                    <Button variant="secondary" disabled={!aiModelProfileId || aiConfig?.defaultModelProfileId === aiModelProfileId} onClick={setAiModelDefault}>default modelにする</Button>
+                  </div>
+                  {aiAvailability && <p className={`field-help ${aiAvailability.available ? "" : "form-error"}`}>{aiAvailability.available ? "Note AI: 利用可能" : `Note AI: ${aiAvailability.reason === "capability_missing" ? `capability不足（${aiAvailability.missing.join(", ")}）` : aiAvailability.reason === "model_unavailable" ? "model unavailable" : "利用できません"}`}</p>}
+                </div>
+              </details>
+              {selectedAiProvider && (
                 <div className="settings-danger-zone">
                   <h3>Danger Zone</h3>
-                  <p className="field-help">保存済みのAPI keyを安全な保存領域から削除します。</p>
-                  <Button variant="danger" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</Button>
+                  {selectedAiProvider.credentialConfigured && (
+                    <>
+                      <p className="field-help">保存済みのAPI keyを安全な保存領域から削除します。</p>
+                      <Button variant="danger" disabled={aiBusy} onClick={() => saveAiSettings(true)}>APIキーを削除</Button>
+                    </>
+                  )}
+                  <Button variant="ghost" disabled={aiBusy} onClick={deleteAiProvider}>このprovider profileを削除</Button>
                 </div>
               )}
             </section>

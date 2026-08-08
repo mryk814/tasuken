@@ -112,7 +112,14 @@ export function registerIpc(
     return change;
   });
   ipcMain.handle(IPC.aiConfigGet, () => aiProvider.getConfig());
-  ipcMain.handle(IPC.aiConfigSave, (_event, update) => aiProvider.saveConfig(update));
+  ipcMain.handle(IPC.aiProviderSave, (_event, update) => aiProvider.saveProviderProfile(update));
+  ipcMain.handle(IPC.aiProviderDelete, (_event, id) => aiProvider.deleteProviderProfile(id));
+  ipcMain.handle(IPC.aiModelSave, (_event, update) => aiProvider.saveModelProfile(update));
+  ipcMain.handle(IPC.aiModelDelete, (_event, id) => aiProvider.deleteModelProfile(id));
+  ipcMain.handle(IPC.aiDefaultProvider, (_event, id) => aiProvider.setDefaultProviderProfile(id));
+  ipcMain.handle(IPC.aiDefaultModel, (_event, id) => aiProvider.setDefaultModelProfile(id));
+  ipcMain.handle(IPC.aiTestConnection, (_event, request) => aiProvider.testConnection(request));
+  ipcMain.handle(IPC.aiFeatureAvailability, (_event, feature, providerProfileId, modelProfileId) => aiProvider.getFeatureAvailability(feature, providerProfileId, modelProfileId));
   ipcMain.handle(IPC.aiNoteGenerate, (_event, request) => aiProvider.generateNote(request));
   ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
   ipcMain.handle(IPC.clipboardWriteHtml, (_event, payload) => service.writeClipboardHtml(payload));

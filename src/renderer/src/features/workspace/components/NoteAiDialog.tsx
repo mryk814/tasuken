@@ -40,7 +40,7 @@ export function NoteAiDialog({ note, body, target, saveEntity, setToast, onClose
       await saveEntity("ai_proposal", {
         id: uuid(),
         source: "embedded_llm",
-        source_app: `${result.provider}:${result.model}`,
+        source_app: `${result.providerLabel}:${result.model}`,
         payload_type: "notes",
         status: "pending",
         payload: {
@@ -57,6 +57,14 @@ export function NoteAiDialog({ note, body, target, saveEntity, setToast, onClose
           mode,
           scope: target.scope,
           target: { type: "note", id: note.id, base_version: Number(note.version) || 1 },
+          provenance: {
+            providerProfileId: result.providerProfileId,
+            providerLabel: result.providerLabel,
+            adapterKind: result.adapterKind,
+            modelProfileId: result.modelProfileId,
+            model: result.model,
+            capabilityPath: result.capabilityPath,
+          },
         },
       }, { source: "embedded_llm" });
       setToast("AIの返答をPending Proposalへ追加しました。AI連携で差分を選んで採用できます。", "success");
