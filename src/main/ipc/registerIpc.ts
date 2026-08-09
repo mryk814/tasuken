@@ -123,6 +123,17 @@ export function registerIpc(
     return result;
   });
   ipcMain.handle(IPC.themeAiPackOpenFolder, (_event, themeId) => service.openThemeAiPackFolder(requireId(themeId)));
+  ipcMain.handle(IPC.conversationContextPreview, (_event, request) => service.getConversationContextPreview(request));
+  ipcMain.handle(IPC.conversationContextPublish, (_event, request) => {
+    const result = service.publishConversationContext(request);
+    notifyEntitiesChanged(["resource"]);
+    return result;
+  });
+  ipcMain.handle(IPC.conversationContextRemove, (_event, request) => {
+    const result = service.removeConversationContext(request);
+    notifyEntitiesChanged(["resource"]);
+    return result;
+  });
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
     const normalizedKey = requireId(key);

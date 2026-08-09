@@ -25,6 +25,11 @@ const api: ResearchDeskApi = {
       return () => { ipcRenderer.removeListener(IPC.themeAiPackChanged, handler); };
     },
   },
+  conversationContext: {
+    preview: (request) => ipcRenderer.invoke(IPC.conversationContextPreview, request),
+    publish: (request) => ipcRenderer.invoke(IPC.conversationContextPublish, request),
+    remove: (request) => ipcRenderer.invoke(IPC.conversationContextRemove, request),
+  },
   preferences: {
     get: (key) => ipcRenderer.invoke(IPC.preferenceGet, key),
     set: (key, value) => ipcRenderer.invoke(IPC.preferenceSet, key, value),

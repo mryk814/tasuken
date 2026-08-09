@@ -53,6 +53,15 @@ export const workspaceApi = {
   onThemeAiPackChanged(callback: Parameters<Window["api"]["themeAiPack"]["onChanged"]>[0]) {
     return desktopApi().themeAiPack.onChanged(callback);
   },
+  previewConversationContext(request: Parameters<Window["api"]["conversationContext"]["preview"]>[0]) {
+    return desktopApi().conversationContext.preview(request);
+  },
+  publishConversationContext(request: Parameters<Window["api"]["conversationContext"]["publish"]>[0]) {
+    return desktopApi().conversationContext.publish(request);
+  },
+  removeConversationContext(conversationId: string) {
+    return desktopApi().conversationContext.remove({ conversationId });
+  },
   // 明示的にサンプルデータを投入する（Settingsの操作からのみ呼ぶ）。
   // Repository側のbootstrapはDBが空のときだけ登録し、データがあれば現状をそのまま返す。
   loadSample(): Promise<Workspace> {
