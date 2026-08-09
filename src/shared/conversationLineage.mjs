@@ -43,7 +43,10 @@ function edgeFact(edge) {
 
 function edgeRecord(graph, edge) {
   for (const evidenceRef of edge.evidence_refs || []) {
-    const record = graph.records.get(keyOf({ type: "reference", id: evidenceRef }));
+    const ref = evidenceRef && typeof evidenceRef === "object"
+      ? evidenceRef
+      : { type: "reference", id: evidenceRef };
+    const record = graph.records.get(keyOf(ref));
     if (record) return record;
   }
   return null;

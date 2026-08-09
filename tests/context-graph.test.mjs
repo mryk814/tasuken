@@ -147,6 +147,84 @@ test("collection ordering does not change the bounded result", () => {
   assert.deepEqual(second, first);
 });
 
+test("parallel assertions keep stable IDs and inbound/outbound traversal is symmetric", () => {
+  const graph = projectContextGraph({
+    notes: [{ id: "note-a", title: "A" }],
+    tasks: [{ id: "task-a", title: "A" }],
+    references: [
+      { id: "assertion-a", source_type: "note", source_id: "note-a", target_type: "task", target_id: "task-a", relation_type: "links_to" },
+      { id: "assertion-b", source_type: "note", source_id: "note-a", target_type: "task", target_id: "task-a", relation_type: "links_to" },
+      { id: "assertion-old", source_type: "note", source_id: "note-a", target_type: "task", target_id: "task-a", relation_type: "links_to", status: "superseded", superseded_by_assertion_id: "assertion-a" },
+    ],
+  });
+  const outbound = getContextSubgraph(graph, { type: "note", id: "note-a" }, { direction: "outgoing", maxHops: 1 });
+  const inbound = getContextSubgraph(graph, { type: "task", id: "task-a" }, { direction: "incoming", maxHops: 1 });
+  assert.deepEqual(outbound.edges.map((edge) => edge.assertion_id).sort(), ["assertion-a", "assertion-b"]);
+  assert.deepEqual(inbound.edges.map((edge) => edge.assertion_id).sort(), ["assertion-a", "assertion-b"]);
+  assert.ok(graph.edges.some((edge) => edge.assertion_id === "assertion-old" && edge.status === "superseded"));
+});
+
+test("dangling assertions remain diagnostic without inventing the missing node", () => {
+  const graph = projectContextGraph({
+    notes: [{ id: "note-a", title: "A" }],
+    references: [{
+      id: "assertion-broken",
+      subject: { type: "note", id: "note-a" },
+      predicate: "links_to",
+      object: { type: "task", id: "deleted-task" },
+      layer: "operational",
+      status: "asserted",
+      origin: "user",
+    }],
+  });
+  const result = getContextSubgraph(graph, { type: "note", id: "note-a" }, { direction: "outgoing", maxHops: 1 });
+  assert.deepEqual(result.nodes.map(({ type, id }) => ({ type, id })), [{ type: "note", id: "note-a" }]);
+  assert.deepEqual(result.edges, []);
+  assert.deepEqual(result.diagnostics, [{
+    kind: "broken_relation",
+    assertion_id: "assertion-broken",
+    missing_refs: [{ type: "task", id: "deleted-task" }],
+  }]);
+});
+
+test("dangling diagnostics obey an explicit bound and token budget", () => {
+  const graph = projectContextGraph({
+    notes: [{ id: "note-a", title: "A" }],
+    references: Array.from({ length: 20 }, (_, index) => ({
+      id: `assertion-broken-${String(index).padStart(2, "0")}`,
+      source_type: "note",
+      source_id: "note-a",
+      target_type: "task",
+      target_id: `missing-${index}`,
+      relation_type: "links_to",
+    })),
+  });
+  const result = getContextSubgraph(graph, { type: "note", id: "note-a" }, {
+    direction: "outgoing",
+    maxHops: 1,
+    maxDiagnostics: 3,
+    tokenBudget: 220,
+  });
+  assert.ok(result.diagnostics.length <= 3);
+  assert.equal(result.truncated, true);
+  assert.ok(result.estimated_tokens <= 220);
+  assert.deepEqual(result.edges, []);
+});
+
+test("Work Receipt projects a provenance assertion to its Task", () => {
+  const graph = projectContextGraph({
+    tasks: [{ id: "task-a", title: "A" }],
+    work_receipts: [{ id: "receipt-a", task_id: "task-a", executor_kind: "ai_agent", executor_label: "Codex", reported_at: "2026-08-09T00:00:00.000Z", summary: "done" }],
+  });
+  const upstream = traceProvenance(graph, { type: "work_receipt", id: "receipt-a" }, { direction: "upstream", maxHops: 1 });
+  assert.ok(upstream.nodes.some((node) => node.type === "task" && node.id === "task-a"));
+  assert.deepEqual(upstream.edges.map((edge) => ({ id: edge.assertion_id, predicate: edge.predicate, layer: edge.layer })), [{
+    id: "work_receipt:receipt-a:created_for",
+    predicate: "created_for",
+    layer: "provenance",
+  }]);
+});
+
 test("read-only MCP boundary exposes the same pure projection without a database write", () => {
   const context = new ReadOnlyTaskenContext("ignored", { workspace: fixture });
   const result = context.toolGetContextSubgraph({ entity_type: "artifact", entity_id: "artifact-1", max_hops: 2 });
