@@ -535,7 +535,10 @@ export class WorkspaceDatabase {
         after_json: normalizedActivityInput.after_json,
       })
       : normalizedActivityInput;
-    const timestamp = now();
+    const requestedTimestamp = typeof options.__canonicalOperationAt === "string" && !Number.isNaN(Date.parse(options.__canonicalOperationAt))
+      ? options.__canonicalOperationAt
+      : "";
+    const timestamp = requestedTimestamp || now();
     const normalizedInput = type === "task" ? normalizeTaskAssignment(activityInput, existing) : activityInput;
     const entity = normalizeEntity(type, {
       ...normalizedInput,

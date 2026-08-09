@@ -841,7 +841,10 @@ test("notes page keeps mode switches draft-only and autosaves when the note leav
   const switchSource = source.slice(switchStart, switchEnd);
   assert.match(switchSource, /previewMode === "edit" && nextMode !== "edit"/);
   assert.doesNotMatch(switchSource, /autoSaveDraft/);
-  assert.match(source, /return \(\) => \{\s*void autoSaveDraft\(autosaveRef\.current\);/);
+  // Route/unmount cleanup hands the dirty snapshot to the serialized owner
+  // queue; the app-level registry keeps it awaitable after this page unmounts.
+  assert.match(source, /import \{ flushPendingNoteDraftSaves, trackPendingNoteDraftSave \} from "\.\.\/lib\/noteDraftFlushRegistry";/);
+  assert.match(source, /useEffect\(\(\) => \(\) => \{\s*cancelAutosaveTimer\(\);\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/);
   assert.match(source, /\}, \[\]\);/);
   assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });

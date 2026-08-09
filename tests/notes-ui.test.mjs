@@ -234,7 +234,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   assert.match(source, /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/);
 
   // 派生出力は `保存` と呼ばない。
-  assert.match(source, /label: markdownExporting \? "Markdownを書き出しています" : "Markdownを書き出す"/);
+  assert.match(source, /label: markdownExporting \? "Markdownコピーを作成しています" : "Markdownコピーを作成"/);
   assert.match(source, /label: pdfExporting \? "PDFを作成しています" : "PDFを作成"/);
   assert.equal(/\{markdownExporting \? "保存中" : "保存"\}/.test(source), false);
 

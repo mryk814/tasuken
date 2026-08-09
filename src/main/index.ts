@@ -52,7 +52,47 @@ let mcpProposalInboxService: McpProposalInboxService | null = null;
 let lastSmokeStage = "startup";
 const smokeTrace: string[] = [];
 const readyMainWindows = new WeakSet<BrowserWindow>();
+let appQuitApproved = false;
+let appFlushPending = false;
+const pendingAppFlushes = new Map<string, {
+  senderId: number;
+  timer: ReturnType<typeof setTimeout>;
+  resolve: (ok: boolean) => void;
+}>();
 registerAttachmentScheme();
+
+function requestRendererFlush(window: BrowserWindow, noteId?: string): Promise<boolean> {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return Promise.resolve(true);
+  const requestId = randomUUID();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const pending = pendingAppFlushes.get(requestId);
+      if (!pending) return;
+      pendingAppFlushes.delete(requestId);
+      resolve(false);
+    }, 10_000);
+    pendingAppFlushes.set(requestId, { senderId: window.webContents.id, timer, resolve });
+    try {
+      window.webContents.send(IPC.appFlushRequested, { requestId, noteId });
+    } catch {
+      pendingAppFlushes.delete(requestId);
+      clearTimeout(timer);
+      resolve(false);
+    }
+  });
+}
+
+ipcMain.handle(IPC.appFlushAck, (event, payload: unknown) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const value = payload as Record<string, unknown>;
+  if (typeof value.requestId !== "string" || typeof value.ok !== "boolean") return false;
+  const pending = pendingAppFlushes.get(value.requestId);
+  if (!pending || pending.senderId !== event.sender.id) return false;
+  pendingAppFlushes.delete(value.requestId);
+  clearTimeout(pending.timer);
+  pending.resolve(value.ok);
+  return true;
+});
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
   try {
@@ -211,6 +251,17 @@ function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId
 function findMainWindow(): BrowserWindow | null {
   return BrowserWindow.getAllWindows()
     .find((win) => !isAuxiliaryWindow(win) && !win.isDestroyed()) || null;
+}
+
+function rendererWindowsForAppFlush(): BrowserWindow[] {
+  const windows: BrowserWindow[] = [];
+  const main = findMainWindow();
+  if (main) windows.push(main);
+  for (const noteId of noteWindowController?.openNoteIds() || []) {
+    const noteWindow = satelliteWindows?.get({ kind: "note", entityId: noteId });
+    if (noteWindow && !windows.includes(noteWindow)) windows.push(noteWindow);
+  }
+  return windows;
 }
 
 function showMainWindow(): BrowserWindow {
@@ -1223,6 +1274,23 @@ function createWindow(): BrowserWindow {
   window.webContents.on("context-menu", (_event, params) => {
     showMainContextMenu(window, params);
   });
+  let closeFlushPending = false;
+  let closeApproved = false;
+  window.on("close", (event) => {
+    if (closeApproved || appQuitApproved) return;
+    event.preventDefault();
+    if (closeFlushPending) return;
+    closeFlushPending = true;
+    void requestRendererFlush(window).then((ok) => {
+      closeFlushPending = false;
+      if (!ok) {
+        console.warn("Main windowの終了前flushが完了しなかったため、ウィンドウを開いたままにします。");
+        return;
+      }
+      closeApproved = true;
+      if (!window.isDestroyed()) window.close();
+    });
+  });
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -1308,6 +1376,7 @@ async function startDesktopApp(): Promise<void> {
     repository: workspaceRepository,
     satelliteWindows,
     showMainWindow,
+    isAppQuitApproved: () => appQuitApproved,
   });
   noteWindowController.registerIpc();
   quickCaptureController = createQuickCaptureController({
@@ -1388,9 +1457,24 @@ app.on("window-all-closed", () => {
     app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (appQuitApproved) {
     sharedFolderSyncService?.stop();
     mcpProposalInboxService?.stop();
+    return;
+  }
+  event.preventDefault();
+  if (appFlushPending) return;
+  appFlushPending = true;
+  void Promise.all(rendererWindowsForAppFlush().map((window) => requestRendererFlush(window))).then((results) => {
+    appFlushPending = false;
+    if (results.some((ok) => !ok)) {
+      console.warn("終了前flushが完了しなかったため、アプリを終了しませんでした。");
+      return;
+    }
+    appQuitApproved = true;
+    app.quit();
+  });
 });
 
 app.on("will-quit", () => {

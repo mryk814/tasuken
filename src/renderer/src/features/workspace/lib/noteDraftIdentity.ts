@@ -1,3 +1,5 @@
+import type { DocumentOwner } from "../../../../../shared/types/workspace";
+
 /**
  * Notes本文の所有者契約。
  *
@@ -7,15 +9,13 @@
 
 export type NoteDraftRecordType = "note" | "resource";
 
-export type NoteDraftOwner = {
-  recordType: NoteDraftRecordType;
-  entityId: string;
-};
+export type NoteDraftOwner = DocumentOwner;
 
 export type NoteDraftSnapshot = {
   owner: NoteDraftOwner;
   body: string;
   dirty: boolean;
+  expectedRevision: number;
 };
 
 export type NoteDraftEditorSession = {
@@ -39,11 +39,13 @@ export function makeNoteDraftSnapshot(
   owner: NoteDraftOwner,
   body: string,
   savedBody: string,
+  expectedRevision = 0,
 ): NoteDraftSnapshot {
   return {
     owner,
     body,
     dirty: body !== savedBody,
+    expectedRevision,
   };
 }
 

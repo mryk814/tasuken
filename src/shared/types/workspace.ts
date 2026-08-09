@@ -71,6 +71,25 @@ export interface SaveOptions {
   reason?: string;
   source?: string;
   quiet?: boolean;
+  /** Noteの正本Markdownを外部変更ごと明示的に上書きする再試行。 */
+  canonicalMarkdown?: "normal" | "overwrite";
+}
+
+/** #333/#336: 文書保存は対象ownerと取得時revisionを必ず伴う。 */
+export type DocumentOwner =
+  | { recordType: "note"; entityId: string }
+  | { recordType: "resource"; entityId: string };
+
+export interface DocumentSaveSnapshot {
+  owner: Extract<DocumentOwner, { recordType: "note" }>;
+  body: string;
+  expectedRevision: number;
+}
+
+export interface DocumentSaveRequest {
+  entity: Entity;
+  snapshot: DocumentSaveSnapshot;
+  options?: SaveOptions;
 }
 
 export interface SaveOperation {

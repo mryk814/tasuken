@@ -53,6 +53,20 @@ function requireText(value: unknown, label: string): string {
   return value;
 }
 
+/** RendererからMainの内部時刻や未知のrepository optionを注入させない。 */
+export function normalizeIpcSaveOptions(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const input = value as Record<string, unknown>;
+  const options: Record<string, unknown> = {};
+  if (typeof input.reason === "string") options.reason = input.reason;
+  if (typeof input.source === "string") options.source = input.source;
+  if (typeof input.quiet === "boolean") options.quiet = input.quiet;
+  if (input.canonicalMarkdown === "normal" || input.canonicalMarkdown === "overwrite") {
+    options.canonicalMarkdown = input.canonicalMarkdown;
+  }
+  return options;
+}
+
 function saveManyTypes(operations: unknown[]): EntityType[] {
   const types: EntityType[] = [];
   for (const operation of operations) {
@@ -81,7 +95,7 @@ export function registerIpc(
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
   notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number) => void = () => {},
 ): void {
-  ipcMain.handle(IPC.workspaceLoad, () => repository.loadWorkspace());
+  ipcMain.handle(IPC.workspaceLoad, () => service.loadWorkspace());
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.activityCanonicalRootStatus, () => service.getActivityCanonicalRootStatus());
@@ -159,15 +173,24 @@ export function registerIpc(
     }
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType);
-    const saved = repository.save(entityType, entity, options);
+    const saved = repository.save(entityType, entity, normalizeIpcSaveOptions(options));
     notifyEntitiesChanged([entityType]);
+    return saved;
+  });
+  ipcMain.handle(IPC.documentSave, (_event, request) => {
+    const saved = service.saveCanonicalNote(request);
+    notifyEntitiesChanged(["note"]);
     return saved;
   });
   ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {
     if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
     const types = saveManyTypes(operations);
     if (types.includes("task")) rejectTaskPersistence("task", "一括保存");
-    const saved = repository.saveMany(operations);
+    const saved = repository.saveMany(operations.map((operation) => (
+      operation && typeof operation === "object" && !Array.isArray(operation)
+        ? { ...(operation as Record<string, unknown>), options: normalizeIpcSaveOptions((operation as Record<string, unknown>).options) }
+        : operation
+    )));
     notifyEntitiesChanged(types);
     return saved;
   });

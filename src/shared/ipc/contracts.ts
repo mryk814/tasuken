@@ -1,6 +1,7 @@
 import type {
   Entity,
   EntityType,
+  DocumentSaveRequest,
   SaveOperation,
   SaveOptions,
   SnapshotInspectResult,
@@ -63,6 +64,8 @@ export const IPC = {
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
   appTitleBarTheme: "app:titlebar-theme",
+  appFlushRequested: "app:flush-requested",
+  appFlushAck: "app:flush-ack",
   mcpBridgeInfo: "mcp:bridge-info",
   todayMiniShow: "today-mini:show",
   todayMiniRefresh: "today-mini:refresh",
@@ -93,6 +96,7 @@ export const IPC = {
   entityGet: "entity:get",
   entitySave: "entity:save",
   entitySaveMany: "entity:save-many",
+  documentSave: "document:save",
   entityRemove: "entity:remove",
   entityRestore: "entity:restore",
   snapshotExport: "snapshot:export",
@@ -137,6 +141,8 @@ export const IPC = {
   noteWindowReturnToMain: "note-window:return-to-main",
   noteWindowOpenInMain: "note-window:open-in-main",
   noteWindowClose: "note-window:close",
+  noteWindowFlushRequested: "note-window:flush-requested",
+  noteWindowFlushAck: "note-window:flush-ack",
   noteWindowOpenChanged: "note-window:open-changed",
   workspaceOpenNote: "workspace:open-note",
   workspaceOpenMemo: "workspace:open-memo",
@@ -149,6 +155,16 @@ export interface WorkspaceChangePayload {
   entity?: Entity;
   entities?: Array<{ type: EntityType; entity: Entity }>;
   canonical_root_status?: CanonicalRootStatusMap;
+}
+
+export interface RendererFlushRequest {
+  requestId: string;
+  noteId?: string;
+}
+
+export interface RendererFlushAck {
+  requestId: string;
+  ok: boolean;
 }
 
 export interface ViewPreferenceEnvelope {
@@ -302,6 +318,8 @@ export interface ResearchDeskApi {
     checkForUpdates(): Promise<AppUpdateCheckResult>;
     openReleasePage(url?: string): Promise<boolean>;
     setTitleBarTheme(theme: "light" | "dark"): Promise<boolean>;
+    onAppFlushRequested(callback: (request: RendererFlushRequest) => void): () => void;
+    ackAppFlush(requestId: string, ok: boolean): Promise<boolean>;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
     showTodayMiniWindow(): Promise<boolean>;
     /** Memoをデスクトップ付箋として浮かせる。既に開いていれば前面へ出す（#298）。 */
@@ -323,6 +341,8 @@ export interface ResearchDeskApi {
     /** 切り離しウィンドウは閉じずに本体を前面へ出す。 */
     openNoteWindowInMain(route?: string): Promise<boolean>;
     onNoteWindowOpenChanged(callback: (noteIds: string[]) => void): () => void;
+    onNoteWindowFlushRequested(callback: (request: RendererFlushRequest) => void): () => void;
+    ackNoteWindowFlush(requestId: string, ok: boolean): Promise<boolean>;
     onOpenNote(callback: (noteId: string) => void): () => void;
     onOpenMemo(callback: (memoId: string) => void): () => void;
     onNavigate(callback: (route: string) => void): () => void;
@@ -336,6 +356,10 @@ export interface ResearchDeskApi {
     saveMany(operations: SaveOperation[]): Promise<Entity[]>;
     remove(type: EntityType, id: string): Promise<Entity>;
     restore(type: EntityType, id: string): Promise<Entity>;
+  };
+  documents: {
+    /** Note / Report本文の保存とcanonical Markdown更新を同じuse caseで行う。 */
+    save(request: DocumentSaveRequest): Promise<Entity>;
   };
   commands: {
     execute(envelope: CommandEnvelope): Promise<CommandReceipt>;
