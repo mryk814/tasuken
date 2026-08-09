@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const settings = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
+const routes = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
 const workspaceApp = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 const common = readFileSync("src/renderer/src/features/workspace/components/common.tsx", "utf8");
 const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
@@ -25,7 +26,8 @@ test("Settings uses purpose-based categories and a current-state summary", () =>
 });
 
 test("Settings deep links normalize to Settings and preserve category history", () => {
-  assert.match(workspaceApp, /\/\^settings/);
+  assert.match(routes, /\/\^settings/);
+  assert.match(workspaceApp, /normalizeRoute/);
   assert.match(settings, /window\.location\.hash = nextHash/);
   assert.match(settings, /window\.addEventListener\("hashchange"/);
   assert.match(settings, /aria-current=\{activeSection === section\.id \? "page" : undefined\}/);

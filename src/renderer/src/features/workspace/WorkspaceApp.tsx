@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 
 import { workspaceApi } from "../../services/workspaceApi";
 import { actionDefinition, TOAST_ACTIONS } from "../../pages/semanticActions";
-import { routeAliases, routeLabel } from "../../pages/routes";
+import { normalizeRoute, routeLabel } from "../../pages/routes";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
@@ -54,11 +54,6 @@ import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
 import { projectWorkspaceData } from "./lib/workspaceProjection";
 import { buildDerivedFromDocumentCompanion, stripLineageDraftMetadata } from "./lib/lineageOperations";
 const TASK_REFERENCE_TYPE: EntityType = "reference";
-
-function normalizeRoute(route: string): string {
-  if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
-  return route === "micro-memos" ? "inbox" : route === "prompts" ? "notes" : route === "proposal-inbox" ? "ai-io" : routeAliases[route] || route;
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

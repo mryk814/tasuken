@@ -12,7 +12,7 @@ const chatRefsPageSource = readFileSync("src/renderer/src/features/workspace/pag
 test("Prompts are folded into Notes instead of a separate Knowledge nav item", () => {
   assert.doesNotMatch(routesSource, /\["prompts", "Prompts"\]/);
   assert.match(routesSource, /id: "prompts", parent: "notes"/);
-  assert.match(workspaceAppSource, /route === "prompts" \? "notes"/);
+  assert.match(workspaceAppSource, /normalizeRoute/);
   assert.doesNotMatch(workspaceAppSource, /PromptsPage/);
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/PromptsPage.tsx"), false);
 });

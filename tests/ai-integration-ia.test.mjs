@@ -13,7 +13,7 @@ test("AI proposals use the existing AI route as a review inbox", () => {
   assert.match(routesSource, /group: "tools", order: 1/);
   assert.match(routesSource, /group: "tools", order: 2/);
   assert.match(routesSource, /id: "proposal-inbox", parent: "ai-io"/);
-  assert.match(workspaceAppSource, /route === "proposal-inbox" \? "ai-io"/);
+  assert.match(workspaceAppSource, /import \{ normalizeRoute, routeLabel \} from "\.\.\/\.\.\/pages\/routes"/);
   assert.doesNotMatch(workspaceAppSource, /ProposalInboxPage/);
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ProposalInboxPage.tsx"), false);
 });

@@ -19,6 +19,7 @@ test("RouteDefinition is the only route label/icon/navigation registry", () => {
   assert.match(routes, /navigation: \{ group: "tools", order: 1 \}/);
   assert.match(routes, /shortcut\?: string/);
   assert.match(routes, /export const routeAliases: Record<string, string> = Object\.fromEntries/);
+  assert.match(routes, /export function normalizeRoute\(route: string\)/);
   assert.match(routes, /export const routeParent: Record<string, string> = Object\.fromEntries/);
   assert.match(routes, /export function routeIcon\(id: string\)/);
   assert.match(routes, /export function routeAvailability\(id: string\)/);

@@ -1,6 +1,24 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
+import { build } from "esbuild";
+
+async function importBundled(relativePath) {
+  const outDir = mkdtempSync(path.join(tmpdir(), "tasken-routes-"));
+  const outfile = path.join(outDir, "bundle.mjs");
+  await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    outfile,
+    logLevel: "silent",
+  });
+  return import(pathToFileURL(outfile).href);
+}
 
 const read = (path) => readFileSync(path, "utf8");
 const routes = read("src/renderer/src/pages/routes.ts");
@@ -11,6 +29,7 @@ const editor = read("src/renderer/src/features/workspace/pages/SketchPage.tsx");
 const notes = read("src/renderer/src/features/workspace/pages/NotesPage.tsx");
 const drawer = read("src/renderer/src/features/workspace/components/drawer.tsx");
 const inbox = read("src/renderer/src/features/workspace/pages/InboxPage.tsx");
+const routing = await importBundled("src/renderer/src/pages/routes.ts");
 
 test("Sketch is an independent Knowledge shelf with a dedicated editor route", () => {
   assert.match(routes, /id: "sketch", label: "Sketch"/);
@@ -31,6 +50,14 @@ test("Sketch library owns discovery creation and opening", () => {
   assert.match(library, /navigate\("sketch-editor"\)/);
   assert.doesNotMatch(library, /openDrawer\(\{ type: "sketch", entity: sketch \}\)/);
   assert.doesNotMatch(library, />開く<\/button>/);
+});
+
+test("Sketch editor remains a real child route while legacy aliases redirect", () => {
+  assert.equal(routing.normalizeRoute("sketch-editor"), "sketch-editor");
+  assert.equal(routing.resolveRouteId("sketch-editor"), "sketch");
+  assert.equal(routing.normalizeRoute("prompts"), "notes");
+  assert.equal(routing.normalizeRoute("proposal-inbox"), "ai-io");
+  assert.equal(routing.normalizeRoute("settings/ai"), "settings");
 });
 
 test("Sketchは作って即描き始められる（#320）", () => {
