@@ -26,6 +26,7 @@ import {
   boundedList,
   normalizeTaskContextInclude,
   publicArtifactMetadata,
+  publicAiHeader,
   publicAssignmentForContext,
   publicConversationSummary,
   publicNoteSummary,
@@ -39,6 +40,11 @@ import {
   TaskContextTextBudget,
   workspaceIdentityProvided,
 } from "./taskContext.mjs";
+import {
+  buildContextSelection,
+  contextSelectionEntry,
+  contextSelectionExclusions,
+} from "./contextSelection.mjs";
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -170,6 +176,86 @@ function publicRepositoryMatch(match) {
   };
 }
 
+function entityKey(type, id) {
+  return JSON.stringify([String(type || ""), String(id || "")]);
+}
+
+function graphPayloadTokens(shape) {
+  return Math.ceil(JSON.stringify({
+    nodes: shape.nodes || [],
+    edges: shape.edges || [],
+    paths: shape.paths || [],
+    diagnostics: shape.diagnostics || [],
+    excluded_nodes: shape.excluded_nodes || [],
+  }).length / 4);
+}
+
+function publicThemeGraphEntity(type, record, budget, relation, includeRawBody = false) {
+  if (!record?.id) return null;
+  if (type === "theme" || type === "project") return publicThemeForContext(record, budget);
+  if (type === "repository_context") {
+    const output = publicRepositoryContext(record);
+    const ai = publicAiHeader(record, budget);
+    return ai ? { ...output, ai } : output;
+  }
+  if (type === "note") {
+    if (!includeRawBody) return publicNoteSummary(record, budget, relation);
+    const output = {
+      id: String(record.id),
+      title: budget.take(record.title, 500),
+      note_type: record.note_type || "note",
+      project_id: record.project_id || record.theme_id || null,
+      body_markdown: budget.take(record.body_markdown, 8_000),
+      version: Number(record.version || 0),
+      created_at: record.created_at || null,
+      updated_at: record.updated_at || null,
+      included_because: relation.includedBecause,
+      relation_path: relation.path,
+    };
+    const ai = publicAiHeader(record, budget);
+    return ai ? { ...output, ai } : output;
+  }
+  if (type === "knowledge_node") {
+    const output = {
+      id: String(record.id),
+      title: budget.take(record.title, 500),
+      node_type: record.node_type || null,
+      theme_id: record.theme_id || null,
+      body: budget.take(record.body, 8_000),
+      source_type: record.source_type || null,
+      source_id: record.source_id || null,
+      created_at: record.created_at || null,
+      updated_at: record.updated_at || null,
+      included_because: relation.includedBecause,
+      relation_path: relation.path,
+    };
+    const ai = publicAiHeader(record, budget);
+    return ai ? { ...output, ai } : output;
+  }
+  if (["task", "waiting", "plan_node", "item"].includes(type)) {
+    const output = {
+      id: String(record.id),
+      entity_type: type,
+      title: budget.take(record.title, 500),
+      kind: type === "plan_node" ? (record.type || "period") : type,
+      state: record.state || null,
+      status: record.status || record.state || null,
+      priority: record.priority || null,
+      theme_id: record.project_id || record.theme_id || null,
+      description: budget.take(record.description, 4_000),
+      waiting_for: type === "waiting" ? budget.take(record.waiting_for, 1_000) : undefined,
+      next_action: type === "waiting" ? budget.take(record.next_action, 1_000) : undefined,
+      created_at: record.created_at || null,
+      updated_at: record.updated_at || null,
+      included_because: relation.includedBecause,
+      relation_path: relation.path,
+    };
+    const ai = publicAiHeader(record, budget);
+    return ai ? { ...output, ai } : output;
+  }
+  return null;
+}
+
 export function defaultTaskenDbPath(env = process.env) {
   if (env.TASKEN_DB_PATH) return path.resolve(env.TASKEN_DB_PATH);
   const appData = env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
@@ -245,6 +331,41 @@ export class ReadOnlyTaskenContext {
       included.push({ ...record, ai: result.header });
     }
     return { records: included, exclusions };
+  }
+
+  aiGraphAccess(includeArchived = false) {
+    const allowed = new Set();
+    const records = new Map();
+    const exclusions = new Map();
+    for (const entityType of ENTITY_TYPES) {
+      const filtered = this.filterForAi(entityType, this.list(entityType, includeArchived));
+      for (const record of filtered.records) {
+        const key = entityKey(entityType, record.id);
+        allowed.add(key);
+        records.set(key, record);
+      }
+      for (const exclusion of filtered.exclusions) {
+        if (!exclusion?.type || !exclusion?.id) continue;
+        exclusions.set(entityKey(exclusion.type, exclusion.id), {
+          ref: { type: String(exclusion.type), id: String(exclusion.id) },
+          reason: String(exclusion.reason || "ai_visibility_policy"),
+          count: 1,
+        });
+      }
+    }
+    return { allowed, records, exclusions };
+  }
+
+  publicContextGraph(result, access, budget = null) {
+    const shape = contextGraphMcpShape(result);
+    return {
+      ...shape,
+      nodes: shape.nodes.map((node) => {
+        const record = access.records.get(entityKey(node.type, node.id));
+        const ai = publicAiHeader(record, budget);
+        return ai ? { ...node, ai } : node;
+      }),
+    };
   }
 
   list(type, includeArchived = false) {
@@ -476,7 +597,8 @@ export class ReadOnlyTaskenContext {
     const truncation = {};
     const themeId = task.project_id || task.theme_id || null;
     const themeCandidate = themeId ? this.themeById(themeId) : null;
-    const filteredTheme = themeCandidate ? this.filterForAi("theme", [themeCandidate]).records[0] || null : null;
+    const filteredThemeResult = themeCandidate ? this.filterForAi("theme", [themeCandidate]) : { records: [], exclusions: [] };
+    const filteredTheme = filteredThemeResult.records[0] || null;
     if (themeCandidate && !filteredTheme) warnings.push({ code: "theme_not_visible", message: "TaskのThemeはAI公開範囲外のため含めていません。" });
     // Task依頼とassignmentを最優先でbudgetへ確保し、その後に関連情報を詰める。
     const taskOutput = publicTaskForContext(filteredTask.records[0], budget);
@@ -520,13 +642,26 @@ export class ReadOnlyTaskenContext {
       activity: [],
       work_receipts: [],
     };
+    const selectionExclusions = [
+      ...(includeSet.has("theme") ? filteredThemeResult.exclusions.map((entry) => ({
+        ref: { type: entry.type, id: entry.id },
+        reason: entry.reason,
+        count: 1,
+      })) : []),
+    ];
+    const recordOmitted = (type, bounded) => {
+      for (const record of bounded.omitted || []) {
+        if (!record?.id) continue;
+        selectionExclusions.push({ ref: { type, id: String(record.id) }, reason: "max_items_per_type", count: 1 });
+      }
+    };
     const graphTypes = new Set(["task", "note", "resource", "artifact"]);
     const visibleRecords = new Map();
-    const allowed = new Set();
+    const access = this.aiGraphAccess(includeArchived);
     for (const entityType of graphTypes) {
-      const filtered = this.filterForAi(entityType, this.list(entityType, includeArchived));
-      visibleRecords.set(entityType, filtered.records);
-      for (const record of filtered.records) allowed.add(JSON.stringify([entityType, record.id]));
+      visibleRecords.set(entityType, this.list(entityType, includeArchived)
+        .map((record) => access.records.get(entityKey(entityType, record.id)))
+        .filter(Boolean));
     }
     const graph = projectContextGraph(this.loadWorkspace(includeArchived));
     const subgraph = getContextSubgraph(graph, { type: "task", id: taskId }, {
@@ -537,13 +672,18 @@ export class ReadOnlyTaskenContext {
       maxEdges: Math.min(200, limits.maxItemsPerType * 16 + 16),
       tokenBudget: 12_000,
       includeSuggested: false,
-      nodeFilter: (node) => allowed.has(JSON.stringify([node.ref.type, node.ref.id])),
+      nodeFilter: (node) => access.allowed.has(entityKey(node.ref.type, node.ref.id)),
+      nodeExclusion: (node) => access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
       // Themeだけが共通というEntityをTask文脈へ一括で混ぜない。
       edgeFilter: (edge) => edge.predicate !== "belongs_to_theme",
     });
     if (subgraph.truncated) {
       warnings.push({ code: "relation_graph_truncated", message: "関連情報のbounded traversalが上限に達しました。locatorから必要な本文を追加取得してください。" });
     }
+    // Task用の本文/AI metadataは下の各public projectionだけでbudget消費する。
+    // graph nodeはID/型/タイトルのrelation carrierに留め、同じsummaryを重複計上しない。
+    const relationGraph = contextGraphMcpShape(subgraph);
+    selectionExclusions.push(...relationGraph.excluded_nodes);
     const relatedIds = new Map();
     for (const node of subgraph.nodes) {
       if (node.type === "task" && node.id === taskId) continue;
@@ -557,29 +697,34 @@ export class ReadOnlyTaskenContext {
       const records = sortUpdated((visibleRecords.get("note") || []).filter((note) => relatedIds.get("note")?.has(String(note.id))));
       const bounded = boundedList(records, limits.maxItemsPerType);
       related.notes = bounded.selected.map((note) => publicNoteSummary(note, budget, relation("note", note.id)));
+      recordOmitted("note", bounded);
       if (bounded.truncation) truncation.notes = bounded.truncation;
     }
     const resources = sortUpdated((visibleRecords.get("resource") || []).filter((resource) => relatedIds.get("resource")?.has(String(resource.id))));
     if (includeSet.has("conversations")) {
       const bounded = boundedList(resources.filter((resource) => resource.resource_scope === "chat_ref"), limits.maxItemsPerType);
       related.conversations = bounded.selected.map((resource) => publicConversationSummary(resource, budget, relation("resource", resource.id)));
+      recordOmitted("resource", bounded);
       if (bounded.truncation) truncation.conversations = bounded.truncation;
     }
     if (includeSet.has("resources")) {
       const bounded = boundedList(resources.filter((resource) => resource.resource_scope !== "chat_ref"), limits.maxItemsPerType);
       related.resources = bounded.selected.map((resource) => publicResourceSummary(resource, budget, relation("resource", resource.id)));
+      recordOmitted("resource", bounded);
       if (bounded.truncation) truncation.resources = bounded.truncation;
     }
     if (includeSet.has("artifacts")) {
       const records = sortUpdated((visibleRecords.get("artifact") || []).filter((artifact) => relatedIds.get("artifact")?.has(String(artifact.id))));
       const bounded = boundedList(records, limits.maxItemsPerType);
       related.artifacts = bounded.selected.map((artifact) => publicArtifactMetadata(artifact, budget, relation("artifact", artifact.id)));
+      recordOmitted("artifact", bounded);
       if (bounded.truncation) truncation.artifacts = bounded.truncation;
     }
     if (includeSet.has("work_receipts")) {
       const records = this.list("work_receipt", includeArchived).filter((receipt) => receipt.task_id === taskId);
       const bounded = boundedList(records, limits.maxItemsPerType);
       related.work_receipts = bounded.selected.map((receipt) => publicReceiptForContext(receipt, budget));
+      recordOmitted("work_receipt", bounded);
       if (bounded.truncation) truncation.work_receipts = bounded.truncation;
     }
     if (includeSet.has("activity")) {
@@ -596,6 +741,7 @@ export class ReadOnlyTaskenContext {
         work_receipt_ref: event.work_receipt_ref || null,
         included_because: "recent_activity",
       }));
+      recordOmitted("change_event", bounded);
       if (bounded.truncation) truncation.activity = bounded.truncation;
     }
     if (budget.truncated) {
@@ -603,11 +749,70 @@ export class ReadOnlyTaskenContext {
       warnings.push({ code: "text_truncated", message: "context本文が文字数上限に達しました。stable locatorから必要な本文だけ取得してください。" });
     }
 
+    const repositoryContexts = includeSet.has("repository") ? taskRepositoryContexts.map(publicRepositoryContext) : [];
+    const selectionIncluded = [
+      contextSelectionEntry("task", taskOutput, { reason: "seed" }),
+      ...(themeOutput ? [contextSelectionEntry("theme", themeOutput, { reason: "task_theme" })] : []),
+      ...repositoryContexts.map((record) => contextSelectionEntry("repository_context", record, { reason: "task_repository_context" })),
+      ...related.notes.map((record) => contextSelectionEntry("note", record)),
+      ...related.conversations.map((record) => contextSelectionEntry("resource", record)),
+      ...related.resources.map((record) => contextSelectionEntry("resource", record)),
+      ...related.artifacts.map((record) => contextSelectionEntry("artifact", record)),
+      ...related.activity.map((record) => contextSelectionEntry("change_event", record, { reason: "recent_activity" })),
+      ...related.work_receipts.map((record) => contextSelectionEntry("work_receipt", record, { reason: "task_work_receipt" })),
+    ];
+    const includedKeys = new Set(selectionIncluded.filter(Boolean).map((entry) => entityKey(entry.ref.type, entry.ref.id)));
+    for (const node of relationGraph.nodes) {
+      const key = entityKey(node.type, node.id);
+      if (includedKeys.has(key)) continue;
+      selectionExclusions.push({ ref: { type: node.type, id: String(node.id) }, reason: "include_not_requested", count: 1 });
+    }
+    const retainedEdges = relationGraph.edges.filter((edge) => includedKeys.has(entityKey(edge.source.type, edge.source.id))
+      && includedKeys.has(entityKey(edge.target.type, edge.target.id)));
+    const retainedEdgeIds = new Set(retainedEdges.map((edge) => String(edge.id)));
+    const contextGraph = {
+      ...relationGraph,
+      nodes: relationGraph.nodes.filter((node) => includedKeys.has(entityKey(node.type, node.id))),
+      edges: retainedEdges,
+      paths: relationGraph.paths.filter((path) => includedKeys.has(entityKey(path.from.type, path.from.id))
+        && includedKeys.has(entityKey(path.to.type, path.to.id))
+        && path.edge_ids.every((edgeId) => retainedEdgeIds.has(String(edgeId)))),
+    };
+    contextGraph.estimated_tokens = Math.ceil(JSON.stringify({
+      nodes: contextGraph.nodes,
+      edges: contextGraph.edges,
+      paths: contextGraph.paths,
+      diagnostics: contextGraph.diagnostics,
+      excluded_nodes: contextGraph.excluded_nodes,
+    }).length / 4);
+    const normalizedExclusions = contextSelectionExclusions(selectionExclusions);
+    const contextSelection = buildContextSelection({
+      seed: { type: "task", id: taskId },
+      included: selectionIncluded,
+      excluded: normalizedExclusions,
+      relations: contextGraph.edges,
+      limits: {
+        max_items_per_type: limits.maxItemsPerType,
+        max_text_length: limits.maxTextLength,
+        graph: contextGraph.limits,
+      },
+      truncated: Boolean(contextGraph.truncated || budget.truncated || Object.keys(truncation).length),
+      truncation,
+      estimatedCharacters: budget.used,
+      estimatedTokens: Math.ceil(budget.used / 4) + Number(contextGraph.estimated_tokens || 0),
+      policy: contextGraph.policy,
+    });
+    const exclusionSummary = summarizeAiExclusions(normalizedExclusions.map((entry) => ({
+      type: entry.ref.type,
+      id: entry.ref.id,
+      reason: entry.reason,
+    })));
+
     return {
       task: taskOutput,
       assignment: assignmentOutput,
       theme: themeOutput,
-      repository_contexts: includeSet.has("repository") ? taskRepositoryContexts.map(publicRepositoryContext) : [],
+      repository_contexts: repositoryContexts,
       repository_resolution: includeSet.has("repository") ? {
         mode: repositoryResolution.mode,
         context_ids: repositoryResolution.contextIds,
@@ -618,6 +823,8 @@ export class ReadOnlyTaskenContext {
       } : null,
       workspace_match: includeSet.has("repository") ? repositoryMatch : null,
       related,
+      context_graph: contextGraph,
+      context_selection: contextSelection,
       include,
       limits: { max_items_per_type: limits.maxItemsPerType, max_text_length: limits.maxTextLength },
       truncation,
@@ -625,7 +832,7 @@ export class ReadOnlyTaskenContext {
       truncated: Boolean(subgraph.truncated || budget.truncated || Object.keys(truncation).length),
       read_only: true,
       ai_audience: this.audience,
-      ...summarizeAiExclusions(filteredTask.exclusions),
+      ...exclusionSummary,
     };
   }
 
@@ -943,40 +1150,165 @@ export class ReadOnlyTaskenContext {
   toolGetThemeContext(args = {}) {
     const limit = clampLimit(args.limit, 50);
     const textLimit = clampTextLimit(args.max_chars);
-    const filteredThemes = this.filterForAi("theme", this.list("theme").filter((theme) => !args.theme_id || theme.id === args.theme_id));
-    const themes = filteredThemes.records.slice(0, limit);
-    const themeIds = new Set(themes.map((theme) => theme.id));
-    const filteredItems = this.filterForAi("item", this.mergedItems().filter((item) => themeIds.has(item.theme_id) && isOpenItem(item)));
-    const filteredNotes = this.filterForAi("note", this.list("note").filter((note) => themeIds.has(note.theme_id)));
-    const knowledge = this.toolGetKnowledgeContext({ theme_id: args.theme_id, limit, max_chars: textLimit, include_relations: true });
-    const contextRecords = this.visibleRepositoryContexts(false);
-    const repositoryContextsById = new Map();
-    const themeRepositoryContexts = themes.map((theme) => {
-      const resolution = resolveThemeRepositoryContexts(theme, contextRecords);
-      resolution.contexts.forEach((context) => repositoryContextsById.set(String(context.id), publicRepositoryContext(context)));
+    const themeId = text(args.theme_id).trim();
+    if (!themeId) {
+      return {
+        ...structuredReadError("invalid_request", "Theme contextにはstable Theme IDが必要です。theme_idを指定してください。"),
+        ai_audience: this.audience,
+      };
+    }
+    const includeArchived = Boolean(args.include_archived);
+    const access = this.aiGraphAccess(includeArchived);
+    const canonicalSeed = this.list("project", includeArchived).find((theme) => String(theme.id) === themeId);
+    const legacySeed = this.list("theme", includeArchived).find((theme) => String(theme.id) === themeId);
+    const seedType = canonicalSeed ? "project" : "theme";
+    const seedKey = entityKey(seedType, themeId);
+    const seedRecord = canonicalSeed || legacySeed;
+    if (!seedRecord || !access.allowed.has(seedKey)) {
+      const excluded = access.exclusions.get(seedKey);
+      const contextSelection = buildContextSelection({
+        seed: { type: seedType, id: themeId },
+        excluded: excluded ? [excluded] : [],
+        limits: {},
+      });
+      return {
+        ...structuredReadError("not_found", "Themeが見つかりません。Theme IDまたはAI公開範囲を確認してください。", { theme_id: themeId }),
+        context_selection: contextSelection,
+        ai_audience: this.audience,
+        ...summarizeAiExclusions(excluded ? [{ type: excluded.ref.type, id: excluded.ref.id, reason: excluded.reason }] : []),
+      };
+    }
+    const graph = projectContextGraph(this.loadWorkspace(includeArchived));
+    const subgraph = getContextSubgraph(graph, { type: seedType, id: themeId }, {
+      maxHops: args.max_hops ?? 2,
+      maxNodes: args.max_nodes ?? Math.min(100, limit),
+      maxEdges: args.max_edges ?? Math.min(200, limit * 4),
+      tokenBudget: args.token_budget ?? 12_000,
+      includeSuggested: false,
+      nodeFilter: (node) => access.allowed.has(entityKey(node.ref.type, node.ref.id)),
+      nodeExclusion: (node) => access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
+    });
+    const relationGraph = contextGraphMcpShape(subgraph);
+    const budget = new TaskContextTextBudget(textLimit);
+    const selected = [];
+    const selectionExclusions = [...relationGraph.excluded_nodes];
+    for (const node of relationGraph.nodes) {
+      const record = access.records.get(entityKey(node.type, node.id));
+      if (!record) continue;
+      if (["task", "waiting", "plan_node", "item"].includes(node.type)
+        && ["done", "cancelled", "received"].includes(record.status || record.state)) {
+        selectionExclusions.push({ ref: { type: node.type, id: String(node.id) }, reason: "not_open", count: 1 });
+        continue;
+      }
+      const relation = relationForNode(relationGraph, node.type, node.id);
+      const output = publicThemeGraphEntity(node.type, record, budget, relation, Boolean(args.include_raw_body));
+      if (output) selected.push({
+        type: node.type,
+        output: {
+          ...output,
+          included_because: node.type === seedType && String(node.id) === themeId ? "seed" : relation.includedBecause,
+          relation_path: relation.path,
+        },
+      });
+      else selectionExclusions.push({ ref: { type: node.type, id: String(node.id) }, reason: "theme_context_scope", count: 1 });
+    }
+    const selectedKeys = new Set(selected.map((entry) => entityKey(entry.type, entry.output.id)));
+    const retainedEdges = relationGraph.edges.filter((edge) => selectedKeys.has(entityKey(edge.source.type, edge.source.id))
+      && selectedKeys.has(entityKey(edge.target.type, edge.target.id)));
+    const retainedEdgeIds = new Set(retainedEdges.map((edge) => String(edge.id)));
+    const contextGraph = {
+      ...relationGraph,
+      nodes: relationGraph.nodes.filter((node) => selectedKeys.has(entityKey(node.type, node.id))),
+      edges: retainedEdges,
+      paths: relationGraph.paths.filter((path) => selectedKeys.has(entityKey(path.from.type, path.from.id))
+        && selectedKeys.has(entityKey(path.to.type, path.to.id))
+        && path.edge_ids.every((edgeId) => retainedEdgeIds.has(String(edgeId)))),
+    };
+    contextGraph.estimated_tokens = graphPayloadTokens(contextGraph);
+    const byType = (type) => selected.filter((entry) => entry.type === type).map((entry) => entry.output);
+    const themeEntries = selected.filter((entry) => entry.type === "project" || entry.type === "theme");
+    const themes = themeEntries.map((entry) => entry.output);
+    const repositoryContexts = byType("repository_context");
+    const openItems = selected
+      .filter((entry) => ["task", "waiting", "plan_node", "item"].includes(entry.type))
+      .map((entry) => entry.output);
+    const recentNotes = byType("note");
+    const knowledgeNodes = byType("knowledge_node");
+    const knowledgeNodeIds = new Set(knowledgeNodes.map((node) => String(node.id)));
+    const knowledgeEdges = contextGraph.edges.filter((edge) => edge.source.type === "knowledge_node"
+      && edge.target.type === "knowledge_node"
+      && knowledgeNodeIds.has(String(edge.source.id))
+      && knowledgeNodeIds.has(String(edge.target.id)));
+    const repositoryContextById = new Map(repositoryContexts.map((context) => [String(context.id), context]));
+    const themeRepositoryContexts = themeEntries.map(({ type, output: theme }) => {
+      const contextIds = contextGraph.edges
+        .filter((edge) => edge.predicate === "uses_repository_context"
+          && edge.source.type === type
+          && String(edge.source.id) === String(theme.id)
+          && edge.target.type === "repository_context"
+          && repositoryContextById.has(String(edge.target.id)))
+        .map((edge) => String(edge.target.id));
+      const uniqueContextIds = [...new Set(contextIds)].sort();
       return {
         theme_id: theme.id,
-        ...resolution,
-        contexts: resolution.contexts.map(publicRepositoryContext),
+        context_ids: uniqueContextIds,
+        missing_context_ids: [],
+        missing_context_reasons: [],
+        contexts: uniqueContextIds.map((id) => repositoryContextById.get(id)),
       };
     });
+    const included = selected.map(({ type, output }) => contextSelectionEntry(type, output, {
+      reason: type === seedType && String(output.id) === themeId ? "seed" : output.included_because,
+      relationPath: output.relation_path,
+    }));
+    const normalizedExclusions = contextSelectionExclusions(selectionExclusions);
+    const truncation = {};
+    const warnings = [];
+    if (contextGraph.truncated) {
+      truncation.graph = { reason: "bounded_relation_query", limits: contextGraph.limits };
+      warnings.push({ code: "relation_graph_truncated", message: "Theme contextのrelation traversalが上限に達しました。" });
+    }
+    if (budget.truncated) {
+      truncation.text = { reason: "max_text_length", limit: budget.limit, used: budget.used };
+      warnings.push({ code: "text_truncated", message: "Theme context本文が文字数上限に達しました。" });
+    }
+    const contextSelection = buildContextSelection({
+      seed: { type: seedType, id: themeId },
+      included,
+      excluded: normalizedExclusions,
+      relations: contextGraph.edges,
+      limits: { max_text_length: textLimit, graph: contextGraph.limits },
+      truncated: Boolean(contextGraph.truncated || budget.truncated),
+      truncation,
+      estimatedCharacters: budget.used,
+      estimatedTokens: Math.ceil(budget.used / 4) + Number(contextGraph.estimated_tokens || 0),
+      policy: contextGraph.policy,
+    });
+    const exclusionSummary = summarizeAiExclusions(normalizedExclusions.map((entry) => ({
+      type: entry.ref.type,
+      id: entry.ref.id,
+      reason: entry.reason,
+    })));
     return {
       themes,
-      repository_contexts: [...repositoryContextsById.values()],
+      repository_contexts: repositoryContexts,
       theme_repository_contexts: themeRepositoryContexts,
-      open_items: filteredItems.records.slice(0, limit),
-      recent_notes: filteredNotes.records.slice(0, limit).map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit)),
-      knowledge,
+      open_items: openItems,
+      recent_notes: recentNotes,
+      knowledge: { knowledge_nodes: knowledgeNodes, knowledge_edges: knowledgeEdges },
       health: {
-        plan: this.buildPlanHealth(args.theme_id),
-        knowledge: this.buildKnowledgeHealth(args.theme_id),
+        plan: { open_count: openItems.length },
+        knowledge: { represented_node_count: knowledgeNodes.length },
       },
+      context_graph: contextGraph,
+      context_selection: contextSelection,
+      limits: { max_text_length: textLimit, graph: contextGraph.limits },
+      truncation,
+      warnings,
+      truncated: Boolean(contextGraph.truncated || budget.truncated),
       ai_audience: this.audience,
-      ...summarizeAiExclusions([
-        ...filteredThemes.exclusions,
-        ...filteredItems.exclusions,
-        ...filteredNotes.exclusions,
-      ]),
+      read_only: true,
+      ...exclusionSummary,
     };
   }
 
@@ -1032,36 +1364,64 @@ export class ReadOnlyTaskenContext {
     const type = text(args.entity_type || args.type);
     const id = text(args.entity_id || args.id);
     const graph = projectContextGraph(this.loadWorkspace(Boolean(args.include_archived)));
-    const allowed = new Set();
-    for (const entityType of ENTITY_TYPES) {
-      const records = this.filterForAi(entityType, this.list(entityType, Boolean(args.include_archived))).records;
-      for (const record of records) allowed.add(JSON.stringify([entityType, record.id]));
-    }
-    const seedAllowed = allowed.has(JSON.stringify([type, id]));
-    if (!seedAllowed) {
-      return {
-        seed: { type, id },
-        nodes: [],
-        edges: [],
-        paths: [],
-        limits: { max_hops: Math.min(2, Number(args.max_hops) || 2), max_nodes: Number(args.max_nodes) || 24, max_edges: Number(args.max_edges) || 48, token_budget: Number(args.token_budget) || 2400 },
-        estimated_tokens: 0,
-        truncated: false,
-        exclusions: ["seed_not_allowed"],
-        ai_audience: this.audience,
-        read_only: true,
-      };
-    }
+    const access = this.aiGraphAccess(Boolean(args.include_archived));
     const result = getContextSubgraph(graph, { type, id }, {
       maxHops: args.max_hops,
       maxNodes: args.max_nodes,
       maxEdges: args.max_edges,
       tokenBudget: args.token_budget,
       includeSuggested: Boolean(args.include_suggested),
-      nodeFilter: (node) => allowed.has(JSON.stringify([node.ref.type, node.ref.id])),
+      nodeFilter: (node) => access.allowed.has(entityKey(node.ref.type, node.ref.id)),
+      nodeExclusion: (node) => access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
+    });
+    const baseShape = contextGraphMcpShape(result);
+    const tokenBudget = Number(result.limits?.tokenBudget || 12_000);
+    const remainingText = Math.max(0, tokenBudget * 4 - JSON.stringify({
+      nodes: baseShape.nodes,
+      edges: baseShape.edges,
+      paths: baseShape.paths,
+      diagnostics: baseShape.diagnostics,
+      excluded_nodes: baseShape.excluded_nodes,
+    }).length);
+    const metadataBudget = remainingText > 0 ? new TaskContextTextBudget(remainingText) : null;
+    const shape = metadataBudget ? this.publicContextGraph(result, access, metadataBudget) : baseShape;
+    let metadataTruncated = Boolean(metadataBudget?.truncated || !metadataBudget);
+    while (graphPayloadTokens(shape) > tokenBudget) {
+      const node = [...shape.nodes].reverse().find((candidate) => candidate.ai);
+      if (!node) break;
+      delete node.ai;
+      metadataTruncated = true;
+    }
+    if (metadataTruncated) {
+      shape.truncated = true;
+      shape.exclusions = [...new Set([...(shape.exclusions || []), "ai_metadata_budget"])];
+    }
+    shape.estimated_tokens = graphPayloadTokens(shape);
+    const included = shape.nodes.map((node) => {
+      const relation = relationForNode(shape, node.type, node.id);
+      return contextSelectionEntry(node.type, node, {
+        reason: node.type === type && String(node.id) === id ? "seed" : relation.includedBecause,
+        relationPath: relation.path,
+      });
+    });
+    const contextSelection = buildContextSelection({
+      seed: shape.seed,
+      included,
+      excluded: shape.excluded_nodes,
+      relations: shape.edges,
+      limits: shape.limits,
+      truncated: shape.truncated,
+      truncation: {
+        reasons: shape.exclusions,
+        ...(metadataTruncated ? { text: { reason: "ai_metadata_budget", limit: remainingText, used: metadataBudget?.used || 0 } } : {}),
+      },
+      estimatedCharacters: JSON.stringify(shape).length,
+      estimatedTokens: shape.estimated_tokens,
+      policy: shape.policy,
     });
     return {
-      ...contextGraphMcpShape(result),
+      ...shape,
+      context_selection: contextSelection,
       ai_audience: this.audience,
       read_only: true,
     };

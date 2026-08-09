@@ -208,10 +208,15 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool("tasken.get_theme_context", {
     description: "Return themes, open work, recent notes, knowledge, and health.",
     inputSchema: {
-      theme_id: optionalText,
+      theme_id: z.string().trim().min(1).max(200),
       limit: optionalLimit,
       max_chars: z.number().int().positive().max(8000).optional(),
       include_raw_body: z.boolean().optional(),
+      max_hops: z.number().int().positive().max(2).optional(),
+      max_nodes: z.number().int().positive().max(100).optional(),
+      max_edges: z.number().int().nonnegative().max(200).optional(),
+      token_budget: z.number().int().positive().max(12000).optional(),
+      include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolGetThemeContext(args)));

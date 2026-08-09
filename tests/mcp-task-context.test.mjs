@@ -10,6 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { queueMcpProposal, validateMcpProposalEnvelope } from "../src/main/mcp/proposalInbox.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
+import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
 
 function contextFixture() {
   const theme = {
@@ -177,10 +178,113 @@ test("get_task_context returns bounded related summaries, safe locators, reposit
       branch: "codex/issue-279-task-context",
     });
     assert.deepEqual(result.related.work_receipts[0].runtime_metadata, { provider: "openai", model: "gpt-5", report_kind: "done" });
+    assert.equal(result.context_selection.schema, "tasken-context-selection/v1");
+    assert.ok(result.context_selection.included.some((entry) => entry.ref.type === "resource" && entry.ref.id === "conversation-1"));
+    assert.equal(result.context_selection.included.some((entry) => entry.ref.type === "conversation"), false);
+    assert.ok(result.context_selection.excluded.some((entry) => entry.ref.type === "note" && entry.ref.id === "note-hidden"));
+    const preview = previewTaskCoding(result);
+    assert.deepEqual(
+      preview.included.map((entry) => entry.ref),
+      result.context_selection.included.map((entry) => entry.ref),
+    );
+    assert.deepEqual(
+      preview.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
+      result.context_selection.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
+    );
     assert.equal(JSON.stringify(result).includes("must never leak"), false);
     assert.equal(JSON.stringify(result).includes("C:/private"), false);
     assert.equal(JSON.stringify(result).includes("token=secret"), false);
     assert.equal(result.truncated, true);
+  } finally {
+    context.close();
+  }
+});
+
+test("Task context budgets AI metadata, rejects private source roots, and keeps include sections aligned with Preview", () => {
+  const context = contextFixture();
+  try {
+    Object.assign(context.workspace.tasks[0], {
+      ai_summary: "S".repeat(12_000),
+      ai_visibility: ["coding_agent"],
+      ai_source_refs: [
+        { kind: "canonical_document", locator: "ignored", storage_root_id: "C:\\Users\\private", relative_path: "Notes/source.md" },
+        { kind: "file", locator: "C:\\Users\\private\\secret.md" },
+        { kind: "url", locator: "https://alice:secret@example.com/private" },
+      ],
+    });
+    const bounded = context.toolGetTaskContext({ task_id: "task-1", max_text_length: 1_000 });
+    const serialized = JSON.stringify(bounded);
+    assert.equal(bounded.truncation.text.reason, "max_text_length");
+    assert.equal(bounded.truncation.text.used, 1_000);
+    assert.equal(bounded.context_selection.estimated_characters, 1_000);
+    assert.doesNotMatch(serialized, /C:\\\\Users|alice:secret|secret\.md/);
+    assert.doesNotMatch(JSON.stringify(previewTaskCoding(bounded)), /C:\\\\Users|alice:secret|secret\.md/);
+
+    const repositoryOnly = context.toolGetTaskContext({
+      task_id: "task-1",
+      include: ["repository"],
+      max_text_length: 5_000,
+    });
+    const graphRefs = repositoryOnly.context_graph.nodes.map((node) => `${node.type}:${node.id}`).sort();
+    assert.deepEqual(graphRefs, ["task:task-1"]);
+    assert.equal(JSON.stringify(repositoryOnly.context_graph).includes("Decision"), false);
+    assert.ok(repositoryOnly.context_selection.excluded.some((entry) => entry.ref.id === "note-1" && entry.reason === "include_not_requested"));
+    assert.deepEqual(
+      previewTaskCoding(repositoryOnly).included.map((entry) => entry.ref),
+      repositoryOnly.context_selection.included.map((entry) => entry.ref),
+    );
+  } finally {
+    context.close();
+  }
+});
+
+test("Theme Coding uses the common bounded relation query and Preview preserves its exact selection", () => {
+  const context = contextFixture();
+  try {
+    const result = context.toolGetThemeContext({ theme_id: "theme-1", max_chars: 5_000, max_hops: 2 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.context_selection.seed.type, "theme");
+    assert.ok(result.context_selection.relations.some((edge) => edge.predicate === "uses_repository_context"));
+    assert.ok(result.open_items.some((entry) => entry.entity_type === "task" && entry.id === "task-1"));
+    assert.ok(result.context_selection.excluded.some((entry) => entry.ref.id === "note-hidden"));
+    const preview = previewThemeCoding(result);
+    assert.deepEqual(
+      preview.included.map((entry) => entry.ref),
+      result.context_selection.included.map((entry) => entry.ref),
+    );
+    assert.deepEqual(
+      preview.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
+      result.context_selection.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
+    );
+    assert.equal(JSON.stringify(result).includes("must never leak"), false);
+    assert.equal(JSON.stringify(result).includes("C:/private"), false);
+  } finally {
+    context.close();
+  }
+});
+
+test("Theme repository contexts remain attributed by each Theme edge when the graph includes another Theme", () => {
+  const context = new ReadOnlyTaskenContext("ignored", {
+    workspace: {
+      themes: [
+        { id: "theme-a", name: "A", state: "active", repository_context_ids: ["repo-shared", "repo-a"] },
+        { id: "theme-b", name: "B", state: "active", repository_context_ids: ["repo-shared"] },
+      ],
+      repository_contexts: [
+        { id: "repo-shared", label: "Shared", active: true },
+        { id: "repo-a", label: "A only", active: true },
+      ],
+    },
+  });
+  try {
+    const result = context.toolGetThemeContext({ theme_id: "theme-a", max_hops: 2, max_nodes: 20 });
+    assert.deepEqual(
+      result.theme_repository_contexts.map((entry) => ({ theme_id: entry.theme_id, context_ids: entry.context_ids })),
+      [
+        { theme_id: "theme-a", context_ids: ["repo-a", "repo-shared"] },
+        { theme_id: "theme-b", context_ids: ["repo-shared"] },
+      ],
+    );
   } finally {
     context.close();
   }

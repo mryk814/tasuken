@@ -72,8 +72,8 @@ function collectionRecords(workspace, type) {
 function stableSourceRef(record) {
   const refs = Array.isArray(record.ai_source_refs) ? record.ai_source_refs : [];
   return refs
-    .map((entry) => text(entry?.id || entry?.ref || entry?.relative_path))
-    .filter(Boolean)
+    .map((entry) => text(entry?.id || entry?.ref).trim())
+    .filter((entry) => entry && entry.length <= 200 && !/[\s\\/]/.test(entry) && !/^file:/i.test(entry))
     .sort();
 }
 
@@ -126,7 +126,7 @@ function stableEvidenceRefs(value) {
       continue;
     }
     const candidate = text(entry);
-    if (!candidate || /\s/.test(candidate) || candidate.length > 200) continue;
+    if (!candidate || /[\s\\/]/.test(candidate) || /^file:/i.test(candidate) || candidate.length > 200) continue;
     const key = JSON.stringify(["legacy", candidate]);
     if (!seen.has(key)) refs.push(candidate);
     seen.add(key);
@@ -210,7 +210,24 @@ export function projectContextGraph(workspace, options = {}) {
     if (!entity) continue;
     const { type, id } = entity;
     const themeId = text(record.project_id || (LEGACY_THEME_TYPES.has(type) ? record.theme_id : ""));
-    if (themeId) addEdge({ sourceType: type, sourceId: id, targetType: "theme", targetId: themeId, predicate: "belongs_to_theme" });
+    if (themeId) {
+      const targetThemeType = nodes.has(refKey("project", themeId)) ? "project" : "theme";
+      addEdge({ sourceType: type, sourceId: id, targetType: targetThemeType, targetId: themeId, predicate: "belongs_to_theme" });
+    }
+    if (type === "theme" || type === "project") {
+      for (const repositoryContextId of Array.isArray(record.repository_context_ids) ? record.repository_context_ids : []) {
+        addEdge({
+          assertionId: `${type}:${id}:repository_context:${text(repositoryContextId)}`,
+          sourceType: type,
+          sourceId: id,
+          targetType: "repository_context",
+          targetId: repositoryContextId,
+          predicate: "uses_repository_context",
+          layer: "operational",
+          origin: `${type}.repository_context_ids`,
+        });
+      }
+    }
     if (record.source_record_id) addEdge({ sourceType: type, sourceId: id, targetType: "source_record", targetId: record.source_record_id, predicate: "captured_from", layer: "provenance", origin: "source_record_id" });
     if (type === "task") {
       addFieldRef(type, record, "parent_task_id", "task", "child_of");
@@ -321,7 +338,14 @@ function normalizeLimits(options = {}) {
 function estimatedTokens(value) {
   // The seed and envelope are protocol overhead; budget the context payload
   // itself so a small budget can still return the typed seed node.
-  return Math.ceil(JSON.stringify({ nodes: value.nodes, edges: value.edges, paths: value.paths, diagnostics: value.diagnostics || [] }).length / 4);
+  const payload = {
+    nodes: value.nodes,
+    edges: value.edges,
+    paths: value.paths,
+    diagnostics: value.diagnostics || [],
+  };
+  if (value.excluded_nodes?.length) payload.excluded_nodes = value.excluded_nodes;
+  return Math.ceil(JSON.stringify(payload).length / 4);
 }
 
 function edgeAllowed(edge, options) {
@@ -333,6 +357,19 @@ function edgeAllowed(edge, options) {
 
 function nodeAllowed(node, options) {
   return typeof options.nodeFilter !== "function" || options.nodeFilter(node);
+}
+
+function nodeExclusion(node, options) {
+  const proposed = typeof options.nodeExclusion === "function" ? options.nodeExclusion(node) : null;
+  const value = proposed && typeof proposed === "object" && !Array.isArray(proposed) ? proposed : {};
+  const proposedRef = value.ref && typeof value.ref === "object" && !Array.isArray(value.ref) ? value.ref : node?.ref;
+  const excludedRef = ref(proposedRef?.type, proposedRef?.id);
+  if (!validRef(excludedRef.type, excludedRef.id)) return null;
+  return {
+    ref: excludedRef,
+    reason: text(value.reason) || "node_filter",
+    count: 1,
+  };
 }
 
 function nodeOutput(graph, key) {
@@ -365,9 +402,20 @@ export function traceProvenance(graph, seed, options = {}) {
 export function getContextSubgraph(graph, seed, options = {}) {
   const seedRef = ref(seed?.type, seed?.id);
   const seedKey = refKey(seedRef.type, seedRef.id);
-  if (!graph?.nodes?.has(seedKey)) return { seed: seedRef, nodes: [], edges: [], paths: [], truncated: false, limits: normalizeLimits(options), estimated_tokens: 0, exclusions: ["seed_not_found"] };
-  if (!nodeAllowed(graph.nodes.get(seedKey), options)) return { seed: seedRef, nodes: [], edges: [], paths: [], truncated: false, limits: normalizeLimits(options), estimated_tokens: 0, exclusions: ["seed_not_allowed"] };
   const limits = normalizeLimits(options);
+  if (!graph?.nodes?.has(seedKey)) return { seed: seedRef, nodes: [], edges: [], paths: [], diagnostics: [], excluded_nodes: [], truncated: false, limits, estimated_tokens: 0, exclusions: ["seed_not_found"] };
+  if (!nodeAllowed(graph.nodes.get(seedKey), options)) return {
+    seed: seedRef,
+    nodes: [],
+    edges: [],
+    paths: [],
+    diagnostics: [],
+    excluded_nodes: [nodeExclusion(graph.nodes.get(seedKey), options)].filter(Boolean),
+    truncated: false,
+    limits,
+    estimated_tokens: 0,
+    exclusions: ["seed_not_allowed"],
+  };
   const direction = options.direction === "incoming" ? "incoming" : options.direction === "outgoing" ? "outgoing" : "both";
   const included = new Set([seedKey]);
   const queue = [{ key: seedKey, depth: 0, path: [] }];
@@ -375,6 +423,8 @@ export function getContextSubgraph(graph, seed, options = {}) {
   const selectedKeys = new Set();
   const selectedDiagnostics = [];
   const selectedDiagnosticKeys = new Set();
+  const excludedNodes = [];
+  const excludedNodeKeys = new Set();
   const paths = [];
   let truncated = false;
   const neighborEdges = (key) => {
@@ -399,7 +449,18 @@ export function getContextSubgraph(graph, seed, options = {}) {
         }
         continue;
       }
-      if (!nodeAllowed(nextNode, options)) continue;
+      if (!nodeAllowed(nextNode, options)) {
+        const exclusion = nodeExclusion(nextNode, options);
+        const exclusionKey = exclusion ? refKey(exclusion.ref.type, exclusion.ref.id) : "";
+        if (exclusion && !excludedNodeKeys.has(exclusionKey)) {
+          if (excludedNodes.length >= limits.maxDiagnostics) truncated = true;
+          else {
+            excludedNodeKeys.add(exclusionKey);
+            excludedNodes.push(exclusion);
+          }
+        }
+        continue;
+      }
       const nextPath = [...current.path, edge.id];
       if (!selectedKeys.has(edge.id) && selectedEdges.length >= limits.maxEdges) { truncated = true; continue; }
       if (!included.has(next)) {
@@ -424,6 +485,7 @@ export function getContextSubgraph(graph, seed, options = {}) {
     limits,
     policy: { asserted_first: true, suggested_included: Boolean(options.includeSuggested), suggested_is_fact: false },
     diagnostics: selectedDiagnostics,
+    excluded_nodes: excludedNodes,
     exclusions: [],
   };
   sanitizeResult(result);
@@ -442,6 +504,10 @@ export function getContextSubgraph(graph, seed, options = {}) {
     }
     while (result.estimated_tokens > limits.tokenBudget && result.diagnostics.length) {
       result.diagnostics.pop();
+      result.estimated_tokens = estimatedTokens(result);
+    }
+    while (result.estimated_tokens > limits.tokenBudget && result.excluded_nodes.length) {
+      result.excluded_nodes.pop();
       result.estimated_tokens = estimatedTokens(result);
     }
     if (result.estimated_tokens > limits.tokenBudget) {
@@ -502,6 +568,7 @@ export function explainContextSelection(result) {
     limits: result.limits,
     estimated_tokens: result.estimated_tokens,
     truncated: result.truncated,
+    excluded_nodes: result.excluded_nodes || [],
     exclusions: result.exclusions,
   };
 }
@@ -529,6 +596,7 @@ export function contextGraphMcpShape(result) {
     })),
     paths: result.paths,
     diagnostics: result.diagnostics || [],
+    excluded_nodes: result.excluded_nodes || [],
     limits: result.limits,
     estimated_tokens: result.estimated_tokens,
     truncated: result.truncated,
