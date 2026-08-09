@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { normalizeRepositoryContext, REPOSITORY_PROVIDERS, type RepositoryContext } from "../../../../../shared/repositoryContext.mjs";
-import type { DrawerConfig, DrawerEntity, RemoveEntity, SaveEntities, WorkspaceData } from "../types";
+import type { DrawerConfig, DrawerEntity, RemoveEntity, SaveEntities, SaveOperation, WorkspaceData } from "../types";
 import { REPOSITORY_CONTEXT_MODE_LABELS, REPOSITORY_PROVIDER_LABELS } from "../domain-model/labels";
 import { Field } from "./common";
 
@@ -118,7 +118,7 @@ function PrimaryContextSelect({
 
 function useContextActions(saveEntities?: SaveEntities, removeEntity?: RemoveEntity) {
   const saveContext = async (context: RepositoryContext) => {
-    await saveEntities?.([{ action: "save", type: "repository_context", entity: context as unknown as Record<string, unknown> }], "RepositoryContextを保存しました。");
+    await saveEntities?.([{ action: "save", type: "repository_context", entity: context as unknown as SaveOperation["entity"] }], "RepositoryContextを保存しました。");
   };
   const archiveContext = async (context: RepositoryContext) => saveContext({ ...context, active: false });
   const restoreContext = async (context: RepositoryContext) => saveContext({ ...context, active: true, deleted_at: null });
