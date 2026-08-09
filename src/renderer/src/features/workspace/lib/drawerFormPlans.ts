@@ -13,6 +13,7 @@ import type {
   PlanNode,
   Resource,
   Schedule,
+  ScheduleRangeSemantics,
   Task,
   TaskChecklistItem,
   TaskRepeatRule,
@@ -22,10 +23,14 @@ import type {
 import type { DrawerEntityType, SaveOperation, WorkspaceData } from "../types";
 import { inferChatServiceFromUrl } from "./chatServices";
 import { resolveSubmittedChatCapturedAt } from "./chatRefs";
+import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./aiMetadataForm";
 import { formText, uuid } from "./format";
 import { normalizeReminderDateTime } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
 import { normalizeTaskShelf } from "./taskShelves";
+import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { normalizeRepositoryContext } from "../../../../../shared/repositoryContext.mjs";
+import { buildDerivedFromReferenceOperation } from "./lineageOperations";
 
 export type DrawerFormPlan =
   | {
@@ -97,8 +102,17 @@ function monthEnd(value: string): string | null {
   return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
 }
 
+/** フォームの選択値だけを信じる。未知の値と空欄は「未分類」に倒す（#309）。 */
+function normalizeRangeSemantics(value: string): ScheduleRangeSemantics | null {
+  return value === "once_within_window" || value === "ongoing" ? value : null;
+}
+
 function normalizeChatReferenceStatus(value: string): string {
   return value === "adopted" ? "adopted" : "inbox";
+}
+
+function themeIdFromForm(value: string): string | null {
+  return canonicalThemeId(value, { defaultPersonal: true });
 }
 
 export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): DrawerFormPlan | null {
@@ -108,7 +122,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const title = formText(values, "title");
     if (!title) return { kind: "invalid", field: "title", message: "タイトルを入力してください。" };
     const taskId = (base.id as string) || uuid();
-    const projectId = formText(values, "theme_id") || null;
+    const projectId = themeIdFromForm(formText(values, "theme_id"));
     const taskSections = projectId ? listTaskSections(data.views || [], projectId) : [];
     const task: Task = {
       id: taskId,
@@ -116,10 +130,20 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       project_id: projectId,
       section_id: normalizeTaskSectionId(formText(values, "section_id"), taskSections, projectId),
       state: (formText(values, "state") || "todo") as Task["state"],
+      requester: (formText(values, "requester") || String(base.requester || "self")) as Task["requester"],
+      intended_executor: (formText(values, "intended_executor") || String(base.intended_executor || "self")) as Task["intended_executor"],
+      executor_identity: formText(values, "executor_identity") || (base.executor_identity as string | null) || null,
+      work_state: (formText(values, "work_state") || String(base.work_state || "not_delegated")) as Task["work_state"],
+      work_started_at: (base.work_started_at as string | null) ?? null,
+      work_reported_at: (base.work_reported_at as string | null) ?? null,
+      work_review_note: (base.work_review_note as string | null) ?? null,
       priority: values.has("priority_flag") ? "high" : "normal",
       planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
       reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
       description: formText(values, "description") || null,
+      completion_note: hasField("completion_note")
+        ? formText(values, "completion_note") || null
+        : (base.completion_note as string | null) ?? null,
       repeat_rule: taskRepeatRuleFromForm(
         values,
         Number((formText(values, "end_date") || todayIso()).slice(-2)),
@@ -129,14 +153,24 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
         : null,
       repeat_parent_task_id: (base.repeat_parent_task_id as string | null) ?? null,
       checklist_items: taskChecklistFromForm(values),
+      repository_context_mode: (formText(values, "repository_context_mode") || String(base.repository_context_mode || "inherit")) as Task["repository_context_mode"],
+      repository_context_ids: values.getAll("repository_context_ids").map(String),
+      primary_repository_context_id: formText(values, "primary_repository_context_id") || null,
+      repository_subdirectory: formText(values, "repository_subdirectory") || null,
+      repository_branch_hint: formText(values, "repository_branch_hint") || null,
+      repository_context_detachments: Array.isArray(base.repository_context_detachments)
+        ? base.repository_context_detachments as Array<Record<string, unknown>>
+        : undefined,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       created_at: (base.created_at as string) || new Date().toISOString(),
+      ...aiMetadataFromForm(values, base, hasField),
     };
     const operations = buildSaveTaskOperations(task);
     const startDate = formText(values, "start_date") || null;
     const endDate = formText(values, "end_date") || null;
     const scheduleId = formText(values, "_schedule_id");
     if (startDate || endDate || scheduleId) {
+      const isRange = Boolean(startDate && endDate && endDate > startDate);
       const schedule: Schedule = {
         id: scheduleId || uuid(),
         owner_type: "task",
@@ -150,6 +184,9 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
             : startDate
               ? "point"
               : "unknown",
+        // 範囲の意味は値から推定せず、フォームで選ばれたものだけを保存する（#309）。
+        // 既存の未分類データは、編集画面で触られるまで未分類のまま残す。
+        range_semantics: isRange ? normalizeRangeSemantics(formText(values, "range_semantics")) : null,
         confidence: "fixed",
         granularity: "day",
       };
@@ -160,10 +197,65 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       sourceId: taskId,
       themeId: projectId,
     }));
+    const lineageReference = buildDerivedFromReferenceOperation(base, "task", taskId);
+    if (lineageReference) operations.push(lineageReference);
     return {
       kind: "operations",
       operations,
       successMessage: base.id ? "変更を保存しました。" : "タスクを追加しました。",
+    };
+  }
+
+  if (type === "theme") {
+    const name = formText(values, "name");
+    if (!name) return { kind: "invalid", field: "name", message: "テーマ名を入力してください。" };
+    const { status: _status, ...rest } = base;
+    const existingContextIds = values.getAll("repository_context_ids").map(String).filter(Boolean);
+    const newRemoteUrl = formText(values, "repository_new_url");
+    const newLocalPath = formText(values, "repository_new_local_path");
+    const newContextOperations: SaveOperation[] = [];
+    let newContextId: string | null = null;
+    if (newRemoteUrl || newLocalPath) {
+      newContextId = uuid();
+      try {
+        const context = normalizeRepositoryContext({
+          id: newContextId,
+          label: formText(values, "repository_new_label"),
+          provider: formText(values, "repository_new_provider"),
+          remote_url: newRemoteUrl,
+          local_path: newLocalPath,
+          default_branch: formText(values, "repository_new_default_branch"),
+          subdirectory: formText(values, "repository_new_subdirectory"),
+        });
+        newContextOperations.push({ action: "save", type: "repository_context", entity: context as SaveOperation["entity"] });
+      } catch (error) {
+        return { kind: "invalid", field: "repository_new_url", message: error instanceof Error ? error.message : "RepositoryContextを正規化できませんでした。" };
+      }
+    }
+    const repositoryContextIds = newContextId
+      ? [...existingContextIds, newContextId]
+      : existingContextIds;
+    const primaryRepositoryContextId = formText(values, "primary_repository_context_id")
+      || newContextId
+      || repositoryContextIds[0]
+      || null;
+    const entity = {
+      ...rest,
+      id: String(base.id || uuid()),
+      name,
+      code: formText(values, "code") || null,
+      description: formText(values, "description"),
+      color: formText(values, "color") || String(base.color || ""),
+      group: formText(values, "group"),
+      storage_root: formText(values, "storage_root") || null,
+      repository_context_ids: repositoryContextIds,
+      primary_repository_context_id: primaryRepositoryContextId,
+      default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, hasField),
+    };
+    return {
+      kind: "operations",
+      operations: [...newContextOperations, { action: "save", type: "theme", entity: entity as SaveOperation["entity"] }],
+      successMessage: base.id ? "変更を保存しました。" : "Themeを追加しました。",
     };
   }
 
@@ -177,13 +269,14 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       id: waitingId,
       title,
       waiting_for: waitingFor,
-      project_id: formText(values, "theme_id") || null,
+      project_id: themeIdFromForm(formText(values, "theme_id")),
       state: (formText(values, "state") || "waiting") as Waiting["state"],
       check_reminder_at: normalizeReminderDateTime(formText(values, "check_reminder_at")),
       next_action: formText(values, "next_action") || null,
       description: formText(values, "description") || null,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       created_at: (base.created_at as string) || new Date().toISOString(),
+      ...aiMetadataFromForm(values, base, hasField),
     };
     const operations = buildSaveWaitingOperations(waiting);
     const endDate = formText(values, "end_date") || null;
@@ -221,7 +314,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const planNode: PlanNode = {
       id: nodeId,
       title,
-      project_id: formText(values, "theme_id") || null,
+      project_id: themeIdFromForm(formText(values, "theme_id")),
       parent_plan_node_id: parentPlanNodeId,
       type: (formText(values, "node_type") || "phase") as PlanNode["type"],
       state: (formText(values, "node_state") || "planned") as PlanNode["state"],
@@ -229,6 +322,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       description: formText(values, "description") || null,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       created_at: (base.created_at as string) || new Date().toISOString(),
+      ...aiMetadataFromForm(values, base, hasField),
     };
     const operations = buildSavePlanNodeOperations(planNode);
     const inputUnit = formText(values, "schedule_input_unit")
@@ -281,6 +375,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
         || new Date().toISOString().slice(0, 10),
       state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
+      ...aiMetadataFromForm(values, base, hasField),
     };
     return {
       kind: "operations",
@@ -294,15 +389,18 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const title = formText(values, "title");
     const url = formText(values, "url");
     if (!title) return { kind: "invalid", field: "title", message: "タイトルを入力してください。" };
-    if (!url) return { kind: "invalid", field: "url", message: "URLを入力してください。" };
+    const bodyMarkdown = hasField("body_markdown")
+      ? formText(values, "body_markdown")
+      : String(base.body_markdown || "");
+    if (!url && !bodyMarkdown) return { kind: "invalid", field: "url", message: "URLまたは会話ログを入力してください。" };
     const submittedLinkType = formText(values, "link_type");
     const inferredLinkType = inferChatServiceFromUrl(url);
     const sortOrder = Number(formText(values, "sort_order") || base.sort_order || 0);
     const resource: Resource = {
       id: (base.id as string) || uuid(),
       title,
-      url,
-      project_id: formText(values, "project_id") || formText(values, "theme_id") || null,
+      url: url || null,
+      project_id: themeIdFromForm(formText(values, "project_id") || formText(values, "theme_id")),
       description: formText(values, "description") || null,
       body_markdown: hasField("body_markdown")
         ? (formText(values, "body_markdown") || null)
@@ -326,6 +424,11 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       parent_resource_id: formText(values, "parent_resource_id") || null,
       sort_order: Number.isFinite(sortOrder) && sortOrder > 0 ? sortOrder : null,
       archived_at: (base.archived_at as string | null | undefined) ?? null,
+      source_format: (base.source_format as string | null) ?? null,
+      fidelity: (base.fidelity as string | null) ?? null,
+      parser_version: (base.parser_version as string | null) ?? null,
+      message_count: typeof base.message_count === "number" ? base.message_count : null,
+      ...aiMetadataFromForm(values, base, hasField),
     };
     return {
       kind: "operations",

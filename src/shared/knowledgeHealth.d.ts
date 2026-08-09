@@ -44,7 +44,24 @@ export function buildKnowledgeHealth(
   options?: { now?: number },
 ): KnowledgeHealthIssue[];
 
+export function buildDataHealth(
+  nodes: KnowledgeHealthNode[],
+  relations: KnowledgeHealthRelation[],
+  entities?: KnowledgeHealthEntity[],
+  options?: { now?: number },
+): KnowledgeHealthIssue[];
+
 export function groupKnowledgeHealthIssues(issues: KnowledgeHealthIssue[]): {
+  issues: KnowledgeHealthIssue[];
+  unresolved_questions: KnowledgeHealthNode[];
+  claims_without_evidence: KnowledgeHealthNode[];
+  contradicted_claims: KnowledgeHealthNode[];
+  evidence_without_source: KnowledgeHealthNode[];
+  isolated_nodes: KnowledgeHealthNode[];
+  stale_decisions: KnowledgeHealthNode[];
+};
+
+export function groupDataHealthIssues(issues: KnowledgeHealthIssue[]): {
   issues: KnowledgeHealthIssue[];
   unresolved_questions: KnowledgeHealthNode[];
   claims_without_evidence: KnowledgeHealthNode[];

@@ -1,63 +1,29 @@
-# Design QA
+# Sketch workspace design QA
 
-## Comparison Target
+## Visual target
 
-- Source visual truth: `qa/reference-home.png`
-- Implementation screenshot: `qa/implementation-home-drawer.png`
-- Long-term Gantt screenshot: `qa/implementation-timeline.png`
-- Full-view comparison: `qa/comparison-home-final.png`
-- Focused dashboard comparison: `qa/comparison-dashboard-focus.png`
-- Viewport: 1536 x 1080
-- State: light theme, 材料A評価, 待ち詳細ドロワー open
+- Selected direction: dedicated Sketch workspace under Notes, Ink Capture as the fast entry, Note / export / AI as exits.
+- Reference image: `C:\Users\ootan\.codex\generated_images\019fc037-85ba-7fc2-b032-03b1263eae73\call_dKFD7iqV4DFiSfPGzkZTYCmF.png`
+- Implemented capture: `C:\Users\ootan\.codex\visualizations\2026\08\02\019fc037-85ba-7fc2-b032-03b1263eae73\sketch-workspace-final.png`
+- Compact capture: `C:\Users\ootan\.codex\visualizations\2026\08\02\019fc037-85ba-7fc2-b032-03b1263eae73\sketch-workspace-compact.png`
 
-## Findings
+## Review
 
-No actionable P0, P1, or P2 findings remain.
+- Hierarchy: pass. Title and Note insertion are primary, tools are secondary, page rail is subordinate.
+- Product integration: pass. Notes remains selected in the sidebar and Sketch uses a dedicated canvas without adding another top-level destination.
+- Interaction visibility: pass. Pen, highlighter, eraser, shape, arrow, text, image, selection, history, page, zoom and background controls are visible.
+- Canvas focus: pass. The paper is the dominant surface and surrounding application chrome stays compact.
+- Responsive behavior: pass at 1540×980 and 1100×760. Document and canvas horizontal overflow are both 0px; tool labels collapse before controls are removed.
+- State feedback: pass. Saving, autosaved, error, toast, empty Sketch and disabled history states are represented.
+- Accessibility: pass for named toolbar, pressed tool state, page current state, labeled title/theme/select controls and keyboard deletion/select-all.
+- Visual language: pass. Common tokens, burgundy action accent, 7px-family radii, compact density and non-gradient surfaces are preserved.
 
-- [P3] Navigation iconography is intentionally reduced.
-  - Location: left navigation and header actions.
-  - Evidence: the reference uses a full icon set; the implementation uses text labels and a restrained `RD` mark.
-  - Impact: navigation remains clear and keyboard accessible, but the visual match is slightly less illustrative.
-  - Follow-up: add Tabler Icons after explicit dependency approval.
+## Functional proof used in QA
 
-- [P3] The implementation uses slightly tighter small-text rendering.
-  - Location: task dates, memo summaries, and Gantt labels.
-  - Evidence: the focused comparison shows marginally smaller optical sizing than the mock.
-  - Impact: the compact density remains readable at the target viewport.
-  - Follow-up: tune the `--text-xs` and `--text-sm` mapping only if a roomier display is preferred.
-
-## Required Fidelity Surfaces
-
-- Fonts and typography: passed. Nunito-compatible rounded fallbacks, tabular numeric rendering, hierarchy, wrapping, and minimum text size are consistent.
-- Spacing and layout rhythm: passed. Three-pane desktop layout, compact cards, 7px controls, section rhythm, and responsive stacking match the target.
-- Colors and visual tokens: passed. All application styling uses `design-standard/tokens.css`; burgundy is reserved for primary interaction and danger uses semantic red.
-- Image quality and asset fidelity: passed. The selected design contains no required photographic or illustrative content. No placeholder imagery is used.
-- Copy and content: passed. Research-specific Japanese sample data and concise action labels match the approved concept.
-
-## Interaction And State Checks
-
-- Theme navigation and hash routes: passed.
-- Add-item drawer and form submission: passed.
-- Task completion, waiting completion, delete with undo: passed.
-- Timeline scale controls, theme filter, baseline and waiting toggles: passed.
-- Quick Capture and browser-local persistence: passed.
-- Loading, empty, error, and success state preview: passed.
-- Light/dark token modes: passed by token integration.
-- Mobile layout at 760px: passed after reducing the top navigation to four primary destinations.
-- Browser console errors and warnings: none.
-- Production build: passed.
-
-## Patches Made During QA
-
-- Changed the waiting detail from an overlay to a true third desktop pane.
-- Made the dedicated Timeline page open with all themes visible.
-- Replaced gradient-based timeline grid lines with explicit token-colored rules.
-- Removed secondary navigation from the compact mobile header.
-- Added an explicit Vite root for stable Windows production builds.
-
-## Follow-up Polish
-
-- Add the approved Tabler icon set when dependency expansion is desired.
-- Consider user-controlled density settings after real daily usage.
+- Ink Capture atomically created one CaptureEntry and one linked Sketch.
+- Pointer input produced an editable stroke object.
+- A stroke and recognized shape survived save, app restart and re-render.
+- Note insertion created a Note attachment and a `derived_from` Reference.
+- Typecheck, production build, full tests and desktop smoke passed.
 
 final result: passed

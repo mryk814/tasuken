@@ -5,7 +5,8 @@ import type { BaseRecord, Item } from "../types";
 type Dependency = BaseRecord;
 import { DAY, hasPlannedSchedule, itemLevel, statusProgress } from "../lib/domain";
 import { addDays, daysBetween, localDateIso, str } from "../lib/format";
-import type { GanttRange, TimelineRow } from "../lib/timeline";
+import { timelineItemScheduleKind, timelineItemState, type GanttRange, type TimelineRow } from "../lib/timeline";
+import { SCHEDULE_KIND_LABELS, TIMELINE_ITEM_STATE_LABELS, TIMELINE_ITEM_STATE_MARKS } from "../domain-model/labels";
 
 export interface SelectedDependency {
   dependency: Dependency;
@@ -113,6 +114,8 @@ export function GanttItemRow({
   onCtrlClick?: (item: Item) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
+  // 状態判定の基準日（#318）。表示のたびにローカル日付で取る。
+  const today = localDateIso(new Date());
   const [drag, setDrag] = useState<{ itemId: string; mode: DragMode; dxPercent: number } | null>(null);
   const [rangeDraft, setRangeDraft] = useState<{ startPercent: number; widthPercent: number } | null>(null);
   const movedRef = useRef(false);
@@ -237,8 +240,18 @@ export function GanttItemRow({
         }
         const isSource = !!connecting?.sourceId && connecting.sourceId === barItem.id;
         const laneIndex = lanes.get(barItem.id) || 0;
+        // 状態はTheme色と別の体系（#318）。classと記号とtooltipへ同じ値を配る。
+        const state = timelineItemState(barItem, today);
+        const stateLabel = TIMELINE_ITEM_STATE_LABELS[state];
+        const scheduleKind = timelineItemScheduleKind(barItem);
+        const scheduleLabel = scheduleKind === "execution_window" || scheduleKind === "ongoing_period" || scheduleKind === "unspecified_range"
+          ? SCHEDULE_KIND_LABELS[scheduleKind]
+          : "";
+        const stateMark = scheduleKind === "execution_window" ? "◇" : scheduleKind === "ongoing_period" ? "→" : TIMELINE_ITEM_STATE_MARKS[state];
         const barClass = [
           `gantt-item-bar level-${level}`,
+          `is-state-${state}`,
+          scheduleLabel ? `is-range-${scheduleKind}` : "",
           bars.length > 1 ? "in-lane" : "",
           barItem.kind === "milestone" ? "milestone" : "",
           drag?.itemId === barItem.id ? "is-dragging" : "",
@@ -250,13 +263,22 @@ export function GanttItemRow({
           <button
             className={barClass}
             key={barItem.id}
+            data-state={state}
+            aria-label={`${barItem.title}（${stateLabel}）`}
             style={{ left: `${displayLeft}%`, width: `${displayWidth}%`, "--lane-index": laneIndex, "--bar-color": themeColorKey ? `var(--color-${themeColorKey})` : undefined } as React.CSSProperties}
             onClick={(e) => handleClick(barItem, e)}
             onPointerDown={isConnecting ? undefined : (event) => beginDrag(event, barItem, "move")}
-            title={isConnecting ? (isSource ? `${barItem.title}（選択中）` : `${barItem.title} を後続にする`) : `${hint(barItem)}\nCtrl+クリックで依存を接続`}
+            title={isConnecting
+              ? (isSource ? `${barItem.title}（選択中）` : `${barItem.title} を後続にする`)
+              : `${barItem.title}\n状態: ${stateLabel}${scheduleLabel ? `\n範囲: ${scheduleLabel}` : ""}\n${hint(barItem)}\nCtrl+クリックで依存を接続`}
           >
             {barItem.kind !== "milestone" && !isConnecting && <span className="resize-handle start" onPointerDown={(event) => beginDrag(event, barItem, "start")} />}
-            <span>{barItem.kind === "milestone" ? "◆" : barItem.title}</span>
+            <span>
+              {barItem.kind === "milestone" ? "◆" : <>
+                {stateMark && <span className="gantt-bar-state-mark" aria-hidden="true">{stateMark}</span>}
+                {barItem.title}
+              </>}
+            </span>
             {barItem.kind !== "milestone" && !isConnecting && <span className="resize-handle end" onPointerDown={(event) => beginDrag(event, barItem, "end")} />}
           </button>
         ) : null;

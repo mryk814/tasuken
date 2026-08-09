@@ -5,49 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>今日やること</title>
     <style>
-      :root {
-        color-scheme: light;
-        --color-bg-top: #a65f69;
-        --color-bg-mid: #d2b3b6;
-        --color-bg-bottom: #f4eeec;
-        --color-panel: rgba(255, 250, 248, .88);
-        --color-panel-strong: rgba(255, 250, 248, .96);
-        --color-glass: rgba(47, 41, 39, .46);
-        --color-glass-hover: rgba(47, 41, 39, .58);
-        --color-text: #2f2927;
-        --color-text-light: #fffaf8;
-        --color-text-muted: rgba(255, 250, 248, .82);
-        --color-text-secondary: #70615d;
-        --color-border: rgba(255, 250, 248, .34);
-        --color-row-border: rgba(91, 68, 63, .14);
-        --color-accent: #8a2f3b;
-        --color-success: #3f7d5a;
-        --color-chart-1: #8A2F3B;
-        --color-chart-2: #2D7FB8;
-        --color-chart-3: #2E8B57;
-        --color-chart-4: #C77D29;
-        --color-chart-5: #6D5BC7;
-        --color-chart-6: #7C746E;
-        --color-theme-extra-1: color-mix(in srgb, var(--color-chart-1) 70%, var(--color-chart-2));
-        --color-theme-extra-2: color-mix(in srgb, var(--color-chart-2) 70%, var(--color-chart-3));
-        --color-theme-extra-3: color-mix(in srgb, var(--color-chart-3) 70%, var(--color-chart-4));
-        --color-theme-extra-4: color-mix(in srgb, var(--color-chart-5) 65%, var(--color-chart-6));
-        --radius-md: 7px;
-        --radius-sm: 5px;
-        --space-1: 4px;
-        --space-2: 8px;
-        --space-3: 12px;
-        --space-4: 16px;
-        --font-base: "Nunito", "Yu Gothic UI", "Meiryo", sans-serif;
-        --font-mono: "Cascadia Mono", "Consolas", monospace;
-      }
-
       * { box-sizing: border-box; }
       body {
         min-width: 300px;
         min-height: 100vh;
         margin: 0;
-        background: linear-gradient(180deg, var(--color-bg-top) 0%, var(--color-bg-mid) 58%, var(--color-bg-bottom) 100%);
+        background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-subtle-bg-strong) 58%, var(--color-bg) 100%);
         color: var(--color-text);
         font-family: var(--font-base);
         font-size: 13px;
@@ -59,7 +22,7 @@
         cursor: pointer;
       }
       button:active { transform: translateY(1px); }
-      button:focus-visible, input:focus-visible { outline: 2px solid rgba(255, 250, 248, .86); outline-offset: 2px; }
+      button:focus-visible, input:focus-visible { outline: 2px solid var(--color-on-accent); outline-offset: 2px; }
       .app-shell {
         min-height: 100vh;
         display: grid;
@@ -73,7 +36,7 @@
         align-items: start;
         justify-content: space-between;
         gap: var(--space-3);
-        color: var(--color-text-light);
+        color: var(--color-on-accent);
       }
       h1 {
         margin: 0 0 var(--space-1);
@@ -83,13 +46,13 @@
         letter-spacing: 0;
       }
       .today-date {
-        color: var(--color-text-muted);
+        color: color-mix(in srgb, var(--color-on-accent) 82%, transparent);
         font-size: 14px;
         font-weight: 700;
       }
       .count {
         margin-top: var(--space-1);
-        color: var(--color-text-muted);
+        color: color-mix(in srgb, var(--color-on-accent) 82%, transparent);
         font: 12px var(--font-mono);
         font-variant-numeric: tabular-nums;
       }
@@ -104,11 +67,11 @@
         place-items: center;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-sm);
-        background: var(--color-glass);
-        color: var(--color-text-light);
+        background: color-mix(in srgb, var(--color-text) 46%, transparent);
+        color: var(--color-on-accent);
         padding: 0;
       }
-      .icon-button:hover { background: var(--color-glass-hover); }
+      .icon-button:hover { background: color-mix(in srgb, var(--color-text) 58%, transparent); }
       .icon-button svg {
         width: 17px;
         height: 17px;
@@ -129,14 +92,14 @@
         align-content: center;
         min-height: 180px;
         padding: var(--space-4);
-        border: 1px dashed rgba(255, 250, 248, .52);
+        border: 1px dashed color-mix(in srgb, var(--color-on-accent) 52%, transparent);
         border-radius: var(--radius-md);
-        background: rgba(255, 250, 248, .18);
-        color: var(--color-text-muted);
+        background: color-mix(in srgb, var(--color-on-accent) 18%, transparent);
+        color: color-mix(in srgb, var(--color-on-accent) 82%, transparent);
         text-align: center;
       }
-      .state strong { color: var(--color-text-light); }
-      .state.is-error { border-color: rgba(206, 59, 59, .8); color: #ffe4e4; }
+      .state strong { color: var(--color-on-accent); }
+      .state.is-error { border-color: var(--color-danger); color: var(--color-danger); }
       .task-list {
         display: grid;
         gap: var(--space-2);
@@ -149,13 +112,13 @@
         align-items: center;
         min-height: 56px;
         padding: 9px 10px 9px 0;
-        border: 1px solid var(--color-row-border);
+        border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
         border-radius: var(--radius-md);
-        background: var(--color-panel);
+        background: color-mix(in srgb, var(--color-surface) 88%, transparent);
         backdrop-filter: blur(10px);
         overflow: hidden;
       }
-      .task-row.is-high { background: var(--color-panel-strong); }
+      .task-row.is-high { background: color-mix(in srgb, var(--color-surface) 96%, transparent); }
       .theme-dot {
         align-self: stretch;
         width: 5px;
@@ -169,7 +132,7 @@
         display: grid;
         place-items: center;
         padding: 0;
-        border: 2px solid rgba(91, 68, 63, .30);
+        border: 2px solid color-mix(in srgb, var(--color-text) 30%, transparent);
         border-radius: 999px;
         background: transparent;
         color: transparent;
@@ -231,30 +194,30 @@
         width: 28px;
         min-height: 28px;
         padding: 0;
-        border: 1px solid rgba(91, 68, 63, .14);
+        border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
         border-radius: var(--radius-md);
-        background: rgba(255, 250, 248, .72);
+        background: color-mix(in srgb, var(--color-surface) 72%, transparent);
         color: var(--color-accent);
         font-weight: 800;
       }
-      .open-button:hover { background: var(--color-panel-strong); }
+      .open-button:hover { background: var(--color-surface); }
       .add-task-bar {
         display: grid;
-        grid-template-columns: 28px minmax(0, 1fr);
+        grid-template-columns: 22px minmax(0, 1fr) minmax(112px, 148px);
         align-items: center;
         gap: var(--space-2);
         min-height: 48px;
         padding: 8px 12px;
-        border: 1px solid rgba(255, 250, 248, .20);
+        border: 1px solid color-mix(in srgb, var(--color-on-accent) 20%, transparent);
         border-radius: var(--radius-sm);
-        background: var(--color-glass);
-        color: var(--color-text-light);
+        background: color-mix(in srgb, var(--color-text) 46%, transparent);
+        color: var(--color-on-accent);
       }
-      .add-task-bar:hover { background: var(--color-glass-hover); }
+      .add-task-bar:hover { background: color-mix(in srgb, var(--color-text) 58%, transparent); }
       .add-icon {
         width: 22px;
         height: 22px;
-        border: 2px solid rgba(255, 250, 248, .88);
+        border: 2px solid color-mix(in srgb, var(--color-on-accent) 88%, transparent);
         border-radius: 999px;
       }
       .add-input {
@@ -262,11 +225,39 @@
         min-height: 30px;
         border: 0;
         background: transparent;
-        color: var(--color-text-light);
+        color: var(--color-on-accent);
         outline: none;
       }
-      .add-input::placeholder { color: rgba(255, 250, 248, .88); }
+      .add-input::placeholder { color: color-mix(in srgb, var(--color-on-accent) 88%, transparent); }
       .add-input:disabled { opacity: .62; }
+      .add-theme-picker {
+        min-width: 0;
+        width: 100%;
+        grid-column: 2 / -1;
+        overflow-x: auto;
+      }
+      .theme-picker-standalone { display: flex; gap: var(--space-1); min-width: max-content; }
+      .theme-picker-standalone .theme-chip {
+        min-height: 28px;
+        padding: 0 var(--space-2);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        background: var(--color-surface-subtle);
+        color: var(--color-text);
+        white-space: nowrap;
+      }
+      .theme-picker-standalone .theme-chip:hover { background: var(--color-surface-muted); }
+      .theme-picker-standalone .theme-chip.is-selected {
+        border-color: var(--color-accent);
+        background: var(--color-accent-subtle-bg-strong);
+        color: var(--color-accent-strong);
+        font-weight: 800;
+      }
+      .theme-picker-standalone .theme-chip:disabled { cursor: not-allowed; opacity: .62; }
+      @media (max-width: 390px) {
+        .app-shell { padding-inline: 12px; }
+        .add-task-bar { grid-template-columns: 22px minmax(0, 1fr); }
+      }
     </style>
   </head>
   <body>
@@ -295,9 +286,12 @@
       <form class="add-task-bar" id="add-task-form">
         <span class="add-icon" aria-hidden="true"></span>
         <input class="add-input" id="add-task-input" autocomplete="off" placeholder="タスクの追加" aria-label="タスクの追加" />
+        <div class="add-theme-picker" id="add-task-theme-picker"></div>
       </form>
     </div>
     <script type="module">
+      import { createThemePicker } from "../shared/themePickerDom";
+
       const content = document.querySelector("#content");
       const count = document.querySelector("#count");
       const todayDate = document.querySelector("#today-date");
@@ -306,10 +300,23 @@
       const closeWindowButton = document.querySelector("#close-window");
       const addTaskForm = document.querySelector("#add-task-form");
       const addTaskInput = document.querySelector("#add-task-input");
+      const addTaskThemePicker = createThemePicker({ label: "TaskのTheme" });
+      document.querySelector("#add-task-theme-picker").append(addTaskThemePicker.element);
 
-      const now = new Date();
-      const todayKey = localDateKey(now);
-      todayDate.textContent = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" }).format(now);
+      // 日付は起動時に固定せず、日付をまたいでも表示が古くならないよう都度更新する。
+      const dateFormat = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" });
+      let todayKey = "";
+
+      function applyToday() {
+        const now = new Date();
+        const key = localDateKey(now);
+        const changed = key !== todayKey;
+        todayKey = key;
+        if (changed) todayDate.textContent = dateFormat.format(now);
+        return changed;
+      }
+
+      applyToday();
 
       function localDateKey(date) {
         const year = date.getFullYear();
@@ -329,6 +336,11 @@
 
       function stateHtml(title, body, tone = "") {
         return `<div class="state ${tone}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(body)}</span></div>`;
+      }
+
+      async function loadThemeOptions() {
+        const options = await window.todayMiniApi.listThemes();
+        addTaskThemePicker.setOptions(options);
       }
 
       function scheduleHint(task) {
@@ -386,11 +398,13 @@
         const title = addTaskInput.value.trim();
         if (!title) return;
         addTaskInput.disabled = true;
+        addTaskThemePicker.setDisabled(true);
         try {
-          await render(() => window.todayMiniApi.addTask(title));
+          await render(() => window.todayMiniApi.addTask({ title, themeId: addTaskThemePicker.getValue() }));
           addTaskInput.value = "";
         } finally {
           addTaskInput.disabled = false;
+          addTaskThemePicker.setDisabled(false);
           addTaskInput.focus();
         }
       });
@@ -406,7 +420,35 @@
         }
         await window.todayMiniApi.openTask(taskId);
       });
-      window.todayMiniApi.onRefresh(() => render(window.todayMiniApi.refresh));
+      // 変更通知が届かない経路（外部プロセスの書き込み・スリープ復帰・日付またぎ）でも
+      // 表示が古いまま残らないよう、focus復帰・日付変更・定期確認を併用する。
+      const CONSISTENCY_INTERVAL_MS = 60000;
+      let syncing = false;
+
+      async function syncNow() {
+        if (syncing) return;
+        syncing = true;
+        try {
+          applyToday();
+          await render(window.todayMiniApi.refresh);
+        } finally {
+          syncing = false;
+        }
+      }
+
+      window.todayMiniApi.onRefresh(() => { void syncNow(); });
+      window.addEventListener("focus", () => { void syncNow(); });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") void syncNow();
+      });
+      setInterval(() => {
+        const dayChanged = applyToday();
+        if (dayChanged || document.visibilityState === "visible") void syncNow();
+      }, CONSISTENCY_INTERVAL_MS);
+      void loadThemeOptions().catch((error) => {
+        addTaskThemePicker.setDisabled(true);
+        addTaskThemePicker.element.title = error instanceof Error ? error.message : String(error);
+      });
       render();
     </script>
   </body>

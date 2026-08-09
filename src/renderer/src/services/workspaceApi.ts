@@ -1,13 +1,23 @@
 import type {
   Entity,
   EntityType,
+  DocumentSaveRequest,
   SaveOperation,
   SaveOptions,
   Workspace,
 } from "../../../shared/types/workspace";
 import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
-import type { AppUpdateCheckResult } from "../../../shared/ipc/contracts";
+import type { AppUpdateCheckResult, SatelliteWindowStatePayload } from "../../../shared/ipc/contracts";
+import type { CommandEnvelope } from "../../../shared/applicationCommand";
 import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
+import type { SketchExportRequest } from "../../../shared/sketchExport";
+import type {
+  MermaidPowerPointPptxExportRequest,
+  MermaidPowerPointSvgExportRequest,
+  MermaidSvgClipboardRequest,
+} from "../../../shared/mermaidPowerPoint";
+import type { ImageClipboardRequest, SlideTimelineExportRequest } from "../../../shared/slideTimelineExport";
+import type { CalendarConnectRequest, CalendarDisconnectRequest } from "../../../shared/calendar";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
@@ -22,22 +32,81 @@ export const workspaceApi = {
     // 初回起動でもダミーデータは入れない。空のWorkspaceで開始する。
     return desktopApi().workspace.load();
   },
+  getActivityCanonicalRootStatus() {
+    return desktopApi().activity.getCanonicalRootStatus();
+  },
+  openActivityCanonicalRef(ref: Record<string, unknown>) {
+    return desktopApi().activity.openCanonicalRef(ref);
+  },
+  previewAiContext(request: Parameters<Window["api"]["aiContext"]["preview"]>[0]) {
+    return desktopApi().aiContext.preview(request);
+  },
+  getDataHealth(query: Parameters<Window["api"]["dataHealth"]["get"]>[0] = {}) {
+    return desktopApi().dataHealth.get(query);
+  },
+  setDataHealthIssueState(request: Parameters<Window["api"]["dataHealth"]["setState"]>[0]) {
+    return desktopApi().dataHealth.setState(request);
+  },
+  getThemeAiPackStatus(themeId: string) {
+    return desktopApi().themeAiPack.status(themeId);
+  },
+  previewThemeAiPack(themeId: string) {
+    return desktopApi().themeAiPack.preview(themeId);
+  },
+  publishThemeAiPack(themeId: string, expectedContentHash: string) {
+    return desktopApi().themeAiPack.publish({ themeId, expectedContentHash });
+  },
+  openThemeAiPackFolder(themeId: string) {
+    return desktopApi().themeAiPack.openFolder(themeId);
+  },
+  onThemeAiPackChanged(callback: Parameters<Window["api"]["themeAiPack"]["onChanged"]>[0]) {
+    return desktopApi().themeAiPack.onChanged(callback);
+  },
+  previewConversationContext(request: Parameters<Window["api"]["conversationContext"]["preview"]>[0]) {
+    return desktopApi().conversationContext.preview(request);
+  },
+  publishConversationContext(request: Parameters<Window["api"]["conversationContext"]["publish"]>[0]) {
+    return desktopApi().conversationContext.publish(request);
+  },
+  removeConversationContext(conversationId: string) {
+    return desktopApi().conversationContext.remove({ conversationId });
+  },
   // 明示的にサンプルデータを投入する（Settingsの操作からのみ呼ぶ）。
   // Repository側のbootstrapはDBが空のときだけ登録し、データがあれば現状をそのまま返す。
   loadSample(): Promise<Workspace> {
     return desktopApi().workspace.bootstrap(buildBootstrapWorkspace() as Workspace);
   },
   save(type: EntityType, entity: Entity, options: SaveOptions = {}) {
+    if (type === "task") throw new Error("Taskの保存はApplication Command経由で実行してください。");
     return desktopApi().entities.save(type, entity, options);
   },
+  saveDocument(request: DocumentSaveRequest) {
+    return desktopApi().documents.save(request);
+  },
+  applyCanonicalNoteAiProposal(request: DocumentSaveRequest, envelope: CommandEnvelope) {
+    return desktopApi().documents.applyAiProposal(request, envelope);
+  },
+  get(type: EntityType, id: string) {
+    return desktopApi().entities.get(type, id);
+  },
   saveMany(operations: SaveOperation[]) {
+    if (operations.some((operation) => operation.type === "task")) {
+      throw new Error("Taskの一括保存はApplication Command経由で実行してください。");
+    }
     return desktopApi().entities.saveMany(operations);
   },
   remove(type: EntityType, id: string) {
+    if (type === "task") throw new Error("Taskの削除はApplication Command経由で実行してください。");
     return desktopApi().entities.remove(type, id);
   },
   restore(type: EntityType, id: string) {
     return desktopApi().entities.restore(type, id);
+  },
+  executeCommand(envelope: CommandEnvelope) {
+    return desktopApi().commands.execute(envelope);
+  },
+  executeCommands(envelopes: CommandEnvelope[]) {
+    return desktopApi().commands.executeBatch(envelopes);
   },
   setPreference(key: string, value: unknown) {
     return desktopApi().preferences.set(key, value);
@@ -45,11 +114,62 @@ export const workspaceApi = {
   getPreference(key: string) {
     return desktopApi().preferences.get(key);
   },
+  getViewPreferences() {
+    return desktopApi().preferences.getView();
+  },
+  setViewPreference(id: string, scopeKey: string, value: unknown, schemaVersion: number) {
+    return desktopApi().preferences.setView(id, scopeKey, value, schemaVersion);
+  },
+  onViewPreferenceChanged(callback: Parameters<Window["api"]["preferences"]["onViewChanged"]>[0]) {
+    return desktopApi().preferences.onViewChanged(callback);
+  },
+  getAiConfig() {
+    return desktopApi().ai.getConfig();
+  },
+  saveAiProviderProfile(update: import("../../../shared/ai").AiProviderProfileUpdate) {
+    return desktopApi().ai.saveProviderProfile(update);
+  },
+  deleteAiProviderProfile(id: string) {
+    return desktopApi().ai.deleteProviderProfile(id);
+  },
+  saveAiModelProfile(update: import("../../../shared/ai").AiModelProfileUpdate) {
+    return desktopApi().ai.saveModelProfile(update);
+  },
+  deleteAiModelProfile(id: string) {
+    return desktopApi().ai.deleteModelProfile(id);
+  },
+  setDefaultAiProviderProfile(id: string) {
+    return desktopApi().ai.setDefaultProviderProfile(id);
+  },
+  setDefaultAiModelProfile(id: string) {
+    return desktopApi().ai.setDefaultModelProfile(id);
+  },
+  testAiConnection(request: import("../../../shared/ai").AiTestConnectionRequest) {
+    return desktopApi().ai.testConnection(request);
+  },
+  getAiFeatureAvailability(feature: import("../../../shared/ai").AiFeature, providerProfileId?: string, modelProfileId?: string) {
+    return desktopApi().ai.featureAvailability(feature, providerProfileId, modelProfileId);
+  },
+  startNoteAiStream(requestId: string, request: import("../../../shared/ai").AiNoteGenerateRequest) {
+    return desktopApi().ai.startNoteStream(requestId, request);
+  },
+  cancelNoteAiStream(requestId: string) {
+    return desktopApi().ai.cancelNoteStream(requestId);
+  },
+  onNoteAiStreamEvent(callback: Parameters<Window["api"]["ai"]["onNoteStreamEvent"]>[0]) {
+    return desktopApi().ai.onNoteStreamEvent(callback);
+  },
   copyText(text: string) {
     return desktopApi().clipboard.writeText(text);
   },
   copyHtml(html: string, text: string) {
     return desktopApi().clipboard.writeHtml({ html, text });
+  },
+  copyImage(payload: ImageClipboardRequest) {
+    return desktopApi().clipboard.writeImage(payload);
+  },
+  copySvg(payload: MermaidSvgClipboardRequest) {
+    return desktopApi().clipboard.writeSvg(payload);
   },
   openPath(filePath: string) {
     return desktopApi().files.openPath(filePath);
@@ -78,6 +198,21 @@ export const workspaceApi = {
   importArtifactFiles(request: ArtifactFileImportRequest) {
     return desktopApi().attachments.importArtifactFiles(request);
   },
+  materializeArtifactProposal(request: import("../../../shared/attachments").ArtifactProposalMaterializeRequest) {
+    return desktopApi().attachments.materializeArtifactProposal(request);
+  },
+  prepareAudioCapture(themeId?: string | null) {
+    return desktopApi().mediaCapture.prepareAudio({ themeId });
+  },
+  listPreparedAudioCaptures() {
+    return desktopApi().mediaCapture.listPreparedAudio();
+  },
+  commitAudioCapture(request: import("../../../shared/mediaCapture").AudioCaptureCommitRequest) {
+    return desktopApi().mediaCapture.commitAudio(request);
+  },
+  cancelAudioCapture(sessionId: string) {
+    return desktopApi().mediaCapture.cancelAudio({ sessionId });
+  },
   reload() {
     return desktopApi().app.reload();
   },
@@ -87,8 +222,65 @@ export const workspaceApi = {
   openReleasePage(url?: string) {
     return desktopApi().app.openReleasePage(url);
   },
+  setTitleBarTheme(theme: "light" | "dark") {
+    return desktopApi().app.setTitleBarTheme(theme);
+  },
+  getMcpBridgeInfo() {
+    return desktopApi().app.getMcpBridgeInfo();
+  },
   showTodayMiniWindow() {
     return desktopApi().app.showTodayMiniWindow();
+  },
+  showMemoStickyWindow(memoId: string) {
+    return desktopApi().app.showMemoStickyWindow(memoId);
+  },
+  listOpenMemoStickies() {
+    return desktopApi().app.listOpenMemoStickies();
+  },
+  listStickyMemoTargets() {
+    return desktopApi().app.listStickyMemoTargets();
+  },
+  showAllMemoStickies() {
+    return desktopApi().app.showAllMemoStickies();
+  },
+  closeAllMemoStickies() {
+    return desktopApi().app.closeAllMemoStickies();
+  },
+  getSatelliteWindowState() {
+    return desktopApi().app.getSatelliteWindowState();
+  },
+  onSatelliteWindowStateChanged(callback: (state: SatelliteWindowStatePayload) => void) {
+    return desktopApi().app.onSatelliteWindowStateChanged(callback);
+  },
+  onAppFlushRequested(callback: (request: { requestId: string; noteId?: string }) => void) {
+    return desktopApi().app.onAppFlushRequested(callback);
+  },
+  ackAppFlush(requestId: string, ok: boolean) {
+    return desktopApi().app.ackAppFlush(requestId, ok);
+  },
+  onMemoStickyOpenChanged(callback: (memoIds: string[]) => void) {
+    return desktopApi().app.onMemoStickyOpenChanged(callback);
+  },
+  openNoteWindow(noteId: string) {
+    return desktopApi().app.openNoteWindow(noteId);
+  },
+  listOpenNoteWindows() {
+    return desktopApi().app.listOpenNoteWindows();
+  },
+  returnNoteWindowToMain() {
+    return desktopApi().app.returnNoteWindowToMain();
+  },
+  openNoteWindowInMain(route?: string) {
+    return desktopApi().app.openNoteWindowInMain(route);
+  },
+  onNoteWindowOpenChanged(callback: (noteIds: string[]) => void) {
+    return desktopApi().app.onNoteWindowOpenChanged(callback);
+  },
+  onNoteWindowFlushRequested(callback: (request: { requestId: string; noteId?: string }) => void) {
+    return desktopApi().app.onNoteWindowFlushRequested(callback);
+  },
+  ackNoteWindowFlush(requestId: string, ok: boolean) {
+    return desktopApi().app.ackNoteWindowFlush(requestId, ok);
   },
   exportSnapshot() {
     return desktopApi().snapshots.exportFile();
@@ -119,5 +311,29 @@ export const workspaceApi = {
   },
   exportMarkdownPdf(request: MarkdownPdfExportRequest) {
     return desktopApi().exports.markdownPdf(request);
+  },
+  exportSketch(request: SketchExportRequest) {
+    return desktopApi().exports.sketch(request);
+  },
+  exportSlideTimeline(request: SlideTimelineExportRequest) {
+    return desktopApi().exports.slideTimeline(request);
+  },
+  exportMermaidSvg(request: MermaidPowerPointSvgExportRequest) {
+    return desktopApi().exports.mermaidSvg(request);
+  },
+  exportMermaidPptx(request: MermaidPowerPointPptxExportRequest) {
+    return desktopApi().exports.mermaidPptx(request);
+  },
+  calendarStatus() {
+    return desktopApi().calendar.getStatus();
+  },
+  calendarConnect(request: CalendarConnectRequest) {
+    return desktopApi().calendar.connect(request);
+  },
+  calendarDisconnect(request: CalendarDisconnectRequest) {
+    return desktopApi().calendar.disconnect(request);
+  },
+  calendarEvents(date: string) {
+    return desktopApi().calendar.getEvents(date);
   },
 };

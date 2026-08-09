@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { createSnapshot } from "../src/main/services/snapshotService.mjs";
@@ -103,7 +106,7 @@ test("knowledge entity validation rejects invalid enums", () => {
 });
 
 test("workspace entity types and snapshots include v2 domain records", () => {
-  for (const type of ["project", "capture_entry", "task", "waiting", "plan_node", "schedule", "reference", "task_dependency", "plan_dependency", "knowledge_edge", "change_event"]) {
+  for (const type of ["project", "capture_entry", "task", "waiting", "plan_node", "schedule", "reference", "task_dependency", "plan_dependency", "knowledge_edge", "change_event", "sketch"]) {
     assert.equal(workspaceEntityTypes.includes(type), true);
   }
 
@@ -113,6 +116,14 @@ test("workspace entity types and snapshots include v2 domain records", () => {
     schedules: [{ id: "schedule-1", owner_type: "task", owner_id: "task-1", date_kind: "deadline", confidence: "fixed", granularity: "day", end_date: "2026-06-19" }],
     knowledge_edges: [{ id: "edge-1", source_node_id: "node-1", target_node_id: "node-2", relation_type: "supports" }],
     change_events: [{ id: "change-1", entity_type: "task", entity_id: "task-1", changed_at: "2026-06-19T00:00:00.000Z", change_type: "created", source: "manual" }],
+    sketches: [{
+      id: "sketch-1",
+      title: "Reaction map",
+      document: {
+        schema_version: 1,
+        pages: [{ id: "page-1", width: 1200, height: 840, background: "dot", objects: [] }],
+      },
+    }],
     meta: {},
   });
 
@@ -121,6 +132,7 @@ test("workspace entity types and snapshots include v2 domain records", () => {
   assert.ok(zip.getEntry("schedules.json"));
   assert.ok(zip.getEntry("knowledge_edges.json"));
   assert.ok(zip.getEntry("change_events.json"));
+  assert.ok(zip.getEntry("sketches.json"));
 });
 
 test("domain entity validation rejects invalid enum values", () => {
@@ -129,6 +141,242 @@ test("domain entity validation rejects invalid enum values", () => {
   assert.throws(() => validateEntity("schedule", { id: "schedule-1", owner_type: "task", owner_id: "task-1", date_kind: "range", confidence: "fixed", granularity: "day", start_date: "2026-06-20", end_date: "2026-06-19" }), /schedule.end_date/);
   assert.throws(() => validateEntity("reference", { id: "ref-1", source_type: "task", source_id: "task-1", target_type: "task", target_id: "task-1", relation_type: "related_to" }), /自分自身/);
   assert.throws(() => validateEntity("knowledge_edge", { id: "edge-1", source_node_id: "node-1", target_node_id: "node-1", relation_type: "supports" }), /自分自身/);
+});
+
+test("sketch validation preserves editable page objects and rejects broken documents", () => {
+  const valid = {
+    id: "sketch-1",
+    title: "Flow draft",
+    document: {
+      schema_version: 1,
+      pages: [{
+        id: "page-1",
+        width: 1200,
+        height: 840,
+        background: "grid",
+        objects: [{
+          id: "stroke-1",
+          type: "stroke",
+          points: [{ x: 20, y: 30, pressure: 0.5 }, { x: 80, y: 90, pressure: 0.8 }],
+          color: "#20232a",
+          width: 2,
+        }],
+      }],
+    },
+  };
+  assert.doesNotThrow(() => validateEntity("sketch", valid));
+  assert.doesNotThrow(() => validateEntity("sketch", {
+    ...valid,
+    document: {
+      ...valid.document,
+      mode: "infinite",
+      viewport: { x: -420, y: 180, zoom: 0.82 },
+    },
+  }));
+  assert.throws(() => validateEntity("sketch", {
+    ...valid,
+    document: {
+      ...valid.document,
+      mode: "infinite",
+      viewport: { x: 0, y: 0, zoom: 0 },
+    },
+  }), /viewport/);
+  assert.throws(() => validateEntity("sketch", { ...valid, document: { schema_version: 2, pages: valid.document.pages } }), /schema_version/);
+  assert.throws(() => validateEntity("sketch", { ...valid, document: { schema_version: 1, pages: [] } }), /1件以上/);
+  assert.throws(() => validateEntity("sketch", {
+    ...valid,
+    document: {
+      schema_version: 1,
+      pages: [{ ...valid.document.pages[0], width: 0 }],
+    },
+  }), /ページ幅・高さ/);
+});
+
+test("saved sketches reload under the canonical sketches collection", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-sketch-test-"));
+  const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    repo.save("sketch", {
+      id: "sketch-reload",
+      title: "Reload me",
+      document: {
+        schema_version: 1,
+        pages: [{
+          id: "page-1",
+          width: 1200,
+          height: 840,
+          background: "dot",
+          objects: [{ id: "text-1", type: "text", x: 40, y: 60, text: "editable" }],
+        }],
+      },
+    });
+    const workspace = repo.loadWorkspace();
+    assert.equal(workspace.sketches.length, 1);
+    assert.equal(workspace.sketches[0].document.pages[0].objects[0].text, "editable");
+    assert.equal(workspace.sketchs, undefined);
+  } finally {
+    repo.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("new Reference writes canonical assertions and endpoint deletion keeps lineage", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-reference-assertion-test-"));
+  const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    repo.save("note", { id: "note-lineage", title: "Lineage" });
+    repo.save("task", { id: "task-lineage", title: "Implement", state: "todo" });
+    const saved = repo.save("reference", {
+      id: "assertion-lineage",
+      subject: { type: "note", id: "note-lineage" },
+      predicate: "links_to",
+      object: { type: "task", id: "task-lineage" },
+      layer: "operational",
+      status: "asserted",
+      origin: "user",
+      metadata: { raw_alias: "Implement", source_span: { start: 4, end: 13 } },
+    });
+    assert.equal(saved.assertion_id, "assertion-lineage");
+    assert.deepEqual(saved.subject, { type: "note", id: "note-lineage" });
+    assert.deepEqual(saved.object, { type: "task", id: "task-lineage" });
+    assert.equal(saved.source_type, "note");
+    assert.equal(saved.relation_type, "links_to");
+
+    repo.insertImported("reference", {
+      id: "legacy-lineage",
+      source_type: "note",
+      source_id: "note-lineage",
+      target_type: "task",
+      target_id: "task-lineage",
+      relation_type: "derived_from",
+    }, "legacy");
+    const legacyRead = repo.get("reference", "legacy-lineage");
+    assert.deepEqual(legacyRead.subject, { type: "note", id: "note-lineage" });
+    assert.equal(legacyRead.assertion_id, "legacy-lineage");
+    assert.equal(legacyRead.legacy_read, true);
+
+    repo.remove("task", "task-lineage");
+    assert.equal(repo.get("reference", "assertion-lineage")?.status, "asserted");
+  } finally {
+    repo.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ink capture atomically creates its sketch before linking the capture", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ink-capture-test-"));
+  const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    repo.saveMany([
+      {
+        action: "save",
+        type: "sketch",
+        entity: {
+          id: "sketch-ink",
+          title: "Ink Capture",
+          origin_capture_id: "capture-ink",
+          document: {
+            schema_version: 1,
+            pages: [{ id: "page-1", width: 1200, height: 840, background: "dot", objects: [] }],
+          },
+        },
+      },
+      {
+        action: "save",
+        type: "capture_entry",
+        entity: {
+          id: "capture-ink",
+          text: "手書きで記録",
+          captured_at: "2026-08-02T00:00:00.000Z",
+          state: "triaged",
+          triaged_to_type: "sketch",
+          triaged_to_id: "sketch-ink",
+        },
+      },
+    ]);
+    assert.equal(repo.get("capture_entry", "capture-ink").triaged_to_id, "sketch-ink");
+    assert.equal(repo.get("sketch", "sketch-ink").origin_capture_id, "capture-ink");
+  } finally {
+    repo.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("file capture keeps its Artifact valid while it is retargeted to a Note", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-file-capture-test-"));
+  const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    repo.saveMany([
+      {
+        action: "save",
+        type: "capture_entry",
+        entity: {
+          id: "capture-file",
+          title: "chart.png",
+          text: "chart.png",
+          kind: "file_capture",
+          content_type: "image",
+          captured_at: "2026-08-02T00:00:00.000Z",
+          state: "untriaged",
+        },
+      },
+      {
+        action: "save",
+        type: "artifact",
+        entity: {
+          id: "artifact-file",
+          title: "chart",
+          filename: "chart.png",
+          stored_path: "",
+          storage_mode: "linked",
+          link_type: "local_path",
+          target: "C:/data/chart.png",
+          link_status: "unknown",
+          source_type: "capture_entry",
+          source_id: "capture-file",
+        },
+      },
+    ]);
+
+    repo.saveMany([
+      {
+        action: "save",
+        type: "note",
+        entity: {
+          id: "note-from-capture",
+          title: "Chart note",
+          body_markdown: "chart.png",
+          content_format: "markdown",
+        },
+      },
+      {
+        action: "save",
+        type: "artifact",
+        entity: {
+          ...repo.get("artifact", "artifact-file"),
+          source_type: "note",
+          source_id: "note-from-capture",
+        },
+      },
+      {
+        action: "save",
+        type: "capture_entry",
+        entity: {
+          ...repo.get("capture_entry", "capture-file"),
+          state: "triaged",
+          triaged_to_type: "note",
+          triaged_to_id: "note-from-capture",
+        },
+      },
+    ]);
+
+    assert.equal(repo.get("artifact", "artifact-file").source_type, "note");
+    assert.equal(repo.get("artifact", "artifact-file").source_id, "note-from-capture");
+    assert.equal(repo.get("capture_entry", "capture-file").triaged_to_id, "note-from-capture");
+  } finally {
+    repo.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("directional knowledge edges reject cycles but weak relations do not", () => {
@@ -171,6 +419,30 @@ test("snapshot validation rejects directional knowledge edge cycles", () => {
       { id: "ab", source_node_id: "a", target_node_id: "b", relation_type: "supports" },
       { id: "ba", source_node_id: "b", target_node_id: "a", relation_type: "similar_to" },
     ],
+  }));
+});
+
+test("snapshot validation follows Registry Theme fields and keeps Schedule owner-scoped", () => {
+  const repo = fakeGraphRepository();
+  assert.throws(
+    () => repo.validateSnapshotWorkspace({
+      notes: [{ id: "note-project-ref", title: "Canonical Note", project_id: "missing-project" }],
+    }),
+    /note\.project_idがSnapshot内に存在しないprojectを参照しています/,
+  );
+
+  assert.doesNotThrow(() => repo.validateSnapshotWorkspace({
+    projects: [{ id: "project-1", name: "Project", state: "active" }],
+    tasks: [{ id: "task-1", title: "Task", state: "todo", project_id: "project-1" }],
+    schedules: [{
+      id: "schedule-owner-scoped",
+      owner_type: "task",
+      owner_id: "task-1",
+      date_kind: "deadline",
+      confidence: "fixed",
+      granularity: "day",
+      end_date: "2026-08-08",
+    }],
   }));
 });
 

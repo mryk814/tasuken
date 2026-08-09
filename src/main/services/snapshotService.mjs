@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 
 import { workspaceEntityTypes, workspaceSchemaVersion } from "../repositories/workspaceRepository.mjs";
+import { collectionKeyForEntityType } from "../../shared/entityRegistry.mjs";
 
 const checksum = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
@@ -54,8 +55,9 @@ export function createSnapshot(workspace) {
   const zip = new AdmZip();
   const files = {};
   for (const type of workspaceEntityTypes) {
-    const name = `${type}s.json`;
-    const content = JSON.stringify(workspace[`${type}s`] || [], null, 2);
+    const key = collectionKeyForEntityType(type);
+    const name = `${key}.json`;
+    const content = JSON.stringify(workspace[key] || [], null, 2);
     zip.addFile(name, Buffer.from(content, "utf8"));
     files[name] = checksum(content);
   }
@@ -96,17 +98,18 @@ export function readSnapshot(filePath) {
 
   const workspace = { meta: { workspaceId: manifest.workspaceId, deviceId: manifest.deviceId } };
   for (const type of workspaceEntityTypes) {
-    const name = `${type}s.json`;
+    const key = collectionKeyForEntityType(type);
+    const name = `${key}.json`;
     const entry = zip.getEntry(name);
     if (!entry) {
-      workspace[`${type}s`] = [];
+      workspace[key] = [];
       continue;
     }
     const text = readEntryText(entry, name);
     if (manifest.files?.[name] && checksum(text) !== manifest.files[name]) {
       throw new Error(`${name}のチェックサムが一致しません。Snapshotが破損している可能性があります。`);
     }
-    workspace[`${type}s`] = JSON.parse(text);
+    workspace[key] = JSON.parse(text);
   }
   const revisionsEntry = zip.getEntry("plan_revisions.json");
   if (revisionsEntry) {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Menu, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
+import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
 import { getAppIconPath, migrateLegacyUserDataIfNeeded } from "./platformPaths";
 import {
   createQuickCaptureController,
@@ -13,16 +14,34 @@ import {
 } from "./quickCaptureController";
 import { createReminderController, type ReminderController } from "./reminderController";
 import { createTodayMiniController, type TodayMiniController } from "./todayMiniController";
+import { createSatelliteWindowRegistry, type SatelliteWindowRegistry } from "./satelliteWindowRegistry";
+import { createMemoStickyController, type MemoStickyController } from "./memoStickyController";
+import { createNoteWindowController, type NoteWindowController } from "./noteWindowController";
 import { createTrayController, type TrayController } from "./trayController";
+import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
+import { AiProviderService } from "./services/aiProviderService";
+import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
+import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
+import { ApplicationCommandService } from "./services/applicationCommandService";
+import { MediaCaptureService } from "./services/mediaCaptureService";
+import { commandNotificationPayloads } from "./rendererMediaProjection";
+import type { CommandReceipt } from "../shared/applicationCommand";
+import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
-const smokeResultPath = path.join(os.tmpdir(), "research-desk-smoke-result.json");
+const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
+const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
+const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
+const smokeResultPath = path.resolve(smokeResultArgument?.slice("--smoke-result-path=".length) || path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`));
+const isSmokeRestartCheck = process.argv.includes("--smoke-restart-check");
+const smokeMediaArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-media-artifact-id="));
+const smokeMediaArtifactId = smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
@@ -31,8 +50,56 @@ let trayController: TrayController | null = null;
 let quickCaptureController: QuickCaptureController | null = null;
 let todayMiniController: TodayMiniController | null = null;
 let reminderController: ReminderController | null = null;
+let satelliteWindows: SatelliteWindowRegistry | null = null;
+let memoStickyController: MemoStickyController | null = null;
+let noteWindowController: NoteWindowController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
+let mcpProposalInboxService: McpProposalInboxService | null = null;
+let lastSmokeStage = "startup";
+const smokeTrace: string[] = [];
+const readyMainWindows = new WeakSet<BrowserWindow>();
+let appQuitApproved = false;
+let appFlushPending = false;
+const pendingAppFlushes = new Map<string, {
+  senderId: number;
+  timer: ReturnType<typeof setTimeout>;
+  resolve: (ok: boolean) => void;
+}>();
 registerAttachmentScheme();
+registerMediaScheme();
+
+function requestRendererFlush(window: BrowserWindow, noteId?: string): Promise<boolean> {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return Promise.resolve(true);
+  const requestId = randomUUID();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const pending = pendingAppFlushes.get(requestId);
+      if (!pending) return;
+      pendingAppFlushes.delete(requestId);
+      resolve(false);
+    }, 10_000);
+    pendingAppFlushes.set(requestId, { senderId: window.webContents.id, timer, resolve });
+    try {
+      window.webContents.send(IPC.appFlushRequested, { requestId, noteId });
+    } catch {
+      pendingAppFlushes.delete(requestId);
+      clearTimeout(timer);
+      resolve(false);
+    }
+  });
+}
+
+ipcMain.handle(IPC.appFlushAck, (event, payload: unknown) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const value = payload as Record<string, unknown>;
+  if (typeof value.requestId !== "string" || typeof value.ok !== "boolean") return false;
+  const pending = pendingAppFlushes.get(value.requestId);
+  if (!pending || pending.senderId !== event.sender.id) return false;
+  pendingAppFlushes.delete(value.requestId);
+  clearTimeout(pending.timer);
+  pending.resolve(value.ok);
+  return true;
+});
 
 function openAllowedExternalUrl(rawUrl: string): boolean {
   try {
@@ -69,31 +136,155 @@ function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenu
   Menu.buildFromTemplate(template).popup({ window });
 }
 
-function notifyMainWindowRefresh(change?: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> }): void {
-  const captureWindow = quickCaptureController?.getWindow();
+/**
+ * 既定メニューの Ctrl+R（再読み込み）を外し、Markdown Editorの置換へ譲る（#286）。
+ * 再読み込みは Ctrl+Shift+R、開発者ツールは F12 の開発者向け操作として残す。
+ */
+function applyApplicationMenu(): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: "編集",
+      submenu: [
+        { role: "undo", label: "元に戻す" },
+        { role: "redo", label: "やり直す" },
+        { type: "separator" },
+        { role: "cut", label: "切り取り" },
+        { role: "copy", label: "コピー" },
+        { role: "paste", label: "貼り付け" },
+        { role: "selectAll", label: "すべて選択" },
+      ],
+    },
+    {
+      label: "表示",
+      submenu: [
+        { role: "forceReload", accelerator: "CmdOrCtrl+Shift+R", label: "再読み込み" },
+        { role: "toggleDevTools", accelerator: "F12", label: "開発者ツール" },
+        { type: "separator" },
+        { role: "resetZoom", label: "拡大率をリセット" },
+        { role: "zoomIn", label: "拡大" },
+        { role: "zoomOut", label: "縮小" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: "全画面表示" },
+      ],
+    },
+  ]));
+}
+
+/**
+ * 本体ウィンドウ以外の補助ウィンドウか。
+ * 補助ウィンドウを増やすたびに各所の除外条件へ書き足すと漏れるので、判定はここだけに置く。
+ * 切り離しウィンドウ（#290 / #298）は registry へ問い合わせる。
+ */
+function isAuxiliaryWindow(win: BrowserWindow): boolean {
+  if (win === quickCaptureController?.getWindow()) return true;
+  if (win === todayMiniController?.getWindow()) return true;
+  return satelliteWindows?.has(win) === true;
+}
+
+function isVisibleWindow(win: BrowserWindow | null): boolean {
+  return Boolean(win && !win.isDestroyed() && win.isVisible());
+}
+
+/** 開いている付箋の一覧を本体へ配る。本体側で「付箋表示中」を区別するために使う（#298）。 */
+function notifyMemoStickyWindowsChanged(): void {
+  const openMemoIds = memoStickyController?.openMemoIds() || [];
+  const stickyMemoIds = memoStickyController?.stickyMemoIds() || [];
+  const openNoteIds = noteWindowController?.openNoteIds() || [];
+  const state: SatelliteWindowStatePayload = {
+    todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
+    openMemoIds,
+    stickyMemoIds,
+  };
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (isAuxiliaryWindow(win) || win.isDestroyed() || win.webContents.isLoading()) continue;
+    win.webContents.send(IPC.memoStickyOpenChanged, openMemoIds);
+    win.webContents.send(IPC.noteWindowOpenChanged, openNoteIds);
+    win.webContents.send(IPC.satelliteWindowState, state);
+  }
+}
+
+function notifyMainWindowRefresh(change?: WorkspaceChangePayload): void {
   const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) {
-      win.webContents.send("workspace:changed", change);
+    if (!isAuxiliaryWindow(win) && !win.isDestroyed()) {
+      win.webContents.send(IPC.workspaceChanged, change);
     }
   }
+  // 切り離したウィンドウも同じ正本を見ているので、同じ変更を配る（#290）。
+  satelliteWindows?.broadcast(IPC.workspaceChanged, change);
   if (todayMiniWindow && !todayMiniWindow.isDestroyed()) {
-    todayMiniWindow.webContents.send("today-mini:refresh");
+    todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
+  }
+}
+
+// 「今日やること」の一覧結果へ影響しうるEntity。ここに載らない種類では前面ウィンドウを更新しない。
+const TODAY_MINI_ENTITY_TYPES = new Set<EntityType>(["task", "schedule", "theme", "project"]);
+
+function notifyTodayMiniRefresh(types: EntityType[]): void {
+  if (!types.some((type) => TODAY_MINI_ENTITY_TYPES.has(type))) return;
+  const todayMiniWindow = todayMiniController?.getWindow();
+  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) return;
+  if (todayMiniWindow.webContents.isLoading()) return;
+  todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
+}
+
+function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId: number, options: { senderReceivesAll?: boolean } = {}): void {
+  const receipts = (Array.isArray(input) ? input : [input]).filter((receipt) => (
+    receipt.status !== "no_change" && !(receipt as CommandReceipt & { replayed?: boolean }).replayed
+  ));
+  if (!receipts.length) return;
+  const entityChanges = receipts.flatMap((receipt) => receipt.changes);
+  const eventChanges = receipts.flatMap((receipt) => receipt.eventChanges || receipt.events
+    .map((eventId) => workspaceRepository?.get("change_event", eventId, true))
+    .filter((event): event is Entity => Boolean(event))
+    .map((event) => ({ type: "change_event" as const, entity: event })));
+  const payloads = commandNotificationPayloads(entityChanges, eventChanges, options.senderReceivesAll === true);
+  const changes = payloads.other.entities;
+  if (!changes.length) return;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || isAuxiliaryWindow(win)) continue;
+    const delta = win.webContents.id === senderId ? payloads.sender.entities : payloads.other.entities;
+    if (delta.length) win.webContents.send(IPC.workspaceChanged, { entities: delta });
+  }
+  // Satellite windows do not issue the main command IPC, so they can always
+  // receive the delta.  The mini window refreshes its projection from the same
+  // repository rather than applying a second delta.
+  satelliteWindows?.broadcast(IPC.workspaceChanged, payloads.satellite);
+  if (changes.some(({ type }) => TODAY_MINI_ENTITY_TYPES.has(type))) {
+    const mini = todayMiniController?.getWindow();
+    if (mini && !mini.isDestroyed() && mini.webContents.id !== senderId) mini.webContents.send(IPC.todayMiniRefresh);
   }
 }
 
 function findMainWindow(): BrowserWindow | null {
-  const captureWindow = quickCaptureController?.getWindow();
-  const todayMiniWindow = todayMiniController?.getWindow();
   return BrowserWindow.getAllWindows()
-    .find((win) => win !== captureWindow && win !== todayMiniWindow && !win.isDestroyed()) || null;
+    .find((win) => !isAuxiliaryWindow(win) && !win.isDestroyed()) || null;
+}
+
+function rendererWindowsForAppFlush(): BrowserWindow[] {
+  const windows: BrowserWindow[] = [];
+  const main = findMainWindow();
+  if (main) windows.push(main);
+  for (const noteId of noteWindowController?.openNoteIds() || []) {
+    const noteWindow = satelliteWindows?.get({ kind: "note", entityId: noteId });
+    if (noteWindow && !windows.includes(noteWindow)) windows.push(noteWindow);
+  }
+  return windows;
 }
 
 function showMainWindow(): BrowserWindow {
   const win = findMainWindow() || createWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
+  const reveal = () => {
+    if (win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  };
+  if (readyMainWindows.has(win)) {
+    reveal();
+  } else {
+    win.once("ready-to-show", reveal);
+  }
   return win;
 }
 
@@ -121,6 +312,16 @@ interface SmokeCreatedResult {
   rawCopyNotified: boolean;
   themeMode: string;
   clipboardWritten: boolean;
+  sketchClipboardWritten: boolean;
+  sketchClipboardPasted: boolean;
+  /** AI共通metadata（#294）の保存・継承・検証。 */
+  aiMetadataPersisted: boolean;
+  aiThemeDefaultPersisted: boolean;
+  aiMetadataRejectedInvalid: boolean;
+  aiVisibilityDefaultSaved: string;
+  audioArtifactId?: string;
+  audioMetadataLoaded?: boolean;
+  audioRangeVerified?: boolean;
 }
 
 interface SmokeReloadResult {
@@ -131,6 +332,9 @@ interface SmokeReloadResult {
   markdownLiveEditPersisted: boolean;
   markdownPastePersisted: boolean;
   themeMode: string;
+  aiVisibilityDefault: string;
+  aiTaskMetadataPersisted: boolean;
+  settingsReloadRestored: boolean;
 }
 
 interface SmokeMiniResult {
@@ -143,31 +347,58 @@ interface SmokeMiniResult {
 
 function recordSmoke(stage: string, details: Record<string, unknown> = {}): void {
   if (!isSmokeTest) return;
+  lastSmokeStage = stage;
+  smokeTrace.push(stage);
+  if (smokeTrace.length > 40) smokeTrace.shift();
+  fs.mkdirSync(path.dirname(smokeResultPath), { recursive: true });
   fs.writeFileSync(smokeResultPath, JSON.stringify({ stage, argv: process.argv, ...details }, null, 2));
 }
 
-app.disableHardwareAcceleration();
-if (process.platform === "win32") app.setAppUserModelId("jp.personal.tasken");
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("disable-gpu-compositing");
-app.commandLine.appendSwitch("disable-gpu-sandbox");
-app.commandLine.appendSwitch("in-process-gpu");
-// Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
-// 従来の contenteditable キャレット基準に戻す。
-app.commandLine.appendSwitch("disable-blink-features", "EditContext");
-app.commandLine.appendSwitch("disable-features", "EditContext");
+function tinyPcmWav(): Buffer {
+  const sampleCount = 800;
+  const dataBytes = sampleCount * 2;
+  const bytes = Buffer.alloc(44 + dataBytes);
+  bytes.write("RIFF", 0); bytes.writeUInt32LE(36 + dataBytes, 4); bytes.write("WAVE", 8);
+  bytes.write("fmt ", 12); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(8000, 24); bytes.writeUInt32LE(16000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36); bytes.writeUInt32LE(dataBytes, 40);
+  return bytes;
+}
 
-if (requestedUserDataPath) {
-  app.setPath("userData", path.resolve(requestedUserDataPath));
-} else if (isSmokeTest) {
-  const smokeUserDataPath = path.join(app.getPath("temp"), "research-desk-smoke-test");
-  fs.rmSync(smokeUserDataPath, { recursive: true, force: true });
-  app.setPath("userData", smokeUserDataPath);
-  recordSmoke("main-started");
-  setTimeout(() => {
-    recordSmoke("timeout");
-    app.exit(1);
-  }, 45000);
+async function verifySmokeMediaRange(artifactId: string): Promise<boolean> {
+  const response = await net.fetch(`tasken-media://artifact/${encodeURIComponent(artifactId)}`, {
+    headers: { Range: "bytes=0-43" },
+  });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return response.status === 206
+    && response.headers.get("content-range")?.startsWith("bytes 0-43/") === true
+    && bytes.length === 44
+    && bytes.subarray(0, 4).toString("ascii") === "RIFF"
+    && bytes.subarray(8, 12).toString("ascii") === "WAVE";
+}
+
+app.disableHardwareAcceleration();
+  if (process.platform === "win32") app.setAppUserModelId("jp.personal.tasken");
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+  app.commandLine.appendSwitch("in-process-gpu");
+  // Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
+  // 従来の contenteditable キャレット基準に戻す。
+  app.commandLine.appendSwitch("disable-blink-features", "EditContext");
+  app.commandLine.appendSwitch("disable-features", "EditContext");
+
+  if (requestedUserDataPath) {
+    app.setPath("userData", path.resolve(requestedUserDataPath));
+  } else if (isSmokeTest) {
+    const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
+    app.setPath("userData", smokeUserDataPath);
+    recordSmoke("main-started");
+    setTimeout(() => {
+      const previousStage = lastSmokeStage;
+      recordSmoke("timeout", { previousStage, trace: [...smokeTrace] });
+      app.exit(1);
+    }, 180000);
 }
 
 async function runSmokeTest(window: BrowserWindow): Promise<void> {
@@ -209,9 +440,26 @@ flowchart LR
 ## 続き
 
 編集前の本文。`;
+  recordSmoke("core-start");
   const created = await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      window.__taskenSmokeDiagnostics = { rendererErrors: [] };
+      window.addEventListener("error", (event) => {
+        window.__taskenSmokeDiagnostics.rendererErrors.push({
+          kind: "error",
+          message: event.message,
+          filename: event.filename,
+          line: event.lineno,
+          column: event.colno,
+        });
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        window.__taskenSmokeDiagnostics.rendererErrors.push({
+          kind: "unhandledrejection",
+          message: String(event.reason?.stack || event.reason || "unknown rejection"),
+        });
+      });
       const setInputValue = (element, value) => {
         const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set
           || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
@@ -235,6 +483,14 @@ flowchart LR
           return firstLabel === label || button.textContent.trim() === label;
         });
       }, label + " ボタン");
+      // Notesの作成は一つのprimary actionへ集約した（#313）。filterの種別buttonと取り違えない。
+      const clickCreateNote = async () => {
+        const button = await waitFor(
+          () => document.querySelector(".notes-page .note-create-primary"),
+          "Note作成ボタン",
+        );
+        button.click();
+      };
       const clickPaneButton = (pane, label) => {
         const button = [...pane.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === label);
         if (!button) throw new Error(label + " ボタンがNotesパネル内に見つかりません。");
@@ -261,11 +517,36 @@ flowchart LR
         await delay(40);
         return notesPane;
       };
+      const mermaidDiagnostics = () => ({
+        activeElement: document.activeElement?.outerHTML?.slice(0, 300) || "",
+        visibilityState: document.visibilityState,
+        hidden: document.hidden,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        notePane: Boolean(document.querySelector(".note-preview-panel")),
+        mermaidBlocks: [...document.querySelectorAll(".note-mermaid-code-block")].map((block) => ({
+          className: block.className,
+          text: block.textContent?.slice(0, 300) || "",
+          svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+          errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+          rect: (() => {
+            const rect = block.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height };
+          })(),
+          html: block.innerHTML.slice(0, 1200),
+        })),
+        markdownBlocks: [...document.querySelectorAll("[data-mermaid='true']")].map((block) => ({
+          className: block.className,
+          text: block.textContent?.slice(0, 300) || "",
+          svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+          errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+        })),
+        rendererErrors: window.__taskenSmokeDiagnostics.rendererErrors,
+      });
 
       // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
       (await waitForButton("Notes")).click();
-      await delay(80);
-      (await waitForButton("Note")).click();
+      await waitFor(() => document.querySelector(".notes-page"), "Notes page");
+      await clickCreateNote();
       await delay(100);
 
       const form = await waitFor(() => document.querySelector(".drawer-form"), "メモ入力フォーム");
@@ -289,14 +570,21 @@ flowchart LR
       const markdownContent = ${JSON.stringify(markdownBody)}.replace("__SMOKE_IMAGE_URL__", smokeImage.url);
 
       // Markdown 確認用 Note を作成（本文は中央 Raw で投入）
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
       const markdownForm = await waitFor(() => document.querySelector(".drawer-form"), "Markdown入力フォーム");
       const markdownTitleInput = markdownForm.querySelector('input[name="title"]');
       const markdownTheme = markdownForm.querySelector('input[name="theme_id"]');
       if (!markdownTitleInput || !markdownTheme) throw new Error("Markdown入力フォームの項目が見つかりません");
       setInputValue(markdownTitleInput, ${JSON.stringify(markdownTitle)});
-      setInputValue(markdownTheme, ${JSON.stringify(smokeThemeId)});
+      // Theme保存のworkspace change通知を待って、実際の共通ThemeSelectを操作する。
+      // hidden inputへの直接fallbackはproduct pathを検証しないため持たない。
+      const smokeThemeChip = await waitFor(
+        () => [...markdownForm.querySelectorAll(".theme-chip")]
+          .find((candidate) => candidate.textContent?.trim() === "Smoke Theme"),
+        "Smoke Theme chip",
+      );
+      smokeThemeChip.click();
       markdownForm.requestSubmit();
       await delay(220);
 
@@ -324,7 +612,8 @@ flowchart LR
         await new Promise((resolve) => {
           smokePreviewImage.addEventListener("load", resolve, { once: true });
           smokePreviewImage.addEventListener("error", resolve, { once: true });
-          setTimeout(resolve, 700);
+          // 画面チャンクのアイドル先読み中でも、添付プロトコルの画像デコード完了を待つ。
+          setTimeout(resolve, 2000);
         });
       }
       const markdownImageRendered = Boolean(
@@ -332,19 +621,15 @@ flowchart LR
         && smokePreviewImage?.naturalWidth > 0
       );
 
-      clickPaneButton(notesPane, "本文をコピー");
-      await delay(140);
-      const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
-
       // Edit（Live Preview）面での追記・貼り付け
       clickPaneButton(notesPane, "Edit");
-      await delay(200);
-      notesPane = document.querySelector(".note-preview-panel");
       const liveEditable = await waitFor(
-        () => notesPane?.querySelector(".note-mdx-content[contenteditable='true']"),
+        () => document.querySelector(".note-preview-panel .note-mdx-content[contenteditable='true']"),
         "Live Preview編集面",
         40,
       );
+      notesPane = liveEditable.closest(".note-preview-panel");
+      if (!notesPane) throw new Error("Live Preview編集面の親パネルが見つかりません。");
       const notesPanePreviewRendered = Boolean(
         notesPane?.querySelector("h2")?.textContent?.includes(${JSON.stringify(markdownTitle)})
         && (notesPane?.querySelector(".note-live-editor h1")?.textContent?.includes("Markdown Preview")
@@ -355,17 +640,46 @@ flowchart LR
         notesPane?.querySelector(".note-editor-math-inline")
         && notesPane?.querySelector(".note-editor-math-block")
       );
-      const mermaidPreviewInEdit = await waitFor(
-        () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
-        "Edit面のMermaid Preview",
-        30,
-      );
+      const mermaidPreviewTarget = notesPane?.querySelector(".note-mermaid-preview .md-mermaid-block")
+        || notesPane?.querySelector(".note-mermaid-preview-frame");
+      const scrollableAncestor = (() => {
+        let current = mermaidPreviewTarget?.parentElement || null;
+        while (current && current !== document.body) {
+          const style = getComputedStyle(current);
+          if (/(auto|scroll|overlay)/.test(style.overflowY) && current.scrollHeight > current.clientHeight) return current;
+          current = current.parentElement;
+        }
+        return document.scrollingElement;
+      })();
+      if (mermaidPreviewTarget && scrollableAncestor && scrollableAncestor !== document.scrollingElement) {
+        const targetRect = mermaidPreviewTarget.getBoundingClientRect();
+        const ancestorRect = scrollableAncestor.getBoundingClientRect();
+        scrollableAncestor.scrollTop += targetRect.top - ancestorRect.top - (scrollableAncestor.clientHeight - targetRect.height) / 2;
+      }
+      mermaidPreviewTarget?.scrollIntoView({ block: "center", inline: "nearest" });
+      if (mermaidPreviewTarget instanceof HTMLElement) {
+        mermaidPreviewTarget.tabIndex = -1;
+        mermaidPreviewTarget.focus({ preventScroll: true });
+      }
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      let mermaidPreviewInEdit;
+      try {
+        mermaidPreviewInEdit = await waitFor(
+          () => notesPane?.querySelector(".note-mermaid-code-block.is-preview .md-mermaid-svg svg"),
+          "Edit面のMermaid Preview",
+          80,
+        );
+      } catch (error) {
+        const diagnostics = mermaidDiagnostics();
+        console.error("Mermaid smoke diagnostics: " + JSON.stringify(diagnostics));
+        throw new Error(String(error) + " diagnostics=" + JSON.stringify(diagnostics));
+      }
       const notesMermaidRenderedInEdit = Boolean(mermaidPreviewInEdit);
-      mermaidPreviewInEdit.closest(".note-mermaid-code-block")?.click();
+      mermaidPreviewInEdit.closest(".note-mermaid-preview-frame")?.click();
       const mermaidCodeEditor = await waitFor(
         () => notesPane?.querySelector(".note-mermaid-code-block.is-editing .cm-editor"),
         "Mermaidコード編集面",
-        30,
+        80,
       );
       const notesCodeBlockFullWidth = mermaidCodeEditor.getBoundingClientRect().width >= liveEditable.getBoundingClientRect().width * 0.8;
 
@@ -412,8 +726,18 @@ flowchart LR
       };
       const saveDraftButton = [...(notesPane?.querySelectorAll(".note-preview-actions button") || [])].find((button) => button.textContent.trim() === "保存");
       saveDraftButton?.click();
-      await delay(220);
-      const notesLiveEditSaved = notesLiveEditRendered && document.body.innerText.includes("保存しました。");
+      const savedNotesPane = await waitFor(
+        () => {
+          const currentNotesPane = document.querySelector(".note-preview-panel");
+          return currentNotesPane?.querySelector(".note-draft-state")?.textContent?.includes("保存しました")
+            ? currentNotesPane
+            : null;
+        },
+        "Live Preview保存状態",
+        40,
+      );
+      notesPane = savedNotesPane;
+      const notesLiveEditSaved = notesLiveEditRendered && Boolean(savedNotesPane);
       clickPaneButton(notesPane, "Preview");
       await delay(180);
       const editedPreview = notesPane.querySelector(".note-main-preview.markdown-preview");
@@ -430,7 +754,7 @@ flowchart LR
       const notesEditReopened = Boolean(notesPane.querySelector(".note-mdx-content[contenteditable='true']")?.textContent?.includes("Live edit smoke"));
 
       // 脚注MarkdownをEditで更新し、Previewへ切り替えて脚注表示と保存値を確認する。
-      (await waitForButton("Note")).click();
+      await clickCreateNote();
       await delay(100);
       const footnoteForm = await waitFor(() => document.querySelector(".drawer-form"), "脚注Note入力フォーム");
       const footnoteTitleInput = footnoteForm.querySelector('input[name="title"]');
@@ -467,15 +791,67 @@ flowchart LR
         String(now.getMonth() + 1).padStart(2, "0"),
         String(now.getDate()).padStart(2, "0"),
       ].join("-");
-      await window.api.entities.save("task", {
-        id: ${JSON.stringify(smokeTaskId)},
-        title: ${JSON.stringify(smokeTaskTitle)},
-        project_id: ${JSON.stringify(smokeThemeId)},
-        state: "todo",
-        priority: "high",
-        checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
-        created_at: new Date().toISOString()
-      }, { source: "smoke" });
+      // AI共通metadata（#294）: 保存 → 再読込 → 公開範囲の継承まで正本データで確認する。
+      await window.api.preferences.set("aiVisibilityDefault", ["coding_agent"]);
+      const aiVisibilityDefaultSaved = await window.api.preferences.get("aiVisibilityDefault");
+      await window.api.entities.save("theme", {
+        id: ${JSON.stringify(smokeThemeId)},
+        name: "Smoke Theme",
+        code: "SMOKE",
+        status: "active",
+        default_ai_visibility: ["m365"]
+      });
+      const smokeTaskReceipt = await window.api.commands.execute({
+        commandId: crypto.randomUUID(),
+        name: "CreateTask",
+        payload: { task: {
+          id: ${JSON.stringify(smokeTaskId)},
+          title: ${JSON.stringify(smokeTaskTitle)},
+          project_id: ${JSON.stringify(smokeThemeId)},
+          state: "todo",
+          priority: "high",
+          checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
+          created_at: new Date().toISOString(),
+          ai_summary: "Todayミニの動作確認",
+          ai_summary_authority: "user_confirmed",
+          ai_freshness: "current",
+          ai_authority: "user_confirmed",
+          ai_visibility: ["coding_agent"],
+          ai_source_refs: [{ kind: "canonical_document", locator: "smoke.md", storage_root_id: "smoke-root" }]
+        } },
+        actor: { kind: "user", id: "electron-smoke" },
+        source: "main_ui",
+        issuedAt: new Date().toISOString(),
+      });
+      const smokeTaskVersion = smokeTaskReceipt.saved.find((entry) => entry.type === "task")?.version || 0;
+      let aiMetadataRejectedInvalid = false;
+      try {
+        await window.api.commands.execute({
+          commandId: crypto.randomUUID(),
+          name: "UpdateTask",
+          payload: { task: {
+            id: ${JSON.stringify(smokeTaskId)},
+            title: ${JSON.stringify(smokeTaskTitle)},
+            state: "todo",
+            ai_authority: "guessed"
+          } },
+          actor: { kind: "user", id: "electron-smoke" },
+          source: "main_ui",
+          expectedVersions: [{ type: "task", id: ${JSON.stringify(smokeTaskId)}, version: smokeTaskVersion }],
+          issuedAt: new Date().toISOString(),
+        });
+      } catch {
+        aiMetadataRejectedInvalid = true;
+      }
+      const reloadedWorkspace = await window.api.workspace.load();
+      const reloadedSmokeTask = (reloadedWorkspace.tasks || []).find((task) => task.id === ${JSON.stringify(smokeTaskId)});
+      const reloadedSmokeTheme = (reloadedWorkspace.themes || []).find((theme) => theme.id === ${JSON.stringify(smokeThemeId)});
+      const aiMetadataPersisted = reloadedSmokeTask?.ai_summary === "Todayミニの動作確認"
+        && reloadedSmokeTask?.ai_freshness === "current"
+        && Array.isArray(reloadedSmokeTask?.ai_visibility)
+        && reloadedSmokeTask.ai_visibility.join(",") === "coding_agent"
+        && reloadedSmokeTask?.ai_source_refs?.[0]?.storage_root_id === "smoke-root";
+      const aiThemeDefaultPersisted = reloadedSmokeTheme?.default_ai_visibility?.join(",") === "m365";
       await window.api.entities.save("schedule", {
         id: crypto.randomUUID(),
         owner_type: "task",
@@ -486,9 +862,11 @@ flowchart LR
         confidence: "fixed",
         granularity: "day"
       }, { source: "smoke" });
+
       const todayMiniWindowOpened = await window.api.app.showTodayMiniWindow();
       const themeMode = await window.api.preferences.get("themeMode");
-      const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
+      const savedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)}));
+      const markdownSavedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)}));
 
       return {
         title: document.title,
@@ -496,8 +874,8 @@ flowchart LR
         smokeTaskId: ${JSON.stringify(smokeTaskId)},
         smokeTaskTitle: ${JSON.stringify(smokeTaskTitle)},
         todayMiniWindowOpened,
-        saved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)})),
-        markdownSaved: [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)})),
+        saved: savedBeforeSettingsRoute,
+        markdownSaved: markdownSavedBeforeSettingsRoute,
         markdownPreviewRendered,
         markdownFrontmatterRendered,
         markdownMathRendered,
@@ -511,12 +889,106 @@ flowchart LR
         notesMermaidRenderedInEdit,
         notesCodeBlockFullWidth,
         notesFootnoteEditPreviewAligned,
-        rawCopyNotified,
+        rawCopyNotified: false,
         themeMode,
-        clipboardWritten,
+        clipboardWritten: false,
+        sketchClipboardWritten: false,
+        aiMetadataPersisted,
+        aiThemeDefaultPersisted,
+        aiMetadataRejectedInvalid,
+        aiVisibilityDefaultSaved: Array.isArray(aiVisibilityDefaultSaved)
+          ? aiVisibilityDefaultSaved.join(",")
+          : String(aiVisibilityDefaultSaved),
       };
     })()
   `) as SmokeCreatedResult;
+
+  const audioSmoke = await window.webContents.executeJavaScript(`
+    (async () => {
+      const pending = await window.api.mediaCapture.listPreparedAudio();
+      if (pending.length !== 1 || pending[0].status !== "ready") throw new Error("prepared audio session was not listed");
+      const prepared = pending[0];
+      const durationMs = await new Promise((resolve, reject) => {
+        const audio = new Audio();
+        const timer = setTimeout(() => reject(new Error("audio metadata timeout")), 15000);
+        audio.preload = "metadata";
+        audio.onloadedmetadata = () => { clearTimeout(timer); resolve(Math.round(audio.duration * 1000)); };
+        audio.onerror = () => { clearTimeout(timer); reject(new Error("audio metadata failed")); };
+        audio.src = prepared.mediaUrl;
+      });
+      const committed = await window.api.mediaCapture.commitAudio({ sessionId: prepared.sessionId, durationMs });
+      const artifact = await window.api.entities.get("artifact", committed.artifactId);
+      if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav" || artifact.duration_ms !== durationMs) {
+        throw new Error("committed audio Artifact metadata mismatch");
+      }
+      const serialized = JSON.stringify(artifact);
+      if (serialized.includes("stored_path") || serialized.includes("original_path") || serialized.includes("target")) {
+        throw new Error("audio Artifact leaked a path to Renderer");
+      }
+      return { artifactId: committed.artifactId, metadataLoaded: durationMs >= 90 && durationMs <= 110 };
+    })()
+  `) as { artifactId: string; metadataLoaded: boolean };
+  created.audioArtifactId = audioSmoke.artifactId;
+  created.audioMetadataLoaded = audioSmoke.metadataLoaded;
+  created.audioRangeVerified = await verifySmokeMediaRange(audioSmoke.artifactId);
+
+  const releaseSmokeClipboardLock = await acquireSmokeClipboardLock({ runId: smokeRunId });
+  try {
+    recordSmoke("clipboard-start");
+    const clipboardPhase = await window.webContents.executeJavaScript(`
+      (async () => {
+        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const notesPane = document.querySelector(".note-preview-panel");
+        const documentMenu = [...(notesPane?.querySelectorAll("button") || [])]
+          .find((button) => button.textContent.trim() === "この文書");
+        if (!documentMenu) throw new Error("この文書 menuボタンがNotesパネル内に見つかりません。");
+        documentMenu.click();
+        await delay(160);
+        const copyBodyItem = [...(notesPane?.querySelectorAll(".toolbar-menu-list button") || [])]
+          .find((button) => button.textContent.trim() === "本文をすべてコピー");
+        if (!copyBodyItem) throw new Error("本文をすべてコピー が「この文書」menuに見つかりません。");
+        copyBodyItem.click();
+        await delay(160);
+        const rawCopyNotified = document.body.innerText.includes("本文をコピーしました。");
+        const clipboardWritten = await window.api.clipboard.writeText("Tasken smoke test");
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Sketch clipboard smoke canvas is unavailable.");
+        context.fillStyle = "#8a2f3b";
+        context.fillRect(0, 0, 8, 8);
+        const sketchClipboardWritten = await window.api.clipboard.writeImage({ dataUrl: canvas.toDataURL("image/png") });
+        const target = document.createElement("div");
+        target.id = "sketch-clipboard-smoke-target";
+        target.contentEditable = "true";
+        target.style.position = "fixed";
+        target.style.left = "-10000px";
+        document.body.append(target);
+        target.focus();
+        return { rawCopyNotified, clipboardWritten, sketchClipboardWritten };
+      })()
+    `) as { rawCopyNotified: boolean; clipboardWritten: boolean; sketchClipboardWritten: boolean };
+    created.rawCopyNotified = clipboardPhase.rawCopyNotified;
+    created.clipboardWritten = clipboardPhase.clipboardWritten;
+    created.sketchClipboardWritten = clipboardPhase.sketchClipboardWritten;
+    window.webContents.paste();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    created.sketchClipboardPasted = await window.webContents.executeJavaScript(`
+      (() => {
+        const target = document.querySelector("#sketch-clipboard-smoke-target");
+        const pasted = Boolean(target?.querySelector("img"));
+        target?.remove();
+        return pasted;
+      })()
+    `) as boolean;
+    recordSmoke("clipboard-complete", {
+      sketchClipboardWritten: created.sketchClipboardWritten,
+      sketchClipboardPasted: created.sketchClipboardPasted,
+    });
+  } finally {
+    releaseSmokeClipboardLock();
+  }
 
   let mini: SmokeMiniResult = {
     todayMiniOpened: false,
@@ -567,6 +1039,97 @@ flowchart LR
     })()
   `) as boolean;
   mini.todayMiniOpenDetail = mini.todayMiniOpenDetail && detailOpened;
+  recordSmoke("markdown-edit-complete");
+
+  window.show();
+  window.focus();
+  window.webContents.focus();
+  const settingsNavigation = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (finder, label, attempts = 50) => {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          const target = finder();
+          if (target) return target;
+          await delay(100);
+        }
+        throw new Error(label + " が見つかりません。画面: " + document.body.innerText.slice(0, 1000));
+      };
+      const activeCategory = (label) => [...document.querySelectorAll(".settings-category-nav button")]
+        .find((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === label);
+      const storageIsActive = () => window.location.hash === "#settings/storage" && Boolean(activeCategory("Storage & Files"));
+      window.location.hash = "settings/storage";
+      await waitFor(storageIsActive, "Settings Storage deep link");
+      const appearanceButton = [...document.querySelectorAll(".settings-category-nav button")]
+        .find((button) => button.querySelector("strong")?.textContent?.trim() === "Appearance");
+      if (!appearanceButton) throw new Error("Appearance category button が見つかりません。");
+      appearanceButton.focus();
+      return {
+        storageDeepLink: storageIsActive(),
+        categoryButtonFocused: document.activeElement === appearanceButton,
+      };
+    })()
+  `) as {
+    storageDeepLink: boolean;
+    categoryButtonFocused: boolean;
+  };
+  const nativeFocusBeforeKey = await window.webContents.executeJavaScript(`
+    (() => {
+      const target = [...document.querySelectorAll(".settings-category-nav button")]
+        .find((button) => button.querySelector("strong")?.textContent?.trim() === "Appearance");
+      window.__taskenSmokeInputTrusted = false;
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && event.isTrusted) window.__taskenSmokeInputTrusted = true;
+      });
+      target?.focus();
+      return { focused: document.activeElement === target };
+    })()
+  `) as {
+    focused: boolean;
+  };
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
+  window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
+  const settingsKeyboard = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const appearanceIsActive = () => window.location.hash === "#settings/appearance"
+        && Boolean([...document.querySelectorAll(".settings-category-nav button")]
+          .find((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === "Appearance"));
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (appearanceIsActive()) break;
+        await delay(100);
+      }
+      return {
+        appearanceIsActive: appearanceIsActive(),
+        inputTrusted: Boolean(window.__taskenSmokeInputTrusted),
+      };
+    })()
+  `) as {
+    appearanceIsActive: boolean;
+    inputTrusted: boolean;
+  };
+  const settingsHistory = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (finder, label, attempts = 50) => {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          const target = finder();
+          if (target) return target;
+          await delay(100);
+        }
+        throw new Error(label + " が見つかりません。画面: " + document.body.innerText.slice(0, 1000));
+      };
+      const storageIsActive = () => window.location.hash === "#settings/storage"
+        && Boolean([...document.querySelectorAll(".settings-category-nav button")]
+          .find((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === "Storage & Files"));
+      history.back();
+      await waitFor(storageIsActive, "Settings history.back Storage restore");
+      return { storageRestored: storageIsActive() };
+    })()
+  `) as { storageRestored: boolean };
+  recordSmoke("settings-complete");
+  const settingsStorageBeforeReload = settingsHistory.storageRestored;
 
   window.webContents.once("did-finish-load", async () => {
     try {
@@ -574,16 +1137,35 @@ flowchart LR
         Promise.all([
           window.api.entities.list("note"),
           window.api.preferences.get("themeMode"),
-        ]).then(([notes, themeMode]) => {
+          window.api.preferences.get("aiVisibilityDefault"),
+          window.api.entities.list("task"),
+        ]).then(async ([notes, themeMode, aiVisibilityDefault, tasks]) => {
           const markdown = notes.find((note) => note.title === ${JSON.stringify(markdownTitle)});
+          const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const settingsReloadRestored = await (async () => {
+            for (let attempt = 0; attempt < 50; attempt += 1) {
+              const restored = window.location.hash === "#settings/storage"
+                && [...document.querySelectorAll(".settings-category-nav button")]
+                  .some((button) => button.getAttribute("aria-current") === "page" && button.querySelector("strong")?.textContent?.trim() === "Storage & Files");
+              if (restored) return true;
+              await delay(100);
+            }
+            return false;
+          })();
           return ({
           persisted: notes.some((note) => note.title === ${JSON.stringify(testTitle)}),
           markdownPersisted: Boolean(markdown?.body_markdown?.includes("Markdown Preview")),
-          markdownThemeLinked: markdown?.theme_id === ${JSON.stringify(smokeThemeId)},
+          // Smoke Theme chipの選択値がcanonical Noteへ届くことを厳密に確認する。
+          markdownThemeLinked: markdown?.project_id === ${JSON.stringify(smokeThemeId)},
           markdownFrontmatterPersisted: Boolean(markdown?.body_markdown?.includes("type: report")),
           markdownLiveEditPersisted: Boolean(markdown?.body_markdown?.includes("Live edit smoke")),
           markdownPastePersisted: Boolean(markdown?.body_markdown?.includes("## Pasted Markdown Heading") && markdown?.body_markdown?.includes("**Pasted Bold Text**")),
           themeMode,
+          aiVisibilityDefault: Array.isArray(aiVisibilityDefault) ? aiVisibilityDefault.join(",") : String(aiVisibilityDefault),
+          aiTaskMetadataPersisted: Boolean(
+            tasks.find((task) => task.id === ${JSON.stringify(smokeTaskId)})?.ai_summary === "Todayミニの動作確認"
+          ),
+          settingsReloadRestored,
         });
         })
       `) as SmokeReloadResult;
@@ -596,11 +1178,19 @@ flowchart LR
         markdownLiveEditPersistedAfterReload: afterReload.markdownLiveEditPersisted,
         markdownPastePersistedAfterReload: afterReload.markdownPastePersisted,
         themeModeAfterReload: afterReload.themeMode,
+        aiVisibilityDefaultAfterReload: afterReload.aiVisibilityDefault,
+        aiMetadataPersistedAfterReload: afterReload.aiTaskMetadataPersisted,
+        settingsDeepLink: settingsNavigation.storageDeepLink,
+        settingsKeyboardFocus: settingsNavigation.categoryButtonFocused && nativeFocusBeforeKey.focused,
+        settingsKeyboardTransition: settingsKeyboard.appearanceIsActive,
+        settingsHistoryBackRestored: settingsHistory.storageRestored,
+        settingsReloadRestored: afterReload.settingsReloadRestored,
+        settingsKeyboardInputTrusted: settingsKeyboard.inputTrusted,
+        settingsStorageBeforeReload,
         ...mini,
       };
       console.log(JSON.stringify(result));
-      recordSmoke("passed", result);
-      app.exit(
+      const passed = Boolean(
         result.persistedAfterReload
         && result.markdownPersistedAfterReload
         && result.markdownThemeLinkedAfterReload
@@ -630,18 +1220,69 @@ flowchart LR
         && result.todayMiniCompletionSaved
         && result.todayMiniOpenDetail
         && result.clipboardWritten
+        && result.sketchClipboardWritten
+        && result.sketchClipboardPasted
         && result.themeMode === "dark"
         && result.themeModeAfterReload === "dark"
-          ? 0
-          : 1,
+        && result.aiMetadataPersisted
+        && result.aiThemeDefaultPersisted
+        && result.aiMetadataRejectedInvalid
+        && result.aiVisibilityDefaultSaved === "coding_agent"
+        && result.aiMetadataPersistedAfterReload
+        && result.aiVisibilityDefaultAfterReload === "coding_agent"
+        && result.settingsDeepLink
+        && result.settingsKeyboardFocus
+        && result.settingsKeyboardInputTrusted
+        && result.settingsKeyboardTransition
+        && result.settingsHistoryBackRestored
+        && result.settingsStorageBeforeReload
+        && result.settingsReloadRestored
+        && result.audioMetadataLoaded
+        && result.audioRangeVerified
       );
+      recordSmoke(passed ? "restart-ready" : "failed", result);
+      app.exit(passed ? 0 : 1);
     } catch (error) {
       console.error(error);
       recordSmoke("reload-check-failed", { error: String(error) });
       app.exit(1);
     }
   });
+  recordSmoke("reload-start");
   window.reload();
+}
+
+async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
+  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(smokeMediaArtifactId)) {
+    throw new Error("restart audio Artifact ID is invalid");
+  }
+  const renderer = await window.webContents.executeJavaScript(`
+    (async () => {
+      const artifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeMediaArtifactId)});
+      if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav") throw new Error("restarted audio Artifact missing");
+      if (JSON.stringify(artifact).includes("stored_path")) throw new Error("restarted audio Artifact leaked path");
+      const playable = await new Promise((resolve, reject) => {
+        const audio = new Audio();
+        const timer = setTimeout(() => reject(new Error("restart audio playback timeout")), 15000);
+        const done = () => {
+          if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+          clearTimeout(timer);
+          resolve(audio.duration >= 0.09 && audio.duration <= 0.11);
+        };
+        audio.preload = "auto";
+        audio.onloadedmetadata = done;
+        audio.oncanplay = done;
+        audio.onerror = () => { clearTimeout(timer); reject(new Error("restart audio playback failed")); };
+        audio.src = "tasken-media://artifact/" + encodeURIComponent(artifact.id);
+      });
+      return { artifactId: artifact.id, playable };
+    })()
+  `) as { artifactId: string; playable: boolean };
+  const rangeVerified = await verifySmokeMediaRange(renderer.artifactId);
+  const passed = renderer.playable && rangeVerified;
+  recordSmoke(passed ? "passed" : "failed", { audioArtifactId: renderer.artifactId, playable: renderer.playable, rangeVerified });
+  app.exit(passed ? 0 : 1);
 }
 
 function createWindow(): BrowserWindow {
@@ -650,11 +1291,17 @@ function createWindow(): BrowserWindow {
     height: MAIN_WINDOW_DEFAULT_HEIGHT,
     minWidth: 980,
     minHeight: 680,
-    show: !isSmokeTest,
+    show: false,
     backgroundColor: "#F4EEEC",
     title: APP_NAME,
     icon: getAppIconPath(),
     autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#FBF8F6",
+      symbolColor: "#3D3532",
+      height: 40,
+    },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -665,14 +1312,54 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  if (!isSmokeTest) window.once("ready-to-show", () => window.show());
+  if (isSmokeTest) {
+    // Show the smoke-only window before the renderer starts so IntersectionObserver
+    // observes the same visible lazy path as production without stealing focus.
+    window.setOpacity(0);
+    window.showInactive();
+  }
+
+  window.once("ready-to-show", () => {
+    readyMainWindows.add(window);
+    if (!isSmokeTest) window.show();
+  });
   window.webContents.once("did-finish-load", () => {
     if (isSmokeTest) {
-      runSmokeTest(window).catch((error: unknown) => {
-        console.error(error);
+      const smokeRun = isSmokeRestartCheck ? runSmokeRestartTest(window) : runSmokeTest(window);
+      smokeRun.catch(async (error: unknown) => {
+        let diagnostics: unknown = null;
+        try {
+          diagnostics = await window.webContents.executeJavaScript(`
+            (() => ({
+              url: location.href,
+              title: document.title,
+              notePane: Boolean(document.querySelector(".note-preview-panel")),
+              mermaidBlocks: [...document.querySelectorAll(".note-mermaid-code-block")].map((block) => ({
+                className: block.className,
+                text: block.textContent?.slice(0, 300) || "",
+                svgCount: block.querySelectorAll(".md-mermaid-svg svg").length,
+                errorText: block.querySelector(".md-mermaid-error")?.textContent || "",
+                html: block.innerHTML.slice(0, 1200),
+              })),
+              rendererErrors: window.__taskenSmokeDiagnostics?.rendererErrors || [],
+            }))()
+          `);
+        } catch (diagnosticError) {
+          diagnostics = { captureError: String(diagnosticError) };
+        }
+        const failure = { error: String(error), diagnostics };
+        console.error("Electron smoke failure: " + JSON.stringify(failure));
+        recordSmoke("failed", failure);
         app.exit(1);
       });
     }
+  });
+  window.webContents.on("console-message", ({ level, message, lineNumber: line, sourceId }) => {
+    if (!isSmokeTest) return;
+    if (level !== "warning" && level !== "error" && !/mermaid|markdown|unhandled|exception/i.test(message)) return;
+    const entry = { level, message, line, sourceId };
+    recordSmoke("renderer-console", entry);
+    console.error("Renderer console: " + JSON.stringify(entry));
   });
   window.webContents.on("did-fail-load", (_event, code, description) => {
     recordSmoke("load-failed", { code, description });
@@ -684,6 +1371,23 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.on("context-menu", (_event, params) => {
     showMainContextMenu(window, params);
+  });
+  let closeFlushPending = false;
+  let closeApproved = false;
+  window.on("close", (event) => {
+    if (closeApproved || appQuitApproved) return;
+    event.preventDefault();
+    if (closeFlushPending) return;
+    closeFlushPending = true;
+    void requestRendererFlush(window).then((ok) => {
+      closeFlushPending = false;
+      if (!ok) {
+        console.warn("Main windowの終了前flushが完了しなかったため、ウィンドウを開いたままにします。");
+        return;
+      }
+      closeApproved = true;
+      if (!window.isDestroyed()) window.close();
+    });
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -709,26 +1413,105 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-void app.whenReady().then(() => {
+async function startDesktopApp(): Promise<void> {
+  await app.whenReady();
   migrateLegacyUserDataIfNeeded();
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
-  sharedFolderSyncService = new SharedFolderSyncService(workspaceRepository, notifyMainWindowRefresh);
+  let smokeAudioSourcePath = "";
+  if (isSmokeTest && !isSmokeRestartCheck) {
+    const managedDirectory = path.join(app.getPath("userData"), "smoke-managed-artifacts");
+    workspaceRepository.setPreference("artifactDirectory", managedDirectory);
+    smokeAudioSourcePath = path.join(app.getPath("userData"), "smoke-audio.wav");
+    fs.writeFileSync(smokeAudioSourcePath, tinyPcmWav(), { flag: "wx" });
+  }
+  const applicationCommands = new ApplicationCommandService(workspaceRepository);
+  const workspaceService = new WorkspaceService(workspaceRepository, app.getPath("userData"));
+  const mediaCapture = new MediaCaptureService({
+    userDataPath: app.getPath("userData"),
+    repository: workspaceRepository,
+    commands: applicationCommands,
+    resolveManagedDirectory: (themeId) => workspaceService.resolveManagedArtifactDirectory(themeId),
+  });
+  const mediaRecovery = mediaCapture.recoverPending();
+  if (mediaRecovery.recovered || mediaRecovery.pending) {
+    console.info(`Media Capture recovery: recovered=${mediaRecovery.recovered}, pending=${mediaRecovery.pending}`);
+  }
+  if (smokeAudioSourcePath) mediaCapture.prepareFile(smokeAudioSourcePath, null);
+  registerMediaProtocol(mediaCapture);
+  sharedFolderSyncService = new SharedFolderSyncService(
+    workspaceRepository,
+    notifyMainWindowRefresh,
+    path.join(app.getPath("userData"), "attachments", "markdown-images"),
+  );
   registerIpc(
     workspaceRepository,
-    new WorkspaceService(workspaceRepository, app.getPath("userData")),
+    workspaceService,
     sharedFolderSyncService,
+    new AiProviderService(app.getPath("userData")),
+    new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
+    applicationCommands,
+    mediaCapture,
+    (types) => {
+      notifyMainWindowRefresh();
+      notifyTodayMiniRefresh(types);
+    },
+    notifyCommandApplied,
   );
+  mcpProposalInboxService = new McpProposalInboxService(
+    workspaceRepository,
+    app.getPath("userData"),
+    (entities: Entity[]) => notifyMainWindowRefresh({
+      entities: entities.map((entity) => ({ type: "ai_proposal", entity })),
+    }),
+  );
+  mcpProposalInboxService.start();
+  // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので
+  // 正本DBではなくuserData配下のJSONへ置き、別端末へ同期させない。
+  satelliteWindows = createSatelliteWindowRegistry({
+    stateFilePath: path.join(app.getPath("userData"), "satellite-windows.json"),
+    getAppIconPath,
+    // 付箋の開閉を本体の一覧へ即時反映する（#298）。
+    onChanged: () => notifyMemoStickyWindowsChanged(),
+    resolvePageUrl: (page) => (
+      process.env.ELECTRON_RENDERER_URL
+        ? { url: `${process.env.ELECTRON_RENDERER_URL}/${page}.html` }
+        : { file: path.join(__dirname, `../renderer/${page}.html`) }
+    ),
+  });
+  ipcMain.handle(IPC.satelliteWindowState, () => ({
+    todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
+    openMemoIds: memoStickyController?.openMemoIds() || [],
+    stickyMemoIds: memoStickyController?.stickyMemoIds() || [],
+  } satisfies SatelliteWindowStatePayload));
+  memoStickyController = createMemoStickyController({
+    repository: workspaceRepository,
+    satelliteWindows,
+    showMainWindow,
+    notifyWorkspaceChanged: notifyMainWindowRefresh,
+  });
+  memoStickyController.registerIpc();
+  noteWindowController = createNoteWindowController({
+    repository: workspaceRepository,
+    satelliteWindows,
+    showMainWindow,
+    isAppQuitApproved: () => appQuitApproved,
+  });
+  noteWindowController.registerIpc();
   quickCaptureController = createQuickCaptureController({
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
+    notifyCommandApplied,
+    executeCommand: (envelope) => applicationCommands.execute(envelope),
   });
   quickCaptureController.registerIpc();
   todayMiniController = createTodayMiniController({
     repository: workspaceRepository,
-    getAppIconPath,
+    satelliteWindows,
     showMainWindow,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
+    notifyCommandApplied,
+    executeCommand: (envelope) => applicationCommands.execute(envelope),
   });
   todayMiniController.registerIpc();
   reminderController = createReminderController({
@@ -752,6 +1535,7 @@ void app.whenReady().then(() => {
     },
   });
   recordSmoke("app-ready");
+  applyApplicationMenu();
   createWindow();
 
   if (!isSmokeTest) {
@@ -760,6 +1544,7 @@ void app.whenReady().then(() => {
     reminderController.start();
     globalShortcut.register("CmdOrCtrl+Shift+N", () => quickCaptureController?.show("inbox"));
     globalShortcut.register("CmdOrCtrl+Shift+M", () => quickCaptureController?.show("today-task"));
+    globalShortcut.register("CmdOrCtrl+Shift+D", () => quickCaptureController?.show("due-task"));
     globalShortcut.register("CmdOrCtrl+Shift+,", () => quickCaptureController?.show("done-task"));
     globalShortcut.register("CmdOrCtrl+Shift+.", () => quickCaptureController?.show("micro-memo"));
   }
@@ -767,24 +1552,51 @@ void app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-}).catch((error: unknown) => {
-  console.error("Tasken failed to start.", error);
-  recordSmoke("startup-failed", { error: String(error) });
-  app.exit(1);
-});
+}
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  console.warn("Tasken is already running. Reusing the existing application instance.");
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (app.isReady()) showMainWindow();
+  });
+  void startDesktopApp().catch((error: unknown) => {
+    console.error("Tasken failed to start.", error);
+    recordSmoke("startup-failed", { error: String(error) });
+    app.exit(1);
+  });
+}
 
 app.on("window-all-closed", () => {
-  // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
-  if (process.platform === "darwin") return;
-  if (trayController?.isActive()) return;
-  app.quit();
+    // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
+    if (process.platform === "darwin") return;
+    if (trayController?.isActive()) return;
+    app.quit();
 });
 
-app.on("before-quit", () => {
-  sharedFolderSyncService?.stop();
+app.on("before-quit", (event) => {
+  if (appQuitApproved) {
+    sharedFolderSyncService?.stop();
+    mcpProposalInboxService?.stop();
+    return;
+  }
+  event.preventDefault();
+  if (appFlushPending) return;
+  appFlushPending = true;
+  void Promise.all(rendererWindowsForAppFlush().map((window) => requestRendererFlush(window))).then((results) => {
+    appFlushPending = false;
+    if (results.some((ok) => !ok)) {
+      console.warn("終了前flushが完了しなかったため、アプリを終了しませんでした。");
+      return;
+    }
+    appQuitApproved = true;
+    app.quit();
+  });
 });
 
 app.on("will-quit", () => {
-  reminderController?.stop();
-  globalShortcut.unregisterAll();
+    reminderController?.stop();
+    globalShortcut.unregisterAll();
 });

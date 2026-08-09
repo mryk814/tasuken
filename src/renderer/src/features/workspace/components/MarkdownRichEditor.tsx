@@ -19,37 +19,64 @@ import {
   ListsToggle,
   markdownShortcutPlugin,
   MDXEditor,
+  NESTED_EDITOR_UPDATED_COMMAND,
   quotePlugin,
   Separator,
   tablePlugin,
   thematicBreakPlugin,
   toolbarPlugin,
   UndoRedo,
+  useCodeBlockEditorContext,
   type MDXEditorMethods,
   type CodeBlockEditorDescriptor,
   type CodeBlockEditorProps,
 } from "@mdxeditor/editor";
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
+import { $isQuoteNode } from "@lexical/rich-text";
 import { $findMatchingParent } from "@lexical/utils";
 import { IconExternalLink, IconLinkOff, IconPencil } from "@tabler/icons-react";
-import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode, type LexicalEditor } from "lexical";
 import {
-  Component,
+  $createLineBreakNode,
+  $createTextNode,
+  $getSelection,
+  $getNearestNodeFromDOMNode,
+  $isRangeSelection,
+  $isTextNode,
+  getNearestEditorFromDOMNode,
+  type LexicalEditor,
+} from "lexical";
+import {
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ClipboardEvent,
-  type ErrorInfo,
+  type FormEvent,
+  type KeyboardEvent,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 
+import { markdownCjkFriendlyPlugin } from "./markdownCjkFriendlyPlugin";
 import { MarkdownCodeBlockNavigation, markdownCodeBlockDescriptor } from "./markdownCodeBlockEditor";
+import { clipboardImageFile } from "../lib/clipboardImage";
 import { markdownMathPlugin } from "./markdownMathPlugin";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { markdownTableKeyboardPlugin } from "./markdownTableKeyboardPlugin";
+import {
+  selectionTitleCandidate,
+  type MarkdownTextSelection,
+  type SelectionExtractionKind,
+} from "../lib/selectionExtraction";
+import {
+  MERMAID_WIDTH_MAX,
+  MERMAID_WIDTH_MIN,
+  MERMAID_WIDTH_STEP,
+  mermaidWidthFromMeta,
+  withMermaidWidthMeta,
+} from "../lib/mermaidWidth";
+import { markMermaidEditorInput } from "../lib/mermaid";
 import {
   applyCalloutDecorations,
   applyHeadingNumberAttributes,
@@ -63,31 +90,50 @@ import {
   normalizeRichEditorMarkdown,
   escapeAmbiguousMarkdownComparisons,
   openSafeMarkdownLink,
+  parseCalloutMarker,
   renderMarkdownPreview,
   safeMarkdownLinkUrl,
   restoreAmbiguousMarkdownComparisons,
   type MarkdownRenderOptions,
 } from "../lib/markdown";
+import type { NoteDraftEditorSession } from "../lib/noteDraftIdentity";
+import { markdownCaretAnchor } from "../../../../../shared/noteAiConversation.mjs";
 
 type MarkdownRichEditorProps = {
+  ownerKey: string;
   markdown: string;
   onChange: (value: string) => void;
   onImageUpload: (file: File) => Promise<string>;
   onError: (message: string) => void;
+  onDirty?: () => void;
   headingNumberOptions?: MarkdownRenderOptions;
-  markdownSourceRef?: { current: (() => string) | null };
+  markdownSourceRef?: { current: NoteDraftEditorSession | null };
+  markdownInsertRef?: { current: ((markdown: string) => void) | null };
+  onImagePreview?: (src: string) => Promise<string>;
+  onExtractSelection?: (
+    kind: SelectionExtractionKind,
+    selection: MarkdownTextSelection,
+    title: string,
+  ) => Promise<void>;
+  onAiEditSelection?: (selection: MarkdownTextSelection) => void;
+  /**
+   * 選択範囲の変換を明示的に呼ぶための合図（#313）。
+   * 選択しただけでtoolbarを出すと通常のコピー・IME操作を妨げるので、
+   * Command Palette等からこの値を更新したときだけ動く。
+   */
+  selectionCommand?: SelectionCommandRequest | null;
+  onSelectionUnavailable?: () => void;
+  onCaretAnchorChange?: (anchor: { heading: string; offset: number }) => void;
 };
 
-type MarkdownEditorBoundaryProps = {
-  markdown: string;
-  resetKey: string;
-  children: ReactNode;
-  onChange: (value: string) => void;
-  onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
-  onError: (message: string) => void;
+export type SelectionCommandRequest = {
+  kind: SelectionExtractionKind | "ai";
+  /** 同じ操作を続けて呼べるようにするための連番。値が変わったときだけ実行する。 */
+  nonce: number;
 };
 
-type MarkdownEditorBoundaryState = { error: string | null };
+const LONG_DOCUMENT_SPELLCHECK_LIMIT = 20_000;
+type FloatingTextSelection = MarkdownTextSelection & { top: number; left: number };
 
 function InsertMemoCalloutButton({ onInsert }: { onInsert: () => void }) {
   return (
@@ -115,27 +161,189 @@ function selectInsertedMemoPlaceholder(root: HTMLElement | null): void {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const start = node.nodeValue?.lastIndexOf(CALLOUT_INPUT_PLACEHOLDER) ?? -1;
     if (start < 0) continue;
-    const range = document.createRange();
-    range.setStart(node, start);
-    range.setEnd(node, start + CALLOUT_INPUT_PLACEHOLDER.length);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    const lexicalEditor = getNearestEditorFromDOMNode(node);
+    if (!lexicalEditor) return;
+    lexicalEditor.update(() => {
+      const lexicalNode = $getNearestNodeFromDOMNode(node);
+      if ($isTextNode(lexicalNode)) {
+        lexicalNode.select(start, start + CALLOUT_INPUT_PLACEHOLDER.length);
+      }
+    }, { discrete: true });
+    lexicalEditor.focus();
     return;
   }
 }
 
+function handleCalloutMarkerEnter(
+  event: KeyboardEvent<HTMLDivElement>,
+  root: HTMLElement | null,
+): void {
+  if (
+    event.key !== "Enter"
+    || event.shiftKey
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.nativeEvent.isComposing
+    || !root
+  ) return;
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const domSelection = window.getSelection();
+  if (
+    !domSelection
+    || !domSelection.isCollapsed
+    || !domSelection.anchorNode
+  ) return;
+  const anchorElement = domSelection.anchorNode instanceof Element
+    ? domSelection.anchorNode
+    : domSelection.anchorNode.parentElement;
+  const quote = anchorElement?.closest("blockquote");
+  if (!(quote instanceof HTMLElement) || !root.contains(quote)) return;
+
+  const marker = parseCalloutMarker((quote.innerText || quote.textContent || "").trim());
+  if (!marker || marker.rest) return;
+
+  const lexicalEditor = getNearestEditorFromDOMNode(quote);
+  if (!lexicalEditor) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  let inserted = false;
+  lexicalEditor.update(() => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
+    const anchorNode = selection.anchor.getNode();
+    const quoteNode = $isQuoteNode(anchorNode)
+      ? anchorNode
+      : $findMatchingParent(anchorNode, $isQuoteNode);
+    if (!$isQuoteNode(quoteNode)) return;
+    const currentMarker = parseCalloutMarker(quoteNode.getTextContent().trim());
+    if (!currentMarker || currentMarker.rest) return;
+    const placeholder = $createTextNode(CALLOUT_INPUT_PLACEHOLDER);
+    quoteNode.append($createLineBreakNode(), placeholder);
+    placeholder.select(0, CALLOUT_INPUT_PLACEHOLDER.length);
+    inserted = true;
+  }, { discrete: true });
+
+  if (!inserted) return;
+  lexicalEditor.focus();
+  window.requestAnimationFrame(() => {
+    applyCalloutDecorations(root.querySelector(".note-mdx-content"));
+  });
+}
+
+function editorScrollContainer(element: HTMLElement | null): HTMLElement | null {
+  let current = element?.parentElement || null;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    if (
+      (style.overflowY === "auto" || style.overflowY === "scroll")
+      && current.scrollHeight > current.clientHeight
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function preserveEditorViewport(anchor: HTMLElement | null, update: () => void): void {
+  const scroller = editorScrollContainer(anchor);
+  if (!scroller) {
+    update();
+    return;
+  }
+
+  const scrollTop = scroller.scrollTop;
+  const scrollLeft = scroller.scrollLeft;
+  const anchorTop = anchor?.getBoundingClientRect().top ?? null;
+  const previousOverflowAnchor = scroller.style.overflowAnchor;
+  scroller.style.overflowAnchor = "none";
+  update();
+
+  let frames = 0;
+  const restore = () => {
+    frames += 1;
+    if (!scroller.isConnected) return;
+    if (anchor?.isConnected && anchorTop !== null) {
+      scroller.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+    } else {
+      scroller.scrollTop = scrollTop;
+    }
+    scroller.scrollLeft = scrollLeft;
+    if (frames < 4) {
+      window.requestAnimationFrame(restore);
+      return;
+    }
+    scroller.style.overflowAnchor = previousOverflowAnchor;
+  };
+  restore();
+}
+
+/** Read only the active block up to the DOM caret; never scan the whole editor. */
+function domTextBeforeCaret(block: HTMLElement, target: Node, offset: number): string {
+  let text = "";
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) return;
+    if (node === target) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += String(node.nodeValue || "").slice(0, Math.max(0, offset));
+      } else {
+        const children = Array.from(node.childNodes).slice(0, Math.max(0, offset));
+        text += children.map((child) => child.textContent || "").join("");
+      }
+      found = true;
+      return;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.nodeValue || "";
+      return;
+    }
+    for (const child of Array.from(node.childNodes)) visit(child);
+  };
+  visit(block);
+  return found ? text : "";
+}
+
+const LazyMermaidPreview = memo(MarkdownPreview, () => true);
+
 function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   const [editing, setEditing] = useState(false);
+  const savedWidth = mermaidWidthFromMeta(props.meta);
+  const [draftWidth, setDraftWidth] = useState<number | null>(savedWidth);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const resizingRef = useRef(false);
+  const { parentEditor, setMeta } = useCodeBlockEditorContext();
+  const rangeWidth = draftWidth ?? MERMAID_WIDTH_MAX;
+  const previewMeta = withMermaidWidthMeta(props.meta, null);
+
+  const commitWidth = (width: number | null): void => {
+    if (width === savedWidth) return;
+    preserveEditorViewport(editorRootRef.current, () => {
+      setMeta(withMermaidWidthMeta(props.meta, width));
+      // MDXEditor 4.0.4 の setMeta は root の onChange を通知しないため、
+      // コード本文の更新と同じ nested-editor command を明示的に送る。
+      window.setTimeout(() => {
+        parentEditor.dispatchCommand(NESTED_EDITOR_UPDATED_COMMAND, undefined);
+      }, 0);
+    });
+  };
+
   const rendered = useMemo(
-    () => renderMarkdownPreview(`\`\`\`mermaid\n${props.code}\n\`\`\``),
-    [props.code],
+    () => renderMarkdownPreview(`\`\`\`mermaid${previewMeta ? ` ${previewMeta}` : ""}\n${props.code}\n\`\`\``),
+    [props.code, previewMeta],
   );
 
   useEffect(() => {
     props.focusEmitter.subscribe(() => setEditing(true));
   }, [props.focusEmitter]);
+
+  useEffect(() => {
+    if (!resizingRef.current) setDraftWidth(savedWidth);
+  }, [savedWidth]);
 
   useEffect(() => {
     if (!editing) return;
@@ -164,19 +372,68 @@ function MermaidCodeBlockEditor(props: CodeBlockEditorProps) {
   }
 
   return (
-    <div
-      className="note-mermaid-code-block is-preview"
-      role="button"
-      tabIndex={0}
-      aria-label="Mermaidを編集"
-      onClick={() => setEditing(true)}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        setEditing(true);
-      }}
-    >
-      <MarkdownPreview className="note-mermaid-preview markdown-preview" html={rendered} />
+    <div className="note-mermaid-code-block is-preview">
+      <div
+        ref={editorRootRef}
+        className={`note-mermaid-preview-frame${draftWidth === null ? "" : " is-custom-width"}`}
+        role="button"
+        tabIndex={0}
+        aria-label="Mermaidを編集"
+        style={{ width: `${rangeWidth}%`, marginInline: "auto" }}
+        onClick={() => setEditing(true)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          setEditing(true);
+        }}
+      >
+        <LazyMermaidPreview key={rendered} className="note-mermaid-preview markdown-preview" html={rendered} />
+      </div>
+      <div className="note-mermaid-width-control" aria-label="Mermaidの表示幅">
+        <span>幅</span>
+        <input
+          type="range"
+          min={MERMAID_WIDTH_MIN}
+          max={MERMAID_WIDTH_MAX}
+          step={MERMAID_WIDTH_STEP}
+          value={rangeWidth}
+          aria-label="Mermaidの表示幅"
+          onPointerDown={(event) => {
+            resizingRef.current = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            if (draftWidth === null) setDraftWidth(MERMAID_WIDTH_MAX);
+          }}
+          onChange={(event) => setDraftWidth(Number(event.target.value))}
+          onPointerUp={(event) => {
+            const width = Number(event.currentTarget.value);
+            resizingRef.current = false;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            commitWidth(width);
+          }}
+          onPointerCancel={() => {
+            resizingRef.current = false;
+            setDraftWidth(savedWidth);
+          }}
+          onKeyUp={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) return;
+            commitWidth(Number(event.currentTarget.value));
+          }}
+          onBlur={(event) => commitWidth(Number(event.currentTarget.value))}
+        />
+        <output>{draftWidth === null ? "自動" : `${draftWidth}%`}</output>
+        <button
+          type="button"
+          disabled={savedWidth === null}
+          onClick={() => {
+            setDraftWidth(null);
+            commitWidth(null);
+          }}
+        >
+          自動
+        </button>
+      </div>
     </div>
   );
 }
@@ -186,58 +443,6 @@ const mermaidCodeBlockDescriptor: CodeBlockEditorDescriptor = {
   match: (language) => String(language || "").toLowerCase() === "mermaid",
   Editor: MermaidCodeBlockEditor,
 };
-
-export function clipboardImageFile(data: DataTransfer): File | null {
-  for (const item of Array.from(data.items)) {
-    if (item.kind === "file" && item.type.startsWith("image/")) {
-      const file = item.getAsFile();
-      if (file) return file;
-    }
-  }
-  return Array.from(data.files).find((file) => file.type.startsWith("image/")) || null;
-}
-
-export function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("画像を読み取れませんでした。"));
-    reader.readAsDataURL(file);
-  });
-}
-
-
-export class MarkdownEditorBoundary extends Component<MarkdownEditorBoundaryProps, MarkdownEditorBoundaryState> {
-  state: MarkdownEditorBoundaryState = { error: null };
-
-  static getDerivedStateFromError(error: unknown): MarkdownEditorBoundaryState {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
-
-  componentDidCatch(error: unknown, _info: ErrorInfo): void {
-    this.props.onError(error instanceof Error ? error.message : String(error));
-  }
-
-  componentDidUpdate(previousProps: MarkdownEditorBoundaryProps): void {
-    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
-      this.setState({ error: null });
-    }
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <textarea
-          className="note-main-editor note-main-editor-raw note-editor-fallback"
-          value={this.props.markdown}
-          onPaste={this.props.onPaste}
-          onChange={(event) => this.props.onChange(event.target.value)}
-        />
-      );
-    }
-    return this.props.children;
-  }
-}
 
 function editorLinkHref(anchor: Element): string {
   if (anchor instanceof HTMLAnchorElement) {
@@ -303,12 +508,21 @@ type HoverLinkCard = {
 };
 
 export const MarkdownRichEditor = memo(function MarkdownRichEditor({
+  ownerKey,
   markdown,
   onChange,
   onImageUpload,
   onError,
+  onDirty,
   headingNumberOptions,
   markdownSourceRef,
+  markdownInsertRef,
+  onImagePreview,
+  onExtractSelection,
+  onAiEditSelection,
+  selectionCommand,
+  onSelectionUnavailable,
+  onCaretAnchorChange,
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
@@ -318,24 +532,49 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const headingNumberLevelKey = headingNumberLevels.join(",");
   const editorRef = useRef<MDXEditorMethods | null>(null);
   const editorScopeRef = useRef<HTMLDivElement | null>(null);
+  /** 直前の本文選択（#313）。Command Paletteでfocusが移っても変換対象を見失わない。 */
+  const lastSelectionRangeRef = useRef<Range | null>(null);
   const hoverHideTimerRef = useRef<number | null>(null);
   const [editorFailed, setEditorFailed] = useState(false);
   const [hoverLink, setHoverLink] = useState<HoverLinkCard | null>(null);
   const [linkEditMode, setLinkEditMode] = useState(false);
   const [linkEditUrl, setLinkEditUrl] = useState("");
+  const [textSelection, setTextSelection] = useState<FloatingTextSelection | null>(null);
+  const [extractionKind, setExtractionKind] = useState<SelectionExtractionKind | null>(null);
+  const [extractionTitle, setExtractionTitle] = useState("");
+  const [extractionError, setExtractionError] = useState("");
+  const [extracting, setExtracting] = useState(false);
   const lastInternalMarkdown = useRef(markdown);
+  const onImageUploadRef = useRef(onImageUpload);
+  const onImagePreviewRef = useRef(onImagePreview);
   const mountedRef = useRef(false);
   const editorMarkdown = escapeAmbiguousMarkdownComparisons(markdown);
+  const spellCheck = markdown.length < LONG_DOCUMENT_SPELLCHECK_LIMIT;
+  onImageUploadRef.current = onImageUpload;
+  onImagePreviewRef.current = onImagePreview;
 
   useEffect(() => {
     if (!markdownSourceRef) return;
-    markdownSourceRef.current = () => normalizeRichEditorMarkdown(
-      restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current || editorMarkdown),
-    );
+    markdownSourceRef.current = {
+      ownerKey,
+      getMarkdown: () => normalizeRichEditorMarkdown(
+        restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current),
+      ),
+    };
     return () => {
       markdownSourceRef.current = null;
     };
-  }, [markdown, markdownSourceRef]);
+  }, [markdownSourceRef, ownerKey]);
+
+  useEffect(() => {
+    if (!markdownInsertRef) return;
+    markdownInsertRef.current = (nextMarkdown) => {
+      editorRef.current?.focus(() => editorRef.current?.insertMarkdown(nextMarkdown), { preventScroll: true });
+    };
+    return () => {
+      markdownInsertRef.current = null;
+    };
+  }, [markdownInsertRef]);
 
   const plugins = useMemo(() => [
     toolbarPlugin({
@@ -379,7 +618,8 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     }),
     markdownMathPlugin(),
     imagePlugin({
-      imageUploadHandler: onImageUpload,
+      imageUploadHandler: (image) => onImageUploadRef.current(image),
+      imagePreviewHandler: async (src) => onImagePreviewRef.current ? onImagePreviewRef.current(src) : src,
       // クリック選択 + ハンドルで幅変更。設定ダイアログでは数値指定・解除（空欄=既定）も可。
       disableImageResize: false,
       disableImageSettingsButton: false,
@@ -407,13 +647,15 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     }),
     frontmatterPlugin(),
     markdownShortcutPlugin(),
-  ], [onImageUpload]);
+    // 強調・取り消し線のCJK判定をPreview / PDFと揃える（#285）
+    markdownCjkFriendlyPlugin(),
+  ], []);
 
   useEffect(() => {
     mountedRef.current = false;
     const timer = window.setTimeout(() => { mountedRef.current = true; }, 200);
     return () => window.clearTimeout(timer);
-  }, [markdown]);
+  }, []);
 
   useEffect(() => {
     if (markdown === lastInternalMarkdown.current) return;
@@ -423,6 +665,160 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     lastInternalMarkdown.current = markdown;
     setEditorFailed(false);
   }, [markdown]);
+
+  const contentElement = () => editorScopeRef.current?.querySelector<HTMLElement>(".note-mdx-content") || null;
+
+  /** 本文内の選択範囲か。エディタ外の選択に反応しないための判定。 */
+  const rangeInsideContent = (range: Range, content: HTMLElement) => {
+    const container = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+      ? range.commonAncestorContainer.parentElement
+      : range.commonAncestorContainer as Element;
+    return Boolean(container && content.contains(container));
+  };
+
+  /**
+   * 直前の本文選択を覚えておく（#313）。
+   * Command Paletteを開くとfocusが移って選択が消えるため、
+   * 表示は一切変えずrefだけを更新して、明示commandから使えるようにする。
+   */
+  useEffect(() => {
+    const remember = () => {
+      const content = contentElement();
+      const selection = window.getSelection();
+      if (!content || !selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!rangeInsideContent(range, content)) return;
+      if (!selection.isCollapsed && selection.toString().trim()) lastSelectionRangeRef.current = range.cloneRange();
+      if (onCaretAnchorChange) {
+        const anchorNode = range.startContainer;
+        const headings = [...content.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
+        let headingIndex = -1;
+        for (let index = 0; index < headings.length; index += 1) {
+          const candidate = headings[index];
+          const position = candidate.compareDocumentPosition(anchorNode);
+          if (position & Node.DOCUMENT_POSITION_FOLLOWING || candidate.contains(anchorNode)) headingIndex = index;
+          else if (headingIndex >= 0) break;
+        }
+        const source = normalizeRichEditorMarkdown(
+          restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current),
+        );
+        const anchorElement = anchorNode.nodeType === Node.TEXT_NODE ? anchorNode.parentElement : anchorNode as HTMLElement;
+        const block = anchorElement?.closest<HTMLElement>("p, li, blockquote, pre, h1, h2, h3, h4, h5, h6") || anchorElement;
+        const prefixText = block && content.contains(block)
+          ? domTextBeforeCaret(block, range.startContainer, range.startOffset)
+          : "";
+        onCaretAnchorChange(markdownCaretAnchor(source, headingIndex, block?.textContent || "", prefixText));
+      }
+    };
+    document.addEventListener("selectionchange", remember);
+    return () => document.removeEventListener("selectionchange", remember);
+  }, [onCaretAnchorChange]);
+
+  // 本文が変わったら覚えていた範囲は当てにならない。
+  useEffect(() => {
+    lastSelectionRangeRef.current = null;
+  }, [markdown]);
+
+  /**
+   * いま本文で選択されている範囲を読む（#313）。
+   * 呼ばれたときだけ見る。生きた選択が無ければ直前に覚えた範囲を使う。
+   */
+  const captureSelection = useCallback((): FloatingTextSelection | null => {
+    const content = contentElement();
+    if (!content) return null;
+    const selection = window.getSelection();
+    const liveRange = selection && selection.rangeCount > 0 && !selection.isCollapsed
+      ? selection.getRangeAt(0)
+      : null;
+    const range = liveRange && rangeInsideContent(liveRange, content)
+      ? liveRange
+      : lastSelectionRangeRef.current;
+    if (!range || !rangeInsideContent(range, content)) return null;
+    const text = range.toString().trim();
+    if (!text) return null;
+
+    // 覚えていた範囲から呼ばれることもあるので、live selectionではなくrangeを基準にする。
+    const anchorNode = range.startContainer;
+    let heading: string | null = null;
+    if (anchorNode) {
+      for (const candidate of content.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")) {
+        const position = candidate.compareDocumentPosition(anchorNode);
+        if (position & Node.DOCUMENT_POSITION_FOLLOWING || candidate.contains(anchorNode)) {
+          heading = candidate.textContent?.trim() || null;
+        } else if (heading) {
+          break;
+        }
+      }
+    }
+    const rangeRect = range.getBoundingClientRect();
+    const panelWidth = Math.min(360, window.innerWidth - 16);
+    const panelHeight = 176;
+    return {
+      text,
+      heading,
+      top: rangeRect.bottom + panelHeight <= window.innerHeight
+        ? rangeRect.bottom + 6
+        : Math.max(8, rangeRect.top - panelHeight - 6),
+      left: Math.max(8, Math.min(window.innerWidth - panelWidth - 8, rangeRect.left)),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectionCommand) return;
+    const selection = captureSelection();
+    if (!selection) {
+      onSelectionUnavailable?.();
+      return;
+    }
+    if (selectionCommand.kind === "ai") {
+      onAiEditSelection?.(selection);
+      return;
+    }
+    if (!onExtractSelection) {
+      onSelectionUnavailable?.();
+      return;
+    }
+    // タイトルを決める段だけpanelを出す。選択しただけでは何も出さない。
+    setTextSelection(selection);
+    setExtractionTitle(selectionTitleCandidate(selection.text));
+    setExtractionError("");
+    setExtractionKind(selectionCommand.kind);
+  }, [selectionCommand?.nonce]);
+
+  useEffect(() => {
+    if (!textSelection) return;
+    const closeOnViewportChange = () => {
+      if (!extractionKind) setTextSelection(null);
+    };
+    window.addEventListener("resize", closeOnViewportChange);
+    window.addEventListener("scroll", closeOnViewportChange, true);
+    return () => {
+      window.removeEventListener("resize", closeOnViewportChange);
+      window.removeEventListener("scroll", closeOnViewportChange, true);
+    };
+  }, [extractionKind, textSelection]);
+
+  async function submitSelectionExtraction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onExtractSelection || !textSelection || !extractionKind) return;
+    if (!extractionTitle.trim()) {
+      setExtractionError("タイトルを入力してください。");
+      return;
+    }
+    setExtracting(true);
+    setExtractionError("");
+    try {
+      await onExtractSelection(extractionKind, textSelection, extractionTitle);
+      setTextSelection(null);
+      setExtractionKind(null);
+      setExtractionTitle("");
+      editorRef.current?.focus(() => {}, { preventScroll: true });
+    } catch (error) {
+      setExtractionError(`作成できませんでした。${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   // Windows IME は contenteditable の EditContext や祖先スクロールを基準に候補位置を決める。
   // 変換開始時に従来の caret 基準へ戻し、候補が入力文字へ重ならないだけの表示領域を確保する。
@@ -517,13 +913,15 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     };
     refresh();
     const observer = new MutationObserver(refresh);
-    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    // 通常の文字入力はLexicalのTextNode更新だけで、見出し番号・Callout構造は変わらない。
+    // 長文で毎キー全文DOMを再走査しないよう、構造変更だけを監視する。
+    observer.observe(root, { childList: true, subtree: true });
     return () => {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
       applyHeadingNumberAttributes(content(), false);
     };
-  }, [headingNumbersEnabled, headingNumberStart, headingNumberLevelKey, markdown]);
+  }, [headingNumbersEnabled, headingNumberStart, headingNumberLevelKey]);
 
   // React の onClick だけでは Lexical に握られることがあるため、capture の pointerdown で拾う。
   useEffect(() => {
@@ -652,6 +1050,11 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     <div
       ref={editorScopeRef}
       className="note-live-editor-paste-scope"
+      onKeyDownCapture={(event) => handleCalloutMarkerEnter(event, editorScopeRef.current)}
+      onInputCapture={() => {
+        markMermaidEditorInput();
+        onDirty?.();
+      }}
       onPasteCapture={handleRichEditorPaste}
     >
       <MDXEditor
@@ -670,8 +1073,49 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
           onError(error);
         }}
         plugins={plugins}
-        spellCheck
+        spellCheck={spellCheck}
       />
+      {/* 選択しただけでは何も出さない。明示commandでタイトルを決める段だけ出す（#313）。 */}
+      {textSelection && extractionKind && (
+        <div
+          className="note-selection-extract-panel is-composing"
+          style={{ top: textSelection.top, left: textSelection.left }}
+          role="group"
+          aria-label="選択範囲から作成"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <form onSubmit={submitSelectionExtraction}>
+              <label>
+                <span>{extractionKind === "task" ? "Taskのタイトル" : "Noteのタイトル"}</span>
+                <input
+                  value={extractionTitle}
+                  onChange={(event) => setExtractionTitle(event.target.value)}
+                  autoFocus
+                  aria-invalid={Boolean(extractionError)}
+                  aria-describedby={extractionError ? "selection-extraction-error" : undefined}
+                />
+              </label>
+              {textSelection.heading && <small>元の見出し: {textSelection.heading}</small>}
+              {extractionError && <p id="selection-extraction-error" role="alert">{extractionError}</p>}
+              <div>
+                <button type="submit" className="primary-button compact" disabled={extracting}>
+                  {extracting ? "作成中" : `${extractionKind === "task" ? "Task" : "Note"}を作る`}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button compact"
+                  disabled={extracting}
+                  onClick={() => {
+                    setExtractionKind(null);
+                    setExtractionError("");
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+          </form>
+        </div>
+      )}
       {hoverLink && (
         <div
           className={`note-link-hover-card ${linkEditMode ? "is-editing" : ""}`}

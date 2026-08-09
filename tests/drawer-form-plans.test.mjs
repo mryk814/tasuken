@@ -119,6 +119,38 @@ test("task form plan normalizes reminder, section, schedule, and Artifact Theme 
   assert.equal(artifact.theme_id, "theme-1");
 });
 
+test("Conversationから作ったTaskはderived_fromを同じ保存操作列へ追加する", () => {
+  const result = plan("task", [
+    ["title", "会話から調査する"],
+    ["state", "todo"],
+  ], {
+    _lineage_source_type: "resource",
+    _lineage_source_id: "conversation-1",
+    _lineage_reference_id: "reference-lineage-1",
+  });
+
+  assert.equal(result.kind, "operations");
+  const task = result.operations.find((operation) => operation.type === "task").entity;
+  const reference = result.operations.find((operation) => operation.type === "reference");
+  assert.equal("_lineage_source_type" in task, false);
+  assert.equal("_lineage_source_id" in task, false);
+  assert.deepEqual(reference.entity, {
+    id: "reference-lineage-1",
+    source_type: "task",
+    source_id: task.id,
+    target_type: "resource",
+    target_id: "conversation-1",
+    relation_type: "derived_from",
+    note: "Conversationの明示操作から作成",
+    created_at: reference.entity.created_at,
+  });
+  assert.match(reference.entity.created_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(reference.options, {
+    source: "manual",
+    reason: "created_from_conversation",
+  });
+});
+
 test("waiting form plan keeps check reminders on waiting records", () => {
   const result = plan("waiting", [
     ["title", "回答待ち"],
@@ -142,4 +174,102 @@ test("domain form plans report the field that needs focus", () => {
     field: "waiting_for",
     message: "相手を入力してください。",
   });
+});
+
+test("AI共通metadataは欄がある編集では保存され、欄が無い保存では消えない（#294）", () => {
+  const base = {
+    id: "task-1",
+    ai_summary: "既存の概要",
+    ai_summary_authority: "user_confirmed",
+    ai_authority: "user_confirmed",
+    ai_visibility: ["coding_agent"],
+    ai_source_refs: [{ kind: "url", locator: "https://example.com" }],
+  };
+
+  // 欄が無い保存経路（一覧からの状態変更など）は既存値をそのまま持ち回る。
+  const carried = plan("task", [["title", "解析する"], ["state", "doing"]], base);
+  const carriedTask = carried.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(carriedTask.ai_summary, "既存の概要");
+  assert.deepEqual(carriedTask.ai_visibility, ["coding_agent"]);
+  assert.deepEqual(carriedTask.ai_source_refs, [{ kind: "url", locator: "https://example.com" }]);
+
+  const edited = plan("task", [
+    ["title", "解析する"],
+    ["state", "doing"],
+    ["ai_context_present", "true"],
+    ["ai_summary", "新しい概要"],
+    ["ai_summary_authority", "user_confirmed"],
+    ["ai_freshness", "current"],
+    ["ai_authority", "user_confirmed"],
+    ["ai_last_verified_at", "2026-08-06"],
+    ["ai_visibility_override", "true"],
+    ["ai_visibility", "m365"],
+  ], base);
+  const editedTask = edited.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(editedTask.ai_summary, "新しい概要");
+  assert.equal(editedTask.ai_freshness, "current");
+  assert.equal(editedTask.ai_last_verified_at, "2026-08-06");
+  assert.deepEqual(editedTask.ai_visibility, ["m365"]);
+
+  // 個別設定を外したら未設定（null）へ戻し、Theme・全体の既定へ継承させる。
+  const inherited = plan("task", [
+    ["title", "解析する"],
+    ["state", "doing"],
+    ["ai_context_present", "true"],
+    ["ai_visibility", "m365"],
+  ], base);
+  const inheritedTask = inherited.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(inheritedTask.ai_visibility, null);
+
+  // 置き換え先が無いままsupersededにはしない。
+  const superseded = plan("task", [
+    ["title", "解析する"],
+    ["state", "doing"],
+    ["ai_context_present", "true"],
+    ["ai_freshness", "superseded"],
+  ], base);
+  const supersededTask = superseded.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(supersededTask.ai_freshness, null);
+});
+
+test("出典は空行を捨て、Import由来のlocator情報を保つ（#294）", () => {
+  const base = {
+    id: "task-1",
+    ai_source_refs: [
+      { kind: "canonical_document", locator: "材料A/測定メモ.md", title: "測定メモ", storage_root_id: "sync", relative_path: "材料A/測定メモ.md" },
+    ],
+  };
+  const result = plan("task", [
+    ["title", "解析する"],
+    ["state", "todo"],
+    ["ai_context_present", "true"],
+    ["ai_source_ref_kind", "canonical_document"],
+    ["ai_source_ref_locator", "材料A/測定メモ.md"],
+    ["ai_source_ref_title", "測定メモ"],
+    ["ai_source_ref_kind", "url"],
+    ["ai_source_ref_locator", "https://example.com/spec"],
+    ["ai_source_ref_title", "仕様"],
+    // 追加用の空行は保存しない。
+    ["ai_source_ref_kind", "url"],
+    ["ai_source_ref_locator", "  "],
+    ["ai_source_ref_title", ""],
+  ], base);
+  const task = result.operations.find((operation) => operation.type === "task").entity;
+  assert.equal(task.ai_source_refs.length, 2);
+  // フォームで触らないstorage_root_id / relative_pathは既存値を引き継ぐ。
+  assert.equal(task.ai_source_refs[0].storage_root_id, "sync");
+  assert.equal(task.ai_source_refs[0].relative_path, "材料A/測定メモ.md");
+  assert.deepEqual(task.ai_source_refs[1], { kind: "url", locator: "https://example.com/spec", title: "仕様" });
+
+  // 場所を空にした行は外れる（削除）。
+  const removed = plan("task", [
+    ["title", "解析する"],
+    ["state", "todo"],
+    ["ai_context_present", "true"],
+    ["ai_source_ref_kind", "canonical_document"],
+    ["ai_source_ref_locator", ""],
+    ["ai_source_ref_title", "測定メモ"],
+  ], base);
+  const removedTask = removed.operations.find((operation) => operation.type === "task").entity;
+  assert.deepEqual(removedTask.ai_source_refs, []);
 });

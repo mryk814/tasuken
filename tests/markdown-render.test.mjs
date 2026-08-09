@@ -24,7 +24,10 @@ async function importBundled(relativePath) {
 
 const markdown = await importBundled("src/renderer/src/features/workspace/lib/markdown.ts");
 const markdownEditing = await importBundled("src/renderer/src/features/workspace/lib/markdownEditing.ts");
+const mermaid = await importBundled("src/renderer/src/features/workspace/lib/mermaid.ts");
 const mermaidSizing = await importBundled("src/renderer/src/features/workspace/lib/mermaidSizing.ts");
+const mermaidWidth = await importBundled("src/renderer/src/features/workspace/lib/mermaidWidth.ts");
+const markdownSurfaceSource = readFileSync("src/renderer/src/features/workspace/lib/markdownDocumentSurfaces.ts", "utf8");
 
 test("Mermaid SVG presentation enlarges small diagrams without shrinking large ones", () => {
   assert.deepEqual(mermaidSizing.mermaidSvgPresentation("0 0 113.046875 174"), {
@@ -38,6 +41,21 @@ test("Mermaid SVG presentation enlarges small diagrams without shrinking large o
     intrinsicHeight: 174,
   });
   assert.equal(mermaidSizing.mermaidSvgPresentation("0 0 0 100"), null);
+});
+
+test("Mermaid lazy viewport fallback renders only within the observer root margin", () => {
+  assert.equal(mermaid.isMermaidNearViewport({ top: 760, bottom: 820, left: 20, right: 400 }, 800, 600), true);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 1360, bottom: 1420, left: 20, right: 400 }, 800, 600), false);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 200, bottom: 260, left: 820, right: 900 }, 800, 600), false);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 0, bottom: 0, left: 20, right: 400 }, 800, 600), false);
+  assert.equal(mermaid.isMermaidNearViewport({ top: 0, bottom: 60, left: 20, right: 400 }, 0, 600), false);
+});
+
+test("Mermaid width metadata normalizes and preserves unrelated fence metadata", () => {
+  assert.equal(mermaidWidth.mermaidWidthFromMeta("title=overview width=67%"), 65);
+  assert.equal(mermaidWidth.mermaidWidthFromMeta("width=20%"), null);
+  assert.equal(mermaidWidth.withMermaidWidthMeta("title=overview width=65%", 80), "title=overview width=80%");
+  assert.equal(mermaidWidth.withMermaidWidthMeta("title=overview width=65%", null), "title=overview");
 });
 
 test("markdown preview renders tasken images and math markers", () => {
@@ -106,6 +124,13 @@ test("markdown preview renders footnotes and keeps Mermaid code blocks identifia
   assert.match(html, /実験ノートを参照/);
   assert.match(html, /class="md-mermaid-block" data-mermaid="true"/);
   assert.match(html, /class="language-mermaid"/);
+});
+
+test("markdown preview applies explicit Mermaid width without changing the diagram source", () => {
+  const html = markdown.renderMarkdownPreview("```mermaid width=65%\nflowchart TD\n  A --> B\n```");
+  assert.match(html, /data-mermaid-width="65"/);
+  assert.match(html, /style="width:min\(100%, 65%\);margin-inline:auto"/);
+  assert.match(html, /flowchart TD/);
 });
 
 test("rich editor normalization removes only accidental empty fences", () => {
@@ -214,8 +239,15 @@ test("previewDocument styling stays aligned with markdown-preview tokens", () =>
     "markdown",
   );
   const previewCss = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  const rendererEntry = readFileSync("src/renderer/src/main.tsx", "utf8");
 
   assert.match(html, /class="markdown-document"/);
+  assert.match(rendererEntry, /installMarkdownDocumentSurfaces\(document\)/);
+  assert.match(markdownSurfaceSource, /target\.head\.prepend\(style\)/);
+  assert.match(html, /--markdown-document-math-bg:\s*#f6f4f1/);
+  assert.match(html, /--markdown-document-code-bg:\s*#f5f9fc/);
+  assert.match(html, /--markdown-document-quote-bg:\s*#fafcfd/);
+  assert.match(markdownSurfaceSource, /\.note-mdx-content,\s*\n\.markdown-preview,\s*\n\.markdown-document/);
   assert.match(html, /--markdown-accent:#2D7FB8/);
   assert.match(html, /--markdown-accent-bd:#C3DCEE/);
   assert.match(html, /--markdown-paper-secondary:#554b46/);
@@ -278,20 +310,26 @@ $$
   assert.match(doc, /class="katex-mathml"/);
   assert.match(doc, /class="katex-html"/);
   // ラッパーが Georgia 固定や inline-block で KaTeX の baseline を壊さない。
-  assert.match(doc, /\.markdown-document \.md-math-inline\{display:inline/);
+  assert.match(doc, /\.markdown-document \.md-math-inline\s*\{[\s\S]*?display:\s*inline/s);
   assert.doesNotMatch(doc, /\.md-math-inline\{[^}]*font-family:Georgia/);
   assert.match(doc, /\.markdown-document \.md-math-block\{\s*overflow:visible/s);
+  assert.match(doc, /\.markdown-document \.md-math-block\s*\{[\s\S]*?background:\s*var\(--markdown-document-math-bg\)/s);
+  assert.doesNotMatch(doc, /\.markdown-document \.md-math-block\s*\{[^}]*color-mix\(/s);
 });
 
 test("previewDocument includes print-safe Mermaid and higher-contrast text styling", () => {
-  const doc = markdown.previewDocument("```mermaid\nflowchart LR\nA --> B\n```", "markdown");
+  const doc = markdown.previewDocument("```mermaid width=65%\nflowchart LR\nA --> B\n```", "markdown");
   const mermaidSource = readFileSync("src/renderer/src/features/workspace/lib/mermaid.ts", "utf8");
+  const pdfServiceSource = readFileSync("src/main/services/workspaceService.ts", "utf8");
 
   assert.match(doc, /color:#1f1b1a/);
   assert.match(doc, /print-color-adjust:exact/);
+  assert.match(doc, /data-mermaid-width="65"/);
+  assert.match(doc, /style="width:min\(100%, 65%\);margin-inline:auto"/);
   assert.match(doc, /\.markdown-document pre\.md-mermaid-block\.is-rendered > code\{display:none\}/);
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-width:100%/s);
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-height:205mm/s);
+  assert.doesNotMatch(pdfServiceSource, /querySelectorAll\("\.md-mermaid-block"\)[^}]*style\.width/);
   assert.match(doc, /class="md-mermaid-block" data-mermaid="true"/);
   assert.match(mermaidSource, /sequence:\s*\{[\s\S]*mirrorActors:\s*false/);
   assert.match(mermaidSource, /renderMermaidBlocks\(parsed, "print"\)/);
@@ -484,6 +522,52 @@ test("markdown editing helpers format safely, find matches, and build a line dif
   ]);
 });
 
+test("markdown replace updates one match or every match without rescanning inserted text", () => {
+  const source = "旧名称はAlpha、alphaも旧名称。";
+
+  const single = markdownEditing.replaceMarkdownMatch(source, "旧名称", 0, "新名称");
+  assert.equal(single.text, "新名称はAlpha、alphaも旧名称。");
+  assert.equal(single.count, 1);
+  // 置換文字列より後ろの一致へ進む（自分自身を選び直さない）。
+  assert.equal(single.nextIndex, 0);
+  assert.deepEqual(markdownEditing.findMarkdownMatches(single.text, "旧名称"), [{ index: 16, length: 3 }]);
+
+  // 置換後の文字列が検索語を含んでも、次の一致は挿入部分より後ろから探す。
+  const growing = markdownEditing.replaceMarkdownMatch("aa", "a", 0, "aa");
+  assert.equal(growing.text, "aaa");
+  assert.equal(growing.nextIndex, 2);
+
+  const all = markdownEditing.replaceAllMarkdownMatches(source, "旧名称", "新名称");
+  assert.equal(all.text, "新名称はAlpha、alphaも新名称。");
+  assert.equal(all.count, 2);
+  assert.equal(markdownEditing.replaceAllMarkdownMatches("aaa", "a", "aa").text, "aaaaaa");
+
+  // 一致が無い・検索語が空の場合は本文を変えない。
+  assert.deepEqual(markdownEditing.replaceMarkdownMatch(source, "存在しない語", 0, "x"), { text: source, count: 0, nextIndex: 0 });
+  assert.deepEqual(markdownEditing.replaceAllMarkdownMatches(source, "  ", "x"), { text: source, count: 0, nextIndex: 0 });
+
+  // 大文字・小文字を区別せずに一致し、置換文字列はそのまま入る（検索の挙動と揃える）。
+  assert.equal(markdownEditing.replaceAllMarkdownMatches("Alpha alpha", "ALPHA", "Beta").text, "Beta Beta");
+});
+
+test("notes search bar exposes replace controls and reload-safe Ctrl+R", () => {
+  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  assert.match(notesSource, /event\.key\.toLowerCase\(\) === "r"[\s\S]*?openReplaceRef\.current\(\)/);
+  assert.match(notesSource, /すべて置換/);
+  // 置換はEditor標準のUndo/Redoで戻す（#286）。置換バー独自の「元に戻す」は持たない。
+  assert.doesNotMatch(notesSource, /onClick=\{undoReplace\}/);
+  assert.match(notesSource, /function applyReplacedBody\(nextBody: string\): void \{/);
+  // Rich Editorはroot入れ替えが1つのHISTORY_PUSHになる。Rawは制御値なので
+  // execCommandでブラウザのUndo履歴へ1手として乗せる。
+  assert.match(notesSource, /document\.execCommand\("insertText", false, nextBody\)/);
+  assert.match(notesSource, /Ctrl\+Zで一度に戻せます。/);
+  const mainSource = readFileSync("src/main/index.ts", "utf8");
+  // 既定メニューのCtrl+R再読み込みを外し、Ctrl+Shift+Rへ分離していること。
+  assert.match(mainSource, /Menu\.setApplicationMenu/);
+  assert.match(mainSource, /role: "forceReload", accelerator: "CmdOrCtrl\+Shift\+R"/);
+  assert.doesNotMatch(mainSource, /role: "reload"/);
+});
+
 test("markdown preview does not render unsafe image urls", () => {
   const html = markdown.renderMarkdownPreview("![bad](javascript:alert(1))");
 
@@ -528,6 +612,22 @@ test("notes page flushes MDX markdown before leaving edit mode", () => {
   assert.match(source, /previewMode === "edit" && nextMode !== "edit"/);
 });
 
+test("long note Edit keeps full-document work off the urgent keystroke path", () => {
+  const notesPage = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const richEditor = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const headingIndex = readFileSync("src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx", "utf8");
+
+  assert.match(notesPage, /startTransition\(\(\) => \{\s*setDraftOwner\(selectedOwnerRef\.current\)/);
+  assert.match(notesPage, /setDraftBodyState\(value\)/);
+  assert.match(notesPage, /diffOpen && draftDirty \? diffMarkdownLines/);
+  assert.match(notesPage, /setTimeout\(\(\) => setIndexedDraftBody\(draftBody\), 240\)/);
+  assert.match(headingIndex, /querySelectorAll<HTMLElement>\("\.note-mdx-content h1,/);
+  assert.doesNotMatch(headingIndex, /function findHeadingElement/);
+  assert.match(headingIndex, /observer\?\.observe\(surface!, \{ childList: true \}\)/);
+  assert.match(richEditor, /observer\.observe\(root, \{ childList: true, subtree: true \}\)/);
+  assert.doesNotMatch(richEditor, /characterData: true/);
+});
+
 test("notes editor hides north-south only image resizers", () => {
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
   assert.match(css, /_imageResizerN_/);
@@ -539,7 +639,8 @@ test("notes editor hides north-south only image resizers", () => {
   const imgRule = (css.match(/\.note-mdx-content img \{[^}]+\}/s)?.[0] || "").replace(/\/\*[\s\S]*?\*\//g, "");
   assert.match(imgRule, /height:\s*auto\s*!important/);
   // max-width は可。width プロパティ自体は不可（HTML width 属性を潰す）
-  assert.match(imgRule, /max-width:\s*100%/);
+  // gutter を引いた calc も max-width の一種として許容する（#287）
+  assert.match(imgRule, /max-width:\s*(100%|calc\(100% - )/);
   assert.doesNotMatch(imgRule, /(?<!max-)width\s*:/);
 });
 
@@ -559,6 +660,30 @@ test("notes page enables image resize and dimension controls", () => {
   );
   assert.match(source, /disableImageResize:\s*false/);
   assert.match(source, /allowSetImageDimensions:\s*true/);
+});
+
+test("notes editor exposes persisted Mermaid width controls", () => {
+  const source = readFileSync(
+    path.resolve("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx"),
+    "utf8",
+  );
+  const styles = readFileSync(
+    path.resolve("src/renderer/src/styles/app.css"),
+    "utf8",
+  );
+  assert.match(source, /useCodeBlockEditorContext/);
+  assert.match(source, /type="range"/);
+  assert.match(source, /setMeta\(withMermaidWidthMeta/);
+  assert.match(source, /Mermaidの表示幅/);
+  assert.match(source, /onChange=\{\(event\) => setDraftWidth\(Number\(event\.target\.value\)\)\}/);
+  assert.match(source, /onPointerUp=\{\(event\) => \{[\s\S]*commitWidth\(width\);/);
+  assert.match(source, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(source, /preserveEditorViewport\(editorRootRef\.current/);
+  assert.match(source, /const previewMeta = withMermaidWidthMeta\(props\.meta, null\)/);
+  assert.match(source, /const LazyMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
+  assert.match(source, /<LazyMermaidPreview key=\{rendered\}/);
+  assert.match(source, /draftWidth === null \? "" : " is-custom-width"/);
+  assert.match(styles, /\.note-mermaid-preview-frame\.is-custom-width \.md-mermaid-svg svg \{ width: 100% !important;/);
 });
 
 test("markdown preview rejects unsafe html img tags", () => {
@@ -678,7 +803,7 @@ test("markdown preview accepts GFM single-dash table separators from MDXEditor",
   assert.match(doc, /<table>/);
   assert.match(doc, /<th>Metric<\/th>/);
   assert.match(doc, /<td>Lead time<\/td>/);
-  assert.match(doc, /border:1px solid #C9D8E2/);
+  assert.match(doc, /border:1px solid var\(--markdown-document-block-border\)/);
   assert.doesNotMatch(doc, />Frontmatter</);
 });
 
@@ -727,8 +852,11 @@ test("notes page keeps mode switches draft-only and autosaves when the note leav
   const switchSource = source.slice(switchStart, switchEnd);
   assert.match(switchSource, /previewMode === "edit" && nextMode !== "edit"/);
   assert.doesNotMatch(switchSource, /autoSaveDraft/);
-  assert.match(source, /return \(\) => \{\s*void autoSaveDraft\(\);/);
-  assert.match(source, /\}, \[selected\?\.id\]\);/);
+  // Route/unmount cleanup hands the dirty snapshot to the serialized owner
+  // queue; the app-level registry keeps it awaitable after this page unmounts.
+  assert.match(source, /import \{ flushPendingNoteDraftSaves, trackPendingNoteDraftSave \} from "\.\.\/lib\/noteDraftFlushRegistry";/);
+  assert.match(source, /useEffect\(\(\) => \(\) => \{\s*cancelAutosaveTimer\(\);\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/);
+  assert.match(source, /\}, \[\]\);/);
   assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });
 
@@ -742,7 +870,10 @@ test("notes page keeps scroll position when switching edit, preview, and raw mod
   assert.match(source, /function captureModeScroll/);
   assert.match(source, /function restoreModeScroll/);
   assert.match(source, /headingIndex/);
-  assert.match(source, /headingOffset/);
+  assert.match(source, /sectionProgress/);
+  assert.match(source, /captureNoteModeScroll/);
+  assert.match(source, /restoreNoteModeScroll/);
+  assert.match(source, /new MutationObserver/);
   // Edit 面は contenteditable の外枠がスクロールし、末尾余白を選択範囲から分離する。
   assert.match(source, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
   assert.match(source, /switchPreviewMode\("edit"\)/);
@@ -908,7 +1039,8 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   assert.match(notesSource, /applyHeadingNumberAttributes/);
   assert.match(notesSource, /見出し番号/);
   assert.match(notesSource, /HEADING_NUMBER_LEVELS/);
-  assert.match(notesSource, /note-heading-level-picker/);
+  // 見出し番号レベルの選択は出力menuの項目になった（#331）。
+  assert.match(notesSource, /id: `heading-level-\$\{level\}`/);
   assert.doesNotMatch(notesSource, /PDFにも番号|heading_numbers_in_publish/);
 
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
@@ -1008,7 +1140,7 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   const doc = markdown.previewDocument("> [!INSIGHT]\n> PDFでも見える", "markdown");
   assert.match(doc, /class="md-callout"/);
   assert.match(doc, /\.markdown-document \.md-callout\{/);
-  assert.match(doc, /#C77D29/);
+  assert.match(doc, /--markdown-document-callout-marker:\s*#c77d29/i);
   assert.match(doc, /PDFでも見える/);
 
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
@@ -1017,11 +1149,13 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   assert.match(css, /blockquote\.md-callout/);
   assert.match(css, /md-callout-marker/);
   assert.match(css, /md-callout-marker-only/);
+  assert.match(css, /md-callout-marker-multiline/);
   assert.match(css, /content: attr\(data-callout-label\)/);
 
+  const richEditorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
   const notesSource = [
     readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
-    readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8"),
+    richEditorSource,
   ].join("\n");
   assert.match(notesSource, /applyCalloutDecorations/);
   assert.doesNotMatch(notesSource, /insertNoteCallout/);
@@ -1069,6 +1203,14 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   assert.match(notesSource, /title="MEMOを挿入"/);
   assert.match(notesSource, /editor\.insertMarkdown\(INSIGHT_CALLOUT_SNIPPET\)/);
   assert.match(notesSource, /selectInsertedMemoPlaceholder\(editorScopeRef\.current\)/);
+  assert.match(notesSource, /\$getNearestNodeFromDOMNode\(node\)/);
+  assert.match(notesSource, /lexicalNode\.select\(start, start \+ CALLOUT_INPUT_PLACEHOLDER\.length\)/);
+  assert.doesNotMatch(richEditorSource, /document\.createRange\(\)/);
+  assert.match(richEditorSource, /handleCalloutMarkerEnter/);
+  assert.match(richEditorSource, /quoteNode\.append\(\$createLineBreakNode\(\), placeholder\)/);
+  assert.match(richEditorSource, /placeholder\.select\(0, CALLOUT_INPUT_PLACEHOLDER\.length\)/);
+  assert.match(richEditorSource, /onKeyDownCapture=.*handleCalloutMarkerEnter/);
+  assert.match(richEditorSource, /parseCalloutMarker\(quoteNode\.getTextContent\(\)\.trim\(\)\)/);
 });
 
 test("extractMarkdownHeadings builds index items and skips code fences", () => {
@@ -1087,10 +1229,10 @@ title: t
 `);
 
   assert.deepEqual(headings, [
-    { index: 0, level: 1, text: "概要", id: "md-h-0" },
-    { index: 1, level: 2, text: "背景", id: "md-h-1" },
-    { index: 2, level: 3, text: "詳細", id: "md-h-2" },
-    { index: 3, level: 4, text: "補足", id: "md-h-3" },
+    { index: 0, level: 1, text: "概要", id: "md-h-0", sourceLine: 3 },
+    { index: 1, level: 2, text: "背景", id: "md-h-1", sourceLine: 9 },
+    { index: 2, level: 3, text: "詳細", id: "md-h-2", sourceLine: 10 },
+    { index: 3, level: 4, text: "補足", id: "md-h-3", sourceLine: 11 },
   ]);
   assert.equal(markdown.HEADING_INDEX_MIN_COUNT, 2);
   assert.equal(markdown.markdownHeadingId(2), "md-h-2");
@@ -1117,6 +1259,9 @@ title: t
   assert.match(indexSource, /activeBarIndex|is-active/);
   assert.match(indexSource, /addEventListener\("scroll"/);
   assert.match(indexSource, /resolveActiveIndex/);
+  assert.match(indexSource, /rawHeadingScrollTop\(heading\.sourceLine, sourceLineCount, scroller\.scrollHeight\)/);
+  assert.match(notesSource, /sourceLineCount=\{indexedLineCount\}/);
+  assert.match(notesSource, /mode=\{previewMode\}/);
   // Edit 面は contenteditable 外側のスクロールラッパへ追従する。
   assert.match(indexSource, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
   assert.match(indexSource, /computeHeadingNumberLabels/);
@@ -1126,4 +1271,116 @@ title: t
   assert.match(css, /span\.is-active/);
   assert.match(css, /md-heading-index-item-number/);
   assert.match(css, /max-height: min\(640px, 78vh\)/);
+});
+
+test("CJK隣接の強調が Preview で太字になる（#285）", () => {
+  // 素の CommonMark では約物が ** の内側・日本語が外側だと強調にならない。
+  const cases = [
+    "文章中の**（重要）**です",
+    "これは**（重要）**です",
+    "本文の**「引用」**が続く",
+    "見出しの**【要点】**を読む",
+    "**重要。**続く",
+    "項目**・一覧**です",
+  ];
+  for (const source of cases) {
+    const html = markdown.previewHtml(source, "markdown");
+    assert.match(html, /<strong>/, `強調にならなかった: ${source}`);
+  }
+});
+
+test("既存の強調・非強調の判定が変わらない（#285）", () => {
+  const strong = [
+    "This is **bold** text",
+    "(**important**)",
+    "**（重要）**",
+    "（**重要**）",
+    "これは**重要**です",
+    "日本語**bold English**日本語",
+    "[**リンク文字**](https://example.com)",
+  ];
+  for (const source of strong) {
+    assert.match(markdown.previewHtml(source, "markdown"), /<strong>/, `強調が消えた: ${source}`);
+  }
+  // 閉じていない ** は強調にしない。
+  assert.doesNotMatch(markdown.previewHtml("**未閉じ", "markdown"), /<strong>/);
+});
+
+test("CJK隣接の取り消し線が Preview で反映される（#285）", () => {
+  const cases = [
+    "文章中の~~（削除）~~です",
+    "これは~~取り消し。~~続く",
+    "本文の~~「引用」~~が続く",
+  ];
+  for (const source of cases) {
+    assert.match(markdown.previewHtml(source, "markdown"), /<del>/, `取り消し線にならなかった: ${source}`);
+  }
+  assert.match(markdown.previewHtml("This is ~~struck~~ text", "markdown"), /<del>/);
+});
+
+test("Editor も Preview と同じ CJK 拡張を使う（#285）", () => {
+  const pluginSource = readFileSync("src/renderer/src/features/workspace/components/markdownCjkFriendlyPlugin.ts", "utf8");
+  assert.match(pluginSource, /cjkFriendlyExtension/);
+  assert.match(pluginSource, /gfmStrikethroughCjkFriendly/);
+  assert.match(pluginSource, /addSyntaxExtension\$/);
+  const editorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  assert.match(editorSource, /markdownCjkFriendlyPlugin\(\)/);
+});
+
+test("縦長画像を max-height で切らない（#289）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  // Notes の preview panel は以前 max-height: min(70vh, 720px) で縦を切っていた。
+  const block = css.match(/\.note-preview-panel \.note-mdx-content img,[\s\S]*?\}/);
+  assert.ok(block, "note-preview-panel の画像ルールが見つからない");
+  assert.match(block[0], /max-height:\s*none/);
+  assert.doesNotMatch(block[0], /max-height:\s*min\(/);
+  assert.doesNotMatch(css, /\.note-preview-panel[^{]*img[^{]*\{[^}]*max-height:\s*\d+px/);
+});
+
+test("Markdown 画像は幅を正本にして高さを自動計算する（#289）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  const previewImg = css.match(/\.markdown-preview \.md-image img \{[\s\S]*?\}/);
+  assert.ok(previewImg, "markdown-preview の画像ルールが見つからない");
+  assert.match(previewImg[0], /height:\s*auto/);
+  assert.doesNotMatch(previewImg[0], /object-fit:\s*cover/);
+  // PDF / document 面も同じ契約にする。
+  const docCss = readFileSync("src/renderer/src/features/workspace/lib/markdown.ts", "utf8");
+  assert.match(docCss, /\.markdown-document \.md-image img\{[^}]*height:auto/);
+  assert.doesNotMatch(docCss, /\.markdown-document \.md-image img\{[^}]*object-fit:cover/);
+});
+
+test("画像は width 指定がなければ元幅を超えない（#289）", () => {
+  const withWidth = markdown.previewHtml('<img src="https://example.com/a.png" alt="x" width="300">', "markdown");
+  assert.match(withWidth, /width:min\(100%, 300px\)/);
+  assert.match(withWidth, /height:auto/);
+  const withoutWidth = markdown.previewHtml('<img src="https://example.com/a.png" alt="x">', "markdown");
+  assert.match(withoutWidth, /max-width:100%/);
+  assert.match(withoutWidth, /height:auto/);
+});
+
+test("画像の左右にリサイズ用の余白を残す（#287）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  // gutter と既定幅はトークン変数から取る。
+  assert.match(css, /--image-resize-gutter:\s*var\(--space-\d+\)/);
+  assert.match(css, /--image-default-width:\s*\d+%/);
+  assert.match(css, /--image-resize-hit-slop:\s*var\(--space-\d+\)/);
+
+  const editorImg = css.match(/\.note-mdx-content img \{[\s\S]*?\}/);
+  assert.ok(editorImg, "note-mdx-content の画像ルールが見つからない");
+  // 幅いっぱいだとハンドルが編集領域の端に張り付く。
+  assert.match(editorImg[0], /max-width:\s*calc\(100% - var\(--image-resize-gutter\) \* 2\)/);
+});
+
+test("幅未指定の画像は本文幅より狭く置く（#287）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  // 挿入直後（width 属性なし）は既定幅。利用者が決めた幅は尊重する。
+  assert.match(css, /\.note-mdx-content img:not\(\[width\]\) \{[^}]*max-width:\s*var\(--image-default-width\)/);
+  assert.match(css, /\.markdown-preview \.md-image:not\(\.has-display-width\) img \{[^}]*max-width:\s*var\(--image-default-width\)/);
+});
+
+test("リサイズハンドルがクリップされない（#287）", () => {
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(css, /\[class\*="_imageResizer_"\]::before \{[\s\S]*?inset:\s*calc\(var\(--image-resize-hit-slop\) \* -1\)/);
+  const overflowRule = css.match(/\.note-mdx-content \[class\*="_imageWrapper_"\] > div \{\s*\n\s*overflow: visible;/);
+  assert.ok(overflowRule || /overflow:\s*visible/.test(css), "wrapper に overflow: visible がない");
 });

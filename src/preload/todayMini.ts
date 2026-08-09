@@ -1,20 +1,21 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import type { TodayMiniTask } from "../shared/ipc/contracts";
+import { IPC, type TodayMiniAddTaskRequest, type TodayMiniTask, type TodayMiniThemeOption } from "../shared/ipc/contracts";
 
 type Unsubscribe = () => void;
 
 contextBridge.exposeInMainWorld("todayMiniApi", {
-  list: (): Promise<TodayMiniTask[]> => ipcRenderer.invoke("today-mini:list"),
-  addTask: (title: string): Promise<TodayMiniTask[]> => ipcRenderer.invoke("today-mini:add-task", title),
-  toggle: (taskId: string): Promise<TodayMiniTask[]> => ipcRenderer.invoke("today-mini:toggle", taskId),
-  openTask: (taskId: string): Promise<boolean> => ipcRenderer.invoke("today-mini:open-task", taskId),
-  pinTopRight: (): Promise<boolean> => ipcRenderer.invoke("today-mini:pin-top-right"),
-  hide: (): Promise<boolean> => ipcRenderer.invoke("today-mini:hide"),
-  refresh: (): Promise<TodayMiniTask[]> => ipcRenderer.invoke("today-mini:refresh"),
+  list: (): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniList),
+  listThemes: (): Promise<TodayMiniThemeOption[]> => ipcRenderer.invoke(IPC.todayMiniThemes),
+  addTask: (request: TodayMiniAddTaskRequest): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniAddTask, request),
+  toggle: (taskId: string): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniToggle, taskId),
+  openTask: (taskId: string): Promise<boolean> => ipcRenderer.invoke(IPC.todayMiniOpenTask, taskId),
+  pinTopRight: (): Promise<boolean> => ipcRenderer.invoke(IPC.todayMiniPinTopRight),
+  hide: (): Promise<boolean> => ipcRenderer.invoke(IPC.todayMiniHide),
+  refresh: (): Promise<TodayMiniTask[]> => ipcRenderer.invoke(IPC.todayMiniRefresh),
   onRefresh: (callback: () => void): Unsubscribe => {
     const handler = (): void => callback();
-    ipcRenderer.on("today-mini:refresh", handler);
-    return () => { ipcRenderer.removeListener("today-mini:refresh", handler); };
+    ipcRenderer.on(IPC.todayMiniRefresh, handler);
+    return () => { ipcRenderer.removeListener(IPC.todayMiniRefresh, handler); };
   },
 });

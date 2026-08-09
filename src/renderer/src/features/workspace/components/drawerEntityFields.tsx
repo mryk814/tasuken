@@ -10,12 +10,19 @@ import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
+  SCHEDULE_RANGE_SEMANTICS_HINTS,
+  SCHEDULE_RANGE_SEMANTICS_LABELS,
   TASK_STATE_LABELS,
+  TASK_REQUESTER_LABELS,
+  TASK_INTENDED_EXECUTOR_LABELS,
+  TASK_WORK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
-import type { Schedule, Task } from "../domain-model/types";
+import { DEFAULT_RANGE_SEMANTICS } from "../domain-model/scheduleSemantics";
+import type { Schedule, ScheduleRangeSemantics, Task } from "../domain-model/types";
 import { Field, ThemeSelect } from "./common";
+import { TaskRepositoryContextFields } from "./repositoryContextFields";
 
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
@@ -23,6 +30,8 @@ const REPEAT_FREQUENCY_LABELS = {
   monthly: "毎月",
 };
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+// 期間内に一度を先に置き、新規の日付範囲の自然な既定にする（#309）。
+const RANGE_SEMANTICS_ORDER: ScheduleRangeSemantics[] = ["once_within_window", "ongoing"];
 
 export function findSchedule(
   data: WorkspaceData,
@@ -74,6 +83,13 @@ export function TaskFields({
     : [];
   const fallbackMonthDay = dateOnly(schedule?.end_date || schedule?.start_date || todayIso()).slice(-2);
   const canAutoSaveChecklist = Boolean(entity.id && saveEntities);
+  // 日付範囲の意味（#309）。既存の未分類データは編集で触るまで未分類のまま残す。
+  const [startDate, setStartDate] = useState(dateOnly(schedule?.start_date));
+  const [endDate, setEndDate] = useState(dateOnly(schedule?.end_date));
+  const [rangeSemantics, setRangeSemantics] = useState<ScheduleRangeSemantics>(
+    schedule?.range_semantics === "ongoing" ? "ongoing" : DEFAULT_RANGE_SEMANTICS,
+  );
+  const isDateRange = Boolean(startDate && endDate && endDate > startDate);
 
   async function saveChecklist(nextChecklist: ReturnType<typeof normalizeChecklistItems>) {
     setChecklist(nextChecklist);
@@ -89,14 +105,30 @@ export function TaskFields({
       plan_node_id: (entity.plan_node_id as string | null) ?? null,
       parent_task_id: (entity.parent_task_id as string | null) ?? null,
       state: (str(entity.state) || "todo") as Task["state"],
+      requester: (str(entity.requester) || "self") as Task["requester"],
+      intended_executor: (str(entity.intended_executor) || "self") as Task["intended_executor"],
+      executor_identity: (entity.executor_identity as string | null) ?? null,
+      work_state: (str(entity.work_state) || (str(entity.intended_executor) === "ai_agent" ? "ready_for_agent" : "not_delegated")) as Task["work_state"],
+      work_started_at: (entity.work_started_at as string | null) ?? null,
+      work_reported_at: (entity.work_reported_at as string | null) ?? null,
+      work_review_note: (entity.work_review_note as string | null) ?? null,
       priority: str(entity.priority) === "high" ? "high" : "normal",
       planning_shelf: normalizeTaskShelf(entity.planning_shelf),
       reminder_at: normalizeReminderDateTime(entity.reminder_at),
       description: (entity.description as string | null) ?? null,
+      completion_note: (entity.completion_note as string | null) ?? null,
       repeat_rule: repeatRule as Task["repeat_rule"],
       repeat_series_id: (entity.repeat_series_id as string | null) ?? null,
       repeat_parent_task_id: (entity.repeat_parent_task_id as string | null) ?? null,
       checklist_items: items,
+      repository_context_mode: (str(entity.repository_context_mode) || "inherit") as Task["repository_context_mode"],
+      repository_context_ids: Array.isArray(entity.repository_context_ids) ? entity.repository_context_ids.map(String) : [],
+      primary_repository_context_id: (entity.primary_repository_context_id as string | null) ?? null,
+      repository_subdirectory: (entity.repository_subdirectory as string | null) ?? null,
+      repository_branch_hint: (entity.repository_branch_hint as string | null) ?? null,
+      repository_context_detachments: Array.isArray(entity.repository_context_detachments)
+        ? entity.repository_context_detachments as Array<Record<string, unknown>>
+        : undefined,
       legacy_item_id: (entity.legacy_item_id as string | null) ?? null,
       created_at: str(entity.created_at) || new Date().toISOString(),
     };
@@ -111,11 +143,36 @@ export function TaskFields({
 
   const preservedSectionId = normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
   const preservedShelf = normalizeTaskShelf(entity.planning_shelf) || "";
+  const intendedExecutorValue = str(entity.intended_executor);
+  const initialIntendedExecutor = Object.prototype.hasOwnProperty.call(TASK_INTENDED_EXECUTOR_LABELS, intendedExecutorValue)
+    ? intendedExecutorValue
+    : "self";
+  const [intendedExecutor, setIntendedExecutor] = useState(initialIntendedExecutor);
+  const preservedWorkState = str(entity.work_state) || (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
   return (
     <>
       <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
+      <TaskRepositoryContextFields entity={entity} data={data} />
       <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
+      <section className="drawer-subsection">
+        <div className="section-heading"><h2>依頼と実行</h2><span className="field-help">本文とは別に、担当と作業状態を記録します。</span></div>
+        <div className="form-grid">
+          <Field label="依頼者">
+            <select name="requester" defaultValue={str(entity.requester) || "self"}>
+              {Object.entries(TASK_REQUESTER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="実行主体">
+            <select name="intended_executor" value={intendedExecutor} onChange={(event) => setIntendedExecutor(event.target.value)}>
+              {Object.entries(TASK_INTENDED_EXECUTOR_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="実行主体の表示名"><input name="executor_identity" defaultValue={str(entity.executor_identity)} placeholder="例: Codex / 山田" /></Field>
+        <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
+        <div className="field-help">作業状態: {TASK_WORK_STATE_LABELS[preservedWorkState as keyof typeof TASK_WORK_STATE_LABELS] || preservedWorkState}</div>
+      </section>
       <Field label="状態">
         <select name="state" defaultValue={str(entity.state) || "todo"}>
           {Object.entries(TASK_STATE_LABELS).map(([value, label]) => (
@@ -132,10 +189,37 @@ export function TaskFields({
         <input name="reminder_at" type="datetime-local" defaultValue={normalizeReminderDateTime(entity.reminder_at) || ""} />
       </Field>
       <div className="form-grid">
-        <Field label="開始"><input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} /></Field>
-        <Field label="期限"><input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} /></Field>
+        <Field label="開始">
+          <input name="start_date" type="date" defaultValue={dateOnly(schedule?.start_date)} onChange={(event) => setStartDate(event.target.value)} />
+        </Field>
+        <Field label="期限">
+          <input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} onChange={(event) => setEndDate(event.target.value)} />
+        </Field>
       </div>
+      {/* 日付範囲を指定したときだけ意味を尋ねる。単日には不要な選択を出さない（#309）。 */}
+      {isDateRange && (
+        <fieldset className="range-semantics-field">
+          <legend>この期間の意味</legend>
+          {RANGE_SEMANTICS_ORDER.map((value) => (
+            <label key={value} className="toggle range-semantics-choice">
+              <input
+                type="radio"
+                name="range_semantics"
+                value={value}
+                checked={rangeSemantics === value}
+                onChange={() => setRangeSemantics(value)}
+              />
+              <span>
+                <strong>{SCHEDULE_RANGE_SEMANTICS_LABELS[value]}</strong>
+                <small>{SCHEDULE_RANGE_SEMANTICS_HINTS[value]}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
       <Field label="説明"><textarea name="description" defaultValue={str(entity.description)} /></Field>
+      {/* 完了時のひとことは説明と混ぜず、完了の記録として別に持つ（#308）。 */}
+      <Field label="完了時のひとこと"><input name="completion_note" defaultValue={str(entity.completion_note)} /></Field>
       <section className="drawer-subsection">
         <div className="section-heading"><h2>繰り返し</h2></div>
         <div className="form-grid">

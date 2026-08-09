@@ -1,17 +1,41 @@
+import { lazy, Suspense, useEffect, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
+
 import type { PageProps, Theme } from "../types";
-import { ArtifactsPage } from "../pages/ArtifactsPage";
-import { ChatRefsPage } from "../pages/ChatRefsPage";
-import { ImportExportPage } from "../pages/ImportExportPage";
-import { InboxPage } from "../pages/InboxPage";
-import { KnowledgePage } from "../pages/KnowledgePage";
-import { NotesPage } from "../pages/NotesPage";
-import { SettingsPage } from "../pages/SettingsPage";
-import { ThemePage } from "../pages/ThemePage";
-import { ThemesPage } from "../pages/ThemesPage";
-import { TimelinePage } from "../pages/TimelinePage";
 import { TodayPage } from "../pages/TodayPage";
-import { TodoPage } from "../pages/TodoPage";
-import { WaitingPage } from "../pages/WaitingPage";
+import { loadWorkspacePage, preloadWorkspacePagesWhenIdle } from "../workspacePageLoaders";
+
+type SettingsPageProps = PageProps & {
+  themeMode: "light" | "dark";
+  setThemeMode: (mode: "light" | "dark") => void;
+  activeGroups: string[];
+  setActiveGroups: (groups: string[]) => void;
+  allThemes: Theme[];
+};
+
+function lazyNamedPage<P>(
+  loader: () => Promise<unknown>,
+  exportName: string,
+): LazyExoticComponent<ComponentType<P>> {
+  return lazy(async () => {
+    const module = await loader() as Record<string, ComponentType<P>>;
+    return { default: module[exportName] };
+  });
+}
+
+const ArtifactsPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("artifacts"), "ArtifactsPage");
+const ChatRefsPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("chat-refs"), "ChatRefsPage");
+const ImportExportPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("ai-io"), "ImportExportPage");
+const InboxPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("inbox"), "InboxPage");
+const KnowledgePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("knowledge"), "KnowledgePage");
+const NotesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("notes"), "NotesPage");
+const SketchLibraryPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch"), "SketchLibraryPage");
+const SketchPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch-editor"), "SketchPage");
+const SettingsPage = lazyNamedPage<SettingsPageProps>(() => loadWorkspacePage("settings"), "SettingsPage");
+const ThemePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("theme"), "ThemePage");
+const ThemesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("themes"), "ThemesPage");
+const TimelinePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("timeline"), "TimelinePage");
+const TodoPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("todo"), "TodoPage");
+const WaitingPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("waiting"), "WaitingPage");
 
 export function WorkspacePageRouter({
   route,
@@ -30,31 +54,51 @@ export function WorkspacePageRouter({
   setActiveGroups: (groups: string[]) => void;
   allThemes: Theme[];
 }) {
+  useEffect(() => preloadWorkspacePagesWhenIdle(), []);
+
+  let page: ReactNode;
   switch (route) {
     case "inbox":
-      return <InboxPage {...common} />;
+      page = <InboxPage {...common} />;
+      break;
     case "chat-refs":
-      return <ChatRefsPage {...common} />;
+      page = <ChatRefsPage {...common} />;
+      break;
     case "artifacts":
-      return <ArtifactsPage {...common} />;
+      page = <ArtifactsPage {...common} />;
+      break;
     case "theme":
-      return <ThemePage {...common} />;
+      page = <ThemePage {...common} />;
+      break;
     case "todo":
-      return <TodoPage {...common} />;
+      page = <TodoPage {...common} />;
+      break;
     case "timeline":
-      return <TimelinePage {...common} />;
+      page = <TimelinePage {...common} />;
+      break;
     case "themes":
-      return <ThemesPage {...common} />;
+      page = <ThemesPage {...common} />;
+      break;
     case "notes":
-      return <NotesPage {...common} />;
+      page = <NotesPage {...common} />;
+      break;
+    case "sketch":
+      page = <SketchLibraryPage {...common} />;
+      break;
+    case "sketch-editor":
+      page = <SketchPage {...common} />;
+      break;
     case "knowledge":
-      return <KnowledgePage {...common} />;
+      page = <KnowledgePage {...common} />;
+      break;
     case "waiting":
-      return <WaitingPage {...common} />;
+      page = <WaitingPage {...common} />;
+      break;
     case "ai-io":
-      return <ImportExportPage {...common} />;
+      page = <ImportExportPage {...common} />;
+      break;
     case "settings":
-      return (
+      page = (
         <SettingsPage
           {...common}
           themeMode={themeMode}
@@ -64,7 +108,14 @@ export function WorkspacePageRouter({
           allThemes={allThemes}
         />
       );
+      break;
     default:
-      return <TodayPage {...common} />;
+      page = <TodayPage {...common} />;
   }
+
+  return (
+    <Suspense fallback={<main className="workspace-route-loading" role="status"><span className="spinner" /></main>}>
+      {page}
+    </Suspense>
+  );
 }

@@ -40,6 +40,8 @@
 - AI ImportプレビューのKnowledgeNode / KnowledgeRelation対応
 - Knowledge Health Checkの簡易一覧
 - Read-only MCP Server（search/list/context/health/export tools）
+- インストール版に同梱するMCP BridgeとSafe Write Proposal Inbox
+- MCPからのTask / Note / Note編集 / Knowledge提案、Note version競合検出
 
 ## 継続改善
 
@@ -56,9 +58,10 @@ Taskenを「思考・知識・作業文脈をAIと共有できる個人用Thinki
 
 優先順は以下とする。
 
-1. AI Knowledge Extractionのpreview drawerを追加し、Note本文からKnowledge候補を作る。
-2. MCP writeは直接Entityを作らず、`ai_proposal`としてpreview inboxに入れる。
-3. VS Code / Copilot / Cursor連携はMCP経由の薄い統合に限定する。
+1. Knowledge UIは実験・診断用の既存データ棚卸しに限定する。Knowledge候補の取り込みは既存AI Import / Proposal契約で扱い、Notesの日常導線へ戻さない。
+2. MCP writeは直接Entityを作らず、`ai_proposal`としてpreview inboxに入れる。（実装済み）
+3. VS Code / Copilot / Cursor連携はSettingsの接続設定からMCP経由で行う。
+4. アプリ内LLMは同じProposal契約を使い、独自の書き込み経路を作らない。
 
 ## 検証
 

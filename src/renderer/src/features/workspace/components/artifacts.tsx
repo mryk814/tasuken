@@ -12,6 +12,7 @@ import {
   IconPhoto,
   IconPlus,
   IconPresentation,
+  IconVolume,
 } from "@tabler/icons-react";
 
 import {
@@ -29,6 +30,7 @@ import {
   resolveArtifactStorageMode as resolveStorageModeShared,
 } from "../../../../../shared/artifactLinks.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { LineagePanel } from "./LineagePanel";
 import {
   ARTIFACT_LINK_STATUS_LABELS,
   ARTIFACT_LINK_TYPE_LABELS,
@@ -55,6 +57,8 @@ import {
   resolveArtifactThemeId,
 } from "../lib/artifactEntities";
 import { markArtifactOpened, readRecentArtifactIds } from "../lib/artifactRecent";
+import { str } from "../lib/format";
+import { ChatRefArtifactLinkDialog } from "./ChatRefArtifactLinkDialog";
 import { ContextMenu, type ContextMenuItem } from "./common";
 
 const SPREADSHEET_TYPES = new Set(["xlsx", "xls", "csv", "tsv"]);
@@ -64,29 +68,36 @@ const PRESENTATION_TYPES = new Set(["pptx", "ppt"]);
 const ARCHIVE_TYPES = new Set(["zip", "7z"]);
 const TEXT_TYPES = new Set(["txt", "docx", "doc", "json", "html"]);
 const PDF_TYPES = new Set(["pdf"]);
+const AUDIO_TYPES = new Set(["mp3", "mpeg", "mpga", "wav", "ogg", "opus", "m4a"]);
 
-export type ArtifactOpenMode = "external" | "image" | "markdown" | "file";
+export type ArtifactOpenMode = "external" | "image" | "markdown" | "audio" | "file";
 
-export function artifactFileCategory(fileType?: string): ArtifactOpenMode {
-  const type = (fileType || "").toLowerCase();
+type ArtifactCategoryInput = string | Pick<Artifact, "file_type" | "media_kind"> | undefined;
+
+export function artifactFileCategory(input?: ArtifactCategoryInput): ArtifactOpenMode {
+  if (typeof input === "object" && input?.media_kind === "audio") return "audio";
+  if (typeof input === "object" && input?.media_kind === "video") return "file";
+  const type = (typeof input === "string" ? input : input?.file_type || "").toLowerCase();
   if (IMAGE_TYPES.has(type)) return "image";
   if (MARKDOWN_TYPES.has(type)) return "markdown";
+  if (AUDIO_TYPES.has(type)) return "audio";
   if (SPREADSHEET_TYPES.has(type) || PDF_TYPES.has(type) || PRESENTATION_TYPES.has(type)) return "external";
   return "file";
 }
 
-export function artifactOpenLabel(fileType?: string): string {
-  const mode = artifactFileCategory(fileType);
+export function artifactOpenLabel(input?: ArtifactCategoryInput): string {
+  const mode = artifactFileCategory(input);
   if (mode === "external") return "外部で開く";
-  if (mode === "image" || mode === "markdown") return "プレビュー";
+  if (mode === "image" || mode === "markdown" || mode === "audio") return "プレビュー";
   return "開く";
 }
 
-export function artifactOpenHint(fileType?: string): string {
-  const mode = artifactFileCategory(fileType);
+export function artifactOpenHint(input?: ArtifactCategoryInput): string {
+  const mode = artifactFileCategory(input);
   if (mode === "external") return "Excel / PDF / PowerPoint などは関連付けられた外部アプリで開きます。";
   if (mode === "image") return "画像をアプリ内ビューアで大きく表示します。";
   if (mode === "markdown") return "Markdownをアプリ内ビューアで表示します。";
+  if (mode === "audio") return "音声をアプリ内プレイヤーで再生します。";
   return "関連付けられたアプリで開きます。";
 }
 
@@ -103,7 +114,7 @@ export function artifactTypeBadge(fileType?: string): string {
   return type.slice(0, 8);
 }
 
-export function ArtifactFileIcon({ fileType }: { fileType?: string }) {
+export function ArtifactFileIcon({ fileType, mediaKind }: { fileType?: string; mediaKind?: Artifact["media_kind"] }) {
   const type = (fileType || "").toLowerCase();
   const size = 18;
   if (SPREADSHEET_TYPES.has(type)) return <IconFileSpreadsheet size={size} />;
@@ -111,6 +122,7 @@ export function ArtifactFileIcon({ fileType }: { fileType?: string }) {
   if (PDF_TYPES.has(type)) return <IconFileTypePdf size={size} />;
   if (MARKDOWN_TYPES.has(type)) return <IconMarkdown size={size} />;
   if (PRESENTATION_TYPES.has(type)) return <IconPresentation size={size} />;
+  if (mediaKind === "audio" || (!mediaKind && AUDIO_TYPES.has(type))) return <IconVolume size={size} />;
   if (ARCHIVE_TYPES.has(type)) return <IconFileZip size={size} />;
   if (TEXT_TYPES.has(type)) return <IconFileText size={size} />;
   return <IconFile size={size} />;
@@ -143,6 +155,10 @@ export function resolveArtifactSourceLabel(artifact: Artifact, data: WorkspaceDa
     const theme = (data.themes || []).find((entry) => entry.id === sourceId);
     return theme ? String(theme.name || "Theme") : ARTIFACT_SOURCE_TYPE_LABELS.theme;
   }
+  if (sourceType === "capture_entry") {
+    const capture = (data.capture_entrys || []).find((entry) => entry.id === sourceId);
+    return capture ? String(capture.title || capture.text || "Inbox") : ARTIFACT_SOURCE_TYPE_LABELS.capture_entry;
+  }
   return ARTIFACT_SOURCE_TYPE_LABELS[sourceType] || sourceType;
 }
 
@@ -174,7 +190,21 @@ export function openArtifactSource(artifact: Artifact, data: WorkspaceData, open
     openDrawer({ type: "theme", mode: "edit", entity: theme });
     return true;
   }
+  if (sourceType === "capture_entry") {
+    const capture = (data.capture_entrys || []).find((entry) => entry.id === sourceId);
+    if (!capture) return false;
+    openDrawer({ type: "capture_entry", entity: capture });
+    return true;
+  }
   return false;
+}
+
+export function openArtifactOriginNote(artifact: Artifact, data: WorkspaceData, openDrawer: OpenDrawer): boolean {
+  if (!artifact.origin_note_id) return false;
+  const note = (data.notes || []).find((entry) => entry.id === artifact.origin_note_id);
+  if (!note) return false;
+  openDrawer({ type: "note", entity: note });
+  return true;
 }
 
 export function themeNameOf(artifact: Artifact, data: WorkspaceData): string {
@@ -199,6 +229,10 @@ export function artifactCardMetaParts(artifact: Artifact, data?: WorkspaceData, 
     const sourceLabel = resolveArtifactSourceLabel(artifact, data);
     const sourceType = ARTIFACT_SOURCE_TYPE_LABELS[artifact.source_type] || artifact.source_type;
     if (sourceLabel) parts.push(`${sourceType}: ${sourceLabel}`);
+  }
+  if (artifact.origin_note_id) {
+    const note = data?.notes.find((entry) => entry.id === artifact.origin_note_id);
+    parts.push(`元Note: ${str(note?.title || artifact.origin_note_title) || "削除済み"}`);
   }
   return parts;
 }
@@ -410,7 +444,8 @@ export async function retargetLinkedArtifact(
 }
 
 export function canPreviewArtifactInApp(artifact: Artifact): boolean {
-  const category = artifactFileCategory(artifact.file_type);
+  const category = artifactFileCategory(artifact);
+  if (artifact.media_kind === "audio") return true;
   if (category !== "image" && category !== "markdown") return false;
   const target = artifactOpenTarget(artifact);
   if (!target) return false;
@@ -428,6 +463,7 @@ export function ArtifactCard({
   saveEntities,
   setToast,
   showSource = false,
+  showLineage = false,
   onOpened,
   onNeedsDirectory,
 }: {
@@ -439,6 +475,7 @@ export function ArtifactCard({
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   showSource?: boolean;
+  showLineage?: boolean;
   onOpened?: () => void;
   onNeedsDirectory?: () => void;
 }) {
@@ -475,16 +512,29 @@ export function ArtifactCard({
       onSelect: () => { void showArtifactInFolder(artifact, setToast); },
     });
   }
-  menuItems.push({
-    label: isHttpUrl(artifactCopyTarget(artifact)) ? "URLをコピー" : "パスをコピー",
-    onSelect: () => { void copyArtifactPath(artifact, setToast); },
-  });
+  const copyTarget = artifactCopyTarget(artifact);
+  if (copyTarget) {
+    menuItems.push({
+      label: isHttpUrl(copyTarget) ? "URLをコピー" : "パスをコピー",
+      onSelect: () => { void copyArtifactPath(artifact, setToast); },
+    });
+  }
   if (showSource && openDrawer && data) {
     menuItems.push({
       label: "元の場所へ",
       onSelect: () => {
         if (!openArtifactSource(artifact, data, openDrawer)) {
           setToast("元の場所が見つかりませんでした。削除済みの可能性があります。", "warning");
+        }
+      },
+    });
+  }
+  if (artifact.origin_note_id && openDrawer && data) {
+    menuItems.push({
+      label: "元Noteへ",
+      onSelect: () => {
+        if (!openArtifactOriginNote(artifact, data, openDrawer)) {
+          setToast("元Noteが見つかりませんでした。削除済みの可能性があります。", "warning");
         }
       },
     });
@@ -542,7 +592,7 @@ export function ArtifactCard({
   return (
     <li className={`artifact-card ${mode === "linked" ? "is-linked" : "is-managed"}`}>
       <span className="artifact-card-icon" aria-hidden="true">
-        {mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} />}
+        {mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} mediaKind={artifact.media_kind} />}
       </span>
       <div className="artifact-card-main">
         <div className="artifact-card-title-row">
@@ -606,7 +656,7 @@ export function ArtifactCard({
         <button
           type="button"
           className="secondary-button compact artifact-card-open"
-          title={artifactOpenHint(artifact.file_type)}
+          title={artifactOpenHint(artifact)}
           onClick={() => {
             if (openContentViewer && canPreviewArtifactInApp(artifact)) {
               openContentViewer({ type: "artifact", artifactId: artifact.id });
@@ -617,7 +667,7 @@ export function ArtifactCard({
             void openArtifactFile(artifact, setToast).then(() => onOpened?.());
           }}
         >
-          <IconExternalLink size={14} />{artifactOpenLabel(artifact.file_type)}
+          <IconExternalLink size={14} />{artifactOpenLabel(artifact)}
         </button>
         <button
           type="button"
@@ -630,6 +680,16 @@ export function ArtifactCard({
           <IconDotsVertical size={16} />
         </button>
       </span>
+      {showLineage && data && (
+        <div className="artifact-card-lineage">
+          <LineagePanel
+            data={data}
+            seed={{ type: "artifact", id: artifact.id }}
+            openDrawer={openDrawer}
+            openContentViewer={openContentViewer}
+          />
+        </div>
+      )}
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -655,6 +715,8 @@ export function ArtifactSection({
   removeEntity,
   setToast,
   headingExtra,
+  originNoteId,
+  includeThemeArtifacts = false,
 }: {
   sourceType: ArtifactSourceType;
   sourceId: string;
@@ -667,17 +729,30 @@ export function ArtifactSection({
   removeEntity: RemoveEntity;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   headingExtra?: ReactNode;
+  /** Chat Refを主出所に持つ書き出しArtifactを元Note側にも表示する */
+  originNoteId?: string;
+  /** Theme配下で生まれたArtifactも含めて出す（#321のTheme Overview用）。 */
+  includeThemeArtifacts?: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
   const [needsDirectory, setNeedsDirectory] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
   const [urlFormOpen, setUrlFormOpen] = useState(false);
+  const [noteExportPickerOpen, setNoteExportPickerOpen] = useState(false);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const sectionRef = useRef<HTMLElement | null>(null);
   const attached = artifacts
-    .filter((entry) => entry.source_type === sourceType && entry.source_id === sourceId)
-    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    .filter((entry) => (
+      (entry.source_type === sourceType && entry.source_id === sourceId)
+      || Boolean(originNoteId && entry.origin_note_id === originNoteId)
+      // Theme Overviewでは「このThemeで作ったもの」を出す（#321）。
+      // 直接添付したものだけでなく、Theme配下のNote / Taskから生まれたものも含める。
+      || Boolean(includeThemeArtifacts && themeId && entry.theme_id === themeId)
+    ))
+    .sort((a, b) => (
+      String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""))
+    ));
 
   useEffect(() => {
     if (urlFormOpen) urlInputRef.current?.focus();
@@ -875,6 +950,18 @@ export function ArtifactSection({
           >
             <IconLink size={14} />URL
           </button>
+          {sourceType === "chat_ref" && data && (
+            <button
+              type="button"
+              className="secondary-button compact"
+              disabled={importing}
+              onClick={() => setNoteExportPickerOpen(true)}
+              title="Noteの最近の書き出しから追加"
+              aria-label="NoteからArtifactを追加"
+            >
+              <IconFileText size={14} />Noteから
+            </button>
+          )}
         </div>
       </div>
 
@@ -970,6 +1057,15 @@ export function ArtifactSection({
           参照のみ
         </button>
       </div>
+      {noteExportPickerOpen && data && (
+        <ChatRefArtifactLinkDialog
+          data={data}
+          initialChatRefId={sourceId}
+          saveEntities={saveEntities}
+          setToast={setToast}
+          close={() => setNoteExportPickerOpen(false)}
+        />
+      )}
     </section>
   );
 }

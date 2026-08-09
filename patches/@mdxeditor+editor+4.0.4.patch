@@ -1,0 +1,96 @@
+diff --git a/node_modules/@mdxeditor/editor/dist/MDXEditor.js b/node_modules/@mdxeditor/editor/dist/MDXEditor.js
+index 74f8245..c1d391e 100644
+--- a/node_modules/@mdxeditor/editor/dist/MDXEditor.js
++++ b/node_modules/@mdxeditor/editor/dist/MDXEditor.js
+@@ -6,12 +6,14 @@ import { createLexicalComposerContext, LexicalComposerContext } from "@lexical/r
+ import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+ import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
+ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
++import { $getRoot } from "lexical";
+ import classNames from "classnames";
+ import { defaultSvgIcons } from "./defaultSvgIcons.js";
+ import { lexicalTheme } from "./styles/lexicalTheme.js";
+ import styles from "./styles/ui.module.css.js";
+ import { noop } from "./utils/fp.js";
+ import { getSelectionAsMarkdown } from "./utils/lexicalHelpers.js";
++import { exportMarkdownFromLexical } from "./exportMarkdownFromLexical.js";
+ const LexicalProvider = ({ children }) => {
+   const rootEditor = useCellValue(rootEditor$);
+   const composerContextValue = React__default.useMemo(() => {
+@@ -107,7 +109,22 @@ const Methods = ({ mdxRef }) => {
+           if (viewMode === "source" || viewMode === "diff") {
+             return realm.getValue(markdownSourceEditorValue$);
+           }
+-          return realm.getValue(markdown$);
++          const editor = realm.getValue(rootEditor$);
++          if (!editor) {
++            return realm.getValue(markdown$);
++          }
++          let currentMarkdown = realm.getValue(markdown$);
++          editor.getEditorState().read(() => {
++            currentMarkdown = exportMarkdownFromLexical({
++              root: $getRoot(),
++              visitors: realm.getValue(exportVisitors$),
++              jsxComponentDescriptors: realm.getValue(jsxComponentDescriptors$),
++              toMarkdownExtensions: realm.getValue(toMarkdownExtensions$),
++              toMarkdownOptions: realm.getValue(toMarkdownOptions$),
++              jsxIsAvailable: realm.getValue(jsxIsAvailable$)
++            }).trim();
++          });
++          return currentMarkdown;
+         },
+         setMarkdown: (markdown) => {
+           realm.pub(setMarkdown$, markdown);
+diff --git a/node_modules/@mdxeditor/editor/dist/plugins/core/index.js b/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
+index 74b65d4..fa1794d 100644
+--- a/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
++++ b/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
+@@ -257,14 +257,13 @@ const createRootEditorSubscription$ = Appender(rootEditorSubscriptions$, (r, sig
+     },
+     // Export handler
+     (rootEditor) => {
+-      return rootEditor.registerUpdateListener(({ dirtyElements, dirtyLeaves, editorState }) => {
++      let exportTimer = null;
++      let pendingEditorState = null;
++      const exportEditorState = (editorState) => {
+         const err = r.getValue(markdownProcessingError$);
+         if (err !== null) {
+           return;
+         }
+-        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) {
+-          return;
+-        }
+         let theNewMarkdownValue;
+         editorState.read(() => {
+           const lastChild = $getRoot().getLastChild();
+@@ -287,7 +286,30 @@ const createRootEditorSubscription$ = Appender(rootEditorSubscriptions$, (r, sig
+         });
+         r.pub(markdown$, theNewMarkdownValue.trim());
+         r.pub(initialMarkdownNormalize$, false);
++      };
++      const unregister = rootEditor.registerUpdateListener(({ dirtyElements, dirtyLeaves, editorState }) => {
++        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) {
++          return;
++        }
++        pendingEditorState = editorState;
++        if (exportTimer !== null) {
++          clearTimeout(exportTimer);
++        }
++        exportTimer = setTimeout(() => {
++          exportTimer = null;
++          const state = pendingEditorState;
++          pendingEditorState = null;
++          if (state !== null) {
++            exportEditorState(state);
++          }
++        }, 1200);
+       });
++      return () => {
++        if (exportTimer !== null) {
++          clearTimeout(exportTimer);
++        }
++        unregister();
++      };
+     },
+     (rootEditor) => {
+       return rootEditor.registerCommand(

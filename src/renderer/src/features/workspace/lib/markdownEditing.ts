@@ -3,6 +3,13 @@ export type MarkdownSearchMatch = {
   length: number;
 };
 
+export type MarkdownReplaceResult = {
+  text: string;
+  count: number;
+  /** 置換後の本文で次に選ぶべき一致の番号。一致が無くなった場合は0。 */
+  nextIndex: number;
+};
+
 export type MarkdownDiffLine = {
   kind: "same" | "added" | "removed";
   text: string;
@@ -112,6 +119,50 @@ export function findMarkdownMatches(source: string, query: string): MarkdownSear
 }
 
 /**
+ * 現在選んでいる一致1件だけを置換する。
+ * 置換文字列が検索語を含んでも同じ位置を選び直さないよう、
+ * 次の一致は置換後の文字列より後ろから探す。
+ */
+export function replaceMarkdownMatch(
+  source: string,
+  query: string,
+  matchIndex: number,
+  replacement: string,
+): MarkdownReplaceResult {
+  const matches = findMarkdownMatches(source, query);
+  const target = matches[matchIndex];
+  if (!target) return { text: source, count: 0, nextIndex: 0 };
+
+  const text = `${source.slice(0, target.index)}${replacement}${source.slice(target.index + target.length)}`;
+  const resumeFrom = target.index + replacement.length;
+  const nextMatches = findMarkdownMatches(text, query);
+  const nextIndex = nextMatches.findIndex((match) => match.index >= resumeFrom);
+  return { text, count: 1, nextIndex: nextIndex < 0 ? 0 : nextIndex };
+}
+
+/**
+ * 文書内のすべての一致を一度に置換する。
+ * 置換前の一致位置だけを使い、挿入した文字列を再走査しない。
+ */
+export function replaceAllMarkdownMatches(
+  source: string,
+  query: string,
+  replacement: string,
+): MarkdownReplaceResult {
+  const matches = findMarkdownMatches(source, query);
+  if (!matches.length) return { text: source, count: 0, nextIndex: 0 };
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const match of matches) {
+    parts.push(source.slice(cursor, match.index), replacement);
+    cursor = match.index + match.length;
+  }
+  parts.push(source.slice(cursor));
+  return { text: parts.join(""), count: matches.length, nextIndex: 0 };
+}
+
+/**
  * 小さな行diff。一般的なNoteではLCSで変更箇所を分け、極端に長い文書では
  * 共通の前後だけを残して安全に描画する。
  */
@@ -191,6 +242,33 @@ export function buildMarkdownDiffHunks(lines: MarkdownDiffLine[], context = 2): 
       omittedAfter: lines.length - rangeEnd - 1,
     };
   });
+}
+
+/**
+ * 差分のうち採用したhunkだけを元本文へ適用する。
+ * Proposalの部分採用用。変更のない行は常に保持する。
+ */
+export function applyMarkdownDiffHunks(before: string, after: string, acceptedHunks: number[]): string {
+  const accepted = new Set(acceptedHunks);
+  const lines = diffMarkdownLines(before, after);
+  const output: string[] = [];
+  let hunkIndex = -1;
+  let inChange = false;
+  for (const line of lines) {
+    if (line.kind === "same") {
+      inChange = false;
+      output.push(line.text);
+      continue;
+    }
+    if (!inChange) {
+      hunkIndex += 1;
+      inChange = true;
+    }
+    if (accepted.has(hunkIndex) ? line.kind === "added" : line.kind === "removed") {
+      output.push(line.text);
+    }
+  }
+  return output.join("\n");
 }
 
 /**

@@ -1,0 +1,43 @@
+# Tasuken app charter
+
+## アプリの性格
+
+- 主性格: 個人用の研究・業務ワークスペース（作業ツール）
+- 部分性格: Sketchだけはキャンバス系。キャンバス内の紙面とインク色を先に設計し、周辺クロームは共通デザイントークンへ従う
+- 中心価値: タスクを消すことではなく、研究開発活動の現在地と考えた過程を失わないこと
+
+## データの重さ
+
+- Tasukenが正本データを所有するローカルファーストアプリ
+- SQLite Repositoryを唯一の書き込み経路とする
+- Snapshot / Import / Exportの往復性を保つ
+- Sketchはレンダリング画像ではなく編集可能なオブジェクト文書を正本とする。画像・Markdown・AI向けデータは派生物
+
+## 利用者と配布
+
+- 主利用者: Windows 11上で研究・業務を進める個人
+- 入力機器: マウス、タッチ、板タブレット、ペン対応モバイルモニター
+- 配布: ElectronのWindows installer / portable
+- 利用条件: アカウント作成・クラウド同期・常時接続を要求しない。主要な作成・編集・検索・書き出しはオフラインで完結する
+
+## アクセント
+
+- 共通のburgundyアクセントを維持する
+- Sketchの紙面内では黒・青・burgundy・orangeをインク色として使う。danger等の状態色とは意味を混ぜない
+
+## Sketchの境界契約
+
+1. Ink Captureは素早い入口であり、保存後は通常のSketchとして同じ編集面に到達する。
+2. SketchはSidebarのKnowledge配下に独立した棚と編集面を持ち、Markdown本文へ生の軌跡データを埋め込まない。
+3. NoteはSketchの派生画像を参照する利用側とし、編集可能な正本はSketch棚へ残す。現在のPNG添付＋`derived_from`参照は、Note側から埋め込んで再編集できる経路へ置換するまでの既存契約とする。
+4. AI連携はクリップボード往復を無設定の既定として残す。利用者が明示的にOpenAI APIキーを設定した場合だけNote内AI編集を有効にし、キーはElectron Main Processの`safeStorage`で暗号化してRenderer・DB・ログへ出さない。
+5. 既存のNotes・Snapshot・Import/Export形式を壊さず、Sketchを追加コレクションとして扱う。
+6. PageとInfiniteは同じ編集可能オブジェクト文書の表示モードであり、ライフサイクルが分かれるまでは別テーブル・別エンティティへ分裂させない。
+
+## AI書き込みの境界契約
+
+1. 内蔵LLM、MCP、手動Importのいずれも正式Entityを直接変更せず、`ai_proposal`を作る。
+2. Note編集は対象IDと`base_version`を固定し、文書全体または選択範囲を明示する。採用は差分hunk単位で選べる。
+3. Sketch/SVG/ArtifactはPreview後だけ保存する。SVGは許可要素だけのinline内容とし、script・event属性・外部参照を拒否する。
+4. Artifact Proposalは任意パスを受け取らず、許可したinline contentをmanaged保存先へ新規ファイルとして作る。
+5. API失敗、Proposal検証失敗、保存失敗では既存Noteと入力途中の指示を変更しない。

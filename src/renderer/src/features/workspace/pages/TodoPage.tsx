@@ -1,30 +1,31 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { IconCalendarPlus, IconCalendarCheck, IconClock, IconCopyPlus, IconFlag, IconFlagFilled, IconPlus } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
+import { usePreference } from "../../../utils/usePreference";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { formatDate } from "../lib/format";
-import { parseTaskTable, type ParsedTaskRow } from "../lib/io";
 import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
 import {
-  DEFAULT_TASK_VIEW_FILTERS,
   filterTodoRows,
   normalizeTaskViewFilters,
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/savedTaskViews";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader, StatusBadge, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge } from "../components/taskChecklist";
-import { TASK_STATE_LABELS } from "../domain-model/labels";
+import { SCHEDULE_KIND_LABELS, TASK_STATE_LABELS, TASK_WORK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
+import { getScheduleKind } from "../domain-model/scheduleSemantics";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { Schedule, Task } from "../domain-model/types";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 
 type TodoRow = {
   task: Task;
@@ -89,6 +90,23 @@ function scheduleGroupLabel(row: TodoRow, today: string): string {
   return "今後";
 }
 
+function rangeSemanticsBadge(row: TodoRow, openTaskDetail: (task: Task, schedule?: Schedule) => void) {
+  const kind = getScheduleKind(row.schedule);
+  if (kind !== "execution_window" && kind !== "ongoing_period" && kind !== "unspecified_range") return null;
+  const label = SCHEDULE_KIND_LABELS[kind];
+  if (kind === "unspecified_range") {
+    return (
+      <button
+        type="button"
+        className="range-semantics-badge range-semantics-badge-button"
+        onClick={(event) => { event.stopPropagation(); openTaskDetail(row.task, row.schedule); }}
+        title="編集して期間の意味を選ぶ"
+      >{label}</button>
+    );
+  }
+  return <span className="range-semantics-badge">{label}</span>;
+}
+
 function groupTodoRows(rows: TodoRow[], groupMode: TodoGroupMode, today: string, themes: PageProps["themes"]): TodoRowGroup[] {
   if (groupMode === "none") return [{ id: "all", title: "すべて", rows }];
   const groups = new Map<string, TodoRowGroup>();
@@ -103,29 +121,13 @@ function groupTodoRows(rows: TodoRow[], groupMode: TodoGroupMode, today: string,
 }
 
 export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities, setToast }: PageProps) {
-  const [filter, setFilter] = useState("open");
-  const [taskFilters, setTaskFilters] = useState<TaskViewFilters>(DEFAULT_TASK_VIEW_FILTERS);
-  const [sortMode, setSortMode] = useState<TodoSortMode>("default");
-  const [sortDirection, setSortDirection] = useState<TodoSortDirection>("desc");
-  const [groupMode, setGroupMode] = useState<TodoGroupMode>("none");
-  const [showPaste, setShowPaste] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const [pastePreview, setPastePreview] = useState<ParsedTaskRow[]>([]);
+  const [viewPreference, setViewPreference] = usePreference("todo.preferences");
+  const { filter, taskFilters, sortMode, sortDirection, groupMode } = viewPreference;
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
-  const [addTheme, setAddTheme] = useState("");
+  const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
-
-  useEffect(() => {
-    if (route === "todo") {
-      setFilter("open");
-      setTaskFilters(DEFAULT_TASK_VIEW_FILTERS);
-      setSortMode("default");
-      setSortDirection("desc");
-      setGroupMode("none");
-    }
-  }, [route]);
 
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
   const currentFilters: TaskViewFilters = normalizeTaskViewFilters({ ...taskFilters, tab: filter });
@@ -140,11 +142,30 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   const groupedVisible = groupTodoRows(visible, groupMode, today, themes);
 
   function patchTaskFilters(patch: Partial<TaskViewFilters>) {
-    setTaskFilters((current) => normalizeTaskViewFilters({ ...current, ...patch }));
+    setViewPreference((current) => ({
+      ...current,
+      taskFilters: normalizeTaskViewFilters({ ...current.taskFilters, ...patch }),
+    }));
   }
 
   function selectFilterTab(nextFilter: TaskViewTab) {
-    setFilter(nextFilter);
+    setViewPreference((current) => ({
+      ...current,
+      filter: nextFilter,
+      taskFilters: { ...current.taskFilters, tab: nextFilter },
+    }));
+  }
+
+  function setSortMode(next: TodoSortMode) {
+    setViewPreference((current) => ({ ...current, sortMode: next }));
+  }
+
+  function setSortDirection(next: TodoSortDirection) {
+    setViewPreference((current) => ({ ...current, sortDirection: next }));
+  }
+
+  function setGroupMode(next: TodoGroupMode) {
+    setViewPreference((current) => ({ ...current, groupMode: next }));
   }
 
   async function addTask() {
@@ -153,7 +174,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     const taskId = crypto.randomUUID();
     const task: Task = {
       id: taskId,
-      project_id: addTheme || null,
+      project_id: canonicalThemeId(addTheme, { defaultPersonal: true }),
       title,
       state: "todo",
       priority: "normal",
@@ -225,52 +246,6 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     openTaskDetail(duplicated.task, duplicated.schedule);
   }
 
-  function previewPaste() {
-    const rows = parseTaskTable(pasteText, themes);
-    if (!rows.length) {
-      setToast("貼り付け内容を読み取れませんでした。1行に1件、またはTSV/CSVの表を貼り付けてください。");
-      return;
-    }
-    setPastePreview(rows);
-  }
-
-  async function importPaste() {
-    const now = new Date().toISOString();
-    const ops = pastePreview.flatMap((row) => {
-      const taskId = crypto.randomUUID();
-      const task: Task = {
-        id: taskId,
-        title: row.title,
-        project_id: row.theme_id || null,
-        state: "todo",
-        priority: row.priority === "high" ? "high" : "normal",
-        description: row.description || null,
-        created_at: now,
-      };
-      const result = buildSaveTaskOperations(task, { source: "import" });
-      if (row.planned_end || row.planned_start) {
-        const hasRange = row.planned_start && row.planned_end && row.planned_start !== row.planned_end;
-        const schedule: Schedule = {
-          id: crypto.randomUUID(),
-          owner_type: "task",
-          owner_id: taskId,
-          start_date: row.planned_start || null,
-          end_date: row.planned_end || null,
-          date_kind: hasRange ? "range" : "deadline",
-          confidence: "fixed",
-          granularity: "day",
-        };
-        result.push(...buildSaveScheduleOperations(schedule, { source: "import" }));
-      }
-      return result;
-    });
-    if (!ops.length) return;
-    await saveEntities(ops, `${pastePreview.length}件を追加しました。`);
-    setPasteText("");
-    setPastePreview([]);
-    setShowPaste(false);
-  }
-
   function copyRows() {
     const header = "タスク\t状態\tテーマ\t今日\t予定終了\t完了日\tリマインダー\t旗\t繰り返し";
     const rows = visible.map(({ task, schedule }) => `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.completed_at ? task.completed_at.slice(0, 10) : ""}\t${reminderTimeLabel(task.reminder_at, today)}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`);
@@ -286,6 +261,8 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     const themeIndex = Math.max(0, (data.themes || []).findIndex((entry) => entry.id === task.project_id));
     const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
     const done = task.state === "done" || task.state === "cancelled";
+    const workState = task.work_state || (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+    const requiresHumanAcceptance = task.intended_executor === "ai_agent" && workState !== "accepted";
     const due = scheduledDate(schedule);
     const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
     const urgency = !done && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
@@ -300,6 +277,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
         <span className="todo-theme-bar" />
         <button
           className={`todo-check-circle ${done ? "is-done" : ""}`}
+          disabled={requiresHumanAcceptance}
           onClick={(event) => { event.stopPropagation(); toggleTask(task); }}
           aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了`}
           title={done ? "未完了に戻す" : "完了にする"}
@@ -334,7 +312,9 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
             <span>{task.title}</span>
             <ChecklistProgressBadge items={task.checklist_items} />
+            {task.intended_executor === "ai_agent" && <StatusBadge value="info" label={`AI · ${TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState}`} />}
           </button>
+           {rangeSemanticsBadge({ task, schedule }, openTaskDetail)}
           {reminder && <span className="row-reminder-meta"><IconClock size={13} />{reminder}</span>}
         </div>
         <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>
@@ -349,10 +329,9 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
 
   return (
     <div className="page">
-      <PageHeader title="ToDo" subtitle="今日の作業と予定なしの仕事を整理します。">
-        <button className="secondary-button" onClick={copyRows}>一覧をコピー</button>
-        <button className="secondary-button" onClick={() => setShowPaste((current) => !current)}>表から追加</button>
-        <button className="primary-button" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</button>
+      <PageHeader route="todo">
+        <Button variant="secondary" onClick={copyRows}>一覧をコピー</Button>
+        <Button variant="primary" onClick={() => setShowAdd((current) => !current)}><IconPlus size={16} /> タスクを追加</Button>
       </PageHeader>
       {showAdd && (
         <InlineAddPanel
@@ -372,33 +351,17 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           <button key={id} className={filter === id ? "is-active" : ""} onClick={() => selectFilterTab(id)}>{label}<span className="tab-count">{count}</span></button>
         ))}
       </div>
-      {showPaste && (
-        <section className="panel paste-panel">
-          <div className="section-heading"><h2>表から追加</h2><span>タイトル / Theme / 予定終了 / 状態 / 説明</span></div>
-          <textarea value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPastePreview([]); }} placeholder={"タイトル\tTheme\t予定終了\t状態\t説明\n測定条件を確認\t材料A評価\t2026-06-20\t未着手\t条件表と照合"} />
-          {pastePreview.length > 0 && (
-            <div className="paste-preview">
-              {pastePreview.map((row, index) => (
-                <div key={`${row.title}-${index}`}>
-                  <strong>{row.title}</strong>
-                  <span>{themes.find((theme) => theme.id === row.theme_id)?.name || "個人業務"}</span>
-                  <time>{row.planned_end || "予定なし"}</time>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="form-actions">
-            <button className="secondary-button" onClick={() => { setShowPaste(false); setPastePreview([]); }}>閉じる</button>
-            {pastePreview.length ? <button className="primary-button" onClick={importPaste}>追加する</button> : <button className="primary-button" onClick={previewPaste}>内容を確認</button>}
-          </div>
-        </section>
-      )}
       <section className="panel list-page">
         <div className="todo-table-toolbar">
-          <select value={taskFilters.themeId} onChange={(event) => patchTaskFilters({ themeId: event.target.value })} aria-label="Themeで絞り込み">
-            <option value="">すべてのTheme</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-          </select>
+          <ThemePickerSelect
+            themes={themes}
+            value={taskFilters.themeId}
+            onChange={(themeId) => patchTaskFilters({ themeId })}
+            allowAll
+            allowNone
+            allLabel="すべてのTheme"
+            ariaLabel="Themeで絞り込み"
+          />
           <select value={taskFilters.state} onChange={(event) => patchTaskFilters({ state: event.target.value })} aria-label="状態で絞り込み">
             <option value="">すべての状態</option>
             {Object.entries(TASK_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -410,6 +373,12 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
             <option value="overdue">予定超過</option>
             <option value="this-week">今週中</option>
             <option value="today">今日</option>
+          </select>
+          <select value={taskFilters.rangeSemantics} onChange={(event) => patchTaskFilters({ rangeSemantics: event.target.value as TaskViewFilters["rangeSemantics"] })} aria-label="期間の意味で絞り込み">
+            <option value="">期間の意味: すべて</option>
+            <option value="execution_window">期間内に一度</option>
+            <option value="ongoing_period">期間中継続</option>
+            <option value="unspecified_range">期間未分類</option>
           </select>
           <select value={taskFilters.priority} onChange={(event) => patchTaskFilters({ priority: event.target.value as TaskViewFilters["priority"] })} aria-label="旗で絞り込み">
             <option value="">旗条件なし</option>

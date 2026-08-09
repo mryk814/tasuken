@@ -4,9 +4,11 @@ TaskenはElectron + React + SQLiteのローカルデスクトップアプリと�
 
 この文書はKnowledge Model、AI Context Export、MCP連携、安全なwrite提案の実装方針を固定する。実装時は既存のWorkspace Repository、Snapshot、AI Import / Export、typed IPCの境界に合わせて段階導入する。
 
+> **2026-08-08 / Issue #319**: Knowledge画面は実験・診断用へ戻し、既存Entity / Edge / Relation / internal link / backlink / source relation / export / backupの正本互換を保ったまま、通常の作成導線から切り離す。Context Graph、Backlink、Provenance、Data Healthは共有read projectionとして成立し、AI Contextは手動Knowledge整理に依存しない。以下の旧UX記述はモデル・保存・AI/MCP契約の履歴として残す。
+
 ## 基本方針
 
-TaskenにGitHub Copilot serviceを直接埋め込むことは優先しない。TaskenをAIが参照できる「思考と作業の文脈DB」にする。
+TaskenにGitHub Copilotの非公式serviceを直接埋め込むことはしない。外部AIが参照できる「思考と作業の文脈DB」を基本にしつつ、利用者が明示設定したOpenAI APIだけはNote編集の短い経路として使う。どちらの書き込みもSafe Write Proposalへ合流する。
 
 優先順は以下とする。
 
@@ -15,6 +17,7 @@ TaskenにGitHub Copilot serviceを直接埋め込むことは優先しない。T
 3. Read-only MCP Serverを追加する
 4. Safe Write Proposalを追加する
 5. VS Code / Copilot / Cursor連携はMCP経由で行う
+6. Note内AI編集も同じProposal Previewへ合流する
 
 現時点では以下をやらない。
 
@@ -248,7 +251,7 @@ Knowledge Healthでは以下を検出する。
 
 ## MCP Server
 
-Taskenを外部AIから参照できるようにする。最初はread-onlyのMCP Serverを作る。Tasken本体と同じプロセスに無理に入れなくてよく、別プロセス / CLI / localhost serverのいずれかでよい。
+Taskenを外部AIから参照できるようにする。インストール版はSettingsの「設定をコピー」が生成する、同梱MCP Bridge用のstdio設定を使う。開発版は`npm run mcp`を使う。
 
 Phase 1のread-only toolsは以下とする。
 
@@ -300,19 +303,35 @@ Read-only MCPは以下を守る。
 - archivedデータを含めるかは明示オプションにする
 - raw note bodyを返す場合は`include_raw_body`のような明示フラグを必要にする
 
+### Task-oriented context
+
+Coding AgentのTask入口は`tasken.get_task_context`とする。Task、assignment、Theme、RepositoryContext、および明示Relation・provenanceで到達したNote / Conversation / Artifact / Activity / Work Receiptの概要だけを、種別ごとの件数上限と全体文字数上限の範囲で返す。Themeが同じだけのEntityを一括投入せず、各項目に採用理由とstable locatorを付ける。RepositoryContextは現在のworkspaceと照合し、`matched` / `mismatch` / `ambiguous` / `unknown`を明示する。秘密情報、非公開Entity、外部Artifact本文、ローカル絶対パスは返さない。
+
+詳細取得は`tasken.get_note`、`tasken.get_conversation`、`tasken.get_artifact_metadata`、`tasken.get_activity_entries`へ分ける。Context取得自体は常にread-onlyである。`TASKEN_MCP_READ_ONLY=1`ではProposalを含む全write toolを登録しない。
+
 ## MCP Safe Write Proposal
 
 MCP経由のwriteは直接保存しない。Tasken側のpreview inboxに「提案」として送る。
 
-Phase 2 toolsは以下とする。
+Note、Knowledgeに加えてSketchとArtifactを対象にする。Sketchは安全性を検証したinline SVGを編集可能なSketch文書内の画像オブジェクトとして取り込み、ArtifactはSVG / Markdown / text / JSONのinline contentだけをmanaged保存先へ作る。MCPから任意のローカルパスやURLを指定する操作は提供しない。
+
+実装境界は以下で固定する。
+
+1. MCP BridgeはSQLiteへ書き込まない
+2. write toolは`%APPDATA%\Tasken\mcp-inbox`へ1MB以下のProposal envelopeをatomic writeする
+3. Tasken Main Processが起動時と起動中にInboxを検証する
+4. Main ProcessだけがWorkspace Repository経由で`ai_proposal`へ保存する
+5. 不正なEnvelopeは`mcp-inbox/rejected`へ隔離する
+6. Note編集は`target_id`と`base_version`を必須にし、現在versionが違えば既定で無視する
+
+write toolsは以下とする。
 
 ```ts
 tools:
-  - tasken.propose_items
-  - tasken.propose_notes
-  - tasken.propose_links
-  - tasken.propose_knowledge_nodes
-  - tasken.propose_status_update
+  - tasken.propose_task
+  - tasken.propose_note
+  - tasken.propose_note_edit
+  - tasken.propose_knowledge
 ```
 
 ```ts
@@ -342,6 +361,8 @@ type AiProposal = {
 - 採用結果はsource_record / import_batchに残す
 
 write系toolには`create_*`ではなく`propose_*`を使う。
+
+Task作業報告だけは既存TaskへのApplication Commandを提案する専用workflowとして、`tasken.start_task_work`、`tasken.append_work_receipt`、`tasken.report_task_done`、`tasken.report_task_blocked`を提供する。BridgeはTask本文やstateを直接更新せず、`task_work` ProposalをInboxへ送る。途中のReceipt追加と最終報告はtyped Application Commandを分け、Appendは`in_progress`を維持し、Doneだけが`needs_human_review`へ進む。Task Work Proposalのaccept/rejectはMain-owned `ApplyTaskWorkProposal`で行い、canonical Proposalからtyped commandを再構築してTask / Receipt / ChangeEvent / Proposal statusを一つのSQLite transactionへ保存する。全操作にTaskの`expected_version`、再試行用`idempotency_key`、`caller`を必須とし、任意で`source_session`、実行時刻、RepositoryContextを記録する。RepositoryContextは`repository_context_id`、provider、repository slug、branchだけの公開whitelistとし、cwd、git root、workspace folder、remote URLは受理も永続化もしない。同じkeyと同じpayloadの再送は同一Proposalとして扱い、異なるpayloadでのkey再利用は拒否する。Done / Blockedはいずれもappend-only Work Receiptであり、Task完了や正式な状態変更は人間のPreview採用後にApplication Command境界で行う。
 
 ## AI Import統合
 
@@ -416,7 +437,7 @@ Knowledge一覧は高度なグラフビュー不要とし、node_type、title、
 - unresolved question / claim without evidenceを出す
 - Markdown / JSON export対応
 
-### Phase 4: Read-only MCP
+### Phase 4: Read-only MCP（実装済み）
 
 - MCP Server追加
 - `search_items`
@@ -426,14 +447,14 @@ Knowledge一覧は高度なグラフビュー不要とし、node_type、title、
 - `get_knowledge_context`
 - `export_ai_context`
 
-### Phase 5: Safe Write Proposal
+### Phase 5: Safe Write Proposal（実装済み）
 
-- `ai_proposal` entity追加
-- `propose_items`
-- `propose_notes`
-- `propose_knowledge_nodes`
-- Tasken側preview inbox
-- accept / reject / partial accept
+- `ai_proposal` entity
+- インストール版MCP Bridge
+- Task / Note / Note編集 / KnowledgeのProposal tools
+- Main ProcessによるProposal Inbox取り込み
+- Tasken側preview / accept / reject / partial accept
+- Note version競合検出とMarkdown差分
 
 ### Phase 6: VS Code / Copilot連携
 

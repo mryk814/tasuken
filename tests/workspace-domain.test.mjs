@@ -168,14 +168,18 @@ test("today view separates ongoing period tasks from explicit daily tasks", () =
 
   assert.deepEqual(selectors.buildTodayView(domain, "2026-06-20").map((entry) => entry.task.id), ["task-end"]);
 
+  // 意味未設定の既存範囲は、#309後も継続中セクションへ出す（#95の表示規則を保つ）。
+  // 並びは終了予定日が近い順（#94と同じ基準）にし、同日はタイトル順で安定させる。
   const periods = selectors.buildOngoingPeriodTaskView(domain, "2026-06-20");
-  assert.deepEqual(periods.map((row) => row.task.id), ["task-start", "task-period"]);
-  assert.equal(periods[0].dayIndex, 1);
-  assert.equal(periods[0].totalDays, 6);
-  assert.equal(periods[0].daysRemaining, 5);
-  assert.equal(periods[1].dayIndex, 11);
-  assert.equal(periods[1].totalDays, 16);
-  assert.equal(periods[1].daysRemaining, 5);
+  assert.deepEqual(periods.map((row) => row.task.id), ["task-period", "task-start"]);
+  assert.ok(periods.every((row) => row.unspecified), "意味未設定として区別できる");
+  const byId = Object.fromEntries(periods.map((row) => [row.task.id, row]));
+  assert.equal(byId["task-start"].dayIndex, 1);
+  assert.equal(byId["task-start"].totalDays, 6);
+  assert.equal(byId["task-start"].daysRemaining, 5);
+  assert.equal(byId["task-period"].dayIndex, 11);
+  assert.equal(byId["task-period"].totalDays, 16);
+  assert.equal(byId["task-period"].daysRemaining, 5);
 });
 
 test("task duplication creates an editable new todo without completion state", () => {

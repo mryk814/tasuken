@@ -2,6 +2,7 @@
 /node_modules
 /dist
 /out
+/mcp-dist
 /build
 *.tsbuildinfo
 # OS
@@ -15,3 +16,6 @@
 qa
 release
 release-*
+.codex-remote-attachments
+audit-shots/
+/output/

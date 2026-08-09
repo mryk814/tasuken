@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconCheck, IconPlus, IconX } from "@tabler/icons-react";
+import { IconCheck, IconX } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -7,11 +7,12 @@ import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
 import { formatDate } from "../lib/format";
 import { themeColor } from "../lib/domain";
-import { EmptyState, PageHeader, StatusBadge } from "../components/common";
+import { ActionButton, Button, EmptyState, PageHeader, StatusBadge } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveWaitingOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import type { Schedule, Waiting } from "../domain-model/types";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 
 function scheduledDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
@@ -22,7 +23,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addWaitingFor, setAddWaitingFor] = useState("");
-  const [addTheme, setAddTheme] = useState("");
+  const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [addDate, setAddDate] = useState("");
   const today = todayIso();
   const schedulesByOwner = new Map(v2.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
@@ -44,7 +45,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
     const waitingId = crypto.randomUUID();
     const waiting: Waiting = {
       id: waitingId,
-      project_id: addTheme || null,
+      project_id: canonicalThemeId(addTheme, { defaultPersonal: true }),
       title,
       waiting_for: waitingFor,
       state: "waiting",
@@ -91,9 +92,9 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
 
   return (
     <div className="page">
-      <PageHeader title="Waiting" subtitle="誰を、何を、いつまで待っているかを確認します。">
-        <button className="secondary-button" onClick={copy}>一覧をコピー</button>
-        <button className="primary-button" onClick={() => setShowAdd((c) => !c)}><IconPlus size={16} /> 待ちを追加</button>
+      <PageHeader route="waiting">
+        <Button variant="secondary" onClick={copy}>一覧をコピー</Button>
+        <ActionButton action="waitingAdd" onClick={() => setShowAdd((c) => !c)}>待ちを追加</ActionButton>
       </PageHeader>
       {showAdd && (
         <InlineAddPanel
@@ -153,9 +154,9 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
                 <span>{waiting.waiting_for}</span>
                 <span className="waiting-state-actions">
                   {waiting.state === "waiting" ? (
-                    <button className="danger-button compact waiting-cancel-button" onClick={() => changeState(waiting, "cancelled")}>
+                    <Button variant="secondary" compact className="waiting-cancel-button" onClick={() => changeState(waiting, "cancelled")}>
                       <IconX size={14} /> 中止
-                    </button>
+                    </Button>
                   ) : (
                     <span className="inline-actions" style={{ gap: "var(--space-xs)" }}>
                       <StatusBadge value={waiting.state} label={WAITING_STATE_LABELS[waiting.state]} />

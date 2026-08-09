@@ -1,14 +1,18 @@
 import type {
+  CanonicalRootStatusMap,
+  DocumentSaveReferenceCompanion,
+  DocumentSaveSnapshot,
   Entity,
   EntityType,
   SaveOperation,
   SaveOptions,
   WorkspaceMeta,
 } from "../../../../shared/types/workspace";
-import type { WorkspaceDomain } from "./domain-model/types";
+import type { WorkReceipt, WorkspaceDomain } from "./domain-model/types";
+import type { ApplicationCommandSource, CommandEnvelope, CommandReceipt } from "../../../../shared/applicationCommand";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
-export type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
+export type { DocumentSaveReferenceCompanion, DocumentSaveSnapshot, Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
 
 // DBのdata_jsonはスキーマレスなので、利用するフィールドだけを型付けし、
 // それ以外はindex signatureで許容する（カスタム項目・将来フィールドのため）。
@@ -31,6 +35,9 @@ export interface Theme extends BaseRecord {
   group?: string;
   /** managed Artifact の任意保存ルート（絶対パス）。未設定時は共通ルート配下に自動配置 */
   storage_root?: string | null;
+  repository_context_ids?: string[];
+  primary_repository_context_id?: string | null;
+  repository_context_detachments?: Array<Record<string, unknown>>;
 }
 
 export interface Item extends BaseRecord {
@@ -190,8 +197,8 @@ export interface KnowledgeNode extends BaseRecord {
   status?: "active" | "resolved" | "deprecated" | "rejected";
 }
 
-export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "theme";
-export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "manual";
+export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "theme" | "capture_entry" | "ai_proposal";
+export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "openai" | "manual";
 
 export type ArtifactStorageMode = "managed" | "linked";
 export type ArtifactLinkType = "url" | "local_path" | "shared_path" | "onedrive" | "sharepoint" | "teams";
@@ -218,6 +225,24 @@ export interface Artifact extends BaseRecord {
   theme_id?: string | null;
   description?: string | null;
   generated_by?: ArtifactGeneratedBy | null;
+  /** Chat Refを出所に持つ書き出しArtifactの編集元Note */
+  origin_note_id?: string | null;
+  origin_note_title?: string | null;
+  export_format?: "markdown" | "pdf" | null;
+  exported_at?: string | null;
+  media_kind?: "audio" | "video" | null;
+  duration_ms?: number | null;
+  container?: string | null;
+  codec?: string | null;
+  content_hash?: string | null;
+  media_availability?: "available" | "missing" | "changed" | "unsafe_source" | "unsupported_codec";
+}
+
+export interface Sketch extends BaseRecord {
+  title: string;
+  project_id?: string | null;
+  origin_capture_id?: string | null;
+  document: import("./lib/sketch").SketchDocument;
 }
 
 // activeRecordsで論理削除を除外した「表示用の正本投影」。
@@ -241,6 +266,8 @@ export interface WorkspaceData {
   projects: BaseRecord[];
   capture_entrys: BaseRecord[];
   tasks: BaseRecord[];
+  repository_contexts?: BaseRecord[];
+  work_receipts: WorkReceipt[];
   waitings: BaseRecord[];
   plan_nodes: BaseRecord[];
   schedules: BaseRecord[];
@@ -250,6 +277,8 @@ export interface WorkspaceData {
   knowledge_edges: BaseRecord[];
   change_events: BaseRecord[];
   artifacts: Artifact[];
+  sketches: Sketch[];
+  canonical_root_status?: CanonicalRootStatusMap;
   meta?: WorkspaceMeta;
 }
 
@@ -269,12 +298,14 @@ export type DrawerEntityType =
   | "task"
   | "waiting"
   | "plan_node"
-  | "capture_entry";
+  | "capture_entry"
+  | "sketch";
 
 export interface DrawerConfig {
   type: DrawerEntityType;
-  mode?: "edit";
+  mode?: "edit" | "view";
   entity: DrawerEntity;
+  commandSource?: import("../../../../shared/applicationCommand").ApplicationCommandSource;
 }
 
 export interface SnapshotChange {
@@ -298,23 +329,31 @@ export type SaveEntity = (
   type: EntityType,
   entity: DrawerEntity,
   options?: SaveOptions,
+  documentSnapshot?: DocumentSaveSnapshot,
+  documentCompanions?: DocumentSaveReferenceCompanion[],
 ) => Promise<Entity>;
 
 export type SaveEntities = (
   operations: SaveOperation[],
   successMessage?: string,
+  source?: ApplicationCommandSource,
 ) => Promise<Entity[]>;
 
 export type RemoveEntity = (type: EntityType, entity: DrawerEntity) => Promise<void>;
+
+export type ExecuteCommand = (envelope: CommandEnvelope) => Promise<CommandReceipt>;
 
 export type OpenDrawer = (config: DrawerConfig) => void;
 
 /** Notes以外から本文・画像を読むためのモーダルビューア対象（#130）。 */
 export type ContentViewerTarget =
   | { type: "note"; noteId: string }
-  | { type: "artifact"; artifactId: string };
+  | { type: "artifact"; artifactId: string }
+  | { type: "chat_log"; resourceId: string };
 
 export type OpenContentViewer = (target: ContentViewerTarget) => void;
+export type OpenContextPack = (themeId: string) => void;
+export type OpenDailyScratchpad = (date?: string) => void;
 
 export interface PageProps {
   data: WorkspaceData;
@@ -328,10 +367,19 @@ export interface PageProps {
   setActiveThemeId(id: string): void;
   route: string;
   navigate(next: string): void;
+  /**
+   * 切り離しNoteウィンドウで開いているNoteのID（#290）。
+   * 本体では undefined。設定されている画面は一覧や外枠を出さず、この一件へ集中する。
+   */
+  detachedNoteId?: string;
   openDrawer: OpenDrawer;
   openContentViewer: OpenContentViewer;
+  openContextPack: OpenContextPack;
+  openDailyScratchpad: OpenDailyScratchpad;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  executeCommand: ExecuteCommand;
+  createTaskFromCapture(task: Entity, schedule: Entity | null, capture: Entity, artifactIds: string[]): Promise<CommandReceipt>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
   setToast(message: string, tone?: "info" | "success" | "warning" | "danger"): void;

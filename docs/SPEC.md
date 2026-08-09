@@ -69,6 +69,13 @@
 
 これにより、ChatGPT、Copilot、その他AIサービスを活用して、予定整理、タスク分解、会議メモ整理、週次レビュー作成などを外部で行えるようにする。
 
+### 3.6 手書きの思考過程を受け入れる
+
+文字・数式・簡単な図解は、Markdownへ整形する前の手書きの方が速いことがある。
+Knowledge配下に独立したSketch棚と編集面を持ち、一覧・詳細・編集・削除を一周できるようにする。Inboxからも素早く開始できる。
+SketchはNoteへ画像として挿入できるほか、Markdown・PNG・SVG・外部AI向けクリップボードへ派生できる。
+詳細な境界と成立ループは `docs/sketch-workspace.md` を正本とする。
+
 ## 4. 本アプリで扱う情報
 
 ## 4.1 Theme
@@ -273,6 +280,11 @@ Theme Dashboardは、その問いにすぐ答えるための画面である。
 入力時点で完全に分類されている必要はない。
 まずはInboxに入れ、後でThemeやItem種別を設定できるようにする。
 
+文字・Markdown断片・URL・ファイル・画像・手書きを同じCaptureEntry経路で受け取る。
+URLはResource候補、ファイル・画像はCaptureEntryを出所とするArtifactとして保持する。
+整理後も元Captureから生成先を辿れる。現在の境界と成立ループは
+`docs/quick-capture.md` を正本とする。
+
 ### 入力例
 
 ```text
@@ -294,6 +306,8 @@ Obsidianのように、メモを蓄積できる機能。
 * Themeに紐づけられる
 * Itemに紐づけられる
 * Linkを貼れる
+* Edit中の選択範囲からTask / Noteを作成できる
+* 切り出し後も元本文・編集位置・未保存内容を維持し、作成先から元Noteを辿れる
 * メモ種別を持てる
 * 作成日時・更新日時を持てる
 
@@ -301,7 +315,6 @@ Obsidianのように、メモを蓄積できる機能。
 
 * バックリンク
 * タグ
-* メモからタスク作成
 * メモからマイルストーン作成
 * AI壁打ちログの取り込み
 * 関連メモ推薦
@@ -449,6 +462,25 @@ notes:
 - 条件Bのばらつきが大きい
 - 測定位置の影響を疑う
 ```
+
+### Command Palette
+
+`Ctrl+Shift+K`を共通入口とし、固定registryのコマンドとTask / Note / Theme / Resource / Artifactを横断検索する。
+作成・移動は既存Drawerとroute、Notesの保存・Preview・整形・PDF・保存先操作は既存処理へ委譲し、画面ごとの重複経路を作らない。
+最近実行した項目を端末内に保持し、`Esc`で閉じた場合は元のfocusへ戻す。
+
+### Theme Context Pack
+
+Theme内のTask / Note / Resource / Artifactから利用者が選んだ項目だけを、目的・依頼文付きMarkdownへまとめる。
+文字数と概算token数、Preview、クリップボードコピーを提供する。
+保存時はPrompt Noteとして出力時点のMarkdownとEntity ID一覧をSnapshot保持し、AI回答用Markdown Noteから出典を辿れるようにする。
+長文Noteは抜粋し、Artifact本文や資格情報を自動収集しない。
+
+### Note AI drawer
+
+Note AIはNotes右側のchat drawerへ統合する。送信Contextと外部AI公開範囲をMainで確認し、完成した返答だけをNote IDに紐づくPending Proposalとして保存する。
+コピー・挿入・選択置換・全文置換・新規Noteを同じdrawerから選び、既存Noteへの反映はDiff確認後にApplication Commandとcanonical Markdown保存を通す。
+旧`properties_json.draft_workspace`は履歴として読み取るが、独立したDraft Workspace画面や二つ目のWorking Draft正本は持たない。
 
 ## 5.9 Stats
 

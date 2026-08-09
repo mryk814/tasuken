@@ -33,6 +33,9 @@ const workspacePageRouterSource = readFileSync(
 );
 const artifactsComponentSource = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
 const artifactEntitiesSource = readFileSync("src/renderer/src/features/workspace/lib/artifactEntities.ts", "utf8");
+const noteExportArtifactsSource = readFileSync("src/renderer/src/features/workspace/lib/noteExportArtifacts.ts", "utf8");
+const chatRefArtifactDialogSource = readFileSync("src/renderer/src/features/workspace/components/ChatRefArtifactLinkDialog.tsx", "utf8");
+const notesPageSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 const artifactsPageSource = readFileSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx", "utf8");
 const themePageSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
 const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
@@ -62,6 +65,8 @@ test("artifactはworkspaceエンティティとして登録されている", () 
     note: "note",
     report: "note",
     theme: "theme",
+    capture_entry: "capture_entry",
+    ai_proposal: "ai_proposal",
   });
 });
 
@@ -74,6 +79,9 @@ test("artifactのvalidateEntityが必須項目とenumを検証する", () => {
   assert.throws(() => validateEntity("artifact", artifact({ file_size: -1 })), /file_size/);
   validateEntity("artifact", artifact({ generated_by: "claude" }));
   validateEntity("artifact", artifact({ generated_by: null }));
+  validateEntity("artifact", artifact({ origin_note_id: "note-1", export_format: "markdown" }));
+  assert.throws(() => validateEntity("artifact", artifact({ origin_note_id: 1 })), /origin_note_id/);
+  assert.throws(() => validateEntity("artifact", artifact({ export_format: "docx" })), /export_format/);
 });
 
 test("managed / linked の validation と normalize", () => {
@@ -197,7 +205,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       artifactDirectory: "C:/tasken",
       themeId: null,
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Inbox"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Inbox"], source: "app_default" },
   );
   assert.deepEqual(
     resolveManagedArtifactDirectoryParts({
@@ -205,7 +213,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeId: "theme-1",
       themeCode: "MAT-A",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Artifacts"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Artifacts"], source: "app_default" },
   );
   // code がなければ id。名前変更で追従しない。
   assert.deepEqual(
@@ -214,7 +222,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeId: "theme-uuid",
       themeCode: "",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "theme-uuid", "Artifacts"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "theme-uuid", "Artifacts"], source: "app_default" },
   );
   // Theme 専用ルートがあれば共通ルートは不要。
   assert.deepEqual(
@@ -224,7 +232,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeCode: "MAT-A",
       themeStorageRoot: "D:/themes/mat-a",
     }),
-    { kind: "ok", root: "D:/themes/mat-a", segments: ["Artifacts"] },
+    { kind: "ok", root: "D:/themes/mat-a", segments: ["Artifacts"], source: "theme_override" },
   );
   assert.equal(safeThemeFolderSegment('a/b:c*?"'), "a-b-c-");
 });
@@ -237,7 +245,7 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
       themeCode: "MAT-A",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Notes"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Notes"], source: "app_default" },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
@@ -246,26 +254,31 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
       themeCode: "MAT-A",
       contentKind: "exports",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Exports"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Exports"], source: "app_default" },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
       artifactDirectory: "C:/tasken",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Inbox", "Notes"] },
+    { kind: "ok", root: "C:/tasken", segments: ["Inbox", "Notes"], source: "app_default" },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
       themeStorageRoot: "D:/themes/mat-a",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "D:/themes/mat-a", segments: ["Notes"] },
+    { kind: "ok", root: "D:/themes/mat-a", segments: ["Notes"], source: "theme_override" },
   );
 
   const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
-  assert.match(notesSource, /themeId:\s*str\(selected\.project_id \|\| selected\.theme_id\)/);
+  // Markdown copy is built from the latest entity after the owner queue flush,
+  // so Theme routing must not read the detached/stale selected snapshot.
+  assert.match(notesSource, /const persisted = await workspaceApi\.get\("note", selected\.id\);/);
+  assert.match(notesSource, /const exportNote: Combined = \{ \.\.\.selected, \.\.\.\(persisted \|\| \{\}\), recordType: "note" as const \};/);
+  assert.match(notesSource, /const exportThemeId = str\(exportNote\.project_id \|\| exportNote\.theme_id\);/);
+  assert.match(notesSource, /themeId: exportThemeId \|\| null/);
   assert.match(drawerSource, /themeId:\s*str\(note\.theme_id\)/);
 });
 
@@ -286,17 +299,20 @@ test("Theme 編集に storage_root があり import に themeId を渡す", () =
   assert.match(workspaceAppSource, /storage_root:\s*formText\(values,\s*"storage_root"\)/);
   assert.match(artifactsComponentSource, /themeId:\s*parentThemeId/);
   assert.match(artifactsComponentSource, /themeId:\s*artifact\.theme_id/);
-  assert.match(settingsSource, /Themes\/識別子\/Artifacts/);
+  // #306で「同期ストレージ」表記へ集約。標準フォルダの説明は残す。
+  assert.match(settingsSource, /Themes\/識別子\//);
+  assert.match(settingsSource, /Notes\|Artifacts\|Exports\//);
   assert.match(settingsSource, /Inbox\//);
 });
 
 function fakeDeletePolicyRepository(artifacts) {
   const removed = [];
+  const nullified = [];
   const repo = Object.create(WorkspaceDatabase.prototype);
   repo.list = (type) => (type === "artifact" ? artifacts : []);
   repo.markRemoved = (type, id, cascade) => removed.push({ type, id, cascade });
-  repo.nullifyReferences = () => {};
-  return { repo, removed };
+  repo.nullifyReferences = (_parentType, targets) => nullified.push(...targets.map(([entityType, field]) => `${entityType}.${field}`));
+  return { repo, removed, nullified };
 }
 
 test("親タスク削除でartifactがcascade論理削除される", () => {
@@ -320,12 +336,30 @@ test("メモ削除でnote/report由来のartifactがcascadeされる", () => {
   assert.deepEqual(removed[0].cascade, { parentType: "note", parentId: "note-1" });
 });
 
+test("チャット由来の書き出しArtifactは元Note削除時に残して参照だけnullifyする", () => {
+  const { repo, removed, nullified } = fakeDeletePolicyRepository([
+    artifact({ id: "a1", source_type: "chat_ref", source_id: "res-1", origin_note_id: "note-1" }),
+  ]);
+  repo.applyDeletePolicy("note", "note-1");
+  assert.deepEqual(removed, []);
+  assert.equal(nullified.includes("artifact.origin_note_id"), true);
+});
+
 test("Chat参照（resource）削除でchat_ref由来のartifactがcascadeされる", () => {
   const { repo, removed } = fakeDeletePolicyRepository([
     artifact({ id: "a1", source_type: "chat_ref", source_id: "res-1" }),
     artifact({ id: "a2", source_type: "chat_ref", source_id: "res-2" }),
   ]);
   repo.applyDeletePolicy("resource", "res-1");
+  assert.deepEqual(removed.map((entry) => entry.id), ["a1"]);
+});
+
+test("Inbox Capture削除で未整理ファイルArtifactがcascadeされる", () => {
+  const { repo, removed } = fakeDeletePolicyRepository([
+    artifact({ id: "a1", source_type: "capture_entry", source_id: "capture-1" }),
+    artifact({ id: "a2", source_type: "capture_entry", source_id: "capture-2" }),
+  ]);
+  repo.applyDeletePolicy("capture_entry", "capture-1");
   assert.deepEqual(removed.map((entry) => entry.id), ["a1"]);
 });
 
@@ -345,8 +379,9 @@ test("Theme削除でtheme由来のartifactがcascadeされる", () => {
 
 test("Artifacts 一覧が知識整理ナビとルートに接続されている", () => {
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
-  assert.match(routesSource, /\["artifacts", "Artifacts"\]/);
-  assert.match(routesSource, /artifacts:\s*"knowledge"/);
+  assert.match(routesSource, /id: "artifacts", label: "Artifacts"/);
+  assert.match(routesSource, /id: "artifacts"[\s\S]*group: "knowledge"/);
+  assert.match(routesSource, /navigation: \{ group: "knowledge", parent: "knowledge", order: 5 \}/);
   assert.match(workspacePageRouterSource, /ArtifactsPage/);
   assert.match(workspacePageRouterSource, /case "artifacts":/);
 });
@@ -367,13 +402,26 @@ test("Artifact の追加入口と元Entity往復がUIにある", () => {
   assert.match(artifactsPageSource, /Notes/);
   assert.match(artifactsPageSource, /Chat Refs/);
   assert.match(artifactsPageSource, /Artifacts/);
-  assert.match(artifactsPageSource, /title="Artifacts"/);
+  assert.match(artifactsPageSource, /PageHeader route="artifacts"/);
   assert.match(themePageSource, /ArtifactSection/);
   assert.match(themePageSource, /sourceType="theme"/);
   assert.match(drawerSource, /sourceType="chat_ref"/);
   assert.match(drawerSource, /sourceType="task"/);
   assert.match(drawerSource, /sourceType=\{isReport \? "report" : "note"\}/);
   assert.match(contractsSource, /dialogChooseFiles/);
+});
+
+test("Note書き出しをChat Ref Artifactへ双方向に接続する", () => {
+  assert.match(notesPageSource, /Chat Refへ紐づける/);
+  assert.match(notesPageSource, /withNoteDocumentExport/);
+  assert.match(artifactsComponentSource, /NoteからArtifactを追加/);
+  assert.match(artifactsComponentSource, /originNoteId/);
+  assert.match(artifactsComponentSource, /元Noteへ/);
+  assert.match(drawerSource, /themeId=\{artifactSource\.themeId\}[\s\S]{0,240}openDrawer=\{\(next\) => close\(next\)\}/);
+  assert.match(chatRefArtifactDialogSource, /Artifactとして紐づける/);
+  assert.match(noteExportArtifactsSource, /origin_note_id: exported\.noteId/);
+  assert.match(noteExportArtifactsSource, /artifact\.origin_note_id === exported\.noteId/);
+  assert.match(noteExportArtifactsSource, /rankChatRefsForNote/);
 });
 
 test("Artifactカードは前面操作を主操作1つ＋メニューに整理する", () => {

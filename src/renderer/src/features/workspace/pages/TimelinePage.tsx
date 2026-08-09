@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { IconCalendarPlus, IconGripVertical, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconCalendarPlus, IconGripVertical, IconPlus, IconPresentationAnalytics, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
 import type { Item, PageProps, SaveOperation } from "../types";
 import { themeColor } from "../lib/domain";
 import { daysBetween, formatDate, localDateIso, uuid } from "../lib/format";
-import { buildTimelineRows, scaleFromDayWidth, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
+import { buildTimelineRows, scaleFromDayWidth, timelineItemScheduleKind, timelineItemState, ZOOM_PRESETS, MIN_DAY_WIDTH, MAX_DAY_WIDTH } from "../lib/timeline";
+import { SCHEDULE_KIND_LABELS, TIMELINE_ITEM_STATE_LABELS } from "../domain-model/labels";
 import { type ConnectingState, type SelectedDependency, DependencyOverlay, GanttItemRow, LightningOverlay, MilestoneLane, TimeAxis, ganttGridBackground, ganttRowHeight } from "../components/gantt";
-import { PageHeader, StatusBadge } from "../components/common";
+import { Button, PageHeader, StatusBadge, ThemePickerSelect, ToolbarOverflow } from "../components/common";
+import { SlideTimelineDialog } from "../components/SlideTimelineDialog";
 import {
   isTimelineCompleted,
   legacyTimelineWorkspace,
@@ -41,29 +43,20 @@ interface TimelinePrefs {
   showCompleted: boolean;
   showDependencies: boolean;
   showLightning: boolean;
-  rangeBufferMonths: number;
+  rangeBufferMonths: 0 | 3 | 6;
 }
-const DEFAULT_PREFS: TimelinePrefs = {
-  dayWidth: 2,
-  themeFilter: "all",
-  showCompleted: true,
-  showDependencies: true,
-  showLightning: true,
-  rangeBufferMonths: 0,
-};
-
-interface QuickPlanDraft {
-  title: string;
-  themeId: string;
-  startMonth: string;
-  endMonth: string;
-}
+/**
+ * 常設するのは中長期のscaleだけ（#318）。週間はTodayの実行管理と役割が重なり
+ * 利用実績もないため、廃止せずmenuへ畳む。
+ */
+const LONG_RANGE_ZOOM_PRESETS = ZOOM_PRESETS.filter((preset) => preset.id !== "week");
+const SHORT_RANGE_ZOOM_PRESETS = ZOOM_PRESETS.filter((preset) => preset.id === "week");
 
 const RANGE_BUFFER_OPTIONS = [
   { value: 0, label: "年度" },
   { value: 3, label: "前後3か月" },
   { value: 6, label: "前後6か月" },
-];
+] as const;
 
 function fiscalYearStart(today: string): number {
   const date = new Date(`${today}T00:00:00`);
@@ -106,18 +99,17 @@ function sameTimelineItemShape(a: Item, b: Item): boolean {
 }
 
 export function TimelinePage({ data, domain: v2, themes, items, openDrawer, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
-  const [prefs, setPrefs] = usePersistentState<TimelinePrefs>("timeline:prefs:v6", DEFAULT_PREFS);
-  const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning, rangeBufferMonths = 0 } = prefs;
+  const [prefs, setPrefs] = usePreference("timeline.preferences");
+  const { dayWidth, themeFilter, showCompleted, showDependencies, showLightning, rangeBufferMonths = 0, collapsedThemes } = prefs;
   const scale = scaleFromDayWidth(dayWidth);
   const updatePrefs = (patch: Partial<TimelinePrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const today = todayIso();
-  const [quickPlan, setQuickPlan] = useState<QuickPlanDraft>(() => ({
-    title: "",
-    themeId: "",
-    startMonth: todayIso().slice(0, 7),
-    endMonth: todayIso().slice(0, 7),
-  }));
-  const [collapsedThemes, setCollapsedThemes] = useState<string[]>([]);
+  const setCollapsedThemes = (next: string[] | ((current: string[]) => string[])) => {
+    setPrefs((current) => ({
+      ...current,
+      collapsedThemes: typeof next === "function" ? next(current.collapsedThemes) : next,
+    }));
+  };
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
   const [connectMode, setConnectMode] = useState(false);
   const [selectedDep, setSelectedDep] = useState<SelectedDependency | null>(null);
@@ -125,6 +117,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
   const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
   const [dropSortTargetId, setDropSortTargetId] = useState<string | null>(null);
+  const [slideTimelineOpen, setSlideTimelineOpen] = useState(false);
   const [optimisticTimelineItems, setOptimisticTimelineItems] = useState<Record<string, Item>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -285,6 +278,18 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
   });
   const rows = buildTimelineRows({ items: visibleTimelineItems, themes, collapsedThemes, scale });
   const groupKeys = rows.filter((row) => row.rowType === "theme").map((row) => (row as Extract<typeof row, { rowType: "theme" }>).groupKey);
+  // 一括開閉は一つのtoggleにする（#318）。すべて畳んでいるときだけ「展開」を出す。
+  const allThemesCollapsed = groupKeys.length > 0 && groupKeys.every((key) => collapsedThemes.includes(key));
+
+  /** 表示倍率の変更。中心位置を保ったまま拡大縮小する。 */
+  function applyZoom(nextDayWidth: number) {
+    const scroll = scrollRef.current;
+    if (scroll) {
+      const cx = scroll.clientWidth / 2;
+      pendingScroll.current = { cursorDayOffset: (scroll.scrollLeft + cx) / dayWidth, mouseX: cx };
+    }
+    updatePrefs({ dayWidth: nextDayWidth });
+  }
   const days = Math.max(1, daysBetween(range.start, range.end));
   const canvasWidth = Math.round(days * dayWidth);
   const gridBackground = ganttGridBackground(range.start, range.end, dayWidth);
@@ -485,47 +490,6 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     openDrawer({ type: "plan_node", mode: "edit", entity: { ...planNode, _schedule: schedule, _focusTitle: true } as unknown as Record<string, unknown> });
   }
 
-  async function addQuickPlan() {
-    const title = quickPlan.title.trim();
-    if (!title) {
-      setToast("期間ブロックのタイトルを入力してください。");
-      return;
-    }
-    const startMonth = quickPlan.startMonth <= quickPlan.endMonth ? quickPlan.startMonth : quickPlan.endMonth;
-    const endMonth = quickPlan.endMonth >= quickPlan.startMonth ? quickPlan.endMonth : quickPlan.startMonth;
-    const planNodeId = uuid();
-    const rootPlans = timelineItems.filter((item) => !item.parent_item_id && item.theme_id === (quickPlan.themeId || null));
-    const sortOrder = Math.max(0, ...rootPlans.map((item) => Number(item.sort_order) || 0)) + 10;
-    const planNode = {
-      id: planNodeId,
-      title,
-      project_id: quickPlan.themeId || null,
-      parent_plan_node_id: null,
-      type: "phase",
-      state: "planned",
-      sort_order: sortOrder,
-      description: `${monthLabel(startMonth)}〜${monthLabel(endMonth)}`,
-      created_at: new Date().toISOString(),
-    };
-    const schedule = {
-      id: uuid(),
-      owner_type: "plan_node",
-      owner_id: planNodeId,
-      start_date: monthStart(startMonth),
-      end_date: monthEnd(endMonth),
-      date_kind: "range",
-      confidence: "tentative",
-      granularity: "month",
-    };
-    const ops: SaveOperation[] = [
-      { action: "save", type: "plan_node", entity: planNode },
-      { action: "save", type: "schedule", entity: schedule },
-    ];
-    await saveEntities(ops, "期間ブロックを追加しました。");
-    pushUndo({ label: "期間ブロック追加", run: async () => { await removeEntityQuiet("plan_node", planNodeId); } });
-    setQuickPlan((current) => ({ ...current, title: "" }));
-  }
-
   async function reorderItemToTarget(item: Item, target: Item) {
     if (item.id === target.id) return;
     if (item.parent_item_id !== target.parent_item_id || timelineThemeId(item) !== timelineThemeId(target)) {
@@ -542,13 +506,23 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     const ops = reordered.flatMap((entry, orderIndex) => timelineSaveItemOperations({ ...entry, sort_order: (orderIndex + 1) * 10 }, v2));
-    await saveEntities(ops, "並び順を変更しました。Ctrl+Zで戻せます。");
-    pushUndo({
-      label: "並び替え",
-      run: async () => {
-        await saveEntities(siblings.flatMap((entry) => timelineSaveItemOperations(entry, v2)));
-      },
-    });
+    const previousOptimistic = optimisticTimelineItems;
+    setOptimisticTimelineItems((current) => ({
+      ...current,
+      ...Object.fromEntries(reordered.map((entry, orderIndex) => [entry.id, { ...entry, sort_order: (orderIndex + 1) * 10 }])),
+    }));
+    try {
+      await saveEntities(ops, "並び順を変更しました。Ctrl+Zで戻せます。");
+      pushUndo({
+        label: "並び替え",
+        run: async () => {
+          await saveEntities(siblings.flatMap((entry) => timelineSaveItemOperations(entry, v2)));
+        },
+      });
+    } catch {
+      setOptimisticTimelineItems(previousOptimistic);
+      setToast("並び替えを保存できませんでした。再試行してください。", "danger");
+    }
   }
 
   async function deleteItem(item: Item) {
@@ -576,25 +550,33 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
 
   return (
     <div className="page timeline-wide">
-      <PageHeader title="Timeline" subtitle="実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。">
-        <button className="primary-button" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</button>
+      <PageHeader route="timeline">
+        <Button variant="secondary" onClick={() => setSlideTimelineOpen(true)}><IconPresentationAnalytics size={16} />スライド用</Button>
+        <Button variant="primary" onClick={() => openDrawer({ type: "plan_node", mode: "edit", entity: { node_type: "phase", node_state: "planned" } })}><IconPlus size={16} />実施事項を追加</Button>
       </PageHeader>
-      <section className="timeline-toolbar panel">
+      {/* 狭幅では横一列に詰め込まず、意味単位で行送りする。表示切替と一括開閉は
+          利用頻度が低いのでメニューへ畳み、幅が変わっても位置を動かさない（#300）。 */}
+      <section className="timeline-toolbar toolbar-row panel">
         <label>Theme
-          <select value={themeFilter} onChange={(event) => updatePrefs({ themeFilter: event.target.value })}>
-            <option value="all">すべて</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
-          </select>
+          <ThemePickerSelect
+            themes={themes}
+            value={themeFilter}
+            onChange={(next) => updatePrefs({ themeFilter: next })}
+            allowAll
+            allowNone
+            allLabel="すべて"
+            ariaLabel="Themeで絞り込み"
+          />
         </label>
         <div className="segmented" aria-label="表示範囲">
           {RANGE_BUFFER_OPTIONS.map((option) => <button key={option.value} className={rangeBufferMonths === option.value ? "is-active" : ""} onClick={() => updatePrefs({ rangeBufferMonths: option.value })}>{option.label}</button>)}
         </div>
-        <div className="segmented">{ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => { const scroll = scrollRef.current; if (scroll) { const cx = scroll.clientWidth / 2; pendingScroll.current = { cursorDayOffset: (scroll.scrollLeft + cx) / dayWidth, mouseX: cx }; } updatePrefs({ dayWidth: pw }); }}>{label}</button>)}</div>
-        <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
-        <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
-        <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => updatePrefs({ showLightning: event.target.checked })} />イナズマ線</label>
-        <button
-          className={`secondary-button compact ${connectMode || connecting ? "is-active" : ""}`}
+        {/* 中長期の把握が主用途（#318）。週間はTodayと役割が重なるのでmenuへ畳む。 */}
+        <div className="segmented" aria-label="表示倍率">{LONG_RANGE_ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => <button key={id} className={Math.abs(dayWidth - pw) < 0.5 ? "is-active" : ""} onClick={() => applyZoom(pw)}>{label}</button>)}</div>
+        <Button
+          variant="secondary"
+          compact
+          className={connectMode || connecting ? "is-active" : ""}
           onClick={() => {
             const next = !(connectMode || connecting);
             setConnectMode(next);
@@ -603,33 +585,31 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
           }}
         >
           依存をつなぐ
-        </button>
-        <button className="secondary-button compact" onClick={() => setCollapsedThemes([])}>全展開</button>
-        <button className="secondary-button compact" onClick={() => setCollapsedThemes(groupKeys)}>全折りたたみ</button>
-      </section>
-      <section className="timeline-quick-add panel">
-        <label>期間
-          <input value={quickPlan.title} onChange={(event) => setQuickPlan((current) => ({ ...current, title: event.target.value }))} placeholder="例: 実験設計" />
-        </label>
-        <label>Theme
-          <select value={quickPlan.themeId} onChange={(event) => setQuickPlan((current) => ({ ...current, themeId: event.target.value }))}>
-            <option value="">個人業務</option>
-            {themes.map((theme) => <option key={theme.id} value={theme.id}>{themeLabel(theme)}</option>)}
-          </select>
-        </label>
-        <label>開始月
-          <input type="month" value={quickPlan.startMonth} onChange={(event) => setQuickPlan((current) => ({ ...current, startMonth: event.target.value }))} />
-        </label>
-        <label>終了月
-          <input type="month" value={quickPlan.endMonth} onChange={(event) => setQuickPlan((current) => ({ ...current, endMonth: event.target.value }))} />
-        </label>
-        <button className="secondary-button" onClick={addQuickPlan}><IconCalendarPlus size={16} />期間を追加</button>
+        </Button>
+        {/* 展開と折りたたみは同時に出さず、いまの状態から次の操作だけを出す（#318）。 */}
+        <Button
+          variant="secondary"
+          compact
+          aria-expanded={!allThemesCollapsed}
+          onClick={() => setCollapsedThemes(allThemesCollapsed ? [] : groupKeys)}
+        >
+          {allThemesCollapsed ? "すべて展開" : "すべて折りたたむ"}
+        </Button>
+        <ToolbarOverflow label="表示" ariaLabel="タイムラインの表示切替">
+          <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => updatePrefs({ showCompleted: event.target.checked })} />完了タスク</label>
+          <label className="toggle"><input type="checkbox" checked={showDependencies} onChange={(event) => updatePrefs({ showDependencies: event.target.checked })} />依存線</label>
+          <label className="toggle"><input type="checkbox" checked={showLightning} onChange={(event) => updatePrefs({ showLightning: event.target.checked })} />イナズマ線</label>
+          <hr />
+          {SHORT_RANGE_ZOOM_PRESETS.map(({ id, label, dayWidth: pw }) => (
+            <button key={id} type="button" role="menuitem" onClick={() => applyZoom(pw)}>{label}表示にする</button>
+          ))}
+        </ToolbarOverflow>
       </section>
       <section className={`split-gantt panel ${connecting ? "is-connecting" : ""}`}>
         {connecting && (
           <div className="connect-status-popover" role="status" aria-live="polite">
             <span>{connecting.sourceTitle ? <>先行: <strong>{connecting.sourceTitle}</strong> → 後続タスクをクリック</> : "先行タスクをクリック"}</span>
-            <button className="danger-button compact" onClick={() => { setConnecting(null); setConnectMode(false); }}>キャンセル</button>
+            <Button variant="secondary" compact onClick={() => { setConnecting(null); setConnectMode(false); }}>キャンセル</Button>
           </div>
         )}
         <div className="gantt-table">
@@ -659,6 +639,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
             const { item, depth } = row;
             const isPlan = timelineItemLevel(item) === "plan";
             const rowHeight = ganttRowHeight(row.laneItems.length ? row.laneItems : [item]);
+            const scheduleKind = timelineItemScheduleKind(item);
             return (
               <div
                 className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${selectedTimelineItemId === item.id ? "is-selected" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
@@ -695,15 +676,30 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                       }}
                     />
                   ) : (
-                    <button
-                      className="gantt-title-button"
-                      onClick={(e) => {
-                        if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
-                        isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openPlanNode(item);
-                      }}
-                    >
-                      {item.title}
-                    </button>
+                    <>
+                      <button
+                        className="gantt-title-button"
+                        // 長いタイトルは省略表示になるので、全文はtooltipで読めるようにする（#318）。
+                        title={item.title}
+                        onClick={(e) => {
+                          if ((e.ctrlKey || e.metaKey) && !isPlan) { handleCtrlClick(item); return; }
+                          isPlan && !connectMode && !connecting ? setEditingTitle({ id: item.id, value: item.title }) : connecting || connectMode ? startConnecting(item) : openPlanNode(item);
+                        }}
+                      >
+                        {item.title}
+                      </button>
+                      {/* 状態は色だけで伝えず、語でも読めるようにする（#312 / #318）。 */}
+                      <StatusBadge
+                        value={timelineItemState(item, today)}
+                        label={TIMELINE_ITEM_STATE_LABELS[timelineItemState(item, today)]}
+                        className={`timeline-state-chip is-state-${timelineItemState(item, today)}`}
+                      />
+                      {(scheduleKind === "execution_window" || scheduleKind === "ongoing_period" || scheduleKind === "unspecified_range") && (
+                        <span className={`timeline-range-chip is-range-${scheduleKind}`}>
+                          {SCHEDULE_KIND_LABELS[scheduleKind]}
+                        </span>
+                      )}
+                    </>
                   )}
                 </div>
                 {isPlan
@@ -755,6 +751,19 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
         </div>
       </section>
       {outsideCount > 0 && <div className="timeline-range-note">表示範囲外の計画が {outsideCount} 件あります。前後期間を広げると確認できます。</div>}
+      {slideTimelineOpen && (
+        <SlideTimelineDialog
+          domain={v2}
+          statusUpdates={data.status_updates}
+          themes={themes}
+          initialThemeId={themeFilter}
+          initialStart={range.start}
+          initialEnd={range.end}
+          initialShowCompleted={showCompleted}
+          onClose={() => setSlideTimelineOpen(false)}
+          setToast={setToast}
+        />
+      )}
     </div>
   );
 }

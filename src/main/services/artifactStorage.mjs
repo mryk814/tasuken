@@ -1,3 +1,6 @@
+import { resolveStorageLocation } from "../../shared/storageResolver.mjs";
+import { audioMimeTypeOf } from "../../shared/mediaArtifact.mjs";
+
 // Artifactファイル保存の純粋ロジック（パス組み立て・命名・種別判定）。
 // ファイルI/O自体はworkspaceServiceが行い、ここはnode:fsに依存しない。
 
@@ -40,7 +43,7 @@ export function artifactFileTypeOf(fileName) {
 }
 
 export function artifactMimeTypeOf(fileName) {
-  return ARTIFACT_MIME_TYPES[artifactFileTypeOf(fileName)] || "application/octet-stream";
+  return ARTIFACT_MIME_TYPES[artifactFileTypeOf(fileName)] || audioMimeTypeOf(fileName) || "application/octet-stream";
 }
 
 export function safeArtifactFileName(fileName) {
@@ -101,24 +104,23 @@ export function resolveThemeContentDirectoryParts({
   themeCode,
   themeStorageRoot,
   contentKind = "artifacts",
+  canonicalPath = null,
+  explicitExportRoot = null,
+  isPersonalDefaultTheme = false,
 } = {}) {
-  const kindKey = String(contentKind || "artifacts");
-  const subfolder = kindKey === "notes" ? "Notes" : kindKey === "exports" ? "Exports" : "Artifacts";
-  const storageRoot = String(themeStorageRoot || "").trim();
-  if (storageRoot) {
-    return { kind: "ok", root: storageRoot, segments: [subfolder] };
-  }
-  const base = String(artifactDirectory || "").trim();
-  if (!base) return { kind: "needs_directory" };
-  const themeKey = String(themeId || "").trim();
-  if (themeKey) {
-    const folder = safeThemeFolderSegment(themeCode || themeKey);
-    return { kind: "ok", root: base, segments: ["Themes", folder, subfolder] };
-  }
-  if (subfolder === "Artifacts") {
-    return { kind: "ok", root: base, segments: ["Inbox"] };
-  }
-  return { kind: "ok", root: base, segments: ["Inbox", subfolder] };
+  // 解決の正本は shared/storageResolver.mjs（#306）。ここは既存呼び出し向けの薄い層に留める。
+  const location = resolveStorageLocation({
+    purpose: contentKind,
+    themeId,
+    themeCode,
+    themeStorageRoot,
+    syncRoot: artifactDirectory,
+    canonicalPath,
+    explicitExportRoot,
+    isPersonalDefaultTheme,
+  });
+  if (location.status === "needs_root") return { kind: "needs_directory" };
+  return { kind: "ok", root: location.root, segments: location.segments, source: location.source };
 }
 
 /** managed Artifact 専用（互換ラッパ）。 */

@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  countMarkdownImageAttachments,
+  syncMarkdownImageAttachments,
+} from "./sharedFolderAttachments.mjs";
+
 const MANIFEST_FILE = "tasken-sync.json";
 const DEVICE_DIRECTORY = "devices";
 const SYNC_INTERVAL_MS = 10_000;
@@ -24,13 +29,27 @@ function syncErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function referencedMarkdownImageFiles(repository) {
+  const fileNames = new Set();
+  const pattern = /tasken-attachment:\/\/local\/([0-9a-f-]+\.(?:png|jpg|gif|webp|bmp))(?:\/|[)\s"'<>]|$)/gi;
+  for (const type of ["note", "resource"]) {
+    for (const entity of repository.list(type)) {
+      const markdown = typeof entity.body_markdown === "string" ? entity.body_markdown : "";
+      for (const match of markdown.matchAll(pattern)) fileNames.add(match[1]);
+    }
+  }
+  return fileNames;
+}
+
 export class SharedFolderSyncService {
-  constructor(repository, notifyWorkspaceChanged = () => {}) {
+  constructor(repository, notifyWorkspaceChanged = () => {}, attachmentDirectory = "") {
     this.repository = repository;
     this.notifyWorkspaceChanged = notifyWorkspaceChanged;
+    this.attachmentDirectory = attachmentDirectory;
     this.timer = null;
     this.running = null;
     this.state = "off";
+    this.attachmentStats = { published: 0, received: 0 };
   }
 
   start() {
@@ -110,6 +129,9 @@ export class SharedFolderSyncService {
       pendingCount: this.repository.syncPendingCount(),
       conflictCount: this.repository.syncConflictCount(),
       conflicts: this.repository.listSyncConflicts(),
+      markdownImageCount: countMarkdownImageAttachments(this.attachmentDirectory),
+      lastMarkdownImagesPublished: this.attachmentStats.published,
+      lastMarkdownImagesReceived: this.attachmentStats.received,
     };
   }
 
@@ -133,13 +155,23 @@ export class SharedFolderSyncService {
         throw new Error("選択した同期フォルダは別のWorkspace用です。");
       }
       this.repository.ensureSyncBaseline();
+      const attachments = syncMarkdownImageAttachments({
+        sharedDirectory: directory,
+        localDirectory: this.attachmentDirectory,
+        deviceId: this.repository.deviceId,
+        publishFileNames: referencedMarkdownImageFiles(this.repository),
+      });
+      this.attachmentStats = {
+        published: attachments.published,
+        received: attachments.received,
+      };
       this.publishPending(directory);
       const incoming = this.receiveChanges(directory);
       const timestamp = new Date().toISOString();
       this.repository.setPreference("sharedSyncLastAt", timestamp);
       this.repository.setPreference("sharedSyncLastError", "");
       this.state = this.repository.syncConflictCount() ? "conflict" : "idle";
-      if (incoming.applied || incoming.conflicts) this.notifyWorkspaceChanged();
+      if (incoming.applied || incoming.conflicts || attachments.received) this.notifyWorkspaceChanged();
       return this.status();
     } catch (error) {
       this.state = "error";

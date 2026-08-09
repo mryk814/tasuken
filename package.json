@@ -1,23 +1,41 @@
 {
   "name": "tasken",
-  "version": "0.1.26",
+  "version": "0.1.36",
   "description": "研究開発職向けの長期スケジュール・タスク・メモ管理デスクトップアプリ",
   "author": "ootan",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "patch-package && electron-builder install-app-deps",
     "dev": "electron-vite dev",
     "test": "node --test tests/*.test.mjs",
+    "test:full": "npm test",
+    "test:unit-contract": "node --test tests/audit-tools.test.mjs tests/entity-registry-theme.test.mjs tests/electron-smoke-runner.test.mjs tests/personal-default-theme.test.mjs tests/theme-picker-ui.test.mjs tests/semantic-registry.test.mjs tests/semantic-actions.test.mjs tests/storage-resolver.test.mjs",
+    "test:behavior": "node --test tests/application-command.test.mjs tests/note-draft-identity.test.mjs tests/canonical-markdown.test.mjs tests/canonical-markdown-workspace.test.mjs tests/note-draft-flush-registry.test.mjs tests/note-draft-save-queue.test.mjs tests/document-publish.test.mjs tests/satellite-window-state.test.mjs tests/workspace-domain.test.mjs",
     "typecheck": "tsc -b",
     "build": "electron-vite build",
+    "build:mcp": "node scripts/build-mcp-bridge.mjs",
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
-    "smoke:desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing . --smoke-test",
+    "smoke:desktop": "npm run build && node scripts/run-electron-smoke.mjs",
+    "smoke:desktop:focused": "node scripts/run-electron-smoke.mjs",
+    "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
+    "audit:responsive": "node scripts/responsive-audit.mjs",
+    "audit:materials-demo": "node scripts/audit-materials-demo.mjs",
+    "audit:note-window": "node scripts/note-window-audit.mjs",
+    "audit:mermaid-powerpoint": "node scripts/mermaid-powerpoint-audit.mjs",
+    "bench:notes": "npm run build && node scripts/notes-performance.mjs",
+    "workspace:materials-demo": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/seed-materials-informatics-workspace.mjs --apply-local",
+    "workspace:materials-demo:today": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/update-materials-informatics-workspace.mjs --apply-local --mode refresh",
+    "workspace:materials-demo:add": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/update-materials-informatics-workspace.mjs --apply-local --mode add",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
     "mcp": "set ELECTRON_RUN_AS_NODE=1&& electron scripts/mcp-server.mjs",
     "rebuild:electron": "electron-rebuild --force -w better-sqlite3",
-    "package": "npm run typecheck && npm run build && npm run rebuild:electron && electron-builder --publish never --win nsis portable --config.electronDist=node_modules/electron/dist",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "audit:consistency": "node scripts/audit-consistency.mjs",
+    "audit:scripts": "node scripts/audit-scripts.mjs",
+    "ci": "node scripts/run-ci.mjs",
+    "package": "npm run typecheck && npm run build && npm run build:mcp && npm run rebuild:electron && electron-builder --publish never --win nsis portable --config.electronDist=node_modules/electron/dist",
     "release:verify-version": "node scripts/verify-release-version.mjs",
     "release:check": "npm run release:verify-version && npm rebuild better-sqlite3 && npm test && npm run package"
   },
@@ -30,6 +48,7 @@
     "electron": "^37.10.3",
     "electron-builder": "^26.15.5",
     "electron-vite": "^5.0.0",
+    "patch-package": "^8.0.1",
     "playwright": "^1.61.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -47,6 +66,12 @@
       "out/**/*",
       "resources/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "mcp-dist",
+        "to": "mcp"
+      }
     ],
     "asar": true,
     "win": {
@@ -74,6 +99,7 @@
   "dependencies": {
     "@codemirror/view": "^6.43.4",
     "@mdxeditor/editor": "^4.0.4",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@tabler/icons-react": "^3.44.0",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.11.1",
@@ -84,9 +110,12 @@
     "mdast-util-math": "^3.0.0",
     "mdast-util-to-string": "^4.0.0",
     "mermaid": "^11.16.0",
-    "micromark-extension-gfm-strikethrough": "^2.1.0",
+    "micromark-extension-cjk-friendly": "^2.0.1",
+    "micromark-extension-cjk-friendly-gfm-strikethrough": "^2.0.1",
     "micromark-extension-gfm-table": "^2.1.1",
     "micromark-extension-math": "^3.1.0",
+    "pptxgenjs": "4.0.1",
+    "zod": "^4.0.0",
     "zustand": "^5.0.14"
   }
 }

@@ -13,17 +13,12 @@
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body { height: 100%; overflow: hidden; }
       body {
-        font-family: 'Nunito', sans-serif;
-        font-size: 14px;
-        color: #3D2E2A;
-        background: #F4EEEC;
-        border: 1px solid #D5C9C3;
-        border-radius: 7px;
-      }
-      [data-theme="dark"] body {
-        color: #E8DDD8;
-        background: #2A2220;
-        border-color: #4A3E3A;
+        font-family: var(--font-base);
+        font-size: var(--text-base);
+        color: var(--color-text);
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
       }
       .capture-form {
         display: flex;
@@ -41,36 +36,52 @@
       }
       .capture-header strong {
         font-size: 12px;
-        color: #8A2F3B;
-      }
-      [data-theme="dark"] .capture-header strong {
-        color: #D4858F;
+        color: var(--color-accent);
       }
       .capture-hint {
         font-size: 11px;
-        color: #7A6E69;
+        color: var(--color-text-secondary);
         -webkit-app-region: no-drag;
       }
+      .due-preview {
+        display: none;
+        min-height: 18px;
+        font-size: 11px;
+        color: var(--color-success-strong);
+      }
+      .due-preview.is-visible { display: block; }
+      .due-preview.is-error { color: var(--color-danger); }
+      .range-choice {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: var(--color-text-secondary);
+      }
+      .range-choice[hidden] { display: none; }
+      .range-choice button {
+        min-height: 26px;
+        padding: 2px 8px;
+        border-color: var(--color-border);
+        background: var(--color-surface);
+        color: var(--color-text);
+        font-size: 11px;
+      }
+      .range-choice button:hover,
+      .range-choice button.is-selected { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
       .mode-pill {
         display: inline-flex;
         align-items: center;
         min-height: 22px;
         padding: 2px 8px;
-        border: 1px solid #D8A1A9;
+        border: 1px solid var(--color-accent-subtle-bd);
         border-radius: 999px;
-        color: #8A2F3B;
-        background: rgba(138, 47, 59, 0.08);
+        color: var(--color-accent-strong);
+        background: var(--color-accent-subtle-bg);
         font-size: 11px;
         font-weight: 700;
         -webkit-app-region: no-drag;
-      }
-      [data-theme="dark"] .capture-hint {
-        color: #9B8E89;
-      }
-      [data-theme="dark"] .mode-pill {
-        border-color: #7B4D54;
-        color: #F0B7BE;
-        background: rgba(212, 133, 143, 0.12);
       }
       .theme-row {
         display: none;
@@ -78,40 +89,31 @@
         align-items: center;
         gap: 8px;
         font-size: 11px;
-        color: #7A6E69;
+        color: var(--color-text-secondary);
       }
       .theme-row.is-visible { display: grid; }
       select {
         min-height: 28px;
         padding: 3px 8px;
-        border: 1px solid #D5C9C3;
+        border: 1px solid var(--color-border);
         border-radius: 7px;
-        background: #FDFBFA;
+        background: var(--color-surface);
         color: inherit;
         font: inherit;
         font-size: 12px;
         outline: none;
       }
       select:focus {
-        border-color: #8A2F3B;
-        box-shadow: 0 0 0 2px rgba(138, 47, 59, 0.15);
-      }
-      [data-theme="dark"] .theme-row { color: #9B8E89; }
-      [data-theme="dark"] select {
-        background: #1E1816;
-        border-color: #4A3E3A;
-      }
-      [data-theme="dark"] select:focus {
-        border-color: #D4858F;
-        box-shadow: 0 0 0 2px rgba(212, 133, 143, 0.2);
+        border-color: var(--color-accent);
+        box-shadow: var(--focus-ring);
       }
       textarea {
         flex: 1;
         min-height: 60px;
         padding: 8px;
-        border: 1px solid #D5C9C3;
+        border: 1px solid var(--color-border);
         border-radius: 7px;
-        background: #FDFBFA;
+        background: var(--color-surface);
         font: inherit;
         font-size: 13px;
         color: inherit;
@@ -119,16 +121,8 @@
         outline: none;
       }
       textarea:focus {
-        border-color: #8A2F3B;
-        box-shadow: 0 0 0 2px rgba(138, 47, 59, 0.15);
-      }
-      [data-theme="dark"] textarea {
-        background: #1E1816;
-        border-color: #4A3E3A;
-      }
-      [data-theme="dark"] textarea:focus {
-        border-color: #D4858F;
-        box-shadow: 0 0 0 2px rgba(212, 133, 143, 0.2);
+        border-color: var(--color-accent);
+        box-shadow: var(--focus-ring);
       }
       .capture-actions {
         display: flex;
@@ -138,26 +132,26 @@
       button {
         min-height: 30px;
         padding: 4px 14px;
-        border: 1px solid #8A2F3B;
+        border: 1px solid var(--color-accent);
         border-radius: 7px;
-        background: #8A2F3B;
-        color: #FFF;
+        background: var(--color-accent);
+        color: var(--color-on-accent);
         font: inherit;
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
       }
-      button:hover { background: #7A2835; }
+      button:hover { background: var(--color-accent-hover); }
       button:active { transform: scale(0.98); }
-      button:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(138, 47, 59, 0.3); }
+      button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
       .feedback {
         position: fixed;
         inset: 0;
         display: grid;
         place-items: center;
-        background: rgba(138, 47, 59, 0.92);
-        color: #FFF;
+        background: var(--color-accent);
+        color: var(--color-on-accent);
         font-weight: 600;
         font-size: 13px;
         animation: fade-out 0.8s ease 0.3s forwards;
@@ -165,7 +159,7 @@
       }
       .feedback.error {
         padding: 12px;
-        background: rgba(206, 59, 59, 0.96);
+        background: var(--color-danger);
         text-align: center;
         animation: none;
       }
@@ -180,7 +174,7 @@
         <strong id="title">Inbox に記録</strong>
         <span id="mode-pill" class="mode-pill">Inbox</span>
       </div>
-      <span id="hint" class="capture-hint">Ctrl+Enter で送信 / Esc で閉じる</span>
+      <span id="hint" class="capture-hint">Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる</span>
       <label id="theme-row" class="theme-row">
         <span>Theme</span>
         <select id="theme-select">
@@ -188,6 +182,8 @@
         </select>
       </label>
       <textarea id="input" placeholder="タスク・メモ・アイデア" autofocus></textarea>
+      <span id="due-preview" class="due-preview" role="status" aria-live="polite"></span>
+      <div id="range-choice" class="range-choice" hidden aria-label="日付範囲の意味"></div>
       <div class="capture-actions">
         <button id="submit" type="button">記録する</button>
       </div>
@@ -201,8 +197,13 @@
       const modePill = document.getElementById("mode-pill");
       const themeRow = document.getElementById("theme-row");
       const themeSelect = document.getElementById("theme-select");
+      const hint = document.getElementById("hint");
+      const duePreview = document.getElementById("due-preview");
+      const rangeChoice = document.getElementById("range-choice");
       let mode = "inbox";
       let lastThemeId = localStorage.getItem("tasken:quick-capture:last-theme-id") || "";
+      let selectedRangeSemantics = "";
+      let previewRequest = 0;
 
       function applyThemes(themes) {
         const current = themeSelect.value || lastThemeId;
@@ -222,28 +223,95 @@
         themeSelect.value = [...themeSelect.options].some((option) => option.value === current) ? current : "";
       }
 
+      const MODES = new Set(["today-task", "micro-memo", "done-task", "due-task"]);
+
       function applyMode(nextMode) {
-        mode = nextMode === "today-task" || nextMode === "micro-memo" || nextMode === "done-task" ? nextMode : "inbox";
+        mode = MODES.has(nextMode) ? nextMode : "inbox";
         const isTodayTask = mode === "today-task";
         const isMicroMemo = mode === "micro-memo";
         const isDoneTask = mode === "done-task";
-        const usesTheme = isTodayTask || isDoneTask;
-        title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
-        modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
-        input.placeholder = isDoneTask ? "今やったこと" : isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
-        submitButton.textContent = isTodayTask ? "今日に追加" : isDoneTask ? "完了で記録" : "記録する";
-        feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "今日のタスクに追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
+        const isDueTask = mode === "due-task";
+        const usesTheme = !isMicroMemo;
+        title.textContent = isDoneTask ? "やったことを記録" : isDueTask ? "期限つきタスクを追加" : isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
+        modePill.textContent = isDoneTask ? "Done Task" : isDueTask ? "Due Task" : isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
+        input.placeholder = isDoneTask
+          ? "やったこと｜ひとこと"
+          : isDueTask
+            ? "タスク名｜金曜まで"
+            : isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
+        hint.textContent = isDoneTask || isDueTask
+          ? "｜ の後ろが" + (isDueTask ? "期限" : "ひとこと") + " / Ctrl+Enter で記録 / Escで閉じる"
+          : "Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる";
+        submitButton.textContent = isTodayTask ? "今日に追加" : isDoneTask ? "完了で記録" : isDueTask ? "期限つきで追加" : "記録する";
+        feedback.textContent = isDoneTask ? "やったことを記録しました" : isDueTask ? "期限つきタスクを追加しました" : isTodayTask ? "今日のタスクに追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
         themeRow.classList.toggle("is-visible", usesTheme);
+        duePreview.className = "due-preview";
+        duePreview.textContent = "";
+        selectedRangeSemantics = "";
+        rangeChoice.replaceChildren();
+        rangeChoice.hidden = true;
       }
 
-      async function submit() {
+      function renderRangeChoice(result) {
+        rangeChoice.replaceChildren();
+        if (result.state !== "ok" || result.kind !== "range" || !result.ambiguous) {
+          rangeChoice.hidden = true;
+          return;
+        }
+        rangeChoice.hidden = false;
+        const label = document.createElement("span");
+        label.textContent = "期間の意味:";
+        rangeChoice.append(label);
+        for (const option of [
+          ["once_within_window", "期間内に一度"],
+          ["ongoing", "期間中継続"],
+        ]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.rangeSemantics = option[0];
+          button.textContent = option[1];
+          button.classList.toggle("is-selected", selectedRangeSemantics === option[0]);
+          button.addEventListener("click", () => {
+            selectedRangeSemantics = option[0];
+            for (const candidate of rangeChoice.querySelectorAll("button")) {
+              candidate.classList.toggle("is-selected", candidate === button);
+            }
+          });
+          rangeChoice.append(button);
+        }
+      }
+
+      // 期限は解釈結果を保存前に見せる。読めない表現のまま黙って保存させない（#308）。
+      async function refreshDuePreview() {
+        if (mode !== "due-task") return;
+        const request = ++previewRequest;
+        const result = await window.captureApi.previewDue(input.value);
+        if (mode !== "due-task" || request !== previewRequest) return;
+        if (result.state === "empty") {
+          duePreview.className = "due-preview is-visible";
+          duePreview.textContent = "｜ の後ろに期限を書いてください（例: 金曜まで / 8/15 / 明日17時）";
+          rangeChoice.hidden = true;
+          return;
+        }
+        duePreview.className = result.state === "ok" ? "due-preview is-visible" : "due-preview is-visible is-error";
+        if (result.state === "ok") {
+          selectedRangeSemantics = result.rangeSemantics || "";
+          duePreview.textContent = result.kind === "range" ? `日付範囲: ${result.label}` : `期限: ${result.label}`;
+          renderRangeChoice(result);
+        } else {
+          duePreview.textContent = result.message;
+          rangeChoice.hidden = true;
+        }
+      }
+
+      async function submit(continueCapturing = false) {
         const text = input.value.trim();
         if (!text) return;
         submitButton.disabled = true;
         try {
-          const usesTheme = mode === "today-task" || mode === "done-task";
+          const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
-          await window.captureApi.save(text, mode, themeId);
+          await window.captureApi.save(text, mode, themeId, selectedRangeSemantics || undefined);
           if (usesTheme) {
             lastThemeId = themeId;
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
@@ -255,10 +323,18 @@
           feedback.style.animation = "";
           setTimeout(() => {
             feedback.style.display = "none";
-            window.captureApi.hide();
+            if (continueCapturing) {
+              input.focus();
+            } else {
+              window.captureApi.hide();
+            }
           }, 600);
-        } catch {
-          feedback.textContent = "保存できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
+        } catch (error) {
+          // 期限を読み取れない等、直せる失敗は原因をそのまま見せる。入力は消さない。
+          const reason = String(error?.message || "").replace(/^Error: /, "").replace(/^.*Error invoking remote method '[^']*': Error: /, "");
+          feedback.textContent = reason
+            ? `${reason} 入力は残っています。`
+            : "保存できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
           feedback.classList.add("error");
           feedback.style.display = "";
         } finally {
@@ -266,7 +342,8 @@
         }
       }
 
-      submitButton.addEventListener("click", submit);
+      submitButton.addEventListener("click", () => submit(false));
+      input.addEventListener("input", () => { void refreshDuePreview(); });
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
@@ -275,7 +352,7 @@
         }
         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
           event.preventDefault();
-          submit();
+          submit(event.shiftKey);
         }
       });
 

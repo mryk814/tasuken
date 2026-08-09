@@ -1,6 +1,8 @@
 import { create } from "zustand";
 
 import type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../shared/types/workspace";
+import type { CommandReceipt } from "../../../shared/applicationCommand";
+import { collectionKeyForEntityType } from "../../../shared/entityRegistry.mjs";
 import { workspaceApi } from "../services/workspaceApi";
 
 type LoadState = "idle" | "loading" | "success" | "error";
@@ -18,45 +20,23 @@ interface WorkspaceState {
   refresh(): Promise<Workspace>;
   applyExternalSave(type: EntityType, entity: Entity): void;
   applyExternalSaves(changes: Array<{ type: EntityType; entity: Entity }>): void;
+  applyCommandReceipt(receipt: CommandReceipt): void;
 }
 
-const entityKeys: Record<EntityType, keyof Workspace> = {
-  theme: "themes",
-  item: "items",
-  note: "notes",
-  link: "links",
-  resource: "resources",
-  view: "views",
-  status_update: "status_updates",
-  source_record: "source_records",
-  entity_source: "entity_sources",
-  field_definition: "field_definitions",
-  field_value: "field_values",
-  log_entry: "log_entries",
-  import_batch: "import_batchs",
-  knowledge_node: "knowledge_nodes",
-  ai_proposal: "ai_proposals",
-  project: "projects",
-  capture_entry: "capture_entrys",
-  task: "tasks",
-  waiting: "waitings",
-  plan_node: "plan_nodes",
-  schedule: "schedules",
-  reference: "references",
-  task_dependency: "task_dependencies",
-  plan_dependency: "plan_dependencies",
-  knowledge_edge: "knowledge_edges",
-  change_event: "change_events",
-  artifact: "artifacts",
-};
-
 function replaceEntity(workspace: Workspace, type: EntityType, saved: Entity): Workspace {
-  const key = entityKeys[type];
+  const key = collectionKeyForEntityType(type) as keyof Workspace;
   const records = (workspace[key] as Entity[] | undefined) || [];
   const next = records.some((entry) => entry.id === saved.id)
     ? records.map((entry) => entry.id === saved.id ? saved : entry)
     : [saved, ...records];
   return { ...workspace, [key]: next };
+}
+
+function replaceIfNewer(workspace: Workspace, type: EntityType, saved: Entity): Workspace {
+  const key = collectionKeyForEntityType(type) as keyof Workspace;
+  const current = ((workspace[key] as Entity[] | undefined) || []).find((entry) => entry.id === saved.id);
+  if (current && Number(current.version || 0) >= Number(saved.version || 0)) return workspace;
+  return replaceEntity(workspace, type, saved);
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -120,8 +100,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     let workspace = get().workspace;
     if (!workspace) return;
     for (const change of changes) {
-      workspace = replaceEntity(workspace, change.type, change.entity);
+      workspace = replaceIfNewer(workspace, change.type, change.entity);
     }
+    set({ workspace });
+  },
+  applyCommandReceipt(receipt) {
+    const changes = [...receipt.changes, ...(receipt.eventChanges || [])];
+    if (!changes.length) return;
+    let workspace = get().workspace;
+    if (!workspace) return;
+    for (const change of changes) workspace = replaceIfNewer(workspace, change.type, change.entity);
     set({ workspace });
   },
 }));

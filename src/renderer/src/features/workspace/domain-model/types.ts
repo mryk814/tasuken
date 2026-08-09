@@ -1,3 +1,14 @@
+import type { AiMetadataFields } from "../../../../../shared/aiMetadata.mjs";
+import type { RepositoryContext } from "../../../../../shared/repositoryContext.mjs";
+import type { ExternalReference } from "../../../../../shared/externalReference.mjs";
+import type { RelationAssertion, RelationEvidenceRef, RelationLayer, RelationOrigin, RelationPredicate, RelationRef, RelationStatus } from "../../../../../shared/relationAssertion.mjs";
+
+/**
+ * AI可読の共通metadata（#294）。本文schemaは種別ごとに別のまま、
+ * 概要・鮮度・根拠・公開範囲・出典だけを同じ意味で持つ。
+ */
+export type AiMetadata = Partial<AiMetadataFields>;
+
 export type ProjectState = "idea" | "active" | "paused" | "closed";
 
 export interface Project {
@@ -10,15 +21,24 @@ export interface Project {
   created_at?: string;
   updated_at?: string;
   legacy_theme_id?: string | null;
+  repository_context_ids?: string[];
+  primary_repository_context_id?: string | null;
+  repository_context_detachments?: Array<Record<string, unknown>>;
 }
 
 export type CaptureEntryState = "untriaged" | "triaged" | "archived";
 
-export interface CaptureEntry {
+export interface CaptureEntry extends AiMetadata {
   id: string;
   text: string;
   title?: string | null;
   kind?: "inbox" | "micro_memo" | string | null;
+  content_type?: "text" | "url" | "file" | "image" | "markdown" | "ink" | "audio" | null;
+  capture_method?: "audio_import" | "microphone" | "external_dictation" | "transcript_import" | null;
+  media_status?: "preparing" | "ready" | "failed" | null;
+  transcription_status?: "not_requested" | "queued" | "processing" | "completed" | "failed" | null;
+  url?: string | null;
+  project_id?: string | null;
   captured_at: string;
   state: CaptureEntryState;
   source_record_id?: string | null;
@@ -39,6 +59,41 @@ export type TaskRepeatFrequency = "daily" | "weekly" | "monthly";
 
 export type TaskShelf = "maybe_today" | "this_evening" | "this_week" | "someday" | "backlog";
 
+export type TaskRequester = "self" | "human" | "ai_agent" | "external" | "unknown";
+export type TaskIntendedExecutor = "self" | "human" | "ai_agent" | "unassigned";
+export type TaskExecutorKind = "self" | "human" | "ai_agent" | "external" | "unknown";
+export type TaskWorkState =
+  | "not_delegated"
+  | "ready_for_agent"
+  | "in_progress"
+  | "reported_done"
+  | "needs_human_review"
+  | "accepted"
+  | "blocked"
+  | "failed";
+
+export interface WorkReceipt {
+  [key: string]: unknown;
+  id: string;
+  task_id: string;
+  executor_kind: TaskExecutorKind;
+  executor_label: string;
+  started_at?: string | null;
+  reported_at: string;
+  summary: string;
+  completed_items: string[];
+  changed_or_created_items: string[];
+  verification?: string[];
+  remaining_work?: string[];
+  external_references?: ExternalReference[];
+  repository_context?: Record<string, unknown> | null;
+  source_session?: string | null;
+  provenance?: Record<string, unknown>;
+  runtime_metadata?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface TaskRepeatRule {
   frequency: TaskRepeatFrequency;
   interval: number;
@@ -56,7 +111,7 @@ export interface TaskChecklistItem {
   completed_at?: string | null;
 }
 
-export interface Task {
+export interface Task extends AiMetadata {
   id: string;
   project_id?: string | null;
   plan_node_id?: string | null;
@@ -65,12 +120,21 @@ export interface Task {
   title: string;
   description?: string | null;
   state: TaskState;
+  requester?: TaskRequester;
+  intended_executor?: TaskIntendedExecutor;
+  executor_identity?: string | null;
+  work_state?: TaskWorkState;
+  work_started_at?: string | null;
+  work_reported_at?: string | null;
+  work_review_note?: string | null;
   priority: "normal" | "high";
   planning_shelf?: TaskShelf | null;
   planned_start_time?: string | null;
   planned_duration_minutes?: number | null;
   reminder_at?: string | null;
   completed_at?: string | null;
+  /** 完了時のひとこと。説明とは別に、完了の記録として保持する（#308）。 */
+  completion_note?: string | null;
   repeat_rule?: TaskRepeatRule | null;
   repeat_series_id?: string | null;
   repeat_parent_task_id?: string | null;
@@ -79,11 +143,17 @@ export interface Task {
   legacy_item_id?: string | null;
   created_at?: string;
   updated_at?: string;
+  repository_context_mode?: "inherit" | "extend" | "override";
+  repository_context_ids?: string[];
+  primary_repository_context_id?: string | null;
+  repository_subdirectory?: string | null;
+  repository_branch_hint?: string | null;
+  repository_context_detachments?: Array<Record<string, unknown>>;
 }
 
 export type WaitingState = "waiting" | "received" | "cancelled";
 
-export interface Waiting {
+export interface Waiting extends AiMetadata {
   id: string;
   project_id?: string | null;
   task_id?: string | null;
@@ -102,7 +172,7 @@ export interface Waiting {
 export type PlanNodeType = "phase" | "milestone" | "deliverable";
 export type PlanNodeState = "planned" | "active" | "done" | "cancelled";
 
-export interface PlanNode {
+export interface PlanNode extends AiMetadata {
   id: string;
   project_id?: string | null;
   parent_plan_node_id?: string | null;
@@ -119,6 +189,12 @@ export interface PlanNode {
 
 export type ScheduleOwnerType = "task" | "waiting" | "plan_node";
 
+/**
+ * 日付範囲の意味（#309）。開始日と終了日が異なる範囲にだけ設定する。
+ * 未設定（null）は「意味を決めていない既存の範囲」で、#95の表示規則をそのまま使う。
+ */
+export type ScheduleRangeSemantics = "once_within_window" | "ongoing";
+
 export interface Schedule {
   id: string;
   owner_type: ScheduleOwnerType;
@@ -126,6 +202,7 @@ export interface Schedule {
   start_date?: string | null;
   end_date?: string | null;
   date_kind: "point" | "deadline" | "range" | "unknown";
+  range_semantics?: ScheduleRangeSemantics | null;
   confidence: "rough" | "tentative" | "fixed";
   granularity: "day" | "week" | "month";
   baseline_start?: string | null;
@@ -135,16 +212,18 @@ export interface Schedule {
   legacy_item_id?: string | null;
 }
 
-export interface Note {
+export interface Note extends AiMetadata {
   id: string;
   title: string;
   body_markdown?: string;
+  note_type?: string | null;
   content_format?: string | null;
   project_id?: string | null;
   source_record_id?: string | null;
+  properties_json?: Record<string, unknown>;
 }
 
-export interface Resource {
+export interface Resource extends AiMetadata {
   id: string;
   title: string;
   url?: string | null;
@@ -166,6 +245,20 @@ export interface Resource {
    * 削除・グループ解除とは別。Theme / chat_group / reference_status は保持する。
    */
   archived_at?: string | null;
+  source_format?: string | null;
+  fidelity?: string | null;
+  parser_version?: string | null;
+  message_count?: number | null;
+}
+
+export interface Sketch extends AiMetadata {
+  id: string;
+  title: string;
+  project_id?: string | null;
+  origin_capture_id?: string | null;
+  document: import("../lib/sketch").SketchDocument;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type KnowledgeNodeType =
@@ -194,17 +287,37 @@ export type EntityRefType =
   | "plan_node"
   | "note"
   | "resource"
-  | "knowledge_node";
+  | "knowledge_node"
+  | "sketch"
+  | "artifact";
 
 export interface Reference {
   id: string;
+  assertion_id?: string;
+  subject?: RelationRef;
+  predicate?: RelationPredicate;
+  object?: RelationRef;
+  layer?: RelationLayer;
+  status?: RelationStatus;
+  origin?: RelationOrigin;
+  evidence_refs?: RelationEvidenceRef[];
+  legacy_evidence_refs?: string[];
+  confidence?: number | null;
+  metadata?: Record<string, unknown>;
+  recorded_at?: string | null;
+  superseded_by_assertion_id?: string | null;
+  legacy_read?: boolean;
   source_type: EntityRefType;
   source_id: string;
   target_type: EntityRefType;
   target_id: string;
-  relation_type: "related_to" | "derived_from" | "mentions" | "blocks" | "supports";
+  relation_type: RelationPredicate;
   note?: string | null;
+  source_heading?: string | null;
+  source_excerpt?: string | null;
 }
+
+export type CanonicalReference = Reference & RelationAssertion;
 
 export interface TaskDependency {
   id: string;
@@ -239,10 +352,24 @@ export interface ChangeEvent {
   after_json?: unknown;
   source: "manual" | "import" | "ai" | "migration";
   legacy_item_id?: string | null;
+  occurred_at?: string;
+  event_kind?: string;
+  entity_ref?: { type: EntityRefType; id: string; revision?: number };
+  theme_ref?: { kind: "theme" | "none"; id: string | null };
+  actor?: { kind: string; id?: string };
+  origin?: { kind: string; command_id?: string; command_name?: string; session_id?: string };
+  summary?: string;
+  changed_fields?: string[];
+  canonical_refs?: Array<Record<string, unknown>>;
+  source_refs?: Array<Record<string, unknown>>;
+  relation_refs?: Array<Record<string, unknown>>;
+  work_receipt_ref?: { type: string; id: string; revision?: number } | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface WorkspaceDomain {
   projects: Project[];
+  repository_contexts: RepositoryContext[];
   capture_entries: CaptureEntry[];
   tasks: Task[];
   waitings: Waiting[];
@@ -250,6 +377,7 @@ export interface WorkspaceDomain {
   schedules: Schedule[];
   notes: Note[];
   resources: Resource[];
+  sketches: Sketch[];
   knowledge_nodes: KnowledgeNode[];
   references: Reference[];
   task_dependencies: TaskDependency[];
@@ -257,17 +385,21 @@ export interface WorkspaceDomain {
   knowledge_edges: KnowledgeEdge[];
   ai_proposals: Record<string, unknown>[];
   change_events: ChangeEvent[];
+  work_receipts: WorkReceipt[];
 }
 
 export type DomainEntity =
   | Project
+  | RepositoryContext
   | CaptureEntry
   | Task
+  | WorkReceipt
   | Waiting
   | PlanNode
   | Schedule
   | Note
   | Resource
+  | Sketch
   | KnowledgeNode
   | Reference
   | TaskDependency

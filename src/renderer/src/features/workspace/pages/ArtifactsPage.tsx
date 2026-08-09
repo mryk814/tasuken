@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { usePersistentState } from "../../../utils/usePersistentState";
+import { usePreference } from "../../../utils/usePreference";
+import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
 import {
   ArtifactCard,
   resolveArtifactSourceLabel,
   themeNameOf,
 } from "../components/artifacts";
-import { EmptyState, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
 import { readRecentArtifactIds } from "../lib/artifactRecent";
 import type { ArtifactSourceType, PageProps } from "../types";
@@ -22,12 +23,7 @@ interface ArtifactsPrefs {
   sortOrder: SortOrder;
 }
 
-const DEFAULT_PREFS: ArtifactsPrefs = {
-  themeId: "all",
-  sourceType: "all",
-  typeFilter: "all",
-  sortOrder: "newest",
-};
+const DEFAULT_PREFS: ArtifactsPrefs = defaultViewPreference("artifacts.preferences") as ArtifactsPrefs;
 
 const TYPE_FILTER_LABELS: Record<TypeFilter, string> = {
   all: "すべて",
@@ -61,7 +57,7 @@ export function ArtifactsPage({
 }: PageProps) {
   const [query, setQuery] = useState("");
   const [recentTick, setRecentTick] = useState(0);
-  const [prefs, setPrefs] = usePersistentState<ArtifactsPrefs>("artifacts:prefs:v1", DEFAULT_PREFS);
+  const [prefs, setPrefs] = usePreference("artifacts.preferences");
   const updatePrefs = (patch: Partial<ArtifactsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const recentIds = useMemo(() => readRecentArtifactIds(), [data.artifacts, recentTick]);
   const recentRank = useMemo(() => new Map(recentIds.map((id, index) => [id, index])), [recentIds]);
@@ -118,11 +114,8 @@ export function ArtifactsPage({
 
   return (
     <div className="page artifacts-page">
-      <PageHeader
-        title="Artifacts"
-        subtitle="AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。"
-      >
-        <button className="secondary-button" onClick={copyList} disabled={!artifacts.length}>一覧をコピー</button>
+      <PageHeader route="artifacts">
+        <Button variant="secondary" onClick={copyList} disabled={!artifacts.length}>一覧をコピー</Button>
       </PageHeader>
 
       <section className="panel artifact-role-panel" aria-label="役割の整理">
@@ -141,16 +134,15 @@ export function ArtifactsPage({
           placeholder="ファイル名・元Entity・Themeで検索"
           aria-label="Artifact を検索"
         />
-        <select
+        <ThemePickerSelect
+          themes={themes}
           value={prefs.themeId}
-          onChange={(event) => updatePrefs({ themeId: event.target.value })}
-          aria-label="Themeで絞り込み"
-        >
-          <option value="all">Theme: すべて</option>
-          {themes.map((theme) => (
-            <option key={theme.id} value={theme.id}>{theme.name}</option>
-          ))}
-        </select>
+          onChange={(themeId) => updatePrefs({ themeId })}
+          allowAll
+          allowNone
+          allLabel="Theme: すべて"
+          ariaLabel="Themeで絞り込み"
+        />
         <select
           value={prefs.sourceType}
           onChange={(event) => updatePrefs({ sourceType: event.target.value as ArtifactsPrefs["sourceType"] })}
@@ -189,15 +181,16 @@ export function ArtifactsPage({
         <div className="empty-state">
           <strong>条件に合う Artifact がありません</strong>
           {filterActive && (
-            <button
-              className="secondary-button compact"
+            <Button
+              variant="secondary"
+              compact
               onClick={() => {
                 setQuery("");
                 setPrefs(DEFAULT_PREFS);
               }}
             >
               フィルタを解除
-            </button>
+            </Button>
           )}
         </div>
       ) : (
@@ -213,6 +206,7 @@ export function ArtifactsPage({
               saveEntities={saveEntities}
               setToast={setToast}
               showSource
+              showLineage
               onOpened={() => setRecentTick((value) => value + 1)}
             />
           ))}

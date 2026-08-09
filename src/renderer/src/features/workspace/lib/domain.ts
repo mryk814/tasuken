@@ -136,10 +136,12 @@ export function statusTone(status?: string): string {
       return "active";
     case "review": case "pending": case "確認待ち":
       return "review";
-    case "waiting": case "at_risk": case "paused": case "待ち": case "保留":
+    case "waiting": case "at_risk": case "paused": case "delayed": case "overdue": case "待ち": case "保留":
       return "blocked";
-    case "delayed": case "open":
-      return "danger"; // 遅延・未解決など明確な問題系のみ警告の赤
+    case "open": case "planned": case "未着手": case "計画中":
+      return "idle";
+    case "neutral":
+      return "neutral";
     case "cancelled": case "stale": case "中止":
       return "dropped";
     default:

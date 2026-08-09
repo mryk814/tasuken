@@ -1,4 +1,6 @@
 import type { Item, Theme } from "../types";
+import { getScheduleKind, type ScheduleKind } from "../domain-model/scheduleSemantics";
+import type { Schedule, ScheduleRangeSemantics } from "../domain-model/types";
 import { itemLevel } from "./domain";
 import { addDays, daysBetween, localDateIso } from "./format";
 
@@ -70,6 +72,69 @@ export function scaleFromDayWidth(dayWidth: number): string {
   if (dayWidth >= 6) return "quarter";
   if (dayWidth >= 3) return "half";
   return "year";
+}
+
+/**
+ * Timeline itemの状態（#318）。
+ *
+ * Theme色は「どの束のものか」を、状態は「いまどうなっているか」を表す。
+ * 二つを同じ色体系で混ぜないため、状態はここで一意に決めて
+ * class / label / icon へ同じ値を配る。色だけで伝えない。
+ */
+export type TimelineItemState =
+  | "completed"
+  | "cancelled"
+  | "overdue"
+  | "ongoing"
+  | "execution_window"
+  | "active"
+  | "planned";
+
+interface TimelineStateInput {
+  status?: string;
+  planned_start?: string | null;
+  planned_end?: string | null;
+  /** #309の日付範囲の意味。未設定は「分類していない範囲」。 */
+  range_semantics?: string | null;
+}
+
+/** Timelineも日付範囲の意味を直接読まず、#309の判定へ接続する。 */
+export function timelineItemScheduleKind(item: TimelineStateInput): ScheduleKind {
+  const start = item.planned_start || null;
+  const end = item.planned_end || null;
+  const schedule: Schedule = {
+    id: `timeline-schedule:${item.planned_start || "none"}:${item.planned_end || "none"}`,
+    owner_type: "plan_node",
+    owner_id: "timeline-item",
+    start_date: start,
+    end_date: end,
+    date_kind: start && end && end > start ? "range" : end ? "deadline" : start ? "point" : "unknown",
+    range_semantics: item.range_semantics === "ongoing" || item.range_semantics === "once_within_window"
+      ? item.range_semantics as ScheduleRangeSemantics
+      : null,
+    confidence: "fixed",
+    granularity: "day",
+  };
+  return getScheduleKind(schedule);
+}
+
+export function timelineItemState(item: TimelineStateInput, today: string): TimelineItemState {
+  const status = String(item.status || "");
+  if (status === "done") return "completed";
+  if (status === "cancelled") return "cancelled";
+
+  const start = String(item.planned_start || "");
+  const end = String(item.planned_end || "");
+  // 終了日を過ぎた未完了だけを期限超過にする。開始前の項目は含めない。
+  if (end && end < today) return "overdue";
+
+  const started = !start || start <= today;
+  const inRange = started && (!end || end >= today);
+  const scheduleKind = timelineItemScheduleKind(item);
+  if (inRange && scheduleKind === "ongoing_period") return "ongoing";
+  if (inRange && scheduleKind === "execution_window") return "execution_window";
+  if (inRange && (start || end)) return "active";
+  return "planned";
 }
 
 export const ZOOM_PRESETS = [

@@ -1,0 +1,10 @@
+{
+  "model": "gp-ei-v4",
+  "generated_at": "2026-08-08T08:40:00+09:00",
+  "objective": "maximize log10 ionic conductivity with phase purity >= 95%",
+  "candidates": [
+    { "rank": 1, "li": 6.47, "ta": 0.58, "calcination_c": 1140, "predicted_mS_cm": 1.08, "uncertainty": 0.17 },
+    { "rank": 2, "li": 6.42, "ta": 0.62, "calcination_c": 1160, "predicted_mS_cm": 1.02, "uncertainty": 0.19 },
+    { "rank": 3, "li": 6.51, "ta": 0.53, "calcination_c": 1135, "predicted_mS_cm": 0.97, "uncertainty": 0.14 }
+  ]
+}

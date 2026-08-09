@@ -9,10 +9,12 @@ import {
   IconChevronRight,
   IconCopy,
   IconExternalLink,
+  IconFileImport,
   IconFoldDown,
   IconFoldUp,
   IconGripVertical,
   IconLinkPlus,
+  IconMessage,
   IconMessageCircleQuestion,
   IconPencil,
   IconStar,
@@ -20,11 +22,16 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { usePersistentState } from "../../../utils/usePersistentState";
-import { ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { applyOptimisticSortOrders, clearOptimisticSortOrders } from "../../../../../shared/viewOrdering.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID, themePickerOptions } from "../../../../../shared/themeRef.mjs";
+import { usePreference } from "../../../utils/usePreference";
+import { Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import { ToolbarMenu } from "../components/ToolbarMenu";
+import { ConversationImportDialog } from "../components/ConversationImportDialog";
+import { isConversationMarkdown } from "../lib/conversationParser";
 import { buildSaveResourceOperations } from "../domain-model/persistence";
 import type { Resource } from "../domain-model/types";
 import {
@@ -43,6 +50,7 @@ import {
   moveCollapsedChatGroupPreference,
   renameChatGroupResources,
   reorderChatGroupResources,
+  sortChatResources,
   restoreChatResource,
   restoreChatResources,
   UNGROUPED_CHAT_GROUP,
@@ -60,6 +68,7 @@ type StatusFilter = "all" | "inbox" | "adopted";
 type ListMode = "active" | "archive";
 type DragPlacement = "before" | "after";
 type DragTarget = { id: string; placement: DragPlacement } | null;
+type OptimisticSortOrder = { token: string; value: number };
 
 interface ChatRefsPrefs {
   /** グループ内リンクの並び */
@@ -73,20 +82,17 @@ interface ChatRefsPrefs {
   includeArchivedInSearch: boolean;
 }
 
-const DEFAULT_CHAT_REFS_PREFS: ChatRefsPrefs = {
-  sortOrder: "newest",
-  groupSortOrder: "recent",
-  statusFilter: "all",
-  listMode: "active",
-  includeArchivedInSearch: false,
-};
-
 function isAdopted(r: Resource): boolean {
   return str(r.reference_status) === "adopted";
 }
 
 function themeTitle(themes: Theme[], id?: string | null): string {
   return themes.find((theme) => theme.id === id)?.name || "未設定";
+}
+
+/** 一覧に出す時刻（#322）。取り込み時刻があればそれ、無ければ更新時刻。 */
+function chatRefTimeValue(resource: Resource): string {
+  return str(resource.captured_at) || str((resource as { updated_at?: string }).updated_at);
 }
 
 function ChatServiceIcon({ service }: { service: ChatServiceType }) {
@@ -103,13 +109,24 @@ export function ChatRefsPage({
   activeThemeId,
   setActiveThemeId,
   openDrawer,
+  openContentViewer,
   saveEntities,
   setToast,
 }: PageProps) {
-  const chatResources = useMemo(() => domain.resources.filter(isChatReference), [domain.resources]);
-  const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || themes[0]?.id || "");
+  const [optimisticSortOrders, setOptimisticSortOrders] = useState<Record<string, OptimisticSortOrder>>({});
+  const optimisticSortOrdersRef = useRef(optimisticSortOrders);
+  optimisticSortOrdersRef.current = optimisticSortOrders;
+  const reorderQueueRef = useRef(Promise.resolve());
+  const chatResources = useMemo(() => applyOptimisticSortOrders(
+    domain.resources.filter(isChatReference),
+    optimisticSortOrders,
+  ), [domain.resources, optimisticSortOrders]);
+  const latestChatResourcesRef = useRef(chatResources);
+  latestChatResourcesRef.current = chatResources;
+  const themeNameOf = (resource: Resource) => themeTitle(themes, str(resource.project_id) || null);
+  const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || PERSONAL_DEFAULT_THEME_ID);
   const [query, setQuery] = useState("");
-  const [prefs, setPrefs] = usePersistentState<ChatRefsPrefs>("chat-refs:prefs:v1", DEFAULT_CHAT_REFS_PREFS);
+  const [prefs, setPrefs] = usePreference("chatRefs.preferences");
   const {
     sortOrder,
     groupSortOrder,
@@ -119,7 +136,7 @@ export function ChatRefsPage({
   } = prefs;
   const updatePrefs = (patch: Partial<ChatRefsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
   const isArchiveView = listMode === "archive";
-  const [collapsedPreferences, setCollapsedPreferences] = usePersistentState<string[]>("chat-refs:collapsed-groups:v1", []);
+  const [collapsedPreferences, setCollapsedPreferences] = usePreference("chatRefs.collapsedGroups");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
@@ -127,9 +144,10 @@ export function ChatRefsPage({
   /** Electron では window.prompt が使えないため、グループ名変更はインライン編集にする */
   const [renamingGroupKey, setRenamingGroupKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   useEffect(() => {
-    if (!selectedThemeId && themes[0]) setSelectedThemeId(themes[0].id);
+    if (!selectedThemeId) setSelectedThemeId(PERSONAL_DEFAULT_THEME_ID);
   }, [selectedThemeId, themes]);
 
   useEffect(() => {
@@ -311,9 +329,34 @@ export function ChatRefsPage({
   }
 
   function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
-    const reordered = reorderChatGroupResources(group.resources, draggedId, targetId, placement);
-    if (!reordered.length) return;
-    saveGroupResources(reordered, "並び替えを保存しました。");
+    const token = crypto.randomUUID();
+    const operation = reorderQueueRef.current.then(async () => {
+      // 手動順の正本全体を渡し、検索・Archive・採用フィルタで隠れた同一Groupの順序を保つ。
+      // overlayはsort_orderだけなので、保存中に届いたtitle/state等の更新を隠さない。
+      const latestScoped = latestChatResourcesRef.current.filter((resource) => {
+        const sameTheme = selectedThemeId ? resource.project_id === selectedThemeId : !resource.project_id;
+        const key = String(resource.chat_group || "").trim() || UNGROUPED_CHAT_GROUP;
+        return sameTheme && key === group.key;
+      });
+      const fullGroup = sortChatResources(latestScoped, "manual");
+      const reordered = reorderChatGroupResources(fullGroup, draggedId, targetId, placement, group.resources.map((resource) => resource.id));
+      if (!reordered.length) return;
+      optimisticSortOrdersRef.current = {
+        ...optimisticSortOrdersRef.current,
+        ...Object.fromEntries(reordered.map((resource) => [resource.id, { token, value: Number(resource.sort_order) || 0 }])),
+      };
+      setOptimisticSortOrders(optimisticSortOrdersRef.current);
+      try {
+        await saveEntities(reordered.flatMap((resource) => buildSaveResourceOperations(resource)), "並び替えを保存しました。");
+        optimisticSortOrdersRef.current = clearOptimisticSortOrders(optimisticSortOrdersRef.current, token);
+        setOptimisticSortOrders(optimisticSortOrdersRef.current);
+      } catch {
+        // saveEntitiesが原因と復旧操作をtoastへ出す。ここでは自分のtokenだけを解除する。
+        optimisticSortOrdersRef.current = clearOptimisticSortOrders(optimisticSortOrdersRef.current, token);
+        setOptimisticSortOrders(optimisticSortOrdersRef.current);
+      }
+    });
+    reorderQueueRef.current = operation.catch(() => {});
   }
 
   function archiveChatLink(resource: Resource) {
@@ -436,7 +479,7 @@ export function ChatRefsPage({
       mode: "edit",
       entity: {
         reference_status: "inbox",
-        project_id: selectedThemeId || null,
+        project_id: canonicalThemeId(selectedThemeId, { defaultPersonal: true }),
         chat_group: chatGroup,
         importance: "normal",
         captured_at: new Date().toISOString(),
@@ -458,7 +501,7 @@ export function ChatRefsPage({
       mode: "edit",
       entity: {
         reference_status: "inbox",
-        project_id: parent.project_id || selectedThemeId || null,
+        project_id: canonicalThemeId(parent.project_id || selectedThemeId, { defaultPersonal: true }),
         chat_group: parent.chat_group || "",
         parent_resource_id: parent.id,
         importance: "normal",
@@ -471,15 +514,27 @@ export function ChatRefsPage({
   return (
     <div className="page chat-refs-page">
       <PageHeader
-        title="チャット参照"
-        subtitle={isArchiveView
-          ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。"
-          : "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。"}
+        route="chat-refs"
+        info={isArchiveView ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。" : undefined}
       >
-        <button className="secondary-button" onClick={copyUrls} disabled={!visibleResources.length}><IconCopy size={16} />URLをコピー</button>
-        <button className="secondary-button" onClick={copyList} disabled={!visibleResources.length}><IconCopy size={16} />一覧をコピー</button>
+        {/*
+          主操作は会話へ戻る・ログを読む・必要な部分を再利用すること（#322）。
+          URL・一覧のまとめコピーは低頻度なのでmenuへ畳む。
+          会話の再利用はConversation側のmessage / turn / codeコピー（#305）が実用。
+        */}
+        <ToolbarMenu
+          label="コピー"
+          title="一覧のまとめコピー"
+          items={[
+            { id: "copy-urls", label: "表示中のURLをまとめてコピー", disabled: !visibleResources.length, onSelect: copyUrls },
+            { id: "copy-list", label: "表示中の一覧をコピー", disabled: !visibleResources.length, onSelect: copyList },
+          ]}
+        />
         {!isArchiveView && (
-          <button className="primary-button" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</button>
+          <>
+            <Button variant="secondary" onClick={() => setImportDialogOpen(true)}><IconFileImport size={16} />会話ログを取り込む</Button>
+            <Button variant="primary" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</Button>
+          </>
         )}
       </PageHeader>
 
@@ -548,7 +603,7 @@ export function ChatRefsPage({
         </select>
         {groups.length > 1 && (
           <button
-            className="secondary-button compact icon-only"
+            className="icon-only"
             onClick={toggleAllGroups}
             aria-label={allCollapsed ? "すべて展開" : "すべて折りたたむ"}
             title={allCollapsed ? "すべて展開" : "すべて折りたたむ"}
@@ -565,20 +620,21 @@ export function ChatRefsPage({
             <span>{themes.length}件</span>
           </div>
           <div className="chat-theme-list">
-            {themes.map((theme, index) => {
+            {themePickerOptions(themes, { allowPersonal: true, allowNone: false }).map((option, index) => {
+              const theme = themes.find((entry) => entry.id === option.value);
               const count = chatResources.filter((r) => {
-                if (r.project_id !== theme.id) return false;
+                if (r.project_id !== option.value) return false;
                 return isArchiveView ? isChatArchived(r) : !isChatArchived(r);
               }).length;
               return (
                 <button
-                  key={theme.id}
-                  className={selectedThemeId === theme.id ? "is-active" : ""}
-                  style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
-                  onClick={() => selectTheme(theme.id)}
+                  key={`${option.kind}-${option.value}`}
+                  className={selectedThemeId === option.value ? "is-active" : ""}
+                  style={theme ? { "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties : undefined}
+                  onClick={() => selectTheme(option.value)}
                 >
-                  <span className="chip-dot" />
-                  <strong>{theme.name}</strong>
+                  {theme && <span className="chip-dot" />}
+                  <strong>{option.label}</strong>
                   <span className="count">{count}</span>
                 </button>
               );
@@ -780,10 +836,17 @@ export function ChatRefsPage({
                       <span className={`chat-service-chip chat-service-${service}`} title={CHAT_SERVICE_LABELS[service]} aria-label={CHAT_SERVICE_LABELS[service]}>
                         <ChatServiceIcon service={service} />
                       </span>
+                      {/*
+                        一覧で短く分かるのは provider / title / Theme / ログ有無 / 時刻 / URL有無（#322）。
+                        URL文字列そのものは長いので出さず、開くのはactionへ寄せる。
+                      */}
                       <span className="chat-link-title">
                         {r.title || "無題"}
-                        {archived && <small className="chat-thread-meta">Archive</small>}
-                        {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
+                        <span className="chat-link-meta">
+                          <span>{themeNameOf(r)}</span>
+                          {archived && <small className="chat-thread-meta">Archive</small>}
+                          {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
+                        </span>
                       </span>
                       {parent && (
                         <button
@@ -811,17 +874,32 @@ export function ChatRefsPage({
                           <IconLinkPlus size={15} />
                         </button>
                       )}
-                      <a
-                        className="row-action-button chat-link-open"
-                        href={r.url || ""}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={stopRowClick}
-                        aria-label={`${r.title || "リンク"}を開く`}
-                        title="開く"
-                      >
-                        <IconExternalLink size={16} />
-                      </a>
+                      {isConversationMarkdown(String(r.body_markdown || "")) && (
+                        <button
+                          className="row-action-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openContentViewer({ type: "chat_log", resourceId: String(r.id) });
+                          }}
+                          aria-label={`${r.title || "チャットリンク"}の会話ログを読む`}
+                          title="会話ログを読む"
+                        >
+                          <IconMessage size={15} />
+                        </button>
+                      )}
+                      {Boolean(r.url) && (
+                        <a
+                          className="row-action-button chat-link-open"
+                          href={r.url || ""}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={stopRowClick}
+                          aria-label={`${r.title || "リンク"}を開く`}
+                          title="開く"
+                        >
+                          <IconExternalLink size={16} />
+                        </a>
+                      )}
                       {archived ? (
                         <button
                           className="row-action-button chat-link-restore"
@@ -847,7 +925,8 @@ export function ChatRefsPage({
                           <IconArchive size={15} />
                         </button>
                       )}
-                      <span className="chat-link-date">{formatChatResourceDate(r)}</span>
+                      {/* 取り込み / 更新の時刻。読み上げと並べ替えのため time で持つ（#322）。 */}
+                      <time className="chat-link-date" dateTime={chatRefTimeValue(r)}>{formatChatResourceDate(r)}</time>
                     </div>
                   );
                 })}
@@ -879,6 +958,16 @@ export function ChatRefsPage({
         </section>
       )}
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
+      {importDialogOpen && (
+        <ConversationImportDialog
+          themes={themes}
+          resources={domain.resources}
+          initialThemeId={selectedThemeId}
+          saveEntities={saveEntities}
+          setToast={setToast}
+          close={() => setImportDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }

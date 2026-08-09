@@ -1,4 +1,4 @@
-import { buildKnowledgeHealth as sharedBuildKnowledgeHealth, groupKnowledgeHealthIssues as sharedGroupKnowledgeHealthIssues } from "../../../../../shared/knowledgeHealth.mjs";
+import { buildDataHealth as sharedBuildDataHealth, groupDataHealthIssues } from "../../../../../shared/knowledgeHealth.mjs";
 import type { KnowledgeNode } from "../types";
 import type { KnowledgeEdge } from "../domain-model/types";
 
@@ -12,10 +12,12 @@ export interface KnowledgeHealthIssue {
   action: string;
 }
 
-export function buildKnowledgeHealth(nodes: KnowledgeNode[], relations: KnowledgeEdge[], entities: HealthEntity[] = [], options?: { now?: number }): KnowledgeHealthIssue[] {
-  return sharedBuildKnowledgeHealth(nodes, relations, entities, options) as KnowledgeHealthIssue[];
+export function buildDataHealth(nodes: KnowledgeNode[], relations: KnowledgeEdge[], entities: HealthEntity[] = [], options?: { now?: number }): KnowledgeHealthIssue[] {
+  return sharedBuildDataHealth(nodes, relations, entities, options) as KnowledgeHealthIssue[];
 }
 
+export const buildKnowledgeHealth = buildDataHealth;
+
 export function groupKnowledgeHealthIssues(issues: KnowledgeHealthIssue[]) {
-  return sharedGroupKnowledgeHealthIssues(issues);
+  return groupDataHealthIssues(issues);
 }

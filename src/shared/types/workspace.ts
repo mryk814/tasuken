@@ -1,32 +1,6 @@
-export const entityTypes = [
-  "theme",
-  "item",
-  "note",
-  "link",
-  "view",
-  "status_update",
-  "source_record",
-  "entity_source",
-  "field_definition",
-  "field_value",
-  "log_entry",
-  "import_batch",
-  "knowledge_node",
-  "ai_proposal",
-  "resource",
-  "project",
-  "capture_entry",
-  "task",
-  "waiting",
-  "plan_node",
-  "schedule",
-  "reference",
-  "task_dependency",
-  "plan_dependency",
-  "knowledge_edge",
-  "change_event",
-  "artifact",
-] as const;
+import { entityTypes as registryEntityTypes } from "../entityRegistry.mjs";
+
+export const entityTypes = registryEntityTypes;
 
 export type EntityType = (typeof entityTypes)[number];
 
@@ -45,11 +19,21 @@ export interface WorkspaceMeta {
   workspaceId?: string;
   deviceId?: string;
   themeMode?: "light" | "dark";
+  /** AI公開範囲のworkspace既定（#294）。Entity・Themeが未設定のときに使う。 */
+  aiVisibilityDefault?: ("m365" | "coding_agent" | "external_ai")[];
   [key: string]: unknown;
 }
 
+export interface CanonicalRootStatus {
+  status: "ok" | "broken";
+}
+
+export type CanonicalRootStatusMap = Record<string, CanonicalRootStatus>;
+
 export interface Workspace {
   meta?: WorkspaceMeta;
+  /** Public resolver state only; absolute storage paths never cross this boundary. */
+  canonical_root_status?: CanonicalRootStatusMap;
   themes?: Entity[];
   items?: Entity[];
   notes?: Entity[];
@@ -66,8 +50,10 @@ export interface Workspace {
   knowledge_nodes?: Entity[];
   ai_proposals?: Entity[];
   projects?: Entity[];
+  repository_contexts?: Entity[];
   capture_entrys?: Entity[];
   tasks?: Entity[];
+  work_receipts?: Entity[];
   waitings?: Entity[];
   plan_nodes?: Entity[];
   schedules?: Entity[];
@@ -77,6 +63,7 @@ export interface Workspace {
   knowledge_edges?: Entity[];
   change_events?: Entity[];
   artifacts?: Entity[];
+  sketches?: Entity[];
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }
@@ -85,6 +72,63 @@ export interface SaveOptions {
   reason?: string;
   source?: string;
   quiet?: boolean;
+  /** Noteの正本Markdownを外部変更ごと明示的に上書きする再試行。 */
+  canonicalMarkdown?: "normal" | "overwrite";
+}
+
+/** #333/#336: 文書保存は対象ownerと取得時revisionを必ず伴う。 */
+export type DocumentOwner =
+  | { recordType: "note"; entityId: string }
+  | { recordType: "resource"; entityId: string };
+
+export interface DocumentSaveSnapshot {
+  owner: Extract<DocumentOwner, { recordType: "note" }>;
+  body: string;
+  expectedRevision: number;
+}
+
+export type ReferenceTargetEntityType =
+  | "project"
+  | "capture_entry"
+  | "task"
+  | "waiting"
+  | "plan_node"
+  | "note"
+  | "resource"
+  | "knowledge_node"
+  | "sketch"
+  | "artifact";
+
+/** document:saveに同伴できる副作用は、保存対象Noteを起点にした派生Referenceだけ。 */
+export interface DocumentSaveReferenceCompanion {
+  action: "save";
+  type: "reference";
+  entity: Entity & {
+    source_type: "note";
+    source_id: string;
+    target_type: ReferenceTargetEntityType;
+    target_id: string;
+    relation_type: "derived_from";
+    note?: string | null;
+    created_at?: string;
+  };
+  options?: Pick<SaveOptions, "reason" | "source">;
+}
+
+export interface DocumentSaveRequest {
+  entity: Entity;
+  snapshot: DocumentSaveSnapshot;
+  options?: SaveOptions;
+  companions?: DocumentSaveReferenceCompanion[];
+}
+
+/** canonical Note AI採用時だけdocument:saveに同伴できるApplication Command正本。 */
+export interface CanonicalNoteAiCompanion {
+  schema: "tasken-note-ai-companion/v1";
+  noteId: string;
+  commandId: string;
+  proposal: Entity;
+  event: Entity;
 }
 
 export interface SaveOperation {
@@ -92,6 +136,13 @@ export interface SaveOperation {
   type: EntityType;
   entity: Entity;
   options?: SaveOptions;
+}
+
+export type RawRecord = Record<string, unknown>;
+
+export interface EntityEnvelope<T extends RawRecord = Entity> {
+  type: EntityType;
+  entity: T;
 }
 
 export interface SnapshotDecision {

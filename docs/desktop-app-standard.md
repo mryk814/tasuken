@@ -231,3 +231,49 @@ export const IPC = {
 - 複数アイコンセットの混在
 - DB Entityをそのまま画面componentへ対応させる構成
 - 見栄え用seedや未接続画面
+
+## 切り離しウィンドウ（satellite window）
+
+本体から切り離してEntity単位で開くウィンドウ（付箋Memo #298、Note編集 #290）は、個別に実装せず `src/main/satelliteWindowRegistry.ts` を通す。
+
+### 正本
+
+- ウィンドウの一意性・位置記憶・変更配信の正本は registry。各Controllerは「どのEntityをどの見た目で開くか」だけを持つ。
+- 表示するデータの正本は元のEntity。切り離しウィンドウ用のコピーやフラグを別に作らない。付箋は `capture_entry` を、Note編集ウィンドウは `note` をそのまま読み書きする。
+
+### 契約
+
+1. **同じEntityに二枚目を作らない。** 既に開いていれば前面へ出す。同じデータを別Editorで黙って同時編集させない。
+2. **位置・サイズを覚え、画面外へ復元しない。** モニターを外した後や倍率変更後は、いま存在する画面の中へ寄せ、最小サイズは必ず守る。
+3. **位置・サイズは端末ごとの見え方。** 正本DBではなく `userData/satellite-windows.json` へ置き、別端末へ同期させない。壊れていたら既定位置で開き直す。
+4. **本体ウィンドウ判定は `isAuxiliaryWindow` の一箇所だけ。** 補助ウィンドウを増やすたびに各所の除外条件へ書き足さない。
+5. **Entity変更は全ウィンドウへ配る。** `notifyMainWindowRefresh` が本体と切り離しウィンドウの両方へ `workspace:changed` を送る。
+6. **対象Entityはrendererの申告を信用しない。** IPCハンドラは送り元ウィンドウの登録情報（`keyOf`）から特定する。
+7. **×は表示を閉じるだけ。** データの削除は別の明示操作にする。
+8. **保存失敗で入力を失わない。** 本体側の変更で編集中の内容を上書きしない。
+
+### 追加するとき
+
+新しい切り離し面を足すときは `SatelliteWindowKind` へ種類を追加し、`electron.vite.config.ts` の preload / renderer 両方の入力へエントリを登録する。
+
+### 切り離しウィンドウでEditorを二重に実装しない（#290）
+
+Note編集のように本体と同じ編集面が要る切り離しウィンドウは、専用のrendererを作らず**本体と同じ `index.html` をクエリ付きで開く**。
+
+```
+index.html?window=note&noteId=<id>
+```
+
+- 判定は `features/workspace/lib/windowMode.ts` の `parseWindowMode` に集約する
+- 切り離しモードでは外枠（Sidebar・Context Pane・ナビゲーション・一覧・絞り込み）だけを落とし、Editor本体には触らない
+- これにより Edit / Preview / Raw、検索・置換、画像、Mermaid、autosave が本体と同じ実装のまま動き、保存経路も同じ正本を通る
+
+**一覧を畳むときは `display: none` を使わない。** grid の列がずれて本文が潰れる。既存の `is-list-collapsed`（幅0）を使い、リサイズハンドルも `visibility: hidden; width: 0` で列構成を保つ。
+
+### 同じEntityを二つのEditorで同時編集させない
+
+registry が二枚目のウィンドウを作らないだけでは足りない。本体側も編集主体を譲る必要がある。
+
+- 本体は「別ウィンドウで編集中」を明示し、Preview へ固定して Edit / Raw を無効にする
+- 切り離しボタンは、既に開いていれば「前面へ出す」に意味が変わる
+- 切り離す直前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする

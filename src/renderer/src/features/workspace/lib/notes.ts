@@ -8,15 +8,14 @@ export const NOTES_SORT_OPTIONS = [
 export type NotesSortOrder = (typeof NOTES_SORT_OPTIONS)[number]["value"];
 export type NotesScope = "all" | "note" | "resource" | "report" | "prompt";
 
-export type NotesPreferences = {
-  scope: NotesScope;
-  sortOrder: NotesSortOrder;
-};
+export type NotesPreferences = NotesPreferenceValue;
 
-export const DEFAULT_NOTES_PREFS: NotesPreferences = {
-  scope: "note",
-  sortOrder: "updated_desc",
-};
+export const DEFAULT_NOTES_PREFS: NotesPreferences = defaultViewPreference("notes.preferences");
+
+export function compactNotesBodyPreview(value: unknown, limit = 180): string {
+  const compact = String(value || "").slice(0, limit + 40).replace(/\s+/g, " ").trim();
+  return compact.length > limit ? `${compact.slice(0, limit).trimEnd()}…` : compact;
+}
 
 function recordDate<T extends { created_at?: string; updated_at?: string }>(record: T, field: "created" | "updated"): string {
   return String(field === "created" ? record.created_at || "" : record.updated_at || record.created_at || "");
@@ -38,3 +37,5 @@ export function sortNotesRecords<T extends { id: string; created_at?: string; up
 ): T[] {
   return [...records].sort((left, right) => compareNotesRecords(left, right, order));
 }
+import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
+import type { NotesPreferenceValue } from "../../../../../shared/viewPreferenceRegistry.mjs";

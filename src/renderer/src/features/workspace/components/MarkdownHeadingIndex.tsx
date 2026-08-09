@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   computeHeadingNumberLabels,
@@ -8,10 +8,13 @@ import {
   type MarkdownHeadingItem,
   type MarkdownRenderOptions,
 } from "../lib/markdown";
+import { rawHeadingScrollTop } from "../lib/noteModeScroll";
 
 type MarkdownHeadingIndexProps = {
   headings: MarkdownHeadingItem[];
+  mode: "edit" | "preview" | "raw";
   onSelect: (heading: MarkdownHeadingItem) => void;
+  sourceLineCount: number;
   /** 見出し番号 ON のとき一覧にも同じ番号を出す */
   headingNumberOptions?: MarkdownRenderOptions;
   /** 狭い画面で非表示にする場合など */
@@ -30,24 +33,10 @@ function findScrollContainer(surface: HTMLElement | null): HTMLElement | null {
     || surface.querySelector<HTMLElement>("textarea.note-main-editor-raw");
 }
 
-function findHeadingElement(surface: HTMLElement, heading: MarkdownHeadingItem): HTMLElement | null {
-  const preview = surface.querySelector(".note-main-preview");
-  if (preview) {
-    return preview.querySelector<HTMLElement>(`#${CSS.escape(heading.id)}`)
-      || preview.querySelector<HTMLElement>(`[data-md-heading-index="${heading.index}"]`);
-  }
-  const mdx = surface.querySelector(".note-mdx-content");
-  if (mdx) {
-    const nodes = mdx.querySelectorAll("h1, h2, h3, h4");
-    return (nodes[heading.index] as HTMLElement | undefined) || null;
-  }
-  return null;
-}
-
 /** スクロール位置から「いま読んでいる」見出しインデックスを求める。 */
 function resolveActiveIndex(
   scrollEl: HTMLElement,
-  targets: Array<{ el: HTMLElement | null }>,
+  targets: Array<{ el: HTMLElement | null; top?: number }>,
 ): number {
   if (!targets.length) return 0;
   const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
@@ -58,17 +47,20 @@ function resolveActiveIndex(
   const marker = scrollEl.scrollTop + Math.min(96, scrollEl.clientHeight * 0.22);
 
   let active = 0;
-  let sawDom = false;
+  let sawPosition = false;
   for (let i = 0; i < targets.length; i += 1) {
-    const el = targets[i].el;
-    if (!el) continue;
-    sawDom = true;
-    const rect = el.getBoundingClientRect();
-    const topInScroll = rect.top - scrollRect.top + scrollEl.scrollTop;
+    const { el, top } = targets[i];
+    let topInScroll = top;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      topInScroll = rect.top - scrollRect.top + scrollEl.scrollTop;
+    }
+    if (topInScroll == null || !Number.isFinite(topInScroll)) continue;
+    sawPosition = true;
     if (topInScroll <= marker) active = i;
   }
 
-  if (sawDom) return active;
+  if (sawPosition) return active;
 
   // Raw など DOM 見出しが無いとき: スクロール比率で近似
   const ratio = scrollEl.scrollTop / maxScroll;
@@ -79,9 +71,11 @@ function resolveActiveIndex(
  * 文書中央右の線だけのフロート UI。
  * 線の本数 = h2 数。スクロール位置に応じて現在の線を強調。ホバーで一覧。
  */
-export function MarkdownHeadingIndex({
+export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
   headings,
+  mode,
   onSelect,
+  sourceLineCount,
   headingNumberOptions,
   hidden = false,
 }: MarkdownHeadingIndexProps) {
@@ -157,16 +151,30 @@ export function MarkdownHeadingIndex({
       const surface = surfaceOf();
       const scroller = findScrollContainer(surface);
       if (!scroller || !surface) return;
+      const preview = surface.querySelector<HTMLElement>(".note-main-preview");
+      const raw = scroller.matches("textarea.note-main-editor-raw");
+      const editHeadings = preview
+        ? null
+        : surface.querySelectorAll<HTMLElement>(".note-mdx-content h1, .note-mdx-content h2, .note-mdx-content h3, .note-mdx-content h4");
+      const findHeading = (heading: MarkdownHeadingItem): HTMLElement | null => {
+        if (preview) {
+          return preview.querySelector<HTMLElement>(`#${CSS.escape(heading.id)}`)
+            || preview.querySelector<HTMLElement>(`[data-md-heading-index="${heading.index}"]`);
+        }
+        return editHeadings?.[heading.index] || null;
+      };
+      const headingTarget = (heading: MarkdownHeadingItem) => ({
+        el: findHeading(heading),
+        top: raw
+          ? rawHeadingScrollTop(heading.sourceLine, sourceLineCount, scroller.scrollHeight)
+          : undefined,
+      });
 
-      const barTargets = barHeadings.map((heading) => ({
-        el: findHeadingElement(surface, heading),
-      }));
+      const barTargets = barHeadings.map(headingTarget);
       const nextBar = resolveActiveIndex(scroller, barTargets);
       setActiveBarIndex((prev) => (prev === nextBar ? prev : nextBar));
 
-      const allTargets = headings.map((heading) => ({
-        el: findHeadingElement(surface, heading),
-      }));
+      const allTargets = headings.map(headingTarget);
       const nextHeading = resolveActiveIndex(scroller, allTargets);
       setActiveHeadingIndex((prev) => (prev === nextHeading ? prev : nextHeading));
     };
@@ -198,7 +206,8 @@ export function MarkdownHeadingIndex({
         frame = window.requestAnimationFrame(attach);
       })
       : null;
-    observer?.observe(surface!, { childList: true, subtree: true });
+    // 監視対象はEdit/Preview本体の差し替えだけ。本文内部の毎キーDOM更新では再接続しない。
+    observer?.observe(surface!, { childList: true });
 
     // 初回レイアウト後にもう一度
     const boot = window.setTimeout(attach, 80);
@@ -210,7 +219,7 @@ export function MarkdownHeadingIndex({
       observer?.disconnect();
       scrollEl?.removeEventListener("scroll", onScroll);
     };
-  }, [hidden, headings, barHeadings, headingsKey]);
+  }, [hidden, headings, barHeadings, headingsKey, mode, sourceLineCount]);
 
   if (hidden || headings.length < HEADING_INDEX_MIN_COUNT) return null;
 
@@ -277,4 +286,4 @@ export function MarkdownHeadingIndex({
       )}
     </div>
   );
-}
+});

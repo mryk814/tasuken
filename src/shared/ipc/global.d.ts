@@ -1,8 +1,9 @@
-import type { ResearchDeskApi, TodayMiniTask } from "./contracts";
+import type { ResearchDeskApi, TodayMiniAddTaskRequest, TodayMiniTask, TodayMiniThemeOption } from "./contracts";
 
 interface TodayMiniApi {
   list(): Promise<TodayMiniTask[]>;
-  addTask(title: string): Promise<TodayMiniTask[]>;
+  listThemes(): Promise<TodayMiniThemeOption[]>;
+  addTask(request: TodayMiniAddTaskRequest): Promise<TodayMiniTask[]>;
   toggle(taskId: string): Promise<TodayMiniTask[]>;
   openTask(taskId: string): Promise<boolean>;
   pinTopRight(): Promise<boolean>;

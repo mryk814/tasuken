@@ -11,7 +11,7 @@ const chatRefsPageSource = readFileSync("src/renderer/src/features/workspace/pag
 
 test("Prompts are folded into Notes instead of a separate Knowledge nav item", () => {
   assert.doesNotMatch(routesSource, /\["prompts", "Prompts"\]/);
-  assert.match(routesSource, /prompts:\s*"notes"/);
+  assert.match(routesSource, /id: "prompts", parent: "notes"/);
   assert.match(workspaceAppSource, /route === "prompts" \? "notes"/);
   assert.doesNotMatch(workspaceAppSource, /PromptsPage/);
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/PromptsPage.tsx"), false);
@@ -31,27 +31,25 @@ test("Notes owns prompt inventory and creation", () => {
 });
 
 test("Notes kinds are simplified to Note Resource Report Prompt", () => {
-  assert.match(notesPageSource, /title="Notes"/);
+  assert.match(notesPageSource, /PageHeader route="notes"/);
   assert.doesNotMatch(notesPageSource, /Notes & Resources/);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Note</);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Resource</);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Report</);
-  assert.match(notesPageSource, /primary-button[\s\S]*?>Prompt</);
-  // 4種別は同格の primary。コピー操作だけ secondary。
-  assert.match(notesPageSource, /secondary-button[\s\S]*?>一覧をコピー</);
+  // 4種別は残すが、常設buttonは1つのprimary actionへ集約した（#313）。
+  const createMenuSource = readFileSync("src/renderer/src/features/workspace/components/NoteCreateMenu.tsx", "utf8");
+  assert.match(notesPageSource, /<NoteCreateMenu /);
+  assert.match(createMenuSource, /\["note", "resource", "report", "prompt"\]/);
+  assert.match(createMenuSource, /action="notesCreate"/);
+  // コピー操作は secondary のまま。
+  assert.match(notesPageSource, /<Button variant="secondary" onClick=\{copy\}>一覧をコピー<\/Button>/);
   assert.match(notesPageSource, /body_markdown/);
   assert.match(notesPageSource, /recordType === "resource"/);
 });
 
-test("AI IO runs document publish export without owning target selection", () => {
-  assert.match(importExportPageSource, /publishMarkdownTargets/);
-  assert.match(importExportPageSource, /notePublishEnabled/);
-  assert.doesNotMatch(importExportPageSource, /setNotePublishEnabled/);
-  assert.doesNotMatch(importExportPageSource, /type="checkbox" checked=\{enabled\}/);
-  assert.doesNotMatch(importExportPageSource, /Document Publish|Publish対象/);
+test("AI Inbox no longer owns document publish or AI context export", () => {
+  assert.doesNotMatch(importExportPageSource, /publishMarkdownTargets|publishPdfTargets|notePublishEnabled/);
+  assert.doesNotMatch(importExportPageSource, /buildExportData|buildAiImportPrompt|buildAiOrganizePrompt/);
+  assert.match(importExportPageSource, /AiProposalPanel/);
   assert.match(notesPageSource, /showDocumentPublish/);
   assert.match(notesPageSource, /exportSelectedMarkdown/);
-  assert.doesNotMatch(notesPageSource, /Document Publish|Publish対象/);
   // Resource / Prompt は出力しない。Note と Report だけ一括出力。
   assert.match(notesPageSource, /showDocumentPublish = selectedKind === "note" \|\| selectedKind === "report"/);
 });

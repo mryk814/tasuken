@@ -2,10 +2,13 @@ import katex from "katex";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmStrikethroughFromMarkdown } from "mdast-util-gfm-strikethrough";
 import { gfmTableFromMarkdown } from "mdast-util-gfm-table";
+import { gfmTaskListItemFromMarkdown } from "mdast-util-gfm-task-list-item";
 import { mathFromMarkdown } from "mdast-util-math";
 import { toString as mdastToString } from "mdast-util-to-string";
-import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough";
+import { cjkFriendlyExtension } from "micromark-extension-cjk-friendly";
+import { gfmStrikethroughCjkFriendly } from "micromark-extension-cjk-friendly-gfm-strikethrough";
 import { gfmTable } from "micromark-extension-gfm-table";
+import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
 import { math as micromarkMath } from "micromark-extension-math";
 import type {
   BlockContent,
@@ -32,17 +35,31 @@ import type {
 } from "mdast";
 import { KATEX_DOCUMENT_CSS } from "./katexDocumentCss";
 import { parseWikiLinks } from "./knowledgeLinks";
+import { MARKDOWN_DOCUMENT_SURFACES_CSS } from "./markdownDocumentSurfaces";
+import { mermaidWidthFromMeta } from "./mermaidWidth";
+import { parseSketchEmbedUrl, type SketchEmbedPreview } from "./sketchEmbed";
 
-/** MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。 */
+/**
+ * MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。
+ *
+ * cjkFriendlyExtension は CommonMark の flanking 判定を CJK 向けに緩める（#285）。
+ * 素の CommonMark では `文章中の**（重要）**です` のように約物が `**` の内側、
+ * 日本語文字が外側に来ると開始・終了デリミタのどちらにもならず強調にならない。
+ * 取り消し線も同じ判定を使うため、GFM版ではなく CJK 対応版を入れる。
+ */
 function parseMarkdownBody(body: string): Root {
   return fromMarkdown(body, {
     extensions: [
       gfmTable(),
-      gfmStrikethrough(),
+      // チェックリストはScratchpad・Noteの日常表記（#316）。`- [ ]` を文字のまま出さない。
+      gfmTaskListItem(),
+      gfmStrikethroughCjkFriendly(),
       micromarkMath({ singleDollarTextMath: true }),
+      cjkFriendlyExtension(),
     ],
     mdastExtensions: [
       gfmTableFromMarkdown(),
+      gfmTaskListItemFromMarkdown(),
       gfmStrikethroughFromMarkdown(),
       mathFromMarkdown(),
     ],
@@ -114,7 +131,7 @@ function safeMarkdownUrl(value: string, kind: "image" | "link"): string {
   try {
     const parsed = new URL(trimmed);
     const allowed = kind === "image"
-      ? ["https:", "http:", "tasken-attachment:"]
+      ? ["https:", "http:", "tasken-attachment:", "tasken-sketch:"]
       : ["https:", "http:", "mailto:"];
     return allowed.includes(parsed.protocol) ? parsed.toString() : "";
   } catch {
@@ -475,6 +492,14 @@ function renderPhrasing(nodes: PhrasingContent[] | undefined, ctx: MarkdownRende
         const url = safeMarkdownUrl(image.url || "", "image");
         const label = (image.alt || "").trim() || "貼り付け画像";
         if (!url) return escapeHtml(`[画像: ${label}]`);
+        const sketchRef = parseSketchEmbedUrl(url);
+        if (sketchRef) {
+          const preview = ctx.sketchEmbeds?.[sketchRef.key];
+          if (!preview?.dataUrl) {
+            return `<figure class="md-sketch-embed is-missing" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><div class="md-sketch-missing">参照先のSketchまたはページが見つかりません。</div><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+          }
+          return `<figure class="md-sketch-embed" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><button type="button" class="md-sketch-open" aria-label="${escapeHtml(preview.title)}をSketchで開く"><img src="${escapeHtml(preview.dataUrl)}" alt="${escapeHtml(label)}" loading="lazy" /></button><figcaption><strong>${escapeHtml(preview.title)}</strong><span>Sketchで編集</span></figcaption></figure>`;
+        }
         return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="max-width:100%;height:auto;display:block" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
       }
       case "inlineMath":
@@ -586,30 +611,73 @@ export function applyCalloutDecorations(root: ParentNode | null | undefined): vo
   const quotes = Array.from((root as Element).querySelectorAll("blockquote")) as HTMLElement[];
   for (const quote of quotes) {
     const firstP = quote.querySelector(":scope > p") as HTMLElement | null;
-    const raw = (firstP?.textContent || "").replace(/\u00a0/g, " ");
+    const firstText = quote.querySelector(":scope > [data-lexical-text='true']") as HTMLElement | null;
+    const markerElement = firstP || firstText;
+    const raw = (
+      firstP?.innerText
+      || quote.innerText
+      || firstP?.textContent
+      || quote.textContent
+      || ""
+    ).replace(/\u00a0/g, " ");
     const firstLine = raw.split(/\r?\n/)[0] || raw;
     const marker = parseCalloutMarker(firstLine.trim()) || parseCalloutMarker(raw.trim());
     if (!marker) {
       if (quote.classList.contains("md-callout")) quote.classList.remove("md-callout");
       if (quote.hasAttribute("data-callout")) quote.removeAttribute("data-callout");
       if (quote.hasAttribute("data-callout-label")) quote.removeAttribute("data-callout-label");
-      if (firstP?.classList.contains("md-callout-marker")) firstP.classList.remove("md-callout-marker");
-      if (firstP?.classList.contains("md-callout-marker-only")) firstP.classList.remove("md-callout-marker-only");
-      if (firstP?.hasAttribute("data-callout-label")) firstP.removeAttribute("data-callout-label");
+      for (const decorated of quote.querySelectorAll(".md-callout-marker")) {
+        decorated.classList.remove(
+          "md-callout-marker",
+          "md-callout-marker-only",
+          "md-callout-marker-multiline",
+        );
+        decorated.removeAttribute("data-callout-label");
+      }
       continue;
     }
     // マーカー行だけなら Edit 上は「MEMO」ラベルを出し、生の [!INSIGHT]/[!NOTE] は隠す（本文 Markdown は触らない）。
-    const markerOnly = !marker.rest && !/\r?\n/.test(raw.trim());
+    const markerRaw = (markerElement?.textContent || "").replace(/\u00a0/g, " ").trim();
+    const markerElementFirstLine = markerRaw.split(/\r?\n/)[0] || markerRaw;
+    const markerOnly = !marker.rest
+      && Boolean(markerElement)
+      && Boolean(parseCalloutMarker(markerElementFirstLine))
+      && !/\r?\n/.test(markerRaw);
+    const markerMultiline = !marker.rest
+      && markerElement === firstP
+      && Boolean(parseCalloutMarker(markerElementFirstLine))
+      && /\r?\n/.test(markerRaw);
     if (!quote.classList.contains("md-callout")) quote.classList.add("md-callout");
     if (quote.getAttribute("data-callout") !== "insight") quote.setAttribute("data-callout", "insight");
     if (quote.getAttribute("data-callout-label") !== CALLOUT_LABEL) quote.setAttribute("data-callout-label", CALLOUT_LABEL);
-    if (firstP) {
-      if (!firstP.classList.contains("md-callout-marker")) firstP.classList.add("md-callout-marker");
-      if (firstP.getAttribute("data-callout-label") !== CALLOUT_LABEL) firstP.setAttribute("data-callout-label", CALLOUT_LABEL);
+    for (const decorated of quote.querySelectorAll(".md-callout-marker")) {
+      if (decorated !== markerElement) {
+        decorated.classList.remove(
+          "md-callout-marker",
+          "md-callout-marker-only",
+          "md-callout-marker-multiline",
+        );
+        decorated.removeAttribute("data-callout-label");
+      }
+    }
+    if (markerElement) {
+      if (!markerElement.classList.contains("md-callout-marker")) markerElement.classList.add("md-callout-marker");
+      if (markerElement.getAttribute("data-callout-label") !== CALLOUT_LABEL) {
+        markerElement.setAttribute("data-callout-label", CALLOUT_LABEL);
+      }
       if (markerOnly) {
-        if (!firstP.classList.contains("md-callout-marker-only")) firstP.classList.add("md-callout-marker-only");
-      } else if (firstP.classList.contains("md-callout-marker-only")) {
-        firstP.classList.remove("md-callout-marker-only");
+        if (!markerElement.classList.contains("md-callout-marker-only")) {
+          markerElement.classList.add("md-callout-marker-only");
+        }
+      } else if (markerElement.classList.contains("md-callout-marker-only")) {
+        markerElement.classList.remove("md-callout-marker-only");
+      }
+      if (markerMultiline) {
+        if (!markerElement.classList.contains("md-callout-marker-multiline")) {
+          markerElement.classList.add("md-callout-marker-multiline");
+        }
+      } else if (markerElement.classList.contains("md-callout-marker-multiline")) {
+        markerElement.classList.remove("md-callout-marker-multiline");
       }
     }
   }
@@ -621,6 +689,7 @@ type MarkdownRenderContext = {
   footnotes: Map<string, number>;
   footnoteDefinitions: Map<string, string>;
   nextFootnote: number;
+  sketchEmbeds?: Record<string, SketchEmbedPreview>;
 };
 
 function renderBlock(
@@ -652,7 +721,12 @@ function renderBlock(
       const code = node as Code;
       const language = String(code.lang || "").trim().toLowerCase();
       const languageClass = language ? ` class="language-${escapeHtml(language)}"` : "";
-      const mermaid = language === "mermaid" ? " class=\"md-mermaid-block\" data-mermaid=\"true\"" : "";
+      const mermaidWidth = language === "mermaid" ? mermaidWidthFromMeta(code.meta) : null;
+      const mermaid = language === "mermaid"
+        ? ` class="md-mermaid-block" data-mermaid="true"${mermaidWidth === null
+          ? ""
+          : ` data-mermaid-width="${mermaidWidth}" style="width:min(100%, ${mermaidWidth}%);margin-inline:auto"`}`
+        : "";
       return `<pre${mermaid}><code${languageClass}>${escapeHtml(code.value || "")}${code.value?.endsWith("\n") ? "" : "\n"}</code></pre>`;
     }
     case "thematicBreak":
@@ -685,6 +759,7 @@ export type MarkdownHeadingItem = {
   level: number;
   text: string;
   id: string;
+  sourceLine: number;
 };
 
 /** 本文の見出し一覧。コードフェンス内の # は無視。frontmatter は除く。 */
@@ -692,8 +767,12 @@ export function extractMarkdownHeadings(source: string): MarkdownHeadingItem[] {
   const { body } = splitFrontmatter(source);
   const headings: MarkdownHeadingItem[] = [];
   const lines = body.split(/\r?\n/);
+  const bodyStart = source.indexOf(body);
+  const sourceLineOffset = bodyStart > 0
+    ? source.slice(0, bodyStart).split(/\r?\n/).length - 1
+    : 0;
   let inCode = false;
-  for (const line of lines) {
+  for (const [lineIndex, line] of lines.entries()) {
     if (line.trim().startsWith("```")) {
       inCode = !inCode;
       continue;
@@ -709,6 +788,7 @@ export function extractMarkdownHeadings(source: string): MarkdownHeadingItem[] {
       level: match[1].length,
       text,
       id: markdownHeadingId(index),
+      sourceLine: sourceLineOffset + lineIndex,
     });
   }
   return headings;
@@ -729,6 +809,8 @@ export type MarkdownRenderOptions = {
    * 編集プレビューでは true（既定）、PDF / 文書ビュー（previewDocument）では false。
    */
   showFrontmatter?: boolean;
+  /** Tasken Sketch参照を表示するための、現在の正本から生成したPreview。 */
+  sketchEmbeds?: Record<string, SketchEmbedPreview>;
 };
 
 export const HEADING_NUMBER_START_LEVELS = [1, 2, 3, 4] as const;
@@ -907,10 +989,8 @@ export function applyHeadingNumberAttributes(
 
 /**
  * PDF / 成果物 iframe 用のスタンドアロン CSS。
- * 見た目の正本は app.css の `.markdown-preview`（＋ :root の --markdown-*）。
- * ここは data: URL で外部 CSS を読めないため、同じトークン値を埋め込み、
- * ページ枠（@page / padding / break-after）だけ印刷向けに足す。
- * 編集・Preview の見た目を変えたら、同じ差分をここにも反映すること。
+ * 文書面の色と数式スタイルは markdownDocumentSurfaces.ts を Edit / Preview と共有する。
+ * ここでは data: URL 用の基礎トークン、文書構造、A4 の余白と改ページだけを補う。
  */
 const MARKDOWN_DOCUMENT_CSS = `
 @page{size:A4;margin:18mm}
@@ -948,10 +1028,10 @@ body{
 .markdown-document h1{padding-bottom:var(--md-space-2);border-bottom:2px solid var(--markdown-accent-bd);font-size:var(--md-text-2xl)}
 .markdown-document h2{
   padding:var(--md-space-2) var(--md-space-3);border-left:6px solid var(--markdown-accent);border-bottom:2px solid var(--markdown-accent-bd);
-  border-radius:var(--md-radius-sm);background:color-mix(in srgb,var(--markdown-accent-bg) 84%,var(--markdown-paper));font-size:var(--md-text-xl)
+  border-radius:var(--md-radius-sm);background:var(--markdown-document-heading-bg);font-size:var(--md-text-xl)
 }
 .markdown-document h3{
-  padding:3px 0 3px var(--md-space-2);border-left:4px solid color-mix(in srgb,var(--markdown-accent) 85%,var(--markdown-paper));
+  padding:3px 0 3px var(--md-space-2);border-left:4px solid var(--markdown-document-heading-marker);
   color:var(--markdown-accent-strong);font-size:var(--md-text-xl);font-weight:700
 }
 .markdown-document h4{
@@ -972,31 +1052,31 @@ body{
 .markdown-document del{text-decoration:line-through}
 .markdown-document blockquote{
   margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border-left:3px solid var(--markdown-accent-bd);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 20%,var(--markdown-paper));color:var(--markdown-paper-secondary);font-style:italic
+  background:var(--markdown-document-quote-bg);color:var(--markdown-paper-secondary);font-style:italic
 }
 .markdown-document blockquote p{margin:var(--md-space-1) 0}
 .markdown-document .md-footnote-ref{font-size:.78em;vertical-align:super;line-height:0}
 .markdown-document .md-footnotes{margin-top:var(--md-space-5);padding-top:var(--md-space-2);border-top:1px solid var(--markdown-paper-border);color:var(--markdown-paper-secondary);font-size:var(--md-text-sm)}
 .markdown-document .md-footnotes h4{width:auto;margin:0 0 var(--md-space-1);padding:0;border:0;color:var(--markdown-paper-secondary);font-size:var(--md-text-sm)}
 .markdown-document .md-callout{
-  margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border:1px solid #EFD9B0;
-  border-left:4px solid #C77D29;border-radius:var(--md-radius-md);
-  background:color-mix(in srgb,#FBF0DD 78%,#fff);color:var(--markdown-paper-text);break-inside:avoid
+  margin:var(--md-space-3) 0;padding:var(--md-space-2) var(--md-space-3);border:1px solid var(--markdown-document-callout-border);
+  border-left:4px solid var(--markdown-document-callout-marker);border-radius:var(--md-radius-md);
+  background:var(--markdown-document-callout-bg);color:var(--markdown-paper-text);break-inside:avoid
 }
 .markdown-document .md-callout-label{
-  margin:0 0 var(--md-space-1);color:#8A5212;font-size:var(--md-text-xs);font-weight:700;letter-spacing:.02em
+  margin:0 0 var(--md-space-1);color:var(--markdown-document-callout-label);font-size:var(--md-text-xs);font-weight:700;letter-spacing:.02em
 }
 .markdown-document .md-callout-body > :first-child{margin-top:0}
 .markdown-document .md-callout-body > :last-child{margin-bottom:0}
 .markdown-document .md-callout p{margin:var(--md-space-1) 0;font-style:normal}
 .markdown-document hr{height:0;margin:var(--md-space-3) 0;border:0;border-top:1px solid var(--markdown-accent-bd)}
 .markdown-document pre{
-  overflow:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 42%,var(--markdown-paper));font:var(--md-text-xs)/1.62 var(--md-font-mono);white-space:pre-wrap
+  overflow:auto;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-document-block-border);border-radius:var(--md-radius-md);
+  background:var(--markdown-document-code-bg);font:var(--md-text-xs)/1.62 var(--md-font-mono);white-space:pre-wrap
 }
 .markdown-document code{
   padding:1px var(--md-space-1);border-radius:var(--md-radius-sm);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 55%,var(--markdown-paper));color:var(--markdown-accent-strong);
+  background:var(--markdown-document-inline-code-bg);color:var(--markdown-accent-strong);
   font-family:var(--md-font-mono);font-size:.92em
 }
 .markdown-document pre code{padding:0;background:transparent;color:inherit;font-size:inherit}
@@ -1008,15 +1088,15 @@ body{
 /* 印刷でも枠が見えるようセル全周に border（overflow:hidden は printToPDF で欠けやすいので付けない） */
 .markdown-document table{
   width:100%;margin:var(--md-space-2) 0 var(--md-space-3);border-collapse:collapse;border-spacing:0;
-  border:1px solid #C9D8E2;font-size:var(--md-text-sm)
+  border:1px solid var(--markdown-document-block-border);font-size:var(--md-text-sm)
 }
 .markdown-document th,.markdown-document td{
-  padding:4px 8px;border:1px solid #C9D8E2;text-align:left;vertical-align:top;background:#fff
+  padding:4px 8px;border:1px solid var(--markdown-document-block-border);text-align:left;vertical-align:top;background:#fff
 }
 .markdown-document th{
-  background:color-mix(in srgb,var(--markdown-accent-bg) 44%,var(--markdown-paper));color:var(--markdown-accent-strong);font-weight:700
+  background:var(--markdown-document-table-head-bg);color:var(--markdown-accent-strong);font-weight:700
 }
-.markdown-document tr:nth-child(even) td{background:color-mix(in srgb,var(--markdown-accent-bg) 10%,var(--markdown-paper))}
+.markdown-document tr:nth-child(even) td{background:var(--markdown-document-table-stripe-bg)}
 .markdown-document u,.markdown-document .md-underline{
   text-decoration:underline;text-decoration-thickness:from-font;text-underline-offset:2px;text-decoration-skip-ink:none
 }
@@ -1047,16 +1127,12 @@ body{
   padding:var(--md-space-3);border:1px dashed var(--markdown-paper-border);border-radius:var(--md-radius-md);
   background:var(--markdown-paper-subtle);color:var(--markdown-paper-secondary)
 }
-.markdown-document .md-math-inline{display:inline;padding:0 .12em;color:var(--markdown-accent-strong);vertical-align:baseline}
-.markdown-document .md-math-block{
-  overflow:visible;margin:var(--md-space-3) 0;padding:var(--md-space-3);border:1px solid var(--markdown-accent-bd);border-radius:var(--md-radius-md);
-  background:color-mix(in srgb,var(--markdown-accent-bg) 42%,var(--markdown-paper));color:var(--markdown-accent-strong);line-height:1.72;text-align:center
-}
-.markdown-document .md-math-inline .katex,.markdown-document .md-math-block .katex{color:inherit}
-.markdown-document .md-math-block .katex-display{margin:0}
-.markdown-document .md-math-operator{margin-right:.18em;font-style:normal}
-.markdown-document .md-math-inline sub,.markdown-document .md-math-block sub{font-size:.68em;vertical-align:-.35em}
-.markdown-document .md-math-inline sup,.markdown-document .md-math-block sup{font-size:.68em;vertical-align:.55em}
+.markdown-document .md-sketch-embed{display:grid;width:min(100%,760px);gap:var(--md-space-1);margin:var(--md-space-3) auto;break-inside:avoid}
+.markdown-document .md-sketch-open{display:block;width:100%;padding:0;border:1px solid var(--markdown-paper-border);border-radius:var(--md-radius-md);background:var(--markdown-paper-subtle)}
+.markdown-document .md-sketch-open img{display:block;width:100%;height:auto}
+.markdown-document .md-sketch-embed figcaption{display:flex;justify-content:space-between;gap:var(--md-space-2);color:var(--markdown-paper-secondary);font-size:var(--md-text-xs)}
+.markdown-document .md-sketch-missing{padding:var(--md-space-4);border:1px dashed #ce3b3b;border-radius:var(--md-radius-md);background:#fff0f0;color:#8f2525;text-align:center}
+.markdown-document .md-math-block{overflow:visible;break-inside:avoid}
 `;
 
 export function renderMarkdownPreview(value: string, options: MarkdownRenderOptions = {}): string {
@@ -1068,6 +1144,7 @@ export function renderMarkdownPreview(value: string, options: MarkdownRenderOpti
     footnotes: new Map(),
     footnoteDefinitions: definitions,
     nextFootnote: 1,
+    sketchEmbeds: options.sketchEmbeds,
   };
   const tree = parseMarkdownBody(body);
   const parts: string[] = [];
@@ -1101,7 +1178,7 @@ export function previewHtml(body: string, format: string, options: MarkdownRende
 export function previewDocument(body: string, format: string, options: MarkdownRenderOptions = {}): string {
   // PDF / 成果物iframe は完成文書ビューなので frontmatter を本文に出さない（メタは編集画面側で確認）。
   const resolved: MarkdownRenderOptions = { ...options, showFrontmatter: options.showFrontmatter ?? false };
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${KATEX_DOCUMENT_CSS}${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format, resolved)}</main></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${KATEX_DOCUMENT_CSS}${MARKDOWN_DOCUMENT_SURFACES_CSS}${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format, resolved)}</main></body></html>`;
 }
 
 export function renderedText(body: string, format: string): string {

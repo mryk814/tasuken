@@ -1,16 +1,21 @@
+import { entityTypes, legacyThemeFieldsForEntityType, themeFieldForEntityType } from "../../shared/entityRegistry.mjs";
+
+const themeReferenceTargets = entityTypes
+  .filter((entityType) => entityType !== "theme" && entityType !== "project" && entityType !== "status_update")
+  .flatMap((entityType) => [themeFieldForEntityType(entityType), ...legacyThemeFieldsForEntityType(entityType)]
+    .filter(Boolean)
+    .map((field) => [entityType, field]));
+
 export function applyRepositoryDeletePolicy(repository, type, id) {
+  if (type === "repository_context") {
+    // Context deletion is logical, but live Theme/Task links must not dangle.
+    // The repository stores a reversible, explicit detach marker.
+    repository.nullifyRepositoryContextReferences(id);
+  }
+
   if (type === "theme") {
     repository.cascadeWhere("artifact", (entry) => entry.source_type === "theme" && entry.source_id === id, type, id);
-    repository.nullifyReferences(type, [
-      ["item", "theme_id"],
-      ["note", "theme_id"],
-      ["link", "theme_id"],
-      ["field_definition", "theme_id"],
-      ["knowledge_node", "theme_id"],
-      ["log_entry", "theme_id"],
-      ["view", "theme_id"],
-      ["artifact", "theme_id"],
-    ], id);
+    repository.nullifyReferences(type, themeReferenceTargets, id);
     repository.cascadeWhere("status_update", (entry) => entry.theme_id === id, type, id);
   }
 
@@ -25,13 +30,26 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   }
 
   if (type === "note") {
-    repository.nullifyReferences(type, [["link", "note_id"], ["knowledge_node", "source_note_id"], ["log_entry", "related_note_id"]], id);
+    repository.nullifyReferences(type, [
+      ["link", "note_id"],
+      ["knowledge_node", "source_note_id"],
+      ["log_entry", "related_note_id"],
+      ["artifact", "origin_note_id"],
+    ], id);
     repository.cascadeWhere("artifact", (entry) => (entry.source_type === "note" || entry.source_type === "report") && entry.source_id === id, type, id);
   }
 
   if (type === "link") repository.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
-  if (type === "task") repository.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
+  if (type === "task") {
+    repository.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
+    repository.cascadeWhere("work_receipt", (entry) => entry.task_id === id, type, id);
+  }
   if (type === "resource") repository.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
+  if (type === "capture_entry") repository.cascadeWhere("artifact", (entry) => entry.source_type === "capture_entry" && entry.source_id === id, type, id);
+  if (type === "ai_proposal") repository.cascadeWhere("artifact", (entry) => entry.source_type === "ai_proposal" && entry.source_id === id, type, id);
+  // Relation assertions are durable history. Deleting either endpoint leaves
+  // the assertion dangling so the graph can report a broken_relation instead
+  // of silently deleting or reconnecting it.
 
   if (type === "source_record") {
     repository.nullifyReferences(type, [

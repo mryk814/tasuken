@@ -1,12 +1,21 @@
 import type { StatusUpdate, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { compareCapturesNewestFirst } from "../domain-model/selectors";
+import { PERSONAL_DEFAULT_THEME_ID, resolveThemeRef, themeRefFromId } from "../../../../../shared/themeRef.mjs";
+import { projectActivityMarkdown, queryActivityEvents } from "../../../../../shared/activityProjection.mjs";
+import type { CanonicalRootStatusMap } from "../../../../../shared/types/workspace";
 
 export interface ActivityLogInput {
   date: string;
   domain: Pick<WorkspaceDomain, "tasks" | "waitings" | "notes" | "resources" | "knowledge_nodes" | "capture_entries">;
   statusUpdates: StatusUpdate[];
   themes: Theme[];
+  /** Structured event source. Undefined keeps the legacy display-only path for old callers. */
+  changeEvents?: Array<Record<string, unknown>>;
+  references?: Array<Record<string, unknown>>;
+  artifacts?: Array<Record<string, unknown>>;
+  roots?: CanonicalRootStatusMap;
+  timezone?: string;
 }
 
 export type ActivityLogEntries = {
@@ -17,6 +26,7 @@ export type ActivityLogEntries = {
   knowledge: WorkspaceDomain["knowledge_nodes"];
   updates: StatusUpdate[];
   captures: WorkspaceDomain["capture_entries"];
+  events: Array<Record<string, unknown>>;
 };
 
 /** Activity Log 用の Theme 表示。ID から現時点の正式名・識別子・概要を解決する。 */
@@ -51,12 +61,13 @@ function text(value: unknown): string {
  * - 削除済み・参照切れ: 削除済みTheme + 短い ID 断片（後から辿れる程度）
  */
 export function resolveActivityTheme(themes: Theme[], projectId?: string | null): ActivityThemeRef {
-  const id = text(projectId);
-  if (!id) {
-    return { id: null, name: "個人業務", code: "", description: "", missing: false };
+  const ref = themeRefFromId(projectId, { legacyNullMeansPersonal: true });
+  const resolved = resolveThemeRef(themes, ref);
+  if (resolved.id === PERSONAL_DEFAULT_THEME_ID && !resolved.theme) {
+    return { id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務", code: "", description: "", missing: false };
   }
-  const theme = themes.find((entry) => entry.id === id);
-  if (!theme) {
+  if (resolved.missing || !resolved.theme) {
+    const id = resolved.id || PERSONAL_DEFAULT_THEME_ID;
     return {
       id,
       name: "削除済みTheme",
@@ -65,6 +76,7 @@ export function resolveActivityTheme(themes: Theme[], projectId?: string | null)
       missing: true,
     };
   }
+  const theme = resolved.theme;
   return {
     id: theme.id,
     name: text(theme.name) || "無題のTheme",
@@ -99,7 +111,58 @@ function collectThemeIds(ids: Array<string | null | undefined>): string[] {
   return ordered;
 }
 
-export function collectActivityLogEntries({ date, domain, statusUpdates }: ActivityLogInput): ActivityLogEntries {
+export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogEntries {
+  const { date, domain, statusUpdates } = input;
+  if (input.changeEvents !== undefined) {
+    const result = queryActivityEvents({
+      events: input.changeEvents,
+      workspace: {
+        tasks: domain.tasks,
+        waitings: domain.waitings,
+        notes: domain.notes,
+        resources: domain.resources,
+        knowledge_nodes: domain.knowledge_nodes,
+        capture_entrys: domain.capture_entries,
+        references: input.references || [],
+      artifacts: input.artifacts || [],
+      roots: input.roots || {},
+      status_updates: statusUpdates,
+      },
+      themes: input.themes,
+      date,
+      timezone: input.timezone,
+    });
+    const entity = (type: string, id: string) => {
+      const records = type === "task" ? domain.tasks
+        : type === "waiting" ? domain.waitings
+          : type === "note" ? domain.notes
+            : type === "resource" ? domain.resources
+              : type === "knowledge_node" ? domain.knowledge_nodes
+                : type === "capture_entry" ? domain.capture_entries : [];
+      return records.find((record) => record.id === id);
+    };
+    const empty = {
+      completedTasks: [] as WorkspaceDomain["tasks"],
+      receivedWaitings: [] as WorkspaceDomain["waitings"],
+      notes: [] as WorkspaceDomain["notes"],
+      resources: [] as WorkspaceDomain["resources"],
+      knowledge: [] as WorkspaceDomain["knowledge_nodes"],
+      updates: [] as StatusUpdate[],
+      captures: [] as WorkspaceDomain["capture_entries"],
+    };
+    for (const event of result.events) {
+      const type = String(event.entity_ref?.type || "");
+      const id = String(event.entity_ref?.id || "");
+      const current = entity(type, id);
+      if (event.event_kind === "task_completed" && current) empty.completedTasks.push(current as WorkspaceDomain["tasks"][number]);
+      else if (event.event_kind === "waiting_received" && current) empty.receivedWaitings.push(current as WorkspaceDomain["waitings"][number]);
+      else if (["note_created", "note_updated", "report_created", "report_updated", "prompt_created", "prompt_updated"].includes(String(event.event_kind)) && current) empty.notes.push(current as WorkspaceDomain["notes"][number]);
+      else if (["resource_added", "resource_updated"].includes(String(event.event_kind)) && current) empty.resources.push(current as WorkspaceDomain["resources"][number]);
+      else if (["knowledge_created", "knowledge_updated"].includes(String(event.event_kind)) && current) empty.knowledge.push(current as WorkspaceDomain["knowledge_nodes"][number]);
+      else if (type === "capture_entry" && current) empty.captures.push(current as WorkspaceDomain["capture_entries"][number]);
+    }
+    return { ...empty, events: result.events };
+  }
   const completedTasks = domain.tasks
     .filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === date)
     .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
@@ -122,10 +185,31 @@ export function collectActivityLogEntries({ date, domain, statusUpdates }: Activ
     .filter((entry) => recordDate(entry.captured_at) === date)
     .sort(compareCapturesNewestFirst);
 
-  return { completedTasks, receivedWaitings, notes, resources, knowledge, updates, captures };
+  return { completedTasks, receivedWaitings, notes, resources, knowledge, updates, captures, events: [] };
 }
 
 export function buildActivityLog(input: ActivityLogInput): string {
+  if (input.changeEvents !== undefined) {
+    const result = queryActivityEvents({
+      events: input.changeEvents,
+      workspace: {
+        tasks: input.domain.tasks,
+        waitings: input.domain.waitings,
+        notes: input.domain.notes,
+        resources: input.domain.resources,
+        knowledge_nodes: input.domain.knowledge_nodes,
+        capture_entrys: input.domain.capture_entries,
+        references: input.references || [],
+        artifacts: input.artifacts || [],
+        roots: input.roots || {},
+        status_updates: input.statusUpdates,
+      },
+      themes: input.themes,
+      date: input.date,
+      timezone: input.timezone,
+    });
+    return projectActivityMarkdown(result, { title: "Activity", date: input.date });
+  }
   const { date, themes } = input;
   const { completedTasks, receivedWaitings, notes, resources, knowledge, updates, captures } =
     collectActivityLogEntries(input);
@@ -148,7 +232,13 @@ export function buildActivityLog(input: ActivityLogInput): string {
     ...(themeDetails.length ? themeDetails : ["- なし"]),
     "",
     "## 完了したタスク",
-    ...(completedTasks.length ? completedTasks.map((task) => `- [x] ${labelOf(task.project_id)} / ${task.title}`) : ["- なし"]),
+    ...(completedTasks.length
+      ? completedTasks.map((task) => {
+        // 完了時のひとことは本文と分けて保存しているので、記録側でも別項として出す（#308）。
+        const note = text(task.completion_note);
+        return `- [x] ${labelOf(task.project_id)} / ${task.title}${note ? ` — ${note}` : ""}`;
+      })
+      : ["- なし"]),
     "",
     "## 受け取ったWaiting",
     ...(receivedWaitings.length ? receivedWaitings.map((waiting) => `- ${labelOf(waiting.project_id)} / ${waiting.title} / ${waiting.waiting_for}`) : ["- なし"]),

@@ -42,6 +42,129 @@
   min-height: 28px;
   padding-inline: var(--space-2);
 }
+.chat-ref-artifact-link-dialog {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(900px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  overflow: hidden;
+}
+.chat-ref-artifact-link-dialog .modal-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.chat-ref-artifact-link-dialog .modal-card-header > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.chat-ref-artifact-link-dialog .modal-card-header h2,
+.chat-ref-artifact-link-dialog .modal-card-header p,
+.chat-ref-artifact-fields h3 {
+  margin: 0;
+}
+.chat-ref-artifact-link-dialog .modal-card-header p {
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+.chat-ref-artifact-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  min-height: 0;
+}
+.chat-ref-artifact-fields > section {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  gap: var(--space-2);
+  min-height: 0;
+}
+.chat-ref-artifact-fields input {
+  width: 100%;
+}
+.chat-ref-artifact-options {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  min-height: 0;
+  overflow-y: auto;
+}
+.chat-ref-artifact-options > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+}
+.chat-ref-artifact-options > button:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface-muted);
+}
+.chat-ref-artifact-options > button.is-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle-bg);
+}
+.chat-ref-artifact-options > button span {
+  display: grid;
+  min-width: 0;
+}
+.chat-ref-artifact-options > button strong,
+.chat-ref-artifact-options > button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-ref-artifact-options > button small {
+  color: var(--color-text-secondary);
+}
+.chat-ref-artifact-link-dialog .modal-actions {
+  justify-content: flex-end;
+}
+.note-export-handoff {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-success-bd);
+  border-radius: var(--radius-md);
+  background: var(--color-success-bg);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+/* 自動追加先は「今どこへ追加されるか」を書き出し操作の近くで示す（#288）。 */
+.note-export-target {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+@media (max-width: 760px) {
+  .chat-ref-artifact-fields {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .chat-ref-artifact-options {
+    max-height: 220px;
+  }
+  .note-export-handoff {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
 .artifact-attach-secondary {
   display: flex;
   justify-content: flex-end;
@@ -171,6 +294,7 @@
   white-space: nowrap;
 }
 .artifact-card-actions { display: inline-flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+.artifact-card-lineage { grid-column: 2 / -1; min-width: 0; }
 .artifact-card-open { min-height: 30px; white-space: nowrap; }
 .artifact-card-menu {
   display: inline-flex;
