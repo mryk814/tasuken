@@ -32,6 +32,11 @@ async function importWorkspaceService() {
         contents: "export default class AdmZip { constructor() { throw new Error('adm-zip is not used by Theme AI Pack tests'); } }",
         loader: "js",
       }));
+      buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: "better-sqlite3-mock", namespace: "better-sqlite3-mock" }));
+      buildApi.onLoad({ filter: /.*/, namespace: "better-sqlite3-mock" }, () => ({
+        contents: "export default class Database { constructor() { throw new Error('database path is not used by Theme AI Pack tests'); } }",
+        loader: "js",
+      }));
       buildApi.onResolve({ filter: /workspaceRepository\.mjs$/ }, () => ({ path: "workspace-repository-mock", namespace: "workspace-repository-mock" }));
       buildApi.onLoad({ filter: /.*/, namespace: "workspace-repository-mock" }, () => ({
         contents: "export const workspaceEntityTypes = []; export const workspaceSchemaVersion = 1;",

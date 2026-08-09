@@ -14,6 +14,13 @@ const api: ResearchDeskApi = {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),
   },
+  aiContext: {
+    preview: (request) => ipcRenderer.invoke(IPC.aiContextPreview, request),
+  },
+  dataHealth: {
+    get: (query) => ipcRenderer.invoke(IPC.dataHealthGet, query),
+    setState: (request) => ipcRenderer.invoke(IPC.dataHealthSetState, request),
+  },
   themeAiPack: {
     status: (themeId) => ipcRenderer.invoke(IPC.themeAiPackStatus, themeId),
     preview: (themeId) => ipcRenderer.invoke(IPC.themeAiPackPreview, themeId),

@@ -9,6 +9,11 @@ import type {
   AppUpdateCheckResult,
   FilePreviewReadResult,
   McpBridgeInfo,
+  AiContextPreviewRequest,
+  AiContextPreviewResult,
+  DataHealthQuery,
+  DataHealthQueryResult,
+  DataHealthStateUpdateRequest,
   ThemeAiPackPreviewResult,
   ThemeAiPackPublishResult,
   ThemeAiPackStatusResult,
@@ -31,6 +36,8 @@ import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs"
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
+import { previewTaskCoding, previewThemeCoding, previewThemeM365 } from "../../shared/aiContextPreview.mjs";
+import { DataHealthEvaluator, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
 import {
   buildCanonicalMarkdownContent,
@@ -68,6 +75,7 @@ import {
   publishThemeAiPack,
   recoverThemeAiPackOperations,
 } from "./themeAiPackPublisher.mjs";
+import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
 
 type SnapshotDecisions = Record<string, string>;
 
@@ -122,6 +130,9 @@ interface WorkspaceRepository {
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
+  setPreference(key: string, value: unknown): unknown;
+  getDataHealthState(): unknown;
+  setDataHealthState(expectedRevision: number, value: unknown): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
   runTransaction<T>(callback: (repository: {
@@ -189,6 +200,14 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function safeContextPreviewError(value: unknown): string {
+  const source = objectValue(value);
+  const code = typeof source.code === "string" ? source.code : "";
+  if (code === "not_found") return "対象が見つからないか、AI公開範囲に含まれていません。元Entityのvisibilityを確認してください。";
+  if (code === "unsupported_schema") return "保存形式を解釈できません。Taskenを更新してからもう一度お試しください。";
+  return "Context Previewを作成できませんでした。元Entityの公開範囲を確認して、もう一度お試しください。";
 }
 
 function sameStableLinkAssertion(existing: Record<string, unknown> | undefined, desired: Record<string, unknown>): boolean {
@@ -448,6 +467,7 @@ export class WorkspaceService {
   private readonly canonicalRecoveryPath: string;
   private readonly canonicalRecoveryWarningPath: string;
   private readonly themeAiPackRecoveryDirectory: string;
+  private readonly dataHealthEvaluator = new DataHealthEvaluator();
 
   constructor(
     private readonly repository: WorkspaceRepository,
@@ -514,6 +534,179 @@ export class WorkspaceService {
         sourceRevision,
       }),
     };
+  }
+
+  getAiContextPreview(requestValue: unknown): AiContextPreviewResult {
+    const request = objectValue(requestValue) as Partial<AiContextPreviewRequest>;
+    const scopeValue = objectValue(request.scope);
+    const scopeType = scopeValue.type === "theme" || scopeValue.type === "task" ? scopeValue.type : null;
+    const scopeId = typeof scopeValue.id === "string" ? scopeValue.id.trim() : "";
+    const audience = request.audience === "m365" || request.audience === "coding_agent" ? request.audience : null;
+    if (!scopeType || !scopeId || !audience) {
+      throw new Error("Context Previewの対象またはAudienceが不正です。画面を開き直してください。");
+    }
+    const requestedScope = { type: scopeType, id: scopeId } as const;
+    try {
+      if (audience === "m365") {
+        let themeId = scopeId;
+        if (scopeType === "task") {
+          const task = this.repository.get("task", scopeId);
+          themeId = typeof task?.project_id === "string" && task.project_id.trim()
+            ? task.project_id.trim()
+            : typeof task?.theme_id === "string" ? task.theme_id.trim() : "";
+          if (!task || task.deleted_at || !themeId) {
+            return {
+              state: "error",
+              requestedScope,
+              effectiveScope: requestedScope,
+              producer: "theme_ai_pack",
+              preview: null,
+              includedInEffectiveScope: false,
+              error: "Taskまたは所属Themeが見つかりません。TaskのThemeを確認してください。",
+            };
+          }
+        }
+        const { plan } = this.buildThemeAiPack(themeId);
+        const preview = previewThemeM365(plan);
+        const included = scopeType === "theme" || preview.untypedIncludedIds.includes(scopeId);
+        return {
+          state: preview.counts.included || preview.files.length ? "ready" : "empty",
+          requestedScope,
+          effectiveScope: { type: "theme", id: themeId },
+          producer: "theme_ai_pack",
+          preview,
+          includedInEffectiveScope: included,
+        };
+      }
+      const workspace = this.repository.loadWorkspace(false);
+      const context = new ReadOnlyTaskenContext("workspace-memory", {
+        workspace,
+        audience: "coding_agent",
+        aiVisibilityDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
+      });
+      try {
+        const response = scopeType === "task"
+          ? context.toolGetTaskContext({ task_id: scopeId })
+          : context.toolGetThemeContext({ theme_id: scopeId });
+        const responseRecord = response as Record<string, unknown>;
+        if (responseRecord.error) {
+          return {
+            state: "error",
+            requestedScope,
+            effectiveScope: requestedScope,
+            producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+            preview: null,
+            includedInEffectiveScope: false,
+            error: safeContextPreviewError(responseRecord.error),
+          };
+        }
+        const preview = scopeType === "task" ? previewTaskCoding(response) : previewThemeCoding(response);
+        return {
+          state: preview.counts.included ? "ready" : "empty",
+          requestedScope,
+          effectiveScope: requestedScope,
+          producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+          preview,
+          includedInEffectiveScope: preview.included.some((entry) => entry.ref.id === scopeId),
+        };
+      } finally {
+        context.close();
+      }
+    } catch (error) {
+      return {
+        state: "error",
+        requestedScope,
+        effectiveScope: requestedScope,
+        producer: audience === "m365" ? "theme_ai_pack" : scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+        preview: null,
+        includedInEffectiveScope: null,
+        error: safeContextPreviewError(error),
+      };
+    }
+  }
+
+  getDataHealth(queryValue: unknown = {}): DataHealthQueryResult {
+    try {
+      return this.evaluateDataHealth(queryValue);
+    } catch {
+      throw new Error("Data Healthを確認できませんでした。画面を再読み込みして、もう一度お試しください。");
+    }
+  }
+
+  private evaluateDataHealth(queryValue: unknown = {}): DataHealthQueryResult {
+    const query = objectValue(queryValue) as DataHealthQuery;
+    const workspace = this.repository.loadWorkspace(false) as Workspace;
+    const state = normalizeDataHealthState(this.repository.getDataHealthState());
+    const themes = [
+      ...((workspace.projects || []) as Array<Record<string, unknown>>),
+      ...((workspace.themes || []) as Array<Record<string, unknown>>),
+    ].filter((theme) => !theme.deleted_at && typeof theme.id === "string");
+    const seenThemeIds = new Set<string>();
+    const themeAiPackStatuses = themes.flatMap((theme) => {
+      const themeId = String(theme.id);
+      if (seenThemeIds.has(themeId)) return [];
+      seenThemeIds.add(themeId);
+      try {
+        const status = this.getThemeAiPackStatus(themeId);
+        return [{ themeId, state: status.state }];
+      } catch {
+        return [{ themeId, state: "failed_retryable" }];
+      }
+    });
+    const evaluated = this.dataHealthEvaluator.evaluate(workspace, {
+      state,
+      generatedAt: this.now(),
+      themeAiPackStatuses,
+    });
+    const stateFilter = query.state && query.state !== "all" ? query.state : "open";
+    const issues = evaluated.issues.filter((entry) => (
+      (!query.themeId || entry.themeId === query.themeId)
+      && (!query.entityType || entry.ref.type === query.entityType)
+      && (!query.severity || entry.severity === query.severity)
+      && (!stateFilter || entry.state === stateFilter)
+    ));
+    return { ...evaluated, issues, totalIssueCount: evaluated.issues.length };
+  }
+
+  setDataHealthIssueState(requestValue: unknown): DataHealthQueryResult {
+    const request = objectValue(requestValue) as Partial<DataHealthStateUpdateRequest>;
+    const issueId = typeof request.issueId === "string" ? request.issueId.trim() : "";
+    const nextState = request.state;
+    if (!issueId || !["open", "ignored", "resolved"].includes(String(nextState))) {
+      throw new Error("Data Healthの状態変更が不正です。画面を開き直してください。");
+    }
+    let current;
+    try {
+      current = normalizeDataHealthState(this.repository.getDataHealthState());
+    } catch {
+      throw new Error("Data Healthの状態を読み込めませんでした。画面を再読み込みしてください。");
+    }
+    if (request.expectedRevision !== current.revision) {
+      throw new Error("Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。");
+    }
+    const currentResult = this.getDataHealth({ state: "all" });
+    if (!currentResult.issues.some((entry) => entry.id === issueId)) {
+      throw new Error("Data Health issueは解消済みです。再読み込みしてください。");
+    }
+    const issues = { ...current.issues };
+    if (nextState === "open") delete issues[issueId];
+    else {
+      issues[issueId] = {
+        state: nextState as "ignored" | "resolved",
+        updatedAt: this.now(),
+        note: typeof request.note === "string" ? request.note.trim().slice(0, 500) : "",
+      };
+    }
+    try {
+      this.repository.setDataHealthState(current.revision, {
+        schema: "tasken-data-health-state/v1",
+        updatedAt: this.now(),
+        issues,
+      });
+    } catch {
+      throw new Error("Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。");
+    }
+    return this.getDataHealth({ state: "all" });
   }
 
   private resolveThemeAiPack(theme: Record<string, unknown>) {
