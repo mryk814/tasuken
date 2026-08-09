@@ -232,6 +232,8 @@ export interface Artifact extends BaseRecord {
   exported_at?: string | null;
   media_kind?: "audio" | "video" | null;
   duration_ms?: number | null;
+  width_px?: number | null;
+  height_px?: number | null;
   container?: string | null;
   codec?: string | null;
   content_hash?: string | null;

@@ -21,6 +21,55 @@ export interface AudioCapturePrepared {
   canDiscard: boolean;
 }
 
+export const VIDEO_ARTIFACT_SOURCE_TYPES = ["task", "note", "report", "capture_entry"] as const;
+export type VideoArtifactSourceType = (typeof VIDEO_ARTIFACT_SOURCE_TYPES)[number];
+export type VideoStorageMode = "managed" | "linked";
+
+export interface VideoImportPrepareRequest {
+  storageMode: VideoStorageMode;
+  sourceType: VideoArtifactSourceType;
+  sourceId: string;
+}
+
+export interface VideoImportPrepared extends AudioCapturePrepared {
+  /** manifest_invalid診断ではowner/storageを推測せず省略する。 */
+  storageMode?: VideoStorageMode;
+  sourceType?: VideoArtifactSourceType;
+  sourceId?: string;
+  durationMs?: number;
+  widthPx?: number;
+  heightPx?: number;
+}
+
+export type VideoImportPrepareResult =
+  | { canceled: true }
+  | ({ canceled: false } & VideoImportPrepared);
+
+export interface VideoImportCommitRequest {
+  sessionId: string;
+  durationMs: number;
+  widthPx: number;
+  heightPx: number;
+}
+
+export interface VideoImportCommitResult {
+  status: "applied" | "no_change";
+  commandId: string;
+  artifactId: string;
+  sourceType: VideoArtifactSourceType;
+  sourceId: string;
+}
+
+export interface MediaArtifactOpenRequest {
+  artifactId: string;
+}
+
+export interface MediaArtifactInspection {
+  availability: MediaAvailability;
+  mimeType?: string;
+  fileSize?: number;
+}
+
 export type AudioCapturePrepareResult =
   | { canceled: true }
   | ({ canceled: false } & AudioCapturePrepared);
@@ -61,6 +110,20 @@ function requireSessionId(value: unknown): string {
   return value;
 }
 
+function requireUuid(value: unknown, label: string): string {
+  if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
+    throw new Error(`${label}が不正です。画面を再読み込みしてください。`);
+  }
+  return value;
+}
+
+function requireSourceId(value: unknown): string {
+  if (typeof value !== "string" || !value || value !== value.trim() || value.length > 200) {
+    throw new Error("動画Importの添付先IDが不正です。画面を再読み込みしてください。");
+  }
+  return value;
+}
+
 export function parseAudioCapturePrepareRequest(value: unknown): AudioCapturePrepareRequest {
   const input = requireExactObject(value, ["themeId"], "音声Capture prepare");
   if (input.themeId === undefined || input.themeId === null || input.themeId === "") return {};
@@ -93,8 +156,50 @@ export function parseAudioCaptureCancelRequest(value: unknown): AudioCaptureCanc
   return { sessionId: requireSessionId(input.sessionId) };
 }
 
+export function parseVideoImportPrepareRequest(value: unknown): VideoImportPrepareRequest {
+  const input = requireExactObject(value, ["storageMode", "sourceType", "sourceId"], "動画Import prepare");
+  if (input.storageMode !== "managed" && input.storageMode !== "linked") {
+    throw new Error("動画Importのstorage modeが不正です。");
+  }
+  if (typeof input.sourceType !== "string" || !VIDEO_ARTIFACT_SOURCE_TYPES.includes(input.sourceType as VideoArtifactSourceType)) {
+    throw new Error("動画Importの添付先種別が不正です。");
+  }
+  return {
+    storageMode: input.storageMode,
+    sourceType: input.sourceType as VideoArtifactSourceType,
+    sourceId: requireSourceId(input.sourceId),
+  };
+}
+
+export function parseVideoImportCommitRequest(value: unknown): VideoImportCommitRequest {
+  const input = requireExactObject(value, ["sessionId", "durationMs", "widthPx", "heightPx"], "動画Import commit");
+  for (const field of ["durationMs", "widthPx", "heightPx"] as const) {
+    const maximum = field === "durationMs" ? 7 * 24 * 60 * 60 * 1000 : 16_384;
+    if (!Number.isSafeInteger(input[field]) || Number(input[field]) < 0 || Number(input[field]) > maximum || (field !== "durationMs" && Number(input[field]) === 0)) {
+      throw new Error(`動画Importの${field}が不正です。動画を読み直してください。`);
+    }
+  }
+  return {
+    sessionId: requireSessionId(input.sessionId),
+    durationMs: Number(input.durationMs),
+    widthPx: Number(input.widthPx),
+    heightPx: Number(input.heightPx),
+  };
+}
+
+export function parseMediaArtifactOpenRequest(value: unknown): MediaArtifactOpenRequest {
+  const input = requireExactObject(value, ["artifactId"], "Media外部open");
+  return { artifactId: requireUuid(input.artifactId, "Media Artifact ID") };
+}
+
 /** Main内部だけで扱う。Rendererへは返さない。 */
 export interface InternalAudioCaptureCommitResult {
   publicResult: AudioCaptureCommitResult;
+  receipt: CommandReceipt;
+}
+
+/** Main内部だけで扱う。Rendererへは返さない。 */
+export interface InternalVideoImportCommitResult {
+  publicResult: VideoImportCommitResult;
   receipt: CommandReceipt;
 }

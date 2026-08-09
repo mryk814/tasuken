@@ -40,8 +40,13 @@ const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^
 const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
 const smokeResultPath = path.resolve(smokeResultArgument?.slice("--smoke-result-path=".length) || path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`));
 const isSmokeRestartCheck = process.argv.includes("--smoke-restart-check");
+const isPackagedSmokeRequired = process.argv.includes("--smoke-require-packaged");
 const smokeMediaArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-media-artifact-id="));
 const smokeMediaArtifactId = smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
+const smokeVideoArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-artifact-id="));
+const smokeVideoArtifactId = smokeVideoArtifactArgument?.slice("--smoke-video-artifact-id=".length) || "";
+const smokeVideoOwnerArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-owner-id="));
+const smokeVideoOwnerId = smokeVideoOwnerArgument?.slice("--smoke-video-owner-id=".length) || "";
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
@@ -55,6 +60,8 @@ let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let mcpProposalInboxService: McpProposalInboxService | null = null;
+let smokeMediaCaptureService: MediaCaptureService | null = null;
+let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
 const smokeTrace: string[] = [];
 const readyMainWindows = new WeakSet<BrowserWindow>();
@@ -322,6 +329,13 @@ interface SmokeCreatedResult {
   audioArtifactId?: string;
   audioMetadataLoaded?: boolean;
   audioRangeVerified?: boolean;
+  videoArtifactId?: string;
+  videoMetadataLoaded?: boolean;
+  videoCanPlay?: boolean;
+  videoSeeked?: boolean;
+  videoVolumePreserved?: boolean;
+  videoRangeVerified?: boolean;
+  appIsPackaged?: boolean;
 }
 
 interface SmokeReloadResult {
@@ -365,6 +379,11 @@ function tinyPcmWav(): Buffer {
   return bytes;
 }
 
+function tinyVp8Webm(): Buffer {
+  // 16x16 / 0.52sの無音VP8。smoke専用fixtureで、production IPCへraw bytes/pathは公開しない。
+  return Buffer.from("GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAJmEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggJQ7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNTkuMjcuMTAwV0GNTGF2ZjU5LjI3LjEwMESJiECCwAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYiPMq35J8Igz5yBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhAX14QDgibCBELqBEJqBAhJUw2f9c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY1OS4yNy4xMDBzc9djwItjxYiPMq35J8Igz2fIoUWjh0VOQ09ERVJEh5RMYXZjNTkuMzcuMTAwIGxpYnZweGfIokWjiERVUkFUSU9ORIeUMDA6MDA6MDAuNjAwMDAwMDAwAAAfQ7Z1QKrngQCjo4EAAIAQAgCdASoQABAAAEcIhYWImYSIAgIADA1gAP7/q1CAo5iBAGQAsQEABRCsABgAMD/0DAAAAP72uQCjmIEAyACxAQAFEKwAGAAwP/QMAAAA/va5AKOYgQEsALEBAAUQrAAYADA/9AwAAAD+9rkAo5iBAZAAsQEABRCsABgAMD/0DAAAAP72uQCjmIEB9ACxAQAFEKwAGAAwP/QMAAAA/va5ABxTu2uRu4+zgQC3iveBAfGCAaDwgQM=", "base64");
+}
+
 async function verifySmokeMediaRange(artifactId: string): Promise<boolean> {
   const response = await net.fetch(`tasken-media://artifact/${encodeURIComponent(artifactId)}`, {
     headers: { Range: "bytes=0-43" },
@@ -375,6 +394,17 @@ async function verifySmokeMediaRange(artifactId: string): Promise<boolean> {
     && bytes.length === 44
     && bytes.subarray(0, 4).toString("ascii") === "RIFF"
     && bytes.subarray(8, 12).toString("ascii") === "WAVE";
+}
+
+async function verifySmokeVideoRange(artifactId: string): Promise<boolean> {
+  const response = await net.fetch(`tasken-media://artifact/${encodeURIComponent(artifactId)}`, {
+    headers: { Range: "bytes=0-31" },
+  });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return response.status === 206
+    && response.headers.get("content-range")?.startsWith("bytes 0-31/") === true
+    && bytes.length === 32
+    && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
 }
 
 app.disableHardwareAcceleration();
@@ -903,6 +933,80 @@ flowchart LR
     })()
   `) as SmokeCreatedResult;
 
+  if (!smokeMediaCaptureService || !smokeVideoSourcePath) throw new Error("smoke video Main fixture is unavailable");
+  smokeMediaCaptureService.prepareVideoFile(smokeVideoSourcePath, {
+    storageMode: "managed",
+    sourceType: "task",
+    sourceId: smokeTaskId,
+  });
+
+  const videoSmoke = await window.webContents.executeJavaScript(`
+    (async () => {
+      const pending = await window.api.mediaCapture.listPreparedVideo();
+      if (pending.length !== 1 || pending[0].status !== "ready") throw new Error("prepared video session was not listed");
+      const prepared = pending[0];
+      const readMetadata = (src) => new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        const timer = setTimeout(() => reject(new Error("video metadata timeout")), 15000);
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+          clearTimeout(timer);
+          resolve({ durationMs: Math.round(video.duration * 1000), widthPx: video.videoWidth, heightPx: video.videoHeight });
+        };
+        video.onerror = () => { clearTimeout(timer); reject(new Error("video metadata failed")); };
+        video.src = src;
+      });
+      const metadata = await readMetadata(prepared.mediaUrl);
+      const committed = await window.api.mediaCapture.commitVideo({ sessionId: prepared.sessionId, ...metadata });
+      const artifact = await window.api.entities.get("artifact", committed.artifactId);
+      if (!artifact || artifact.media_kind !== "video" || artifact.mime_type !== "video/webm"
+        || artifact.duration_ms !== metadata.durationMs || artifact.width_px !== metadata.widthPx || artifact.height_px !== metadata.heightPx) {
+        throw new Error("committed video Artifact metadata mismatch");
+      }
+      if (JSON.stringify(artifact).match(/stored_path|original_path|target|sourcePath/)) throw new Error("video Artifact leaked a path to Renderer");
+      const playback = await new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        const timer = setTimeout(() => reject(new Error("video canplay/seek timeout")), 15000);
+        let canPlay = false;
+        let seekRequested = false;
+        const fail = () => { clearTimeout(timer); reject(new Error("video playback failed")); };
+        video.muted = true;
+        video.volume = 0.25;
+        video.preload = "auto";
+        video.oncanplay = async () => {
+          if (seekRequested) return;
+          seekRequested = true;
+          try {
+            await video.play();
+            canPlay = !video.paused;
+            video.pause();
+            video.currentTime = Math.min(0.25, video.duration / 2);
+          } catch (error) { fail(); }
+        };
+        video.onseeked = () => {
+          clearTimeout(timer);
+          resolve({ canPlay, seeked: video.currentTime > 0, volumePreserved: Math.abs(video.volume - 0.25) < 0.001 });
+        };
+        video.onerror = fail;
+        video.src = "tasken-media://artifact/" + encodeURIComponent(artifact.id);
+      });
+      return {
+        artifactId: committed.artifactId,
+        metadataLoaded: metadata.durationMs >= 550 && metadata.durationMs <= 650 && metadata.widthPx === 16 && metadata.heightPx === 16,
+        canPlay: playback.canPlay,
+        seeked: playback.seeked,
+        volumePreserved: playback.volumePreserved,
+      };
+    })()
+  `) as { artifactId: string; metadataLoaded: boolean; canPlay: boolean; seeked: boolean; volumePreserved: boolean };
+  created.videoArtifactId = videoSmoke.artifactId;
+  created.videoMetadataLoaded = videoSmoke.metadataLoaded;
+  created.videoCanPlay = videoSmoke.canPlay;
+  created.videoSeeked = videoSmoke.seeked;
+  created.videoVolumePreserved = videoSmoke.volumePreserved;
+  created.videoRangeVerified = await verifySmokeVideoRange(videoSmoke.artifactId);
+  created.appIsPackaged = app.isPackaged;
+
   const audioSmoke = await window.webContents.executeJavaScript(`
     (async () => {
       const pending = await window.api.mediaCapture.listPreparedAudio();
@@ -1239,6 +1343,12 @@ flowchart LR
         && result.settingsReloadRestored
         && result.audioMetadataLoaded
         && result.audioRangeVerified
+        && result.videoMetadataLoaded
+        && result.videoCanPlay
+        && result.videoSeeked
+        && result.videoVolumePreserved
+        && result.videoRangeVerified
+        && (!isPackagedSmokeRequired || result.appIsPackaged)
       );
       recordSmoke(passed ? "restart-ready" : "failed", result);
       app.exit(passed ? 0 : 1);
@@ -1253,9 +1363,10 @@ flowchart LR
 }
 
 async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
-  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId });
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(smokeMediaArtifactId)) {
-    throw new Error("restart audio Artifact ID is invalid");
+  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId, videoArtifactId: smokeVideoArtifactId, smokeTaskId: smokeVideoOwnerId, appIsPackaged: app.isPackaged });
+  const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!idPattern.test(smokeMediaArtifactId) || !idPattern.test(smokeVideoArtifactId) || !idPattern.test(smokeVideoOwnerId)) {
+    throw new Error("restart Media Artifact IDs are invalid");
   }
   const renderer = await window.webContents.executeJavaScript(`
     (async () => {
@@ -1276,12 +1387,53 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
         audio.onerror = () => { clearTimeout(timer); reject(new Error("restart audio playback failed")); };
         audio.src = "tasken-media://artifact/" + encodeURIComponent(artifact.id);
       });
-      return { artifactId: artifact.id, playable };
+      const videoArtifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeVideoArtifactId)});
+      if (!videoArtifact || videoArtifact.media_kind !== "video" || videoArtifact.mime_type !== "video/webm") throw new Error("restarted video Artifact missing");
+      if (JSON.stringify(videoArtifact).match(/stored_path|original_path|target|sourcePath/)) throw new Error("restarted video Artifact leaked path");
+      const videoOwner = await window.api.entities.get("task", ${JSON.stringify(smokeVideoOwnerId)});
+      if (videoArtifact.source_type !== "task" || videoArtifact.source_id !== ${JSON.stringify(smokeVideoOwnerId)}
+        || !videoOwner || videoOwner.id !== videoArtifact.source_id) throw new Error("restarted video owner backlink mismatch");
+      const videoPlayback = await new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        const timer = setTimeout(() => reject(new Error("restart video playback timeout")), 15000);
+        let canPlay = false;
+        let seekRequested = false;
+        video.muted = true;
+        video.preload = "auto";
+        video.oncanplay = async () => {
+          if (seekRequested) return;
+          seekRequested = true;
+          try {
+            await video.play();
+            canPlay = !video.paused;
+            video.pause();
+            video.currentTime = Math.min(0.25, video.duration / 2);
+          } catch (error) { clearTimeout(timer); reject(error); }
+        };
+        video.onseeked = () => { clearTimeout(timer); resolve({ canPlay, seeked: video.currentTime > 0, metadata: video.videoWidth === 16 && video.videoHeight === 16 }); };
+        video.onerror = () => { clearTimeout(timer); reject(new Error("restart video playback failed")); };
+        video.src = "tasken-media://artifact/" + encodeURIComponent(videoArtifact.id);
+      });
+      return { artifactId: artifact.id, playable, videoArtifactId: videoArtifact.id, videoOwnerLinked: true, ...videoPlayback };
     })()
-  `) as { artifactId: string; playable: boolean };
+  `) as { artifactId: string; playable: boolean; videoArtifactId: string; videoOwnerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean };
   const rangeVerified = await verifySmokeMediaRange(renderer.artifactId);
-  const passed = renderer.playable && rangeVerified;
-  recordSmoke(passed ? "passed" : "failed", { audioArtifactId: renderer.artifactId, playable: renderer.playable, rangeVerified });
+  const videoRangeVerified = await verifySmokeVideoRange(renderer.videoArtifactId);
+  const passed = renderer.playable && rangeVerified && renderer.canPlay && renderer.seeked && renderer.metadata && renderer.videoOwnerLinked && videoRangeVerified
+    && (!isPackagedSmokeRequired || app.isPackaged);
+  recordSmoke(passed ? "passed" : "failed", {
+    audioArtifactId: renderer.artifactId,
+    playable: renderer.playable,
+    rangeVerified,
+    videoArtifactId: renderer.videoArtifactId,
+    videoCanPlay: renderer.canPlay,
+    videoSeeked: renderer.seeked,
+    videoMetadataLoaded: renderer.metadata,
+    videoRangeVerified,
+    videoOwnerLinked: renderer.videoOwnerLinked,
+    smokeTaskId: smokeVideoOwnerId,
+    appIsPackaged: app.isPackaged,
+  });
   app.exit(passed ? 0 : 1);
 }
 
@@ -1424,6 +1576,8 @@ async function startDesktopApp(): Promise<void> {
     workspaceRepository.setPreference("artifactDirectory", managedDirectory);
     smokeAudioSourcePath = path.join(app.getPath("userData"), "smoke-audio.wav");
     fs.writeFileSync(smokeAudioSourcePath, tinyPcmWav(), { flag: "wx" });
+    smokeVideoSourcePath = path.join(app.getPath("userData"), "smoke-video.webm");
+    fs.writeFileSync(smokeVideoSourcePath, tinyVp8Webm(), { flag: "wx" });
   }
   const applicationCommands = new ApplicationCommandService(workspaceRepository);
   const workspaceService = new WorkspaceService(workspaceRepository, app.getPath("userData"));
@@ -1432,7 +1586,9 @@ async function startDesktopApp(): Promise<void> {
     repository: workspaceRepository,
     commands: applicationCommands,
     resolveManagedDirectory: (themeId) => workspaceService.resolveManagedArtifactDirectory(themeId),
+    openPath: (filePath) => shell.openPath(filePath),
   });
+  smokeMediaCaptureService = isSmokeTest ? mediaCapture : null;
   const mediaRecovery = mediaCapture.recoverPending();
   if (mediaRecovery.recovered || mediaRecovery.pending) {
     console.info(`Media Capture recovery: recovered=${mediaRecovery.recovered}, pending=${mediaRecovery.pending}`);

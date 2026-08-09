@@ -16,7 +16,7 @@ const result = await build({
 });
 const boundary = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 
-test("generic artifact save and link reject audio inferred from extension or MIME", () => {
+test("generic artifact save and link reject audio/video inferred from extension or MIME", () => {
   const repository = { get: () => null };
   for (const entity of [
     { id: "new", filename: "voice.wav" },
@@ -26,7 +26,7 @@ test("generic artifact save and link reject audio inferred from extension or MIM
   ]) {
     assert.throws(() => boundary.normalizeMediaCapturePersistence(repository, "artifact", entity), /Inboxの音声取り込み/);
   }
-  assert.doesNotThrow(() => boundary.normalizeMediaCapturePersistence(repository, "artifact", { id: "ambiguous", filename: "clip.mp4" }));
+  assert.throws(() => boundary.normalizeMediaCapturePersistence(repository, "artifact", { id: "video", filename: "clip.mp4" }), /専用の動画取り込み/);
 });
 
 test("existing and deleted media identities are carried forward by entitySave/saveMany normalization", () => {
@@ -44,20 +44,21 @@ test("existing and deleted media identities are carried forward by entitySave/sa
   assert.equal(normalized.source_id, current.source_id);
 });
 
-test("generic import, proposal, direct save and batch are all wired to the audio rejection boundary", () => {
+test("generic import, proposal, direct save and batch are wired to Media rejection boundaries", () => {
   const workspace = readFileSync("src/main/services/workspaceService.ts", "utf8");
   const ipc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
   const commands = readFileSync("src/main/services/applicationCommandService.ts", "utf8");
-  assert.match(workspace, /request\.files\) rejectGenericAudioArtifact\(\{ filename: file\.name \|\| file\.path \}, "取り込み"\)/);
-  assert.match(workspace, /rejectGenericAudioArtifact\(\{ filename: normalized\.fileName, mime_type: normalized\.mediaType \}, "Proposal確定"\)/);
+  assert.match(workspace, /request\.files\)[\s\S]{0,220}rejectGenericAudioArtifact\(\{ filename: file\.name \|\| file\.path \}, "取り込み"\);[\s\S]{0,120}rejectGenericVideoArtifact\(\{ filename: file\.name \|\| file\.path \}, "取り込み"\)/);
+  assert.match(workspace, /rejectGenericAudioArtifact\(\{ filename: normalized\.fileName, mime_type: normalized\.mediaType \}, "Proposal確定"\);[\s\S]{0,120}rejectGenericVideoArtifact\(\{ filename: normalized\.fileName, mime_type: normalized\.mediaType \}, "Proposal確定"\)/);
+  assert.match(workspace, /chooseFiles[\s\S]{0,650}rejectGenericAudioArtifact\(\{ filename: filePath \}, "選択"\);[\s\S]{0,120}rejectGenericVideoArtifact\(\{ filename: filePath \}, "選択"\)/);
   assert.match(ipc, /normalizeMediaCapturePersistence\(repository, entityType, entity\)/);
   assert.match(ipc, /normalizeMediaCapturePersistence\(repository, type, value\.entity, "一括保存"\)/);
-  assert.match(commands, /if \(type === "artifact"\) rejectGenericAudioArtifact\(candidateEntity, "AI Proposal採用"\)/);
+  assert.match(commands, /if \(type === "artifact"\) \{[\s\S]{0,180}rejectGenericAudioArtifact\(candidateEntity, "AI Proposal採用"\);[\s\S]{0,180}rejectGenericVideoArtifact\(candidateEntity, "AI Proposal採用"\);/);
 });
 
 test("bootstrap, remove and restore Renderer returns use media-safe projection", () => {
   const ipc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
-  assert.match(ipc, /workspaceBootstrap[\s\S]{0,120}projectWorkspaceForRenderer\(repository\.bootstrap\(legacy\)\)/);
+  assert.match(ipc, /workspaceBootstrap[\s\S]{0,180}assertRendererBootstrapContainsNoMedia\(legacy\);[\s\S]{0,120}projectWorkspaceForRenderer\(repository\.bootstrap\(legacy\)\)/);
   assert.match(ipc, /entityRemove[\s\S]{0,500}projectEntityForRenderer\(entityType, removed/);
   assert.match(ipc, /entityRestore[\s\S]{0,500}projectEntityForRenderer\(entityType, restored/);
 });

@@ -21,14 +21,19 @@ export function buildElectronSmokeArgs(paths, options = {}) {
   const args = [
     "--disable-gpu",
     "--disable-gpu-compositing",
-    ".",
+    ...(options.packaged ? ["--smoke-require-packaged"] : ["."]),
     "--smoke-test",
     `--smoke-run-id=${paths.runId}`,
     `--user-data-dir=${paths.userDataDir}`,
     `--smoke-result-path=${paths.resultPath}`,
   ];
-  if (options.restartArtifactId) {
-    args.push("--smoke-restart-check", `--smoke-media-artifact-id=${options.restartArtifactId}`);
+  if (options.restartArtifactId && options.restartVideoArtifactId && options.restartVideoOwnerId) {
+    args.push(
+      "--smoke-restart-check",
+      `--smoke-media-artifact-id=${options.restartArtifactId}`,
+      `--smoke-video-artifact-id=${options.restartVideoArtifactId}`,
+      `--smoke-video-owner-id=${options.restartVideoOwnerId}`,
+    );
   }
   return args;
 }
@@ -37,6 +42,17 @@ export function restartArtifactIdFromResult(value) {
   const id = value?.stage === "restart-ready" ? value?.audioArtifactId : "";
   if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return null;
   return id;
+}
+
+export function restartArtifactIdsFromResult(value) {
+  const audioArtifactId = restartArtifactIdFromResult(value);
+  const videoArtifactId = value?.stage === "restart-ready" ? value?.videoArtifactId : "";
+  const videoOwnerId = value?.stage === "restart-ready" ? value?.smokeTaskId : "";
+  if (!audioArtifactId
+    || typeof videoArtifactId !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(videoArtifactId)
+    || typeof videoOwnerId !== "string" || !videoOwnerId.trim()) return null;
+  return { audioArtifactId, videoArtifactId, videoOwnerId };
 }
 
 function electronExecutable(cwd = process.cwd()) {
@@ -51,11 +67,12 @@ function electronExecutable(cwd = process.cwd()) {
   }
 }
 
-export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir() } = {}) {
+export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), executablePath = "", packaged = false } = {}) {
   const paths = createSmokePaths(tempRoot);
   mkdirSync(paths.userDataDir, { recursive: true });
   console.log(JSON.stringify({ smokeRunId: paths.runId, userDataDir: paths.userDataDir, resultPath: paths.resultPath }));
-  const child = spawn(electronExecutable(cwd), buildElectronSmokeArgs(paths), {
+  const executable = executablePath ? path.resolve(executablePath) : electronExecutable(cwd);
+  const child = spawn(executable, buildElectronSmokeArgs(paths, { packaged }), {
     cwd,
     env: process.env,
     stdio: "inherit",
@@ -66,18 +83,23 @@ export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir() }
     process.exitCode = 1;
   });
   child.on("exit", (code, signal) => {
-    let restartArtifactId = null;
+    let restartArtifactIds = null;
     try {
-      if (existsSync(paths.resultPath)) restartArtifactId = restartArtifactIdFromResult(JSON.parse(readFileSync(paths.resultPath, "utf8")));
+      if (existsSync(paths.resultPath)) restartArtifactIds = restartArtifactIdsFromResult(JSON.parse(readFileSync(paths.resultPath, "utf8")));
     } catch (error) {
       console.error(`Electron smoke result is invalid: ${String(error)}`);
     }
-    if (code !== 0 || signal !== null || !restartArtifactId) {
+    if (code !== 0 || signal !== null || !restartArtifactIds) {
       console.error(`Electron smoke failed before restart check; preserving diagnostics at ${paths.runRoot}`);
       process.exitCode = 1;
       return;
     }
-    const restarted = spawn(electronExecutable(cwd), buildElectronSmokeArgs(paths, { restartArtifactId }), {
+    const restarted = spawn(executable, buildElectronSmokeArgs(paths, {
+      packaged,
+      restartArtifactId: restartArtifactIds.audioArtifactId,
+      restartVideoArtifactId: restartArtifactIds.videoArtifactId,
+      restartVideoOwnerId: restartArtifactIds.videoOwnerId,
+    }), {
       cwd, env: process.env, stdio: "inherit", windowsHide: true,
     });
     restarted.on("error", (error) => {

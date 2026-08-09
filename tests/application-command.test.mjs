@@ -537,6 +537,19 @@ test("ApplyAiProposal commits a typed multi-candidate set with proposal status a
   }, "proposal-bad-edge-command", [{ type: "ai_proposal", id: "proposal-bad-edge", version: 1 }])), /両端/);
 });
 
+test("ApplyAiProposal rejects a video Artifact candidate before any proposal or artifact write", () => {
+  const repo = repository();
+  repo.save("ai_proposal", { id: "proposal-video", source: "manual", payload_type: "items", status: "pending" });
+  const service = new ApplicationCommandService(repo);
+  assert.throws(() => service.execute(envelope("ApplyAiProposal", {
+    proposal: { ...repo.get("ai_proposal", "proposal-video"), status: "accepted" },
+    candidates: [{ type: "artifact", entity: { id: "ai-video", title: "bypass", filename: "bypass.mp4" } }],
+  }, "proposal-video-accept", [{ type: "ai_proposal", id: "proposal-video", version: 1 }])), /専用の動画取り込み/);
+  assert.equal(repo.get("artifact", "ai-video"), null);
+  assert.equal(repo.get("ai_proposal", "proposal-video").status, "pending");
+  assert.equal(repo.list("change_event").length, 0);
+});
+
 test("WorkspaceApp maps reachable mixed flows to named commands and preserves other Task paths", () => {
   const workspaceApp = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");

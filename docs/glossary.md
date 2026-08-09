@@ -27,6 +27,7 @@
 | Data Health | `KnowledgePage.tsx` / `dataHealth.mjs` | AI公開・Relation・Internal Link・Canonical Markdown・AI Packの不整合を理由と修正候補付きで検出する診断。無視/解決済みはMain-ownedのversioned stateへ保存し、内容やRelationを自動変更しない |
 | Conversation AI Context | `ContentViewer.tsx` / `ConversationContextPanel.tsx` | Conversation Viewerから利用者が明示的にOneDriveへ昇格するM365用Markdown projection。取り込み時はローカルのみ。`AI Context/Conversations`へstable pathで保存し、Theme AI Packは本文を複製せず参照だけを持つ。詳細は `docs/conversation-ai-context.md` |
 | Voice Capture | `InboxPage.tsx` / `ContentViewer.tsx` | Inboxの「音声を取り込む」で既存audio fileを原音のままmanaged保存する。保存前・復旧待ちは「保存待ち音声」、保存後はCaptureEntryのcompact metadataからContent Viewerで再生する。microphone録音・文字起こしは含まない。詳細は `docs/media-capture.md` |
+| Video Artifact | `ArtifactSection.tsx` / `ContentViewer.tsx` | Task / Note / Capture / 実行中Focusから既存動画をmanagedまたはlinkedで添付し、Artifact IDから再生する。選択後・確定前と復旧待ちは「保存待ち動画」。録画・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
 
 ## エンティティと状態
 
@@ -46,7 +47,7 @@
 | KnowledgeNode / KnowledgeEdge | ナレッジ、つながり | — |
 | Reference / ChatRef | チャットリンク、リンク | — |
 | Internal Link / Backlink | Entity本文からtyped `{type,id}`へ張る安定リンク / その逆参照。canonical表示は`[[type:id|alias]]`、正本は`links_to` Reference。旧`[[title]]`は移行候補の表示だけで自動接続しない | Entity詳細の共通「来歴・リンク」panel |
-| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme / CaptureEntry。`storage_mode`: `managed`（コピー）/ `linked`（URL・パス参照）。Voice Captureの原音は`media_kind=audio`、`content_hash`、`duration_ms`、`media_availability`を持ち、`source_type=capture_entry/source_id`がowner Relation投影の正本（Referenceへ重複保存しない）。Theme 保存ルート配下は `Artifacts/` / `Notes/`（Markdown既定）/ `Exports/`（PDF候補）。個人業務・Themeなしは`Inbox/`、通常ThemeはID markerでrename後も再発見する。方針正本は `docs/artifact-redesign.md` と `docs/media-capture.md` |
+| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme / CaptureEntry。`storage_mode`: `managed`（コピー）/ `linked`（URL・パス参照）。Voice Captureの原音は`media_kind=audio`、Video Artifactは`media_kind=video`とduration/dimensions/size/hash/availabilityを持つ。`source_type/source_id`がowner Relation投影の正本で、同じ関係をReferenceへ重複保存しない。実行中Focusのownerはfocus session Note。Theme 保存ルート配下は `Artifacts/` / `Notes/`（Markdown既定）/ `Exports/`（PDF候補）。個人業務・Themeなしは`Inbox/`、通常ThemeはID markerでrename後も再発見する。方針正本は `docs/artifact-redesign.md` と `docs/media-capture.md` |
 
 ## 頻出の UI 部品・機能語
 
@@ -61,6 +62,7 @@
 | 旧AI Draft | 既存`properties_json.draft_workspace`をNote AIの会話履歴として読み取る互換データ。独立した画面・保存経路は持たない |
 | Daily Scratchpad | 日付ごとに一枚だけ作る分類前の作業メモ。TodayまたはCommand Paletteから開き、通常Noteとして自動保存する。Activity Logへ全文を自動転記しない |
 | Focus Session | Taskを中心に関連Note / Artifact / Resource、作業中Scratchpad、経過時間を一面へ集める単一active session。終了時にTask状態・Note化・次Task・Activity要約を整理する |
+| 保存待ち動画 | 動画選択後、Artifact確定前のprepared sessionと復旧対象。metadataを確認して「添付する」か「破棄」を選ぶ。0件の通常詳細には説明panelを出さない |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
 | 期間内に一度 | 日付範囲の意味のひとつ（`range_semantics: once_within_window`）。「8/10〜8/15の間に住民票を取る」のように、期間内のどこかで一回やれば終わるTask。開始日は着手してよい日、終了日は遅くとも終える日。期間中は毎日「今日やること」へ出さず、Todayの「期間内に対応」から拾う |
 | 期間中継続 | 日付範囲のもうひとつの意味（`range_semantics: ongoing`）。「8月中は問い合わせ対応を続ける」のように、期間中ずっとactiveなTask。今日の実施記録（今日取り組んだ）とTask全体の完了（継続を終了）を分ける。終了日が来ただけでは自動完了せず、完了 / 期間を延長 / そのまま継続を選べる |

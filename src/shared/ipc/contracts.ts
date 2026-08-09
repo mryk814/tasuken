@@ -38,7 +38,7 @@ import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
-import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared } from "../mediaCapture";
+import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared } from "../mediaCapture";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -71,6 +71,12 @@ export const IPC = {
   audioCaptureListPrepared: "audio-capture:list-prepared",
   audioCaptureCommit: "audio-capture:commit",
   audioCaptureCancel: "audio-capture:cancel",
+  videoImportPrepare: "video-import:prepare",
+  videoImportListPrepared: "video-import:list-prepared",
+  videoImportCommit: "video-import:commit",
+  videoImportCancel: "video-import:cancel",
+  mediaArtifactOpenExternal: "media-artifact:open-external",
+  mediaArtifactInspect: "media-artifact:inspect",
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
@@ -537,6 +543,12 @@ export interface ResearchDeskApi {
     listPreparedAudio(): Promise<AudioCapturePrepared[]>;
     commitAudio(request: AudioCaptureCommitRequest): Promise<AudioCaptureCommitResult>;
     cancelAudio(request: AudioCaptureCancelRequest): Promise<boolean>;
+    prepareVideo(request: VideoImportPrepareRequest): Promise<VideoImportPrepareResult>;
+    listPreparedVideo(): Promise<VideoImportPrepared[]>;
+    commitVideo(request: VideoImportCommitRequest): Promise<VideoImportCommitResult>;
+    cancelVideo(request: AudioCaptureCancelRequest): Promise<boolean>;
+    openArtifactExternal(request: MediaArtifactOpenRequest): Promise<{ ok: boolean; error?: string }>;
+    inspectArtifact(request: MediaArtifactOpenRequest): Promise<MediaArtifactInspection>;
   };
   app: {
     reload(): Promise<boolean>;

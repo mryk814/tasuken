@@ -19,6 +19,30 @@ export function registerMediaScheme(): void {
 }
 
 type ByteRange = { start: number; end: number };
+const MEDIA_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function parseMediaRequestTarget(requestUrl: string): { scope: "session" | "artifact"; id: string } | null {
+  try {
+    if (requestUrl.includes("?") || requestUrl.includes("#")) return null;
+    const parsed = new URL(requestUrl);
+    if (
+      parsed.protocol !== `${MEDIA_PROTOCOL}:`
+      || (parsed.hostname !== "session" && parsed.hostname !== "artifact")
+      || parsed.username
+      || parsed.password
+      || parsed.search
+      || parsed.hash
+      || /%2f|%5c/i.test(parsed.pathname)
+    ) return null;
+    const match = parsed.pathname.match(/^\/([^/]+)$/);
+    if (!match) return null;
+    const id = decodeURIComponent(match[1]);
+    if (!MEDIA_ID_PATTERN.test(id)) return null;
+    return { scope: parsed.hostname, id };
+  } catch {
+    return null;
+  }
+}
 
 export function parseMediaRange(value: string | null, fileSize: number): ByteRange | null | "invalid" {
   if (!value) return null;
@@ -121,13 +145,11 @@ export function registerMediaProtocol(media: MediaCaptureService): void {
           headers: { allow: "GET, HEAD", "content-length": "0", "cache-control": "no-store" },
         });
       }
-      const parsed = new URL(request.url);
-      const id = decodeURIComponent(parsed.pathname.split("/").filter(Boolean)[0] || "");
-      const result = parsed.hostname === "session"
-        ? media.resolveSessionMedia(id)
-        : parsed.hostname === "artifact"
-          ? media.resolveArtifactMedia(id)
-          : { availability: "missing" as const };
+      const target = parseMediaRequestTarget(request.url);
+      if (!target) return new Response(null, { status: 404, headers: { "content-length": "0", "cache-control": "no-store" } });
+      const result = target.scope === "session"
+        ? media.resolveSessionMedia(target.id)
+        : media.resolveArtifactMedia(target.id);
       return mediaResponse(request, result);
     } catch {
       return new Response(null, { status: 404, headers: { "content-length": "0", "cache-control": "no-store" } });

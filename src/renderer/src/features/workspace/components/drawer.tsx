@@ -871,6 +871,13 @@ function EditDrawer({
         themeId: str(entity.theme_id) || null,
       };
     }
+    if (type === "capture_entry") {
+      return {
+        sourceType: "capture_entry" as const,
+        sourceId: entityId,
+        themeId: str(entity.project_id || entity.theme_id) || null,
+      };
+    }
     if (type === "resource" && isChatReferenceEntity(entity)) {
       return {
         sourceType: "chat_ref" as const,

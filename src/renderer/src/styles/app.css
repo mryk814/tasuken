@@ -3422,6 +3422,63 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   font-variant-numeric: tabular-nums;
 }
 
+.content-viewer-video {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 0;
+  place-items: center;
+}
+
+.content-viewer-video video {
+  display: block;
+  width: min(100%, 1120px);
+  max-height: calc(100vh - 190px);
+  background: #111;
+  border-radius: var(--radius-md);
+}
+
+.content-viewer-video-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.artifact-video-import-state {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.artifact-video-import-state .is-error {
+  color: var(--color-danger);
+}
+
+.artifact-video-recovery {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.artifact-video-recovery-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.artifact-video-recovery-row video {
+  grid-column: 1 / -1;
+  width: min(100%, 480px);
+  max-height: 240px;
+  background: #111;
+  border-radius: var(--radius-md);
+}
+
 .inbox-audio-recovery {
   display: grid;
   gap: var(--space-2);

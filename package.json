@@ -19,6 +19,7 @@
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
     "smoke:desktop": "npm run build && node scripts/run-electron-smoke.mjs",
     "smoke:desktop:focused": "node scripts/run-electron-smoke.mjs",
+    "smoke:desktop:packaged": "node scripts/run-packaged-electron-smoke.mjs",
     "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
     "audit:responsive": "node scripts/responsive-audit.mjs",
     "audit:materials-demo": "node scripts/audit-materials-demo.mjs",

@@ -87,7 +87,8 @@ import {
   recoverThemeAiPackOperations,
 } from "./themeAiPackPublisher.mjs";
 import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
-import { rejectGenericAudioArtifact } from "../mediaCapturePersistence";
+import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
+import { validateSnapshotMediaWorkspace } from "./snapshotMediaValidation";
 import {
   completeConversationContextOperation,
   inspectConversationContextFile,
@@ -2284,6 +2285,10 @@ export class WorkspaceService {
       properties: ["openFile", "multiSelections"],
     });
     if (result.canceled || !result.filePaths.length) return { canceled: true };
+    for (const filePath of result.filePaths) {
+      rejectGenericAudioArtifact({ filename: filePath }, "選択");
+      rejectGenericVideoArtifact({ filename: filePath }, "選択");
+    }
     return {
       canceled: false,
       files: result.filePaths.map((filePath) => ({
@@ -2406,7 +2411,10 @@ export class WorkspaceService {
 
   importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {
     const request = normalizeArtifactFileImportRequest(requestValue);
-    for (const file of request.files) rejectGenericAudioArtifact({ filename: file.name || file.path }, "取り込み");
+    for (const file of request.files) {
+      rejectGenericAudioArtifact({ filename: file.name || file.path }, "取り込み");
+      rejectGenericVideoArtifact({ filename: file.name || file.path }, "取り込み");
+    }
     const location = this.resolveThemeContentDirectory(request.themeId, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
     const directory = location.directory;
@@ -2461,6 +2469,7 @@ export class WorkspaceService {
       content: request.content,
     });
     rejectGenericAudioArtifact({ filename: normalized.fileName, mime_type: normalized.mediaType }, "Proposal確定");
+    rejectGenericVideoArtifact({ filename: normalized.fileName, mime_type: normalized.mediaType }, "Proposal確定");
     const location = this.resolveThemeContentDirectory(request.themeId || null, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
     fs.mkdirSync(location.directory, { recursive: true });
@@ -2582,6 +2591,7 @@ export class WorkspaceService {
       manifest: Record<string, unknown>;
       workspace: Workspace;
     };
+    this.validateSnapshotMedia(parsed.workspace);
     const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.pendingSnapshots.set(token, parsed.workspace);
     return {
@@ -2893,8 +2903,64 @@ export class WorkspaceService {
     if (!snapshot) {
       throw new Error("Importプレビューの有効期限が切れました。もう一度Snapshotを選択してください。");
     }
+    this.validateSnapshotMedia(snapshot);
     const result = this.repository.applySnapshot(snapshot, decisions, snapshot.plan_revisions || []);
     this.pendingSnapshots.delete(token);
     return result as Workspace;
+  }
+
+  private validateSnapshotMedia(snapshot: Workspace): void {
+    validateSnapshotMediaWorkspace(snapshot, {
+      repository: this.repository,
+      resolveManagedDirectory: (themeId, workspace) => this.resolveSnapshotManagedArtifactDirectory(themeId, workspace),
+    });
+  }
+
+  private resolveSnapshotManagedArtifactDirectory(
+    themeId: string | null,
+    snapshot: Workspace,
+  ): { kind: "needs_directory" } | { kind: "ok"; directory: string } {
+    if (!themeId || themeId === PERSONAL_DEFAULT_THEME_ID) {
+      return this.resolveThemeContentDirectory(themeId, "artifacts", { writeThemeManifest: false });
+    }
+    const currentTheme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+    if (currentTheme) return this.resolveManagedArtifactDirectory(themeId);
+    const incomingTheme = [
+      ...(Array.isArray(snapshot.projects) ? snapshot.projects : []),
+      ...(Array.isArray(snapshot.themes) ? snapshot.themes : []),
+    ].find((theme) => theme && theme.id === themeId && !theme.deleted_at);
+    if (!incomingTheme) return { kind: "needs_directory" };
+    const syncRoot = String(this.repository.getPreference("artifactDirectory") || "").trim();
+    const themeStorageRoot = typeof incomingTheme.storage_root === "string" ? incomingTheme.storage_root.trim() : "";
+    const root = themeStorageRoot || syncRoot;
+    if (!root) return { kind: "needs_directory" };
+    if (fs.existsSync(root)) {
+      const discovered = discoverThemeAiPackLocation({
+        syncRoot,
+        themeStorageRoot,
+        themeId,
+        themeCode: typeof incomingTheme.code === "string" ? incomingTheme.code : "",
+        displayName: String(incomingTheme.name || incomingTheme.title || ""),
+      });
+      return discovered.status === "ok"
+        ? { kind: "ok", directory: path.join(discovered.themeFolder, "Artifacts") }
+        : { kind: "needs_directory" };
+    }
+    const location = (resolveThemeContentDirectoryParts as (options: {
+      artifactDirectory?: string | null;
+      themeId?: string | null;
+      themeCode?: string | null;
+      themeStorageRoot?: string | null;
+      contentKind?: "artifacts" | "notes" | "exports";
+    }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] })({
+      artifactDirectory: syncRoot,
+      themeId,
+      themeCode: typeof incomingTheme.code === "string" ? incomingTheme.code : null,
+      themeStorageRoot,
+      contentKind: "artifacts",
+    });
+    return location.kind === "ok"
+      ? { kind: "ok", directory: path.join(location.root, ...location.segments) }
+      : { kind: "needs_directory" };
   }
 }

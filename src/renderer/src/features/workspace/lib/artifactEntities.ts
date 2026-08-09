@@ -154,14 +154,15 @@ export function resolveArtifactThemeId(options: {
       ? document.querySelector<HTMLFormElement>("aside.drawer form.drawer-form")
       : null);
   if (form) {
-    const fieldName = sourceType === "chat_ref" ? "project_id" : "theme_id";
-    const named = form.elements.namedItem(fieldName);
-    const field = named && !(named instanceof RadioNodeList) && "value" in named
-      ? named as { value: string }
-      : null;
-    if (field) {
-      const fromForm = String(field.value || "").trim();
-      return fromForm || null;
+    for (const fieldName of ["project_id", "theme_id"] as const) {
+      const named = form.elements.namedItem(fieldName);
+      const field = named && !(named instanceof RadioNodeList) && "value" in named
+        ? named as { value: string }
+        : null;
+      if (field) {
+        const fromForm = String(field.value || "").trim();
+        return fromForm || null;
+      }
     }
   }
   const fromProp = String(themeId || "").trim();

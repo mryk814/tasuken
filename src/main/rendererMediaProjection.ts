@@ -1,6 +1,10 @@
 import type { Entity, EntityType } from "../shared/types/workspace";
+import type { CommandReceipt } from "../shared/applicationCommand";
 
-const PRIVATE_MEDIA_PATH_FIELDS = ["stored_path", "target", "original_path", "file_path", "path"] as const;
+const PRIVATE_MEDIA_PATH_FIELDS = [
+  "stored_path", "target", "original_path", "file_path", "path",
+  "linked_source_real_path", "linked_source_device", "linked_source_inode",
+] as const;
 
 function mediaArtifact(value: unknown): value is Entity {
   return Boolean(value && typeof value === "object" && !Array.isArray(value)
@@ -44,6 +48,34 @@ export function projectEntityForRenderer(type: EntityType, entity: Entity): Enti
     };
   }
   return entity;
+}
+
+export function projectCommandReceiptForRenderer(receipt: CommandReceipt): CommandReceipt {
+  const projectChanges = (changes: CommandReceipt["changes"]): CommandReceipt["changes"] => changes.map((change) => ({
+    ...change,
+    entity: projectEntityForRenderer(change.type, change.entity),
+  }));
+  return {
+    ...receipt,
+    changes: projectChanges(receipt.changes),
+    ...(receipt.eventChanges ? { eventChanges: projectChanges(receipt.eventChanges) } : {}),
+  };
+}
+
+export function projectSnapshotInspectForRenderer<T>(result: T): T {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  const value = result as Record<string, unknown>;
+  if (!Array.isArray(value.changes)) return result;
+  const changes = value.changes.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+    const change = entry as Record<string, unknown>;
+    const type = change.type as EntityType;
+    const project = (candidate: unknown) => candidate && typeof candidate === "object" && !Array.isArray(candidate)
+      ? projectEntityForRenderer(type, candidate as Entity)
+      : candidate;
+    return { ...change, incoming: project(change.incoming), local: project(change.local) };
+  });
+  return { ...value, changes } as T;
 }
 
 export function projectChangesForRenderer(changes: Array<{ type: EntityType; entity: Entity }>): Array<{ type: EntityType; entity: Entity }> {
