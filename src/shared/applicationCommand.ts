@@ -12,6 +12,7 @@ export const applicationCommandNames = [
   "CompleteTaskWithLearning",
   "EndFocusSession",
   "ApplyAiProposal",
+  "ApplyTaskWorkProposal",
   "StartTaskWork",
   "AppendWorkReceipt",
   "ReportTaskDone",
@@ -97,6 +98,11 @@ export interface ApplyAiProposalCommandPayload {
   }>;
 }
 
+export interface ApplyTaskWorkProposalCommandPayload {
+  proposalId: string;
+  decision: "accept" | "reject";
+}
+
 export interface StartTaskWorkCommandPayload {
   taskId: string;
   executorKind?: string;
@@ -123,6 +129,7 @@ export type ApplicationCommandPayload =
   | CompleteTaskWithLearningCommandPayload
   | EndFocusSessionCommandPayload
   | ApplyAiProposalCommandPayload
+  | ApplyTaskWorkProposalCommandPayload
   | StartTaskWorkCommandPayload
   | AppendWorkReceiptCommandPayload
   | TaskWorkReviewCommandPayload;
@@ -282,6 +289,12 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       if (!["task", "note", "waiting", "plan_node", "schedule", "resource", "knowledge_node", "knowledge_edge", "artifact", "sketch", "repository_context"].includes(candidate.type)) {
         throw new ApplicationCommandError("INVALID_PAYLOAD", `ApplyAiProposalで未対応のcandidate typeです: ${candidate.type}`);
       }
+    }
+  }
+  if (name === "ApplyTaskWorkProposal") {
+    if (typeof value.payload.proposalId !== "string" || !value.payload.proposalId.trim()
+      || (value.payload.decision !== "accept" && value.payload.decision !== "reject")) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyTaskWorkProposalのpayloadが不正です。");
     }
   }
   if (name === "EndFocusSession") {
