@@ -1,5 +1,6 @@
 const DEFAULT_INCLUDE = ["theme", "repository", "notes", "conversations", "artifacts", "resources", "activity", "work_receipts"];
 const INCLUDE_VALUES = new Set(DEFAULT_INCLUDE);
+const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/;
 
 function text(value) {
   return value == null ? "" : String(value);
@@ -55,7 +56,7 @@ function commonFields(record) {
 }
 
 export function publicTaskForContext(task, budget) {
-  return {
+  return withPublicAi(task, {
     ...commonFields(task),
     title: budget.take(task.title, 500),
     description: budget.take(task.description, 20_000),
@@ -72,7 +73,7 @@ export function publicTaskForContext(task, budget) {
         sort_order: Number(entry?.sort_order || 0),
       }))
       : [],
-  };
+  }, budget);
 }
 
 export function publicAssignmentForContext(task, budget) {
@@ -89,13 +90,13 @@ export function publicAssignmentForContext(task, budget) {
 
 export function publicThemeForContext(theme, budget) {
   if (!theme) return null;
-  return {
+  return withPublicAi(theme, {
     ...commonFields(theme),
     name: budget.take(theme.name, 500),
     code: budget.take(theme.code, 120) || null,
     description: budget.take(theme.description, 10_000),
     state: theme.state || null,
-  };
+  }, budget);
 }
 
 export function safeExternalUrl(value) {
@@ -112,6 +113,99 @@ export function safeExternalUrl(value) {
   } catch {
     return null;
   }
+}
+
+function safeRelativePath(value) {
+  const source = text(value).trim().replace(/\\/g, "/").slice(0, 2_000);
+  if (!source || ABSOLUTE_PATH.test(source)) return null;
+  const segments = source.split("/");
+  if (segments.some((segment) => segment === "..") || /[\x00-\x1f\x7f]/.test(source)) return null;
+  return source.replace(/^\.\//, "");
+}
+
+function safeStorageRootId(value) {
+  const source = text(value).trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(source) ? source : null;
+}
+
+export function safeAiSourceRefs(value, budget = null) {
+  const refs = [];
+  for (const entryValue of Array.isArray(value) ? value.slice(0, 100) : []) {
+    if (!entryValue || typeof entryValue !== "object" || Array.isArray(entryValue)) continue;
+    const kind = text(entryValue.kind).trim();
+    const title = text(entryValue.title).trim().slice(0, 500);
+    const storageRootId = safeStorageRootId(entryValue.storage_root_id);
+    const relativePath = safeRelativePath(entryValue.relative_path);
+    const locatorSource = text(entryValue.locator).trim();
+    const locator = kind === "url" ? safeExternalUrl(locatorSource) : safeRelativePath(locatorSource);
+    if (storageRootId && relativePath) {
+      refs.push({
+        kind: kind || "canonical_document",
+        ...(title ? { title } : {}),
+        storage_root_id: storageRootId,
+        relative_path: relativePath,
+        locator: `${storageRootId}:${relativePath}`,
+      });
+    } else if (locator) {
+      refs.push({ kind: kind || "external_system", ...(title ? { title } : {}), locator });
+    }
+  }
+  const safe = [...new Map(refs.map((entry) => [`${entry.kind}|${entry.locator}`, entry])).values()]
+    .sort((left, right) => `${left.kind}|${left.locator}`.localeCompare(`${right.kind}|${right.locator}`));
+  if (!budget) return safe;
+  return safe.map((entry) => {
+    const locator = budget.take(entry.locator, 2_000);
+    if (!locator) return null;
+    const titleValue = entry.title ? budget.take(entry.title, 500) : "";
+    const relativePathValue = entry.relative_path ? budget.take(entry.relative_path, 2_000) : "";
+    return {
+      kind: entry.kind,
+      ...(titleValue ? { title: titleValue } : {}),
+      ...(entry.storage_root_id ? { storage_root_id: entry.storage_root_id } : {}),
+      ...(relativePathValue ? { relative_path: relativePathValue } : {}),
+      locator,
+    };
+  }).filter(Boolean);
+}
+
+export function publicAiHeader(record, budget = null) {
+  const header = record?.ai && typeof record.ai === "object" && !Array.isArray(record.ai) ? record.ai : null;
+  if (!header) return null;
+  const take = (value, limit) => budget ? budget.take(value, limit) : text(value).slice(0, limit);
+  const visibility = Array.isArray(header.ai_visibility)
+    ? [...new Set(header.ai_visibility.filter((entry) => ["m365", "coding_agent", "external_ai"].includes(entry)))].sort()
+    : [];
+  const typedRef = (value) => value && typeof value === "object" && !Array.isArray(value)
+    && text(value.type).trim() && text(value.id).trim()
+    ? { type: text(value.type).trim(), id: text(value.id).trim() }
+    : null;
+  return {
+    id: text(header.id).trim(),
+    type: text(header.type).trim(),
+    title: take(header.title, 500),
+    summary: take(header.summary, 4_000),
+    summary_authority: header.summary_authority || null,
+    summary_origin: header.summary_origin || "missing",
+    freshness: header.freshness || "unknown",
+    freshness_origin: header.freshness_origin || "unset",
+    freshness_reason: take(header.freshness_reason, 1_000),
+    authority: header.authority || null,
+    authority_origin: header.authority_origin || "unset",
+    authority_reason: take(header.authority_reason, 1_000),
+    ai_visibility: visibility,
+    ai_visibility_source: header.ai_visibility_source || null,
+    ai_visibility_reason: take(header.ai_visibility_reason, 1_000),
+    theme_id: header.theme_id || null,
+    updated_at: header.updated_at || null,
+    last_verified_at: header.last_verified_at || null,
+    superseded_by: typedRef(header.superseded_by),
+    source_refs: safeAiSourceRefs(header.source_refs, budget),
+  };
+}
+
+function withPublicAi(record, output, budget) {
+  const ai = publicAiHeader(record, budget);
+  return ai ? { ...output, ai } : output;
 }
 
 export function detailLocator(type, id) {
@@ -131,7 +225,7 @@ export function detailLocator(type, id) {
 }
 
 export function publicNoteSummary(note, budget, relation) {
-  return {
+  return withPublicAi(note, {
     ...commonFields(note),
     title: budget.take(note.title, 500),
     note_type: note.note_type || "note",
@@ -139,12 +233,14 @@ export function publicNoteSummary(note, budget, relation) {
     included_because: relation.includedBecause,
     relation_path: relation.path,
     locator: detailLocator("note", note.id),
-  };
+  }, budget);
 }
 
 export function publicConversationSummary(resource, budget, relation) {
-  return {
+  return withPublicAi(resource, {
     ...commonFields(resource),
+    resource_scope: "chat_ref",
+    kind: "conversation",
     title: budget.take(resource.title, 500),
     description: budget.take(resource.description, 600),
     excerpt: budget.take(resource.body_markdown, 600),
@@ -153,22 +249,22 @@ export function publicConversationSummary(resource, budget, relation) {
     included_because: relation.includedBecause,
     relation_path: relation.path,
     locator: detailLocator("conversation", resource.id),
-  };
+  }, budget);
 }
 
 export function publicResourceSummary(resource, budget, relation) {
-  return {
+  return withPublicAi(resource, {
     ...commonFields(resource),
     title: budget.take(resource.title, 500),
     description: budget.take(resource.description, 600),
     source_url: safeExternalUrl(resource.url),
     included_because: relation.includedBecause,
     relation_path: relation.path,
-  };
+  }, budget);
 }
 
 export function publicArtifactMetadata(artifact, budget, relation = null) {
-  return {
+  return withPublicAi(artifact, {
     ...commonFields(artifact),
     title: budget.take(artifact.title, 500),
     filename: budget.take(artifact.filename, 500),
@@ -186,7 +282,7 @@ export function publicArtifactMetadata(artifact, budget, relation = null) {
       relation_path: relation.path,
       locator: detailLocator("artifact", artifact.id),
     } : {}),
-  };
+  }, budget);
 }
 
 export function publicReceiptForContext(receipt, budget) {
@@ -263,23 +359,30 @@ export function relationForNode(subgraph, type, id) {
   return {
     includedBecause: relationReason(edges),
     path: edges.map((edge) => ({
+      edge_id: edge.id,
+      assertion_id: edge.assertion_id || null,
       from: edge.source,
       predicate: edge.predicate,
       to: edge.target,
       layer: edge.layer,
+      status: edge.status,
       origin: edge.origin,
+      evidence_refs: Array.isArray(edge.evidence_refs) ? edge.evidence_refs : [],
+      reason: edge.reason || null,
     })),
   };
 }
 
 export function boundedList(records, limit) {
   const selected = records.slice(0, limit);
+  const omitted = records.slice(limit);
   return {
     selected,
+    omitted,
     truncation: records.length > limit ? {
       reason: "max_items_per_type",
-      omitted_count: records.length - limit,
-      next_ids: records.slice(limit, limit + 10).map((entry) => text(entry.id)).filter(Boolean),
+      omitted_count: omitted.length,
+      next_ids: omitted.slice(0, 10).map((entry) => text(entry.id)).filter(Boolean),
     } : null,
   };
 }
