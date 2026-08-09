@@ -220,6 +220,49 @@ test("saved sketches reload under the canonical sketches collection", () => {
   }
 });
 
+test("new Reference writes canonical assertions and endpoint deletion keeps lineage", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-reference-assertion-test-"));
+  const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    repo.save("note", { id: "note-lineage", title: "Lineage" });
+    repo.save("task", { id: "task-lineage", title: "Implement", state: "todo" });
+    const saved = repo.save("reference", {
+      id: "assertion-lineage",
+      subject: { type: "note", id: "note-lineage" },
+      predicate: "links_to",
+      object: { type: "task", id: "task-lineage" },
+      layer: "operational",
+      status: "asserted",
+      origin: "user",
+      metadata: { raw_alias: "Implement", source_span: { start: 4, end: 13 } },
+    });
+    assert.equal(saved.assertion_id, "assertion-lineage");
+    assert.deepEqual(saved.subject, { type: "note", id: "note-lineage" });
+    assert.deepEqual(saved.object, { type: "task", id: "task-lineage" });
+    assert.equal(saved.source_type, "note");
+    assert.equal(saved.relation_type, "links_to");
+
+    repo.insertImported("reference", {
+      id: "legacy-lineage",
+      source_type: "note",
+      source_id: "note-lineage",
+      target_type: "task",
+      target_id: "task-lineage",
+      relation_type: "derived_from",
+    }, "legacy");
+    const legacyRead = repo.get("reference", "legacy-lineage");
+    assert.deepEqual(legacyRead.subject, { type: "note", id: "note-lineage" });
+    assert.equal(legacyRead.assertion_id, "legacy-lineage");
+    assert.equal(legacyRead.legacy_read, true);
+
+    repo.remove("task", "task-lineage");
+    assert.equal(repo.get("reference", "assertion-lineage")?.status, "asserted");
+  } finally {
+    repo.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ink capture atomically creates its sketch before linking the capture", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ink-capture-test-"));
   const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
