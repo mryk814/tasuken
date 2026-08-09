@@ -1,13 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import { IPC, type MemoStickyContent } from "../shared/ipc/contracts";
+import {
+  IPC,
+  type MemoStickyContent,
+  type MemoStickySaveRequest,
+  type MemoStickySaveResult,
+  type RendererFlushRequest,
+  type WorkspaceChangePayload,
+} from "../shared/ipc/contracts";
 
 type Unsubscribe = () => void;
 
 // 対象Memoはウィンドウ側から渡さない。Mainがウィンドウの登録情報から特定する（#298）。
 contextBridge.exposeInMainWorld("memoStickyApi", {
   load: (): Promise<MemoStickyContent | null> => ipcRenderer.invoke(IPC.memoStickyLoad),
-  save: (text: string): Promise<MemoStickyContent> => ipcRenderer.invoke(IPC.memoStickySave, text),
+  save: (request: MemoStickySaveRequest): Promise<MemoStickySaveResult> => ipcRenderer.invoke(IPC.memoStickySave, request),
   copy: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyCopy),
   close: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyClose),
   openInMain: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyOpenInMain),
@@ -17,9 +24,17 @@ contextBridge.exposeInMainWorld("memoStickyApi", {
   isAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyIsAlwaysOnTop),
   setAlwaysOnTop: (pinned: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickySetAlwaysOnTop, pinned),
   // 本体や他のウィンドウでの変更を受けて、同じMemoの表示を追従させる。
-  onWorkspaceChanged: (callback: () => void): Unsubscribe => {
-    const handler = (): void => callback();
+  onWorkspaceChanged: (callback: (change?: WorkspaceChangePayload) => void): Unsubscribe => {
+    const handler = (_event: Electron.IpcRendererEvent, change?: WorkspaceChangePayload): void => callback(change);
     ipcRenderer.on(IPC.workspaceChanged, handler);
     return () => { ipcRenderer.removeListener(IPC.workspaceChanged, handler); };
   },
+  onAppFlushRequested: (callback: (request: RendererFlushRequest) => void): Unsubscribe => {
+    const handler = (_event: Electron.IpcRendererEvent, request: RendererFlushRequest): void => callback(request);
+    ipcRenderer.on(IPC.appFlushRequested, handler);
+    return () => { ipcRenderer.removeListener(IPC.appFlushRequested, handler); };
+  },
+  ackAppFlush: (requestId: string, ok: boolean): Promise<boolean> => (
+    ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok })
+  ),
 });

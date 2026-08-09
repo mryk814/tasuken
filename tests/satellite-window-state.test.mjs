@@ -325,7 +325,7 @@ test("generic entity save IPCはMain内部timestampを公開せずMedia identity
 
 test("付箋は同じMemoの表示状態であり、別Entityを作らない（#298）", () => {
   // 保存先は常に元の capture_entry。付箋用のコピーを作らない。
-  assert.match(memoStickySource, /options\.repository\.save\("capture_entry", \{ \.\.\.memo, text \}/);
+  assert.match(memoStickySource, /saveMemoStickyWithinTransaction\(transaction, memoId, value\)/);
   assert.match(memoStickySource, /const MEMO_KIND = "micro_memo";/);
   // 対象Memoはrenderer側の申告ではなく、ウィンドウの登録情報から特定する。
   assert.match(memoStickySource, /function memoIdOf\(event: Electron\.IpcMainInvokeEvent\): string \| null/);
@@ -333,16 +333,20 @@ test("付箋は同じMemoの表示状態であり、別Entityを作らない（#
   // ×は表示を閉じるだけで、Memoは削除しない。削除は memo-sticky:delete という別の操作。
   const closeHandler = memoStickySource.slice(memoStickySource.indexOf("ipcMain.handle(IPC.memoStickyClose"));
   const closeBody = closeHandler.slice(0, closeHandler.indexOf("\n    });"));
-  assert.match(closeBody, /return options\.satelliteWindows\.close\(\{ kind: "memo", entityId: memoId \}\)/);
+  assert.match(closeBody, /return window \? flushAndClose\(window\) : false/);
   assert.doesNotMatch(closeBody, /repository\.remove/);
 });
 
-test("付箋ウィンドウは保存失敗でも入力を失わない（#298）", () => {
-  assert.match(stickyHtml, /dirty = true;\s*\n\s*setState\(`保存できません/);
-  // 本体側の変更で編集中の内容を上書きしない。
-  assert.match(stickyHtml, /if \(!dirty\) \{\s*\n\s*textEl\.value = content\.text;/);
-  // 閉じる・フォーカス喪失で未保存を残さない。
-  assert.match(stickyHtml, /window\.addEventListener\("blur", \(\) => \{ if \(dirty\) void save\(\); \}\)/);
+test("付箋ウィンドウはrevision queueとMain flushで入力を失わない（#298 / #376）", () => {
+  assert.match(stickyHtml, /createMemoStickyAutosaveCoordinator/);
+  assert.match(stickyHtml, /coordinator\.edit\(textEl\.value\)/);
+  assert.match(stickyHtml, /coordinator\.receiveWorkspaceChange\(content, change\.memoStickySave\)/);
+  // blurはsingle-flight queueを起動し、close/app-exitはMain handshakeへackする。
+  assert.match(stickyHtml, /window\.addEventListener\("blur", \(\) => \{ void requestSave\(\); \}\)/);
+  assert.match(stickyHtml, /api\.onAppFlushRequested\(async \(\{ requestId \}\) =>/);
+  assert.match(stickyHtml, /api\.ackAppFlush\(requestId, ok\)/);
+  assert.match(stickyHtml, /coordinator\.overwriteConflict\(\)/);
+  assert.doesNotMatch(stickyHtml, /beforeunload/);
   // 参照用途のコピーとリンク導線。
   assert.match(stickyHtml, /aria-label="全文をコピー"/);
   assert.match(stickyHtml, /aria-label="常に手前に表示"/);
