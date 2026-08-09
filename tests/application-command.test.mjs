@@ -449,6 +449,7 @@ test("ApplyAiProposal commits a typed multi-candidate set with proposal status a
       { type: "knowledge_node", entity: { id: "ai-node-a", node_type: "claim", title: "A" } },
       { type: "knowledge_node", entity: { id: "ai-node-b", node_type: "evidence", title: "B" } },
       { type: "knowledge_edge", entity: { id: "ai-edge", source_node_id: "ai-node-a", target_node_id: "ai-node-b", relation_type: "supports" } },
+      { type: "repository_context", entity: { id: "ai-repository-context", label: "Tasken", remote_url: "https://user:password@github.com/mryk814/tasuken.git?token=drop#readme" } },
     ],
   }, "proposal-accept", [{ type: "ai_proposal", id: "proposal-1", version: 1 }]));
   assert.equal(receipt.status, "applied");
@@ -462,7 +463,10 @@ test("ApplyAiProposal commits a typed multi-candidate set with proposal status a
   assert.equal(repo.get("waiting", "ai-waiting").project_id, "theme-personal-default");
   assert.equal(repo.get("schedule", "ai-schedule").owner_id, "ai-task");
   assert.equal(repo.get("knowledge_edge", "ai-edge").source_node_id, "ai-node-a");
-  assert.equal(receipt.events.length, 8);
+  assert.equal(repo.get("repository_context", "ai-repository-context").label, "Tasken");
+  assert.equal(repo.get("repository_context", "ai-repository-context").canonical_url, "https://github.com/mryk814/tasuken");
+  assert.equal(JSON.stringify(repo.get("repository_context", "ai-repository-context")).includes("password"), false);
+  assert.equal(receipt.events.length, 9);
   repo.save("ai_proposal", { id: "proposal-bad-schedule", source: "manual", payload_type: "items", status: "pending" });
   assert.throws(() => service.execute(envelope("ApplyAiProposal", {
     proposal: { ...repo.get("ai_proposal", "proposal-bad-schedule"), status: "accepted" },

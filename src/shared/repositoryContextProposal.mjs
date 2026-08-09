@@ -14,6 +14,23 @@ function contextVersion(context) {
   return Number(context?.version || 0);
 }
 
+/** Build the credential-free MCP proposal input without overriding provider inference. */
+export function repositoryContextProposalInput(args = {}) {
+  const provider = text(args.provider);
+  return {
+    action: "create",
+    label: text(args.label),
+    ...(provider ? { provider } : {}),
+    remote_url: text(args.remote_url) || null,
+    local_path: text(args.local_path) || null,
+    web_url: text(args.web_url) || null,
+    repository_slug: text(args.repository_slug) || null,
+    subdirectory: text(args.subdirectory) || null,
+    default_branch: text(args.default_branch) || null,
+    reason: text(args.reason),
+  };
+}
+
 /**
  * Normalize a RepositoryContext proposal for the review UI.
  *

@@ -5,6 +5,7 @@ import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } 
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeTaskAssignment } from "../repositories/domain.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
+import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
 import type { Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
 import {
   ApplicationCommandError,
@@ -845,24 +846,35 @@ export class ApplicationCommandService {
     const seen = new Set<string>();
     for (const candidate of payload.candidates) {
       const type = candidate.type;
+      let candidateEntity = candidate.entity;
+      if (type === "repository_context") {
+        try {
+          candidateEntity = normalizeRepositoryContext(candidate.entity) as Entity;
+        } catch (error) {
+          throw new ApplicationCommandError(
+            "INVALID_PAYLOAD",
+            `RepositoryContext候補が不正です: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
       if (type === "schedule") {
-        const schedule = candidate.entity;
+        const schedule = candidateEntity;
         if (schedule.owner_type !== "task" && schedule.owner_type !== "waiting" && schedule.owner_type !== "plan_node") {
           throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのSchedule ownerが不正です。", { id: schedule.id });
         }
       }
-      const key = `${type}:${candidate.entity.id}`;
+      const key = `${type}:${candidateEntity.id}`;
       if (seen.has(key)) throw new ApplicationCommandError("INVALID_PAYLOAD", "AI Proposal candidateが重複しています。", { key });
       seen.add(key);
-      const before = this.repository.get(type, candidate.entity.id, true);
-      if (before?.deleted_at) throw new ApplicationCommandError("CONFLICT", "削除済みEntityをAI Proposalから更新できません。", { type, id: candidate.entity.id });
+      const before = this.repository.get(type, candidateEntity.id, true);
+      if (before?.deleted_at) throw new ApplicationCommandError("CONFLICT", "削除済みEntityをAI Proposalから更新できません。", { type, id: candidateEntity.id });
       if (before) {
-        if (!expectedVersionFor(command, type, candidate.entity.id)) throw new ApplicationCommandError("CONFLICT", "既存candidateにはexpected versionが必要です。", { type, id: candidate.entity.id });
-        assertExpectedVersion(this.repository, command, type, candidate.entity.id, before);
+        if (!expectedVersionFor(command, type, candidateEntity.id)) throw new ApplicationCommandError("CONFLICT", "既存candidateにはexpected versionが必要です。", { type, id: candidateEntity.id });
+        assertExpectedVersion(this.repository, command, type, candidateEntity.id, before);
       }
       if (type === "schedule") {
-        const ownerType = String(candidate.entity.owner_type) as EntityType;
-        const ownerId = String(candidate.entity.owner_id || "");
+        const ownerType = String(candidateEntity.owner_type) as EntityType;
+        const ownerId = String(candidateEntity.owner_id || "");
         const ownerCandidate = payload.candidates.find((entry) => entry.type === ownerType && entry.entity.id === ownerId);
         const owner = ownerCandidate?.entity || this.repository.get(ownerType, ownerId);
         if (!owner || owner.deleted_at) {
@@ -870,24 +882,24 @@ export class ApplicationCommandService {
         }
       }
       if (type === "knowledge_edge") {
-        const sourceId = String(candidate.entity.source_node_id || "");
-        const targetId = String(candidate.entity.target_node_id || "");
+        const sourceId = String(candidateEntity.source_node_id || "");
+        const targetId = String(candidateEntity.target_node_id || "");
         const source = payload.candidates.find((entry) => entry.type === "knowledge_node" && entry.entity.id === sourceId)?.entity || this.repository.get("knowledge_node", sourceId);
         const target = payload.candidates.find((entry) => entry.type === "knowledge_node" && entry.entity.id === targetId)?.entity || this.repository.get("knowledge_node", targetId);
         if (!source || source.deleted_at || !target || target.deleted_at || sourceId === targetId) {
-          throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのKnowledge Edge両端が存在しないか不正です。", { id: candidate.entity.id });
+          throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのKnowledge Edge両端が存在しないか不正です。", { id: candidateEntity.id });
         }
-        if (!["supports", "contradicts", "explains", "causes", "example_of", "generalizes", "depends_on", "derived_from", "answers", "raises", "similar_to", "leads_to"].includes(String(candidate.entity.relation_type))) {
-          throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのKnowledge Edge relationが不正です.", { id: candidate.entity.id });
+        if (!["supports", "contradicts", "explains", "causes", "example_of", "generalizes", "depends_on", "derived_from", "answers", "raises", "similar_to", "leads_to"].includes(String(candidateEntity.relation_type))) {
+          throw new ApplicationCommandError("INVALID_PAYLOAD", "AI ProposalのKnowledge Edge relationが不正です.", { id: candidateEntity.id });
         }
       }
       if (type === "task") {
-        const task = normalizeTaskAssignment(normalizeCanonicalEntity(type, candidate.entity), before || undefined);
+        const task = normalizeTaskAssignment(normalizeCanonicalEntity(type, candidateEntity), before || undefined);
         if (task.work_state === "accepted" && (!before || currentWorkState(before) !== "accepted")) {
           throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの受入れはAcceptTaskWorkを使用してください。", { id: task.id });
         }
         if (before && before.intended_executor === task.intended_executor
-          && Object.prototype.hasOwnProperty.call(candidate.entity, "work_state")
+          && Object.prototype.hasOwnProperty.call(candidateEntity, "work_state")
           && currentWorkState(before) !== currentWorkState(task)) {
           throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの変更はStart/Report/Accept/Return Commandを使用してください。", { id: task.id });
         }
@@ -899,7 +911,7 @@ export class ApplicationCommandService {
         operations.push({ action: "save", type: "change_event", entity: event });
         eventIds.push(event.id);
       } else {
-        const entity = candidate.entity;
+        const entity = candidateEntity;
         if (before) entityDefinition(type).parseUpdate(entity);
         else entityDefinition(type).parseCreate(entity);
         operations.push({ action: "save", type, entity });

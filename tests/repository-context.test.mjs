@@ -14,7 +14,7 @@ import {
   resolveTaskRepositoryContexts,
   resolveThemeRepositoryContexts,
 } from "../src/shared/repositoryContext.mjs";
-import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../src/shared/repositoryContextProposal.mjs";
+import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations, repositoryContextProposalInput } from "../src/shared/repositoryContextProposal.mjs";
 import { McpProposalInboxService, queueMcpProposal } from "../src/main/mcp/proposalInbox.mjs";
 
 test("Repository URL canonicalization removes credentials/query/fragment while preserving path case and port", () => {
@@ -27,6 +27,15 @@ test("Repository URL canonicalization removes credentials/query/fragment while p
   assert.equal(scp.canonicalUrl, "https://gitlab.example/Team/Repo");
   assert.equal(JSON.stringify(https).includes("password"), false);
   assert.equal(JSON.stringify(https).includes("token"), false);
+});
+
+test("MCP repository proposal lets the canonical URL infer an omitted provider", () => {
+  const proposal = repositoryContextProposalInput({
+    label: "Tasken",
+    remote_url: "https://github.com/mryk814/tasuken.git",
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(proposal, "provider"), false);
+  assert.equal(normalizeRepositoryContext(proposal).provider, "github");
 });
 
 test("explicit provider is validated and self-managed GitLab is not guessed from its hostname", () => {

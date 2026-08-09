@@ -90,7 +90,7 @@ export interface EndFocusSessionCommandPayload {
 export interface ApplyAiProposalCommandPayload {
   proposal: Entity;
   candidates: Array<{
-    type: Extract<EntityType, "task" | "note" | "waiting" | "plan_node" | "schedule" | "resource" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch">;
+    type: Extract<EntityType, "task" | "note" | "waiting" | "plan_node" | "schedule" | "resource" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch" | "repository_context">;
     entity: Entity;
   }>;
 }
@@ -276,7 +276,7 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
         || typeof candidate.entity.id !== "string" || !candidate.entity.id.trim()) {
         throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのcandidateが不正です。");
       }
-      if (!["task", "note", "waiting", "plan_node", "schedule", "resource", "knowledge_node", "knowledge_edge", "artifact", "sketch"].includes(candidate.type)) {
+      if (!["task", "note", "waiting", "plan_node", "schedule", "resource", "knowledge_node", "knowledge_edge", "artifact", "sketch", "repository_context"].includes(candidate.type)) {
         throw new ApplicationCommandError("INVALID_PAYLOAD", `ApplyAiProposalで未対応のcandidate typeです: ${candidate.type}`);
       }
     }

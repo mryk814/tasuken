@@ -50,38 +50,12 @@ import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 import type { ApplicationCommandSource, ApplyAiProposalCommandPayload, CommandEnvelope, CommandReceipt, ExpectedVersion } from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
-
-const ARRAY_KEYS: (keyof WorkspaceData)[] = [
-  "themes", "items", "notes", "links", "resources", "views",
-  "status_updates", "source_records", "entity_sources",
-  "field_definitions", "field_values", "log_entries", "import_batchs",
-  "knowledge_nodes", "ai_proposals", "plan_revisions",
-  "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
-  "schedules", "references", "task_dependencies", "plan_dependencies",
-  "knowledge_edges", "change_events", "artifacts",
-  "sketches", "work_receipts",
-];
+import { projectWorkspaceData } from "./lib/workspaceProjection";
 const TASK_REFERENCE_TYPE: EntityType = "reference";
 
 function normalizeRoute(route: string): string {
   if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
   return route === "micro-memos" ? "inbox" : route === "prompts" ? "notes" : route === "proposal-inbox" ? "ai-io" : routeAliases[route] || route;
-}
-
-function emptyData(): WorkspaceData {
-  return Object.fromEntries(ARRAY_KEYS.map((key) => [key, []])) as unknown as WorkspaceData;
-}
-
-function projectWorkspace(workspace: Record<string, unknown> | null): WorkspaceData {
-  const result = emptyData();
-  if (!workspace) return result;
-  for (const key of ARRAY_KEYS) {
-    const value = workspace[key];
-    if (Array.isArray(value)) (result[key] as BaseRecord[]) = activeRecords(value as BaseRecord[]);
-  }
-  result.meta = (workspace.meta as WorkspaceData["meta"]) || undefined;
-  result.canonical_root_status = workspace.canonical_root_status as WorkspaceData["canonical_root_status"];
-  return result;
 }
 
 function errorMessage(error: unknown): string {
@@ -349,7 +323,7 @@ export function WorkspaceApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawer, showShortcuts]);
 
-  const fullData = useMemo(() => projectWorkspace(workspace as Record<string, unknown> | null), [workspace]);
+  const fullData = useMemo(() => projectWorkspaceData(workspace as Record<string, unknown> | null), [workspace]);
   const fullDomain = useMemo(() => buildWorkspaceDomain(fullData), [fullData]);
   // 常設の既定Themeは並びの先頭へ固定し、グループ絞り込みでも消さない（#282）。
   // Themeが0件に見える状態でも個人業務は残る。

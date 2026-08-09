@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import { ReadOnlyTaskenContext, defaultTaskenDbPath } from "./readOnlyContext.mjs";
 import { queueMcpProposal } from "./proposalInbox.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
+import { repositoryContextProposalInput } from "../../shared/repositoryContextProposal.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -343,18 +344,7 @@ export function createTaskenMcpServer() {
     payloadType: "repository_contexts",
     sourceApp: sourceApp(args),
     payload: {
-      repository_contexts: [{
-        action: "create",
-        label: args.label,
-        provider: args.provider || "unknown",
-        remote_url: args.remote_url || null,
-        local_path: args.local_path || null,
-        web_url: args.web_url || null,
-        repository_slug: args.repository_slug || null,
-        subdirectory: args.subdirectory || null,
-        default_branch: args.default_branch || null,
-        reason: args.reason || "",
-      }],
+      repository_contexts: [repositoryContextProposalInput(args)],
     },
     request: { tool: "tasken.propose_repository_context" },
   })));
