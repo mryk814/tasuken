@@ -22,6 +22,23 @@ import {
   resolveTaskRepositoryContexts,
   resolveThemeRepositoryContexts,
 } from "../../shared/repositoryContext.mjs";
+import {
+  boundedList,
+  normalizeTaskContextInclude,
+  publicArtifactMetadata,
+  publicAssignmentForContext,
+  publicConversationSummary,
+  publicNoteSummary,
+  publicReceiptForContext,
+  publicResourceSummary,
+  publicTaskForContext,
+  publicThemeForContext,
+  relationForNode,
+  safeExternalUrl,
+  taskContextLimits,
+  TaskContextTextBudget,
+  workspaceIdentityProvided,
+} from "./taskContext.mjs";
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -128,6 +145,18 @@ function repositoryCurrentFromArgs(args = {}) {
     cwd: args.cwd || args.working_directory,
     workspace_folder: args.workspace_folder || args.workspaceFolder,
   };
+}
+
+function repositoryCurrentFromWorkspace(workspace = {}) {
+  return repositoryCurrentFromArgs({
+    ...workspace,
+    remote_urls: workspace.remote_urls || workspace.remotes,
+    workspace_folder: workspace.workspace_folder || workspace.workspaceFolder || workspace.cwd,
+  });
+}
+
+function structuredReadError(code, message, details = {}) {
+  return { error: { code, message, ...details }, read_only: true };
 }
 
 function publicRepositoryMatch(match) {
@@ -414,6 +443,278 @@ export class ReadOnlyTaskenContext {
     };
   }
 
+  toolGetTaskContext(args = {}) {
+    const taskId = text(args.task_id || args.taskId || args.id).trim();
+    const include = normalizeTaskContextInclude(args.include);
+    const includeSet = new Set(include);
+    const limits = taskContextLimits(args);
+    const budget = new TaskContextTextBudget(limits.maxTextLength);
+    const includeArchived = Boolean(args.include_archived);
+    const task = this.list("task", includeArchived).find((candidate) => String(candidate.id) === taskId);
+    if (!task) {
+      return {
+        ...structuredReadError("not_found", "Taskが見つかりません。Task IDを確認してください。", { task_id: taskId }),
+        ai_audience: this.audience,
+      };
+    }
+    if (!task.id || !task.title || !task.state) {
+      return {
+        ...structuredReadError("unsupported_schema", "Taskの保存形式をこのMCP Bridgeで解釈できません。Taskenを更新してください。", { task_id: taskId }),
+        ai_audience: this.audience,
+      };
+    }
+    const filteredTask = this.filterForAi("task", [task]);
+    if (!filteredTask.records.length) {
+      return {
+        ...structuredReadError("not_found", "Taskが見つかりません。Task IDまたはAI公開範囲を確認してください。", { task_id: taskId }),
+        ai_audience: this.audience,
+        ...summarizeAiExclusions(filteredTask.exclusions),
+      };
+    }
+
+    const warnings = [];
+    const truncation = {};
+    const themeId = task.project_id || task.theme_id || null;
+    const themeCandidate = themeId ? this.themeById(themeId) : null;
+    const filteredTheme = themeCandidate ? this.filterForAi("theme", [themeCandidate]).records[0] || null : null;
+    if (themeCandidate && !filteredTheme) warnings.push({ code: "theme_not_visible", message: "TaskのThemeはAI公開範囲外のため含めていません。" });
+    // Task依頼とassignmentを最優先でbudgetへ確保し、その後に関連情報を詰める。
+    const taskOutput = publicTaskForContext(filteredTask.records[0], budget);
+    const assignmentOutput = publicAssignmentForContext(task, budget);
+    const themeOutput = includeSet.has("theme") ? publicThemeForContext(filteredTheme, budget) : null;
+
+    const repositoryResolution = resolveTaskRepositoryContexts({
+      task,
+      theme: themeCandidate,
+      contexts: this.visibleRepositoryContexts(includeArchived),
+    });
+    const taskRepositoryContexts = repositoryResolution.contexts;
+    let repositoryMatch = {
+      status: "unknown",
+      reason_code: "workspace_not_provided",
+      reason: "現在のcoding workspace情報が指定されていません。",
+      selected: null,
+      candidates: [],
+    };
+    if (workspaceIdentityProvided(args.workspace)) {
+      const match = resolveRepositoryContext({
+        current: repositoryCurrentFromWorkspace(args.workspace),
+        contexts: taskRepositoryContexts,
+      });
+      repositoryMatch = publicRepositoryMatch(match);
+      if (match.status === "unknown" && taskRepositoryContexts.length) {
+        repositoryMatch.status = "mismatch";
+        repositoryMatch.reason_code = "task_repository_mismatch";
+        repositoryMatch.reason = "現在のcoding workspaceはTaskのRepositoryContextと一致しません。作業対象を確認してください。";
+        warnings.push({ code: "repository_mismatch", message: repositoryMatch.reason });
+      } else if (match.status === "ambiguous") {
+        warnings.push({ code: "repository_ambiguous", message: match.reason });
+      }
+    }
+
+    const related = {
+      notes: [],
+      conversations: [],
+      artifacts: [],
+      resources: [],
+      activity: [],
+      work_receipts: [],
+    };
+    const graphTypes = new Set(["task", "note", "resource", "artifact"]);
+    const visibleRecords = new Map();
+    const allowed = new Set();
+    for (const entityType of graphTypes) {
+      const filtered = this.filterForAi(entityType, this.list(entityType, includeArchived));
+      visibleRecords.set(entityType, filtered.records);
+      for (const record of filtered.records) allowed.add(JSON.stringify([entityType, record.id]));
+    }
+    const graph = projectContextGraph(this.loadWorkspace(includeArchived));
+    const subgraph = getContextSubgraph(graph, { type: "task", id: taskId }, {
+      maxHops: 2,
+      // 出力はentity種別ごとに別々にbounded化する。graph側を同じ件数へ
+      // 絞ると、先に並んだNoteだけで枠を使い切りArtifact等が欠落する。
+      maxNodes: Math.min(100, limits.maxItemsPerType * 8 + 8),
+      maxEdges: Math.min(200, limits.maxItemsPerType * 16 + 16),
+      tokenBudget: 12_000,
+      includeSuggested: false,
+      nodeFilter: (node) => allowed.has(JSON.stringify([node.ref.type, node.ref.id])),
+      // Themeだけが共通というEntityをTask文脈へ一括で混ぜない。
+      edgeFilter: (edge) => edge.predicate !== "belongs_to_theme",
+    });
+    if (subgraph.truncated) {
+      warnings.push({ code: "relation_graph_truncated", message: "関連情報のbounded traversalが上限に達しました。locatorから必要な本文を追加取得してください。" });
+    }
+    const relatedIds = new Map();
+    for (const node of subgraph.nodes) {
+      if (node.type === "task" && node.id === taskId) continue;
+      const ids = relatedIds.get(node.type) || new Set();
+      ids.add(String(node.id));
+      relatedIds.set(node.type, ids);
+    }
+    const relation = (type, id) => relationForNode(subgraph, type, String(id));
+
+    if (includeSet.has("notes")) {
+      const records = sortUpdated((visibleRecords.get("note") || []).filter((note) => relatedIds.get("note")?.has(String(note.id))));
+      const bounded = boundedList(records, limits.maxItemsPerType);
+      related.notes = bounded.selected.map((note) => publicNoteSummary(note, budget, relation("note", note.id)));
+      if (bounded.truncation) truncation.notes = bounded.truncation;
+    }
+    const resources = sortUpdated((visibleRecords.get("resource") || []).filter((resource) => relatedIds.get("resource")?.has(String(resource.id))));
+    if (includeSet.has("conversations")) {
+      const bounded = boundedList(resources.filter((resource) => resource.resource_scope === "chat_ref"), limits.maxItemsPerType);
+      related.conversations = bounded.selected.map((resource) => publicConversationSummary(resource, budget, relation("resource", resource.id)));
+      if (bounded.truncation) truncation.conversations = bounded.truncation;
+    }
+    if (includeSet.has("resources")) {
+      const bounded = boundedList(resources.filter((resource) => resource.resource_scope !== "chat_ref"), limits.maxItemsPerType);
+      related.resources = bounded.selected.map((resource) => publicResourceSummary(resource, budget, relation("resource", resource.id)));
+      if (bounded.truncation) truncation.resources = bounded.truncation;
+    }
+    if (includeSet.has("artifacts")) {
+      const records = sortUpdated((visibleRecords.get("artifact") || []).filter((artifact) => relatedIds.get("artifact")?.has(String(artifact.id))));
+      const bounded = boundedList(records, limits.maxItemsPerType);
+      related.artifacts = bounded.selected.map((artifact) => publicArtifactMetadata(artifact, budget, relation("artifact", artifact.id)));
+      if (bounded.truncation) truncation.artifacts = bounded.truncation;
+    }
+    if (includeSet.has("work_receipts")) {
+      const records = this.list("work_receipt", includeArchived).filter((receipt) => receipt.task_id === taskId);
+      const bounded = boundedList(records, limits.maxItemsPerType);
+      related.work_receipts = bounded.selected.map((receipt) => publicReceiptForContext(receipt, budget));
+      if (bounded.truncation) truncation.work_receipts = bounded.truncation;
+    }
+    if (includeSet.has("activity")) {
+      const activity = this.toolGetActivity({ entity_type: "task", entity_id: taskId, limit: 100, include_archived: includeArchived, format: "json" });
+      const records = [...(activity.events || [])].sort((left, right) => String(right.occurred_at).localeCompare(String(left.occurred_at)) || String(right.id).localeCompare(String(left.id)));
+      const bounded = boundedList(records, limits.maxItemsPerType);
+      related.activity = bounded.selected.map((event) => ({
+        id: event.id,
+        occurred_at: event.occurred_at,
+        event_kind: event.event_kind,
+        summary: budget.take(event.summary, 1_000),
+        actor: event.actor,
+        origin: event.origin,
+        work_receipt_ref: event.work_receipt_ref || null,
+        included_because: "recent_activity",
+      }));
+      if (bounded.truncation) truncation.activity = bounded.truncation;
+    }
+    if (budget.truncated) {
+      truncation.text = { reason: "max_text_length", limit: budget.limit, used: budget.used };
+      warnings.push({ code: "text_truncated", message: "context本文が文字数上限に達しました。stable locatorから必要な本文だけ取得してください。" });
+    }
+
+    return {
+      task: taskOutput,
+      assignment: assignmentOutput,
+      theme: themeOutput,
+      repository_contexts: includeSet.has("repository") ? taskRepositoryContexts.map(publicRepositoryContext) : [],
+      repository_resolution: includeSet.has("repository") ? {
+        mode: repositoryResolution.mode,
+        context_ids: repositoryResolution.contextIds,
+        missing_context_ids: repositoryResolution.missingContextIds,
+        missing_context_reasons: repositoryResolution.missingContextReasons,
+        subdirectory: repositoryResolution.subdirectory,
+        branch_hint: repositoryResolution.branchHint,
+      } : null,
+      workspace_match: includeSet.has("repository") ? repositoryMatch : null,
+      related,
+      include,
+      limits: { max_items_per_type: limits.maxItemsPerType, max_text_length: limits.maxTextLength },
+      truncation,
+      warnings,
+      truncated: Boolean(subgraph.truncated || budget.truncated || Object.keys(truncation).length),
+      read_only: true,
+      ai_audience: this.audience,
+      ...summarizeAiExclusions(filteredTask.exclusions),
+    };
+  }
+
+  toolGetNote(args = {}) {
+    const noteId = text(args.note_id || args.id).trim();
+    const note = this.list("note", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === noteId);
+    const filtered = note ? this.filterForAi("note", [note]) : { records: [], exclusions: [] };
+    if (!filtered.records.length) return { ...structuredReadError("not_found", "Noteが見つかりません。IDまたはAI公開範囲を確認してください。", { note_id: noteId }), ai_audience: this.audience };
+    const maxTextLength = taskContextLimits(args).maxTextLength;
+    const body = text(note.body_markdown);
+    const budget = new TaskContextTextBudget(maxTextLength);
+    return {
+      note: {
+        id: note.id,
+        title: note.title,
+        note_type: note.note_type || "note",
+        project_id: note.project_id || note.theme_id || null,
+        body_markdown: budget.take(body),
+        version: Number(note.version || 0),
+        created_at: note.created_at || null,
+        updated_at: note.updated_at || null,
+      },
+      truncated: body.length > maxTextLength,
+      limits: { max_text_length: maxTextLength },
+      read_only: true,
+      ai_audience: this.audience,
+    };
+  }
+
+  toolGetConversation(args = {}) {
+    const conversationId = text(args.conversation_id || args.id).trim();
+    const resource = this.list("resource", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === conversationId && candidate.resource_scope === "chat_ref");
+    const filtered = resource ? this.filterForAi("resource", [resource]) : { records: [], exclusions: [] };
+    if (!filtered.records.length) return { ...structuredReadError("not_found", "Conversationが見つかりません。IDまたはAI公開範囲を確認してください。", { conversation_id: conversationId }), ai_audience: this.audience };
+    const maxTextLength = taskContextLimits(args).maxTextLength;
+    const body = text(resource.body_markdown);
+    const budget = new TaskContextTextBudget(maxTextLength);
+    return {
+      conversation: {
+        id: resource.id,
+        title: resource.title,
+        description: truncate(resource.description, 2_000),
+        source_url: safeExternalUrl(resource.url),
+        body_markdown: budget.take(body),
+        message_count: resource.message_count || null,
+        source_format: resource.source_format || null,
+        version: Number(resource.version || 0),
+        created_at: resource.created_at || null,
+        updated_at: resource.updated_at || null,
+      },
+      truncated: body.length > maxTextLength,
+      limits: { max_text_length: maxTextLength },
+      read_only: true,
+      ai_audience: this.audience,
+    };
+  }
+
+  toolGetArtifactMetadata(args = {}) {
+    const artifactId = text(args.artifact_id || args.id).trim();
+    const artifact = this.list("artifact", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === artifactId);
+    const filtered = artifact ? this.filterForAi("artifact", [artifact]) : { records: [], exclusions: [] };
+    if (!filtered.records.length) return { ...structuredReadError("not_found", "Artifactが見つかりません。IDまたはAI公開範囲を確認してください。", { artifact_id: artifactId }), ai_audience: this.audience };
+    const budget = new TaskContextTextBudget(taskContextLimits(args).maxTextLength);
+    return {
+      artifact: publicArtifactMetadata(filtered.records[0], budget),
+      external_file_content_included: false,
+      read_only: true,
+      ai_audience: this.audience,
+    };
+  }
+
+  toolGetActivityEntries(args = {}) {
+    const taskId = text(args.task_id || args.id).trim();
+    const task = this.list("task", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === taskId);
+    const filtered = task ? this.filterForAi("task", [task]) : { records: [], exclusions: [] };
+    if (!filtered.records.length) return { ...structuredReadError("not_found", "Taskが見つかりません。IDまたはAI公開範囲を確認してください。", { task_id: taskId }), ai_audience: this.audience };
+    const limit = clampLimit(args.limit, 50);
+    const activity = this.toolGetActivity({ entity_type: "task", entity_id: taskId, limit: 100, include_archived: Boolean(args.include_archived), format: "json" });
+    const events = [...(activity.events || [])].sort((left, right) => String(right.occurred_at).localeCompare(String(left.occurred_at)) || String(right.id).localeCompare(String(left.id)));
+    return {
+      task_id: taskId,
+      events: events.slice(0, limit),
+      limit,
+      truncated: events.length > limit,
+      read_only: true,
+      ai_audience: this.audience,
+    };
+  }
+
   toolGetRecentNotes(args = {}) {
     const limit = clampLimit(args.limit);
     const textLimit = clampTextLimit(args.max_chars);
@@ -693,8 +994,11 @@ export class ReadOnlyTaskenContext {
       return this.withAudience(args.audience, () => this.toolGetActivity({ ...args, audience: null }));
     }
     const workspace = this.loadWorkspace(Boolean(args.include_archived));
+    const entityId = text(args.entity_id || args.entityId);
+    const sourceEvents = this.list("change_event", Boolean(args.include_archived))
+      .filter((event) => !entityId || String(event.entity_ref?.id || event.entity_id || "") === entityId);
     const result = queryActivityEvents({
-      events: this.list("change_event", Boolean(args.include_archived)),
+      events: sourceEvents,
       workspace,
       themes: this.list("theme", Boolean(args.include_archived)),
       references: this.list("reference", Boolean(args.include_archived)),

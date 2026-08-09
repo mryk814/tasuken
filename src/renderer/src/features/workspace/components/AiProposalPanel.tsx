@@ -371,7 +371,11 @@ export function AiProposalPanel(props: PageProps) {
         const taskId = str(candidate.entry.task_id);
         const task = domain.tasks.find((entry) => entry.id === taskId);
         if (!task) throw new Error("対象Taskが見つかりません。Taskを再読み込みしてください。");
-        const expectedVersions = [{ type: taskEntityType, id: task.id, version: Number((task as unknown as BaseRecord).version || 0) }];
+        const currentVersion = Number((task as unknown as BaseRecord).version || 0);
+        const proposalExpectedVersion = Number(candidate.entry.expected_version);
+        if (!Number.isInteger(proposalExpectedVersion) || proposalExpectedVersion < 0) throw new Error("Work proposalにexpected_versionがありません。再取得してから報告してください。");
+        if (proposalExpectedVersion !== currentVersion) throw new Error(`Taskが更新されています（proposal: ${proposalExpectedVersion} / current: ${currentVersion}）。contextを再取得して報告し直してください。`);
+        const expectedVersions = [{ type: taskEntityType, id: task.id, version: proposalExpectedVersion }];
         const action = str(candidate.entry.action);
         let name: CommandEnvelope["name"];
         let payload: CommandEnvelope["payload"];
@@ -381,14 +385,16 @@ export function AiProposalPanel(props: PageProps) {
             taskId,
             executorKind: str(candidate.entry.executor_kind) || "ai_agent",
             executorIdentity: str(candidate.entry.executor_identity) || null,
+            startedAt: str(candidate.entry.started_at) || null,
+            sourceSession: proposal.id,
           };
-        } else if (action === "append_receipt" || action === "report_done") {
-          name = "AppendWorkReceipt";
-          const reportedAt = str(candidate.entry.reported_at) || new Date().toISOString();
+        } else if (action === "append_receipt" || action === "report_done" || action === "report_blocked") {
+          name = action === "report_blocked" ? "ReportTaskBlocked" : action === "report_done" ? "ReportTaskDone" : "AppendWorkReceipt";
+          const reportedAt = str(candidate.entry.reported_at) || str(proposal.created_at) || str(proposal.received_at) || new Date().toISOString();
           payload = {
             taskId,
             receipt: {
-              id: uuid(),
+              id: proposal.id,
               task_id: taskId,
               executor_kind: str(candidate.entry.executor_kind) || "ai_agent",
               executor_label: str(candidate.entry.executor_label) || "AI agent",
@@ -403,6 +409,7 @@ export function AiProposalPanel(props: PageProps) {
                 ? { external_references: normalizeExternalReferences(candidate.entry.external_references) }
                 : {}),
               source_session: proposal.id,
+              repository_context: candidate.entry.repository_context && typeof candidate.entry.repository_context === "object" ? candidate.entry.repository_context : null,
               runtime_metadata: candidate.entry.runtime_metadata && typeof candidate.entry.runtime_metadata === "object" ? candidate.entry.runtime_metadata : null,
             },
           };
@@ -410,7 +417,7 @@ export function AiProposalPanel(props: PageProps) {
           throw new Error("未対応のtask_work actionです。");
         }
         await executeCommand({
-          commandId: uuid(),
+          commandId: proposal.id,
           name,
           payload,
           actor: { kind: "user" },

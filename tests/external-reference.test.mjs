@@ -46,6 +46,8 @@ test("MCP task_work Proposal normalizes external references before Inbox persist
       task_work: [{
         action: "report_done",
         task_id: "task-1",
+        expected_version: 3,
+        caller: "gitlab-agent",
         executor_kind: "ai_agent",
         executor_label: "GitLab agent",
         summary: "MRを作成しました",
@@ -90,6 +92,6 @@ test("Receipt UI keeps external references compact and follows the existing Work
   assert.match(drawer, /task-work-external-references/);
   assert.match(drawer, /target="_blank" rel="noreferrer"/);
   assert.match(panel, /external_references: normalizeExternalReferences/);
-  assert.match(panel, /name = "AppendWorkReceipt"/);
+  assert.match(panel, /"ReportTaskDone" : "AppendWorkReceipt"/);
   assert.match(command, /normalizeExternalReferences\(payload\.receipt\.external_references\)/);
 });

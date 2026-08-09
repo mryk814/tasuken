@@ -14,6 +14,8 @@ export const applicationCommandNames = [
   "ApplyAiProposal",
   "StartTaskWork",
   "AppendWorkReceipt",
+  "ReportTaskDone",
+  "ReportTaskBlocked",
   "AcceptTaskWork",
   "ReturnTaskWork",
 ] as const;
@@ -100,6 +102,7 @@ export interface StartTaskWorkCommandPayload {
   executorKind?: string;
   executorIdentity?: string | null;
   startedAt?: string | null;
+  sourceSession?: string | null;
 }
 
 export interface AppendWorkReceiptCommandPayload {
@@ -231,13 +234,13 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
   }
-  if (["StartTaskWork", "AppendWorkReceipt", "AcceptTaskWork", "ReturnTaskWork"].includes(name)
+  if (["StartTaskWork", "AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked", "AcceptTaskWork", "ReturnTaskWork"].includes(name)
     && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
   }
-  if (name === "AppendWorkReceipt") {
+  if (["AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked"].includes(name)) {
     if (!isRecord(value.payload.receipt) || typeof value.payload.receipt.id !== "string" || !value.payload.receipt.id.trim()) {
-      throw new ApplicationCommandError("INVALID_PAYLOAD", "AppendWorkReceiptのreceiptが不正です。");
+      throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のreceiptが不正です。`);
     }
     if (value.payload.receipt.external_references !== undefined) {
       try {

@@ -233,7 +233,7 @@ function TaskWorkSection({
       return;
     }
     const reportedAt = new Date().toISOString();
-    void run("AppendWorkReceipt", {
+    void run("ReportTaskDone", {
       taskId: task.id,
       receipt: {
         id: uuid(),
