@@ -51,6 +51,8 @@ test("packaged smoke records, commits, plays and restart-checks a synthetic micr
   assert.match(source, /navigator\.mediaDevices\.getUserMedia\(\{ audio: true \}\)/);
   assert.match(source, /new MediaRecorder\(stream, \{ mimeType \}\)/);
   assert.match(source, /window\.api\.mediaCapture\.appendRecording/);
+  assert.match(source, /flushPausedRecorder[\s\S]*?setTimeout\([\s\S]*?200\)[\s\S]*?await flushPausedRecorder\(\)[\s\S]*?await appendChain[\s\S]*?pauseRecording/);
+  assert.match(source, /appendFailure \|\|= error[\s\S]*?if \(appendFailure\) throw appendFailure/);
   assert.match(source, /window\.api\.mediaCapture\.commitAudio/);
   assert.match(source, /created\.audioArtifactId = audioSmoke\.artifactId/);
   assert.match(source, /created\.microphoneArtifactId = microphoneSmoke\.artifactId/);

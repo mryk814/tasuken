@@ -1101,25 +1101,46 @@ flowchart LR
       const recorder = new MediaRecorder(stream, { mimeType });
       let sequence = 0;
       let appendChain = Promise.resolve();
+      let appendFailure = null;
       const queueBlob = (blob) => {
         appendChain = appendChain.then(async () => {
+          if (appendFailure) return;
           for (let offset = 0; offset < blob.size; offset += started.maxChunkBytes) {
             const chunk = await blob.slice(offset, Math.min(blob.size, offset + started.maxChunkBytes)).arrayBuffer();
             const progress = await window.api.mediaCapture.appendRecording({ sessionId: started.sessionId, sequence, chunk });
             sequence = progress.nextSequence;
           }
+        }).catch((error) => {
+          appendFailure ||= error;
         });
       };
+      const flushPausedRecorder = () => new Promise((resolve, reject) => {
+        let quietTimer = null;
+        const timeoutTimer = setTimeout(() => {
+          recorder.removeEventListener("dataavailable", onDataAvailable);
+          if (quietTimer !== null) clearTimeout(quietTimer);
+          reject(new Error("microphone data flush timeout"));
+        }, 3000);
+        const onDataAvailable = () => {
+          if (quietTimer !== null) clearTimeout(quietTimer);
+          quietTimer = setTimeout(() => {
+            clearTimeout(timeoutTimer);
+            recorder.removeEventListener("dataavailable", onDataAvailable);
+            resolve();
+          }, 200);
+        };
+        recorder.addEventListener("dataavailable", onDataAvailable);
+        recorder.requestData();
+      });
       recorder.addEventListener("dataavailable", (event) => queueBlob(event.data));
       recorder.start(100);
       await delay(350);
       const recorderPaused = new Promise((resolve) => recorder.addEventListener("pause", resolve, { once: true }));
       recorder.pause();
       await recorderPaused;
-      const pauseChunk = new Promise((resolve) => recorder.addEventListener("dataavailable", resolve, { once: true }));
-      recorder.requestData();
-      await pauseChunk;
+      await flushPausedRecorder();
       await appendChain;
+      if (appendFailure) throw appendFailure;
       await window.api.mediaCapture.pauseRecording({ sessionId: started.sessionId });
       await delay(100);
       await window.api.mediaCapture.resumeRecording({ sessionId: started.sessionId });
@@ -1131,6 +1152,7 @@ flowchart LR
         recorder.stop();
       });
       await appendChain;
+      if (appendFailure) throw appendFailure;
       stream.getTracks().forEach((track) => track.stop());
       const prepared = await window.api.mediaCapture.stopRecording({ sessionId: started.sessionId });
       const projected = JSON.stringify(prepared);

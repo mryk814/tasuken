@@ -30,6 +30,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { inferChatServiceFromUrl } from "../lib/chatServices";
 import { trackPendingMediaRecordingFlush } from "../lib/mediaRecordingFlushRegistry";
+import { waitForMediaRecorderDataFlush } from "../lib/mediaRecorderFlush";
 import { themeColor } from "../lib/domain";
 import { formatDate, uuid } from "../lib/format";
 import { ActionButton, Button, EmptyState, PageHeader } from "../components/common";
@@ -483,9 +484,7 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       recorder.pause();
       recordingAccumulatedMsRef.current += performance.now() - recordingStartedAtRef.current;
       await recorderPaused;
-      const chunkQueued = new Promise<void>((resolve) => recorder.addEventListener("dataavailable", () => resolve(), { once: true }));
-      recorder.requestData();
-      await chunkQueued;
+      await waitForMediaRecorderDataFlush(recorder);
       await recordingAppendRef.current;
       await workspaceApi.pauseMediaRecording(session.sessionId);
       setRecorderElapsedMs(recordingAccumulatedMsRef.current);
