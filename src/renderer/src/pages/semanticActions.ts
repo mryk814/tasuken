@@ -45,7 +45,6 @@ export const ACTION_DEFINITIONS = {
   notesSave: { id: "notesSave", label: "保存", icon: IconDeviceFloppy, role: "primary", shortcut: "Ctrl+S", availability: "when-editing" },
   chatRefsAdd: { id: "chatRefsAdd", label: "追加", icon: IconLinkPlus, role: "primary", availability: "always" },
   aiAnswer: { id: "aiAnswer", label: "AI回答を受け取る", icon: AI_ICON, role: "ai", availability: "when-ai-enabled" },
-  aiDraft: { id: "aiDraft", label: "AI Draft", icon: AI_ICON, role: "ai", availability: "when-ai-enabled" },
   aiContext: { id: "aiContext", label: "AI Context", icon: AI_ICON, role: "ai", availability: "when-ai-enabled" },
   aiProposalPreview: { id: "aiProposalPreview", label: "Preview", role: "primary", availability: "when-selection" },
   aiProposalAccept: { id: "aiProposalAccept", label: "採用を保存", icon: IconCheck, role: "primary", availability: "when-selection" },

@@ -476,14 +476,11 @@ Theme内のTask / Note / Resource / Artifactから利用者が選んだ項目だ
 保存時はPrompt Noteとして出力時点のMarkdownとEntity ID一覧をSnapshot保持し、AI回答用Markdown Noteから出典を辿れるようにする。
 長文Noteは抜粋し、Artifact本文や資格情報を自動収集しない。
 
-### AI Draft Workspace
+### Note AI drawer
 
-AI生成MarkdownはNoteの付帯情報にSource Draftとして保持し、通常本文のWorking Draftと分離する。
-NotesのSource / Edit / Diff / 履歴を切り替え、変更ブロック単位でSource側を採用できる。
-部分採用、全文置換、Snapshot復元は保存前にUndoでき、全文置換だけは影響を明示して再確認する。
-AIサービス名、元チャットURL、元指示は任意項目とし、AI APIは必須にしない。
-新しいAI返答はSource Draft候補として追加し、既存Working Draftを黙って上書きしない。
-Working Draftは通常のMarkdown Noteとして保存し、既存Preview・Markdown保存・PDF出力を使う。
+Note AIはNotes右側のchat drawerへ統合する。送信Contextと外部AI公開範囲をMainで確認し、完成した返答だけをNote IDに紐づくPending Proposalとして保存する。
+コピー・挿入・選択置換・全文置換・新規Noteを同じdrawerから選び、既存Noteへの反映はDiff確認後にApplication Commandとcanonical Markdown保存を通す。
+旧`properties_json.draft_workspace`は履歴として読み取るが、独立したDraft Workspace画面や二つ目のWorking Draft正本は持たない。
 
 ## 5.9 Stats
 

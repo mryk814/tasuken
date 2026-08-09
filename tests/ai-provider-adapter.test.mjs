@@ -175,6 +175,29 @@ test("Responses stream cancellation is normalized after headers arrive", async (
   assert.deepEqual(events.at(-1), { type: "error", error: { code: "cancelled", message: "AI streamがキャンセルされました。", retryable: false } });
 });
 
+test("Responses stream cancels its reader when AbortSignal fires between fetch and reader listener", async () => {
+  const controller = new AbortController();
+  let readerCancelled = false;
+  const body = new ReadableStream({
+    start() {},
+    cancel() { readerCancelled = true; },
+  });
+  const adapter = new OpenAiResponsesAdapter({
+    profile: profile(),
+    credential: "fixture-secret",
+    timeoutMs: 1000,
+    signal: controller.signal,
+    fetcher: async () => {
+      controller.abort();
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  const events = [];
+  for await (const event of adapter.stream(request({ stream: true }))) events.push(event);
+  assert.equal(readerCancelled, true);
+  assert.deepEqual(events.at(-1), { type: "error", error: { code: "cancelled", message: "AI streamがキャンセルされました。", retryable: false } });
+});
+
 test("capability resolver intersects model claims with implemented adapter surface", () => {
   const provider = profile();
   const model = {

@@ -23,11 +23,13 @@ import {
   type AiProviderConfig,
   type AiProviderProfile,
   type AiProviderProfileUpdate,
+  type AiStreamEvent,
   type AiTestConnectionRequest,
 } from "../../shared/ai";
 import { adapterCapabilities, resolveFeatureAvailability } from "./ai/capabilities";
 import { AiAdapterError, type AiAdapter, type FetchLike } from "./ai/adapterContract";
 import { OpenAiResponsesAdapter, UnsupportedAiAdapter } from "./ai/adapters";
+import { AiNoteStreamRegistry } from "./ai/noteStreamRegistry.mjs";
 
 const DEFAULT_MODEL = "gpt-5.6";
 const DEFAULT_PROVIDER_ID = "openai-default";
@@ -235,36 +237,101 @@ function redact(value: string, credential?: string): string {
   return withoutCredential.replace(/(api[-_]?key|authorization|token|secret)\s*[:=]\s*[^,\s]+/gi, "$1=[REDACTED]").slice(0, 500);
 }
 
-function buildNoteMessages(request: AiNoteGenerateRequest) {
-  const target = request.scope === "selection" ? request.selection!.text : request.body;
-  const task = request.mode === "continue"
-    ? "自然な続きをMarkdownで書いてください。既存本文は出力に含めず、追記部分だけを返してください。"
-    : "指示に従ってMarkdownを編集してください。説明やコードフェンスを付けず、編集後の対象本文だけを返してください。";
+export function buildNoteMessages(request: AiNoteGenerateRequest) {
+  const context: string[] = [];
+  if (request.context.includeTitle) context.push(`## Note title\n${request.title || "無題"}`);
+  if (request.context.includeBody) context.push(`## Note body\n${request.body}`);
+  if (request.context.includeSelection && request.selection) context.push(`## Explicit selection\n${request.selection.text}`);
+  if (request.context.includeHeading && request.context.heading) context.push(`## Current heading\n${request.context.heading}`);
+  if (request.context.theme) context.push(`## Theme\n${request.context.theme.title}\n\n${request.context.theme.summary}`);
+  if (request.context.resource) context.push(`## Related Resource\n${request.context.resource.title}\n\n${request.context.resource.summary}`);
+  const history = (request.history || []).map((entry) => ({
+    role: entry.role,
+    content: [{ type: "text" as const, text: entry.text }],
+  }));
   return [
+    ...history,
     {
       role: "system" as const,
-      content: [{ type: "text" as const, text: "あなたはTaskenのNote編集アシスタントです。入力された本文と指示だけを使い、Markdown本文を返してください。" }],
+      content: [{ type: "text" as const, text: "あなたはTaskenのNote編集アシスタントです。明示されたContextだけを使って回答してください。回答はそのままコピー・挿入・差分レビューできるMarkdownにし、コードフェンスや前置きは付けません。" }],
     },
     {
       role: "user" as const,
-      content: [{ type: "text" as const, text: [`Note title: ${request.title || "無題"}`, `Mode: ${request.mode}`, task, `Instruction: ${request.instruction.trim()}`, "", "Target Markdown:", target].join("\n") }],
+      content: [{ type: "text" as const, text: [`# Request\n${request.instruction.trim()}`, ...context].join("\n\n") }],
     },
   ];
 }
 
-function validateNoteRequest(value: AiNoteGenerateRequest): AiNoteGenerateRequest {
+function validateContextEntity(value: unknown, label: string): { id: string; title: string; summary: string } | undefined {
+  if (value === undefined || value === null) return undefined;
+  const item = record(value);
+  return {
+    id: text(item.id, `${label} id`, 200),
+    title: text(item.title, `${label} title`, 500),
+    summary: text(item.summary, `${label} summary`, 20_000),
+  };
+}
+
+export function validateNoteRequest(value: AiNoteGenerateRequest): AiNoteGenerateRequest {
   if (!value || typeof value !== "object") throw new AiProviderServiceError("AI編集の入力が不正です。", "invalid_request");
-  if (!["rewrite", "continue", "chat"].includes(value.mode)) throw new AiProviderServiceError("AI編集モードが不正です。", "invalid_request");
+  if (
+    value.confirmationToken !== "note-ai-context-confirmed/v1"
+    || typeof value.noteId !== "string"
+    || !value.noteId.trim()
+    || !Number.isInteger(value.baseRevision)
+    || typeof value.expectedBodySignature !== "string"
+    || !/^[a-f0-9]{64}$/.test(value.expectedBodySignature)
+  ) {
+    throw new AiProviderServiceError("AI ContextのMain確認が不正です。", "invalid_request");
+  }
   if (!["document", "selection"].includes(value.scope)) throw new AiProviderServiceError("AI編集範囲が不正です。", "invalid_request");
   if (typeof value.body !== "string" || value.body.length > MAX_BODY_CHARS) throw new AiProviderServiceError("Note本文が大きすぎます。30万文字以下にしてください。", "invalid_request");
+  if (typeof value.title !== "string" || value.title.length > 500) throw new AiProviderServiceError("Note titleが大きすぎます。", "invalid_request");
   if (typeof value.instruction !== "string" || !value.instruction.trim() || value.instruction.length > 20_000) throw new AiProviderServiceError("AIへの指示を1〜2万文字で入力してください。", "invalid_request");
+  const contextValue = record(value.context);
+  if (typeof contextValue.includeTitle !== "boolean" || typeof contextValue.includeBody !== "boolean" || typeof contextValue.includeSelection !== "boolean" || typeof contextValue.includeHeading !== "boolean" || typeof contextValue.includeHistory !== "boolean") {
+    throw new AiProviderServiceError("AIへ送るContextの選択が不正です。", "invalid_request");
+  }
   if (value.scope === "selection") {
     const selection = value.selection;
     if (!selection || !Number.isInteger(selection.start) || !Number.isInteger(selection.end) || selection.start < 0 || selection.end <= selection.start || value.body.slice(selection.start, selection.end) !== selection.text) {
       throw new AiProviderServiceError("選択範囲が本文と一致しません。範囲を選び直してください。", "invalid_request");
     }
   }
-  return value;
+  if (contextValue.includeSelection && !value.selection) throw new AiProviderServiceError("送信対象の選択範囲がありません。", "invalid_request");
+  const heading = contextValue.includeHeading ? text(contextValue.heading, "current heading", 500) : undefined;
+  const theme = validateContextEntity(contextValue.theme, "Theme");
+  const resource = validateContextEntity(contextValue.resource, "Resource");
+  const history = Array.isArray(value.history) ? value.history : [];
+  if (history.length > 24) throw new AiProviderServiceError("AI会話履歴が多すぎます。", "invalid_request");
+  let historyChars = 0;
+  const boundedHistory = history.map((entry) => {
+    if (!entry || (entry.role !== "user" && entry.role !== "assistant") || typeof entry.text !== "string" || !entry.text || entry.text.length > 4_000) {
+      throw new AiProviderServiceError("AI会話履歴が不正です。", "invalid_request");
+    }
+    historyChars += entry.text.length;
+    return { role: entry.role, text: entry.text };
+  });
+  if (historyChars > 24_000) throw new AiProviderServiceError("AI会話履歴が大きすぎます。", "invalid_request");
+  if (!contextValue.includeTitle && !contextValue.includeBody && !contextValue.includeSelection && !heading && !theme && !resource && !(contextValue.includeHistory && boundedHistory.length)) {
+    throw new AiProviderServiceError("AIへ送るContextを1件以上選んでください。", "invalid_request");
+  }
+  return {
+    ...value,
+    title: value.title.slice(0, 500),
+    instruction: value.instruction.trim(),
+    context: {
+      includeTitle: contextValue.includeTitle,
+      includeBody: contextValue.includeBody,
+      includeSelection: contextValue.includeSelection,
+      includeHeading: contextValue.includeHeading,
+      includeHistory: contextValue.includeHistory,
+      ...(heading ? { heading } : {}),
+      ...(theme ? { theme } : {}),
+      ...(resource ? { resource } : {}),
+    },
+    history: boundedHistory,
+  };
 }
 
 function migrateLegacyConfig(parsed: LegacyAiConfig, storage: SafeStorageAdapter): StoredAiConfig {
@@ -483,7 +550,9 @@ export class AiProviderService {
     }
   }
 
-  async generateNote(requestValue: AiNoteGenerateRequest): Promise<AiNoteGenerateResult> {
+  private readonly noteStreams = new AiNoteStreamRegistry();
+
+  async streamNote(requestId: string, requestValue: AiNoteGenerateRequest, onEvent: (event: AiStreamEvent) => void): Promise<AiNoteGenerateResult> {
     const request = validateNoteRequest(requestValue);
     const config = this.readConfig();
     const provider = config.providers.find((candidate) => candidate.id === config.defaultProviderProfileId);
@@ -494,19 +563,33 @@ export class AiProviderService {
     if (!availability.available) {
       throw new AiProviderServiceError(`このmodelではNote AIを利用できません。必要: ${availability.required.join(", ")} / 不足: ${availability.missing.join(", ")}`, availability.reason === "model_unavailable" ? "model_unavailable" : availability.reason === "adapter_unimplemented" ? "unsupported" : "invalid_request");
     }
-    let response;
+    let responseText = "";
+    let usage = null;
     let credential: string | undefined;
+    let controller: AbortController;
+    try {
+      controller = this.noteStreams.start(requestId);
+    } catch {
+      throw new AiProviderServiceError("AI stream request idが不正です。", "invalid_request");
+    }
     try {
       credential = this.credentialFor(provider);
-      const adapter = this.createAdapter(provider, credential);
-      response = await adapter.complete({ model: model.model, messages: buildNoteMessages(request), stream: false });
+      const adapter = this.createAdapter(provider, credential, provider.requestTimeoutMs, controller.signal);
+      for await (const event of adapter.stream({ model: model.model, messages: buildNoteMessages(request), stream: true })) {
+        onEvent(event);
+        if (event.type === "text_delta") responseText += event.text;
+        else if (event.type === "usage") usage = event.usage;
+        else if (event.type === "error") throw new AiAdapterError(event.error);
+      }
     } catch (error) {
       throw this.normalizeError(error, provider, model, credential);
+    } finally {
+      this.noteStreams.finish(requestId);
     }
-    if (!response.text) throw new AiProviderServiceError("providerの返答が空でした。入力内容は保持されています。", "provider_failure");
-    let proposedBody = response.text;
-    if (request.mode === "continue") proposedBody = `${request.body.replace(/\s+$/, "")}\n\n${response.text}`;
-    else if (request.scope === "selection") proposedBody = `${request.body.slice(0, request.selection!.start)}${response.text}${request.body.slice(request.selection!.end)}`;
+    if (!responseText.trim()) throw new AiProviderServiceError("providerの返答が空でした。入力内容は保持されています。", "provider_failure");
+    const proposedBody = request.scope === "selection"
+      ? `${request.body.slice(0, request.selection!.start)}${responseText}${request.body.slice(request.selection!.end)}`
+      : responseText;
     return {
       providerProfileId: provider.id,
       providerLabel: provider.label,
@@ -514,18 +597,22 @@ export class AiProviderService {
       modelProfileId: model.id,
       model: model.model,
       capabilityPath: availability.required,
-      usage: response.usage,
+      usage,
       proposedBody,
-      responseText: response.text,
+      responseText,
     };
   }
 
-  private createAdapter(provider: StoredProviderProfile, credential = this.credentialFor(provider), timeoutMs = provider.requestTimeoutMs): AiAdapter {
+  cancelNoteStream(requestId: string): boolean {
+    return this.noteStreams.cancel(requestId);
+  }
+
+  private createAdapter(provider: StoredProviderProfile, credential = this.credentialFor(provider), timeoutMs = provider.requestTimeoutMs, signal?: AbortSignal): AiAdapter {
     const publicProvider = this.toPublicProvider(provider);
     if (publicProvider.adapterStatus === "implemented") {
-      return new OpenAiResponsesAdapter({ profile: publicProvider, credential, fetcher: this.fetcher, timeoutMs });
+      return new OpenAiResponsesAdapter({ profile: publicProvider, credential, fetcher: this.fetcher, timeoutMs, signal });
     }
-    return new UnsupportedAiAdapter({ profile: publicProvider, credential, fetcher: this.fetcher, timeoutMs });
+    return new UnsupportedAiAdapter({ profile: publicProvider, credential, fetcher: this.fetcher, timeoutMs, signal });
   }
 
   private credentialFor(provider: StoredProviderProfile): string | undefined {

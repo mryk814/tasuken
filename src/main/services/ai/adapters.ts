@@ -340,12 +340,18 @@ export class OpenAiResponsesAdapter implements AiAdapter {
     const toolCallsByItemId = new Map<string, { id: string; name: string }>();
     let messageStarted = false;
     let streamTimedOut = false;
-    let streamCancelled = Boolean(this.context.signal?.aborted);
+    let streamCancelled = false;
+    let cancelRequested = false;
     const onAbort = () => {
+      if (cancelRequested) return;
+      cancelRequested = true;
       streamCancelled = true;
       void reader.cancel();
     };
     this.context.signal?.addEventListener("abort", onAbort, { once: true });
+    // Abort can race with listener installation after fetch resolves. Recheck
+    // after attaching so the reader is always cancelled as well as fetch.
+    if (this.context.signal?.aborted) onAbort();
     const streamTimer = setTimeout(() => {
       streamTimedOut = true;
       void reader.cancel();

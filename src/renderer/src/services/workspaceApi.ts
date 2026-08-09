@@ -83,6 +83,9 @@ export const workspaceApi = {
   saveDocument(request: DocumentSaveRequest) {
     return desktopApi().documents.save(request);
   },
+  applyCanonicalNoteAiProposal(request: DocumentSaveRequest, envelope: CommandEnvelope) {
+    return desktopApi().documents.applyAiProposal(request, envelope);
+  },
   get(type: EntityType, id: string) {
     return desktopApi().entities.get(type, id);
   },
@@ -147,8 +150,14 @@ export const workspaceApi = {
   getAiFeatureAvailability(feature: import("../../../shared/ai").AiFeature, providerProfileId?: string, modelProfileId?: string) {
     return desktopApi().ai.featureAvailability(feature, providerProfileId, modelProfileId);
   },
-  generateNoteWithAi(request: import("../../../shared/ai").AiNoteGenerateRequest) {
-    return desktopApi().ai.generateNote(request);
+  startNoteAiStream(requestId: string, request: import("../../../shared/ai").AiNoteGenerateRequest) {
+    return desktopApi().ai.startNoteStream(requestId, request);
+  },
+  cancelNoteAiStream(requestId: string) {
+    return desktopApi().ai.cancelNoteStream(requestId);
+  },
+  onNoteAiStreamEvent(callback: Parameters<Window["api"]["ai"]["onNoteStreamEvent"]>[0]) {
+    return desktopApi().ai.onNoteStreamEvent(callback);
   },
   copyText(text: string) {
     return desktopApi().clipboard.writeText(text);

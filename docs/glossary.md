@@ -20,7 +20,7 @@
 | Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から。NoteのMarkdown/PDF書き出しはChat Refを主な出所、元Noteを追跡情報として持てる。Artifact一覧の「来歴」から元Note / Conversationまで逆向きに辿れる |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
 | AI Inbox | `ImportExportPage.tsx` | 「AI Import」「AI連携」（旧称）。外部AIから届いたProposalを検証→プレビュー→採用する安全な取り込み導線 |
-| Note AI | `NoteAiDialog.tsx` / `AiProposalPanel.tsx` | Noteの「AI編集」「選択範囲をAIで編集」。OpenAIの返答を直接保存せずPending Proposalへ入れ、差分hunkを選んで採用する |
+| Note AI | `NoteAiDrawer.tsx` | Noteを見ながら右ドロワーで会話する編集支援。外部AIへ送るContextを明示確認し、返答をPending Proposalへ保存してから差分hunk単位で採用する |
 | AI Proposal | `AiProposalPanel.tsx` / `McpProposalInboxService` | 内蔵LLM・MCP・手動Importから届く安全な書き込み候補。Note / Knowledge / Sketch / Artifactの正式保存前にPreviewする |
 | M365向け AI Pack | `ThemePage.tsx` / `themeAiPackPublisher.mjs` | Themeの公開可能情報を固定7 Markdownへ投影する同期用Pack。Previewで除外・警告・文字量を確認してから更新し、AI Pack自体は正本にしない。詳細は `docs/theme-ai-pack.md` |
 | Context Preview | `AiContextPreviewPanel.tsx` / `aiContextPreview.mjs` | Theme / Taskについて、M365向けAI PackまたはCoding Agent向けMCPが実際に選んだbounded contextを表示する。専用の選択規則は持たず、included / excluded / relation path / visibility / freshness / authority / truncationを実producer responseから投影する |
@@ -57,7 +57,7 @@
 | 選択範囲から切り出す | NotesのEditで選んだMarkdownを、元本文を変更せずTaskまたはNoteとして作成する。作成先から元Note・見出し・引用を辿れる |
 | Command Palette | `Ctrl+Shift+K`またはタイトルバーから開く共通操作入口。コマンドとTask / Note / Theme / Resource / Artifactを横断検索する |
 | Context Pack | Theme内で明示選択したTask / Note / Resource / Artifactと依頼文を、AIへ渡すMarkdown Snapshotとしてコピー・保存する |
-| Draft Workspace | AI原稿をSource Draft、通常Note本文をWorking Draftとして保持し、Source / Edit / Diff / 軽量Snapshotを切り替えるNotes内の作業面 |
+| 旧AI Draft | 既存`properties_json.draft_workspace`をNote AIの会話履歴として読み取る互換データ。独立した画面・保存経路は持たない |
 | Daily Scratchpad | 日付ごとに一枚だけ作る分類前の作業メモ。TodayまたはCommand Paletteから開き、通常Noteとして自動保存する。Activity Logへ全文を自動転記しない |
 | Focus Session | Taskを中心に関連Note / Artifact / Resource、作業中Scratchpad、経過時間を一面へ集める単一active session。終了時にTask状態・Note化・次Task・Activity要約を整理する |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |

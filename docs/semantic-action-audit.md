@@ -16,7 +16,7 @@ rg -n --glob '*.html' --glob '*.css' ':[[:space:]]*#[0-9A-Fa-f]{3,8}' src/render
 | 用途 | 現在の正本 | 判定 |
 |---|---|---|
 | AI回答を受け取る | `ContextPackDialog.tsx` / `Button variant="ai"` | AI依頼。適切 |
-| AI Draft / Note AI | `NotesPage.tsx`, `NoteAiDialog.tsx` | AI生成・提案。適切 |
+| Note AI | `NotesPage.tsx`, `NoteAiDrawer.tsx` | AI生成・提案。適切 |
 | AI向けContext | `ThemePage.tsx` | AIへ渡す。適切 |
 | assistant message | `ConversationPreview.tsx` | AI生成結果。適切 |
 | AI Inbox route | `routes.ts` の `ROUTE_DEFINITIONS.ai-io` | Proposalを確認する画面。AI action iconとは分離して適切 |
@@ -32,7 +32,6 @@ Today mini、Quick Capture、Memo stickyのstandalone windowも `electron.vite.c
 赤系の操作は次の不可逆または影響範囲の大きい操作に限定した。
 
 - Entity削除、Knowledge/Theme section削除: `drawer.tsx`, `ThemePage.tsx`
-- Draft破棄・Source置換: `DraftWorkspaceDialog.tsx`
 - Calendar接続解除、保存済みAPI key削除: `SettingsPage.tsx`
 - link解除などの不可逆操作: `MarkdownRichEditor.tsx`
 
@@ -68,7 +67,7 @@ Today mini、Quick Capture、Memo stickyのstandalone windowも `electron.vite.c
 
 主要surfaceのheader action、AI InboxのProposal review、Knowledgeの追加、Notesの作成・保存、Timeline/Today/Waitingの状態変更は typed `Button` / `ActionButton` に置換する。残る `primary-button` / `secondary-button` / `danger-button` は、次のような専門ダイアログ・表内の低頻度補助操作・standalone windowの既存導線に限定する。
 
-- `DraftWorkspaceDialog` / `MarkdownRichEditor` / `MarkdownDiffMarkerRail`: Source置換・差分採用など編集専用の補助操作
+- `NoteAiDrawer` / `MarkdownRichEditor` / `MarkdownDiffMarkerRail`: AI差分採用など編集専用の補助操作
 - `SettingsPage` の backup/sync/import-export: 各panel内の補助操作。panelの主操作はtyped Buttonへ移行済み
 - `drawerPickers` / `ToolbarMenu` / `SlideTimelineDialog` / `SketchPage`: 専門ツール内の補助操作
 - `NotesPage` の検索・差分・Sketch挿入: 編集中の補助操作。文書作成・保存の主操作はActionDefinitionへ接続
@@ -87,7 +86,6 @@ Themeの選択値は `shared/themeRef.mjs` の `themePickerOptions` を正本と
 | Chat Refs Theme column | `themePickerOptions` | personal ID、Theme ID | canonical list projection |
 | Conversation import | `ThemePickerSelect` + `allowNone` | personal ID、`""`、Theme ID | canonical |
 | `SlideTimelineDialog` | 独自native select | slide出力範囲の `all` / Theme ID | 専門出力UIとして残存 |
-| `DraftWorkspaceDialog` | 独自native select | draft作業対象のTheme | 専門AI draft UIとして残存 |
 | Sketch detail drawer | `ThemePickerSelect` + `allowNone` | personal ID、`""`、Theme ID | canonical即時保存 |
 
 残存native selectは上表の専門UIに限定し、作成・編集・一覧filterの主要surfaceには残していない。`ThemeSelect` は空文字を含む選択値をhidden inputと `onChange` に同じまま渡す。

@@ -122,6 +122,15 @@ export interface DocumentSaveRequest {
   companions?: DocumentSaveReferenceCompanion[];
 }
 
+/** canonical Note AI採用時だけdocument:saveに同伴できるApplication Command正本。 */
+export interface CanonicalNoteAiCompanion {
+  schema: "tasken-note-ai-companion/v1";
+  noteId: string;
+  commandId: string;
+  proposal: Entity;
+  event: Entity;
+}
+
 export interface SaveOperation {
   action: "save";
   type: EntityType;

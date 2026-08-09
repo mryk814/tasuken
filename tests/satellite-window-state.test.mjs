@@ -428,7 +428,8 @@ test("狭くしたNote別ウィンドウでも本文の領域が残る（#329）
   const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
   // 一覧を畳んでいるときは本文が唯一の列。760px以下でも積み上げず、列構成と高さの制約を保つ。
-  assert.match(cssSourceForNotes, /\.notes-workbench\.is-list-collapsed \{ grid-template-columns: 0px auto minmax\(0, 1fr\) !important; \}/);
+  assert.match(cssSourceForNotes, /\.notes-workbench\.is-list-collapsed:not\(\.has-note-ai-drawer\) \{ grid-template-columns: 0px auto minmax\(0, 1fr\) !important; \}/);
+  assert.match(cssSourceForNotes, /\.notes-workbench\.has-note-ai-drawer\.is-list-collapsed \{ grid-template-columns: 0px auto minmax\(0, 1fr\) auto !important; \}/);
   assert.match(cssSourceForNotes, /\.notes-workbench\.is-list-collapsed \.note-preview-panel \{ min-height: 0; max-height: 100%; \}/);
 
   // 上部バーは幅が足りなくても縮めず畳む。縮めると日本語ラベルが一文字ずつ縦積みになる。

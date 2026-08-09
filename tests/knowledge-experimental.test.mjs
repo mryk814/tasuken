@@ -22,7 +22,7 @@ test("Knowledge route is a weak experimental tool, not the knowledge hub", () =>
 test("daily Notes and task-learning flows do not create Knowledge", () => {
   assert.doesNotMatch(notes, /Knowledge化|knowledge_node|knowledgeExtraction/);
   assert.doesNotMatch(drawer, /Knowledge候補|Knowledge化する|Knowledge化/);
-  assert.match(notes, /AI Draft/);
+  assert.match(notes, /Note AIを開く/);
 });
 
 test("Knowledge diagnostics preserve existing storage while Context Graph stays independent", () => {
