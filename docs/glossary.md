@@ -41,6 +41,7 @@
 | Resource | 外部URL・参照資料。Notes 内の Resource フィルタ。Chat参照とは別 | body_markdown でリンク横メモ可 |
 | KnowledgeNode / KnowledgeEdge | ナレッジ、つながり | — |
 | Reference / ChatRef | チャットリンク、リンク | — |
+| Internal Link / Backlink | Entity本文からtyped `{type,id}`へ張る安定リンク / その逆参照。canonical表示は`[[type:id|alias]]`、正本は`links_to` Reference。旧`[[title]]`は移行候補の表示だけで自動接続しない | Entity詳細の共通「来歴・リンク」panel |
 | Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme。`storage_mode`: `managed`（コピー）/ `linked`（URL・パス参照）。Note書き出しをChat Refへ紐づける場合は `source_type=chat_ref` と `source_id` を主な出所、`origin_note_id` を元Noteとして保持し、どちらからも同じArtifactへ辿る。Theme 保存ルート配下は `Artifacts/` / `Notes/`（Markdown既定）/ `Exports/`（PDF候補）。未設定 Theme は `Themes/{code\|id}/…`、Theme なしは `Inbox/`（#146）。方針正本は `docs/artifact-redesign.md` |
 
 ## 頻出の UI 部品・機能語

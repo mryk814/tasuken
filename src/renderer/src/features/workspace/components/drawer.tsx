@@ -383,6 +383,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <dt>作成</dt><dd>{formatDate(sketch.created_at)}</dd>
           <dt>更新</dt><dd>{formatDate(sketch.updated_at)}</dd>
         </dl>
+        <LineagePanel
+          data={data}
+          seed={{ type: "sketch", id: sketch.id }}
+          openDrawer={(next) => close(next)}
+          openContentViewer={openContentViewer}
+        />
         <AiContextSummary type="sketch" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
       </DetailDrawer>
     );
@@ -459,15 +465,15 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             ? <ConversationPreview body={str(entity.body_markdown)} />
             : <MarkdownPreview className="markdown-preview" html={previewHtml(str(entity.body_markdown), "markdown")} />
         )}
+        <LineagePanel
+          data={data}
+          seed={{ type: "resource", id: resourceId }}
+          conversation={isChatRef}
+          openDrawer={(next) => close(next)}
+          openContentViewer={openContentViewer}
+        />
         {isChatRef && (
           <>
-            <LineagePanel
-              data={data}
-              seed={{ type: "resource", id: resourceId }}
-              conversation
-              openDrawer={(next) => close(next)}
-              openContentViewer={openContentViewer}
-            />
             <div className="lineage-create-actions" aria-label="この会話から作成">
               <button
                 type="button"
@@ -689,6 +695,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>期限</dt><dd>{formatDate(schedule?.end_date)}</dd>
           </dl>
           {waiting.description && <p>{waiting.description}</p>}
+          <LineagePanel
+            data={data}
+            seed={{ type: "waiting", id: waiting.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+          />
           <AiContextSummary type="waiting" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "waiting", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
@@ -733,6 +745,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>Theme</dt><dd>{themeName}</dd>
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
+          <LineagePanel
+            data={data}
+            seed={{ type: "plan_node", id: planNode.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+          />
           <AiContextSummary type="plan_node" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "plan_node", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
@@ -756,6 +774,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <StatusBadge value={entry.state} label={CAPTURE_ENTRY_STATE_LABELS[entry.state]} />
           <h2>{entry.title || entry.text}</h2>
           <dl><dt>記録日</dt><dd>{formatDate(entry.captured_at)}</dd></dl>
+          <LineagePanel
+            data={data}
+            seed={{ type: "capture_entry", id: entry.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+          />
           <AiContextSummary type="capture_entry" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "capture_entry", mode: "edit", entity })}><IconPencil size={16} />編集する</button>
@@ -1753,6 +1777,11 @@ function KnowledgeNodeDetailDrawer({
             ))}
           </div>
         )}
+        <LineagePanel
+          data={data}
+          seed={{ type: "knowledge_node", id: node.id }}
+          openDrawer={(next) => close(next)}
+        />
       </div>
     </aside>
   );
