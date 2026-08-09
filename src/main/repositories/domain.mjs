@@ -530,7 +530,11 @@ export function normalizeEntity(type, input) {
     Object.assign(normalized, normalizeRepositoryLinkFields(type, normalized));
   }
   for (const field of requiredFieldsForEntityType(type)) {
-    if (typeof normalized[field] === "string") normalized[field] = normalized[field].trim();
+    // Capture本文は付箋のEnter・pasteを含む原文が正本。validationでは空白だけを
+    // 拒否するが、保存時に先頭末尾の改行を削らない（#376）。
+    if (typeof normalized[field] === "string" && !(type === "capture_entry" && field === "text")) {
+      normalized[field] = normalized[field].trim();
+    }
   }
   if (type === "item") {
     normalized.schedule_status = normalized.planned_start || normalized.planned_end ? "scheduled" : "unscheduled";

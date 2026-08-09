@@ -193,6 +193,8 @@ export interface WorkspaceChangePayload {
   entity?: Entity;
   entities?: Array<{ type: EntityType; entity: Entity }>;
   canonical_root_status?: CanonicalRootStatusMap;
+  /** 付箋autosaveのresponseより先に届く自己通知をrequestへ束縛する。 */
+  memoStickySave?: MemoStickySaveSource;
 }
 
 export interface RendererFlushRequest {
@@ -663,4 +665,25 @@ export interface MemoStickyContent {
   text: string;
   url: string;
   capturedAt: string;
+  version: number;
 }
+
+export interface MemoStickySaveRequest {
+  text: string;
+  editRevision: number;
+  expectedVersion: number;
+  saveRequestId: string;
+}
+
+export interface MemoStickySaveSource {
+  kind: "memo_sticky_save";
+  saveRequestId: string;
+  editRevision: number;
+}
+
+export type MemoStickySaveResult = {
+  status: "saved" | "conflict";
+  editRevision: number;
+  saveRequestId: string;
+  content: MemoStickyContent;
+};

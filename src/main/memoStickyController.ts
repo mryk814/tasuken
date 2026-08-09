@@ -2,8 +2,13 @@ import { BrowserWindow, clipboard, ipcMain } from "electron";
 import path from "node:path";
 
 import type { SatelliteWindowRegistry } from "./satelliteWindowRegistry";
+import { saveMemoStickyWithinTransaction, type MemoStickySaveTransaction } from "./memoStickySave";
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
-import type { MemoStickyContent } from "../shared/ipc/contracts";
+import type {
+  MemoStickyContent,
+  MemoStickySaveResult,
+  WorkspaceChangePayload,
+} from "../shared/ipc/contracts";
 import { IPC } from "../shared/ipc/contracts";
 import { isStickyMemoTarget, markStickyMemoTarget } from "../shared/memoPresentation";
 import type { Entity, EntityType } from "../shared/types/workspace";
@@ -26,9 +31,9 @@ interface MemoStickyControllerOptions {
   repository: InstanceType<typeof WorkspaceDatabase>;
   satelliteWindows: SatelliteWindowRegistry;
   showMainWindow: () => BrowserWindow;
-  notifyWorkspaceChanged: (
-    change: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> },
-  ) => void;
+  notifyWorkspaceChanged: (change: WorkspaceChangePayload) => void;
+  requestRendererFlush: (window: BrowserWindow) => Promise<boolean>;
+  isAppQuitApproved?: () => boolean;
 }
 
 export interface MemoStickyController {
@@ -56,10 +61,15 @@ function toContent(memo: Entity): MemoStickyContent {
     text: typeof memo.text === "string" ? memo.text : "",
     url: typeof memo.url === "string" ? memo.url : "",
     capturedAt: String(memo.captured_at || ""),
+    version: Number(memo.version || 0),
   };
 }
 
 export function createMemoStickyController(options: MemoStickyControllerOptions): MemoStickyController {
+  const attachedWindows = new WeakSet<BrowserWindow>();
+  const pendingCloseWindows = new WeakSet<BrowserWindow>();
+  const approvedCloseWindows = new WeakSet<BrowserWindow>();
+
   function readMemo(memoId: string): Entity | null {
     const memo = options.repository.get("capture_entry", memoId) as Entity | null;
     if (!memo || memo.kind !== MEMO_KIND || memo.state === "archived" || memo.deleted_at) return null;
@@ -79,7 +89,7 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
     }
     // 同じMemoの二枚目は作らない。既に浮いていれば前面へ出すだけ（#298）。
     const key = { kind: "memo" as const, entityId: memoId };
-    options.satelliteWindows.open(key, {
+    const window = options.satelliteWindows.open(key, {
       title: memoTitle(memo),
       width: STICKY_DEFAULT_WIDTH,
       height: STICKY_DEFAULT_HEIGHT,
@@ -92,6 +102,7 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
       frame: false,
       skipTaskbar: true,
     });
+    attachCloseHandshake(window);
     options.satelliteWindows.arrange([key]);
     return true;
   }
@@ -121,6 +132,34 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
     return key?.kind === "memo" ? key.entityId : null;
   }
 
+  async function flushAndClose(window: BrowserWindow, afterFlush?: () => void): Promise<boolean> {
+    if (pendingCloseWindows.has(window)) return false;
+    pendingCloseWindows.add(window);
+    try {
+      const flushed = await options.requestRendererFlush(window);
+      if (!flushed) return false;
+      afterFlush?.();
+      approvedCloseWindows.add(window);
+      if (!window.isDestroyed()) window.close();
+      return true;
+    } finally {
+      pendingCloseWindows.delete(window);
+    }
+  }
+
+  function attachCloseHandshake(window: BrowserWindow): void {
+    if (attachedWindows.has(window)) return;
+    attachedWindows.add(window);
+    window.on("close", (event) => {
+      if (approvedCloseWindows.has(window) || options.isAppQuitApproved?.() === true) return;
+      event.preventDefault();
+      if (pendingCloseWindows.has(window)) return;
+      void flushAndClose(window).then((closed) => {
+        if (!closed) console.warn("付箋メモの終了前flushが完了しなかったため、ウィンドウを開いたままにします。");
+      });
+    });
+  }
+
   function registerIpc(): void {
     ipcMain.handle(IPC.memoStickyOpen, (_event, memoId: unknown) => {
       if (typeof memoId !== "string" || !memoId.trim()) return false;
@@ -135,15 +174,30 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
     });
 
     // 付箋上の編集は同じMemo IDへ保存する。別コピーを作らない（#298）。
-    ipcMain.handle(IPC.memoStickySave, (event, text: unknown) => {
+    ipcMain.handle(IPC.memoStickySave, (event, value: unknown): MemoStickySaveResult => {
       const memoId = memoIdOf(event);
       if (!memoId) throw new Error("対象の付箋メモがありません。");
-      if (typeof text !== "string") throw new Error("メモの内容を入力してください。");
-      const memo = readMemo(memoId);
-      if (!memo) throw new Error("メモが見つかりません。");
-      const saved = options.repository.save("capture_entry", { ...memo, text }, { source: "memo-sticky" }) as Entity;
-      options.notifyWorkspaceChanged({ type: "capture_entry", entity: saved });
-      return toContent(saved);
+      const outcome = options.repository.runTransaction((transaction: MemoStickySaveTransaction) => (
+        saveMemoStickyWithinTransaction(transaction, memoId, value)
+      ));
+      const { request } = outcome;
+      if (outcome.status === "saved") {
+        options.notifyWorkspaceChanged({
+          type: "capture_entry",
+          entity: outcome.entity,
+          memoStickySave: {
+            kind: "memo_sticky_save",
+            saveRequestId: request.saveRequestId,
+            editRevision: request.editRevision,
+          },
+        });
+      }
+      return {
+        status: outcome.status,
+        editRevision: request.editRevision,
+        saveRequestId: request.saveRequestId,
+        content: toContent(outcome.entity),
+      };
     });
 
     ipcMain.handle(IPC.memoStickyCopy, (event) => {
@@ -155,10 +209,11 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
     });
 
     // ×は表示を閉じるだけ。Memo本体は消さない（削除は明示操作）。
-    ipcMain.handle(IPC.memoStickyClose, (event) => {
+    ipcMain.handle(IPC.memoStickyClose, async (event) => {
       const memoId = memoIdOf(event);
       if (!memoId) return false;
-      return options.satelliteWindows.close({ kind: "memo", entityId: memoId });
+      const window = BrowserWindow.fromWebContents(event.sender);
+      return window ? flushAndClose(window) : false;
     });
 
     ipcMain.handle(IPC.memoStickySetAlwaysOnTop, (event, pinned: unknown) => {
@@ -199,25 +254,29 @@ export function createMemoStickyController(options: MemoStickyControllerOptions)
     });
 
     // 付箋を閉じることとは別の操作として、Memo自体をアーカイブ・削除する（#298）。
-    ipcMain.handle(IPC.memoStickyArchive, (event) => {
+    ipcMain.handle(IPC.memoStickyArchive, async (event) => {
       const memoId = memoIdOf(event);
       if (!memoId) return false;
-      const memo = readMemo(memoId);
-      if (!memo) return false;
-      const saved = options.repository.save("capture_entry", { ...memo, state: "archived" }, { source: "memo-sticky" }) as Entity;
-      options.notifyWorkspaceChanged({ type: "capture_entry", entity: saved });
-      options.satelliteWindows.close({ kind: "memo", entityId: memoId });
-      return true;
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return false;
+      return flushAndClose(window, () => {
+        const memo = readMemo(memoId);
+        if (!memo) return;
+        const saved = options.repository.save("capture_entry", { ...memo, state: "archived" }, { source: "memo-sticky" }) as Entity;
+        options.notifyWorkspaceChanged({ type: "capture_entry", entity: saved });
+      });
     });
-    ipcMain.handle(IPC.memoStickyDelete, (event) => {
+    ipcMain.handle(IPC.memoStickyDelete, async (event) => {
       const memoId = memoIdOf(event);
       if (!memoId) return false;
-      const memo = readMemo(memoId);
-      if (!memo) return false;
-      options.repository.remove("capture_entry", memoId);
-      options.notifyWorkspaceChanged({ type: "capture_entry", entity: { ...memo, deleted_at: new Date().toISOString() } as Entity });
-      options.satelliteWindows.close({ kind: "memo", entityId: memoId });
-      return true;
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return false;
+      return flushAndClose(window, () => {
+        const memo = readMemo(memoId);
+        if (!memo) return;
+        options.repository.remove("capture_entry", memoId);
+        options.notifyWorkspaceChanged({ type: "capture_entry", entity: { ...memo, deleted_at: new Date().toISOString() } as Entity });
+      });
     });
   }
 

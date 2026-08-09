@@ -285,6 +285,10 @@ function rendererWindowsForAppFlush(): BrowserWindow[] {
     const noteWindow = satelliteWindows?.get({ kind: "note", entityId: noteId });
     if (noteWindow && !windows.includes(noteWindow)) windows.push(noteWindow);
   }
+  for (const memoId of memoStickyController?.openMemoIds() || []) {
+    const memoWindow = satelliteWindows?.get({ kind: "memo", entityId: memoId });
+    if (memoWindow && !windows.includes(memoWindow)) windows.push(memoWindow);
+  }
   return windows;
 }
 
@@ -336,6 +340,10 @@ interface SmokeCreatedResult {
   aiThemeDefaultPersisted: boolean;
   aiMetadataRejectedInvalid: boolean;
   aiVisibilityDefaultSaved: string;
+  stickyAutosaveSaved?: boolean;
+  stickyImeSaved?: boolean;
+  stickyResizePreserved?: boolean;
+  stickyNativeCloseFlushed?: boolean;
   audioArtifactId?: string;
   audioMetadataLoaded?: boolean;
   audioRangeVerified?: boolean;
@@ -965,6 +973,82 @@ flowchart LR
     })()
   `) as SmokeCreatedResult;
 
+  // #376: actual detached renderer -> preload -> IPC -> transaction -> native close handshake.
+  if (!workspaceRepository || !memoStickyController || !satelliteWindows) {
+    throw new Error("sticky memo smoke boundary is unavailable");
+  }
+  const stickySmokeId = randomUUID();
+  workspaceRepository.save("capture_entry", {
+    id: stickySmokeId,
+    title: "Sticky smoke",
+    text: "initial",
+    kind: "micro_memo",
+    content_type: "text",
+    captured_at: new Date().toISOString(),
+    state: "untriaged",
+  }, { source: "smoke" });
+  if (!memoStickyController.open(stickySmokeId)) throw new Error("sticky memo smoke window did not open");
+  const stickyWindow = satelliteWindows.get({ kind: "memo", entityId: stickySmokeId });
+  if (!stickyWindow) throw new Error("sticky memo smoke window was not registered");
+  if (stickyWindow.webContents.isLoading()) {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("sticky memo smoke load timeout")), 10_000);
+      stickyWindow.webContents.once("did-finish-load", () => { clearTimeout(timer); resolve(); });
+    });
+  }
+  const stickyEdit = await stickyWindow.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const textarea = document.querySelector("#text");
+      if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("sticky textarea is unavailable");
+      for (let attempt = 0; attempt < 50 && textarea.value !== "initial"; attempt += 1) await delay(50);
+      textarea.focus();
+      textarea.value = "first";
+      textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "first" }));
+      textarea.value += "\\n";
+      textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertLineBreak", data: null }));
+      window.dispatchEvent(new Event("blur"));
+      let afterEnter = null;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        afterEnter = await window.memoStickyApi.load();
+        if (afterEnter?.text === "first\\n") break;
+        await delay(50);
+      }
+      textarea.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+      textarea.value += "日本語";
+      textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertCompositionText", data: "日本語", isComposing: true }));
+      textarea.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "日本語" }));
+      let afterIme = null;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        afterIme = await window.memoStickyApi.load();
+        if (afterIme?.text === "first\\n日本語") break;
+        await delay(50);
+      }
+      return { enter: afterEnter?.text === "first\\n", ime: afterIme?.text === "first\\n日本語" };
+    })()
+  `) as { enter: boolean; ime: boolean };
+  stickyWindow.setBounds({ ...stickyWindow.getBounds(), width: 340, height: 280 }, false);
+  const stickyResizePreserved = await stickyWindow.webContents.executeJavaScript(`
+    document.querySelector("#text")?.value === "first\\n日本語"
+  `) as boolean;
+  await stickyWindow.webContents.executeJavaScript(`
+    (() => {
+      const textarea = document.querySelector("#text");
+      textarea.value += " close-flush";
+      textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " close-flush" }));
+    })()
+  `);
+  stickyWindow.close();
+  for (let attempt = 0; attempt < 100 && !stickyWindow.isDestroyed(); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const stickyPersisted = workspaceRepository.get("capture_entry", stickySmokeId, true) as Entity | null;
+  created.stickyAutosaveSaved = stickyEdit.enter;
+  created.stickyImeSaved = stickyEdit.ime;
+  created.stickyResizePreserved = stickyResizePreserved;
+  created.stickyNativeCloseFlushed = stickyWindow.isDestroyed()
+    && stickyPersisted?.text === "first\n日本語 close-flush";
+
   if (!smokeMediaCaptureService || !smokeVideoSourcePath) throw new Error("smoke video Main fixture is unavailable");
   smokeMediaCaptureService.prepareVideoFile(smokeVideoSourcePath, {
     storageMode: "managed",
@@ -1481,6 +1565,10 @@ flowchart LR
         && result.sketchClipboardWritten
         && result.sketchClipboardPasted
         && result.sketchCreatedAndOpened
+        && result.stickyAutosaveSaved
+        && result.stickyImeSaved
+        && result.stickyResizePreserved
+        && result.stickyNativeCloseFlushed
         && result.themeMode === "dark"
         && result.themeModeAfterReload === "dark"
         && result.aiMetadataPersisted
@@ -1889,6 +1977,8 @@ async function startDesktopApp(): Promise<void> {
     satelliteWindows,
     showMainWindow,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
+    requestRendererFlush,
+    isAppQuitApproved: () => appQuitApproved,
   });
   memoStickyController.registerIpc();
   noteWindowController = createNoteWindowController({
