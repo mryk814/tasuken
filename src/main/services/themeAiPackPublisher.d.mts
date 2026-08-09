@@ -35,4 +35,3 @@ export function ensureThemeAiPackLocation(location: ThemeAiPackLocation, options
 export function inspectThemeAiPack(input: { plan: ThemeAiPackPlan; packDirectory: string; fileSystem?: unknown }): { state: "missing" | "dirty" | "current"; dirty: boolean; manifest?: ThemeAiPackManifest };
 export function publishThemeAiPack(input: { plan: ThemeAiPackPlan; packDirectory: string; recoveryDirectory?: string; operationId?: string; fileSystem?: unknown }): ThemeAiPackPublishResult;
 export function recoverThemeAiPackOperations(input: { recoveryDirectory: string; fileSystem?: unknown }): Array<{ operationId: string; state: string; error?: string }>;
-

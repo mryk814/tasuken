@@ -22,6 +22,7 @@
 | AI Inbox | `ImportExportPage.tsx` | 「AI Import」「AI連携」（旧称）。外部AIから届いたProposalを検証→プレビュー→採用する安全な取り込み導線 |
 | Note AI | `NoteAiDialog.tsx` / `AiProposalPanel.tsx` | Noteの「AI編集」「選択範囲をAIで編集」。OpenAIの返答を直接保存せずPending Proposalへ入れ、差分hunkを選んで採用する |
 | AI Proposal | `AiProposalPanel.tsx` / `McpProposalInboxService` | 内蔵LLM・MCP・手動Importから届く安全な書き込み候補。Note / Knowledge / Sketch / Artifactの正式保存前にPreviewする |
+| M365向け AI Pack | `ThemePage.tsx` / `themeAiPackPublisher.mjs` | Themeの公開可能情報を固定7 Markdownへ投影する同期用Pack。Previewで除外・警告・文字量を確認してから更新し、AI Pack自体は正本にしない。詳細は `docs/theme-ai-pack.md` |
 
 ## エンティティと状態
 

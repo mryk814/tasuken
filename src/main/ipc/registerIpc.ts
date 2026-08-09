@@ -112,6 +112,22 @@ export function registerIpc(
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.activityCanonicalRootStatus, () => service.getActivityCanonicalRootStatus());
   ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) => service.openActivityCanonicalRef(ref));
+  ipcMain.handle(IPC.themeAiPackStatus, (_event, themeId) => service.getThemeAiPackStatus(requireId(themeId)));
+  ipcMain.handle(IPC.themeAiPackPreview, (_event, themeId) => service.getThemeAiPackPreview(requireId(themeId)));
+  ipcMain.handle(IPC.themeAiPackPublish, (_event, request) => {
+    const result = service.publishThemeAiPack(request);
+    const change = {
+      themeId: result.themeId,
+      contentHash: result.contentHash,
+      state: result.state,
+      dirty: result.dirty,
+    };
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC.themeAiPackChanged, change);
+    }
+    return result;
+  });
+  ipcMain.handle(IPC.themeAiPackOpenFolder, (_event, themeId) => service.openThemeAiPackFolder(requireId(themeId)));
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
     const normalizedKey = requireId(key);
