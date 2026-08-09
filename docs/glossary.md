@@ -26,6 +26,7 @@
 | Context Preview | `AiContextPreviewPanel.tsx` / `aiContextPreview.mjs` | Theme / Taskについて、M365向けAI PackまたはCoding Agent向けMCPが実際に選んだbounded contextを表示する。専用の選択規則は持たず、included / excluded / relation path / visibility / freshness / authority / truncationを実producer responseから投影する |
 | Data Health | `KnowledgePage.tsx` / `dataHealth.mjs` | AI公開・Relation・Internal Link・Canonical Markdown・AI Packの不整合を理由と修正候補付きで検出する診断。無視/解決済みはMain-ownedのversioned stateへ保存し、内容やRelationを自動変更しない |
 | Conversation AI Context | `ContentViewer.tsx` / `ConversationContextPanel.tsx` | Conversation Viewerから利用者が明示的にOneDriveへ昇格するM365用Markdown projection。取り込み時はローカルのみ。`AI Context/Conversations`へstable pathで保存し、Theme AI Packは本文を複製せず参照だけを持つ。詳細は `docs/conversation-ai-context.md` |
+| Voice Capture | `InboxPage.tsx` / `ContentViewer.tsx` | Inboxの「音声を取り込む」で既存audio fileを原音のままmanaged保存する。保存前・復旧待ちは「保存待ち音声」、保存後はCaptureEntryのcompact metadataからContent Viewerで再生する。microphone録音・文字起こしは含まない。詳細は `docs/media-capture.md` |
 
 ## エンティティと状態
 
@@ -34,7 +35,7 @@
 | エンティティ | ユーザーの呼び方 | 状態値 |
 |---|---|---|
 | Theme (Project) | テーマ | 構想 / 進行中 / 保留 / 終了。`system_kind: personal_default` の「個人業務」は常設の既定Themeで、削除・アーカイブできず一覧の先頭に固定される（#282）。判定は表示名ではなく `shared/personalTheme.mjs` の `isPersonalDefaultTheme` で行う。`project_id` 未設定は `resolveThemeId` でこのThemeへ解決し、既存データは書き換えない |
-| CaptureEntry | クイック記録、Inboxのやつ。文字・Markdown・URL・ファイル・画像・手書きを分類せず受け取る正本 | 未整理 / 整理済み / アーカイブ |
+| CaptureEntry | クイック記録、Inboxのやつ。文字・Markdown・URL・ファイル・画像・手書き・Voice Captureを受け取る正本。Voice Captureは`content_type=audio`、`capture_method=audio_import` | 未整理 / 整理済み / アーカイブ。Voice Captureは`media_status`と`transcription_status`も持つ |
 | Task | タスク | 未着手 / 進行中 / 待ち / 確認待ち / 完了 / 中止 |
 | Waiting | 待ち | 待ち / 受領 / 中止 |
 | Schedule | 予定。Task / Waiting / PlanNode へ日付を付ける | `date_kind`: point / deadline / range / unknown。範囲（開始日 < 終了日）は `range_semantics` で意味を分ける（#309）。判定の正本は `domain-model/scheduleSemantics.ts` の `getScheduleKind` |
@@ -45,7 +46,7 @@
 | KnowledgeNode / KnowledgeEdge | ナレッジ、つながり | — |
 | Reference / ChatRef | チャットリンク、リンク | — |
 | Internal Link / Backlink | Entity本文からtyped `{type,id}`へ張る安定リンク / その逆参照。canonical表示は`[[type:id|alias]]`、正本は`links_to` Reference。旧`[[title]]`は移行候補の表示だけで自動接続しない | Entity詳細の共通「来歴・リンク」panel |
-| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme。`storage_mode`: `managed`（コピー）/ `linked`（URL・パス参照）。Note書き出しをChat Refへ紐づける場合は `source_type=chat_ref` と `source_id` を主な出所、`origin_note_id` を元Noteとして保持し、どちらからも同じArtifactへ辿る。Theme 保存ルート配下は `Artifacts/` / `Notes/`（Markdown既定）/ `Exports/`（PDF候補）。未設定 Theme は `Themes/{code\|id}/…`、Theme なしは `Inbox/`（#146）。方針正本は `docs/artifact-redesign.md` |
+| Artifact | 添付ファイル、成果物（旧称） | —。source_type: Chat参照 / タスク / メモ / 報告 / Theme / CaptureEntry。`storage_mode`: `managed`（コピー）/ `linked`（URL・パス参照）。Voice Captureの原音は`media_kind=audio`、`content_hash`、`duration_ms`、`media_availability`を持ち、`source_type=capture_entry/source_id`がowner Relation投影の正本（Referenceへ重複保存しない）。Theme 保存ルート配下は `Artifacts/` / `Notes/`（Markdown既定）/ `Exports/`（PDF候補）。個人業務・Themeなしは`Inbox/`、通常ThemeはID markerでrename後も再発見する。方針正本は `docs/artifact-redesign.md` と `docs/media-capture.md` |
 
 ## 頻出の UI 部品・機能語
 

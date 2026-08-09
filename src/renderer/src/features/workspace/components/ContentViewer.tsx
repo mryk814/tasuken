@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type WheelEvent } from "react";
 
 import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
+import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { Artifact, BaseRecord, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
 import {
@@ -26,6 +27,7 @@ import {
   artifactFileCategory,
   canPreviewArtifactInApp,
   copyArtifactPath,
+  formatArtifactFileSize,
   openArtifactFile,
   showArtifactInFolder,
 } from "./artifacts";
@@ -66,6 +68,13 @@ type LoadState =
       messageCount: number;
       sourceUrl: string;
       resource: BaseRecord;
+    }
+  | {
+      status: "ready";
+      mode: "audio";
+      title: string;
+      src: string;
+      artifact: Artifact;
     };
 
 // conversationモードはファイル実体を持たないため、ファイル系の操作は他モードだけへ絞る。
@@ -74,7 +83,7 @@ function loadedArtifact(load: LoadState): Artifact | undefined {
 }
 
 function loadedFilePath(load: LoadState): string | undefined {
-  return load.status === "ready" && load.mode !== "conversation" ? load.filePath : undefined;
+  return load.status === "ready" && load.mode !== "conversation" && load.mode !== "audio" ? load.filePath : undefined;
 }
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -144,9 +153,20 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
     return { status: "error", message: "Artifactが見つかりません。削除済みの可能性があります。" };
   }
 
-  const category = artifactFileCategory(artifact.file_type);
-  const openTarget = artifactOpenTarget(artifact);
+  const category = artifactFileCategory(artifact);
   const title = str(artifact.filename) || str(artifact.title) || "Artifact";
+
+  if (artifact.media_kind === "audio") {
+    return {
+      status: "ready",
+      mode: "audio",
+      title,
+      src: `tasken-media://artifact/${encodeURIComponent(artifact.id)}`,
+      artifact,
+    };
+  }
+
+  const openTarget = artifactOpenTarget(artifact);
 
   if (category !== "image" && category !== "markdown") {
     return {
@@ -406,14 +426,18 @@ export function ContentViewer({
   const title = load.status === "ready" ? load.title : "プレビュー";
   const isImage = load.status === "ready" && load.mode === "image";
   const loadArtifact = loadedArtifact(load);
+  const targetArtifact = target.type === "artifact"
+    ? (data.artifacts || []).find((entry) => entry.id === target.artifactId)
+    : undefined;
   const loadFilePath = loadedFilePath(load);
   const canOpenFolder = Boolean(
+    load.status === "ready" && load.mode !== "audio" &&
     loadArtifact
       ? !isHttpUrl(String(artifactOpenTarget(loadArtifact) || ""))
       : loadFilePath && !isHttpUrl(loadFilePath),
   );
-  const canCopyPath = Boolean(loadFilePath || loadArtifact);
-  const canOpenExternal = Boolean(loadFilePath || loadArtifact);
+  const canCopyPath = Boolean(load.status === "ready" && load.mode !== "audio" && (loadFilePath || loadArtifact));
+  const canOpenExternal = Boolean(load.status === "ready" && load.mode !== "audio" && (loadFilePath || loadArtifact));
   const canEditNote = load.status === "ready" && load.mode === "markdown" && Boolean(load.note);
 
   function trapFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -460,6 +484,9 @@ export function ContentViewer({
             )}
             {load.status === "ready" && load.mode === "conversation" && (
               <span className="content-viewer-badge">会話ログ / {load.messageCount}件</span>
+            )}
+            {load.status === "ready" && load.mode === "audio" && (
+              <span className="content-viewer-badge">Audio</span>
             )}
           </div>
           <div className="content-viewer-actions">
@@ -548,7 +575,7 @@ export function ContentViewer({
             <div className="content-viewer-state is-error" role="alert">
               <strong>表示できませんでした</strong>
               <p>{load.message}</p>
-              {target.type === "artifact" && (
+              {target.type === "artifact" && targetArtifact?.media_kind !== "audio" && Boolean(artifactOpenTarget(targetArtifact)) && (
                 <button
                   type="button"
                   className="secondary-button compact"
@@ -574,6 +601,25 @@ export function ContentViewer({
               <ConversationContextPanel resource={load.resource} setToast={setToast} />
               <ConversationPreview className="content-viewer-conversation" body={load.body} showCount={false} />
             </>
+          )}
+          {load.status === "ready" && load.mode === "audio" && (
+            <div className="content-viewer-audio">
+              <audio
+                controls
+                preload="metadata"
+                src={load.src}
+                aria-label={`${load.title}の音声プレーヤー`}
+                onError={() => setLoad({
+                  status: "error",
+                  message: "音声を再生できませんでした。元ファイルの変更・削除、または対応形式を確認してください。",
+                })}
+              />
+              <div className="content-viewer-audio-meta">
+                <span>{formatMediaDuration(load.artifact.duration_ms)}</span>
+                <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
+                <span>{load.artifact.media_availability === "available" ? "保存済み" : "要確認"}</span>
+              </div>
+            </div>
           )}
           {load.status === "ready" && load.mode === "image" && (
             <div

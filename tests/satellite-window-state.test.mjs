@@ -31,6 +31,7 @@ const electronMockPlugin = {
           getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 800, height: 600 } }],
         };
         export const ipcMain = { handle: () => {} };
+        export const dialog = { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) };
         export class BrowserWindow {
           constructor(options = {}) {
             this.bounds = {
@@ -310,9 +311,10 @@ test("Notesのdebounce/manual/route flushはowner queueと終了registryを共�
   assert.match(noteWindowControllerSource, /event\.preventDefault\(\)/);
 });
 
-test("generic entity save IPCはMain内部timestampをRendererへ公開しない（#291）", () => {
+test("generic entity save IPCはMain内部timestampを公開せずMedia identityを正規化する（#291 / #367）", () => {
   assert.match(registerIpcSource, /function normalizeIpcSaveOptions/);
-  assert.match(registerIpcSource, /repository\.save\(entityType, entity, normalizeIpcSaveOptions\(options\)\)/);
+  assert.match(registerIpcSource, /normalizeMediaCapturePersistence\(repository, entityType, entity\)/);
+  assert.match(registerIpcSource, /repository\.save\(entityType, normalizedEntity, normalizeIpcSaveOptions\(options\)\)/);
   assert.doesNotMatch(registerIpcSource, /repository\.save\(entityType, entity, options\)/);
   assert.doesNotMatch(registerIpcSource, /updatedAt|__canonicalOperationAt/);
   assert.deepEqual(

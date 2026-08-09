@@ -59,6 +59,7 @@ import {
 } from "../../shared/canonicalMarkdown.mjs";
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
 import { THEME_FOLDER_MANIFEST, buildThemeFolderManifest } from "../../shared/storageResolver.mjs";
+import { PERSONAL_DEFAULT_THEME_ID } from "../../shared/themeRef.mjs";
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
 import { resolveActivityCanonicalLocalPath } from "./activityCanonicalResolver.mjs";
 import {
@@ -86,6 +87,7 @@ import {
   recoverThemeAiPackOperations,
 } from "./themeAiPackPublisher.mjs";
 import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
+import { rejectGenericAudioArtifact } from "../mediaCapturePersistence";
 import {
   completeConversationContextOperation,
   inspectConversationContextFile,
@@ -2298,6 +2300,7 @@ export class WorkspaceService {
   private resolveThemeContentDirectory(
     themeIdValue: string | null | undefined,
     contentKind: "artifacts" | "notes" | "exports",
+    options: { writeThemeManifest?: boolean } = {},
   ): { kind: "needs_directory" } | { kind: "ok"; directory: string } {
     const baseDirectory = String(this.repository.getPreference("artifactDirectory") || "").trim();
     let themeStorageRoot: string | null = null;
@@ -2331,8 +2334,44 @@ export class WorkspaceService {
     const directory = path.join(location.root, ...location.segments);
     // Theme名を変えてもフォルダとThemeの対応を見失わないよう、markerを置く（#306）。
     // 生成は遅延・idempotentで、失敗しても保存自体は止めない。
-    if (themeId) this.writeThemeFolderManifest(location, themeId);
+    if (themeId && options.writeThemeManifest !== false) this.writeThemeFolderManifest(location, themeId);
     return { kind: "ok", directory };
+  }
+
+  /** Main-owned Media sessionがmanaged Artifactの確定先を共有する。 */
+  resolveManagedArtifactDirectory(themeId: string | null): { kind: "needs_directory" } | { kind: "ok"; directory: string; themeMarker?: { directory: string; themeId: string; displayName: string } } {
+    // MediaCaptureService がancestor確認→mkdir→再確認を一つの境界で行う。
+    // ここでTheme markerを先に書くと、junction越しに外部directoryを作り得る。
+    if (!themeId || themeId === PERSONAL_DEFAULT_THEME_ID) {
+      return this.resolveThemeContentDirectory(themeId, "artifacts", { writeThemeManifest: false });
+    }
+    const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+    if (!theme) throw new Error("音声CaptureのThemeが見つかりません。Themeを選び直してください。");
+    const syncRoot = String(this.repository.getPreference("artifactDirectory") || "").trim();
+    const themeStorageRoot = typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
+    const root = themeStorageRoot || syncRoot;
+    if (!root) return { kind: "needs_directory" };
+    let themeFolder: string;
+    if (fs.existsSync(root)) {
+      const discovered = discoverThemeAiPackLocation({
+        syncRoot,
+        themeStorageRoot,
+        themeId,
+        themeCode: typeof theme.code === "string" ? theme.code : "",
+        displayName: String(theme.name || theme.title || ""),
+      });
+      if (discovered.status !== "ok") throw new Error("Theme保存先のidentityを安全に確認できませんでした。Settingsを確認してください。");
+      themeFolder = discovered.themeFolder;
+    } else {
+      const planned = this.resolveThemeContentDirectory(themeId, "artifacts", { writeThemeManifest: false });
+      if (planned.kind === "needs_directory") return planned;
+      themeFolder = path.dirname(planned.directory);
+    }
+    return {
+      kind: "ok",
+      directory: path.join(themeFolder, "Artifacts"),
+      themeMarker: { directory: themeFolder, themeId, displayName: String(theme.name || theme.title || "") },
+    };
   }
 
   /**
@@ -2367,6 +2406,7 @@ export class WorkspaceService {
 
   importArtifactFiles(requestValue: unknown): ArtifactFileImportResult {
     const request = normalizeArtifactFileImportRequest(requestValue);
+    for (const file of request.files) rejectGenericAudioArtifact({ filename: file.name || file.path }, "取り込み");
     const location = this.resolveThemeContentDirectory(request.themeId, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
     const directory = location.directory;
@@ -2420,6 +2460,7 @@ export class WorkspaceService {
       media_type: request.mediaType,
       content: request.content,
     });
+    rejectGenericAudioArtifact({ filename: normalized.fileName, mime_type: normalized.mediaType }, "Proposal確定");
     const location = this.resolveThemeContentDirectory(request.themeId || null, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
     fs.mkdirSync(location.directory, { recursive: true });

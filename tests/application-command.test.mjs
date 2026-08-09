@@ -339,6 +339,63 @@ test("Capture conversion is an explicit atomic Inbox command and rejects the gen
   }), /汎用SaveOperation/);
 });
 
+test("CommitAudioCapture is a Main-owned typed command and persists the Capture-owned Artifact, Event, and Receipt once", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  const payload = {
+    capture: {
+      id: "audio-capture",
+      title: "Voice memo",
+      text: "voice.mp3",
+      kind: "voice_memo",
+      content_type: "audio",
+      capture_method: "audio_import",
+      media_status: "ready",
+      transcription_status: "not_requested",
+      captured_at: "2026-08-08T00:00:00.000Z",
+      state: "untriaged",
+      ai_visibility: [],
+    },
+    artifact: {
+      id: "audio-artifact",
+      title: "Voice memo",
+      filename: "voice.mp3",
+      file_type: "mp3",
+      mime_type: "audio/mpeg",
+      file_size: 4,
+      stored_path: "C:/Tasken/Inbox/voice.mp3",
+      storage_mode: "managed",
+      source_type: "capture_entry",
+      source_id: "audio-capture",
+      media_kind: "audio",
+      duration_ms: 1000,
+      content_hash: `sha256:${"a".repeat(64)}`,
+      ai_visibility: [],
+    },
+  };
+  const command = { ...envelope("CommitAudioCapture", payload, "audio-command"), source: "inbox" };
+  assert.throws(() => service.execute(command), /media session/);
+  assert.throws(() => service.executeBatch([command]), /media session/);
+  const receipt = service.executeMediaCapture(command);
+  assert.equal(receipt.status, "applied");
+  assert.deepEqual(receipt.changes.map(({ type }) => type), ["capture_entry", "artifact"]);
+  assert.equal(repo.get("artifact", "audio-artifact").source_id, "audio-capture");
+  assert.equal(repo.get("change_event", receipt.events[0]).metadata.media_kind, "audio");
+  assert.equal(JSON.parse(repo.get("change_event", receipt.events[0]).receipt_json).commandId, "audio-command");
+  const retry = service.executeMediaCapture(command);
+  assert.deepEqual(retry, receipt);
+  assert.equal(repo.list("artifact").filter(({ id }) => id === "audio-artifact").length, 1);
+  assert.equal(repo.list("change_event").filter(({ command_id }) => command_id === "audio-command").length, 1);
+  assert.throws(() => service.executeMediaCapture({
+    ...command,
+    commandId: "audio-mismatch",
+    payload: {
+      capture: { ...payload.capture, id: "audio-capture-mismatch" },
+      artifact: { ...payload.artifact, id: "audio-artifact-mismatch", source_id: "other-capture" },
+    },
+  }), /managed owner/);
+});
+
 test("Command source attribution is preserved for every renderer entry", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);
@@ -366,7 +423,8 @@ test("Command notifications skip no-change/retry and delta committed change even
   assert.match(source, /receipt\.status !== "no_change"/);
   assert.match(source, /replayed\?: boolean/);
   assert.match(source, /if \(!receipts\.length\) return;/);
-  assert.match(source, /const delta = win\.webContents\.id === senderId \? eventChanges : changes/);
+  assert.match(source, /const delta = win\.webContents\.id === senderId \? payloads\.sender\.entities : payloads\.other\.entities/);
+  assert.match(source, /satelliteWindows\?\.broadcast\(IPC\.workspaceChanged, payloads\.satellite\)/);
   assert.match(source, /workspaceRepository\?\.get\("change_event", eventId, true\)/);
   assert.match(source, /type: "change_event" as const/);
   assert.doesNotMatch(source, /const change = changes\.length \? \{ entities: changes \} : undefined/);
