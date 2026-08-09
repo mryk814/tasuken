@@ -9,7 +9,6 @@ import { applyMarkdownDiffHunks, buildMarkdownDiffHunks, diffMarkdownLines } fro
 import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTaskOperations, buildSaveWaitingOperations } from "../domain-model/persistence";
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
 import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
-import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
 import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../../../../../shared/repositoryContextProposal.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ActionButton, Button } from "./common";
@@ -330,6 +329,20 @@ export function AiProposalPanel(props: PageProps) {
   }
 
   async function rejectProposal(proposal: BaseRecord) {
+    if (str(proposal.payload_type) === "task_work") {
+      await executeCommand({
+        commandId: `${proposal.id}:reject`,
+        name: "ApplyTaskWorkProposal",
+        payload: { proposalId: proposal.id, decision: "reject" },
+        actor: { kind: "user" },
+        source: "main_ui",
+        expectedVersions: [{ type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) }],
+        issuedAt: new Date().toISOString(),
+      } as CommandEnvelope);
+      setToast("Work proposalを却下しました。", "success");
+      setPreview(null);
+      return;
+    }
     await saveEntities([{
       action: "save",
       type: "ai_proposal",
@@ -376,56 +389,19 @@ export function AiProposalPanel(props: PageProps) {
         if (!Number.isInteger(proposalExpectedVersion) || proposalExpectedVersion < 0) throw new Error("Work proposalにexpected_versionがありません。再取得してから報告してください。");
         if (proposalExpectedVersion !== currentVersion) throw new Error(`Taskが更新されています（proposal: ${proposalExpectedVersion} / current: ${currentVersion}）。contextを再取得して報告し直してください。`);
         const expectedVersions = [{ type: taskEntityType, id: task.id, version: proposalExpectedVersion }];
-        const action = str(candidate.entry.action);
-        let name: CommandEnvelope["name"];
-        let payload: CommandEnvelope["payload"];
-        if (action === "start") {
-          name = "StartTaskWork";
-          payload = {
-            taskId,
-            executorKind: str(candidate.entry.executor_kind) || "ai_agent",
-            executorIdentity: str(candidate.entry.executor_identity) || null,
-            startedAt: str(candidate.entry.started_at) || null,
-            sourceSession: proposal.id,
-          };
-        } else if (action === "append_receipt" || action === "report_done" || action === "report_blocked") {
-          name = action === "report_blocked" ? "ReportTaskBlocked" : action === "report_done" ? "ReportTaskDone" : "AppendWorkReceipt";
-          const reportedAt = str(candidate.entry.reported_at) || str(proposal.created_at) || str(proposal.received_at) || new Date().toISOString();
-          payload = {
-            taskId,
-            receipt: {
-              id: proposal.id,
-              task_id: taskId,
-              executor_kind: str(candidate.entry.executor_kind) || "ai_agent",
-              executor_label: str(candidate.entry.executor_label) || "AI agent",
-              started_at: str(candidate.entry.started_at) || task.work_started_at || reportedAt,
-              reported_at: reportedAt,
-              summary: str(candidate.entry.summary),
-              completed_items: Array.isArray(candidate.entry.completed_items) ? candidate.entry.completed_items : [],
-              changed_or_created_items: Array.isArray(candidate.entry.changed_or_created_items) ? candidate.entry.changed_or_created_items : [],
-              verification: Array.isArray(candidate.entry.verification) ? candidate.entry.verification : [],
-              remaining_work: Array.isArray(candidate.entry.remaining_work) ? candidate.entry.remaining_work : [],
-              ...(candidate.entry.external_references != null
-                ? { external_references: normalizeExternalReferences(candidate.entry.external_references) }
-                : {}),
-              source_session: proposal.id,
-              repository_context: candidate.entry.repository_context && typeof candidate.entry.repository_context === "object" ? candidate.entry.repository_context : null,
-              runtime_metadata: candidate.entry.runtime_metadata && typeof candidate.entry.runtime_metadata === "object" ? candidate.entry.runtime_metadata : null,
-            },
-          };
-        } else {
-          throw new Error("未対応のtask_work actionです。");
-        }
         await executeCommand({
-          commandId: proposal.id,
-          name,
-          payload,
+          commandId: `${proposal.id}:accept`,
+          name: "ApplyTaskWorkProposal",
+          payload: { proposalId: proposal.id, decision: "accept" },
           actor: { kind: "user" },
           source: "main_ui",
-          expectedVersions,
+          expectedVersions: [
+            ...expectedVersions,
+            { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+          ],
           issuedAt: new Date().toISOString(),
         } as CommandEnvelope);
-        await saveEntities([{ action: "save", type: "ai_proposal", entity: { ...proposal, status: "accepted" } }], "Work proposalを採用しました。Task本文は変更していません。");
+        setToast("Work proposalを採用しました。Task本文は変更していません。", "success");
         setPreview(null);
       } catch (error) {
         setToast(`Work proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`);

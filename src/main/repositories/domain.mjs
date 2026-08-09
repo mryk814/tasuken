@@ -74,6 +74,7 @@ const scheduleRangeSemantics = new Set(["once_within_window", "ongoing"]);
 // 表示名の文字列比較で特別扱いせず、この値と安定IDで識別する。
 const themeSystemKinds = new Set(["personal_default"]);
 const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact"]);
+const changeEventEntityTypes = new Set(entityTypes.filter((type) => type !== "change_event"));
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
 const changeSources = new Set(["manual", "import", "ai", "migration"]);
 const repositoryContextRecordFields = new Set([
@@ -413,7 +414,7 @@ export function validateEntity(type, input) {
     throw new Error("KnowledgeEdge.relation_typeが不正です。");
   }
   if (type === "change_event") {
-    if (!entityRefTypes.has(input.entity_type)) throw new Error("change_event.entity_typeが不正です。");
+    if (!changeEventEntityTypes.has(input.entity_type)) throw new Error("change_event.entity_typeが不正です。");
     if (!changeTypes.has(input.change_type)) throw new Error("change_event.change_typeが不正です。");
     if (!changeSources.has(input.source)) throw new Error("change_event.sourceが不正です。");
     if (input.event_kind != null || input.entity_ref != null || input.occurred_at != null) {

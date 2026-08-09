@@ -85,13 +85,15 @@ test("MCP task_work Proposal normalizes external references before Inbox persist
   }), /credential\/token/);
 });
 
-test("Receipt UI keeps external references compact and follows the existing Work Receipt command path", () => {
+test("Receipt UI keeps external references compact and delegates task_work application to Main", () => {
   const drawer = fs.readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
   const panel = fs.readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
   const command = fs.readFileSync("src/main/services/applicationCommandService.ts", "utf8");
   assert.match(drawer, /task-work-external-references/);
   assert.match(drawer, /target="_blank" rel="noreferrer"/);
-  assert.match(panel, /external_references: normalizeExternalReferences/);
-  assert.match(panel, /"ReportTaskDone" : "AppendWorkReceipt"/);
+  assert.doesNotMatch(panel, /external_references: normalizeExternalReferences/);
+  assert.match(panel, /name: "ApplyTaskWorkProposal"/);
+  assert.match(panel, /payload: \{ proposalId: proposal\.id, decision: "accept" \}/);
+  assert.match(command, /normalizeExternalReferences\(entry\.external_references\)/);
   assert.match(command, /normalizeExternalReferences\(payload\.receipt\.external_references\)/);
 });

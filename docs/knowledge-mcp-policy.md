@@ -362,7 +362,7 @@ type AiProposal = {
 
 write系toolには`create_*`ではなく`propose_*`を使う。
 
-Task作業報告だけは既存TaskへのApplication Commandを提案する専用workflowとして、`tasken.start_task_work`、`tasken.append_work_receipt`、`tasken.report_task_done`、`tasken.report_task_blocked`を提供する。BridgeはTask本文やstateを直接更新せず、`task_work` ProposalをInboxへ送る。途中のReceipt追加と最終報告はtyped Application Commandを分け、Appendは`in_progress`を維持し、Doneだけが`needs_human_review`へ進む。全操作にTaskの`expected_version`、再試行用`idempotency_key`、`caller`を必須とし、任意で`source_session`、実行時刻、RepositoryContextを記録する。RepositoryContextは`repository_context_id`、provider、repository slug、branchだけの公開whitelistとし、cwd、git root、workspace folder、remote URLは受理も永続化もしない。同じkeyと同じpayloadの再送は同一Proposalとして扱い、異なるpayloadでのkey再利用は拒否する。Done / Blockedはいずれもappend-only Work Receiptであり、Task完了や正式な状態変更は人間のPreview採用後にApplication Command境界で行う。
+Task作業報告だけは既存TaskへのApplication Commandを提案する専用workflowとして、`tasken.start_task_work`、`tasken.append_work_receipt`、`tasken.report_task_done`、`tasken.report_task_blocked`を提供する。BridgeはTask本文やstateを直接更新せず、`task_work` ProposalをInboxへ送る。途中のReceipt追加と最終報告はtyped Application Commandを分け、Appendは`in_progress`を維持し、Doneだけが`needs_human_review`へ進む。Task Work Proposalのaccept/rejectはMain-owned `ApplyTaskWorkProposal`で行い、canonical Proposalからtyped commandを再構築してTask / Receipt / ChangeEvent / Proposal statusを一つのSQLite transactionへ保存する。全操作にTaskの`expected_version`、再試行用`idempotency_key`、`caller`を必須とし、任意で`source_session`、実行時刻、RepositoryContextを記録する。RepositoryContextは`repository_context_id`、provider、repository slug、branchだけの公開whitelistとし、cwd、git root、workspace folder、remote URLは受理も永続化もしない。同じkeyと同じpayloadの再送は同一Proposalとして扱い、異なるpayloadでのkey再利用は拒否する。Done / Blockedはいずれもappend-only Work Receiptであり、Task完了や正式な状態変更は人間のPreview採用後にApplication Command境界で行う。
 
 ## AI Import統合
 

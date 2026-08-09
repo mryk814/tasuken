@@ -32,6 +32,15 @@ const referenceDefinition = entityDefinition("reference");
 const workReceiptDefinition = entityDefinition("work_receipt");
 const taskWorkStates = new Set(["not_delegated", "ready_for_agent", "in_progress", "reported_done", "needs_human_review", "accepted", "blocked", "failed"]);
 const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
+const aiAgentCommands = new Set<ApplicationCommandName>([
+  "StartTaskWork",
+  "AppendWorkReceipt",
+  "ReportTaskDone",
+  "ReportTaskBlocked",
+  // These still fail in their own human-review guard, with the specific UI-only error.
+  "AcceptTaskWork",
+  "ReturnTaskWork",
+]);
 
 function currentWorkState(task: Entity): string {
   if (typeof task.work_state === "string" && taskWorkStates.has(task.work_state)) return task.work_state;
@@ -99,6 +108,19 @@ function safeTaskWorkRepositoryContext(value: unknown): Record<string, string> |
   return Object.keys(result).length ? result : null;
 }
 
+function safeTaskWorkRuntimeMetadata(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  const result: Record<string, string> = {};
+  const provider = typeof input.provider === "string" ? input.provider.trim() : "";
+  const model = typeof input.model === "string" ? input.model.trim() : "";
+  const reportKind = typeof input.report_kind === "string" ? input.report_kind.trim() : "";
+  if (provider && provider.length <= 120) result.provider = provider;
+  if (model && model.length <= 200) result.model = model;
+  if (["done", "blocked", "progress"].includes(reportKind)) result.report_kind = reportKind;
+  return Object.keys(result).length ? result : null;
+}
+
 function mcpTaskWorkEntry(proposal: Entity | null, taskId: string, actions: string[]): Record<string, unknown> | null {
   if (!proposal) return null;
   let payload: unknown = proposal.payload;
@@ -113,6 +135,61 @@ function mcpTaskWorkEntry(proposal: Entity | null, taskId: string, actions: stri
     && (candidate as { task_id?: unknown }).task_id === taskId
     && actions.includes(String((candidate as { action?: unknown }).action)));
   return entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+}
+
+function singleMcpTaskWorkEntry(proposal: Entity): Record<string, unknown> {
+  if (proposal.source !== "mcp" || proposal.payload_type !== "task_work") {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task Work Proposalではありません。", { id: proposal.id });
+  }
+  let payload: unknown = proposal.payload;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Task Work Proposalのpayloadを解析できません。", { id: proposal.id });
+    }
+  }
+  const entries = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as { task_work?: unknown }).task_work
+    : null;
+  if (!Array.isArray(entries) || entries.length !== 1 || !entries[0] || typeof entries[0] !== "object" || Array.isArray(entries[0])) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task Work Proposalは1件ずつ採用してください。", { id: proposal.id });
+  }
+  return entries[0] as Record<string, unknown>;
+}
+
+function mergeCommandReceipts(
+  repository: Repository,
+  command: CommandEnvelope,
+  workReceipt: CommandReceipt,
+  decisionReceipt: CommandReceipt,
+): CommandReceipt {
+  const unique = <T>(values: T[], key: (value: T) => string): T[] => {
+    const result = new Map<string, T>();
+    for (const value of values) result.set(key(value), value);
+    return [...result.values()];
+  };
+  const events = [...workReceipt.events, ...decisionReceipt.events];
+  const merged: CommandReceipt = {
+    commandId: command.commandId,
+    name: command.name,
+    status: "applied",
+    saved: unique([...workReceipt.saved, ...decisionReceipt.saved], (entry) => `${entry.type}:${entry.id}`),
+    deleted: unique([...workReceipt.deleted, ...decisionReceipt.deleted], (entry) => `${entry.type}:${entry.id}`),
+    events,
+    warnings: [...workReceipt.warnings, ...decisionReceipt.warnings],
+    revisions: unique([...workReceipt.revisions, ...decisionReceipt.revisions], (entry) => `${entry.type}:${entry.id}`),
+    changes: unique([...workReceipt.changes, ...decisionReceipt.changes], (entry) => `${entry.type}:${entry.entity.id}`),
+  };
+  const markerId = decisionReceipt.events.at(-1);
+  const marker = markerId ? repository.get("change_event", markerId, true) : null;
+  if (!marker) throw new Error("Task Work Proposalのdecision eventが保存されていません。");
+  repository.save("change_event", {
+    ...marker,
+    command_fingerprint: commandFingerprint(command),
+    receipt_json: JSON.stringify(merged),
+  });
+  return { ...merged, eventChanges: eventChangesFor(repository, events) };
 }
 
 function workReceiptProvenance(repository: Repository, command: CommandEnvelope, taskId: string, receipt: Entity): {
@@ -638,6 +715,12 @@ export class ApplicationCommandService {
   private executeParsed(command: CommandEnvelope): CommandReceipt {
     const previous = readIdempotent(this.repository, command);
     if (previous) return previous;
+    if (command.actor.kind === "ai_agent" && !aiAgentCommands.has(command.name)) {
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "AI agentはTaskを直接変更・完了できません。Task Work Proposalを人間の確認へ送ってください。",
+      );
+    }
 
     if (command.name === "CreateTaskFromCapture") {
       return this.createTaskFromCapture(command);
@@ -651,6 +734,7 @@ export class ApplicationCommandService {
     if (command.name === "ApplyAiProposal") {
       return this.applyAiProposal(command);
     }
+    if (command.name === "ApplyTaskWorkProposal") return this.applyTaskWorkProposal(command);
     if (command.name === "StartTaskWork") return this.startTaskWork(command);
     if (command.name === "AppendWorkReceipt") return this.appendWorkReceipt(command, "continue");
     if (command.name === "ReportTaskDone") return this.appendWorkReceipt(command, "review");
@@ -706,6 +790,92 @@ export class ApplicationCommandService {
     return persistReceipt(this.repository, command, operations, [event.id], ["task"]);
   }
 
+  private applyTaskWorkProposal(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as { proposalId: string; decision: "accept" | "reject" };
+    const proposal = this.repository.get("ai_proposal", payload.proposalId);
+    if (!proposal) throw new ApplicationCommandError("NOT_FOUND", "Task Work Proposalがありません。", { id: payload.proposalId });
+    if (!expectedVersionFor(command, "ai_proposal", proposal.id)) {
+      throw new ApplicationCommandError("CONFLICT", "Task Work Proposalにはexpected versionが必要です。", { id: proposal.id });
+    }
+    assertExpectedVersion(this.repository, command, "ai_proposal", proposal.id, proposal);
+    if (proposal.status !== "pending") {
+      throw new ApplicationCommandError("INVALID_TRANSITION", "Pending以外のTask Work Proposalは判断できません。", { id: proposal.id });
+    }
+    const entry = singleMcpTaskWorkEntry(proposal);
+    const decisionCommand: CommandEnvelope = {
+      ...command,
+      payload: { proposal: { ...proposal, status: payload.decision === "accept" ? "accepted" : "rejected" }, candidates: [] },
+    };
+    if (payload.decision === "reject") return this.applyAiProposal(decisionCommand);
+
+    const taskId = typeof entry.task_id === "string" ? entry.task_id.trim() : "";
+    const task = taskId ? this.repository.get("task", taskId) : null;
+    if (!task) throw new ApplicationCommandError("NOT_FOUND", "Task Work Proposalの対象Taskがありません。", { id: taskId });
+    const proposalExpectedVersion = Number(entry.expected_version);
+    if (!Number.isInteger(proposalExpectedVersion) || proposalExpectedVersion < 0 || proposalExpectedVersion !== Number(task.version || 0)) {
+      throw new ApplicationCommandError("CONFLICT", "Taskが更新されています。contextを再取得して報告し直してください。", {
+        id: taskId,
+        expected: proposalExpectedVersion,
+        actual: Number(task.version || 0),
+      });
+    }
+    if (!expectedVersionFor(command, "task", taskId)) {
+      throw new ApplicationCommandError("CONFLICT", "Task Work Proposalの対象Taskにはexpected versionが必要です。", { id: taskId });
+    }
+    assertExpectedVersion(this.repository, command, "task", taskId, task);
+
+    const action = typeof entry.action === "string" ? entry.action : "";
+    let name: ApplicationCommandName;
+    let workPayload: CommandEnvelope["payload"];
+    if (action === "start") {
+      name = "StartTaskWork";
+      workPayload = {
+        taskId,
+        executorKind: typeof entry.executor_kind === "string" ? entry.executor_kind : "ai_agent",
+        executorIdentity: typeof entry.executor_identity === "string" ? entry.executor_identity : null,
+        startedAt: typeof entry.started_at === "string" ? entry.started_at : null,
+        sourceSession: proposal.id,
+      };
+    } else if (["append_receipt", "report_done", "report_blocked"].includes(action)) {
+      name = action === "report_blocked" ? "ReportTaskBlocked" : action === "report_done" ? "ReportTaskDone" : "AppendWorkReceipt";
+      const reportedAt = typeof entry.reported_at === "string" && entry.reported_at
+        ? entry.reported_at
+        : String(proposal.created_at || proposal.received_at || command.issuedAt);
+      workPayload = {
+        taskId,
+        receipt: {
+          id: proposal.id,
+          task_id: taskId,
+          executor_kind: typeof entry.executor_kind === "string" ? entry.executor_kind : "ai_agent",
+          executor_label: typeof entry.executor_label === "string" ? entry.executor_label : "AI agent",
+          started_at: typeof entry.started_at === "string" ? entry.started_at : task.work_started_at || reportedAt,
+          reported_at: reportedAt,
+          summary: typeof entry.summary === "string" ? entry.summary : "",
+          completed_items: Array.isArray(entry.completed_items) ? entry.completed_items : [],
+          changed_or_created_items: Array.isArray(entry.changed_or_created_items) ? entry.changed_or_created_items : [],
+          ...(Array.isArray(entry.verification) ? { verification: entry.verification } : {}),
+          ...(Array.isArray(entry.remaining_work) ? { remaining_work: entry.remaining_work } : {}),
+          ...(entry.external_references !== undefined ? { external_references: normalizeExternalReferences(entry.external_references) } : {}),
+          source_session: proposal.id,
+          repository_context: safeTaskWorkRepositoryContext(entry.repository_context),
+          runtime_metadata: safeTaskWorkRuntimeMetadata(entry.runtime_metadata),
+        },
+      };
+    } else {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "未対応のTask Work Proposal actionです。", { action });
+    }
+    const workCommand: CommandEnvelope = {
+      ...command,
+      commandId: `${command.commandId}:work`,
+      name,
+      payload: workPayload,
+      expectedVersions: [{ type: "task", id: taskId, version: proposalExpectedVersion }],
+    };
+    const workReceipt = this.executeParsed(workCommand);
+    const decisionReceipt = this.applyAiProposal(decisionCommand);
+    return mergeCommandReceipts(this.repository, command, workReceipt, decisionReceipt);
+  }
+
   private appendWorkReceipt(command: CommandEnvelope, outcome: "continue" | "review" | "blocked"): CommandReceipt {
     const payload = command.payload as { taskId: string; receipt: Entity };
     const taskId = asTaskId(payload);
@@ -719,6 +889,7 @@ export class ApplicationCommandService {
     if (this.repository.get("work_receipt", payload.receipt.id, true)) throw new ApplicationCommandError("CONFLICT", "Work ReceiptのIDを再利用できません。", { id: payload.receipt.id });
     const provenance = workReceiptProvenance(this.repository, command, taskId, payload.receipt);
     const repositoryContext = safeTaskWorkRepositoryContext(payload.receipt.repository_context);
+    const runtimeMetadata = safeTaskWorkRuntimeMetadata(payload.receipt.runtime_metadata);
     const receipt: Entity = {
       id: payload.receipt.id,
       task_id: taskId,
@@ -736,7 +907,7 @@ export class ApplicationCommandService {
         : {}),
       ...(repositoryContext ? { repository_context: repositoryContext } : {}),
       ...(provenance.sourceSession ? { source_session: provenance.sourceSession } : {}),
-      ...(payload.receipt.runtime_metadata && typeof payload.receipt.runtime_metadata === "object" ? { runtime_metadata: payload.receipt.runtime_metadata } : {}),
+      ...(runtimeMetadata ? { runtime_metadata: runtimeMetadata } : {}),
       provenance: provenance.metadata,
       source: provenance.source,
     };
