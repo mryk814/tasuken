@@ -293,7 +293,7 @@ test("RepositoryContext delete nullifies live refs and restores only its own mar
     assert.equal(restoredTheme.repository_context_detachments, undefined);
     assert.equal(restoredTask.repository_context_detachments, undefined);
   } finally {
-    db.close();
+    db.db.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

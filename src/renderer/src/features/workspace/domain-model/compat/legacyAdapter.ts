@@ -916,6 +916,7 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     ],
     notes: domain.notes as WorkspaceData["notes"],
     sketches: domain.sketches as WorkspaceData["sketches"],
+    repository_contexts: domain.repository_contexts as WorkspaceData["repository_contexts"],
     work_receipts: domain.work_receipts as WorkspaceData["work_receipts"],
     links: domain.resources.map((resource) => ({
       id: resource.id,

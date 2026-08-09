@@ -291,6 +291,12 @@ function themeRepositoryIds(theme) {
   return uniqueStrings(theme?.repository_context_ids);
 }
 
+function detachedRepositoryIds(entity) {
+  return uniqueStrings((entity?.repository_context_detachments || [])
+    .filter((entry) => entry?.kind === "repository_context_detachment")
+    .map((entry) => entry.contextId));
+}
+
 function contextRemoteIdentities(context) {
   const identities = new Set();
   if (context?.canonical_identity) identities.add(String(context.canonical_identity));
@@ -308,11 +314,12 @@ function contextRemoteIdentities(context) {
 export function resolveThemeRepositoryContexts(theme, contexts = []) {
   const contextById = new Map(contexts.filter((entry) => entry).map((entry) => [String(entry.id), entry]));
   const contextIds = themeRepositoryIds(theme);
+  const candidateIds = [...new Set([...contextIds, ...detachedRepositoryIds(theme)])];
   const resolved = contextIds.flatMap((id) => {
     const context = contextById.get(id);
     return context && !context.deleted_at && context.active !== false ? [context] : [];
   });
-  const unavailableContextIds = contextIds.filter((id) => !resolved.some((entry) => String(entry.id) === id));
+  const unavailableContextIds = candidateIds.filter((id) => !resolved.some((entry) => String(entry.id) === id));
   const missingContextReasons = Object.fromEntries(unavailableContextIds.map((id) => {
     const context = contextById.get(id);
     return [id, context?.deleted_at ? "deleted" : context?.active === false ? "inactive" : "unknown"];
@@ -339,12 +346,18 @@ export function resolveTaskRepositoryContexts({ task, theme, contexts = [] } = {
     : mode === "extend"
       ? [...new Set([...themeIds, ...explicitIds])]
       : themeIds;
+  const detachedIds = mode === "override"
+    ? detachedRepositoryIds(task)
+    : mode === "extend"
+      ? [...new Set([...detachedRepositoryIds(theme), ...detachedRepositoryIds(task)])]
+      : detachedRepositoryIds(theme);
+  const candidateIds = [...new Set([...contextIds, ...detachedIds])];
   const contextById = new Map(contexts.filter((entry) => entry).map((entry) => [String(entry.id), entry]));
   const resolvedContexts = contextIds.flatMap((id) => {
     const context = contextById.get(id);
     return context && !context.deleted_at && context.active !== false ? [context] : [];
   });
-  const unavailableContextIds = contextIds.filter((id) => !resolvedContexts.some((entry) => String(entry.id) === id));
+  const unavailableContextIds = candidateIds.filter((id) => !resolvedContexts.some((entry) => String(entry.id) === id));
   const missingContextReasons = Object.fromEntries(unavailableContextIds.map((id) => {
     const context = contextById.get(id);
     return [id, context?.deleted_at ? "deleted" : context?.active === false ? "inactive" : "unknown"];
