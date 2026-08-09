@@ -586,7 +586,16 @@ export class WorkspaceDatabase {
       ? options.__canonicalOperationAt
       : "";
     const timestamp = requestedTimestamp || now();
-    const normalizedInput = type === "task" ? normalizeTaskAssignment(activityInput, existing) : activityInput;
+    let protectedInput = activityInput;
+    if (type === "resource" && options.__conversationContextPublicationWrite !== true) {
+      protectedInput = { ...activityInput };
+      if (existing && Object.prototype.hasOwnProperty.call(existing, "conversation_context_publication")) {
+        protectedInput.conversation_context_publication = existing.conversation_context_publication;
+      } else {
+        delete protectedInput.conversation_context_publication;
+      }
+    }
+    const normalizedInput = type === "task" ? normalizeTaskAssignment(protectedInput, existing) : protectedInput;
     const entity = normalizeEntity(type, {
       ...normalizedInput,
       id: persistedId,

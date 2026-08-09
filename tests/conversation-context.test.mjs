@@ -140,6 +140,36 @@ test("unchanged published projection is current and Theme AI Pack receives refer
   assert.deepEqual(publicationForThemeAiPack(published), {
     published: true,
     title: published.title,
+    theme_id: theme.id,
+    storage_root_id: `theme:${theme.id}`,
+    relative_path: initial.relative_path,
+  });
+});
+
+test("publish-time Theme binding blocks reassignment until explicit removal", () => {
+  const initial = buildConversationContextPlan({ resource: conversation(), theme, publishedAt: "2026-08-09T00:00:00.000Z" });
+  const publication = {
+    schema: CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
+    status: "published",
+    scope: initial.scope,
+    selected_message_indexes: initial.selected_message_indexes,
+    theme_id: theme.id,
+    storage_root_id: `theme:${theme.id}`,
+    relative_path: initial.relative_path,
+    content_hash: initial.content_hash,
+    source_revision: initial.source_revision,
+    published_at: initial.published_at,
+  };
+  const reassigned = conversation({ theme_id: "theme-2", conversation_context_publication: publication });
+  const nextTheme = { ...theme, id: "theme-2", name: "Theme 2" };
+  const plan = buildConversationContextPlan({ resource: reassigned, theme: nextTheme });
+  assert.equal(plan.allowed, false);
+  assert.equal(plan.publication_state, "dirty");
+  assert.match(plan.blocking_reasons.join("\n"), /先にAI Contextから外して/);
+  assert.deepEqual(publicationForThemeAiPack(reassigned), {
+    published: true,
+    title: reassigned.title,
+    theme_id: theme.id,
     storage_root_id: `theme:${theme.id}`,
     relative_path: initial.relative_path,
   });

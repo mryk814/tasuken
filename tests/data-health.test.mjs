@@ -63,6 +63,71 @@ test("Data Health evaluatorは通常Entity 1件更新時にその1件だけ再�
   assert.deepEqual(second.evaluation, { evaluatedEntities: 1, reusedEntities: 99, totalEntities: 100 });
 });
 
+test("Theme visibility変更はそのThemeを継承するEntityだけ再評価する", () => {
+  const evaluator = new DataHealthEvaluator();
+  const tasks = Array.from({ length: 120 }, (_, index) => ({
+    id: `theme-policy-task-${index}`,
+    title: `Theme policy task ${index}`,
+    version: 1,
+    project_id: index < 80 ? "theme-a" : "theme-b",
+    ...(index >= 40 && index < 80 ? { ai_visibility: [] } : {}),
+    ai_summary: `Summary ${index}`,
+    ai_summary_authority: "unknown",
+    ai_freshness: "current",
+  }));
+  const initialWorkspace = {
+    tasks,
+    themes: [
+      { id: "theme-a", ai_visibility: ["coding_agent"], default_ai_visibility: ["coding_agent"] },
+      { id: "theme-b", ai_visibility: ["coding_agent"], default_ai_visibility: ["coding_agent"] },
+    ],
+  };
+  const first = evaluator.evaluate(initialWorkspace);
+  assert.deepEqual(first.evaluation, { evaluatedEntities: 122, reusedEntities: 0, totalEntities: 122 });
+  assert.equal(first.issues.filter((entry) => entry.ruleId === "publication_scope_mismatch").length, 0);
+
+  const second = evaluator.evaluate({
+    ...initialWorkspace,
+    themes: [
+      { id: "theme-a", ai_visibility: ["coding_agent"], default_ai_visibility: ["m365"] },
+      { id: "theme-b", ai_visibility: ["coding_agent"], default_ai_visibility: ["coding_agent"] },
+    ],
+  });
+  assert.deepEqual(second.evaluation, { evaluatedEntities: 40, reusedEntities: 82, totalEntities: 122 });
+  assert.equal(second.issues.filter((entry) => entry.ruleId === "publication_scope_mismatch").length, 40);
+  assert.equal(second.issues.filter((entry) => entry.ruleId === "missing_visibility" && Number(entry.ref.id.split("-").at(-1)) >= 40 && Number(entry.ref.id.split("-").at(-1)) < 80).length, 0);
+  assert.ok(second.issues.filter((entry) => entry.ruleId === "publication_scope_mismatch")
+    .every((entry) => Number(entry.ref.id.split("-").at(-1)) < 40));
+});
+
+test("Workspace visibility変更はWorkspace既定を継承するEntityだけ再評価する", () => {
+  const evaluator = new DataHealthEvaluator();
+  const tasks = Array.from({ length: 120 }, (_, index) => ({
+    id: `workspace-policy-task-${index}`,
+    title: `Workspace policy task ${index}`,
+    version: 1,
+    ...(index >= 40 && index < 80 ? { ai_visibility: [] } : {}),
+    ...(index >= 80 ? { project_id: "theme-a" } : {}),
+    ai_summary: `Summary ${index}`,
+    ai_summary_authority: "unknown",
+    ai_freshness: "current",
+  }));
+  const initialWorkspace = {
+    meta: { aiVisibilityDefault: ["coding_agent"] },
+    tasks,
+    themes: [{ id: "theme-a", ai_visibility: ["coding_agent"], default_ai_visibility: ["coding_agent"] }],
+  };
+  const first = evaluator.evaluate(initialWorkspace);
+  assert.deepEqual(first.evaluation, { evaluatedEntities: 121, reusedEntities: 0, totalEntities: 121 });
+
+  const second = evaluator.evaluate({ ...initialWorkspace, meta: { aiVisibilityDefault: ["m365"] } });
+  assert.deepEqual(second.evaluation, { evaluatedEntities: 40, reusedEntities: 81, totalEntities: 121 });
+  assert.equal(second.issues.filter((entry) => entry.ruleId === "publication_scope_mismatch").length, 40);
+  assert.equal(second.issues.filter((entry) => entry.ruleId === "missing_visibility" && Number(entry.ref.id.split("-").at(-1)) >= 40 && Number(entry.ref.id.split("-").at(-1)) < 80).length, 0);
+  assert.ok(second.issues.filter((entry) => entry.ruleId === "publication_scope_mismatch")
+    .every((entry) => Number(entry.ref.id.split("-").at(-1)) < 40));
+});
+
 test("Data Health stateはtyped repository CASでignoreを再読込しstale/concurrent更新を拒否する (#296)", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-data-health-state-"));
   const dbPath = path.join(directory, "workspace.sqlite");

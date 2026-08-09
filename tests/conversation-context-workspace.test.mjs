@@ -8,7 +8,13 @@ import test from "node:test";
 import { build } from "esbuild";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { listConversationContextOperations } from "../src/main/services/conversationContextPublisher.mjs";
+import {
+  completeConversationContextOperation,
+  listConversationContextOperations,
+  publishConversationContextFile,
+  removeConversationContextFile,
+} from "../src/main/services/conversationContextPublisher.mjs";
+import { markdownSignature } from "../src/shared/canonicalMarkdown.mjs";
 
 async function importWorkspaceService() {
   const outputDirectory = mkdtempSync(path.join(os.tmpdir(), "tasken-conversation-context-service-bundle-"));
@@ -208,6 +214,103 @@ test("title変更でbindingを動かさず更新し、visibility解除後はhard
   }
 });
 
+test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公開を明示解除してから再公開する", () => {
+  const item = createFixture("tasken-conversation-context-theme-reassign");
+  try {
+    item.database.save("theme", {
+      id: "theme-next",
+      name: "Next Conversation Theme",
+      code: "NEXT",
+      default_ai_visibility: ["m365", "coding_agent"],
+      ai_visibility: ["m365"],
+      ai_freshness: "current",
+      ai_authority: "user_confirmed",
+      ai_summary: "Next theme",
+      ai_summary_authority: "user_confirmed",
+    });
+    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
+    const initial = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    service.publishConversationContext(publishRequest(initial));
+    const published = item.database.get("resource", "conversation-context");
+    const binding = structuredClone(published.conversation_context_publication);
+    assert.equal(binding.theme_id, "theme-context");
+    assert.equal(binding.storage_root_id, "theme:theme-context");
+    const oldFile = path.join(item.syncRoot, "Themes", "CONV", ...binding.relative_path.split("/"));
+    assert.equal(fs.existsSync(oldFile), true);
+
+    item.database.save("resource", {
+      ...published,
+      title: "Moved conversation",
+      theme_id: "theme-next",
+      conversation_context_publication: {
+        ...binding,
+        theme_id: "theme-next",
+        storage_root_id: "theme:theme-next",
+        relative_path: "AI Context/Conversations/tampered.md",
+      },
+    });
+    const moved = item.database.get("resource", "conversation-context");
+    assert.equal(moved.theme_id, "theme-next");
+    assert.deepEqual(moved.conversation_context_publication, binding, "ordinary Resource save cannot mutate publication binding");
+
+    const dirty = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    assert.equal(dirty.publicationState, "dirty");
+    assert.equal(dirty.allowed, false);
+    assert.equal(dirty.storageRootId, "theme:theme-context");
+    assert.match(dirty.blockingReasons.join("\n"), /先にAI Contextから外して/);
+    assert.throws(() => service.publishConversationContext(publishRequest(dirty)), /先にAI Contextから外して/);
+    assert.equal(fs.existsSync(oldFile), true, "theme reassignment must not orphan the old publication");
+    for (const themeId of ["theme-context", "theme-next"]) {
+      const meetings = service.getThemeAiPackPreview(themeId).files.find((file) => file.name === "03 Meetings.md").content;
+      assert.doesNotMatch(meetings, /theme:theme-context:AI Context\/Conversations/);
+      assert.doesNotMatch(meetings, /theme:theme-next:AI Context\/Conversations/);
+    }
+
+    const removed = service.removeConversationContext({ conversationId: "conversation-context" });
+    assert.equal(removed.themeId, "theme-context", "removal uses the publish-time Theme binding");
+    assert.equal(removed.publicationState, "removed");
+    assert.equal(fs.existsSync(oldFile), false);
+    assert.equal(item.database.get("resource", "conversation-context").theme_id, "theme-next");
+
+    const nextPreview = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    assert.equal(nextPreview.allowed, true);
+    assert.equal(nextPreview.storageRootId, "theme:theme-next");
+    const republished = service.publishConversationContext(publishRequest(nextPreview));
+    assert.equal(republished.themeId, "theme-next");
+    const rebound = item.database.get("resource", "conversation-context").conversation_context_publication;
+    assert.equal(rebound.theme_id, "theme-next");
+    assert.equal(rebound.storage_root_id, "theme:theme-next");
+  } finally {
+    item.close();
+  }
+});
+
+test("公開先Themeを削除した後もbindingから旧AI Contextファイルを解除できる", () => {
+  const item = createFixture("tasken-conversation-context-deleted-theme");
+  try {
+    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:30:00.000Z");
+    const preview = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    service.publishConversationContext(publishRequest(preview));
+    const publication = item.database.get("resource", "conversation-context").conversation_context_publication;
+    const publishedFile = path.join(item.syncRoot, "Themes", "CONV", ...publication.relative_path.split("/"));
+    assert.equal(fs.existsSync(publishedFile), true);
+
+    item.database.remove("theme", "theme-context");
+    const detached = item.database.get("resource", "conversation-context");
+    assert.ok(item.database.get("theme", "theme-context", true).deleted_at);
+    assert.equal(detached.theme_id, null);
+    assert.equal(detached.conversation_context_publication.theme_id, "theme-context");
+
+    const removed = service.removeConversationContext({ conversationId: "conversation-context" });
+    assert.equal(removed.themeId, "theme-context");
+    assert.equal(removed.publicationState, "removed");
+    assert.equal(fs.existsSync(publishedFile), false);
+    assert.equal(item.database.get("resource", "conversation-context").deleted_at, null);
+  } finally {
+    item.close();
+  }
+});
+
 test("Theme folder rename後もID markerで再発見し、AI Context bindingを保つ", () => {
   const item = createFixture("tasken-conversation-context-theme-rename");
   try {
@@ -339,7 +442,7 @@ test("planned receiptはfile未完了をfailedへ確定し、再起動ごとの�
     item.database.save("resource", {
       ...resource,
       conversation_context_publication: { ...publication, status: "publishing", operation_id: operationId },
-    });
+    }, { __conversationContextPublicationWrite: true });
     const recovery = path.join(item.userDataPath, "conversation-context-recovery");
     fs.mkdirSync(recovery, { recursive: true });
     fs.writeFileSync(path.join(recovery, `${operationId}.json`), `${JSON.stringify({
@@ -375,6 +478,51 @@ test("recovery directory/receipt symlinkと不正identity/pathをfollowしない
     const linked = listConversationContextOperations(linkedRecovery);
     assert.equal(linked.length, 1);
     assert.equal(linked[0].receipt, null);
+
+    const themeFolder = path.join(root, "theme");
+    fs.mkdirSync(themeFolder);
+    const relativePath = "AI Context/Conversations/conversation.md";
+    const content = "# Conversation\n";
+    const contentHash = markdownSignature(content);
+    const target = path.join(themeFolder, ...relativePath.split("/"));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, "existing\n");
+    const mutations = { writes: 0, deletes: 0 };
+    const guardedFs = new Proxy(fs, {
+      get(targetFs, property) {
+        const value = targetFs[property];
+        if (typeof value !== "function") return value;
+        return (...args) => {
+          if (["writeFileSync", "renameSync", "mkdirSync"].includes(String(property))) mutations.writes += 1;
+          if (["unlinkSync", "rmSync", "rmdirSync"].includes(String(property))) mutations.deletes += 1;
+          return value.apply(targetFs, args);
+        };
+      },
+    });
+    assert.throws(() => publishConversationContextFile({
+      themeFolder,
+      conversationId: "conversation",
+      themeId: "theme",
+      relativePath,
+      content,
+      contentHash,
+      operationId: "junction-publish",
+      recoveryDirectory: linkedRecovery,
+      fileSystem: guardedFs,
+    }), /recovery directory/);
+    assert.throws(() => removeConversationContextFile({
+      themeFolder,
+      conversationId: "conversation",
+      themeId: "theme",
+      relativePath,
+      operationId: "junction-remove",
+      recoveryDirectory: linkedRecovery,
+      fileSystem: guardedFs,
+    }), /recovery directory/);
+    assert.throws(() => completeConversationContextOperation(linkedRecovery, "junction-complete", { fileSystem: guardedFs }), /recovery directory/);
+    assert.deepEqual(mutations, { writes: 0, deletes: 0 }, "junction rejection occurs before every filesystem mutation");
+    assert.equal(fs.readFileSync(target, "utf8"), "existing\n");
+    assert.deepEqual(fs.readdirSync(outside), []);
 
     const recovery = path.join(root, "recovery");
     fs.mkdirSync(recovery);

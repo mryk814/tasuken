@@ -1,9 +1,10 @@
-import { entityTypes, themeFieldForEntityType } from "../../shared/entityRegistry.mjs";
+import { entityTypes, legacyThemeFieldsForEntityType, themeFieldForEntityType } from "../../shared/entityRegistry.mjs";
 
 const themeReferenceTargets = entityTypes
   .filter((entityType) => entityType !== "theme" && entityType !== "project" && entityType !== "status_update")
-  .map((entityType) => [entityType, themeFieldForEntityType(entityType)])
-  .filter((entry) => entry[1]);
+  .flatMap((entityType) => [themeFieldForEntityType(entityType), ...legacyThemeFieldsForEntityType(entityType)]
+    .filter(Boolean)
+    .map((field) => [entityType, field]));
 
 export function applyRepositoryDeletePolicy(repository, type, id) {
   if (type === "repository_context") {

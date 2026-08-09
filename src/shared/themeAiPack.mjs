@@ -324,6 +324,10 @@ export function buildThemeAiPackPlan({
       exclusions.push(exclusion(entity.id, type, "ConversationはAI Contextへ明示公開されていないため除外しました。"));
       return null;
     }
+    if (conversation && text(publication?.storage_root_id).trim() !== `theme:${themeId}`) {
+      exclusions.push(exclusion(entity.id, type, "Conversationは別のThemeへ公開済みです。旧公開を解除してから再公開してください。"));
+      return null;
+    }
     const hasPublishedConversationRef = Boolean(
       (text(publication?.storage_root_id).trim() && safeRelativePath(publication?.relative_path))
       || safeWebUrl(publication?.web_url),

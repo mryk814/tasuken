@@ -27,13 +27,39 @@ function assertRelativePath(value) {
   return relativePath;
 }
 
-function receiptPath(recoveryDirectory, operationId) {
-  return path.join(path.resolve(recoveryDirectory), `${assertOperationId(operationId)}.json`);
+function assertSafeRecoveryRoot(fileSystem, recoveryDirectory, { create = false } = {}) {
+  const raw = text(recoveryDirectory);
+  if (!raw) throw new Error("Conversation AI Context recovery directoryがありません。");
+  const root = path.resolve(raw);
+  let cursor = root;
+  while (true) {
+    if (fileSystem.existsSync(cursor)) {
+      const stat = fileSystem.lstatSync(cursor);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error("Conversation AI Context recovery directoryが不正です。");
+      }
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  if (create && !fileSystem.existsSync(root)) fileSystem.mkdirSync(root, { recursive: true });
+  if (fileSystem.existsSync(root)) {
+    const rootStat = fileSystem.lstatSync(root);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+      throw new Error("Conversation AI Context recovery directoryが不正です。");
+    }
+  }
+  return root;
+}
+
+function receiptPath(recoveryRoot, operationId) {
+  return path.join(recoveryRoot, `${assertOperationId(operationId)}.json`);
 }
 
 function writeReceipt(fileSystem, recoveryDirectory, receipt) {
-  fileSystem.mkdirSync(recoveryDirectory, { recursive: true });
-  const target = receiptPath(recoveryDirectory, receipt.operationId);
+  const recoveryRoot = assertSafeRecoveryRoot(fileSystem, recoveryDirectory, { create: true });
+  const target = receiptPath(recoveryRoot, receipt.operationId);
   writeAtomicTextFile(target, `${JSON.stringify(receipt, null, 2)}\n`, `${receipt.operationId}-receipt`, fileSystem);
   return target;
 }
@@ -130,7 +156,7 @@ export function publishConversationContextFile({
     if (safelyMatchesSignature(fileSystem, filePath, receipt.contentHash)) {
       writeReceipt(fileSystem, recoveryDirectory, { ...receipt, phase: "file_written" });
     } else if (fileSystem.existsSync(savedReceiptPath)) {
-      fileSystem.unlinkSync(savedReceiptPath);
+      completeConversationContextOperation(recoveryDirectory, operationId, { fileSystem });
     }
     throw error;
   }
@@ -174,24 +200,28 @@ export function removeConversationContextFile({
     if (safelyMissing(fileSystem, filePath)) {
       writeReceipt(fileSystem, recoveryDirectory, { ...receipt, phase: "file_removed" });
     } else if (fileSystem.existsSync(savedReceiptPath)) {
-      fileSystem.unlinkSync(savedReceiptPath);
+      completeConversationContextOperation(recoveryDirectory, operationId, { fileSystem });
     }
     throw error;
   }
 }
 
 export function completeConversationContextOperation(recoveryDirectory, operationId, { fileSystem = fs } = {}) {
-  const target = receiptPath(recoveryDirectory, operationId);
+  const recoveryRoot = assertSafeRecoveryRoot(fileSystem, recoveryDirectory);
+  if (!fileSystem.existsSync(recoveryRoot)) return;
+  const target = receiptPath(recoveryRoot, operationId);
   if (fileSystem.existsSync(target)) fileSystem.unlinkSync(target);
 }
 
 export function listConversationContextOperations(recoveryDirectory, { fileSystem = fs } = {}) {
-  if (!fileSystem.existsSync(recoveryDirectory)) return [];
-  const root = path.resolve(recoveryDirectory);
-  const rootStat = fileSystem.lstatSync(root);
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
-    return [{ receipt: null, receiptPath: root, error: "Conversation AI Context recovery directoryが不正です。" }];
+  let root;
+  try {
+    root = assertSafeRecoveryRoot(fileSystem, recoveryDirectory);
+  } catch (error) {
+    const fallback = path.resolve(text(recoveryDirectory) || ".");
+    return [{ receipt: null, receiptPath: fallback, error: error instanceof Error ? error.message : String(error) }];
   }
+  if (!fileSystem.existsSync(root)) return [];
   const results = [];
   for (const name of fileSystem.readdirSync(root).filter((entry) => entry.endsWith(".json")).sort()) {
     const filePath = path.join(root, name);

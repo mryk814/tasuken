@@ -742,6 +742,10 @@ export class WorkspaceService {
     });
   }
 
+  private saveConversationContextResource(entity: Record<string, unknown>): Record<string, unknown> {
+    return this.repository.save("resource", entity, { __conversationContextPublicationWrite: true });
+  }
+
   private conversationContextInput(requestValue: unknown, publishedAt?: string): {
     resource: Record<string, unknown>;
     theme: Record<string, unknown>;
@@ -776,15 +780,20 @@ export class WorkspaceService {
   }
 
   private conversationContextLocation(theme: Record<string, unknown>, plan: ConversationContextPlan) {
-    const location = this.resolveThemeAiPack(theme);
-    if (location.status !== "ok") return { location, storage: null };
     const publication = normalizeConversationContextPublication(
       this.repository.get("resource", plan.conversation_id)?.conversation_context_publication,
     );
+    const bindingThemeId = publication?.status !== "removed" ? publication?.theme_id : null;
+    const bindingTheme = bindingThemeId
+      ? this.repository.get("theme", bindingThemeId, true) || this.repository.get("project", bindingThemeId, true)
+      : theme;
+    if (!bindingTheme) return { location: { status: "theme_missing" as const }, storage: null };
+    const location = this.resolveThemeAiPack(bindingTheme);
+    if (location.status !== "ok") return { location, storage: null };
     const storage = publication?.status === "published"
       ? inspectConversationContextFile({
           themeFolder: location.themeFolder,
-          relativePath: plan.relative_path,
+          relativePath: publication.relative_path,
           contentHash: publication.content_hash,
         })
       : null;
@@ -804,7 +813,9 @@ export class WorkspaceService {
     return {
       conversationId: plan.conversation_id,
       themeId: plan.theme_id,
-      storageRootId: plan.storage_root_id,
+      storageRootId: publication?.status !== "removed" && publication?.storage_root_id
+        ? publication.storage_root_id
+        : plan.storage_root_id,
       relativePath: plan.relative_path,
       plannedPublishedAt,
       scope: plan.scope,
@@ -870,6 +881,11 @@ export class WorkspaceService {
     const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
     if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
     const existingPublication = normalizeConversationContextPublication(resource.conversation_context_publication);
+    if (existingPublication?.status !== "removed"
+      && existingPublication?.theme_id
+      && existingPublication.theme_id !== plan.theme_id) {
+      throw new Error("以前のThemeに公開済みです。先にAI Contextから外してから、新しいThemeへ公開してください。");
+    }
     if (existingPublication?.status === "published"
       && existingPublication.content_hash === plan.content_hash
       && existingPublication.source_revision === plan.source_revision) {
@@ -892,6 +908,8 @@ export class WorkspaceService {
       status: "publishing",
       scope: plan.scope,
       selected_message_indexes: plan.selected_message_indexes,
+      theme_id: plan.theme_id,
+      storage_root_id: plan.storage_root_id,
       relative_path: plan.relative_path,
       content_hash: plan.content_hash,
       source_revision: plan.source_revision,
@@ -901,7 +919,7 @@ export class WorkspaceService {
       operation_id: operationId,
       last_error: null,
     };
-    const pendingResource = this.repository.save("resource", { ...resource, conversation_context_publication: pendingPublication });
+    const pendingResource = this.saveConversationContextResource({ ...resource, conversation_context_publication: pendingPublication });
     try {
       const fileResult = publishConversationContextFile({
         themeFolder: ensured.themeFolder,
@@ -913,7 +931,7 @@ export class WorkspaceService {
         operationId,
         recoveryDirectory: this.conversationContextRecoveryDirectory,
       });
-      this.repository.save("resource", {
+      this.saveConversationContextResource({
         ...pendingResource,
         conversation_context_publication: { ...pendingPublication, status: "published", operation_id: null, updated_at: this.now() },
       });
@@ -935,7 +953,7 @@ export class WorkspaceService {
           .some((item) => item.receipt?.operationId === operationId && item.receipt.phase === "file_written");
         const current = this.repository.get("resource", plan.conversation_id);
         if (current && normalizeConversationContextPublication(current.conversation_context_publication)?.operation_id === operationId) {
-          this.repository.save("resource", {
+          this.saveConversationContextResource({
             ...current,
             conversation_context_publication: {
               ...pendingPublication,
@@ -962,16 +980,18 @@ export class WorkspaceService {
     if (!publication || publication.status === "removed") {
       return { conversationId, themeId: String(resource.theme_id || resource.project_id || ""), publicationState: "removed", removed: false };
     }
-    const themeId = String(resource.theme_id || resource.project_id || "").trim();
-    const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
-    if (!theme || theme.deleted_at) throw new Error("ConversationのThemeが見つかりません。");
+    const themeId = publication.theme_id || String(resource.theme_id || resource.project_id || "").trim();
+    const storageRootId = publication.storage_root_id || `theme:${themeId}`;
+    if (!themeId || storageRootId !== `theme:${themeId}`) throw new Error("Conversationの公開先bindingが不正です。再読込してから再試行してください。");
+    const theme = this.repository.get("theme", themeId, true) || this.repository.get("project", themeId, true);
+    if (!theme) throw new Error("ConversationのThemeが見つかりません。");
     const location = this.resolveThemeAiPack(theme);
     if (location.status !== "ok") throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
     const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
     if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
     const operationId = randomUUID();
     const pendingPublication = { ...publication, status: "removing", operation_id: operationId, updated_at: this.now(), last_error: null };
-    const pendingResource = this.repository.save("resource", { ...resource, conversation_context_publication: pendingPublication });
+    const pendingResource = this.saveConversationContextResource({ ...resource, conversation_context_publication: pendingPublication });
     try {
       const fileResult = removeConversationContextFile({
         themeFolder: ensured.themeFolder,
@@ -981,7 +1001,7 @@ export class WorkspaceService {
         operationId,
         recoveryDirectory: this.conversationContextRecoveryDirectory,
       });
-      this.repository.save("resource", {
+      this.saveConversationContextResource({
         ...pendingResource,
         conversation_context_publication: {
           ...pendingPublication,
@@ -1009,7 +1029,7 @@ export class WorkspaceService {
           .some((item) => item.receipt?.operationId === operationId && item.receipt.phase === "file_removed");
         const current = this.repository.get("resource", conversationId);
         if (current && normalizeConversationContextPublication(current.conversation_context_publication)?.operation_id === operationId) {
-          this.repository.save("resource", {
+          this.saveConversationContextResource({
             ...current,
             conversation_context_publication: {
               ...pendingPublication,
@@ -1042,7 +1062,7 @@ export class WorkspaceService {
           completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
           continue;
         }
-        const theme = this.repository.get("theme", receipt.themeId) || this.repository.get("project", receipt.themeId);
+        const theme = this.repository.get("theme", receipt.themeId, true) || this.repository.get("project", receipt.themeId, true);
         if (!theme) throw new Error("Themeが見つかりません。");
         const location = this.resolveThemeAiPack(theme);
         if (location.status !== "ok") throw new Error(`Theme保存先を再発見できません: ${location.status}`);
@@ -1056,7 +1076,7 @@ export class WorkspaceService {
           if (receipt.action === "publish" && storage.current) phase = "file_written";
           else if (receipt.action === "remove" && !storage.exists) phase = "file_removed";
           else {
-            this.repository.save("resource", {
+            this.saveConversationContextResource({
               ...resource,
               conversation_context_publication: {
                 ...publication,
@@ -1077,7 +1097,7 @@ export class WorkspaceService {
             contentHash: receipt.contentHash,
           });
           if (!storage.current) throw new Error("公開fileのread-back hashが一致しません。");
-          this.repository.save("resource", {
+          this.saveConversationContextResource({
             ...resource,
             conversation_context_publication: { ...publication, status: "published", operation_id: null, last_error: null, updated_at: this.now() },
           });
@@ -1092,7 +1112,7 @@ export class WorkspaceService {
             contentHash: publication.content_hash,
           });
           if (storage.exists) throw new Error("解除済みfileが残っています。");
-          this.repository.save("resource", {
+          this.saveConversationContextResource({
             ...resource,
             conversation_context_publication: {
               ...publication,

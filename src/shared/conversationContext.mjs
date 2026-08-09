@@ -110,6 +110,9 @@ export function normalizeConversationContextPublication(value) {
     : [];
   const relativePath = safeRelativePath(input.relative_path);
   if (!relativePath) return null;
+  const themeId = text(input.theme_id);
+  const storageRootId = text(input.storage_root_id);
+  if ((themeId || storageRootId) && (!themeId || storageRootId !== `theme:${themeId}`)) return null;
   return {
     schema: CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
     status: ["publishing", "published", "publish_failed", "removing", "removal_failed", "removed"].includes(input.status)
@@ -117,6 +120,8 @@ export function normalizeConversationContextPublication(value) {
       : "publish_failed",
     scope,
     selected_message_indexes: selected,
+    theme_id: themeId || null,
+    storage_root_id: storageRootId || null,
     relative_path: relativePath,
     content_hash: text(input.content_hash) || null,
     source_revision: text(input.source_revision) || null,
@@ -236,6 +241,12 @@ export function buildConversationContextPlan({
     throw new Error("ConversationのThemeが見つかりません。Themeを設定してから再試行してください。");
   }
   const publication = normalizeConversationContextPublication(entity.conversation_context_publication);
+  const publicationThemeChanged = Boolean(
+    publication
+    && publication.status !== "removed"
+    && publication.theme_id
+    && publication.theme_id !== text(themeEntity.id),
+  );
   const normalizedScope = CONVERSATION_CONTEXT_SCOPES.includes(scope) ? scope : publication?.scope || "full";
   const requestedIndexes = Array.isArray(selectedMessageIndexes)
     ? [...new Set(selectedMessageIndexes.filter((entry) => Number.isInteger(entry) && entry >= 0))].sort((a, b) => a - b)
@@ -275,10 +286,11 @@ export function buildConversationContextPlan({
       remaining -= entry.message.content.length;
     }
   }
-  const allowed = Boolean(projection.included && selected.length);
+  const allowed = Boolean(projection.included && selected.length && !publicationThemeChanged);
   const blockingReasons = [
     ...(!projection.included ? [projection.exclusion?.reason || "M365への公開が許可されていません。"] : []),
     ...(!selected.length ? [normalizedScope === "selected_turns" ? "公開する発言を選択してください。" : "公開できるUser/Assistant発言がありません。"] : []),
+    ...(publicationThemeChanged ? ["以前のThemeに公開済みです。先にAI Contextから外してから、新しいThemeへ公開してください。"] : []),
   ];
   const effectivePublishedAt = text(publishedAt) || publication?.published_at || new Date(0).toISOString();
   const relativePath = conversationContextRelativePath(entity, publication);
@@ -322,6 +334,8 @@ export function buildConversationContextPlan({
     allowed,
     publication_state: !publication || publication.status === "removed"
       ? "not_published"
+      : publicationThemeChanged
+        ? "dirty"
       : !projection.included && wasPublished
         ? "published_but_blocked"
         : publication.status === "published" && dirty
@@ -344,10 +358,15 @@ export function buildConversationContextPlan({
 export function publicationForThemeAiPack(entity) {
   const publication = normalizeConversationContextPublication(entity?.conversation_context_publication);
   if (!publication || publication.status !== "published") return null;
+  const legacyThemeId = text(entity?.theme_id || entity?.project_id);
+  const themeId = publication.theme_id || legacyThemeId;
+  const storageRootId = publication.storage_root_id || (themeId ? `theme:${themeId}` : "");
+  if (!themeId || storageRootId !== `theme:${themeId}`) return null;
   return {
     published: true,
     title: text(entity?.title),
-    storage_root_id: `theme:${text(entity?.theme_id || entity?.project_id)}`,
+    theme_id: themeId,
+    storage_root_id: storageRootId,
     relative_path: publication.relative_path,
   };
 }

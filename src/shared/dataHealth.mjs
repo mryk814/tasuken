@@ -87,13 +87,26 @@ function recordBody(record) {
   return "";
 }
 
-function visibility(record, workspace, themesById, type) {
-  const direct = values(record.ai_visibility).filter((entry) => AI_AUDIENCES.has(entry));
-  if (direct.length) return direct;
-  const theme = themesById.get(recordThemeId(type, record));
-  const inherited = values(theme?.default_ai_visibility || theme?.ai_visibility).filter((entry) => AI_AUDIENCES.has(entry));
-  if (inherited.length) return inherited;
-  return values(object(workspace.meta).aiVisibilityDefault).filter((entry) => AI_AUDIENCES.has(entry));
+function configuredAudiences(value) {
+  if (!Array.isArray(value)) return null;
+  return values(value).filter((entry) => AI_AUDIENCES.has(entry));
+}
+
+function visibilityPolicy(record, workspace, themesById, type) {
+  const direct = configuredAudiences(record.ai_visibility);
+  if (direct) return { audiences: direct, configured: true, identity: ["entity", direct] };
+  const themeId = recordThemeId(type, record);
+  const theme = themesById.get(themeId);
+  const themeDefault = configuredAudiences(theme?.default_ai_visibility);
+  const legacyThemeDefault = themeDefault === null ? configuredAudiences(theme?.ai_visibility) : null;
+  const inherited = themeDefault ?? legacyThemeDefault;
+  if (inherited) return { audiences: inherited, configured: true, identity: ["theme", themeId, inherited] };
+  const workspaceDefault = configuredAudiences(object(workspace.meta).aiVisibilityDefault);
+  return {
+    audiences: workspaceDefault || [],
+    configured: workspaceDefault !== null,
+    identity: ["workspace_default", workspaceDefault || []],
+  };
 }
 
 function hasProvenance(record) {
@@ -101,7 +114,7 @@ function hasProvenance(record) {
   return Boolean(text(record.source_id || record.source_note_id || record.source_link_id || record.source_item_id || record.source_url || record.url));
 }
 
-function entitySignature(type, record, structureSignature) {
+function entitySignature(type, record, structureSignature, visibilityIdentity = null) {
   const structureDependency = recordBody(record).includes("[[") ? structureSignature : "";
   return JSON.stringify([
     type,
@@ -117,6 +130,7 @@ function entitySignature(type, record, structureSignature) {
     record.source_refs,
     recordBody(record),
     structureDependency,
+    visibilityIdentity,
   ]);
 }
 
@@ -133,17 +147,16 @@ function activeEntries(workspace) {
   return result;
 }
 
-function localIssues(type, record, workspace, themesById, structureSignature) {
+function localIssues(type, record, workspace, themesById, structureSignature, resolvedVisibility = visibilityPolicy(record, workspace, themesById, type)) {
   const ref = { type, id: text(record.id) };
   const themeId = recordThemeId(type, record);
   const result = [];
-  const audiences = visibility(record, workspace, themesById, type);
-  const directlyConfigured = values(record.ai_visibility).some((entry) => AI_AUDIENCES.has(entry));
+  const audiences = resolvedVisibility.audiences;
   const isPublishable = audiences.length > 0;
   if (SUMMARY_TYPES.has(type) && isPublishable && !text(record.ai_summary)) {
     result.push(issue("missing_summary", ref, themeId, "AIへ渡す要約がありません。元EntityでAI summaryを追加してください。"));
   }
-  if (SUMMARY_TYPES.has(type) && !directlyConfigured && !audiences.length) {
+  if (SUMMARY_TYPES.has(type) && !resolvedVisibility.configured && !audiences.length) {
     result.push(issue("missing_visibility", ref, themeId, "Entity・Theme・WorkspaceのいずれにもAI visibilityがありません。公開先を確認してください。"));
   }
   const authority = text(record.ai_authority || object(record.ai).authority);
@@ -187,7 +200,7 @@ function localIssues(type, record, workspace, themesById, structureSignature) {
       ));
     }
   }
-  return { signature: entitySignature(type, record, structureSignature), issues: result };
+  return { signature: entitySignature(type, record, structureSignature, resolvedVisibility.identity), issues: result };
 }
 
 function relationIssues(workspace, entries) {
@@ -303,13 +316,14 @@ export class DataHealthEvaluator {
     for (const { type, record } of entries) {
       const key = refKey({ type, id: text(record.id) });
       activeKeys.add(key);
-      const signature = entitySignature(type, record, structureSignature);
+      const resolvedVisibility = visibilityPolicy(record, workspace, themesById, type);
+      const signature = entitySignature(type, record, structureSignature, resolvedVisibility.identity);
       const cached = this.entityCache.get(key);
       if (cached?.signature === signature) {
         issues.push(...cached.issues);
         reusedEntities += 1;
       } else {
-        const evaluated = localIssues(type, record, workspace, themesById, structureSignature);
+        const evaluated = localIssues(type, record, workspace, themesById, structureSignature, resolvedVisibility);
         this.entityCache.set(key, evaluated);
         issues.push(...evaluated.issues);
         evaluatedEntities += 1;

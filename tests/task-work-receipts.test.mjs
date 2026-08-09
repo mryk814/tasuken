@@ -125,7 +125,7 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   assert.match(todo, /buildCompleteTaskOperations/);
   assert.match(app, /saveEntities\(domainPlan\.operations/);
   assert.match(domain, /input\.intended_executor === "ai_agent" && input\.state === "done" && input\.work_state !== "accepted"/);
-  assert.match(repositorySource, /normalizeTaskAssignment\(activityInput, existing\)/);
+  assert.match(repositorySource, /normalizeTaskAssignment\(protectedInput, existing\)/);
   assert.doesNotMatch(mcp, /registerTool\("tasken\.accept_task_work"/);
   assert.doesNotMatch(mcp, /request_human_review|request_review/);
   assert.doesNotMatch(proposalInbox, /request_review/);

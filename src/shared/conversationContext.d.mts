@@ -6,6 +6,8 @@ export interface ConversationContextPublication {
   status: ConversationContextPublicationStatus;
   scope: ConversationContextScope;
   selected_message_indexes: number[];
+  theme_id: string | null;
+  storage_root_id: string | null;
   relative_path: string;
   content_hash: string | null;
   source_revision: string | null;
@@ -59,4 +61,4 @@ export function buildConversationContextPlan(input: {
   selectedMessageIndexes?: number[];
   publishedAt?: string;
 }): ConversationContextPlan;
-export function publicationForThemeAiPack(entity: Record<string, unknown>): { published: true; title: string; storage_root_id: string; relative_path: string } | null;
+export function publicationForThemeAiPack(entity: Record<string, unknown>): { published: true; title: string; theme_id: string; storage_root_id: string; relative_path: string } | null;
