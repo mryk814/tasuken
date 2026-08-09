@@ -1,5 +1,6 @@
 import type {
   CanonicalRootStatusMap,
+  DocumentSaveReferenceCompanion,
   DocumentSaveSnapshot,
   Entity,
   EntityType,
@@ -11,7 +12,7 @@ import type { WorkReceipt, WorkspaceDomain } from "./domain-model/types";
 import type { ApplicationCommandSource, CommandEnvelope, CommandReceipt } from "../../../../shared/applicationCommand";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
-export type { DocumentSaveSnapshot, Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
+export type { DocumentSaveReferenceCompanion, DocumentSaveSnapshot, Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
 
 // DBのdata_jsonはスキーマレスなので、利用するフィールドだけを型付けし、
 // それ以外はindex signatureで許容する（カスタム項目・将来フィールドのため）。
@@ -319,6 +320,7 @@ export type SaveEntity = (
   entity: DrawerEntity,
   options?: SaveOptions,
   documentSnapshot?: DocumentSaveSnapshot,
+  documentCompanions?: DocumentSaveReferenceCompanion[],
 ) => Promise<Entity>;
 
 export type SaveEntities = (

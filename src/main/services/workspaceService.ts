@@ -18,7 +18,8 @@ import {
   type MermaidSvgClipboardResult,
 } from "../../shared/mermaidPowerPoint";
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
-import type { DocumentSaveRequest, SaveOptions, Workspace } from "../../shared/types/workspace";
+import type { DocumentSaveReferenceCompanion, DocumentSaveRequest, SaveOptions, Workspace } from "../../shared/types/workspace";
+import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import {
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
@@ -93,6 +94,7 @@ interface GitHubLatestRelease {
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
   save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
+  saveMany(operations: Array<{ action: "save"; type: string; entity: unknown; options?: unknown }>): Array<Record<string, unknown>>;
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
@@ -126,6 +128,7 @@ interface CanonicalRecoveryReceipt {
   operationAt?: string;
   baseRevision?: number;
   bodySignature?: string;
+  companions?: DocumentSaveReferenceCompanion[];
 }
 
 type CanonicalSaveOptions = SaveOptions & { __canonicalOperationAt?: string };
@@ -158,6 +161,57 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function normalizeDocumentSaveCompanions(value: unknown, noteId: string): DocumentSaveReferenceCompanion[] {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 4) {
+    throw new Error("文書保存のcompanionが不正です。画面を再読み込みして、もう一度試してください。");
+  }
+  const targetTypes = new Set<string>(referenceTargetEntityTypes);
+  return value.map((entry) => {
+    const operation = objectValue(entry);
+    const entity = objectValue(operation.entity);
+    const options = objectValue(operation.options);
+    const id = typeof entity.id === "string" ? entity.id.trim() : "";
+    const sourceId = typeof entity.source_id === "string" ? entity.source_id.trim() : "";
+    const targetType = typeof entity.target_type === "string" ? entity.target_type.trim() : "";
+    const targetId = typeof entity.target_id === "string" ? entity.target_id.trim() : "";
+    if (operation.action !== "save" || operation.type !== "reference" || !id) {
+      throw new Error("文書保存には型付きReferenceだけを同伴できます。画面を再読み込みして、もう一度試してください。");
+    }
+    if (entity.source_type !== "note" || sourceId !== noteId) {
+      throw new Error("文書保存のReference sourceが対象Noteと一致しません。対象Noteを開き直して再試行してください。");
+    }
+    if (!targetTypes.has(targetType) || !targetId) {
+      throw new Error("文書保存のReference targetが不正です。参照元を開き直して再試行してください。");
+    }
+    if (entity.relation_type !== "derived_from") {
+      throw new Error("文書保存のReference predicateはderived_fromだけを利用できます。");
+    }
+    const createdAt = typeof entity.created_at === "string" ? entity.created_at.trim() : "";
+    if (createdAt && Number.isNaN(Date.parse(createdAt))) {
+      throw new Error("文書保存のReference作成日時が不正です。画面を再読み込みして、もう一度試してください。");
+    }
+    return {
+      action: "save",
+      type: "reference",
+      entity: {
+        id,
+        source_type: "note",
+        source_id: sourceId,
+        target_type: targetType as DocumentSaveReferenceCompanion["entity"]["target_type"],
+        target_id: targetId,
+        relation_type: "derived_from",
+        ...(typeof entity.note === "string" ? { note: entity.note } : {}),
+        ...(createdAt ? { created_at: createdAt } : {}),
+      },
+      options: {
+        ...(typeof options.source === "string" && options.source.trim() ? { source: options.source.trim() } : {}),
+        ...(typeof options.reason === "string" && options.reason.trim() ? { reason: options.reason.trim() } : {}),
+      },
+    };
+  });
 }
 
 function errorText(error: unknown): string {
@@ -197,6 +251,7 @@ function normalizeDocumentSaveRequest(value: unknown): DocumentSaveRequest {
       expectedRevision,
     },
     options: objectValue(request.options) as SaveOptions,
+    companions: normalizeDocumentSaveCompanions(request.companions, entityId),
   };
 }
 
@@ -499,6 +554,7 @@ export class WorkspaceService {
     const remaining: CanonicalRecoveryReceipt[] = [];
     for (const receipt of receipts) {
       try {
+        const companions = normalizeDocumentSaveCompanions(receipt.companions, receipt.noteId);
         const current = this.repository.get("note", receipt.noteId, true);
         // receiptはfile write後の復旧候補であり、DBのcurrentを上書きする正本ではない。
         const snapshot = this.readCanonicalFile(receipt.filePath);
@@ -583,10 +639,12 @@ export class WorkspaceService {
             || currentBinding?.file_ahead_signature !== conflict.file_ahead_signature
             || currentBinding?.last_error !== conflict.last_error
           ) {
-            this.repository.save("note", {
-              ...entity,
-              properties_json: withCanonicalMarkdownBinding(objectValue(entity.properties_json), conflict),
-            }, { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() });
+            this.saveNoteInternally(
+              entity,
+              conflict,
+              { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() },
+              companions,
+            );
           }
           remaining.push(receipt);
           continue;
@@ -603,10 +661,12 @@ export class WorkspaceService {
           last_error: "",
           file_ahead_signature: "",
         }, { noteId: receipt.noteId });
-        this.repository.save("note", {
-          ...entity,
-          properties_json: withCanonicalMarkdownBinding(objectValue(entity.properties_json), synced),
-        }, { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() });
+        this.saveNoteInternally(
+          entity,
+          synced,
+          { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() },
+          companions,
+        );
       } catch {
         // receiptは検証とDB保存の両方が成功するまで残し、次回起動で再試行する。
         remaining.push(receipt);
@@ -688,11 +748,19 @@ export class WorkspaceService {
     note: Record<string, unknown>,
     binding: ReturnType<typeof normalizeCanonicalMarkdownBinding>,
     options: CanonicalSaveOptions,
+    companions: DocumentSaveReferenceCompanion[] = [],
   ): Record<string, unknown> {
-    return this.repository.save("note", {
-      ...note,
-      properties_json: withCanonicalMarkdownBinding(objectValue(note.properties_json), binding),
-    }, options);
+    const noteOperation = {
+      action: "save" as const,
+      type: "note",
+      entity: {
+        ...note,
+        properties_json: withCanonicalMarkdownBinding(objectValue(note.properties_json), binding),
+      },
+      options,
+    };
+    if (!companions.length) return this.repository.save(noteOperation.type, noteOperation.entity, options);
+    return this.repository.saveMany([noteOperation, ...companions])[0];
   }
 
   private canonicalThemeName(note: Record<string, unknown>): string {
@@ -728,7 +796,7 @@ export class WorkspaceService {
     const baseAttempt = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt);
 
     if (!target) {
-      return this.saveNoteInternally(note, baseAttempt, options);
+      return this.saveNoteInternally(note, baseAttempt, options, request.companions);
     }
 
     try {
@@ -743,7 +811,7 @@ export class WorkspaceService {
         sync_state: "unavailable",
         last_error: errorText(error),
       });
-      return this.saveNoteInternally(note, unavailable, options);
+      return this.saveNoteInternally(note, unavailable, options, request.companions);
     }
     const snapshot = this.readCanonicalFile(target.filePath);
     if (snapshot.error) {
@@ -751,7 +819,7 @@ export class WorkspaceService {
         sync_state: "unavailable",
         last_error: snapshot.error,
       });
-      return this.saveNoteInternally(note, unavailable, options);
+      return this.saveNoteInternally(note, unavailable, options, request.companions);
     }
 
     const plan = planCanonicalMarkdownWrite({
@@ -769,7 +837,7 @@ export class WorkspaceService {
         file_ahead_signature: plan.externalSignature,
         last_error: "外部で変更されたMarkdownを確認してから上書きしてください。",
       });
-      return this.saveNoteInternally(note, conflict, options);
+      return this.saveNoteInternally(note, conflict, options, request.companions);
     }
 
     // overwriteは外部変更との確認を経た明示操作なので、同じ内容に見えても
@@ -786,7 +854,7 @@ export class WorkspaceService {
         last_error: "",
         file_ahead_signature: "",
       });
-      const saved = this.saveNoteInternally(note, synced, options);
+      const saved = this.saveNoteInternally(note, synced, options, request.companions);
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;
     }
@@ -809,6 +877,7 @@ export class WorkspaceService {
       operationAt: attemptAt,
       baseRevision: actualRevision,
       bodySignature: markdownSignature(String(note.body_markdown || "")),
+      companions: request.companions,
     });
     let writeWarning: string | null = null;
     try {
@@ -819,7 +888,7 @@ export class WorkspaceService {
         last_error: errorText(error),
       });
       this.removeCanonicalRecoveryReceipt(operationId);
-      return this.saveNoteInternally(note, failed, options);
+      return this.saveNoteInternally(note, failed, options, request.companions);
     }
 
     const written = this.readCanonicalFile(target.filePath);
@@ -831,7 +900,7 @@ export class WorkspaceService {
         file_signature: expectedSignature,
         last_error: written.error || "書き込んだMarkdownの内容を検証できませんでした。再試行してください。",
       });
-      this.saveNoteInternally(note, failed, options);
+      this.saveNoteInternally(note, failed, options, request.companions);
       // 実ファイルの再検証に成功するまでreceiptは残す。
       return this.repository.get("note", noteId, true) || note;
     }
@@ -847,7 +916,7 @@ export class WorkspaceService {
       file_ahead_signature: "",
     });
     try {
-      const saved = this.saveNoteInternally(note, synced, options);
+      const saved = this.saveNoteInternally(note, synced, options, request.companions);
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;
     } catch (error) {

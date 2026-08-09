@@ -25,7 +25,7 @@ Suggested relationは既定で除外し、含めても `status: "suggested"` の
 
 - `src/shared/conversationLineage.mjs`: 共通Context GraphからConversation/Entityの上流・下流を最大2段階で取得し、派生と単なる参照を分離する局所read model。
 - `src/renderer/src/features/workspace/components/LineagePanel.tsx`: Chat Ref / Task / Note / Artifactで同じlist/tree/path表示を使う。自由配置Canvas、pan、zoom、node位置編集は持たない。
-- Conversation詳細の「Taskを作る」「Noteを作る」は、作成Entityと`derived_from` Referenceを同じ保存単位で確定する。続きConversationは`parent_resource_id`、Artifactは既存`source_type/source_id`と`origin_note_id`を正本にする。
+- Conversation詳細の「Taskを作る」「Noteを作る」は、作成Entityと`derived_from` Referenceを同じ保存単位で確定する。Noteは`document:save`の正本Markdown経路を使い、対象Noteをsourceとする`derived_from` Referenceだけを型付きcompanionとして同一DB transactionへ含める。file成功・DB失敗時はcompanionもcanonical recovery receiptから復旧し、保存成功時は`note`と`reference`をrendererへ変更通知する。続きConversationは`parent_resource_id`、Artifactは既存`source_type/source_id`と`origin_note_id`を正本にする。
 - 表示は「直接 / 2段階」で切り替え、上流・下流の各区分を24件までとする。cycleはvisited setで停止し、上限超過を画面へ明示する。
 - `lineageContextSelection()` はMCPの`tasken.get_context_subgraph`と同じbounded/path/reasonの考え方で、assertedなlineage predicateだけを選べる。MCPの実装・公開範囲policyは#279側を正本とし、Conversation本文はこの投影へ複製しない。
 

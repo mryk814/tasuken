@@ -10,6 +10,7 @@ import { usePreference } from "../../utils/usePreference";
 import type {
   BaseRecord,
   ContentViewerTarget,
+  DocumentSaveReferenceCompanion,
   DocumentSaveSnapshot,
   DrawerConfig,
   DrawerEntityType,
@@ -50,8 +51,7 @@ import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 import type { ApplicationCommandSource, ApplyAiProposalCommandPayload, CommandEnvelope, CommandReceipt, ExpectedVersion } from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
-import { buildSaveNoteOperations } from "./domain-model/persistence";
-import { buildDerivedFromReferenceOperation, stripLineageDraftMetadata } from "./lib/lineageOperations";
+import { buildDerivedFromDocumentCompanion, stripLineageDraftMetadata } from "./lib/lineageOperations";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -680,7 +680,13 @@ export function WorkspaceApp() {
     return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
   }, [detachedNoteId, loadState, setInboxLane, setRoute]);
 
-  const saveEntity: SaveEntity = async (type, entity, options = {}, documentSnapshot?: DocumentSaveSnapshot) => {
+  const saveEntity: SaveEntity = async (
+    type,
+    entity,
+    options = {},
+    documentSnapshot?: DocumentSaveSnapshot,
+    documentCompanions: DocumentSaveReferenceCompanion[] = [],
+  ) => {
     try {
       if (type === "task") {
         const existing = fullDomain.tasks.find((candidate) => candidate.id === entity.id);
@@ -714,6 +720,7 @@ export function WorkspaceApp() {
             expectedRevision: Number(entity.version || 0),
           },
           options,
+          companions: documentCompanions,
         })
         : await saveWorkspaceEntity(type, entity as Entity, options);
       if (!options.quiet) {
@@ -1267,19 +1274,16 @@ export function WorkspaceApp() {
     // Conversation詳細からの明示作成は、Note本体とderived_fromを同じ保存単位で確定する。
     // Draft専用metadataはEntityへ残さない。
     if (type === "note" && entity.id) {
-      const lineageReference = buildDerivedFromReferenceOperation(base, "note", String(entity.id));
-      if (lineageReference) {
-        const noteThemeId = (entity.project_id as string | null) || null;
-        await saveEntities([
-          ...buildSaveNoteOperations(entity as unknown as import("./domain-model/types").Note, { reason: "created_from_conversation", newSession: true }),
-          lineageReference,
-          ...buildArtifactThemeSyncOperations(data.artifacts || [], {
-            sourceTypes: ["note", "report"],
-            sourceId: String(entity.id),
-            themeId: noteThemeId,
-          }),
-        ], "ConversationからNoteを作成しました。");
-        finishSave(entity as Entity);
+      const lineageCompanion = buildDerivedFromDocumentCompanion(base, String(entity.id));
+      if (lineageCompanion) {
+        const saved = await saveEntity(
+          "note",
+          entity,
+          { reason: "created_from_conversation", quiet: options.quiet },
+          undefined,
+          [lineageCompanion],
+        );
+        finishSave(saved);
         return true;
       }
     }

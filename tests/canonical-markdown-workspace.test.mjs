@@ -94,6 +94,142 @@ function canonicalContent(note) {
   });
 }
 
+function conversationLineageCompanion(noteId, resourceId, id = `reference-${noteId}`) {
+  return {
+    action: "save",
+    type: "reference",
+    entity: {
+      id,
+      source_type: "note",
+      source_id: noteId,
+      target_type: "resource",
+      target_id: resourceId,
+      relation_type: "derived_from",
+      note: "Conversationの明示操作から作成",
+      created_at: "2026-08-09T01:00:00.000Z",
+    },
+    options: { source: "manual", reason: "created_from_conversation" },
+  };
+}
+
+test("Conversation起点Noteはdocument:saveで正本Markdownとderived_from Referenceを同時に確定する", () => {
+  const fixture = createFixture("tasken-canonical-conversation-lineage");
+  try {
+    fixture.database.save("resource", {
+      id: "conversation-canonical",
+      title: "元Conversation",
+      resource_scope: "chat_ref",
+      url: "https://example.com/conversation",
+    });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const note = { id: "note-from-conversation", title: "会話からのNote", version: 0 };
+    const saved = service.saveCanonicalNote({
+      ...saveRequest(note, "Conversationから保存した本文"),
+      companions: [conversationLineageCompanion(note.id, "conversation-canonical")],
+    });
+
+    const binding = canonicalBinding(saved);
+    const reference = fixture.database.get("reference", "reference-note-from-conversation");
+    assert.equal(saved.body_markdown, "Conversationから保存した本文");
+    assert.equal(binding.sync_state, "in_sync");
+    assert.equal(readFileSync(binding.canonical_path, "utf8"), canonicalContent(saved));
+    assert.deepEqual({
+      source_type: reference.source_type,
+      source_id: reference.source_id,
+      target_type: reference.target_type,
+      target_id: reference.target_id,
+      relation_type: reference.relation_type,
+    }, {
+      source_type: "note",
+      source_id: note.id,
+      target_type: "resource",
+      target_id: "conversation-canonical",
+      relation_type: "derived_from",
+    });
+
+    assert.throws(
+      () => service.saveCanonicalNote({
+        ...saveRequest({ id: "note-invalid-companion", title: "Invalid", version: 0 }, "本文"),
+        companions: [{
+          ...conversationLineageCompanion("note-invalid-companion", "conversation-canonical"),
+          entity: {
+            ...conversationLineageCompanion("note-invalid-companion", "conversation-canonical").entity,
+            relation_type: "mentions",
+          },
+        }],
+      }),
+      /predicateはderived_from/,
+    );
+    assert.equal(fixture.database.get("note", "note-invalid-companion"), null);
+
+    const missingTargetNote = { id: "note-missing-lineage-target", title: "Missing target", version: 0 };
+    assert.throws(
+      () => service.saveCanonicalNote({
+        ...saveRequest(missingTargetNote, "transaction rollback本文"),
+        companions: [conversationLineageCompanion(missingTargetNote.id, "missing-conversation", "reference-missing-target")],
+      }),
+      /Tasken内部への保存に失敗/,
+    );
+    // saveMany内ではNoteが先だが、Reference検証失敗時はtransaction全体を戻す。
+    assert.equal(fixture.database.get("note", missingTargetNote.id), null);
+    assert.equal(fixture.database.get("reference", "reference-missing-target"), null);
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Conversation起点Noteのfile成功・DB失敗receiptはNoteとReferenceを同じtransactionで復旧する", () => {
+  const fixture = createFixture("tasken-canonical-conversation-recovery");
+  const databases = [fixture.database];
+  try {
+    fixture.database.save("resource", {
+      id: "conversation-recovery",
+      title: "復旧元Conversation",
+      resource_scope: "chat_ref",
+      url: "https://example.com/recovery",
+    });
+    const failingRepository = new Proxy(fixture.database, {
+      get(target, property, receiver) {
+        if (property === "saveMany") return () => { throw new Error("injected companion transaction failure"); };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const service = new WorkspaceService(failingRepository, fixture.userDataPath);
+    const note = { id: "note-conversation-recovery", title: "復旧するNote", version: 0 };
+    assert.throws(
+      () => service.saveCanonicalNote({
+        ...saveRequest(note, "復旧対象本文"),
+        companions: [conversationLineageCompanion(note.id, "conversation-recovery", "reference-conversation-recovery")],
+      }),
+      /Tasken内部への保存に失敗/,
+    );
+    assert.equal(fixture.database.get("note", note.id), null);
+    assert.equal(fixture.database.get("reference", "reference-conversation-recovery"), null);
+    const receiptPath = path.join(fixture.userDataPath, "canonical-markdown-recovery.json");
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"))[0];
+    assert.equal(receipt.companions[0].type, "reference");
+
+    fixture.database.db.close();
+    const recoveredDatabase = new WorkspaceDatabase(path.join(fixture.userDataPath, "workspace.sqlite"));
+    databases.push(recoveredDatabase);
+    new WorkspaceService(recoveredDatabase, fixture.userDataPath).loadWorkspace();
+    const recovered = recoveredDatabase.get("note", note.id);
+    const recoveredReference = recoveredDatabase.get("reference", "reference-conversation-recovery");
+    assert.equal(recovered.body_markdown, "復旧対象本文");
+    assert.equal(canonicalBinding(recovered).sync_state, "in_sync");
+    assert.equal(recoveredReference.source_id, note.id);
+    assert.equal(recoveredReference.target_id, "conversation-recovery");
+    assert.equal(fs.existsSync(receiptPath), false);
+    recoveredDatabase.db.close();
+    fixture.database = recoveredDatabase;
+  } finally {
+    for (const database of databases) {
+      try { database.db.close(); } catch { /* already closed */ }
+    }
+    rmSync(fixture.userDataPath, { recursive: true, force: true });
+  }
+});
+
 test("WorkspaceServiceのowner/revision付き保存はDB・同一pathの実ファイル・in_syncを揃え、title変更でpathを動かさない", () => {
   const fixture = createFixture("tasken-canonical-save");
   try {

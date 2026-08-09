@@ -1,4 +1,4 @@
-import type { Entity, SaveOperation } from "../types";
+import type { DocumentSaveReferenceCompanion, Entity, SaveOperation } from "../types";
 import type { EntityRefType } from "../domain-model/types";
 
 const LINEAGE_SOURCE_TYPES = new Set<EntityRefType>([
@@ -42,6 +42,13 @@ export function buildDerivedFromReferenceOperation(
     } as Entity,
     options: { source: "manual", reason: "created_from_conversation" },
   };
+}
+
+export function buildDerivedFromDocumentCompanion(
+  base: Record<string, unknown>,
+  noteId: string,
+): DocumentSaveReferenceCompanion | null {
+  return buildDerivedFromReferenceOperation(base, "note", noteId) as DocumentSaveReferenceCompanion | null;
 }
 
 export function stripLineageDraftMetadata(record: Record<string, unknown>): Record<string, unknown> {

@@ -1,8 +1,27 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { build } from "esbuild";
 
 import { buildEntityLineage, lineageContextSelection } from "../src/shared/conversationLineage.mjs";
+
+async function importBundled(relativePath) {
+  const result = await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+}
+
+const { buildDerivedFromDocumentCompanion } = await importBundled(
+  "src/renderer/src/features/workspace/lib/lineageOperations.ts",
+);
 
 const workspace = {
   resources: [
@@ -76,7 +95,36 @@ test("Conversation create actions persist typed derived_from references and ever
   assert.match(drawer, /seed=\{\{ type: "task", id: task\.id \}\}/);
   assert.match(drawer, /seed=\{\{ type: "note", id: note\.id \}\}/);
   assert.match(plans, /buildDerivedFromReferenceOperation\(base, "task", taskId\)/);
-  assert.match(app, /buildDerivedFromReferenceOperation\(base, "note", String\(entity\.id\)\)/);
+  assert.match(app, /buildDerivedFromDocumentCompanion\(base, String\(entity\.id\)\)/);
+  assert.match(app, /companions: documentCompanions/);
   assert.match(app, /created_from_conversation/);
+  assert.doesNotMatch(app, /buildSaveNoteOperations/);
   assert.match(artifacts, /seed=\{\{ type: "artifact", id: artifact\.id \}\}/);
+});
+
+test("Conversationから作るNoteはdocument:save用のReference companionを生成する", () => {
+  const companion = buildDerivedFromDocumentCompanion({
+    _lineage_source_type: "resource",
+    _lineage_source_id: "conversation-1",
+    _lineage_reference_id: "reference-note-lineage",
+  }, "note-1");
+  assert.deepEqual({
+    action: companion.action,
+    type: companion.type,
+    source_type: companion.entity.source_type,
+    source_id: companion.entity.source_id,
+    target_type: companion.entity.target_type,
+    target_id: companion.entity.target_id,
+    relation_type: companion.entity.relation_type,
+    reason: companion.options.reason,
+  }, {
+    action: "save",
+    type: "reference",
+    source_type: "note",
+    source_id: "note-1",
+    target_type: "resource",
+    target_id: "conversation-1",
+    relation_type: "derived_from",
+    reason: "created_from_conversation",
+  });
 });
