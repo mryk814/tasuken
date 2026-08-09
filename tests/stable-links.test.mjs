@@ -135,6 +135,27 @@ test("relation-backed query is symmetric and reports deleted endpoint as broken"
   assert.deepEqual(context.broken[0].missing_refs, [{ type: "task", id: "t-1" }]);
 });
 
+test("typed token with no persisted endpoint is a bounded non-navigable broken item", () => {
+  const context = buildStableLinkContext({
+    notes: [{ id: "n-1", title: "Note", body_markdown: "[[task:missing|Missing task]]" }],
+  }, { type: "note", id: "n-1" }, { maxItems: 2 });
+  assert.equal(context.broken.length, 1);
+  assert.equal(context.broken[0].ref.type, "task");
+  assert.equal(context.broken[0].ref.id, "missing");
+  assert.match(context.broken[0].assertion_id, /^unpersisted:/);
+});
+
+test("unpersisted broken tokens have category-consistent totals and bounds", () => {
+  const body = Array.from({ length: 9 }, (_, index) => `[[task:missing-${index}|Missing ${index}]]`).join(" ");
+  const context = buildStableLinkContext({
+    notes: [{ id: "n-1", title: "Note", body_markdown: body }],
+  }, { type: "note", id: "n-1" }, { maxItems: 3 });
+  assert.equal(context.broken.length, 3);
+  assert.equal(context.categories.broken.total, 9);
+  assert.equal(context.categories.broken.truncated, true);
+  assert.equal(context.truncated, true);
+});
+
 test("relation-backed query is deterministic and globally bounded", () => {
   const references = Array.from({ length: 12 }, (_, index) => ({
     id: `link-${String(index).padStart(2, "0")}`,

@@ -27,6 +27,8 @@ import {
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
 import type { DocumentSaveReferenceCompanion, DocumentSaveRequest, SaveOptions, Workspace } from "../../shared/types/workspace";
 import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
+import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
+import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
 import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
@@ -122,6 +124,10 @@ interface WorkspaceRepository {
   getPreference(key: string): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
+  runTransaction<T>(callback: (repository: {
+    save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
+    remove(type: string, id: string): Record<string, unknown> | null;
+  }) => T): T;
 }
 
 interface CanonicalFileSnapshot {
@@ -183,6 +189,32 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function sameStableLinkAssertion(existing: Record<string, unknown> | undefined, desired: Record<string, unknown>): boolean {
+  if (!existing || existing.deleted_at) return false;
+  try {
+    const pick = (value: Record<string, unknown>) => {
+      const assertion = normalizeReferenceAssertion(value, { legacyRead: true });
+      return {
+        subject: assertion.subject,
+        predicate: assertion.predicate,
+        object: assertion.object,
+        layer: assertion.layer,
+        status: assertion.status,
+        origin: assertion.origin,
+        evidence_refs: assertion.evidence_refs,
+        legacy_evidence_refs: assertion.legacy_evidence_refs || [],
+        confidence: assertion.confidence,
+        metadata: assertion.metadata,
+        recorded_at: assertion.recorded_at,
+        superseded_by_assertion_id: assertion.superseded_by_assertion_id,
+      };
+    };
+    return JSON.stringify(pick(existing)) === JSON.stringify(pick(desired));
+  } catch {
+    return false;
+  }
 }
 
 function isSafeThemeAiPackDirectory(themeFolder: string, packDirectory: string): boolean {
@@ -960,8 +992,47 @@ export class WorkspaceService {
       },
       options,
     };
-    if (!companions.length) return this.repository.save(noteOperation.type, noteOperation.entity, options);
-    return this.repository.saveMany([noteOperation, ...companions])[0];
+    const existingReferences = this.repository.list("reference", true);
+    const stableLinks = reconcileStableLinkAssertions(
+      { type: "note", id: String(note.id) },
+      String(note.body_markdown || ""),
+      existingReferences,
+      { recordedAt: options.__canonicalOperationAt, origin: "user" },
+    );
+    const existingById = new Map(existingReferences.map((reference) => [String(reference.id), reference]));
+    const stableLinkOperations = stableLinks.upsert_assertions
+      .filter((assertion) => {
+        const target = assertion.object as { type: string; id: string };
+        // A canonical token may already be broken. Keep the Note save usable;
+        // only an endpoint that currently exists can become a new assertion.
+        // An assertion whose endpoint was deleted remains untouched below and
+        // is projected as a broken diagnostic.
+        return Boolean(this.repository.get(target.type, target.id))
+          && !sameStableLinkAssertion(existingById.get(String(assertion.id)), assertion);
+      })
+      .map((assertion) => ({
+        action: "save" as const,
+        type: "reference",
+        entity: assertion,
+        options: { source: "manual", reason: "stable_internal_link" },
+      }));
+    const staleLinkIds = stableLinks.delete_assertion_ids
+      .map((id) => existingById.get(id))
+      .filter((reference): reference is Record<string, unknown> => Boolean(reference && !reference.deleted_at))
+      .map((reference) => String(reference.id));
+    const relationOperations = [...companions, ...stableLinkOperations];
+    if (staleLinkIds.length) {
+      return this.repository.runTransaction((transaction) => {
+        const saved = transaction.save(noteOperation.type, noteOperation.entity, options);
+        for (const operation of relationOperations) {
+          transaction.save(operation.type, operation.entity, operation.options);
+        }
+        for (const id of staleLinkIds) transaction.remove("reference", id);
+        return saved;
+      });
+    }
+    if (!relationOperations.length) return this.repository.save(noteOperation.type, noteOperation.entity, options);
+    return this.repository.saveMany([noteOperation, ...relationOperations])[0];
   }
 
   private canonicalThemeName(note: Record<string, unknown>): string {
