@@ -600,6 +600,19 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .theme-card .metric-value { color: var(--color-text); font-size: var(--text-xl); }
 .theme-card-top { width: 100%; justify-content: space-between; margin-top: 0 !important; }
 .report-section { display: grid; gap: var(--space-2); }
+
+.theme-ai-pack-panel { display: grid; gap: var(--space-2); }
+.theme-ai-pack-title { display: flex; align-items: center; gap: var(--space-2); }
+.theme-ai-pack-summary { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.theme-ai-pack-preview { display: grid; gap: var(--space-1); max-height: 520px; overflow: auto; border-top: 1px solid var(--color-border); padding-top: var(--space-2); }
+.theme-ai-pack-notices { display: grid; gap: 2px; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.theme-ai-pack-file { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-raised); }
+.theme-ai-pack-file summary { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); cursor: pointer; }
+.theme-ai-pack-file summary:hover { background: var(--color-surface-subtle); }
+.theme-ai-pack-file summary:active { background: var(--color-accent-bg); }
+.theme-ai-pack-file summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.theme-ai-pack-file summary span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.theme-ai-pack-file pre { max-height: 360px; overflow: auto; margin: 0; padding: var(--space-2); border-top: 1px solid var(--color-border); white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--font-size-xs); }
 .report-summary-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px 140px; gap: var(--space-2); padding: var(--space-2) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); }
 .report-summary-row > div { display: grid; gap: 2px; min-width: 0; }
 .report-summary-row span { color: var(--color-text-secondary); font-size: var(--text-xs); }

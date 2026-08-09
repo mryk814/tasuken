@@ -5,7 +5,14 @@ import path from "node:path";
 
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
-import type { AppUpdateCheckResult, FilePreviewReadResult, McpBridgeInfo } from "../../shared/ipc/contracts";
+import type {
+  AppUpdateCheckResult,
+  FilePreviewReadResult,
+  McpBridgeInfo,
+  ThemeAiPackPreviewResult,
+  ThemeAiPackPublishResult,
+  ThemeAiPackStatusResult,
+} from "../../shared/ipc/contracts";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -20,6 +27,9 @@ import {
 import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
 import type { DocumentSaveReferenceCompanion, DocumentSaveRequest, SaveOptions, Workspace } from "../../shared/types/workspace";
 import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
+import { queryActivityEvents } from "../../shared/activityProjection.mjs";
+import { normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
+import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
 import {
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
@@ -48,6 +58,14 @@ import {
 } from "./canonicalPath.mjs";
 import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
+import {
+  THEME_AI_PACK_DIRECTORY,
+  discoverThemeAiPackLocation,
+  ensureThemeAiPackLocation,
+  inspectThemeAiPack,
+  publishThemeAiPack,
+  recoverThemeAiPackOperations,
+} from "./themeAiPackPublisher.mjs";
 
 type SnapshotDecisions = Record<string, string>;
 
@@ -55,6 +73,10 @@ const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 /** アプリ内ビューア用。インフォグラフィック等の大きめ画像も許容する。 */
 const PREVIEW_IMAGE_MAX_BYTES = 40 * 1024 * 1024;
 const PREVIEW_TEXT_MAX_BYTES = 5 * 1024 * 1024;
+const THEME_AI_PACK_CANDIDATE_TYPES = [
+  "capture_entry", "task", "waiting", "plan_node", "note", "resource",
+  "status_update", "work_receipt", "knowledge_node", "artifact", "sketch",
+] as const;
 const RELEASES_API_URL = "https://api.github.com/repos/mryk814/tasuken/releases/latest";
 const RELEASES_PAGE_URL = "https://github.com/mryk814/tasuken/releases/latest";
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
@@ -161,6 +183,18 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function isSafeThemeAiPackDirectory(themeFolder: string, packDirectory: string): boolean {
+  const resolvedThemeFolder = path.resolve(themeFolder);
+  const resolvedPackDirectory = path.resolve(packDirectory);
+  if (path.dirname(resolvedPackDirectory) !== resolvedThemeFolder || path.basename(resolvedPackDirectory) !== THEME_AI_PACK_DIRECTORY) return false;
+  try {
+    const packStat = fs.lstatSync(resolvedPackDirectory);
+    return !packStat.isSymbolicLink() && packStat.isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function normalizeDocumentSaveCompanions(value: unknown, noteId: string): DocumentSaveReferenceCompanion[] {
@@ -378,8 +412,10 @@ function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachme
 
 export class WorkspaceService {
   private readonly pendingSnapshots = new Map<string, Workspace>();
+  private readonly publishingThemeAiPacks = new Set<string>();
   private readonly canonicalRecoveryPath: string;
   private readonly canonicalRecoveryWarningPath: string;
+  private readonly themeAiPackRecoveryDirectory: string;
 
   constructor(
     private readonly repository: WorkspaceRepository,
@@ -388,9 +424,11 @@ export class WorkspaceService {
   ) {
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
     this.canonicalRecoveryWarningPath = path.join(userDataPath, "canonical-markdown-recovery-warning.json");
+    this.themeAiPackRecoveryDirectory = path.join(userDataPath, "theme-ai-pack-recovery");
   }
 
   loadWorkspace(includeDeleted = false): unknown {
+    this.recoverThemeAiPackReceipts();
     this.recoverCanonicalMarkdownReceipts();
     this.migrateCanonicalMarkdownBindings();
     return this.repository.loadWorkspace(includeDeleted);
@@ -398,6 +436,169 @@ export class WorkspaceService {
 
   private writeAtomicText(filePath: string, content: string, operationId: string): string | null {
     return writeAtomicTextFile(filePath, content, operationId);
+  }
+
+  private recoverThemeAiPackReceipts(): void {
+    const results = recoverThemeAiPackOperations({ recoveryDirectory: this.themeAiPackRecoveryDirectory });
+    for (const result of results) {
+      if (result.state === "recovery_required") {
+        console.warn(`Theme AI Pack ${result.operationId} は自動復旧できませんでした。${result.error || ""}`);
+      }
+    }
+  }
+
+  private buildThemeAiPack(themeIdValue: unknown): { theme: Record<string, unknown>; plan: ThemeAiPackPlan } {
+    const themeId = typeof themeIdValue === "string" ? themeIdValue.trim() : "";
+    if (!themeId) throw new Error("Theme IDがありません。Themeを開き直してください。");
+    const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+    if (!theme || theme.deleted_at) throw new Error("AI Packを作成するThemeが見つかりません。");
+    const candidates = THEME_AI_PACK_CANDIDATE_TYPES.flatMap((type) => (
+      this.repository.list(type).map((entity) => ({ type, entity }))
+    ));
+    const workspace = this.repository.loadWorkspace(false) as Record<string, unknown>;
+    const workspaceDefault = normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault"));
+    const activity = queryActivityEvents({
+      workspace,
+      events: this.repository.list("change_event"),
+      themeId,
+      audience: "m365",
+      workspaceDefault,
+      roots: this.activityCanonicalRootPaths(),
+      limit: 100,
+    });
+    const sourceRevision = markdownSignature(JSON.stringify([
+      ["theme", theme.id, theme.version, theme.updated_at],
+      ...candidates.map(({ type, entity }) => [type, entity.id, entity.version, entity.updated_at]),
+      ...activity.events.map((event) => ["change_event", event.id, event.entity_ref?.revision, event.occurred_at]),
+    ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))));
+    return {
+      theme,
+      plan: buildThemeAiPackPlan({
+        theme,
+        candidates,
+        activity,
+        workspaceDefault,
+        generatedAt: this.now(),
+        sourceRevision,
+      }),
+    };
+  }
+
+  private resolveThemeAiPack(theme: Record<string, unknown>) {
+    return discoverThemeAiPackLocation({
+      syncRoot: String(this.repository.getPreference("artifactDirectory") || ""),
+      themeStorageRoot: typeof theme.storage_root === "string" ? theme.storage_root : "",
+      themeId: String(theme.id || ""),
+      themeCode: typeof theme.code === "string" ? theme.code : "",
+      displayName: String(theme.name || theme.title || ""),
+    });
+  }
+
+  getThemeAiPackPreview(themeIdValue: unknown): ThemeAiPackPreviewResult {
+    const { theme, plan } = this.buildThemeAiPack(themeIdValue);
+    const location = this.resolveThemeAiPack(theme);
+    const storage = location.status === "ok"
+      ? inspectThemeAiPack({ plan, packDirectory: location.packDirectory })
+      : { state: location.status, dirty: true };
+    return {
+      themeId: plan.theme_id,
+      contentHash: plan.content_hash,
+      plannedGeneratedAt: plan.generated_at,
+      lastPublishedAt: "manifest" in storage ? String(storage.manifest?.generatedAt || "") : "",
+      sourceRevision: plan.source_revision,
+      state: storage.state,
+      dirty: storage.dirty,
+      retryPending: location.status === "needs_root" || location.status === "root_unavailable",
+      locationStatus: location.status,
+      canOpenFolder: location.status === "ok" && isSafeThemeAiPackDirectory(location.themeFolder, location.packDirectory),
+      files: plan.files.map((file, index) => ({
+        name: file.name,
+        content: file.content,
+        includedCount: plan.preview.files[index]?.includedCount || 0,
+        characterCount: plan.preview.files[index]?.characterCount || file.content.length,
+      })),
+      includedCount: plan.preview.includedCount,
+      excludedCount: plan.preview.excludedCount,
+      excludedReasons: plan.preview.excludedReasons,
+      warnings: plan.preview.warnings,
+      totalCharacterCount: plan.preview.totalCharacterCount,
+    };
+  }
+
+  getThemeAiPackStatus(themeIdValue: unknown): ThemeAiPackStatusResult {
+    const preview = this.getThemeAiPackPreview(themeIdValue);
+    const { files, warnings, excludedReasons: _excludedReasons, ...status } = preview;
+    return {
+      ...status,
+      fileCount: files.length,
+      warningCount: warnings.length,
+    };
+  }
+
+  publishThemeAiPack(requestValue: unknown): ThemeAiPackPublishResult {
+    const request = objectValue(requestValue);
+    const themeId = typeof request.themeId === "string" ? request.themeId.trim() : "";
+    const expectedContentHash = typeof request.expectedContentHash === "string" ? request.expectedContentHash.trim() : "";
+    if (!themeId || !expectedContentHash) throw new Error("AI Pack Previewが古いため、内容を確認し直してください。");
+    if (this.publishingThemeAiPacks.has(themeId)) {
+      return { state: "publishing", dirty: true, retryPending: false, written: false, themeId };
+    }
+    this.publishingThemeAiPacks.add(themeId);
+    try {
+      const { theme, plan } = this.buildThemeAiPack(themeId);
+      if (plan.content_hash !== expectedContentHash) {
+        return {
+          state: "stale_preview",
+          dirty: true,
+          retryPending: false,
+          written: false,
+          themeId,
+          contentHash: plan.content_hash,
+        };
+      }
+      const location = this.resolveThemeAiPack(theme);
+      if (location.status !== "ok") {
+        return {
+          state: location.status,
+          dirty: true,
+          retryPending: location.status === "needs_root" || location.status === "root_unavailable",
+          written: false,
+          themeId,
+          contentHash: plan.content_hash,
+          ...(location.status === "identity_conflict" ? { error: location.reason } : {}),
+        };
+      }
+      const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
+      if (ensured.status !== "ok") throw new Error("AI Packの保存先を準備できませんでした。");
+      const result = publishThemeAiPack({
+        plan,
+        packDirectory: ensured.packDirectory,
+        recoveryDirectory: this.themeAiPackRecoveryDirectory,
+      });
+      return {
+        ...result,
+        themeId,
+        contentHash: plan.content_hash,
+        lastPublishedAt: result.manifest?.generatedAt || "",
+      };
+    } finally {
+      this.publishingThemeAiPacks.delete(themeId);
+    }
+  }
+
+  async openThemeAiPackFolder(themeIdValue: unknown): Promise<{ ok: boolean; error?: string }> {
+    const { theme } = this.buildThemeAiPack(themeIdValue);
+    const location = this.resolveThemeAiPack(theme);
+    if (location.status !== "ok") return { ok: false, error: "AI Packの保存Rootを利用できません。Settingsを確認してください。" };
+    const resolvedPackDirectory = path.resolve(location.packDirectory);
+    if (!fs.existsSync(resolvedPackDirectory)) {
+      return { ok: false, error: "AI Packはまだ生成されていません。内容を確認して更新してください。" };
+    }
+    if (!isSafeThemeAiPackDirectory(location.themeFolder, resolvedPackDirectory)) {
+      return { ok: false, error: "AI Packの保存先にsymlink/junctionは利用できません。Settingsを確認してください。" };
+    }
+    const error = await shell.openPath(resolvedPackDirectory);
+    return error ? { ok: false, error } : { ok: true };
   }
 
   private readCanonicalFile(filePath: string): CanonicalFileSnapshot {

@@ -153,8 +153,10 @@ function validatePublishedPack(fileSystem, directory, plan) {
   for (const file of plan.files) {
     const described = manifest.files.find((entry) => entry?.name === file.name);
     if (!described || described.contentHash !== file.content_hash) return false;
+    const filePath = path.join(directory, file.name);
+    if (!isWithin(directory, filePath) || isSymbolicLink(fileSystem, filePath)) return false;
     try {
-      if (markdownSignature(fileSystem.readFileSync(path.join(directory, file.name), "utf8")) !== file.content_hash) return false;
+      if (markdownSignature(fileSystem.readFileSync(filePath, "utf8")) !== file.content_hash) return false;
     } catch {
       return false;
     }
@@ -473,9 +475,9 @@ export function publishThemeAiPack({
 
     receipt = { ...receipt, phase: "swapping" };
     writeReceipt(fileSystem, recoveryRoot, receipt);
-      fileSystem.renameSync(stageDirectory, targetDirectory);
-      published = true;
-      stageCreated = false;
+    fileSystem.renameSync(stageDirectory, targetDirectory);
+    published = true;
+    stageCreated = false;
     fsyncDirectory(fileSystem, parentDirectory);
     writeJson(fileSystem, path.join(targetDirectory, THEME_AI_PACK_MANIFEST), operationManifest(normalized, operationId, "published"), `${operationId}-published`);
     fsyncDirectory(fileSystem, targetDirectory);
@@ -615,8 +617,34 @@ export function recoverThemeAiPackOperations({ recoveryDirectory, fileSystem = f
       if (targetManifest && validatePackAgainstOwnManifest(fileSystem, target, themeId, operationId, "published")) {
         if (stageManifest) removeValidatedOperationDirectory(fileSystem, stage, themeId, operationId, "staged");
         if (backupManifest) removeValidatedOperationDirectory(fileSystem, backup, themeId, operationId, "backup");
+        fsyncDirectory(fileSystem, path.dirname(target));
         removeReceipt(fileSystem, receiptPath);
         results.push({ operationId, state: "current" });
+        continue;
+      }
+      if (targetManifest && !backupManifest && validatePackAgainstOwnManifest(fileSystem, target, themeId, operationId, "backup")) {
+        writeJson(fileSystem, path.join(target, THEME_AI_PACK_MANIFEST), {
+          ...targetManifest,
+          operation: { ...targetManifest.operation, phase: "published" },
+        }, `${operationId}-recover-backup-pending`);
+        if (stageManifest) removeValidatedOperationDirectory(fileSystem, stage, themeId, operationId, "staged");
+        fsyncDirectory(fileSystem, target);
+        fsyncDirectory(fileSystem, path.dirname(target));
+        removeReceipt(fileSystem, receiptPath);
+        results.push({ operationId, state: "restored" });
+        continue;
+      }
+      if (targetManifest && validatePackAgainstOwnManifest(fileSystem, target, themeId, operationId, "staged")) {
+        writeJson(fileSystem, path.join(target, THEME_AI_PACK_MANIFEST), {
+          ...targetManifest,
+          operation: { ...targetManifest.operation, phase: "published" },
+        }, `${operationId}-recover-swapped-stage`);
+        if (backupManifest) removeValidatedOperationDirectory(fileSystem, backup, themeId, operationId, "backup");
+        if (stageManifest) removeValidatedOperationDirectory(fileSystem, stage, themeId, operationId, "staged");
+        fsyncDirectory(fileSystem, target);
+        fsyncDirectory(fileSystem, path.dirname(target));
+        removeReceipt(fileSystem, receiptPath);
+        results.push({ operationId, state: "published" });
         continue;
       }
       if (!targetManifest && backupManifest && validatePackAgainstOwnManifest(fileSystem, backup, themeId, operationId, "backup")) {
@@ -626,6 +654,8 @@ export function recoverThemeAiPackOperations({ recoveryDirectory, fileSystem = f
           operation: { ...backupManifest.operation, phase: "published" },
         }, `${operationId}-recover-backup`);
         if (stageManifest) removeValidatedOperationDirectory(fileSystem, stage, themeId, operationId, "staged");
+        fsyncDirectory(fileSystem, target);
+        fsyncDirectory(fileSystem, path.dirname(target));
         removeReceipt(fileSystem, receiptPath);
         results.push({ operationId, state: "restored" });
         continue;
@@ -636,6 +666,8 @@ export function recoverThemeAiPackOperations({ recoveryDirectory, fileSystem = f
           ...stageManifest,
           operation: { ...stageManifest.operation, phase: "published" },
         }, `${operationId}-recover-stage`);
+        fsyncDirectory(fileSystem, target);
+        fsyncDirectory(fileSystem, path.dirname(target));
         removeReceipt(fileSystem, receiptPath);
         results.push({ operationId, state: "published" });
         continue;
