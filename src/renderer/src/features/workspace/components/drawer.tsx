@@ -48,6 +48,7 @@ import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { AiContextFields, AiContextSummary, ThemeAiVisibilityField, workspaceAiVisibility } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
 import { ConversationPreview } from "./ConversationPreview";
+import { LineagePanel } from "./LineagePanel";
 import {
   CaptureEntryFields,
   findSchedule,
@@ -458,6 +459,52 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             ? <ConversationPreview body={str(entity.body_markdown)} />
             : <MarkdownPreview className="markdown-preview" html={previewHtml(str(entity.body_markdown), "markdown")} />
         )}
+        {isChatRef && (
+          <>
+            <LineagePanel
+              data={data}
+              seed={{ type: "resource", id: resourceId }}
+              conversation
+              openDrawer={(next) => close(next)}
+              openContentViewer={openContentViewer}
+            />
+            <div className="lineage-create-actions" aria-label="この会話から作成">
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => close({
+                  type: "task",
+                  mode: "edit",
+                  entity: {
+                    project_id: entity.project_id || entity.theme_id || null,
+                    _lineage_source_type: "resource",
+                    _lineage_source_id: resourceId,
+                    _lineage_reference_id: uuid(),
+                  },
+                })}
+              >
+                Taskを作る
+              </button>
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => close({
+                  type: "note",
+                  mode: "edit",
+                  entity: {
+                    project_id: entity.project_id || entity.theme_id || null,
+                    note_type: "note",
+                    _lineage_source_type: "resource",
+                    _lineage_source_id: resourceId,
+                    _lineage_reference_id: uuid(),
+                  },
+                })}
+              >
+                Noteを作る
+              </button>
+            </div>
+          </>
+        )}
         <AiContextSummary type="resource" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
         {isChatRef && (
           <ArtifactSection
@@ -569,6 +616,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             entityType="task"
             entityId={task.id}
             openSource={(source) => close({ type: "note", entity: source })}
+          />
+          <LineagePanel
+            data={data}
+            seed={{ type: "task", id: task.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
           />
           <TaskWorkSection task={task} receipts={(data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]} executeCommand={executeCommand} setToast={setToast} />
           <section className="task-learning-section">
@@ -1419,6 +1472,12 @@ function NoteDetailDrawer({
           entityType="note"
           entityId={note.id}
           openSource={(source) => close({ type: "note", entity: source })}
+        />
+        <LineagePanel
+          data={data}
+          seed={{ type: "note", id: note.id }}
+          openDrawer={(next) => close(next)}
+          openContentViewer={openContentViewer}
         />
         <section className={`document-rule-strip ${publishEnabled ? "is-export-target" : "is-export-muted"}`}>
           <div>

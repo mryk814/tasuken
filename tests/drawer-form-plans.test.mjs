@@ -119,6 +119,38 @@ test("task form plan normalizes reminder, section, schedule, and Artifact Theme 
   assert.equal(artifact.theme_id, "theme-1");
 });
 
+test("Conversationから作ったTaskはderived_fromを同じ保存操作列へ追加する", () => {
+  const result = plan("task", [
+    ["title", "会話から調査する"],
+    ["state", "todo"],
+  ], {
+    _lineage_source_type: "resource",
+    _lineage_source_id: "conversation-1",
+    _lineage_reference_id: "reference-lineage-1",
+  });
+
+  assert.equal(result.kind, "operations");
+  const task = result.operations.find((operation) => operation.type === "task").entity;
+  const reference = result.operations.find((operation) => operation.type === "reference");
+  assert.equal("_lineage_source_type" in task, false);
+  assert.equal("_lineage_source_id" in task, false);
+  assert.deepEqual(reference.entity, {
+    id: "reference-lineage-1",
+    source_type: "task",
+    source_id: task.id,
+    target_type: "resource",
+    target_id: "conversation-1",
+    relation_type: "derived_from",
+    note: "Conversationの明示操作から作成",
+    created_at: reference.entity.created_at,
+  });
+  assert.match(reference.entity.created_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(reference.options, {
+    source: "manual",
+    reason: "created_from_conversation",
+  });
+});
+
 test("waiting form plan keeps check reminders on waiting records", () => {
   const result = plan("waiting", [
     ["title", "回答待ち"],

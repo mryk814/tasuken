@@ -29,6 +29,7 @@ import {
   resolveArtifactStorageMode as resolveStorageModeShared,
 } from "../../../../../shared/artifactLinks.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { LineagePanel } from "./LineagePanel";
 import {
   ARTIFACT_LINK_STATUS_LABELS,
   ARTIFACT_LINK_TYPE_LABELS,
@@ -452,6 +453,7 @@ export function ArtifactCard({
   saveEntities,
   setToast,
   showSource = false,
+  showLineage = false,
   onOpened,
   onNeedsDirectory,
 }: {
@@ -463,6 +465,7 @@ export function ArtifactCard({
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   showSource?: boolean;
+  showLineage?: boolean;
   onOpened?: () => void;
   onNeedsDirectory?: () => void;
 }) {
@@ -664,6 +667,16 @@ export function ArtifactCard({
           <IconDotsVertical size={16} />
         </button>
       </span>
+      {showLineage && data && (
+        <div className="artifact-card-lineage">
+          <LineagePanel
+            data={data}
+            seed={{ type: "artifact", id: artifact.id }}
+            openDrawer={openDrawer}
+            openContentViewer={openContentViewer}
+          />
+        </div>
+      )}
       {menu && (
         <ContextMenu
           x={menu.x}
