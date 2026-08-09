@@ -88,6 +88,12 @@ const api: ResearchDeskApi = {
     importArtifactFiles: (request) => ipcRenderer.invoke(IPC.artifactFilesImport, request),
     materializeArtifactProposal: (request) => ipcRenderer.invoke(IPC.artifactProposalMaterialize, request),
   },
+  mediaCapture: {
+    prepareAudio: (request) => ipcRenderer.invoke(IPC.audioCapturePrepare, request),
+    listPreparedAudio: () => ipcRenderer.invoke(IPC.audioCaptureListPrepared),
+    commitAudio: (request) => ipcRenderer.invoke(IPC.audioCaptureCommit, request),
+    cancelAudio: (request) => ipcRenderer.invoke(IPC.audioCaptureCancel, request),
+  },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),
     checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),

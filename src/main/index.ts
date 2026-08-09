@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, safeStorage, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
+import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
 import { getAppIconPath, migrateLegacyUserDataIfNeeded } from "./platformPaths";
 import {
   createQuickCaptureController,
@@ -26,6 +27,8 @@ import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { ApplicationCommandService } from "./services/applicationCommandService";
+import { MediaCaptureService } from "./services/mediaCaptureService";
+import { commandNotificationPayloads } from "./rendererMediaProjection";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 
@@ -36,6 +39,9 @@ const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--
 const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
 const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
 const smokeResultPath = path.resolve(smokeResultArgument?.slice("--smoke-result-path=".length) || path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`));
+const isSmokeRestartCheck = process.argv.includes("--smoke-restart-check");
+const smokeMediaArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-media-artifact-id="));
+const smokeMediaArtifactId = smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
@@ -60,6 +66,7 @@ const pendingAppFlushes = new Map<string, {
   resolve: (ok: boolean) => void;
 }>();
 registerAttachmentScheme();
+registerMediaScheme();
 
 function requestRendererFlush(window: BrowserWindow, noteId?: string): Promise<boolean> {
   if (window.isDestroyed() || window.webContents.isDestroyed()) return Promise.resolve(true);
@@ -221,7 +228,7 @@ function notifyTodayMiniRefresh(types: EntityType[]): void {
   todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
 }
 
-function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId: number): void {
+function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId: number, options: { senderReceivesAll?: boolean } = {}): void {
   const receipts = (Array.isArray(input) ? input : [input]).filter((receipt) => (
     receipt.status !== "no_change" && !(receipt as CommandReceipt & { replayed?: boolean }).replayed
   ));
@@ -231,17 +238,18 @@ function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId
     .map((eventId) => workspaceRepository?.get("change_event", eventId, true))
     .filter((event): event is Entity => Boolean(event))
     .map((event) => ({ type: "change_event" as const, entity: event })));
-  const changes = [...entityChanges, ...eventChanges];
+  const payloads = commandNotificationPayloads(entityChanges, eventChanges, options.senderReceivesAll === true);
+  const changes = payloads.other.entities;
   if (!changes.length) return;
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed() || isAuxiliaryWindow(win)) continue;
-    const delta = win.webContents.id === senderId ? eventChanges : changes;
+    const delta = win.webContents.id === senderId ? payloads.sender.entities : payloads.other.entities;
     if (delta.length) win.webContents.send(IPC.workspaceChanged, { entities: delta });
   }
   // Satellite windows do not issue the main command IPC, so they can always
   // receive the delta.  The mini window refreshes its projection from the same
   // repository rather than applying a second delta.
-  satelliteWindows?.broadcast(IPC.workspaceChanged, { entities: changes });
+  satelliteWindows?.broadcast(IPC.workspaceChanged, payloads.satellite);
   if (changes.some(({ type }) => TODAY_MINI_ENTITY_TYPES.has(type))) {
     const mini = todayMiniController?.getWindow();
     if (mini && !mini.isDestroyed() && mini.webContents.id !== senderId) mini.webContents.send(IPC.todayMiniRefresh);
@@ -311,6 +319,9 @@ interface SmokeCreatedResult {
   aiThemeDefaultPersisted: boolean;
   aiMetadataRejectedInvalid: boolean;
   aiVisibilityDefaultSaved: string;
+  audioArtifactId?: string;
+  audioMetadataLoaded?: boolean;
+  audioRangeVerified?: boolean;
 }
 
 interface SmokeReloadResult {
@@ -341,6 +352,29 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
   if (smokeTrace.length > 40) smokeTrace.shift();
   fs.mkdirSync(path.dirname(smokeResultPath), { recursive: true });
   fs.writeFileSync(smokeResultPath, JSON.stringify({ stage, argv: process.argv, ...details }, null, 2));
+}
+
+function tinyPcmWav(): Buffer {
+  const sampleCount = 800;
+  const dataBytes = sampleCount * 2;
+  const bytes = Buffer.alloc(44 + dataBytes);
+  bytes.write("RIFF", 0); bytes.writeUInt32LE(36 + dataBytes, 4); bytes.write("WAVE", 8);
+  bytes.write("fmt ", 12); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(8000, 24); bytes.writeUInt32LE(16000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36); bytes.writeUInt32LE(dataBytes, 40);
+  return bytes;
+}
+
+async function verifySmokeMediaRange(artifactId: string): Promise<boolean> {
+  const response = await net.fetch(`tasken-media://artifact/${encodeURIComponent(artifactId)}`, {
+    headers: { Range: "bytes=0-43" },
+  });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return response.status === 206
+    && response.headers.get("content-range")?.startsWith("bytes 0-43/") === true
+    && bytes.length === 44
+    && bytes.subarray(0, 4).toString("ascii") === "RIFF"
+    && bytes.subarray(8, 12).toString("ascii") === "WAVE";
 }
 
 app.disableHardwareAcceleration();
@@ -695,7 +729,7 @@ flowchart LR
       const savedNotesPane = await waitFor(
         () => {
           const currentNotesPane = document.querySelector(".note-preview-panel");
-          return currentNotesPane?.querySelector(".note-draft-state")?.textContent?.trim() === "保存しました"
+          return currentNotesPane?.querySelector(".note-draft-state")?.textContent?.includes("保存しました")
             ? currentNotesPane
             : null;
         },
@@ -868,6 +902,35 @@ flowchart LR
       };
     })()
   `) as SmokeCreatedResult;
+
+  const audioSmoke = await window.webContents.executeJavaScript(`
+    (async () => {
+      const pending = await window.api.mediaCapture.listPreparedAudio();
+      if (pending.length !== 1 || pending[0].status !== "ready") throw new Error("prepared audio session was not listed");
+      const prepared = pending[0];
+      const durationMs = await new Promise((resolve, reject) => {
+        const audio = new Audio();
+        const timer = setTimeout(() => reject(new Error("audio metadata timeout")), 15000);
+        audio.preload = "metadata";
+        audio.onloadedmetadata = () => { clearTimeout(timer); resolve(Math.round(audio.duration * 1000)); };
+        audio.onerror = () => { clearTimeout(timer); reject(new Error("audio metadata failed")); };
+        audio.src = prepared.mediaUrl;
+      });
+      const committed = await window.api.mediaCapture.commitAudio({ sessionId: prepared.sessionId, durationMs });
+      const artifact = await window.api.entities.get("artifact", committed.artifactId);
+      if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav" || artifact.duration_ms !== durationMs) {
+        throw new Error("committed audio Artifact metadata mismatch");
+      }
+      const serialized = JSON.stringify(artifact);
+      if (serialized.includes("stored_path") || serialized.includes("original_path") || serialized.includes("target")) {
+        throw new Error("audio Artifact leaked a path to Renderer");
+      }
+      return { artifactId: committed.artifactId, metadataLoaded: durationMs >= 90 && durationMs <= 110 };
+    })()
+  `) as { artifactId: string; metadataLoaded: boolean };
+  created.audioArtifactId = audioSmoke.artifactId;
+  created.audioMetadataLoaded = audioSmoke.metadataLoaded;
+  created.audioRangeVerified = await verifySmokeMediaRange(audioSmoke.artifactId);
 
   const releaseSmokeClipboardLock = await acquireSmokeClipboardLock({ runId: smokeRunId });
   try {
@@ -1127,8 +1190,7 @@ flowchart LR
         ...mini,
       };
       console.log(JSON.stringify(result));
-      recordSmoke("passed", result);
-      app.exit(
+      const passed = Boolean(
         result.persistedAfterReload
         && result.markdownPersistedAfterReload
         && result.markdownThemeLinkedAfterReload
@@ -1175,9 +1237,11 @@ flowchart LR
         && result.settingsHistoryBackRestored
         && result.settingsStorageBeforeReload
         && result.settingsReloadRestored
-          ? 0
-          : 1,
+        && result.audioMetadataLoaded
+        && result.audioRangeVerified
       );
+      recordSmoke(passed ? "restart-ready" : "failed", result);
+      app.exit(passed ? 0 : 1);
     } catch (error) {
       console.error(error);
       recordSmoke("reload-check-failed", { error: String(error) });
@@ -1186,6 +1250,39 @@ flowchart LR
   });
   recordSmoke("reload-start");
   window.reload();
+}
+
+async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
+  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(smokeMediaArtifactId)) {
+    throw new Error("restart audio Artifact ID is invalid");
+  }
+  const renderer = await window.webContents.executeJavaScript(`
+    (async () => {
+      const artifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeMediaArtifactId)});
+      if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav") throw new Error("restarted audio Artifact missing");
+      if (JSON.stringify(artifact).includes("stored_path")) throw new Error("restarted audio Artifact leaked path");
+      const playable = await new Promise((resolve, reject) => {
+        const audio = new Audio();
+        const timer = setTimeout(() => reject(new Error("restart audio playback timeout")), 15000);
+        const done = () => {
+          if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+          clearTimeout(timer);
+          resolve(audio.duration >= 0.09 && audio.duration <= 0.11);
+        };
+        audio.preload = "auto";
+        audio.onloadedmetadata = done;
+        audio.oncanplay = done;
+        audio.onerror = () => { clearTimeout(timer); reject(new Error("restart audio playback failed")); };
+        audio.src = "tasken-media://artifact/" + encodeURIComponent(artifact.id);
+      });
+      return { artifactId: artifact.id, playable };
+    })()
+  `) as { artifactId: string; playable: boolean };
+  const rangeVerified = await verifySmokeMediaRange(renderer.artifactId);
+  const passed = renderer.playable && rangeVerified;
+  recordSmoke(passed ? "passed" : "failed", { audioArtifactId: renderer.artifactId, playable: renderer.playable, rangeVerified });
+  app.exit(passed ? 0 : 1);
 }
 
 function createWindow(): BrowserWindow {
@@ -1228,7 +1325,8 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.once("did-finish-load", () => {
     if (isSmokeTest) {
-      runSmokeTest(window).catch(async (error: unknown) => {
+      const smokeRun = isSmokeRestartCheck ? runSmokeRestartTest(window) : runSmokeTest(window);
+      smokeRun.catch(async (error: unknown) => {
         let diagnostics: unknown = null;
         try {
           diagnostics = await window.webContents.executeJavaScript(`
@@ -1320,7 +1418,27 @@ async function startDesktopApp(): Promise<void> {
   migrateLegacyUserDataIfNeeded();
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
+  let smokeAudioSourcePath = "";
+  if (isSmokeTest && !isSmokeRestartCheck) {
+    const managedDirectory = path.join(app.getPath("userData"), "smoke-managed-artifacts");
+    workspaceRepository.setPreference("artifactDirectory", managedDirectory);
+    smokeAudioSourcePath = path.join(app.getPath("userData"), "smoke-audio.wav");
+    fs.writeFileSync(smokeAudioSourcePath, tinyPcmWav(), { flag: "wx" });
+  }
   const applicationCommands = new ApplicationCommandService(workspaceRepository);
+  const workspaceService = new WorkspaceService(workspaceRepository, app.getPath("userData"));
+  const mediaCapture = new MediaCaptureService({
+    userDataPath: app.getPath("userData"),
+    repository: workspaceRepository,
+    commands: applicationCommands,
+    resolveManagedDirectory: (themeId) => workspaceService.resolveManagedArtifactDirectory(themeId),
+  });
+  const mediaRecovery = mediaCapture.recoverPending();
+  if (mediaRecovery.recovered || mediaRecovery.pending) {
+    console.info(`Media Capture recovery: recovered=${mediaRecovery.recovered}, pending=${mediaRecovery.pending}`);
+  }
+  if (smokeAudioSourcePath) mediaCapture.prepareFile(smokeAudioSourcePath, null);
+  registerMediaProtocol(mediaCapture);
   sharedFolderSyncService = new SharedFolderSyncService(
     workspaceRepository,
     notifyMainWindowRefresh,
@@ -1328,11 +1446,12 @@ async function startDesktopApp(): Promise<void> {
   );
   registerIpc(
     workspaceRepository,
-    new WorkspaceService(workspaceRepository, app.getPath("userData")),
+    workspaceService,
     sharedFolderSyncService,
     new AiProviderService(app.getPath("userData")),
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
     applicationCommands,
+    mediaCapture,
     (types) => {
       notifyMainWindowRefresh();
       notifyTodayMiniRefresh(types);

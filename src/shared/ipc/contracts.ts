@@ -38,6 +38,7 @@ import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
+import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared } from "../mediaCapture";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -66,6 +67,10 @@ export const IPC = {
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
   artifactProposalMaterialize: "artifact:proposal-materialize",
+  audioCapturePrepare: "audio-capture:prepare",
+  audioCaptureListPrepared: "audio-capture:list-prepared",
+  audioCaptureCommit: "audio-capture:commit",
+  audioCaptureCancel: "audio-capture:cancel",
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
@@ -526,6 +531,12 @@ export interface ResearchDeskApi {
     saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
     importArtifactFiles(request: ArtifactFileImportRequest): Promise<ArtifactFileImportResult>;
     materializeArtifactProposal(request: ArtifactProposalMaterializeRequest): Promise<ArtifactProposalMaterializeResult>;
+  };
+  mediaCapture: {
+    prepareAudio(request: AudioCapturePrepareRequest): Promise<AudioCapturePrepareResult>;
+    listPreparedAudio(): Promise<AudioCapturePrepared[]>;
+    commitAudio(request: AudioCaptureCommitRequest): Promise<AudioCaptureCommitResult>;
+    cancelAudio(request: AudioCaptureCancelRequest): Promise<boolean>;
   };
   app: {
     reload(): Promise<boolean>;

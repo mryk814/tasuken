@@ -230,6 +230,12 @@ export interface Artifact extends BaseRecord {
   origin_note_title?: string | null;
   export_format?: "markdown" | "pdf" | null;
   exported_at?: string | null;
+  media_kind?: "audio" | "video" | null;
+  duration_ms?: number | null;
+  container?: string | null;
+  codec?: string | null;
+  content_hash?: string | null;
+  media_availability?: "available" | "missing" | "changed" | "unsafe_source" | "unsupported_codec";
 }
 
 export interface Sketch extends BaseRecord {

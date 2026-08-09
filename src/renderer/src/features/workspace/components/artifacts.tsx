@@ -12,6 +12,7 @@ import {
   IconPhoto,
   IconPlus,
   IconPresentation,
+  IconVolume,
 } from "@tabler/icons-react";
 
 import {
@@ -67,29 +68,36 @@ const PRESENTATION_TYPES = new Set(["pptx", "ppt"]);
 const ARCHIVE_TYPES = new Set(["zip", "7z"]);
 const TEXT_TYPES = new Set(["txt", "docx", "doc", "json", "html"]);
 const PDF_TYPES = new Set(["pdf"]);
+const AUDIO_TYPES = new Set(["mp3", "mpeg", "mpga", "wav", "ogg", "opus", "m4a"]);
 
-export type ArtifactOpenMode = "external" | "image" | "markdown" | "file";
+export type ArtifactOpenMode = "external" | "image" | "markdown" | "audio" | "file";
 
-export function artifactFileCategory(fileType?: string): ArtifactOpenMode {
-  const type = (fileType || "").toLowerCase();
+type ArtifactCategoryInput = string | Pick<Artifact, "file_type" | "media_kind"> | undefined;
+
+export function artifactFileCategory(input?: ArtifactCategoryInput): ArtifactOpenMode {
+  if (typeof input === "object" && input?.media_kind === "audio") return "audio";
+  if (typeof input === "object" && input?.media_kind === "video") return "file";
+  const type = (typeof input === "string" ? input : input?.file_type || "").toLowerCase();
   if (IMAGE_TYPES.has(type)) return "image";
   if (MARKDOWN_TYPES.has(type)) return "markdown";
+  if (AUDIO_TYPES.has(type)) return "audio";
   if (SPREADSHEET_TYPES.has(type) || PDF_TYPES.has(type) || PRESENTATION_TYPES.has(type)) return "external";
   return "file";
 }
 
-export function artifactOpenLabel(fileType?: string): string {
-  const mode = artifactFileCategory(fileType);
+export function artifactOpenLabel(input?: ArtifactCategoryInput): string {
+  const mode = artifactFileCategory(input);
   if (mode === "external") return "外部で開く";
-  if (mode === "image" || mode === "markdown") return "プレビュー";
+  if (mode === "image" || mode === "markdown" || mode === "audio") return "プレビュー";
   return "開く";
 }
 
-export function artifactOpenHint(fileType?: string): string {
-  const mode = artifactFileCategory(fileType);
+export function artifactOpenHint(input?: ArtifactCategoryInput): string {
+  const mode = artifactFileCategory(input);
   if (mode === "external") return "Excel / PDF / PowerPoint などは関連付けられた外部アプリで開きます。";
   if (mode === "image") return "画像をアプリ内ビューアで大きく表示します。";
   if (mode === "markdown") return "Markdownをアプリ内ビューアで表示します。";
+  if (mode === "audio") return "音声をアプリ内プレイヤーで再生します。";
   return "関連付けられたアプリで開きます。";
 }
 
@@ -106,7 +114,7 @@ export function artifactTypeBadge(fileType?: string): string {
   return type.slice(0, 8);
 }
 
-export function ArtifactFileIcon({ fileType }: { fileType?: string }) {
+export function ArtifactFileIcon({ fileType, mediaKind }: { fileType?: string; mediaKind?: Artifact["media_kind"] }) {
   const type = (fileType || "").toLowerCase();
   const size = 18;
   if (SPREADSHEET_TYPES.has(type)) return <IconFileSpreadsheet size={size} />;
@@ -114,6 +122,7 @@ export function ArtifactFileIcon({ fileType }: { fileType?: string }) {
   if (PDF_TYPES.has(type)) return <IconFileTypePdf size={size} />;
   if (MARKDOWN_TYPES.has(type)) return <IconMarkdown size={size} />;
   if (PRESENTATION_TYPES.has(type)) return <IconPresentation size={size} />;
+  if (mediaKind === "audio" || (!mediaKind && AUDIO_TYPES.has(type))) return <IconVolume size={size} />;
   if (ARCHIVE_TYPES.has(type)) return <IconFileZip size={size} />;
   if (TEXT_TYPES.has(type)) return <IconFileText size={size} />;
   return <IconFile size={size} />;
@@ -435,7 +444,8 @@ export async function retargetLinkedArtifact(
 }
 
 export function canPreviewArtifactInApp(artifact: Artifact): boolean {
-  const category = artifactFileCategory(artifact.file_type);
+  const category = artifactFileCategory(artifact);
+  if (artifact.media_kind === "audio") return true;
   if (category !== "image" && category !== "markdown") return false;
   const target = artifactOpenTarget(artifact);
   if (!target) return false;
@@ -502,10 +512,13 @@ export function ArtifactCard({
       onSelect: () => { void showArtifactInFolder(artifact, setToast); },
     });
   }
-  menuItems.push({
-    label: isHttpUrl(artifactCopyTarget(artifact)) ? "URLをコピー" : "パスをコピー",
-    onSelect: () => { void copyArtifactPath(artifact, setToast); },
-  });
+  const copyTarget = artifactCopyTarget(artifact);
+  if (copyTarget) {
+    menuItems.push({
+      label: isHttpUrl(copyTarget) ? "URLをコピー" : "パスをコピー",
+      onSelect: () => { void copyArtifactPath(artifact, setToast); },
+    });
+  }
   if (showSource && openDrawer && data) {
     menuItems.push({
       label: "元の場所へ",
@@ -579,7 +592,7 @@ export function ArtifactCard({
   return (
     <li className={`artifact-card ${mode === "linked" ? "is-linked" : "is-managed"}`}>
       <span className="artifact-card-icon" aria-hidden="true">
-        {mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} />}
+        {mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} mediaKind={artifact.media_kind} />}
       </span>
       <div className="artifact-card-main">
         <div className="artifact-card-title-row">
@@ -643,7 +656,7 @@ export function ArtifactCard({
         <button
           type="button"
           className="secondary-button compact artifact-card-open"
-          title={artifactOpenHint(artifact.file_type)}
+          title={artifactOpenHint(artifact)}
           onClick={() => {
             if (openContentViewer && canPreviewArtifactInApp(artifact)) {
               openContentViewer({ type: "artifact", artifactId: artifact.id });
@@ -654,7 +667,7 @@ export function ArtifactCard({
             void openArtifactFile(artifact, setToast).then(() => onOpened?.());
           }}
         >
-          <IconExternalLink size={14} />{artifactOpenLabel(artifact.file_type)}
+          <IconExternalLink size={14} />{artifactOpenLabel(artifact)}
         </button>
         <button
           type="button"

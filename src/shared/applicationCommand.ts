@@ -19,6 +19,7 @@ export const applicationCommandNames = [
   "ReportTaskBlocked",
   "AcceptTaskWork",
   "ReturnTaskWork",
+  "CommitAudioCapture",
 ] as const;
 export type ApplicationCommandName = (typeof applicationCommandNames)[number];
 
@@ -121,6 +122,11 @@ export interface TaskWorkReviewCommandPayload {
   reviewNote?: string | null;
 }
 
+export interface CommitAudioCaptureCommandPayload {
+  capture: Entity;
+  artifact: Entity;
+}
+
 export type ApplicationCommandPayload =
   | CreateTaskCommandPayload
   | CreateTaskFromCaptureCommandPayload
@@ -132,7 +138,8 @@ export type ApplicationCommandPayload =
   | ApplyTaskWorkProposalCommandPayload
   | StartTaskWorkCommandPayload
   | AppendWorkReceiptCommandPayload
-  | TaskWorkReviewCommandPayload;
+  | TaskWorkReviewCommandPayload
+  | CommitAudioCaptureCommandPayload;
 
 export interface CommandEnvelope<TPayload extends ApplicationCommandPayload = ApplicationCommandPayload> {
   commandId: string;
@@ -306,6 +313,14 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       const entity = value.payload[field];
       if (entity !== undefined && entity !== null && (!isRecord(entity) || typeof entity.id !== "string" || !entity.id.trim())) {
         throw new ApplicationCommandError("INVALID_PAYLOAD", `EndFocusSessionの${field} payloadが不正です。`);
+      }
+    }
+  }
+  if (name === "CommitAudioCapture") {
+    for (const field of ["capture", "artifact"] as const) {
+      const entity = value.payload[field];
+      if (!isRecord(entity) || typeof entity.id !== "string" || !entity.id.trim()) {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", `CommitAudioCaptureの${field} payloadが不正です。`);
       }
     }
   }

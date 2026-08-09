@@ -1,4 +1,5 @@
 import { resolveStorageLocation } from "../../shared/storageResolver.mjs";
+import { audioMimeTypeOf } from "../../shared/mediaArtifact.mjs";
 
 // Artifactファイル保存の純粋ロジック（パス組み立て・命名・種別判定）。
 // ファイルI/O自体はworkspaceServiceが行い、ここはnode:fsに依存しない。
@@ -42,7 +43,7 @@ export function artifactFileTypeOf(fileName) {
 }
 
 export function artifactMimeTypeOf(fileName) {
-  return ARTIFACT_MIME_TYPES[artifactFileTypeOf(fileName)] || "application/octet-stream";
+  return ARTIFACT_MIME_TYPES[artifactFileTypeOf(fileName)] || audioMimeTypeOf(fileName) || "application/octet-stream";
 }
 
 export function safeArtifactFileName(fileName) {

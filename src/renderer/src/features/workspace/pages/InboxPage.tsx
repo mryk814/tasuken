@@ -17,6 +17,7 @@ import {
   IconRestore,
   IconSearch,
   IconTrash,
+  IconVolume,
   IconWriting,
 } from "@tabler/icons-react";
 
@@ -41,9 +42,12 @@ import {
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
 import type { Entity } from "../../../../../shared/types/workspace";
+import type { AudioCapturePrepared } from "../../../../../shared/mediaCapture";
+import { formatMediaDuration, MEDIA_AVAILABILITY_LABELS, TRANSCRIPTION_STATUS_LABELS } from "../../../../../shared/mediaArtifact.mjs";
 import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
+import { formatArtifactFileSize } from "../components/artifacts";
 import {
   captureMatchesQuery,
   fileCaptureContentType,
@@ -91,6 +95,33 @@ interface InboxDraft {
 
 interface InboxRow {
   entry: CaptureEntry;
+}
+
+function CapturedArtifactButton({
+  artifact,
+  capture,
+  onOpen,
+}: {
+  artifact: Artifact;
+  capture: CaptureEntry;
+  onOpen: () => void;
+}) {
+  const isAudio = artifact.media_kind === "audio";
+  const availability = String(artifact.media_availability || "available") as keyof typeof MEDIA_AVAILABILITY_LABELS;
+  const transcription = String(capture.transcription_status || "not_requested") as keyof typeof TRANSCRIPTION_STATUS_LABELS;
+  return (
+    <button type="button" className={isAudio ? "inbox-captured-audio" : undefined} onClick={onOpen}>
+      {isAudio ? <IconVolume size={14} /> : <IconFile size={14} />}
+      <span>{artifact.filename}</span>
+      {isAudio && (
+        <small>
+          {[formatMediaDuration(artifact.duration_ms), formatArtifactFileSize(artifact.file_size), TRANSCRIPTION_STATUS_LABELS[transcription], MEDIA_AVAILABILITY_LABELS[availability]]
+            .filter(Boolean)
+            .join(" · ")}
+        </small>
+      )}
+    </button>
+  );
 }
 
 
@@ -153,7 +184,34 @@ function copyTextForTarget(result: OrganizedResult): string {
   return [result.title, description].filter(Boolean).join("\n");
 }
 
-export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, saveEntities, createTaskFromCapture, removeEntity, setToast }: PageProps) {
+function audioDurationMs(mediaUrl: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio();
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      audio.removeAttribute("src");
+      audio.load();
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("音声の長さを取得できませんでした。対応形式を確認してください。"));
+    }, 15_000);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const duration = Math.round(audio.duration * 1000);
+      cleanup();
+      if (!Number.isFinite(duration) || duration < 0) reject(new Error("音声の長さを取得できませんでした。対応形式を確認してください。"));
+      else resolve(duration);
+    };
+    audio.onerror = () => {
+      cleanup();
+      reject(new Error("音声を読み込めませんでした。対応形式を確認してください。"));
+    };
+    audio.src = mediaUrl;
+  });
+}
+
+export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer, openContentViewer, navigate, saveEntities, createTaskFromCapture, removeEntity, setToast }: PageProps) {
   const v2Tasks = v2.tasks;
   const { artifacts } = data;
   const [query, setQuery] = useState("");
@@ -184,6 +242,9 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
   const [organizing, setOrganizing] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState("");
   const [recentOrganized, setRecentOrganized] = useState<OrganizedResult[]>([]);
+  const [preparedAudio, setPreparedAudio] = useState<AudioCapturePrepared[]>([]);
+  const [preparedAudioState, setPreparedAudioState] = useState<"loading" | "ready" | "error">("loading");
+  const [audioBusySessionId, setAudioBusySessionId] = useState<string | null>(null);
   // いま付箋として浮いているMemo（#298）。Mainのwindow registryが正本なので、
   // 画面側では保持せず開閉のたびに受け取る。
   const [openStickyIds, setOpenStickyIds] = useState<string[]>([]);
@@ -193,6 +254,21 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
     void workspaceApi.listOpenMemoStickies().then(setOpenStickyIds).catch(() => setOpenStickyIds([]));
     return workspaceApi.onMemoStickyOpenChanged(setOpenStickyIds);
   }, []);
+
+  useEffect(() => {
+    void refreshPreparedAudio();
+  }, [setToast]);
+
+  async function refreshPreparedAudio() {
+    setPreparedAudioState("loading");
+    try {
+      setPreparedAudio(await workspaceApi.listPreparedAudioCaptures());
+      setPreparedAudioState("ready");
+    } catch (error) {
+      setPreparedAudioState("error");
+      setToast(`保存待ち音声を確認できませんでした。${error instanceof Error ? error.message : String(error)}`, "warning");
+    }
+  }
 
   function captureArtifacts(captureId: string): Artifact[] {
     return artifacts.filter((artifact) => artifact.source_type === "capture_entry" && artifact.source_id === captureId);
@@ -204,7 +280,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
     sourceId: string,
     themeId: string | null,
   ): SaveOperation[] {
-    return captureArtifacts(sourceCaptureId).map((artifact) => ({
+    return captureArtifacts(sourceCaptureId).filter((artifact) => artifact.media_kind !== "audio" && artifact.media_kind !== "video").map((artifact) => ({
       action: "save",
       type: "artifact",
       entity: {
@@ -471,6 +547,62 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
     });
   }
 
+  async function commitPreparedAudio(prepared: AudioCapturePrepared) {
+    if (!prepared.canCommit || prepared.status !== "ready" || !prepared.mediaUrl) {
+      setToast("この音声は安全に読み込めないため保存できません。内容を確認して破棄してください。", "warning");
+      return;
+    }
+    setAudioBusySessionId(prepared.sessionId);
+    try {
+      const durationMs = await audioDurationMs(prepared.mediaUrl);
+      await workspaceApi.commitAudioCapture({ sessionId: prepared.sessionId, durationMs });
+      setPreparedAudio((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      setToast(`音声「${prepared.filename}」をInboxへ保存しました。`, "success");
+    } catch (error) {
+      setToast(`音声を保存できませんでした。${error instanceof Error ? error.message : String(error)} 保存待ち音声から再試行できます。`, "danger");
+    } finally {
+      setAudioBusySessionId(null);
+    }
+  }
+
+  async function retryRecoveredAudio(prepared: AudioCapturePrepared) {
+    if (!prepared.canRetry) return;
+    setAudioBusySessionId(prepared.sessionId);
+    try {
+      await workspaceApi.commitAudioCapture({ sessionId: prepared.sessionId, durationMs: prepared.durationMs || 0 });
+      setPreparedAudio((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      setToast(`音声「${prepared.filename}」の保存を復旧しました。`, "success");
+    } catch (error) {
+      setToast(`音声の保存を復旧できませんでした。${error instanceof Error ? error.message : String(error)} 手動確認が必要です。`, "danger");
+    } finally {
+      setAudioBusySessionId(null);
+    }
+  }
+
+  async function captureAudio() {
+    try {
+      const result = await workspaceApi.prepareAudioCapture(activeThemeId || null);
+      if (result.canceled) return;
+      setPreparedAudio((current) => [result, ...current.filter((entry) => entry.sessionId !== result.sessionId)]);
+      await commitPreparedAudio(result);
+    } catch (error) {
+      setToast(`音声を取り込めませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function discardPreparedAudio(prepared: AudioCapturePrepared) {
+    setAudioBusySessionId(prepared.sessionId);
+    try {
+      await workspaceApi.cancelAudioCapture(prepared.sessionId);
+      setPreparedAudio((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      setToast("保存待ち音声を破棄しました。", "info");
+    } catch (error) {
+      setToast(`保存待ち音声を破棄できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setAudioBusySessionId(null);
+    }
+  }
+
   async function deleteEntry(row: InboxRow) {
     setSelected((current) => current.filter((id) => id !== row.entry.id));
     await removeEntity("capture_entry", row.entry as unknown as Record<string, unknown>);
@@ -503,6 +635,10 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
   }
 
   async function openCapturedArtifact(artifact: Artifact) {
+    if (artifact.media_kind === "audio") {
+      openContentViewer({ type: "artifact", artifactId: artifact.id });
+      return;
+    }
     const target = String(artifact.stored_path || artifact.target || "");
     if (!target) {
       setToast("ファイルの場所がありません。元ファイルを記録し直してください。", "warning");
@@ -640,8 +776,74 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
             },
           ]}
         />
+        <Button variant="secondary" onClick={() => { void captureAudio(); }} disabled={audioBusySessionId !== null}>
+          <IconVolume size={16} />音声を取り込む
+        </Button>
         <Button variant="primary" onClick={addMemo}><IconPlus size={16} />Memo</Button>
       </PageHeader>
+      {preparedAudioState === "loading" && (
+        <div className="inbox-audio-recovery-state" role="status">保存待ち音声を確認しています…</div>
+      )}
+      {preparedAudioState === "error" && (
+        <div className="inbox-audio-recovery-state is-error" role="alert">
+          <span>保存待ち音声を確認できませんでした。</span>
+          <button type="button" className="text-button compact" onClick={() => { void refreshPreparedAudio(); }}>一覧を再試行</button>
+        </div>
+      )}
+      {preparedAudioState === "ready" && preparedAudio.length === 0 && (
+        <div className="inbox-audio-recovery-state" role="status">保存待ち音声はありません。</div>
+      )}
+      {preparedAudio.length > 0 && (
+        <section className="panel inbox-audio-recovery" aria-label="保存待ち音声">
+          <div className="section-heading">
+            <h2>保存待ち音声</h2>
+            <span>{preparedAudio.length}件</span>
+          </div>
+          {preparedAudio.map((prepared) => {
+            const busy = audioBusySessionId === prepared.sessionId;
+            return (
+              <div className="inbox-audio-recovery-row" key={prepared.sessionId}>
+                {prepared.status === "ready" ? (
+                  <audio controls preload="metadata" src={prepared.mediaUrl} aria-label={`${prepared.filename}の保存前プレビュー`} />
+                ) : (
+                  <div className="inbox-audio-recovery-warning" role="status">要確認</div>
+                )}
+                <div>
+                  <strong>{prepared.filename}</strong>
+                  <small>
+                    {prepared.status === "ready"
+                      ? `${prepared.mimeType} · ${formatArtifactFileSize(prepared.fileSize)}`
+                      : prepared.canRetry
+                        ? "保存が完了していません。安全確認後に再試行できます。"
+                        : prepared.canDiscard
+                          ? "安全に読み込めません。保存せず破棄できます。"
+                          : "安全に自動復旧できません。手動確認が必要です。"}
+                  </small>
+                </div>
+                <div className="inline-actions">
+                  {prepared.canCommit && (
+                    <Button variant="secondary" compact disabled={busy} onClick={() => { void commitPreparedAudio(prepared); }}>
+                      {busy ? "処理中…" : "Inboxへ保存"}
+                    </Button>
+                  )}
+                  {prepared.canRetry && (
+                    <Button variant="secondary" compact disabled={busy} onClick={() => { void retryRecoveredAudio(prepared); }}>
+                      {busy ? "処理中…" : "保存を再試行"}
+                    </Button>
+                  )}
+                  {prepared.canDiscard ? (
+                    <button type="button" className="text-button compact" disabled={busy} onClick={() => { void discardPreparedAudio(prepared); }}>
+                      破棄
+                    </button>
+                  ) : !prepared.canRetry ? (
+                    <span className="status-text is-warning">手動確認が必要</span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
       <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
         <button className={lane === "untriaged" ? "is-active" : ""} aria-current={lane === "untriaged" ? "page" : undefined} onClick={() => setLane("untriaged")}>
           未整理 <span>{allInboxRows.length}</span>
@@ -853,10 +1055,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
                     {captureArtifacts(row.entry.id).length > 0 && (
                       <div className="inbox-captured-files" aria-label="記録したファイル">
                         {captureArtifacts(row.entry.id).map((artifact) => (
-                          <button key={artifact.id} type="button" onClick={() => void openCapturedArtifact(artifact)}>
-                            <IconFile size={14} />
-                            {artifact.filename}
-                          </button>
+                          <CapturedArtifactButton key={artifact.id} artifact={artifact} capture={row.entry} onOpen={() => { void openCapturedArtifact(artifact); }} />
                         ))}
                       </div>
                     )}
@@ -921,10 +1120,7 @@ export function InboxPage({ data, domain: v2, themes, openDrawer, navigate, save
                 {captureArtifacts(entry.id).length > 0 && (
                   <div className="inbox-captured-files">
                     {captureArtifacts(entry.id).map((artifact) => (
-                      <button key={artifact.id} type="button" onClick={() => void openCapturedArtifact(artifact)}>
-                        <IconFile size={14} />
-                        {artifact.filename}
-                      </button>
+                      <CapturedArtifactButton key={artifact.id} artifact={artifact} capture={entry} onOpen={() => { void openCapturedArtifact(artifact); }} />
                     ))}
                   </div>
                 )}

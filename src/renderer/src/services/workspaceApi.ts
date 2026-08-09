@@ -201,6 +201,18 @@ export const workspaceApi = {
   materializeArtifactProposal(request: import("../../../shared/attachments").ArtifactProposalMaterializeRequest) {
     return desktopApi().attachments.materializeArtifactProposal(request);
   },
+  prepareAudioCapture(themeId?: string | null) {
+    return desktopApi().mediaCapture.prepareAudio({ themeId });
+  },
+  listPreparedAudioCaptures() {
+    return desktopApi().mediaCapture.listPreparedAudio();
+  },
+  commitAudioCapture(request: import("../../../shared/mediaCapture").AudioCaptureCommitRequest) {
+    return desktopApi().mediaCapture.commitAudio(request);
+  },
+  cancelAudioCapture(sessionId: string) {
+    return desktopApi().mediaCapture.cancelAudio({ sessionId });
+  },
   reload() {
     return desktopApi().app.reload();
   },

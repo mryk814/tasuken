@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
+import { rejectGenericAudioArtifact } from "../mediaCapturePersistence";
 import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeTaskAssignment } from "../repositories/domain.mjs";
@@ -30,6 +31,8 @@ const now = () => new Date().toISOString();
 const taskDefinition = entityDefinition("task");
 const referenceDefinition = entityDefinition("reference");
 const workReceiptDefinition = entityDefinition("work_receipt");
+const captureDefinition = entityDefinition("capture_entry");
+const artifactDefinition = entityDefinition("artifact");
 const taskWorkStates = new Set(["not_delegated", "ready_for_agent", "in_progress", "reported_done", "needs_human_review", "accepted", "blocked", "failed"]);
 const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
 const aiAgentCommands = new Set<ApplicationCommandName>([
@@ -615,7 +618,20 @@ export class ApplicationCommandService {
 
   execute(input: unknown): CommandReceipt {
     const command = parseCommandEnvelope(input);
+    if (command.name === "CommitAudioCapture") {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "音声CaptureはMainのmedia session経由で確定してください。");
+    }
     if (!applicationCommandSources.includes(command.source)) throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
+    return this.repository.runTransaction((transactionRepository) => (
+      new ApplicationCommandService(transactionRepository).executeParsed(command)
+    ));
+  }
+
+  executeMediaCapture(input: unknown): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    if (command.name !== "CommitAudioCapture" || command.actor.kind !== "user" || command.source !== "inbox") {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "CommitAudioCaptureはInboxのMain-owned media session専用です。");
+    }
     return this.repository.runTransaction((transactionRepository) => (
       new ApplicationCommandService(transactionRepository).executeParsed(command)
     ));
@@ -624,6 +640,9 @@ export class ApplicationCommandService {
   executeBatch(inputs: unknown[]): CommandReceipt[] {
     const commands = inputs.map((input) => parseCommandEnvelope(input));
     for (const command of commands) {
+      if (command.name === "CommitAudioCapture") {
+        throw new ApplicationCommandError("INVALID_ENVELOPE", "音声CaptureはMainのmedia session経由で確定してください。");
+      }
       if (!applicationCommandSources.includes(command.source)) throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
     }
     return this.repository.runTransaction((transactionRepository) => {
@@ -725,6 +744,7 @@ export class ApplicationCommandService {
     if (command.name === "CreateTaskFromCapture") {
       return this.createTaskFromCapture(command);
     }
+    if (command.name === "CommitAudioCapture") return this.commitAudioCapture(command);
     if (command.name === "CompleteTaskWithLearning") {
       return this.completeTaskWithLearning(command);
     }
@@ -748,6 +768,57 @@ export class ApplicationCommandService {
       return this.saveTask(command, command.name === "CreateTask");
     }
     return this.transitionTask(command, command.name === "CompleteTask");
+  }
+
+  private commitAudioCapture(command: CommandEnvelope): CommandReceipt {
+    const payload = command.payload as { capture: Entity; artifact: Entity };
+    const { capture, artifact } = payload;
+    for (const [type, entity] of [
+      ["capture_entry", capture],
+      ["artifact", artifact],
+    ] as const) {
+      if (this.repository.get(type, entity.id, true)) {
+        throw new ApplicationCommandError("CONFLICT", `${type}のIDを再利用できません。`, { type, id: entity.id });
+      }
+    }
+    captureDefinition.parseCreate(capture);
+    artifactDefinition.parseCreate(artifact);
+    if (
+      capture.content_type !== "audio"
+      || capture.kind !== "voice_memo"
+      || capture.capture_method !== "audio_import"
+      || capture.media_status !== "ready"
+    ) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Voice Captureのaudio import contractが不正です。");
+    }
+    if (
+      artifact.media_kind !== "audio"
+      || artifact.storage_mode !== "managed"
+      || artifact.source_type !== "capture_entry"
+      || artifact.source_id !== capture.id
+    ) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Audio Artifactのmanaged ownerがCaptureと一致しません。");
+    }
+    const event = annotateEvent(command, commandEvent(
+      command,
+      "capture_entry",
+      capture.id,
+      "created",
+      null,
+      capture,
+    ));
+    event.metadata = {
+      ...(event.metadata as Record<string, unknown> || {}),
+      include_in_activity: true,
+      media_kind: "audio",
+      artifact_id: artifact.id,
+      content_hash: artifact.content_hash,
+    };
+    return persistReceipt(this.repository, command, [
+      { action: "save", type: "capture_entry", entity: capture },
+      { action: "save", type: "artifact", entity: artifact },
+      { action: "save", type: "change_event", entity: event },
+    ], [event.id], ["capture_entry", "artifact"]);
   }
 
   private startTaskWork(command: CommandEnvelope): CommandReceipt {
@@ -1233,6 +1304,7 @@ export class ApplicationCommandService {
     for (const candidate of payload.candidates) {
       const type = candidate.type;
       let candidateEntity = candidate.entity;
+      if (type === "artifact") rejectGenericAudioArtifact(candidateEntity, "AI Proposal採用");
       if (type === "repository_context") {
         try {
           candidateEntity = normalizeRepositoryContext(candidate.entity) as Entity;

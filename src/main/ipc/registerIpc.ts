@@ -1,13 +1,22 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain } from "electron";
 
 import { IPC } from "../../shared/ipc/contracts";
-import { entityTypes, type EntityType } from "../../shared/types/workspace";
+import { entityTypes, type Entity, type EntityType } from "../../shared/types/workspace";
 import type { WorkspaceService } from "../services/workspaceService";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
+import type { MediaCaptureService } from "../services/mediaCaptureService";
+import {
+  parseAudioCaptureCancelRequest,
+  parseAudioCaptureCommitRequest,
+  parseAudioCapturePrepareRequest,
+} from "../../shared/mediaCapture";
+import { projectEntityForRenderer, projectWorkspaceForRenderer } from "../rendererMediaProjection";
 import type { CommandReceipt } from "../../shared/applicationCommand";
+import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
+import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
 import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
 import {
   isViewPreferenceId,
@@ -93,6 +102,15 @@ function rejectTaskPersistence(type: EntityType, operation = "保存"): void {
   }
 }
 
+function requireAudioCaptureThemeId(repository: WorkspaceRepository, request: unknown): string | null {
+  const { themeId = null } = parseAudioCapturePrepareRequest(request);
+  if (!themeId) return null;
+  if (!repository.get("theme", themeId) && !repository.get("project", themeId)) {
+    throw new Error("音声CaptureのThemeが見つかりません。Themeを選び直してください。");
+  }
+  return themeId;
+}
+
 export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
@@ -100,11 +118,12 @@ export function registerIpc(
   aiProvider: AiProviderService,
   calendar: CalendarService,
   applicationCommands: ApplicationCommandService,
+  mediaCapture: MediaCaptureService,
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
-  notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number) => void = () => {},
+  notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number, options?: { senderReceivesAll?: boolean }) => void = () => {},
 ): void {
-  ipcMain.handle(IPC.workspaceLoad, () => service.loadWorkspace());
-  ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => repository.bootstrap(legacy));
+  ipcMain.handle(IPC.workspaceLoad, () => projectWorkspaceForRenderer(service.loadWorkspace()));
+  ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => projectWorkspaceForRenderer(repository.bootstrap(legacy)));
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.activityCanonicalRootStatus, () => service.getActivityCanonicalRootStatus());
   ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) => service.openActivityCanonicalRef(ref));
@@ -199,6 +218,47 @@ export function registerIpc(
   ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
   ipcMain.handle(IPC.artifactFilesImport, (_event, request) => service.importArtifactFiles(request));
   ipcMain.handle(IPC.artifactProposalMaterialize, (_event, request) => service.materializeArtifactProposal(request));
+  ipcMain.handle(IPC.audioCapturePrepare, async (event, request) => {
+    try {
+      const themeId = requireAudioCaptureThemeId(repository, request);
+      const window = BrowserWindow.fromWebContents(event.sender) || undefined;
+      const options = {
+        title: "Inboxへ取り込む音声を選択",
+        properties: ["openFile"],
+        filters: [{ name: "音声", extensions: ["mp3", "mpga", "wav", "webm", "ogg", "opus", "m4a", "mp4"] }],
+      } satisfies Electron.OpenDialogOptions;
+      const selected = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+      if (selected.canceled || !selected.filePaths[0]) return { canceled: true as const };
+      return { canceled: false as const, ...mediaCapture.prepareFile(selected.filePaths[0], themeId) };
+    } catch (error) {
+      throw projectMediaCaptureIpcError("prepare", error);
+    }
+  });
+  ipcMain.handle(IPC.audioCaptureListPrepared, (_event, ...args) => {
+    try {
+      if (args.length > 0) throw new Error("保存待ち音声の一覧requestに引数は指定できません。");
+      return mediaCapture.listPreparedAudio();
+    } catch (error) {
+      throw projectMediaCaptureIpcError("list", error);
+    }
+  });
+  ipcMain.handle(IPC.audioCaptureCommit, (event, request) => {
+    try {
+      const result = mediaCapture.commit(parseAudioCaptureCommitRequest(request));
+      notifyCommandApplied(result.receipt, event.sender.id, { senderReceivesAll: true });
+      return result.publicResult;
+    } catch (error) {
+      throw projectMediaCaptureIpcError("commit", error);
+    }
+  });
+  ipcMain.handle(IPC.audioCaptureCancel, (_event, request) => {
+    try {
+      const { sessionId } = parseAudioCaptureCancelRequest(request);
+      return mediaCapture.cancel(sessionId);
+    } catch (error) {
+      throw projectMediaCaptureIpcError("cancel", error);
+    }
+  });
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());
   ipcMain.handle(IPC.appReleasePageOpen, (_event, url) => service.openReleasePage(typeof url === "string" ? url : undefined));
@@ -214,19 +274,26 @@ export function registerIpc(
     });
     return true;
   });
-  ipcMain.handle(IPC.entityList, (_event, type, includeDeleted) =>
-    repository.list(requireEntityType(type), Boolean(includeDeleted)));
-  ipcMain.handle(IPC.entityGet, (_event, type, id) =>
-    repository.get(requireEntityType(type), requireId(id)));
+  ipcMain.handle(IPC.entityList, (_event, type, includeDeleted) => {
+    const entityType = requireEntityType(type);
+    const entities = repository.list(entityType, Boolean(includeDeleted));
+    return Array.isArray(entities) ? entities.map((entity) => projectEntityForRenderer(entityType, entity as Entity)) : entities;
+  });
+  ipcMain.handle(IPC.entityGet, (_event, type, id) => {
+    const entityType = requireEntityType(type);
+    const entity = repository.get(entityType, requireId(id));
+    return entity && typeof entity === "object" ? projectEntityForRenderer(entityType, entity as Entity) : entity;
+  });
   ipcMain.handle(IPC.entitySave, (_event, type, entity, options) => {
     if (!entity || typeof entity !== "object" || Array.isArray(entity)) {
       throw new Error("保存内容が不正です。入力内容を確認してください。");
     }
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType);
-    const saved = repository.save(entityType, entity, normalizeIpcSaveOptions(options));
+    const normalizedEntity = normalizeMediaCapturePersistence(repository, entityType, entity);
+    const saved = repository.save(entityType, normalizedEntity, normalizeIpcSaveOptions(options));
     notifyEntitiesChanged([entityType]);
-    return saved;
+    return saved && typeof saved === "object" ? projectEntityForRenderer(entityType, saved as Entity) : saved;
   });
   ipcMain.handle(IPC.documentSave, (_event, request) => {
     const saved = service.saveCanonicalNote(request);
@@ -247,26 +314,36 @@ export function registerIpc(
     if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
     const types = saveManyTypes(operations);
     if (types.includes("task")) rejectTaskPersistence("task", "一括保存");
+    for (const operation of operations) {
+      if (!operation || typeof operation !== "object" || Array.isArray(operation)) continue;
+      const value = operation as Record<string, unknown>;
+      const type = requireEntityType(value.type);
+      value.entity = normalizeMediaCapturePersistence(repository, type, value.entity, "一括保存");
+    }
     const saved = repository.saveMany(operations.map((operation) => (
       operation && typeof operation === "object" && !Array.isArray(operation)
         ? { ...(operation as Record<string, unknown>), options: normalizeIpcSaveOptions((operation as Record<string, unknown>).options) }
         : operation
     )));
     notifyEntitiesChanged(types);
-    return saved;
+    return Array.isArray(saved) ? saved.map((entity, index) => {
+      const operation = operations[index] as Record<string, unknown> | undefined;
+      const type = operation ? requireEntityType(operation.type) : null;
+      return type && entity && typeof entity === "object" ? projectEntityForRenderer(type, entity as Entity) : entity;
+    }) : saved;
   });
   ipcMain.handle(IPC.entityRemove, (_event, type, id) => {
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType, "削除");
     const removed = repository.remove(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
-    return removed;
+    return removed && typeof removed === "object" ? projectEntityForRenderer(entityType, removed as Entity) : removed;
   });
   ipcMain.handle(IPC.entityRestore, (_event, type, id) => {
     const entityType = requireEntityType(type);
     const restored = repository.restore(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
-    return restored;
+    return restored && typeof restored === "object" ? projectEntityForRenderer(entityType, restored as Entity) : restored;
   });
   ipcMain.handle(IPC.applicationCommand, (event, envelope) => {
     const receipt = applicationCommands.execute(envelope);

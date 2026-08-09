@@ -1,0 +1,15 @@
+export const AUDIO_MEDIA_TYPES: Readonly<Record<string, string>>;
+export const AUDIO_CAPTURE_METHODS: readonly ["audio_import", "microphone", "external_dictation", "transcript_import"];
+export const AUDIO_MEDIA_STATUSES: readonly ["preparing", "ready", "failed"];
+export const TRANSCRIPTION_STATUSES: readonly ["not_requested", "queued", "processing", "completed", "failed"];
+export const MEDIA_AVAILABILITIES: readonly ["available", "missing", "changed", "unsafe_source", "unsupported_codec"];
+export type MediaAvailability = (typeof MEDIA_AVAILABILITIES)[number];
+export type TranscriptionStatus = (typeof TRANSCRIPTION_STATUSES)[number];
+export const TRANSCRIPTION_STATUS_LABELS: Readonly<Record<TranscriptionStatus, string>>;
+export const MEDIA_AVAILABILITY_LABELS: Readonly<Record<MediaAvailability, string>>;
+export function mediaExtensionOf(fileName: unknown): string;
+export function audioMimeTypeOf(fileName: unknown): string | null;
+export function isSupportedAudioFileName(fileName: unknown): boolean;
+export function validateAudioArtifactMetadata<T extends Record<string, unknown>>(input: T): T;
+export function validateAudioCaptureEntry<T extends Record<string, unknown>>(input: T): T;
+export function formatMediaDuration(durationMs: unknown): string;

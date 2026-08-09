@@ -4,6 +4,7 @@ import { normalizeActivityEvent, ACTIVITY_EVENT_KINDS } from "../../shared/activ
 import { normalizeRepositoryContext, normalizeRepositoryLinkFields } from "../../shared/repositoryContext.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
+import { validateAudioArtifactMetadata, validateAudioCaptureEntry } from "../../shared/mediaArtifact.mjs";
 import {
   assertEntityPayload,
   assertEntityType as assertRegistryEntityType,
@@ -100,6 +101,7 @@ const artifactGeneratedByValues = new Set(["chatgpt", "claude", "copilot", "gemi
 const artifactStorageModes = new Set(["managed", "linked"]);
 const artifactLinkTypes = new Set(["url", "local_path", "shared_path", "onedrive", "sharepoint", "teams"]);
 const artifactLinkStatuses = new Set(["unknown", "ok", "broken", "inaccessible"]);
+const mediaAvailabilities = new Set(["available", "missing", "changed", "unsafe_source", "unsupported_codec"]);
 
 function localDateIso(date = new Date()) {
   const year = date.getFullYear();
@@ -330,6 +332,7 @@ export function validateEntity(type, input) {
   if (type === "project" && !projectStates.has(input.state)) throw new Error("project.stateが不正です。");
   if (type === "capture_entry") {
     if (!captureEntryStates.has(input.state)) throw new Error("capture_entry.stateが不正です。");
+    if (input.content_type === "audio" || input.kind === "voice_memo") validateAudioCaptureEntry(input);
     if (input.triaged_to_type != null && input.triaged_to_type !== "" && !entityRefTypes.has(input.triaged_to_type)) {
       throw new Error("capture_entry.triaged_to_typeが不正です。");
     }
@@ -465,6 +468,10 @@ export function validateEntity(type, input) {
     }
     if (input.export_format != null && input.export_format !== "" && !["markdown", "pdf"].includes(input.export_format)) {
       throw new Error("artifact.export_formatが不正です。");
+    }
+    if (input.media_kind != null) validateAudioArtifactMetadata(input);
+    if (input.media_availability != null && !mediaAvailabilities.has(input.media_availability)) {
+      throw new Error("artifact.media_availabilityが不正です。");
     }
   }
 
