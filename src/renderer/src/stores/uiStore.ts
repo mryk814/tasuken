@@ -10,9 +10,12 @@ interface UiState {
   activeGroups: string[];
   /** Inboxのレーン選択。上部バーのMemoランチャーから開いたときに合わせる（#299）。 */
   inboxLane: InboxLane;
+  inboxRecorderRequested: boolean;
   toast: string;
   toastTone: ToastTone;
   setInboxLane(lane: InboxLane): void;
+  requestInboxRecorder(): void;
+  consumeInboxRecorderRequest(): void;
   setRoute(route: string): void;
   setActiveThemeId(id: string): void;
   setThemeMode(mode: "light" | "dark"): void;
@@ -26,6 +29,7 @@ export const useUiStore = create<UiState>((set) => ({
   themeMode: "light",
   activeGroups: [],
   inboxLane: "untriaged",
+  inboxRecorderRequested: false,
   toast: "",
   toastTone: "info",
   setRoute: (route) => set({ route }),
@@ -33,5 +37,7 @@ export const useUiStore = create<UiState>((set) => ({
   setThemeMode: (themeMode) => set({ themeMode }),
   setActiveGroups: (activeGroups) => set({ activeGroups }),
   setInboxLane: (inboxLane) => set({ inboxLane }),
+  requestInboxRecorder: () => set({ inboxRecorderRequested: true }),
+  consumeInboxRecorderRequest: () => set({ inboxRecorderRequested: false }),
   setToast: (toast, toastTone = "info") => set({ toast, toastTone }),
 }));

@@ -24,11 +24,13 @@ test("Electron smoke runner creates unique explicit userData and result paths", 
 test("Electron smoke restart reuses userData/result and requires restart-ready with an Artifact UUID", () => {
   const paths = createSmokePaths("C:/temp", "restart");
   const artifactId = "123e4567-e89b-42d3-a456-426614174000";
+  const microphoneArtifactId = "423e4567-e89b-42d3-a456-426614174000";
   const videoArtifactId = "223e4567-e89b-42d3-a456-426614174000";
   const videoOwnerId = "323e4567-e89b-42d3-a456-426614174000";
-  const args = buildElectronSmokeArgs(paths, { restartArtifactId: artifactId, restartVideoArtifactId: videoArtifactId, restartVideoOwnerId: videoOwnerId });
+  const args = buildElectronSmokeArgs(paths, { restartArtifactId: artifactId, restartMicrophoneArtifactId: microphoneArtifactId, restartVideoArtifactId: videoArtifactId, restartVideoOwnerId: videoOwnerId });
   assert.ok(args.includes("--smoke-restart-check"));
   assert.ok(args.includes(`--smoke-media-artifact-id=${artifactId}`));
+  assert.ok(args.includes(`--smoke-microphone-artifact-id=${microphoneArtifactId}`));
   assert.ok(args.includes(`--smoke-video-artifact-id=${videoArtifactId}`));
   assert.ok(args.includes(`--smoke-video-owner-id=${videoOwnerId}`));
   assert.ok(args.includes(`--user-data-dir=${paths.userDataDir}`));
@@ -36,11 +38,25 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
   assert.equal(restartArtifactIdFromResult({ stage: "restart-ready", audioArtifactId: artifactId }), artifactId);
   assert.equal(restartArtifactIdFromResult({ stage: "passed", audioArtifactId: artifactId }), null);
   assert.equal(restartArtifactIdFromResult({ stage: "restart-ready", audioArtifactId: "not-an-id" }), null);
-  assert.deepEqual(restartArtifactIdsFromResult({ stage: "restart-ready", audioArtifactId: artifactId, videoArtifactId, smokeTaskId: videoOwnerId }), { audioArtifactId: artifactId, videoArtifactId, videoOwnerId });
-  assert.equal(restartArtifactIdsFromResult({ stage: "restart-ready", audioArtifactId: artifactId, videoArtifactId: "bad" }), null);
+  assert.deepEqual(restartArtifactIdsFromResult({ stage: "restart-ready", audioArtifactId: artifactId, microphoneArtifactId, videoArtifactId, smokeTaskId: videoOwnerId }), { audioArtifactId: artifactId, microphoneArtifactId, videoArtifactId, videoOwnerId });
+  assert.equal(restartArtifactIdsFromResult({ stage: "restart-ready", audioArtifactId: artifactId, microphoneArtifactId, videoArtifactId: "bad" }), null);
   const packagedArgs = buildElectronSmokeArgs(paths, { packaged: true });
   assert.ok(packagedArgs.includes("--smoke-require-packaged"));
   assert.equal(packagedArgs.includes("."), false);
+});
+
+test("packaged smoke records, commits, plays and restart-checks a synthetic microphone capture", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.match(source, /use-fake-device-for-media-stream/);
+  assert.match(source, /navigator\.mediaDevices\.getUserMedia\(\{ audio: true \}\)/);
+  assert.match(source, /new MediaRecorder\(stream, \{ mimeType \}\)/);
+  assert.match(source, /window\.api\.mediaCapture\.appendRecording/);
+  assert.match(source, /window\.api\.mediaCapture\.commitAudio/);
+  assert.match(source, /created\.audioArtifactId = audioSmoke\.artifactId/);
+  assert.match(source, /created\.microphoneArtifactId = microphoneSmoke\.artifactId/);
+  assert.match(source, /created\.microphoneRangeVerified = await verifySmokeVideoRange\(microphoneSmoke\.artifactId\)/);
+  assert.doesNotMatch(source, /created\.audioArtifactId = microphoneSmoke\.artifactId/);
+  assert.match(source, /result\.microphonePlayback/);
 });
 
 test("native clipboard smoke lock serializes only the shared interval and records ownership", async () => {

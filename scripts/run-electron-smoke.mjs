@@ -27,10 +27,11 @@ export function buildElectronSmokeArgs(paths, options = {}) {
     `--user-data-dir=${paths.userDataDir}`,
     `--smoke-result-path=${paths.resultPath}`,
   ];
-  if (options.restartArtifactId && options.restartVideoArtifactId && options.restartVideoOwnerId) {
+  if (options.restartArtifactId && options.restartMicrophoneArtifactId && options.restartVideoArtifactId && options.restartVideoOwnerId) {
     args.push(
       "--smoke-restart-check",
       `--smoke-media-artifact-id=${options.restartArtifactId}`,
+      `--smoke-microphone-artifact-id=${options.restartMicrophoneArtifactId}`,
       `--smoke-video-artifact-id=${options.restartVideoArtifactId}`,
       `--smoke-video-owner-id=${options.restartVideoOwnerId}`,
     );
@@ -46,13 +47,16 @@ export function restartArtifactIdFromResult(value) {
 
 export function restartArtifactIdsFromResult(value) {
   const audioArtifactId = restartArtifactIdFromResult(value);
+  const microphoneArtifactId = value?.stage === "restart-ready" ? value?.microphoneArtifactId : "";
   const videoArtifactId = value?.stage === "restart-ready" ? value?.videoArtifactId : "";
   const videoOwnerId = value?.stage === "restart-ready" ? value?.smokeTaskId : "";
   if (!audioArtifactId
+    || typeof microphoneArtifactId !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(microphoneArtifactId)
     || typeof videoArtifactId !== "string"
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(videoArtifactId)
     || typeof videoOwnerId !== "string" || !videoOwnerId.trim()) return null;
-  return { audioArtifactId, videoArtifactId, videoOwnerId };
+  return { audioArtifactId, microphoneArtifactId, videoArtifactId, videoOwnerId };
 }
 
 function electronExecutable(cwd = process.cwd()) {
@@ -97,6 +101,7 @@ export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), 
     const restarted = spawn(executable, buildElectronSmokeArgs(paths, {
       packaged,
       restartArtifactId: restartArtifactIds.audioArtifactId,
+      restartMicrophoneArtifactId: restartArtifactIds.microphoneArtifactId,
       restartVideoArtifactId: restartArtifactIds.videoArtifactId,
       restartVideoOwnerId: restartArtifactIds.videoOwnerId,
     }), {

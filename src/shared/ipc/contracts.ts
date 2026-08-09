@@ -38,7 +38,7 @@ import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
-import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared } from "../mediaCapture";
+import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared } from "../mediaCapture";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -71,6 +71,11 @@ export const IPC = {
   audioCaptureListPrepared: "audio-capture:list-prepared",
   audioCaptureCommit: "audio-capture:commit",
   audioCaptureCancel: "audio-capture:cancel",
+  mediaRecordingStart: "media-recording:start",
+  mediaRecordingAppend: "media-recording:append",
+  mediaRecordingPause: "media-recording:pause",
+  mediaRecordingResume: "media-recording:resume",
+  mediaRecordingStop: "media-recording:stop",
   videoImportPrepare: "video-import:prepare",
   videoImportListPrepared: "video-import:list-prepared",
   videoImportCommit: "video-import:commit",
@@ -543,6 +548,11 @@ export interface ResearchDeskApi {
     listPreparedAudio(): Promise<AudioCapturePrepared[]>;
     commitAudio(request: AudioCaptureCommitRequest): Promise<AudioCaptureCommitResult>;
     cancelAudio(request: AudioCaptureCancelRequest): Promise<boolean>;
+    startRecording(request: MediaRecordingStartRequest): Promise<MediaRecordingStarted>;
+    appendRecording(request: MediaRecordingAppendRequest): Promise<MediaRecordingProgress>;
+    pauseRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
+    resumeRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
+    stopRecording(request: MediaRecordingControlRequest): Promise<AudioCapturePrepared>;
     prepareVideo(request: VideoImportPrepareRequest): Promise<VideoImportPrepareResult>;
     listPreparedVideo(): Promise<VideoImportPrepared[]>;
     commitVideo(request: VideoImportCommitRequest): Promise<VideoImportCommitResult>;

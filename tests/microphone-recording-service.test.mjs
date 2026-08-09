@@ -1,0 +1,410 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { Buffer } from "node:buffer";
+
+import { build } from "esbuild";
+
+async function importBundled(relativePath) {
+  const result = await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+}
+
+const { MediaCaptureService, MICROPHONE_CHUNK_MAX_BYTES, MICROPHONE_RECORDING_MAX_CHUNKS } = await importBundled("src/main/services/mediaCaptureService.ts");
+
+const IDS = [
+  "123e4567-e89b-42d3-a456-426614174000",
+  "223e4567-e89b-42d3-a456-426614174000",
+  "323e4567-e89b-42d3-a456-426614174000",
+  "423e4567-e89b-42d3-a456-426614174000",
+];
+
+function fixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-microphone-recording-"));
+  const userDataPath = path.join(root, "user-data");
+  const managedDirectory = path.join(root, "managed");
+  fs.mkdirSync(userDataPath, { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return { root, userDataPath, managedDirectory };
+}
+
+function createService(paths, { commands, now } = {}) {
+  let idIndex = 0;
+  return new MediaCaptureService({
+    userDataPath: paths.userDataPath,
+    repository: { get: () => null },
+    commands: commands || { executeMediaCapture: (command) => ({ status: "applied", commandId: command.commandId, changes: [], events: [] }) },
+    resolveManagedDirectory: () => ({ kind: "ok", directory: paths.managedDirectory }),
+    idFactory: () => IDS[idIndex++],
+    now,
+  });
+}
+
+function webmBytes(text = "tasken-audio") {
+  return Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.from(text)]);
+}
+
+function asArrayBuffer(buffer) {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+}
+
+test("recording sessionはsequence、重複、欠落、bounded chunkをfile書込み前に検証する", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  const first = webmBytes();
+
+  assert.equal(started.mediaKind, "audio");
+  assert.equal(started.maxChunkBytes, MICROPHONE_CHUNK_MAX_BYTES);
+  assert.deepEqual(service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(first) }), {
+    sessionId: started.sessionId,
+    nextSequence: 1,
+    fileSize: first.length,
+    state: "recording",
+  });
+  assert.throws(() => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(first) }), /同じ録音chunk/);
+  assert.throws(() => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 2, chunk: asArrayBuffer(first) }), /欠落/);
+  assert.throws(() => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 1, chunk: new ArrayBuffer(MICROPHONE_CHUNK_MAX_BYTES + 1) }), /以下/);
+
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  assert.deepEqual(fs.readdirSync(sessionDirectory).sort(), ["chunk-00000000.part", "session.json"]);
+});
+
+test("pause/resume/stopは録音chunkをprepared原音へまとめ既存CommitAudioCaptureへ確定する", (t) => {
+  const paths = fixture(t);
+  let currentNow = "2026-08-09T00:00:00.000Z";
+  let appliedCommand;
+  const service = createService(paths, {
+    now: () => currentNow,
+    commands: {
+      executeMediaCapture(command) {
+        appliedCommand = command;
+        return { status: "applied", commandId: command.commandId, changes: [], events: [] };
+      },
+    },
+  });
+  const started = service.startRecording(null, "audio/webm");
+  const first = webmBytes("first");
+  const second = Buffer.from("second");
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(first) });
+  currentNow = "2026-08-09T00:00:02.000Z";
+  assert.equal(service.pauseRecording(started.sessionId).state, "paused");
+  currentNow = "2026-08-09T00:00:12.000Z";
+  assert.equal(service.resumeRecording(started.sessionId).state, "recording");
+  currentNow = "2026-08-09T00:00:13.500Z";
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 1, chunk: asArrayBuffer(second) });
+  const prepared = service.stopRecording(started.sessionId);
+
+  assert.equal(prepared.status, "ready");
+  assert.equal(prepared.durationMs, 3500);
+  assert.equal(prepared.fileSize, first.length + second.length);
+  assert.equal(JSON.stringify(prepared).includes(paths.root), false);
+  const committed = service.commit({ sessionId: started.sessionId, durationMs: prepared.durationMs });
+  assert.equal(committed.publicResult.status, "applied");
+  assert.equal(appliedCommand.name, "CommitAudioCapture");
+  assert.equal(appliedCommand.payload.capture.capture_method, "microphone");
+  assert.equal(appliedCommand.payload.capture.content_type, "audio");
+  assert.equal(appliedCommand.payload.artifact.media_kind, "audio");
+  assert.equal(appliedCommand.payload.artifact.file_size, first.length + second.length);
+});
+
+test("再起動後の未確定録音は自動commitせず復旧または破棄できる", (t) => {
+  const paths = fixture(t);
+  const first = createService(paths);
+  const started = first.startRecording(null, "audio/webm");
+  first.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("recover")) });
+
+  const reopened = createService(paths);
+  const interrupted = reopened.listPreparedAudio().find((entry) => entry.sessionId === started.sessionId);
+  assert.equal(interrupted?.recoveryReason, "recording_interrupted");
+  assert.equal(interrupted?.canRecoverRecording, true);
+  assert.equal(interrupted?.canCommit, false);
+  const recovered = reopened.stopRecording(started.sessionId);
+  assert.equal(recovered.status, "ready");
+  assert.equal(reopened.cancel(started.sessionId), true);
+  assert.equal(fs.existsSync(path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId)), false);
+});
+
+test("同じMain processでもRenderer停止後の無通信時間を録音durationへ加算しない", (t) => {
+  const paths = fixture(t);
+  let currentNow = "2026-08-09T00:00:00.000Z";
+  const service = createService(paths, { now: () => currentNow });
+  const started = service.startRecording(null, "audio/webm");
+  currentNow = "2026-08-09T00:00:01.000Z";
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("final-before-crash")) });
+  currentNow = "2026-08-09T01:00:01.000Z";
+
+  const recovered = service.stopRecording(started.sessionId);
+  assert.equal(recovered.durationMs, 1000);
+});
+
+test("appendはMain clockの録音時間上限をfile書込み前に拒否する", (t) => {
+  const paths = fixture(t);
+  let currentNow = "2026-08-09T00:00:00.000Z";
+  const service = createService(paths, { now: () => currentNow });
+  const started = service.startRecording(null, "audio/webm");
+  currentNow = "2026-08-09T04:00:00.001Z";
+  assert.throws(
+    () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("late")) }),
+    /録音時間の上限/,
+  );
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  assert.deepEqual(fs.readdirSync(sessionDirectory), ["session.json"]);
+});
+
+test("pause/resumeは4時間境界をmanifest変更前に拒否する", (t) => {
+  const paths = fixture(t);
+  let currentNow = "2026-08-09T00:00:00.000Z";
+  const service = createService(paths, { now: () => currentNow });
+  const started = service.startRecording(null, "audio/webm");
+  const manifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "session.json");
+  const beforePause = fs.readFileSync(manifestPath, "utf8");
+  currentNow = "2026-08-09T04:00:00.001Z";
+  assert.throws(() => service.pauseRecording(started.sessionId), /録音時間の上限を超えた/);
+  assert.equal(fs.readFileSync(manifestPath, "utf8"), beforePause);
+
+  const second = service.startRecording(null, "audio/webm");
+  const secondManifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", second.sessionId, "session.json");
+  currentNow = "2026-08-09T08:00:00.001Z";
+  const paused = service.pauseRecording(second.sessionId);
+  assert.equal(paused.state, "paused");
+  const beforeResume = fs.readFileSync(secondManifestPath, "utf8");
+  assert.throws(() => service.resumeRecording(second.sessionId), /録音時間の上限に達している/);
+  assert.equal(fs.readFileSync(secondManifestPath, "utf8"), beforeResume);
+});
+
+test("crash retryの既存chunk path差替えは同じdescriptorで検出しmanifestを進めない", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  const original = webmBytes("crash-retry-original");
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  const chunkPath = path.join(sessionDirectory, "chunk-00000000.part");
+  const retainedPath = path.join(sessionDirectory, "retained-crash-retry.part");
+  fs.writeFileSync(chunkPath, original);
+
+  const realOpen = fs.openSync;
+  let swapped = false;
+  fs.openSync = function patchedOpen(candidate, flags, mode) {
+    const descriptor = realOpen.call(fs, candidate, flags, mode);
+    if (!swapped && path.resolve(String(candidate)) === path.resolve(chunkPath) && (Number(flags) & fs.constants.O_RDONLY) === fs.constants.O_RDONLY) {
+      swapped = true;
+      fs.renameSync(chunkPath, retainedPath);
+      fs.writeFileSync(chunkPath, webmBytes("untrusted-replacement"));
+    }
+    return descriptor;
+  };
+  try {
+    assert.throws(
+      () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(original) }),
+      /差し替え/,
+    );
+  } finally {
+    fs.openSync = realOpen;
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(sessionDirectory, "session.json"), "utf8"));
+  assert.equal(swapped, true);
+  assert.equal(manifest.fileSize, 0);
+  assert.equal(manifest.recordingNextSequence, 0);
+  assert.equal(manifest.recordingChunkHashes, "");
+});
+
+test("4時間とpause余裕分のchunk hashは1 MiB manifest内へ固定長格納し件数上限をfile前に拒否する", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  const manifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "session.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  assert.ok(MICROPHONE_RECORDING_MAX_CHUNKS > 4 * 60 * 60);
+  manifest.recordingNextSequence = MICROPHONE_RECORDING_MAX_CHUNKS;
+  manifest.recordingChunkHashes = "a".repeat(MICROPHONE_RECORDING_MAX_CHUNKS * 64);
+  manifest.fileSize = MICROPHONE_RECORDING_MAX_CHUNKS;
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  assert.ok(fs.statSync(manifestPath).size < 1024 * 1024);
+  const interrupted = createService(paths).listPreparedAudio().find((entry) => entry.sessionId === started.sessionId);
+  assert.equal(interrupted?.recoveryReason, "recording_interrupted");
+  assert.throws(
+    () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: MICROPHONE_RECORDING_MAX_CHUNKS, chunk: asArrayBuffer(webmBytes("overflow")) }),
+    /件数上限/,
+  );
+  assert.equal(fs.existsSync(path.join(path.dirname(manifestPath), `chunk-${String(MICROPHONE_RECORDING_MAX_CHUNKS).padStart(8, "0")}.part`)), false);
+
+  manifest.recordingChunkHashes = manifest.recordingChunkHashes.slice(0, -1);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const invalid = createService(paths).listPreparedAudio().find((entry) => entry.sessionId === started.sessionId);
+  assert.equal(invalid?.recoveryReason, "manifest_invalid");
+});
+
+test("manifest path差替えは同じdescriptorのidentity再検証で拒否しchunkを書かない", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  const manifestPath = path.join(sessionDirectory, "session.json");
+  const retainedPath = path.join(sessionDirectory, "retained-session.json");
+  const originalManifest = fs.readFileSync(manifestPath);
+  const realOpen = fs.openSync;
+  let swapped = false;
+  fs.openSync = function patchedOpen(candidate, flags, mode) {
+    const descriptor = realOpen.call(fs, candidate, flags, mode);
+    if (!swapped && path.resolve(String(candidate)) === path.resolve(manifestPath) && (Number(flags) & fs.constants.O_RDONLY) === fs.constants.O_RDONLY) {
+      swapped = true;
+      fs.renameSync(manifestPath, retainedPath);
+      fs.writeFileSync(manifestPath, originalManifest);
+    }
+    return descriptor;
+  };
+  try {
+    assert.throws(
+      () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("blocked")) }),
+      /差し替え/,
+    );
+  } finally {
+    fs.openSync = realOpen;
+  }
+  assert.equal(swapped, true);
+  assert.equal(fs.existsSync(path.join(sessionDirectory, "chunk-00000000.part")), false);
+});
+
+test("append中のsession directory差替えはmanifest更新前に拒否する", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  const retainedDirectory = `${sessionDirectory}-retained`;
+  const manifestBytes = fs.readFileSync(path.join(sessionDirectory, "session.json"));
+  const chunkPath = path.join(sessionDirectory, "chunk-00000000.part");
+  const realOpen = fs.openSync;
+  const realClose = fs.closeSync;
+  let chunkDescriptor = null;
+  let swapped = false;
+  fs.openSync = function patchedOpen(candidate, flags, mode) {
+    const descriptor = realOpen.call(fs, candidate, flags, mode);
+    if (path.resolve(String(candidate)) === path.resolve(chunkPath)) chunkDescriptor = descriptor;
+    return descriptor;
+  };
+  fs.closeSync = function patchedClose(descriptor) {
+    realClose.call(fs, descriptor);
+    if (!swapped && descriptor === chunkDescriptor) {
+      swapped = true;
+      fs.renameSync(sessionDirectory, retainedDirectory);
+      fs.mkdirSync(sessionDirectory);
+      fs.writeFileSync(path.join(sessionDirectory, "session.json"), manifestBytes);
+    }
+  };
+  try {
+    assert.throws(
+      () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("directory-swap")) }),
+      /session.*差し替え/,
+    );
+  } finally {
+    fs.openSync = realOpen;
+    fs.closeSync = realClose;
+  }
+  const replacementManifest = JSON.parse(fs.readFileSync(path.join(sessionDirectory, "session.json"), "utf8"));
+  assert.equal(swapped, true);
+  assert.equal(replacementManifest.recordingNextSequence, 0);
+  assert.equal(fs.existsSync(path.join(sessionDirectory, "chunk-00000000.part")), false);
+});
+
+test("discard中のsession directory差替えはreplacementを削除しない", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  const retainedDirectory = `${sessionDirectory}-retained`;
+  const manifestBytes = fs.readFileSync(path.join(sessionDirectory, "session.json"));
+  const realReadDirectory = fs.readdirSync;
+  let swapped = false;
+  fs.readdirSync = function patchedReadDirectory(candidate, options) {
+    const entries = realReadDirectory.call(fs, candidate, options);
+    if (!swapped && path.resolve(String(candidate)) === path.resolve(sessionDirectory)) {
+      swapped = true;
+      fs.renameSync(sessionDirectory, retainedDirectory);
+      fs.mkdirSync(sessionDirectory);
+      fs.writeFileSync(path.join(sessionDirectory, "session.json"), manifestBytes);
+    }
+    return entries;
+  };
+  try {
+    assert.throws(() => service.cancel(started.sessionId), /session.*差し替え/);
+  } finally {
+    fs.readdirSync = realReadDirectory;
+  }
+  assert.equal(swapped, true);
+  assert.equal(fs.existsSync(path.join(sessionDirectory, "session.json")), true);
+  assert.equal(fs.existsSync(path.join(retainedDirectory, "session.json")), true);
+});
+
+test("preparedとcommitted録音の残留chunkは読込時にidempotent cleanupする", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("cleanup")) });
+  const prepared = service.stopRecording(started.sessionId);
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  const chunkPath = path.join(sessionDirectory, "chunk-00000000.part");
+  fs.writeFileSync(chunkPath, webmBytes("prepared-leftover"));
+  service.listPreparedAudio();
+  assert.equal(fs.existsSync(chunkPath), false);
+
+  service.commit({ sessionId: started.sessionId, durationMs: prepared.durationMs });
+  fs.writeFileSync(chunkPath, webmBytes("committed-leftover"));
+  service.recoverPending();
+  assert.equal(fs.existsSync(chunkPath), false);
+});
+
+test("stopはchunk path差替えを同じdescriptorのidentity再検証で拒否し未検証bytesを組み立てない", (t) => {
+  const paths = fixture(t);
+  const service = createService(paths);
+  const started = service.startRecording(null, "audio/webm");
+  const original = webmBytes("verified-original");
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(original) });
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  const chunkPath = path.join(sessionDirectory, "chunk-00000000.part");
+  const retainedPath = path.join(sessionDirectory, "retained-original.part");
+  const realOpen = fs.openSync;
+  let swapped = false;
+  fs.openSync = function patchedOpen(candidate, flags, mode) {
+    const descriptor = realOpen.call(fs, candidate, flags, mode);
+    if (!swapped && path.resolve(String(candidate)) === path.resolve(chunkPath) && (Number(flags) & fs.constants.O_RDONLY) === fs.constants.O_RDONLY) {
+      swapped = true;
+      fs.renameSync(chunkPath, retainedPath);
+      fs.writeFileSync(chunkPath, webmBytes("unverified-attacker"));
+    }
+    return descriptor;
+  };
+  try {
+    assert.throws(() => service.stopRecording(started.sessionId), /差し替え/);
+  } finally {
+    fs.openSync = realOpen;
+  }
+  assert.equal(swapped, true);
+  assert.equal(fs.existsSync(path.join(sessionDirectory, "original.webm")), false);
+  assert.deepEqual(fs.readFileSync(chunkPath), webmBytes("unverified-attacker"));
+});
+
+test("再起動後に同sizeへ変更されたchunkもmanifest hashで拒否する", (t) => {
+  const paths = fixture(t);
+  const first = createService(paths);
+  const started = first.startRecording(null, "audio/webm");
+  const original = webmBytes("original-content");
+  first.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(original) });
+  const chunkPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "chunk-00000000.part");
+  const changed = Buffer.from(original);
+  changed[changed.length - 1] ^= 0xff;
+  fs.writeFileSync(chunkPath, changed);
+  assert.throws(() => createService(paths).stopRecording(started.sessionId), /hashが一致/);
+  assert.equal(fs.existsSync(path.join(path.dirname(chunkPath), "original.webm")), false);
+});

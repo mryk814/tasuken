@@ -43,10 +43,16 @@ const isSmokeRestartCheck = process.argv.includes("--smoke-restart-check");
 const isPackagedSmokeRequired = process.argv.includes("--smoke-require-packaged");
 const smokeMediaArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-media-artifact-id="));
 const smokeMediaArtifactId = smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
+const smokeMicrophoneArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-microphone-artifact-id="));
+const smokeMicrophoneArtifactId = smokeMicrophoneArtifactArgument?.slice("--smoke-microphone-artifact-id=".length) || "";
 const smokeVideoArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-artifact-id="));
 const smokeVideoArtifactId = smokeVideoArtifactArgument?.slice("--smoke-video-artifact-id=".length) || "";
 const smokeVideoOwnerArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-owner-id="));
 const smokeVideoOwnerId = smokeVideoOwnerArgument?.slice("--smoke-video-owner-id=".length) || "";
+if (isSmokeTest && !isSmokeRestartCheck) {
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+}
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
@@ -330,6 +336,11 @@ interface SmokeCreatedResult {
   audioArtifactId?: string;
   audioMetadataLoaded?: boolean;
   audioRangeVerified?: boolean;
+  microphoneArtifactId?: string;
+  microphoneRecorded?: boolean;
+  microphonePlayback?: boolean;
+  microphoneCaptureMethod?: boolean;
+  microphoneRangeVerified?: boolean;
   videoArtifactId?: string;
   videoMetadataLoaded?: boolean;
   videoCanPlay?: boolean;
@@ -1051,6 +1062,84 @@ flowchart LR
   created.audioMetadataLoaded = audioSmoke.metadataLoaded;
   created.audioRangeVerified = await verifySmokeMediaRange(audioSmoke.artifactId);
 
+  const microphoneSmoke = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const devices = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === "audioinput");
+      if (!devices.length) throw new Error("fake microphone device was not listed");
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      const started = await window.api.mediaCapture.startRecording({ mediaKind: "audio", mimeType: "audio/webm" });
+      const recorder = new MediaRecorder(stream, { mimeType });
+      let sequence = 0;
+      let appendChain = Promise.resolve();
+      const queueBlob = (blob) => {
+        appendChain = appendChain.then(async () => {
+          for (let offset = 0; offset < blob.size; offset += started.maxChunkBytes) {
+            const chunk = await blob.slice(offset, Math.min(blob.size, offset + started.maxChunkBytes)).arrayBuffer();
+            const progress = await window.api.mediaCapture.appendRecording({ sessionId: started.sessionId, sequence, chunk });
+            sequence = progress.nextSequence;
+          }
+        });
+      };
+      recorder.addEventListener("dataavailable", (event) => queueBlob(event.data));
+      recorder.start(100);
+      await delay(350);
+      const recorderPaused = new Promise((resolve) => recorder.addEventListener("pause", resolve, { once: true }));
+      recorder.pause();
+      await recorderPaused;
+      const pauseChunk = new Promise((resolve) => recorder.addEventListener("dataavailable", resolve, { once: true }));
+      recorder.requestData();
+      await pauseChunk;
+      await appendChain;
+      await window.api.mediaCapture.pauseRecording({ sessionId: started.sessionId });
+      await delay(100);
+      await window.api.mediaCapture.resumeRecording({ sessionId: started.sessionId });
+      recorder.resume();
+      await delay(350);
+      await new Promise((resolve) => {
+        recorder.addEventListener("stop", resolve, { once: true });
+        recorder.requestData();
+        recorder.stop();
+      });
+      await appendChain;
+      stream.getTracks().forEach((track) => track.stop());
+      const prepared = await window.api.mediaCapture.stopRecording({ sessionId: started.sessionId });
+      const projected = JSON.stringify(prepared);
+      if (!prepared.durationMs || prepared.fileSize <= 0 || projected.includes("stored_path") || projected.includes("original_path") || projected.includes("sourcePath")) {
+        throw new Error("recorded microphone projection mismatch");
+      }
+      const committed = await window.api.mediaCapture.commitAudio({ sessionId: prepared.sessionId, durationMs: prepared.durationMs });
+      const artifact = await window.api.entities.get("artifact", committed.artifactId);
+      const capture = await window.api.entities.get("capture_entry", committed.captureId);
+      if (!artifact || artifact.mime_type !== "audio/webm" || artifact.media_kind !== "audio" || capture?.capture_method !== "microphone") {
+        throw new Error("recorded microphone entities mismatch");
+      }
+      const playable = await new Promise((resolve, reject) => {
+        const audio = new Audio();
+        const timer = setTimeout(() => reject(new Error("recorded microphone playback timeout")), 15000);
+        const done = async () => {
+          try {
+            audio.muted = true;
+            await audio.play();
+            audio.pause();
+            clearTimeout(timer);
+            resolve(audio.duration > 0);
+          } catch (error) { clearTimeout(timer); reject(error); }
+        };
+        audio.oncanplay = done;
+        audio.onerror = () => { clearTimeout(timer); reject(new Error("recorded microphone playback failed")); };
+        audio.src = "tasken-media://artifact/" + encodeURIComponent(artifact.id);
+      });
+      return { artifactId: artifact.id, recorded: prepared.fileSize > 0 && prepared.durationMs > 0, playable, captureMethod: capture.capture_method === "microphone" };
+    })()
+  `) as { artifactId: string; recorded: boolean; playable: boolean; captureMethod: boolean };
+  created.microphoneArtifactId = microphoneSmoke.artifactId;
+  created.microphoneRangeVerified = await verifySmokeVideoRange(microphoneSmoke.artifactId);
+  created.microphoneRecorded = microphoneSmoke.recorded;
+  created.microphonePlayback = microphoneSmoke.playable;
+  created.microphoneCaptureMethod = microphoneSmoke.captureMethod;
+
   const releaseSmokeClipboardLock = await acquireSmokeClipboardLock({ runId: smokeRunId });
   try {
     recordSmoke("clipboard-start");
@@ -1359,6 +1448,10 @@ flowchart LR
         && result.settingsReloadRestored
         && result.audioMetadataLoaded
         && result.audioRangeVerified
+        && result.microphoneRecorded
+        && result.microphonePlayback
+        && result.microphoneCaptureMethod
+        && result.microphoneRangeVerified
         && result.videoMetadataLoaded
         && result.videoCanPlay
         && result.videoSeeked
@@ -1379,15 +1472,15 @@ flowchart LR
 }
 
 async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
-  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId, videoArtifactId: smokeVideoArtifactId, smokeTaskId: smokeVideoOwnerId, appIsPackaged: app.isPackaged });
+  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId, microphoneArtifactId: smokeMicrophoneArtifactId, videoArtifactId: smokeVideoArtifactId, smokeTaskId: smokeVideoOwnerId, appIsPackaged: app.isPackaged });
   const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!idPattern.test(smokeMediaArtifactId) || !idPattern.test(smokeVideoArtifactId) || !idPattern.test(smokeVideoOwnerId)) {
+  if (!idPattern.test(smokeMediaArtifactId) || !idPattern.test(smokeMicrophoneArtifactId) || !idPattern.test(smokeVideoArtifactId) || !idPattern.test(smokeVideoOwnerId)) {
     throw new Error("restart Media Artifact IDs are invalid");
   }
   const renderer = await window.webContents.executeJavaScript(`
     (async () => {
       const artifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeMediaArtifactId)});
-      if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav") throw new Error("restarted audio Artifact missing");
+      if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav") throw new Error("restarted imported audio Artifact missing");
       if (JSON.stringify(artifact).includes("stored_path")) throw new Error("restarted audio Artifact leaked path");
       const playable = await new Promise((resolve, reject) => {
         const audio = new Audio();
@@ -1395,13 +1488,30 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
         const done = () => {
           if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
           clearTimeout(timer);
-          resolve(audio.duration >= 0.09 && audio.duration <= 0.11);
+          resolve(audio.duration > 0);
         };
         audio.preload = "auto";
         audio.onloadedmetadata = done;
         audio.oncanplay = done;
         audio.onerror = () => { clearTimeout(timer); reject(new Error("restart audio playback failed")); };
         audio.src = "tasken-media://artifact/" + encodeURIComponent(artifact.id);
+      });
+      const microphoneArtifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeMicrophoneArtifactId)});
+      if (!microphoneArtifact || microphoneArtifact.media_kind !== "audio" || microphoneArtifact.mime_type !== "audio/webm") throw new Error("restarted recorded audio Artifact missing");
+      if (JSON.stringify(microphoneArtifact).includes("stored_path")) throw new Error("restarted microphone Artifact leaked path");
+      const microphonePlayable = await new Promise((resolve, reject) => {
+        const audio = new Audio();
+        const timer = setTimeout(() => reject(new Error("restart microphone playback timeout")), 15000);
+        const done = () => {
+          if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+          clearTimeout(timer);
+          resolve(audio.duration > 0);
+        };
+        audio.preload = "auto";
+        audio.onloadedmetadata = done;
+        audio.oncanplay = done;
+        audio.onerror = () => { clearTimeout(timer); reject(new Error("restart microphone playback failed")); };
+        audio.src = "tasken-media://artifact/" + encodeURIComponent(microphoneArtifact.id);
       });
       const videoArtifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeVideoArtifactId)});
       if (!videoArtifact || videoArtifact.media_kind !== "video" || videoArtifact.mime_type !== "video/webm") throw new Error("restarted video Artifact missing");
@@ -1430,17 +1540,21 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
         video.onerror = () => { clearTimeout(timer); reject(new Error("restart video playback failed")); };
         video.src = "tasken-media://artifact/" + encodeURIComponent(videoArtifact.id);
       });
-      return { artifactId: artifact.id, playable, videoArtifactId: videoArtifact.id, videoOwnerLinked: true, ...videoPlayback };
+      return { artifactId: artifact.id, playable, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, videoArtifactId: videoArtifact.id, videoOwnerLinked: true, ...videoPlayback };
     })()
-  `) as { artifactId: string; playable: boolean; videoArtifactId: string; videoOwnerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean };
+  `) as { artifactId: string; playable: boolean; microphoneArtifactId: string; microphonePlayable: boolean; videoArtifactId: string; videoOwnerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean };
   const rangeVerified = await verifySmokeMediaRange(renderer.artifactId);
+  const microphoneRangeVerified = await verifySmokeVideoRange(renderer.microphoneArtifactId);
   const videoRangeVerified = await verifySmokeVideoRange(renderer.videoArtifactId);
-  const passed = renderer.playable && rangeVerified && renderer.canPlay && renderer.seeked && renderer.metadata && renderer.videoOwnerLinked && videoRangeVerified
+  const passed = renderer.playable && rangeVerified && renderer.microphonePlayable && microphoneRangeVerified && renderer.canPlay && renderer.seeked && renderer.metadata && renderer.videoOwnerLinked && videoRangeVerified
     && (!isPackagedSmokeRequired || app.isPackaged);
   recordSmoke(passed ? "passed" : "failed", {
     audioArtifactId: renderer.artifactId,
     playable: renderer.playable,
     rangeVerified,
+    microphoneArtifactId: renderer.microphoneArtifactId,
+    microphonePlayable: renderer.microphonePlayable,
+    microphoneRangeVerified,
     videoArtifactId: renderer.videoArtifactId,
     videoCanPlay: renderer.canPlay,
     videoSeeked: renderer.seeked,

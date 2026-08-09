@@ -304,8 +304,8 @@ test("Notesのdebounce/manual/route flushはowner queueと終了registryを共�
   assert.match(notesPageSource, /const pageFlush = flushDraftSnapshot\(captureCurrentDraftSnapshot\(\)\)\.then/);
   assert.match(notesPageSource, /Promise\.all\(\[pageFlush, flushPendingNoteDraftSaves\(\)\]\)/);
   assert.match(notesPageSource, /ackNoteWindowFlush\(request\.requestId, pageOk && pendingOk\)/);
-  assert.match(workspaceAppFlushSource, /Promise\.all\(\[pageFlush, flushPendingNoteDraftSaves\(\)\]\)/);
-  assert.match(workspaceAppFlushSource, /respond\(pageOk && pendingOk\)/);
+  assert.match(workspaceAppFlushSource, /Promise\.all\(\[pageFlush, flushPendingNoteDraftSaves\(\), flushPendingMediaRecordingFlushes\(\)\]\)/);
+  assert.match(workspaceAppFlushSource, /respond\(pageOk && noteOk && mediaOk\)/);
   assert.match(noteWindowControllerSource, /flushAndClose/);
   assert.match(noteWindowControllerSource, /IPC\.noteWindowFlushAck/);
   assert.match(noteWindowControllerSource, /event\.preventDefault\(\)/);

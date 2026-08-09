@@ -9,6 +9,10 @@ import type {
   AudioCapturePrepared,
   InternalAudioCaptureCommitResult,
   InternalVideoImportCommitResult,
+  MediaRecordingAppendRequest,
+  MicrophoneRecordingMimeType,
+  MediaRecordingProgress,
+  MediaRecordingStarted,
   VideoArtifactSourceType,
   VideoImportCommitRequest,
   VideoImportPrepared,
@@ -26,8 +30,12 @@ const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f
 const HASH_CHUNK_SIZE = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const EXTERNAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
+export const MICROPHONE_CHUNK_MAX_BYTES = 1024 * 1024;
+export const MICROPHONE_RECORDING_MAX_BYTES = 512 * 1024 * 1024;
+export const MICROPHONE_RECORDING_MAX_CHUNKS = 16_000;
+const MICROPHONE_RECORDING_MAX_DURATION_MS = 4 * 60 * 60 * 1000;
 
-type SessionState = "prepared" | "finalizing" | "finalized" | "committed";
+type SessionState = "recording" | "recording_paused" | "prepared" | "finalizing" | "finalized" | "committed";
 
 interface AudioSessionManifest {
   schema: typeof MANIFEST_SCHEMA;
@@ -60,6 +68,12 @@ interface AudioSessionManifest {
   commandIssuedAt?: string;
   command?: CommandEnvelope;
   recoveryError?: "final_file_missing" | "final_hash_mismatch" | "commit_failed";
+  captureMethod?: "audio_import" | "microphone";
+  recordingNextSequence?: number;
+  recordingChunkHashes?: string;
+  recordingStartedAt?: string;
+  recordingElapsedMs?: number;
+  recordingStateStartedAt?: string;
 }
 
 interface MediaRepository {
@@ -353,6 +367,30 @@ function validDuration(value: unknown): number {
   return numeric;
 }
 
+function recordingChunkFileName(sequence: number): string {
+  return `chunk-${String(sequence).padStart(8, "0")}.part`;
+}
+
+function elapsedSince(startedAt: string, now: string): number {
+  return Math.max(0, Date.parse(now) - Date.parse(startedAt));
+}
+
+interface DirectoryIdentity {
+  dev: string;
+  ino: string;
+}
+
+function captureDirectoryIdentity(directory: string, label: string): DirectoryIdentity {
+  const stat = fs.lstatSync(directory);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`${label}が安全なdirectoryではありません。`);
+  return { dev: String(stat.dev), ino: String(stat.ino) };
+}
+
+function assertDirectoryIdentity(directory: string, expected: DirectoryIdentity, label: string): void {
+  const current = captureDirectoryIdentity(directory, label);
+  if (current.dev !== expected.dev || current.ino !== expected.ino) throw new Error(`${label}が処理中に差し替えられました。`);
+}
+
 function linkedIdentityMatches(
   filePath: string,
   descriptor: number,
@@ -553,11 +591,12 @@ function validateManifestCommand(value: unknown, manifest: Partial<AudioSessionM
   }
   const expectedTitle = baseNameWithoutExtension(String(manifest.filename || ""));
   const expectedContainer = mediaExtensionOf(String(manifest.filename || ""));
+  const expectedCaptureMethod = manifest.captureMethod === "microphone" ? "microphone" : "audio_import";
   const emptyArray = (value: unknown): boolean => Array.isArray(value) && value.length === 0;
   const identityChecks: Array<[string, boolean]> = [
     ["capture.title", capture.title === expectedTitle], ["capture.text", capture.text === manifest.filename],
     ["capture.kind", capture.kind === "voice_memo"], ["capture.content_type", capture.content_type === "audio"],
-    ["capture.capture_method", capture.capture_method === "audio_import"], ["capture.media_status", capture.media_status === "ready"],
+    ["capture.capture_method", capture.capture_method === expectedCaptureMethod], ["capture.media_status", capture.media_status === "ready"],
     ["capture.transcription_status", capture.transcription_status === "not_requested"], ["capture.state", capture.state === "untriaged"],
     ["capture.project_id", capture.project_id === manifest.themeId], ["capture.captured_at", capture.captured_at === raw.issuedAt],
     ["capture.ai_visibility", emptyArray(capture.ai_visibility)], ["artifact.title", artifact.title === expectedTitle],
@@ -577,7 +616,7 @@ function validateManifestCommand(value: unknown, manifest: Partial<AudioSessionM
     || capture.text !== manifest.filename
     || capture.kind !== "voice_memo"
     || capture.content_type !== "audio"
-    || capture.capture_method !== "audio_import"
+    || capture.capture_method !== expectedCaptureMethod
     || capture.media_status !== "ready"
     || capture.transcription_status !== "not_requested"
     || capture.state !== "untriaged"
@@ -618,16 +657,17 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
     "schema", "sessionId", "state", "mediaKind", "filename", "mimeType", "fileSize", "contentHash",
     "themeId", "storageMode", "sourceType", "sourceId", "sourcePath", "sourceRealPath", "sourceDevice", "sourceInode", "stagedFileName", "createdAt", "updatedAt", "finalPath", "managedRootPath",
     "managedRootRealPath", "managedRootDevice", "managedRootInode", "durationMs", "widthPx", "heightPx", "commandIssuedAt", "command", "recoveryError",
+    "captureMethod", "recordingNextSequence", "recordingChunkHashes", "recordingStartedAt", "recordingElapsedMs", "recordingStateStartedAt",
   ], "Media Capture manifest");
   if (manifest.schema !== MANIFEST_SCHEMA || manifest.sessionId !== expectedSessionId || !SESSION_ID_PATTERN.test(expectedSessionId)) {
     throw new Error("Media Capture manifest identityが不正です。");
   }
-  if (!["prepared", "finalizing", "finalized", "committed"].includes(String(manifest.state))) throw new Error("Media Capture stateが不正です。");
+  if (!["recording", "recording_paused", "prepared", "finalizing", "finalized", "committed"].includes(String(manifest.state))) throw new Error("Media Capture stateが不正です。");
   if (manifest.mediaKind !== "audio" && manifest.mediaKind !== "video") throw new Error("Media Capture kindが不正です。");
   if (typeof manifest.filename !== "string" || path.basename(manifest.filename) !== manifest.filename || !manifest.filename.trim()) throw new Error("Media filenameが不正です。");
   if (manifest.mediaKind === "audio" && audioMimeTypeOf(manifest.filename) !== manifest.mimeType) throw new Error("Media MIMEが不正です。");
   if (manifest.mediaKind === "video" && videoMimeTypeOf(manifest.filename) !== manifest.mimeType) throw new Error("Media MIMEが不正です。");
-  if (!Number.isSafeInteger(manifest.fileSize) || Number(manifest.fileSize) <= 0 || Number(manifest.fileSize) > 1024 * 1024 * 1024 * 1024) throw new Error("Media file sizeが不正です。");
+  if (!Number.isSafeInteger(manifest.fileSize) || Number(manifest.fileSize) < 0 || Number(manifest.fileSize) > 1024 * 1024 * 1024 * 1024) throw new Error("Media file sizeが不正です。");
   if (typeof manifest.contentHash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(manifest.contentHash)) throw new Error("Media content hashが不正です。");
   if (
     manifest.themeId !== null
@@ -642,6 +682,21 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
     throw new Error("Media recovery stateが不正です。");
   }
   const state = manifest.state as SessionState;
+  const recordingState = state === "recording" || state === "recording_paused";
+  if (recordingState || manifest.captureMethod === "microphone") {
+    if (manifest.mediaKind !== "audio" || manifest.captureMethod !== "microphone") throw new Error("録音session kindが不正です。");
+    if (!Number.isSafeInteger(manifest.recordingNextSequence) || Number(manifest.recordingNextSequence) < 0 || Number(manifest.recordingNextSequence) > MICROPHONE_RECORDING_MAX_CHUNKS) throw new Error("録音chunk sequenceが不正です。");
+    if (typeof manifest.recordingChunkHashes !== "string" || manifest.recordingChunkHashes.length !== Number(manifest.recordingNextSequence) * 64 || !/^[a-f0-9]*$/.test(manifest.recordingChunkHashes)) throw new Error("録音chunk hashが不正です。");
+    if (!isIsoTimestamp(manifest.recordingStartedAt) || !Number.isSafeInteger(manifest.recordingElapsedMs) || Number(manifest.recordingElapsedMs) < 0 || Number(manifest.recordingElapsedMs) > MICROPHONE_RECORDING_MAX_DURATION_MS) throw new Error("録音経過時間が不正です。");
+    if (state === "recording" && !isIsoTimestamp(manifest.recordingStateStartedAt)) throw new Error("録音開始時刻が不正です。");
+    if (state !== "recording" && manifest.recordingStateStartedAt !== undefined) throw new Error("停止中の録音sessionに開始時刻があります。");
+    if (Number(manifest.fileSize) > MICROPHONE_RECORDING_MAX_BYTES) throw new Error("録音sizeが上限を超えています。");
+  } else if (["recordingNextSequence", "recordingChunkHashes", "recordingStartedAt", "recordingElapsedMs", "recordingStateStartedAt"].some((field) => manifest[field] !== undefined)) {
+    throw new Error("Import sessionに録音fieldがあります。");
+  } else if (manifest.captureMethod !== undefined && manifest.captureMethod !== "audio_import") {
+    throw new Error("Audio capture methodが不正です。");
+  }
+  if (!recordingState && Number(manifest.fileSize) <= 0) throw new Error("Media file sizeが不正です。");
   if (manifest.mediaKind === "video") {
     if (manifest.storageMode !== "managed" && manifest.storageMode !== "linked") throw new Error("Video storage modeが不正です。");
     if (!manifest.sourceType || !["task", "note", "report", "capture_entry"].includes(String(manifest.sourceType))) throw new Error("Video source typeが不正です。");
@@ -657,12 +712,15 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
   } else if (["storageMode", "sourceType", "sourceId", "sourcePath", "sourceRealPath", "sourceDevice", "sourceInode", "widthPx", "heightPx"].some((field) => manifest[field] !== undefined)) {
     throw new Error("Audio manifestにVideo fieldがあります。");
   }
-  const finalFields = ["finalPath", "durationMs", "commandIssuedAt", "command"];
+  const finalFields = ["finalPath", "commandIssuedAt", "command"];
   const managedFields = ["managedRootPath", "managedRootRealPath", "managedRootDevice", "managedRootInode"];
   const finalizedOnlyFields = [...finalFields, ...managedFields, "widthPx", "heightPx"];
-  if (state === "prepared" && finalizedOnlyFields.some((field) => manifest[field] !== undefined)) throw new Error("prepared Media manifestにfinalize fieldがあります。");
-  if (state !== "prepared" && finalFields.some((field) => manifest[field] === undefined)) throw new Error("Media manifestのfinalize fieldが不足しています。");
-  if (state !== "prepared") {
+  if ((state === "prepared" || recordingState) && finalizedOnlyFields.some((field) => manifest[field] !== undefined)) throw new Error("未確定Media manifestにfinalize fieldがあります。");
+  if (recordingState && manifest.durationMs !== undefined) throw new Error("録音中manifestにdurationがあります。");
+  if (state === "prepared" && manifest.captureMethod !== "microphone" && manifest.durationMs !== undefined) throw new Error("Import prepared manifestにdurationがあります。");
+  if (state === "prepared" && manifest.captureMethod === "microphone") validDuration(manifest.durationMs);
+  if (!recordingState && state !== "prepared" && finalFields.some((field) => manifest[field] === undefined)) throw new Error("Media manifestのfinalize fieldが不足しています。");
+  if (!recordingState && state !== "prepared") {
     if (typeof manifest.finalPath !== "string" || !manifest.finalPath.trim()) throw new Error("Media final pathが不正です。");
     if ((manifest.storageMode || "managed") === "managed") {
       for (const field of managedFields) {
@@ -713,6 +771,210 @@ export class MediaCaptureService {
         console.warn("Media external-openの古いsnapshotを削除できませんでした。次回起動時に再試行します。", error);
       }
     }
+  }
+
+  startRecording(themeIdValue: unknown, mimeType: MicrophoneRecordingMimeType): MediaRecordingStarted {
+    if (mimeType !== "audio/webm") throw new Error("対応していない録音形式です。WebM/Opusで録音してください。");
+    const sessionId = assertSessionId(this.idFactory());
+    const sessionDirectory = this.sessionDirectory(sessionId);
+    ensureSafeDirectory(sessionDirectory, "Media recording session保存先");
+    const timestamp = this.now();
+    const filename = `voice-memo-${timestamp.replace(/\D/g, "").slice(0, 14)}.webm`;
+    const manifest: AudioSessionManifest = {
+      schema: MANIFEST_SCHEMA,
+      sessionId,
+      state: "recording",
+      mediaKind: "audio",
+      filename,
+      mimeType,
+      fileSize: 0,
+      contentHash: `sha256:${createHash("sha256").digest("hex")}`,
+      themeId: typeof themeIdValue === "string" && themeIdValue.trim() ? themeIdValue.trim() : null,
+      stagedFileName: "original.webm",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      captureMethod: "microphone",
+      recordingNextSequence: 0,
+      recordingChunkHashes: "",
+      recordingStartedAt: timestamp,
+      recordingElapsedMs: 0,
+      recordingStateStartedAt: timestamp,
+    };
+    this.writeManifest(sessionDirectory, manifest);
+    return {
+      sessionId,
+      mediaKind: "audio",
+      mimeType,
+      maxChunkBytes: MICROPHONE_CHUNK_MAX_BYTES,
+      maxRecordingBytes: MICROPHONE_RECORDING_MAX_BYTES,
+      maxDurationMs: MICROPHONE_RECORDING_MAX_DURATION_MS,
+    };
+  }
+
+  appendRecordingChunk(request: MediaRecordingAppendRequest): MediaRecordingProgress {
+    const sessionDirectory = this.sessionDirectory(assertSessionId(request.sessionId));
+    const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "録音session");
+    const manifest = this.readManifest(sessionDirectory);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    if (manifest.state !== "recording") throw new Error("録音中ではありません。再開してから録音を続けてください。");
+    const timestamp = this.now();
+    if (
+      !manifest.recordingStateStartedAt
+      || (manifest.recordingElapsedMs || 0) + elapsedSince(manifest.recordingStateStartedAt, timestamp) > MICROPHONE_RECORDING_MAX_DURATION_MS
+    ) {
+      throw new Error("録音時間の上限に達しました。録音を停止して保存してください。");
+    }
+    const sequence = request.sequence;
+    const expectedSequence = manifest.recordingNextSequence ?? -1;
+    if (sequence !== expectedSequence) {
+      throw new Error(sequence < expectedSequence
+        ? "同じ録音chunkは追加できません。録音を停止して保存待ち音声を確認してください。"
+        : "録音chunkが欠落しています。録音を停止して保存待ち音声を確認してください。");
+    }
+    if (expectedSequence >= MICROPHONE_RECORDING_MAX_CHUNKS) {
+      throw new Error("録音chunkの件数上限に達しました。録音を停止して保存してください。");
+    }
+    const bytes = Buffer.from(request.chunk);
+    if (bytes.byteLength <= 0 || bytes.byteLength > MICROPHONE_CHUNK_MAX_BYTES) {
+      throw new Error(`録音chunkは1 byte以上${MICROPHONE_CHUNK_MAX_BYTES} byte以下で送信してください。`);
+    }
+    if (manifest.fileSize + bytes.byteLength > MICROPHONE_RECORDING_MAX_BYTES) {
+      throw new Error("録音サイズの上限に達しました。録音を停止して保存してください。");
+    }
+    const chunkHash = createHash("sha256").update(bytes).digest("hex");
+    const next: AudioSessionManifest = {
+      ...manifest,
+      fileSize: manifest.fileSize + bytes.byteLength,
+      recordingNextSequence: sequence + 1,
+      recordingChunkHashes: `${manifest.recordingChunkHashes || ""}${chunkHash}`,
+      updatedAt: timestamp,
+    };
+    // chunk fileより先に次manifestのstrict schemaとserialized上限を確認する。
+    this.serializeManifest(sessionDirectory, next);
+    const chunkPath = path.resolve(sessionDirectory, recordingChunkFileName(sequence));
+    assertWithin(sessionDirectory, chunkPath, "録音chunk");
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+    let descriptor: number | null = null;
+    try {
+      descriptor = fs.openSync(chunkPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow, 0o600);
+      let offset = 0;
+      while (offset < bytes.byteLength) offset += fs.writeSync(descriptor, bytes, offset, bytes.byteLength - offset, null);
+      fs.fsyncSync(descriptor);
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (code !== "EEXIST") throw error;
+      let existingDescriptor: number | null = null;
+      try {
+        existingDescriptor = fs.openSync(chunkPath, fs.constants.O_RDONLY | noFollow);
+        const existing = fs.fstatSync(existingDescriptor);
+        const expectedHash = `sha256:${chunkHash}`;
+        if (!existing.isFile() || existing.size !== bytes.byteLength || hashFileDescriptor(existingDescriptor) !== expectedHash) {
+          throw new Error("録音chunkの保存先に別内容があります。保存待ち音声から復旧または破棄してください。");
+        }
+        const after = fs.lstatSync(chunkPath);
+        if (after.isSymbolicLink() || !after.isFile() || String(after.dev) !== String(existing.dev) || String(after.ino) !== String(existing.ino)) {
+          throw new Error("録音chunkの保存先が確認中に差し替えられました。保存待ち音声から復旧または破棄してください。");
+        }
+      } finally {
+        if (existingDescriptor !== null) fs.closeSync(existingDescriptor);
+      }
+    } finally {
+      if (descriptor !== null) fs.closeSync(descriptor);
+    }
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    this.writeManifest(sessionDirectory, next);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    return this.recordingProgress(next);
+  }
+
+  pauseRecording(sessionIdValue: unknown): MediaRecordingProgress {
+    const sessionDirectory = this.sessionDirectory(assertSessionId(sessionIdValue));
+    const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "録音session");
+    const manifest = this.readManifest(sessionDirectory);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    if (manifest.state !== "recording" || !manifest.recordingStateStartedAt) throw new Error("録音中ではないため一時停止できません。");
+    const timestamp = this.now();
+    const nextElapsedMs = (manifest.recordingElapsedMs || 0) + elapsedSince(manifest.recordingStateStartedAt, timestamp);
+    if (nextElapsedMs > MICROPHONE_RECORDING_MAX_DURATION_MS) {
+      throw new Error("録音時間の上限を超えたため一時停止できません。録音を停止して保存してください。");
+    }
+    const next: AudioSessionManifest = {
+      ...manifest,
+      state: "recording_paused",
+      recordingElapsedMs: nextElapsedMs,
+      recordingStateStartedAt: undefined,
+      updatedAt: timestamp,
+    };
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    this.writeManifest(sessionDirectory, next);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    return this.recordingProgress(next);
+  }
+
+  resumeRecording(sessionIdValue: unknown): MediaRecordingProgress {
+    const sessionDirectory = this.sessionDirectory(assertSessionId(sessionIdValue));
+    const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "録音session");
+    const manifest = this.readManifest(sessionDirectory);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    if (manifest.state !== "recording_paused") throw new Error("一時停止中ではないため再開できません。");
+    if ((manifest.recordingElapsedMs || 0) >= MICROPHONE_RECORDING_MAX_DURATION_MS) {
+      throw new Error("録音時間の上限に達しているため再開できません。録音を停止して保存してください。");
+    }
+    const timestamp = this.now();
+    const next: AudioSessionManifest = { ...manifest, state: "recording", recordingStateStartedAt: timestamp, updatedAt: timestamp };
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    this.writeManifest(sessionDirectory, next);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    return this.recordingProgress(next);
+  }
+
+  stopRecording(sessionIdValue: unknown): AudioCapturePrepared {
+    const sessionDirectory = this.sessionDirectory(assertSessionId(sessionIdValue));
+    const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "録音session");
+    const manifest = this.readManifest(sessionDirectory);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    if (manifest.state === "prepared" && manifest.captureMethod === "microphone") return this.toPreparedAudio(manifest);
+    if (manifest.captureMethod !== "microphone" || (manifest.state !== "recording" && manifest.state !== "recording_paused")) {
+      throw new Error("復旧できる録音sessionがありません。保存待ち音声を読み直してください。");
+    }
+    const timestamp = this.now();
+    // Rendererはstop前にfinal dataavailableのappend完了を待つ。
+    // そのdurable境界だけを録音時間に含め、Renderer crash後のdowntimeは加算しない。
+    const activeCutoff = manifest.updatedAt;
+    const durationMs = Math.min(
+      MICROPHONE_RECORDING_MAX_DURATION_MS,
+      (manifest.recordingElapsedMs || 0) + (manifest.state === "recording" && manifest.recordingStateStartedAt ? elapsedSince(manifest.recordingStateStartedAt, activeCutoff) : 0),
+    );
+    const sequenceCount = manifest.recordingNextSequence || 0;
+    if (sequenceCount <= 0 || manifest.fileSize <= 0) throw new Error("録音データがありません。マイクを確認して、もう一度録音してください。");
+    const stagedPath = path.resolve(sessionDirectory, manifest.stagedFileName);
+    assertWithin(sessionDirectory, stagedPath, "録音temporary file");
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    if (fs.existsSync(stagedPath)) {
+      const staged = fs.lstatSync(stagedPath);
+      if (staged.isSymbolicLink() || !staged.isFile()) throw new Error("録音temporary fileを安全に復旧できません。保存待ち音声を破棄して録音し直してください。");
+      fs.rmSync(stagedPath, { force: true });
+    }
+    const contentHash = this.assembleRecordingChunks(sessionDirectory, stagedPath, sequenceCount, manifest.fileSize, manifest.mimeType, manifest.recordingChunkHashes || "");
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    const prepared: AudioSessionManifest = {
+      ...manifest,
+      state: "prepared",
+      contentHash,
+      durationMs: validDuration(durationMs),
+      recordingElapsedMs: durationMs,
+      recordingStateStartedAt: undefined,
+      updatedAt: timestamp,
+    };
+    this.writeManifest(sessionDirectory, prepared);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    for (let sequence = 0; sequence < sequenceCount; sequence += 1) {
+      assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+      fs.rmSync(path.resolve(sessionDirectory, recordingChunkFileName(sequence)), { force: true });
+      assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    }
+    return this.toPreparedAudio(prepared);
   }
 
   prepareFile(sourcePathValue: unknown, themeIdValue: unknown = null): AudioCapturePrepared {
@@ -857,6 +1119,23 @@ export class MediaCaptureService {
       try {
         const manifest = this.readManifest(this.sessionDirectory(entry.name));
         if (manifest.state === "committed" || manifest.mediaKind !== "audio") continue;
+        if (manifest.state === "recording" || manifest.state === "recording_paused") {
+          pending.push({ summary: {
+            sessionId: manifest.sessionId,
+            filename: manifest.filename,
+            mimeType: manifest.mimeType,
+            fileSize: manifest.fileSize,
+            mediaUrl: "",
+            status: "recovery_required",
+            availability: "missing",
+            recoveryReason: "recording_interrupted",
+            canCommit: false,
+            canRetry: false,
+            canDiscard: true,
+            canRecoverRecording: manifest.fileSize > 0 && (manifest.recordingNextSequence || 0) > 0,
+          }, createdAt: manifest.createdAt });
+          continue;
+        }
         let resolution = this.resolveSessionMedia(manifest.sessionId);
         if (resolution.availability === "available") fs.closeSync(resolution.fileDescriptor);
         if (manifest.state === "finalizing" && resolution.availability !== "available") {
@@ -1007,6 +1286,12 @@ export class MediaCaptureService {
       if (!manifest.command) throw new Error("音声Capture receiptの復元情報がありません。");
       return this.toInternalResult(manifest, this.options.commands.executeMediaCapture(manifest.command));
     }
+    if (manifest.state === "recording" || manifest.state === "recording_paused") {
+      throw new Error("録音を停止してからInboxへ保存してください。");
+    }
+    if (manifest.captureMethod === "microphone" && manifest.durationMs !== durationMs) {
+      throw new Error("録音時間がsessionと一致しません。保存待ち音声を読み直してください。");
+    }
     if (manifest.state === "prepared") manifest = this.beginFinalize(sessionDirectory, manifest, durationMs);
     manifest = this.ensureFinalized(sessionDirectory, manifest);
     if (!manifest.command) throw new Error("音声Capture commandの復元情報がありません。");
@@ -1062,9 +1347,13 @@ export class MediaCaptureService {
   cancel(sessionIdValue: unknown): boolean {
     const sessionId = assertSessionId(sessionIdValue);
     const sessionDirectory = this.sessionDirectory(sessionId);
+    const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "音声Capture session");
     const manifest = this.readManifest(sessionDirectory);
-    if (manifest.state !== "prepared") throw new Error("保存処理を開始した音声Captureは破棄できません。再起動後の復旧を待ってください。");
-    this.removeSessionDirectory(sessionDirectory);
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "音声Capture session");
+    if (manifest.state !== "prepared" && manifest.state !== "recording" && manifest.state !== "recording_paused") {
+      throw new Error("保存処理を開始した音声Captureは破棄できません。再起動後の復旧を待ってください。");
+    }
+    this.removeSessionDirectory(sessionDirectory, sessionIdentity);
     return true;
   }
 
@@ -1081,7 +1370,7 @@ export class MediaCaptureService {
         pending += 1;
         continue;
       }
-      if (manifest.state === "prepared" || manifest.state === "committed") continue;
+      if (manifest.state === "prepared" || manifest.state === "committed" || manifest.state === "recording" || manifest.state === "recording_paused") continue;
       try {
         manifest = this.ensureFinalized(sessionDirectory, manifest);
         if (!manifest.command) throw new Error("command missing");
@@ -1222,7 +1511,7 @@ export class MediaCaptureService {
       text: filename,
       kind: "voice_memo",
       content_type: "audio",
-      capture_method: "audio_import",
+      capture_method: manifest.captureMethod === "microphone" ? "microphone" : "audio_import",
       media_status: "ready",
       transcription_status: "not_requested",
       captured_at: timestamp,
@@ -1536,6 +1825,99 @@ export class MediaCaptureService {
     };
   }
 
+  private recordingProgress(manifest: AudioSessionManifest): MediaRecordingProgress {
+    return {
+      sessionId: manifest.sessionId,
+      nextSequence: manifest.recordingNextSequence || 0,
+      fileSize: manifest.fileSize,
+      state: manifest.state === "recording_paused" ? "paused" : "recording",
+    };
+  }
+
+  private toPreparedAudio(manifest: AudioSessionManifest): AudioCapturePrepared {
+    return {
+      sessionId: manifest.sessionId,
+      filename: manifest.filename,
+      mimeType: manifest.mimeType,
+      fileSize: manifest.fileSize,
+      mediaUrl: `tasken-media://session/${manifest.sessionId}`,
+      status: "ready",
+      availability: "available",
+      ...(manifest.durationMs === undefined ? {} : { durationMs: manifest.durationMs }),
+      canCommit: true,
+      canRetry: false,
+      canDiscard: true,
+    };
+  }
+
+  private assembleRecordingChunks(
+    sessionDirectory: string,
+    stagedPath: string,
+    sequenceCount: number,
+    expectedSize: number,
+    mimeType: string,
+    expectedChunkHashes: string,
+  ): string {
+    const hash = createHash("sha256");
+    let descriptor: number | null = null;
+    let written = 0;
+    let contentHash = "";
+    try {
+      const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+      descriptor = fs.openSync(stagedPath, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow, 0o600);
+      for (let sequence = 0; sequence < sequenceCount; sequence += 1) {
+        const chunkPath = path.resolve(sessionDirectory, recordingChunkFileName(sequence));
+        assertWithin(sessionDirectory, chunkPath, "録音chunk");
+        let chunkDescriptor: number | null = null;
+        try {
+          chunkDescriptor = fs.openSync(chunkPath, fs.constants.O_RDONLY | noFollow);
+          const stat = fs.fstatSync(chunkDescriptor);
+          if (!stat.isFile() || stat.size <= 0 || stat.size > MICROPHONE_CHUNK_MAX_BYTES) {
+            throw new Error("録音chunkが欠落または変更されています。録音は破棄せず復旧待ちにしました。");
+          }
+          const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, stat.size));
+          const chunkHash = createHash("sha256");
+          let position = 0;
+          while (position < stat.size) {
+            const bytesRead = fs.readSync(chunkDescriptor, buffer, 0, Math.min(buffer.length, stat.size - position), position);
+            if (bytesRead <= 0) throw new Error("録音chunkを最後まで読み取れません。録音は破棄せず復旧待ちにしました。");
+            let offset = 0;
+            while (offset < bytesRead) offset += fs.writeSync(descriptor, buffer, offset, bytesRead - offset, null);
+            hash.update(buffer.subarray(0, bytesRead));
+            chunkHash.update(buffer.subarray(0, bytesRead));
+            position += bytesRead;
+            written += bytesRead;
+          }
+          const after = fs.lstatSync(chunkPath);
+          if (after.isSymbolicLink() || !after.isFile() || String(after.dev) !== String(stat.dev) || String(after.ino) !== String(stat.ino)) {
+            throw new Error("録音chunkが確認中に差し替えられました。未検証bytesは使用せず復旧待ちにしました。");
+          }
+          const expectedChunkHash = expectedChunkHashes.slice(sequence * 64, (sequence + 1) * 64);
+          if (chunkHash.digest("hex") !== expectedChunkHash) {
+            throw new Error("録音chunkのhashが一致しません。未検証bytesは使用せず復旧待ちにしました。");
+          }
+        } finally {
+          if (chunkDescriptor !== null) fs.closeSync(chunkDescriptor);
+        }
+      }
+      fs.fsyncSync(descriptor);
+      if (written !== expectedSize) {
+        throw new Error("録音chunkの合計sizeが一致しません。録音は破棄せず復旧待ちにしました。");
+      }
+      if (!hasExpectedMediaSignature(descriptor, mimeType)) {
+        throw new Error("録音データをWebM音声として確認できません。マイクを確認して、もう一度録音してください。");
+      }
+      contentHash = `sha256:${hash.digest("hex")}`;
+    } catch (error) {
+      if (descriptor !== null) { fs.closeSync(descriptor); descriptor = null; }
+      fs.rmSync(stagedPath, { force: true });
+      throw error;
+    } finally {
+      if (descriptor !== null) fs.closeSync(descriptor);
+    }
+    return contentHash;
+  }
+
   private sessionDirectory(sessionId: string): string {
     const directory = path.resolve(this.recoveryRoot, sessionId);
     assertWithin(this.recoveryRoot, directory, "音声Capture session");
@@ -1549,30 +1931,76 @@ export class MediaCaptureService {
   }
 
   private readManifest(sessionDirectory: string): AudioSessionManifest {
-    const rootStat = fs.lstatSync(sessionDirectory);
-    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw new Error("音声Capture sessionにsymlink/junctionは利用できません。");
+    const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "音声Capture session");
     const manifestPath = this.manifestPath(sessionDirectory);
-    const manifestStat = fs.lstatSync(manifestPath);
-    if (manifestStat.isSymbolicLink() || !manifestStat.isFile() || manifestStat.size <= 0 || manifestStat.size > MAX_MANIFEST_BYTES) {
-      throw new Error("Media Capture manifest fileが不正です。");
+    const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+    let descriptor: number | null = null;
+    try {
+      descriptor = fs.openSync(manifestPath, fs.constants.O_RDONLY | noFollow);
+      const manifestStat = fs.fstatSync(descriptor);
+      if (!manifestStat.isFile() || manifestStat.size <= 0 || manifestStat.size > MAX_MANIFEST_BYTES) {
+        throw new Error("Media Capture manifest fileが不正です。");
+      }
+      const text = fs.readFileSync(descriptor, "utf8");
+      const after = fs.lstatSync(manifestPath);
+      if (after.isSymbolicLink() || !after.isFile() || String(after.dev) !== String(manifestStat.dev) || String(after.ino) !== String(manifestStat.ino)) {
+        throw new Error("Media Capture manifestが確認中に差し替えられました。");
+      }
+      const manifest = validateManifest(JSON.parse(text), path.basename(sessionDirectory));
+      assertDirectoryIdentity(sessionDirectory, sessionIdentity, "音声Capture session");
+      this.cleanupRecordingChunks(sessionDirectory, manifest, sessionIdentity);
+      return manifest;
+    } finally {
+      if (descriptor !== null) fs.closeSync(descriptor);
     }
-    return validateManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")), path.basename(sessionDirectory));
   }
 
   private writeManifest(sessionDirectory: string, manifest: AudioSessionManifest): void {
+    writeAtomicTextFile(this.manifestPath(sessionDirectory), this.serializeManifest(sessionDirectory, manifest), randomUUID());
+  }
+
+  private serializeManifest(sessionDirectory: string, manifest: AudioSessionManifest): string {
     validateManifest(manifest, path.basename(sessionDirectory));
-    writeAtomicTextFile(this.manifestPath(sessionDirectory), `${JSON.stringify(manifest, null, 2)}\n`, randomUUID());
+    const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
+    if (Buffer.byteLength(serialized, "utf8") <= 0 || Buffer.byteLength(serialized, "utf8") > MAX_MANIFEST_BYTES) {
+      throw new Error("Media Capture manifestがsize上限を超えています。");
+    }
+    return serialized;
   }
 
   private readManifestMediaKindLoose(sessionDirectory: string): "audio" | "video" | null {
+    let descriptor: number | null = null;
     try {
       const manifestPath = this.manifestPath(sessionDirectory);
-      const stat = fs.lstatSync(manifestPath);
-      if (stat.isSymbolicLink() || !stat.isFile() || stat.size <= 0 || stat.size > MAX_MANIFEST_BYTES) return null;
-      const value = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { mediaKind?: unknown };
+      const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+      descriptor = fs.openSync(manifestPath, fs.constants.O_RDONLY | noFollow);
+      const stat = fs.fstatSync(descriptor);
+      if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_MANIFEST_BYTES) return null;
+      const text = fs.readFileSync(descriptor, "utf8");
+      const after = fs.lstatSync(manifestPath);
+      if (after.isSymbolicLink() || !after.isFile() || String(after.dev) !== String(stat.dev) || String(after.ino) !== String(stat.ino)) return null;
+      const value = JSON.parse(text) as { mediaKind?: unknown };
       return value.mediaKind === "audio" || value.mediaKind === "video" ? value.mediaKind : null;
     } catch {
       return null;
+    } finally {
+      if (descriptor !== null) fs.closeSync(descriptor);
+    }
+  }
+
+  private cleanupRecordingChunks(sessionDirectory: string, manifest: AudioSessionManifest, sessionIdentity: DirectoryIdentity): void {
+    if (manifest.captureMethod !== "microphone" || (manifest.state !== "prepared" && manifest.state !== "committed")) return;
+    const sequenceCount = manifest.recordingNextSequence || 0;
+    for (const entry of fs.readdirSync(sessionDirectory, { withFileTypes: true })) {
+      const match = /^chunk-(\d{8})\.part$/.exec(entry.name);
+      if (!match || Number(match[1]) >= sequenceCount) continue;
+      assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session cleanup");
+      const candidate = path.resolve(sessionDirectory, entry.name);
+      assertWithin(sessionDirectory, candidate, "録音chunk cleanup");
+      const stat = fs.lstatSync(candidate);
+      if (stat.isDirectory()) throw new Error("録音chunk cleanupにdirectoryがあります。");
+      fs.unlinkSync(candidate);
+      assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session cleanup");
     }
   }
 
@@ -1582,12 +2010,15 @@ export class MediaCaptureService {
     fs.rmSync(stagedPath, { force: true });
   }
 
-  private removeSessionDirectory(sessionDirectory: string): void {
+  private removeSessionDirectory(sessionDirectory: string, expectedIdentity?: DirectoryIdentity): void {
     assertWithin(this.recoveryRoot, sessionDirectory, "音声Capture session");
     assertNoSymlinkOrJunctionAncestors(sessionDirectory, "音声Capture session");
+    const identity = expectedIdentity || captureDirectoryIdentity(sessionDirectory, "音声Capture session");
+    assertDirectoryIdentity(sessionDirectory, identity, "音声Capture session");
     const stat = fs.lstatSync(sessionDirectory);
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("音声Capture sessionを安全に破棄できません。");
     for (const entry of fs.readdirSync(sessionDirectory, { withFileTypes: true })) {
+      assertDirectoryIdentity(sessionDirectory, identity, "音声Capture session");
       const candidate = path.resolve(sessionDirectory, entry.name);
       assertWithin(sessionDirectory, candidate, "音声Capture session entry");
       const own = fs.lstatSync(candidate);
@@ -1601,7 +2032,9 @@ export class MediaCaptureService {
       } else {
         throw new Error("音声Capture sessionに安全に破棄できないentryがあります。");
       }
+      assertDirectoryIdentity(sessionDirectory, identity, "音声Capture session");
     }
+    assertDirectoryIdentity(sessionDirectory, identity, "音声Capture session");
     fs.rmdirSync(sessionDirectory);
   }
 }

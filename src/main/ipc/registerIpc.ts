@@ -13,6 +13,9 @@ import {
   parseAudioCaptureCommitRequest,
   parseAudioCapturePrepareRequest,
   parseMediaArtifactOpenRequest,
+  parseMediaRecordingAppendRequest,
+  parseMediaRecordingControlRequest,
+  parseMediaRecordingStartRequest,
   parseVideoImportCommitRequest,
   parseVideoImportPrepareRequest,
 } from "../../shared/mediaCapture";
@@ -272,6 +275,43 @@ export function registerIpc(
       return mediaCapture.cancel(sessionId);
     } catch (error) {
       throw projectMediaCaptureIpcError("cancel", error);
+    }
+  });
+  ipcMain.handle(IPC.mediaRecordingStart, (_event, request) => {
+    try {
+      const parsed = parseMediaRecordingStartRequest(request);
+      const themeId = requireAudioCaptureThemeId(repository, { themeId: parsed.themeId });
+      return mediaCapture.startRecording(themeId, parsed.mimeType);
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
+    }
+  });
+  ipcMain.handle(IPC.mediaRecordingAppend, (_event, request) => {
+    try {
+      return mediaCapture.appendRecordingChunk(parseMediaRecordingAppendRequest(request));
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
+    }
+  });
+  ipcMain.handle(IPC.mediaRecordingPause, (_event, request) => {
+    try {
+      return mediaCapture.pauseRecording(parseMediaRecordingControlRequest(request).sessionId);
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
+    }
+  });
+  ipcMain.handle(IPC.mediaRecordingResume, (_event, request) => {
+    try {
+      return mediaCapture.resumeRecording(parseMediaRecordingControlRequest(request).sessionId);
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
+    }
+  });
+  ipcMain.handle(IPC.mediaRecordingStop, (_event, request) => {
+    try {
+      return mediaCapture.stopRecording(parseMediaRecordingControlRequest(request).sessionId);
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
     }
   });
   ipcMain.handle(IPC.videoImportPrepare, async (event, request) => {

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { IconArrowsMaximize, IconClock, IconCopyPlus, IconFileTypePdf, IconFolder, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconClock, IconCopyPlus, IconFileTypePdf, IconFolder, IconMicrophone, IconPencil, IconTrash } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { useUiStore } from "../../../stores/uiStore";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
@@ -806,6 +807,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
       saveEntities={saveEntities}
       setToast={setToast}
       openContentViewer={openContentViewer}
+      navigate={navigate}
     />
   );
 }
@@ -821,6 +823,7 @@ function EditDrawer({
   executeCommand: _executeCommand,
   openContentViewer,
   startFocusSession,
+  navigate,
 }: {
   drawer: DrawerConfig;
   data: WorkspaceData;
@@ -833,6 +836,7 @@ function EditDrawer({
   executeCommand?: ExecuteCommand;
   openContentViewer?: OpenContentViewer;
   startFocusSession?: (taskId: string) => void;
+  navigate?: (route: string) => void;
 }) {
   const type = drawer.type;
   const entity = drawer.entity;
@@ -857,6 +861,7 @@ function EditDrawer({
     ? (((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) || entity) as unknown as DrawerConfig["entity"]
     : entity;
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
+  const requestInboxRecorder = useUiStore((state) => state.requestInboxRecorder);
   // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。
   const artifactSource = (() => {
     if (!entityId || !saveEntities || !removeEntity) return null;
@@ -929,7 +934,24 @@ function EditDrawer({
         {type === "task" && <TaskFields entity={taskFormEntity} data={data} saveEntities={saveEntities} />}
         {type === "waiting" && <WaitingFields entity={entity} data={data} />}
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
-        {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
+        {type === "capture_entry" && (
+          <>
+            {!entityId && (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  close();
+                  navigate?.("inbox");
+                  requestInboxRecorder();
+                }}
+              >
+                <IconMicrophone size={16} />マイクで録音
+              </button>
+            )}
+            <CaptureEntryFields entity={entity} />
+          </>
+        )}
         {type === "sketch" && (
           <>
             <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>

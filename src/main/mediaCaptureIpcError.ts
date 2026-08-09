@@ -1,10 +1,11 @@
-export type MediaCaptureIpcAction = "prepare" | "list" | "commit" | "cancel";
+export type MediaCaptureIpcAction = "prepare" | "list" | "commit" | "cancel" | "record";
 
 const ACTION_FALLBACK: Record<MediaCaptureIpcAction, string> = {
   prepare: "音声を取り込めませんでした。ファイルを確認して、もう一度選択してください。",
   list: "保存待ち音声を確認できませんでした。画面を再読み込みしてください。",
   commit: "音声を保存できませんでした。保存先を確認して、保存待ち音声から再試行してください。",
   cancel: "保存待ち音声を破棄できませんでした。画面を再読み込みして、もう一度試してください。",
+  record: "録音データを保存できませんでした。録音を停止し、保存待ち音声を確認してください。",
 };
 
 const SAFE_MESSAGES: Array<[RegExp, string]> = [
@@ -17,6 +18,7 @@ const SAFE_MESSAGES: Array<[RegExp, string]> = [
   [/差し替え|symlink|junction|安全でない/, "音声ファイルを安全に確認できませんでした。元ファイルを確認して、もう一度選択してください。"],
   [/保存処理を開始した/, "保存処理を開始した音声Captureは破棄できません。再起動後の復旧を待ってください。"],
   [/finalize|復旧待ち|identity|hash|競合file|managed保存先/, "音声の保存を安全に完了できませんでした。原音は保持されています。保存待ち音声から再試行してください。"],
+  [/録音中では|一時停止中では|録音chunk|録音サイズ|録音データ|録音形式|録音時間|録音session/, "録音を続けられませんでした。録音を停止し、保存待ち音声を確認してください。"],
 ];
 
 /** Node/fsのmessageやabsolute pathをRendererへ渡さない。 */
