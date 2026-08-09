@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
-import { rejectGenericAudioArtifact } from "../mediaCapturePersistence";
+import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeTaskAssignment } from "../repositories/domain.mjs";
@@ -618,8 +618,8 @@ export class ApplicationCommandService {
 
   execute(input: unknown): CommandReceipt {
     const command = parseCommandEnvelope(input);
-    if (command.name === "CommitAudioCapture") {
-      throw new ApplicationCommandError("INVALID_ENVELOPE", "音声CaptureはMainのmedia session経由で確定してください。");
+    if (command.name === "CommitAudioCapture" || command.name === "CommitVideoArtifact") {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "Mediaの保存はMainのmedia session経由で確定してください。");
     }
     if (!applicationCommandSources.includes(command.source)) throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
     return this.repository.runTransaction((transactionRepository) => (
@@ -629,8 +629,12 @@ export class ApplicationCommandService {
 
   executeMediaCapture(input: unknown): CommandReceipt {
     const command = parseCommandEnvelope(input);
-    if (command.name !== "CommitAudioCapture" || command.actor.kind !== "user" || command.source !== "inbox") {
-      throw new ApplicationCommandError("INVALID_ENVELOPE", "CommitAudioCaptureはInboxのMain-owned media session専用です。");
+    if (
+      (command.name !== "CommitAudioCapture" && command.name !== "CommitVideoArtifact")
+      || command.actor.kind !== "user"
+      || !["inbox", "main_ui"].includes(command.source)
+    ) {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "Media commitはMain-owned media session専用です。");
     }
     return this.repository.runTransaction((transactionRepository) => (
       new ApplicationCommandService(transactionRepository).executeParsed(command)
@@ -640,8 +644,8 @@ export class ApplicationCommandService {
   executeBatch(inputs: unknown[]): CommandReceipt[] {
     const commands = inputs.map((input) => parseCommandEnvelope(input));
     for (const command of commands) {
-      if (command.name === "CommitAudioCapture") {
-        throw new ApplicationCommandError("INVALID_ENVELOPE", "音声CaptureはMainのmedia session経由で確定してください。");
+      if (command.name === "CommitAudioCapture" || command.name === "CommitVideoArtifact") {
+        throw new ApplicationCommandError("INVALID_ENVELOPE", "Mediaの保存はMainのmedia session経由で確定してください。");
       }
       if (!applicationCommandSources.includes(command.source)) throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
     }
@@ -745,6 +749,7 @@ export class ApplicationCommandService {
       return this.createTaskFromCapture(command);
     }
     if (command.name === "CommitAudioCapture") return this.commitAudioCapture(command);
+    if (command.name === "CommitVideoArtifact") return this.commitVideoArtifact(command);
     if (command.name === "CompleteTaskWithLearning") {
       return this.completeTaskWithLearning(command);
     }
@@ -819,6 +824,54 @@ export class ApplicationCommandService {
       { action: "save", type: "artifact", entity: artifact },
       { action: "save", type: "change_event", entity: event },
     ], [event.id], ["capture_entry", "artifact"]);
+  }
+
+  private commitVideoArtifact(command: CommandEnvelope): CommandReceipt {
+    const artifact = (command.payload as { artifact: Entity }).artifact;
+    if (this.repository.get("artifact", artifact.id, true)) {
+      throw new ApplicationCommandError("CONFLICT", "artifactのIDを再利用できません。", { type: "artifact", id: artifact.id });
+    }
+    artifactDefinition.parseCreate(artifact);
+    const ownerTypes = new Set<EntityType>(["task", "note", "capture_entry"]);
+    const ownerType = artifact.source_type === "report" ? "note" : artifact.source_type as EntityType;
+    const owner = ownerTypes.has(ownerType) && typeof artifact.source_id === "string"
+      ? this.repository.get(ownerType, artifact.source_id)
+      : null;
+    const ownerThemeId = owner && typeof owner.project_id === "string" && owner.project_id
+      ? owner.project_id
+      : owner && typeof owner.theme_id === "string" && owner.theme_id
+        ? owner.theme_id
+        : null;
+    if (
+      artifact.media_kind !== "video"
+      || (artifact.storage_mode !== "managed" && artifact.storage_mode !== "linked")
+      || !ownerTypes.has(ownerType)
+      || typeof artifact.source_id !== "string"
+      || !owner
+      || (artifact.theme_id || null) !== ownerThemeId
+    ) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Video Artifactのownerまたはstorage contractが不正です。");
+    }
+    const event = annotateEvent(command, commandEvent(
+      command,
+      "artifact",
+      artifact.id,
+      "created",
+      null,
+      artifact,
+    ));
+    event.metadata = {
+      ...(event.metadata as Record<string, unknown> || {}),
+      include_in_activity: true,
+      media_kind: "video",
+      source_type: artifact.source_type,
+      source_id: artifact.source_id,
+      content_hash: artifact.content_hash,
+    };
+    return persistReceipt(this.repository, command, [
+      { action: "save", type: "artifact", entity: artifact },
+      { action: "save", type: "change_event", entity: event },
+    ], [event.id], ["artifact"]);
   }
 
   private startTaskWork(command: CommandEnvelope): CommandReceipt {
@@ -1304,7 +1357,10 @@ export class ApplicationCommandService {
     for (const candidate of payload.candidates) {
       const type = candidate.type;
       let candidateEntity = candidate.entity;
-      if (type === "artifact") rejectGenericAudioArtifact(candidateEntity, "AI Proposal採用");
+      if (type === "artifact") {
+        rejectGenericAudioArtifact(candidateEntity, "AI Proposal採用");
+        rejectGenericVideoArtifact(candidateEntity, "AI Proposal採用");
+      }
       if (type === "repository_context") {
         try {
           candidateEntity = normalizeRepositoryContext(candidate.entity) as Entity;
@@ -1597,12 +1653,15 @@ export class ApplicationCommandService {
       const expectedArtifact = expectedVersionFor(command, "artifact", artifactId);
       if (!expectedArtifact) throw new ApplicationCommandError("CONFLICT", "移管するArtifactにはexpected versionが必要です。", { type: "artifact", id: artifactId });
       assertExpectedVersion(this.repository, command, "artifact", artifactId, artifact);
+      const isMediaArtifact = artifact.media_kind === "audio" || artifact.media_kind === "video";
       const artifactWithoutLegacyTheme = { ...artifact };
-      delete artifactWithoutLegacyTheme.theme_id;
+      if (!isMediaArtifact) delete artifactWithoutLegacyTheme.theme_id;
       operations.push({
         action: "save",
         type: "artifact",
-        entity: { ...artifactWithoutLegacyTheme, source_type: "task", source_id: task.id, project_id: task.project_id },
+        entity: isMediaArtifact
+          ? { ...artifactWithoutLegacyTheme, source_type: "task", source_id: task.id }
+          : { ...artifactWithoutLegacyTheme, source_type: "task", source_id: task.id, project_id: task.project_id },
       });
       changed.push("artifact");
     }

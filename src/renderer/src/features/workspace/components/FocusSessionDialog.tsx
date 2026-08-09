@@ -26,7 +26,9 @@ import {
 } from "../lib/selectionExtraction";
 import { buildSaveNoteOperations, buildSaveTaskOperations } from "../domain-model/persistence";
 import type { Artifact, BaseRecord, OpenContentViewer, OpenDrawer, SaveEntities, SaveEntity, WorkspaceData } from "../types";
+import type { RemoveEntity } from "../types";
 import type { Note, Reference, Resource, Task, WorkspaceDomain } from "../domain-model/types";
+import { ArtifactSection } from "./artifacts";
 
 type FocusTarget = { type: "scratchpad" } | { type: "note"; id: string };
 type SaveState = "saved" | "dirty" | "saving" | "error";
@@ -89,6 +91,7 @@ export function FocusSessionDialog({
   domain,
   saveEntity,
   saveEntities,
+  removeEntity,
   openDrawer,
   openContentViewer,
   setToast,
@@ -100,6 +103,7 @@ export function FocusSessionDialog({
   domain: WorkspaceDomain;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  removeEntity: RemoveEntity;
   openDrawer: OpenDrawer;
   openContentViewer: OpenContentViewer;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
@@ -417,6 +421,18 @@ export function FocusSessionDialog({
               <p>{task.description || "説明なし"}</p>
               <button className="text-button compact" onClick={() => openDrawer({ type: "task", entity: task as unknown as BaseRecord })}>詳細を開く</button>
             </section>
+            {session && <ArtifactSection
+              sourceType="note"
+              sourceId={session.id}
+              themeId={task.project_id || null}
+              artifacts={data.artifacts || []}
+              data={data}
+              openDrawer={openDrawer}
+              openContentViewer={openContentViewer}
+              saveEntities={saveEntities}
+              removeEntity={removeEntity}
+              setToast={setToast}
+            />}
             <section>
               <span>Related</span>
               <button className={target.type === "scratchpad" ? "is-active" : ""} onClick={() => setTarget({ type: "scratchpad" })}>

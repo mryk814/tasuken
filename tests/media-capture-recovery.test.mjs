@@ -80,6 +80,41 @@ test("finalized recovery does not delete or commit a different existing final fi
   assert.deepEqual(fs.readFileSync(state.manifest.finalPath), conflictingBytes);
 });
 
+test("managed publish rejects staged path swap before writing bytes or calling DB", (t) => {
+  const paths = fixture(t);
+  const executor = commandExecutor({ fail: false });
+  const capture = service(paths, executor);
+  const prepared = capture.prepareFile(paths.sourcePath);
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", prepared.sessionId);
+  const manifestPath = path.join(sessionDirectory, "session.json");
+  const preparedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const stagedPath = path.join(sessionDirectory, preparedManifest.stagedFileName);
+  const originalStage = `${stagedPath}.original`;
+  const replacement = Buffer.from("RIFF\x10\x00\x00\x00WAVEfmt attacker-replacement", "binary");
+  const realOpen = fs.openSync;
+  let stagedReadOpens = 0;
+  fs.openSync = function patchedOpen(candidate, flags, mode) {
+    if (path.resolve(String(candidate)) === path.resolve(stagedPath)) {
+      stagedReadOpens += 1;
+      if (stagedReadOpens === 2) {
+        fs.renameSync(stagedPath, originalStage);
+        fs.writeFileSync(stagedPath, replacement);
+      }
+    }
+    return realOpen.call(fs, candidate, flags, mode);
+  };
+  try {
+    assert.throws(() => capture.commit({ sessionId: prepared.sessionId, durationMs: 1000 }), /差し替え/);
+  } finally {
+    fs.openSync = realOpen;
+  }
+  const finalizing = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  assert.equal(finalizing.state, "finalizing");
+  assert.equal(fs.existsSync(finalizing.finalPath), false);
+  assert.equal(executor.calls, 0);
+  assert.equal(fs.existsSync(originalStage), true);
+});
+
 test("finalized recovery revalidates managed root identity before any DB write", (t) => {
   const state = finalizedAfterDbFailure(t);
   state.manifest.managedRootInode = `${state.manifest.managedRootInode}-tampered`;
@@ -207,7 +242,7 @@ test("corrupt manifest remains visible as a safe diagnostic and cannot be discar
 
   assert.deepEqual(pending, [{
     sessionId: prepared.sessionId,
-    filename: "復旧が必要な音声",
+    filename: "復旧が必要なMedia",
     mimeType: "不明",
     fileSize: 0,
     mediaUrl: "",
@@ -376,16 +411,23 @@ for (const [field, replacement] of COMMAND_TAMPERS) {
   });
 }
 
-test("manifest themeId must be null or UUID before any DB write", (t) => {
+test("manifest themeId accepts a safe legacy ID and rejects untrimmed IDs before any DB write", (t) => {
   const paths = fixture(t);
   const executor = commandExecutor({ fail: false });
   const capture = service(paths, executor);
-  const prepared = capture.prepareFile(paths.sourcePath);
-  const manifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", prepared.sessionId, "session.json");
+  const legacy = capture.prepareFile(paths.sourcePath, "legacy-theme-id");
+  capture.commit({ sessionId: legacy.sessionId, durationMs: 100 });
+  assert.equal(executor.calls, 1);
+
+  const rejectedPaths = fixture(t);
+  const rejectedExecutor = commandExecutor({ fail: false });
+  const rejectedCapture = service(rejectedPaths, rejectedExecutor);
+  const prepared = rejectedCapture.prepareFile(rejectedPaths.sourcePath);
+  const manifestPath = path.join(rejectedPaths.userDataPath, "media-recovery", "sessions", prepared.sessionId, "session.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  manifest.themeId = "legacy-theme-id";
+  manifest.themeId = " legacy-theme-id";
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  assert.throws(() => capture.commit({ sessionId: prepared.sessionId, durationMs: 100 }), /Theme ID/);
-  assert.equal(executor.calls, 0);
+  assert.throws(() => rejectedCapture.commit({ sessionId: prepared.sessionId, durationMs: 100 }), /Theme ID/);
+  assert.equal(rejectedExecutor.calls, 0);
 });

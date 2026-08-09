@@ -13,6 +13,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 
 import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
 import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
+import type { MediaAvailability } from "../../../../../shared/mediaArtifact.mjs";
+import { videoAvailabilityMessage } from "../videoArtifactView";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { Artifact, BaseRecord, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
 import {
@@ -40,7 +42,7 @@ export type { ContentViewerTarget };
 
 type LoadState =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; artifact?: Artifact; mediaAvailability?: MediaAvailability }
   | {
       status: "ready";
       mode: "markdown";
@@ -71,7 +73,7 @@ type LoadState =
     }
   | {
       status: "ready";
-      mode: "audio";
+      mode: "audio" | "video";
       title: string;
       src: string;
       artifact: Artifact;
@@ -79,11 +81,12 @@ type LoadState =
 
 // conversationモードはファイル実体を持たないため、ファイル系の操作は他モードだけへ絞る。
 function loadedArtifact(load: LoadState): Artifact | undefined {
+  if (load.status === "error") return load.artifact;
   return load.status === "ready" && load.mode !== "conversation" ? load.artifact : undefined;
 }
 
 function loadedFilePath(load: LoadState): string | undefined {
-  return load.status === "ready" && load.mode !== "conversation" && load.mode !== "audio" ? load.filePath : undefined;
+  return load.status === "ready" && "filePath" in load ? load.filePath : undefined;
 }
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -156,10 +159,14 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
   const category = artifactFileCategory(artifact);
   const title = str(artifact.filename) || str(artifact.title) || "Artifact";
 
-  if (artifact.media_kind === "audio") {
+  if (artifact.media_kind === "audio" || artifact.media_kind === "video") {
+    const inspection = artifact.media_kind === "video" ? await workspaceApi.inspectMediaArtifact(artifact.id) : { availability: "available" as const };
+    if (artifact.media_kind === "video" && inspection.availability !== "available") {
+      return { status: "error", message: videoAvailabilityMessage(inspection.availability), artifact, mediaAvailability: inspection.availability };
+    }
     return {
       status: "ready",
-      mode: "audio",
+      mode: artifact.media_kind,
       title,
       src: `tasken-media://artifact/${encodeURIComponent(artifact.id)}`,
       artifact,
@@ -331,6 +338,15 @@ export function ContentViewer({
   async function openExternal() {
     const artifact = loadedArtifact(load);
     if (artifact) {
+      if (artifact.media_kind === "audio" || artifact.media_kind === "video") {
+        try {
+          const result = await workspaceApi.openMediaArtifactExternal(artifact.id);
+          if (!result.ok) setToast(result.error || "Mediaを外部アプリで開けませんでした。", "danger");
+        } catch {
+          setToast("Mediaを外部アプリで開けませんでした。もう一度お試しください。", "danger");
+        }
+        return;
+      }
       await openArtifactFile(artifact, setToast);
       return;
     }
@@ -431,13 +447,13 @@ export function ContentViewer({
     : undefined;
   const loadFilePath = loadedFilePath(load);
   const canOpenFolder = Boolean(
-    load.status === "ready" && load.mode !== "audio" &&
+    load.status === "ready" && load.mode !== "audio" && load.mode !== "video" &&
     loadArtifact
       ? !isHttpUrl(String(artifactOpenTarget(loadArtifact) || ""))
       : loadFilePath && !isHttpUrl(loadFilePath),
   );
-  const canCopyPath = Boolean(load.status === "ready" && load.mode !== "audio" && (loadFilePath || loadArtifact));
-  const canOpenExternal = Boolean(load.status === "ready" && load.mode !== "audio" && (loadFilePath || loadArtifact));
+  const canCopyPath = Boolean(load.status === "ready" && load.mode !== "audio" && load.mode !== "video" && (loadFilePath || loadArtifact));
+  const canOpenExternal = Boolean(load.status === "ready" && (load.mode === "video" || (load.mode !== "audio" && (loadFilePath || loadArtifact))));
   const canEditNote = load.status === "ready" && load.mode === "markdown" && Boolean(load.note);
 
   function trapFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -487,6 +503,9 @@ export function ContentViewer({
             )}
             {load.status === "ready" && load.mode === "audio" && (
               <span className="content-viewer-badge">Audio</span>
+            )}
+            {load.status === "ready" && load.mode === "video" && (
+              <span className="content-viewer-badge">Video</span>
             )}
           </div>
           <div className="content-viewer-actions">
@@ -575,7 +594,12 @@ export function ContentViewer({
             <div className="content-viewer-state is-error" role="alert">
               <strong>表示できませんでした</strong>
               <p>{load.message}</p>
-              {target.type === "artifact" && targetArtifact?.media_kind !== "audio" && Boolean(artifactOpenTarget(targetArtifact)) && (
+              {load.artifact?.media_kind === "video" && (load.mediaAvailability === "available" || load.mediaAvailability === "unsupported_codec") && (
+                <button type="button" className="secondary-button compact" onClick={() => { void openExternal(); }}>
+                  <IconExternalLink size={15} />外部で開く
+                </button>
+              )}
+              {target.type === "artifact" && targetArtifact?.media_kind !== "audio" && targetArtifact?.media_kind !== "video" && Boolean(artifactOpenTarget(targetArtifact)) && (
                 <button
                   type="button"
                   className="secondary-button compact"
@@ -618,6 +642,28 @@ export function ContentViewer({
                 <span>{formatMediaDuration(load.artifact.duration_ms)}</span>
                 <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
                 <span>{load.artifact.media_availability === "available" ? "保存済み" : "要確認"}</span>
+              </div>
+            </div>
+          )}
+          {load.status === "ready" && load.mode === "video" && (
+            <div className="content-viewer-video">
+              <video
+                controls
+                preload="metadata"
+                src={load.src}
+                aria-label={`${load.title}の動画プレーヤー`}
+                onError={() => setLoad({
+                  status: "error",
+                  message: "この動画を内蔵decoderで再生できませんでした。ファイルの変更・削除を確認するか、外部アプリで開いてください。",
+                  artifact: load.artifact,
+                  mediaAvailability: "available",
+                })}
+              />
+              <div className="content-viewer-video-meta">
+                <span>{formatMediaDuration(load.artifact.duration_ms)}</span>
+                <span>{load.artifact.width_px} × {load.artifact.height_px}px</span>
+                <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
+                <span>{load.artifact.media_availability === "available" ? "利用可能" : "要確認"}</span>
               </div>
             </div>
           )}

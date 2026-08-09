@@ -1660,6 +1660,7 @@ export function WorkspaceApp() {
               domain={fullDomain}
               saveEntity={saveEntity}
               saveEntities={saveEntities}
+              removeEntity={removeEntity}
               openDrawer={openDrawer}
               openContentViewer={openContentViewer}
               setToast={setToast}

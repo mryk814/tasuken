@@ -84,3 +84,28 @@ test("media commit can send safe Capture and Artifact changes back to the issuin
   assert.equal(payloads.sender.entities.some((change) => change.type === "artifact"), true);
   assertNoPrivateMediaPath(payloads.sender);
 });
+
+test("single and batch command receipts retain safe deltas without media storage identity", () => {
+  const projected = projection.projectCommandReceiptForRenderer({
+    ...receipt,
+    eventChanges: [{ type: "change_event", entity: event }],
+  });
+  assertNoPrivateMediaPath(projected);
+  assert.equal(projected.changes[0].entity.id, "capture");
+  assert.equal(projected.changes[1].entity.filename, "voice.wav");
+  assert.equal(JSON.parse(projected.eventChanges[0].entity.receipt_json).changes[1].entity.filename, "voice.wav");
+});
+
+test("snapshot preview projects nested incoming/local media and apply workspace projection stays path-safe", () => {
+  const preview = projection.projectSnapshotInspectForRenderer({
+    status: "preview",
+    changes: [
+      { type: "artifact", classification: "updated", incoming: artifact, local: { ...artifact, stored_path: "C:/private/local.wav" } },
+      { type: "change_event", classification: "updated", incoming: event, local: event },
+    ],
+  });
+  assertNoPrivateMediaPath(preview);
+  assert.equal(preview.changes[0].incoming.filename, "voice.wav");
+  assert.equal(preview.changes[0].local.filename, "voice.wav");
+  assertNoPrivateMediaPath(projection.projectWorkspaceForRenderer({ artifacts: [artifact], change_events: [event] }));
+});

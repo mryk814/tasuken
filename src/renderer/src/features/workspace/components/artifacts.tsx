@@ -12,6 +12,7 @@ import {
   IconPhoto,
   IconPlus,
   IconPresentation,
+  IconVideo,
   IconVolume,
 } from "@tabler/icons-react";
 
@@ -30,6 +31,8 @@ import {
   resolveArtifactStorageMode as resolveStorageModeShared,
 } from "../../../../../shared/artifactLinks.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
+import type { VideoArtifactSourceType, VideoImportPrepared, VideoStorageMode } from "../../../../../shared/mediaCapture";
+import { videoOwnerThemeIsSaved } from "../videoArtifactView";
 import { LineagePanel } from "./LineagePanel";
 import {
   ARTIFACT_LINK_STATUS_LABELS,
@@ -69,14 +72,24 @@ const ARCHIVE_TYPES = new Set(["zip", "7z"]);
 const TEXT_TYPES = new Set(["txt", "docx", "doc", "json", "html"]);
 const PDF_TYPES = new Set(["pdf"]);
 const AUDIO_TYPES = new Set(["mp3", "mpeg", "mpga", "wav", "ogg", "opus", "m4a"]);
+const VIDEO_TYPES = new Set(["mp4", "m4v", "mov", "webm"]);
 
-export type ArtifactOpenMode = "external" | "image" | "markdown" | "audio" | "file";
+function isDedicatedMediaFileName(name: string): boolean {
+  const extension = name.trim().toLowerCase().match(/\.([^.\\/]+)$/)?.[1] || "";
+  return AUDIO_TYPES.has(extension) || VIDEO_TYPES.has(extension);
+}
+
+function isVideoArtifactSourceType(value: ArtifactSourceType): value is VideoArtifactSourceType {
+  return value === "task" || value === "note" || value === "report" || value === "capture_entry";
+}
+
+export type ArtifactOpenMode = "external" | "image" | "markdown" | "audio" | "video" | "file";
 
 type ArtifactCategoryInput = string | Pick<Artifact, "file_type" | "media_kind"> | undefined;
 
 export function artifactFileCategory(input?: ArtifactCategoryInput): ArtifactOpenMode {
   if (typeof input === "object" && input?.media_kind === "audio") return "audio";
-  if (typeof input === "object" && input?.media_kind === "video") return "file";
+  if (typeof input === "object" && input?.media_kind === "video") return "video";
   const type = (typeof input === "string" ? input : input?.file_type || "").toLowerCase();
   if (IMAGE_TYPES.has(type)) return "image";
   if (MARKDOWN_TYPES.has(type)) return "markdown";
@@ -88,7 +101,7 @@ export function artifactFileCategory(input?: ArtifactCategoryInput): ArtifactOpe
 export function artifactOpenLabel(input?: ArtifactCategoryInput): string {
   const mode = artifactFileCategory(input);
   if (mode === "external") return "外部で開く";
-  if (mode === "image" || mode === "markdown" || mode === "audio") return "プレビュー";
+  if (mode === "image" || mode === "markdown" || mode === "audio" || mode === "video") return "プレビュー";
   return "開く";
 }
 
@@ -98,6 +111,7 @@ export function artifactOpenHint(input?: ArtifactCategoryInput): string {
   if (mode === "image") return "画像をアプリ内ビューアで大きく表示します。";
   if (mode === "markdown") return "Markdownをアプリ内ビューアで表示します。";
   if (mode === "audio") return "音声をアプリ内プレイヤーで再生します。";
+  if (mode === "video") return "動画をアプリ内プレイヤーで再生します。";
   return "関連付けられたアプリで開きます。";
 }
 
@@ -123,6 +137,7 @@ export function ArtifactFileIcon({ fileType, mediaKind }: { fileType?: string; m
   if (MARKDOWN_TYPES.has(type)) return <IconMarkdown size={size} />;
   if (PRESENTATION_TYPES.has(type)) return <IconPresentation size={size} />;
   if (mediaKind === "audio" || (!mediaKind && AUDIO_TYPES.has(type))) return <IconVolume size={size} />;
+  if (mediaKind === "video") return <IconVideo size={size} />;
   if (ARCHIVE_TYPES.has(type)) return <IconFileZip size={size} />;
   if (TEXT_TYPES.has(type)) return <IconFileText size={size} />;
   return <IconFile size={size} />;
@@ -134,6 +149,39 @@ export function formatArtifactFileSize(bytes?: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function readVideoMetadata(mediaUrl: string): Promise<{ durationMs: number; widthPx: number; heightPx: number }> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const cleanup = () => {
+      video.removeAttribute("src");
+      video.load();
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("動画metadataの読み込みがtimeoutしました。"));
+    }, 15_000);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      const durationMs = Math.round(video.duration * 1000);
+      const widthPx = video.videoWidth;
+      const heightPx = video.videoHeight;
+      cleanup();
+      if (!Number.isSafeInteger(durationMs) || durationMs < 0 || widthPx <= 0 || heightPx <= 0) {
+        reject(new Error("動画の長さまたはdimensionsを取得できませんでした。"));
+        return;
+      }
+      resolve({ durationMs, widthPx, heightPx });
+    };
+    video.onerror = () => {
+      window.clearTimeout(timer);
+      cleanup();
+      reject(new Error("この動画を内蔵decoderで読み込めません。形式を確認してください。"));
+    };
+    video.src = mediaUrl;
+  });
 }
 
 export function resolveArtifactSourceLabel(artifact: Artifact, data: WorkspaceData): string {
@@ -445,7 +493,7 @@ export async function retargetLinkedArtifact(
 
 export function canPreviewArtifactInApp(artifact: Artifact): boolean {
   const category = artifactFileCategory(artifact);
-  if (artifact.media_kind === "audio") return true;
+  if (artifact.media_kind === "audio" || artifact.media_kind === "video") return true;
   if (category !== "image" && category !== "markdown") return false;
   const target = artifactOpenTarget(artifact);
   if (!target) return false;
@@ -740,6 +788,10 @@ export function ArtifactSection({
   const [urlDraft, setUrlDraft] = useState("");
   const [urlFormOpen, setUrlFormOpen] = useState(false);
   const [noteExportPickerOpen, setNoteExportPickerOpen] = useState(false);
+  const [videoLoading, setVideoLoading] = useState(true);
+  const [videoBusySessionId, setVideoBusySessionId] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState("");
+  const [preparedVideos, setPreparedVideos] = useState<VideoImportPrepared[]>([]);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const sectionRef = useRef<HTMLElement | null>(null);
   const attached = artifacts
@@ -757,6 +809,30 @@ export function ArtifactSection({
   useEffect(() => {
     if (urlFormOpen) urlInputRef.current?.focus();
   }, [urlFormOpen]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isVideoArtifactSourceType(sourceType)) {
+      setVideoLoading(false);
+      setPreparedVideos([]);
+      return () => { active = false; };
+    }
+    setVideoLoading(true);
+    workspaceApi.listPreparedVideoImports()
+      .then((entries) => {
+        if (!active) return;
+        setPreparedVideos(entries.filter((entry) => (
+          entry.recoveryReason === "manifest_invalid"
+          || (entry.sourceType === sourceType && entry.sourceId === sourceId)
+        )));
+        setVideoError("");
+      })
+      .catch((error) => {
+        if (active) setVideoError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => { if (active) setVideoLoading(false); });
+    return () => { active = false; };
+  }, [sourceId, sourceType]);
 
   function effectiveThemeId(): string | null {
     const drawer = sectionRef.current?.closest("aside.drawer");
@@ -821,7 +897,12 @@ export function ArtifactSection({
   }
 
   async function importFiles(files: File[]) {
+    const mediaFiles = files.filter((file) => isDedicatedMediaFileName(file.name));
+    if (mediaFiles.length) {
+      setToast("音声・動画は専用の取り込み操作を使ってください。動画は「Video」から添付できます。", "warning");
+    }
     const requestFiles = files
+      .filter((file) => !isDedicatedMediaFileName(file.name))
       .map((file) => ({ path: workspaceApi.pathForFile(file), name: file.name }))
       .filter((entry) => entry.path);
     // ファイルは既定で managed（コピー）。URL は別経路。
@@ -845,6 +926,66 @@ export function ArtifactSection({
       await importLinkedFromPaths(result.files);
     } catch (error) {
       setToast(`参照リンクを選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function commitPreparedVideo(prepared: VideoImportPrepared) {
+    setVideoBusySessionId(prepared.sessionId);
+    setVideoError("");
+    try {
+      const metadata = prepared.status === "ready"
+        ? await readVideoMetadata(prepared.mediaUrl)
+        : {
+            durationMs: prepared.durationMs || 0,
+            widthPx: prepared.widthPx || 0,
+            heightPx: prepared.heightPx || 0,
+          };
+      await workspaceApi.commitVideoImport({ sessionId: prepared.sessionId, ...metadata });
+      setPreparedVideos((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      setToast(`動画「${prepared.filename}」を添付しました。`, "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setVideoError(message);
+      setToast(`動画を添付できませんでした。${message} 保存待ち動画から再試行できます。`, "danger");
+    } finally {
+      setVideoBusySessionId(null);
+    }
+  }
+
+  async function pickVideo(storageMode: VideoStorageMode) {
+    if (!isVideoArtifactSourceType(sourceType)) return;
+    setVideoError("");
+    if (!videoOwnerThemeIsSaved(effectiveThemeId(), String(themeId || "").trim() || null)) {
+      const message = "Themeの変更を先に保存してから、動画を添付してください。";
+      setVideoError(message);
+      setToast(message, "warning");
+      return;
+    }
+    try {
+      const result = await workspaceApi.prepareVideoImport({
+        storageMode,
+        sourceType,
+        sourceId,
+      });
+      if (result.canceled) return;
+      setPreparedVideos((current) => [result, ...current.filter((entry) => entry.sessionId !== result.sessionId)]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setVideoError(message);
+      setToast(`動画を選べませんでした。${message}`, "danger");
+    }
+  }
+
+  async function discardPreparedVideo(prepared: VideoImportPrepared) {
+    setVideoBusySessionId(prepared.sessionId);
+    try {
+      await workspaceApi.cancelVideoImport(prepared.sessionId);
+      setPreparedVideos((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      setToast("保存待ち動画を破棄しました。", "info");
+    } catch (error) {
+      setVideoError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setVideoBusySessionId(null);
     }
   }
 
@@ -921,8 +1062,10 @@ export function ArtifactSection({
     void linkUrls(urls);
   }
 
+  const videoState = videoLoading ? "loading" : videoError ? "error" : preparedVideos.length > 0 || attached.some((entry) => entry.media_kind === "video") ? "success" : "empty";
+
   return (
-    <section className="artifact-section" ref={sectionRef}>
+    <section className="artifact-section" ref={sectionRef} data-video-state={isVideoArtifactSourceType(sourceType) ? videoState : undefined} aria-busy={isVideoArtifactSourceType(sourceType) && videoLoading || undefined}>
       <div className="section-heading artifact-section-heading">
         <h3>
           Artifacts
@@ -940,6 +1083,9 @@ export function ArtifactSection({
           >
             <IconPlus size={14} />Artifact
           </button>
+          {isVideoArtifactSourceType(sourceType) && <button type="button" className="secondary-button compact" disabled={videoLoading || importing || Boolean(videoBusySessionId)} aria-label={videoLoading ? "保存待ち動画を確認中…" : "動画を添付"} onClick={() => { void pickVideo("managed"); }} title="動画をTasken管理へコピーして添付">
+            <IconVideo size={14} />Video
+          </button>}
           <button
             type="button"
             className="secondary-button compact"
@@ -1013,6 +1159,28 @@ export function ArtifactSection({
           <button type="button" className="primary-button compact" onClick={chooseDirectory}>保存先を選ぶ</button>
         </div>
       )}
+      {isVideoArtifactSourceType(sourceType) && (videoError || preparedVideos.length > 0) && <div className="artifact-video-import-state" aria-live="polite">
+        {videoError ? <div className="artifact-video-list-error" role="alert"><span>保存待ち動画を確認できませんでした。</span><button type="button" className="text-button compact" disabled={videoLoading} onClick={() => {
+          setVideoLoading(true);
+          workspaceApi.listPreparedVideoImports().then((entries) => {
+            setPreparedVideos(entries.filter((entry) => entry.recoveryReason === "manifest_invalid" || (entry.sourceType === sourceType && entry.sourceId === sourceId)));
+            setVideoError("");
+          }).catch((error) => setVideoError(error instanceof Error ? error.message : String(error))).finally(() => setVideoLoading(false));
+        }}>一覧を再試行</button></div> : (
+          <div className="artifact-video-recovery" aria-label="保存待ち動画">
+            {preparedVideos.map((prepared) => {
+              const busy = videoBusySessionId === prepared.sessionId;
+              return <div key={prepared.sessionId} className="artifact-video-recovery-row">
+                <span><strong>{prepared.filename}</strong>{prepared.storageMode ? ` · ${prepared.storageMode === "managed" ? "Tasken管理" : "参照"}` : ""} · {formatArtifactFileSize(prepared.fileSize)}</span>
+                {prepared.status === "ready" && prepared.mediaUrl && <video controls preload="metadata" src={prepared.mediaUrl} aria-label={`${prepared.filename}の保存前プレビュー`} />}
+                {prepared.canCommit && <button type="button" className="primary-button compact" disabled={busy} onClick={() => { void commitPreparedVideo(prepared); }}>添付する</button>}
+                {prepared.canRetry && <button type="button" className="secondary-button compact" disabled={busy} onClick={() => { void commitPreparedVideo(prepared); }}>再試行</button>}
+                {prepared.canDiscard && <button type="button" className="text-button compact" disabled={busy} onClick={() => { void discardPreparedVideo(prepared); }}>破棄</button>}
+              </div>;
+            })}
+          </div>
+        )}
+      </div>}
       {attached.length > 0 && (
         <ul className="artifact-list">
           {attached.map((artifact) => (
@@ -1056,6 +1224,9 @@ export function ArtifactSection({
         >
           参照のみ
         </button>
+        {isVideoArtifactSourceType(sourceType) && <button type="button" className="text-button compact" disabled={videoLoading || importing || Boolean(videoBusySessionId)} onClick={() => { void pickVideo("linked"); }} title="動画をコピーせず、場所だけ参照する">
+          動画を参照
+        </button>}
       </div>
       {noteExportPickerOpen && data && (
         <ChatRefArtifactLinkDialog

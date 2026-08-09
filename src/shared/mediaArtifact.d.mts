@@ -1,4 +1,5 @@
 export const AUDIO_MEDIA_TYPES: Readonly<Record<string, string>>;
+export const VIDEO_MEDIA_TYPES: Readonly<Record<string, string>>;
 export const AUDIO_CAPTURE_METHODS: readonly ["audio_import", "microphone", "external_dictation", "transcript_import"];
 export const AUDIO_MEDIA_STATUSES: readonly ["preparing", "ready", "failed"];
 export const TRANSCRIPTION_STATUSES: readonly ["not_requested", "queued", "processing", "completed", "failed"];
@@ -10,6 +11,9 @@ export const MEDIA_AVAILABILITY_LABELS: Readonly<Record<MediaAvailability, strin
 export function mediaExtensionOf(fileName: unknown): string;
 export function audioMimeTypeOf(fileName: unknown): string | null;
 export function isSupportedAudioFileName(fileName: unknown): boolean;
+export function videoMimeTypeOf(fileName: unknown): string | null;
+export function isSupportedVideoFileName(fileName: unknown): boolean;
 export function validateAudioArtifactMetadata<T extends Record<string, unknown>>(input: T): T;
+export function validateVideoArtifactMetadata<T extends Record<string, unknown>>(input: T): T;
 export function validateAudioCaptureEntry<T extends Record<string, unknown>>(input: T): T;
 export function formatMediaDuration(durationMs: unknown): string;

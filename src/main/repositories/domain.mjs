@@ -4,7 +4,7 @@ import { normalizeActivityEvent, ACTIVITY_EVENT_KINDS } from "../../shared/activ
 import { normalizeRepositoryContext, normalizeRepositoryLinkFields } from "../../shared/repositoryContext.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
-import { validateAudioArtifactMetadata, validateAudioCaptureEntry } from "../../shared/mediaArtifact.mjs";
+import { validateAudioArtifactMetadata, validateAudioCaptureEntry, validateVideoArtifactMetadata } from "../../shared/mediaArtifact.mjs";
 import {
   assertEntityPayload,
   assertEntityType as assertRegistryEntityType,
@@ -469,7 +469,8 @@ export function validateEntity(type, input) {
     if (input.export_format != null && input.export_format !== "" && !["markdown", "pdf"].includes(input.export_format)) {
       throw new Error("artifact.export_formatが不正です。");
     }
-    if (input.media_kind != null) validateAudioArtifactMetadata(input);
+    if (input.media_kind === "audio") validateAudioArtifactMetadata(input);
+    if (input.media_kind === "video") validateVideoArtifactMetadata(input);
     if (input.media_availability != null && !mediaAvailabilities.has(input.media_availability)) {
       throw new Error("artifact.media_availabilityが不正です。");
     }

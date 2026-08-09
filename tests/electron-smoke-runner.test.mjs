@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildElectronSmokeArgs, createSmokePaths, restartArtifactIdFromResult } from "../scripts/run-electron-smoke.mjs";
+import { buildElectronSmokeArgs, createSmokePaths, restartArtifactIdFromResult, restartArtifactIdsFromResult } from "../scripts/run-electron-smoke.mjs";
 import { acquireSmokeClipboardLock } from "../src/main/smokeClipboardLock.mjs";
 
 test("Electron smoke runner creates unique explicit userData and result paths", () => {
@@ -24,14 +24,23 @@ test("Electron smoke runner creates unique explicit userData and result paths", 
 test("Electron smoke restart reuses userData/result and requires restart-ready with an Artifact UUID", () => {
   const paths = createSmokePaths("C:/temp", "restart");
   const artifactId = "123e4567-e89b-42d3-a456-426614174000";
-  const args = buildElectronSmokeArgs(paths, { restartArtifactId: artifactId });
+  const videoArtifactId = "223e4567-e89b-42d3-a456-426614174000";
+  const videoOwnerId = "323e4567-e89b-42d3-a456-426614174000";
+  const args = buildElectronSmokeArgs(paths, { restartArtifactId: artifactId, restartVideoArtifactId: videoArtifactId, restartVideoOwnerId: videoOwnerId });
   assert.ok(args.includes("--smoke-restart-check"));
   assert.ok(args.includes(`--smoke-media-artifact-id=${artifactId}`));
+  assert.ok(args.includes(`--smoke-video-artifact-id=${videoArtifactId}`));
+  assert.ok(args.includes(`--smoke-video-owner-id=${videoOwnerId}`));
   assert.ok(args.includes(`--user-data-dir=${paths.userDataDir}`));
   assert.ok(args.includes(`--smoke-result-path=${paths.resultPath}`));
   assert.equal(restartArtifactIdFromResult({ stage: "restart-ready", audioArtifactId: artifactId }), artifactId);
   assert.equal(restartArtifactIdFromResult({ stage: "passed", audioArtifactId: artifactId }), null);
   assert.equal(restartArtifactIdFromResult({ stage: "restart-ready", audioArtifactId: "not-an-id" }), null);
+  assert.deepEqual(restartArtifactIdsFromResult({ stage: "restart-ready", audioArtifactId: artifactId, videoArtifactId, smokeTaskId: videoOwnerId }), { audioArtifactId: artifactId, videoArtifactId, videoOwnerId });
+  assert.equal(restartArtifactIdsFromResult({ stage: "restart-ready", audioArtifactId: artifactId, videoArtifactId: "bad" }), null);
+  const packagedArgs = buildElectronSmokeArgs(paths, { packaged: true });
+  assert.ok(packagedArgs.includes("--smoke-require-packaged"));
+  assert.equal(packagedArgs.includes("."), false);
 });
 
 test("native clipboard smoke lock serializes only the shared interval and records ownership", async () => {

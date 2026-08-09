@@ -93,6 +93,12 @@ const api: ResearchDeskApi = {
     listPreparedAudio: () => ipcRenderer.invoke(IPC.audioCaptureListPrepared),
     commitAudio: (request) => ipcRenderer.invoke(IPC.audioCaptureCommit, request),
     cancelAudio: (request) => ipcRenderer.invoke(IPC.audioCaptureCancel, request),
+    prepareVideo: (request) => ipcRenderer.invoke(IPC.videoImportPrepare, request),
+    listPreparedVideo: () => ipcRenderer.invoke(IPC.videoImportListPrepared),
+    commitVideo: (request) => ipcRenderer.invoke(IPC.videoImportCommit, request),
+    cancelVideo: (request) => ipcRenderer.invoke(IPC.videoImportCancel, request),
+    openArtifactExternal: (request) => ipcRenderer.invoke(IPC.mediaArtifactOpenExternal, request),
+    inspectArtifact: (request) => ipcRenderer.invoke(IPC.mediaArtifactInspect, request),
   },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),

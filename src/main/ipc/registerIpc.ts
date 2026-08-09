@@ -12,12 +12,16 @@ import {
   parseAudioCaptureCancelRequest,
   parseAudioCaptureCommitRequest,
   parseAudioCapturePrepareRequest,
+  parseMediaArtifactOpenRequest,
+  parseVideoImportCommitRequest,
+  parseVideoImportPrepareRequest,
 } from "../../shared/mediaCapture";
-import { projectEntityForRenderer, projectWorkspaceForRenderer } from "../rendererMediaProjection";
+import { projectCommandReceiptForRenderer, projectEntityForRenderer, projectSnapshotInspectForRenderer, projectWorkspaceForRenderer } from "../rendererMediaProjection";
 import type { CommandReceipt } from "../../shared/applicationCommand";
 import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
 import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
+import { assertRendererBootstrapContainsNoMedia } from "../services/snapshotMediaValidation";
 import {
   isViewPreferenceId,
   normalizeViewPreference,
@@ -111,6 +115,14 @@ function requireAudioCaptureThemeId(repository: WorkspaceRepository, request: un
   return themeId;
 }
 
+function requireVideoImportRequest(repository: WorkspaceRepository, request: unknown) {
+  const parsed = parseVideoImportPrepareRequest(request);
+  const ownerType = parsed.sourceType === "report" ? "note" : parsed.sourceType;
+  const owner = repository.get(ownerType, parsed.sourceId) as Entity | null;
+  if (!owner || owner.deleted_at) throw new Error("動画の添付先が見つかりません。画面を再読み込みしてください。");
+  return parsed;
+}
+
 export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
@@ -123,7 +135,10 @@ export function registerIpc(
   notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number, options?: { senderReceivesAll?: boolean }) => void = () => {},
 ): void {
   ipcMain.handle(IPC.workspaceLoad, () => projectWorkspaceForRenderer(service.loadWorkspace()));
-  ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => projectWorkspaceForRenderer(repository.bootstrap(legacy)));
+  ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => {
+    assertRendererBootstrapContainsNoMedia(legacy);
+    return projectWorkspaceForRenderer(repository.bootstrap(legacy));
+  });
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.activityCanonicalRootStatus, () => service.getActivityCanonicalRootStatus());
   ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) => service.openActivityCanonicalRef(ref));
@@ -259,6 +274,55 @@ export function registerIpc(
       throw projectMediaCaptureIpcError("cancel", error);
     }
   });
+  ipcMain.handle(IPC.videoImportPrepare, async (event, request) => {
+    try {
+      const parsed = requireVideoImportRequest(repository, request);
+      const window = BrowserWindow.fromWebContents(event.sender) || undefined;
+      const options = {
+        title: parsed.storageMode === "managed" ? "Taskenへ取り込む動画を選択" : "参照する動画を選択",
+        properties: ["openFile"],
+        filters: [{ name: "動画", extensions: ["mp4", "m4v", "mov", "webm"] }],
+      } satisfies Electron.OpenDialogOptions;
+      const selected = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+      if (selected.canceled || !selected.filePaths[0]) return { canceled: true as const };
+      return { canceled: false as const, ...mediaCapture.prepareVideoFile(selected.filePaths[0], parsed) };
+    } catch (error) {
+      throw projectMediaCaptureIpcError("prepare", error);
+    }
+  });
+  ipcMain.handle(IPC.videoImportListPrepared, (_event, ...args) => {
+    try {
+      if (args.length > 0) throw new Error("保存待ち動画の一覧requestに引数は指定できません。");
+      return mediaCapture.listPreparedVideo();
+    } catch (error) {
+      throw projectMediaCaptureIpcError("list", error);
+    }
+  });
+  ipcMain.handle(IPC.videoImportCommit, (event, request) => {
+    try {
+      const result = mediaCapture.commitVideo(parseVideoImportCommitRequest(request));
+      notifyCommandApplied(result.receipt, event.sender.id, { senderReceivesAll: true });
+      return result.publicResult;
+    } catch (error) {
+      throw projectMediaCaptureIpcError("commit", error);
+    }
+  });
+  ipcMain.handle(IPC.videoImportCancel, (_event, request) => {
+    try {
+      const { sessionId } = parseAudioCaptureCancelRequest(request);
+      return mediaCapture.cancel(sessionId);
+    } catch (error) {
+      throw projectMediaCaptureIpcError("cancel", error);
+    }
+  });
+  ipcMain.handle(IPC.mediaArtifactOpenExternal, (_event, request) => {
+    const { artifactId } = parseMediaArtifactOpenRequest(request);
+    return mediaCapture.openArtifactExternally(artifactId);
+  });
+  ipcMain.handle(IPC.mediaArtifactInspect, (_event, request) => {
+    const { artifactId } = parseMediaArtifactOpenRequest(request);
+    return mediaCapture.inspectArtifactMedia(artifactId);
+  });
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());
   ipcMain.handle(IPC.appReleasePageOpen, (_event, url) => service.openReleasePage(typeof url === "string" ? url : undefined));
@@ -308,7 +372,7 @@ export function registerIpc(
       return service.saveCanonicalNote({ ...input, entity: note }, operations) as import("../../shared/types/workspace").Entity;
     });
     notifyCommandApplied(receipt, event.sender.id);
-    return receipt;
+    return projectCommandReceiptForRenderer(receipt);
   });
   ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {
     if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
@@ -348,18 +412,18 @@ export function registerIpc(
   ipcMain.handle(IPC.applicationCommand, (event, envelope) => {
     const receipt = applicationCommands.execute(envelope);
     notifyCommandApplied(receipt, event.sender.id);
-    return receipt;
+    return projectCommandReceiptForRenderer(receipt);
   });
   ipcMain.handle(IPC.applicationCommandBatch, (event, envelopes) => {
     if (!Array.isArray(envelopes) || !envelopes.length) throw new Error("Application Command batchが空です。");
     const receipts = applicationCommands.executeBatch(envelopes);
     notifyCommandApplied(receipts, event.sender.id);
-    return receipts;
+    return receipts.map(projectCommandReceiptForRenderer);
   });
   ipcMain.handle(IPC.snapshotExport, () => service.exportSnapshot());
-  ipcMain.handle(IPC.snapshotInspect, () => service.inspectSnapshot());
+  ipcMain.handle(IPC.snapshotInspect, async () => projectSnapshotInspectForRenderer(await service.inspectSnapshot()));
   ipcMain.handle(IPC.snapshotApply, (_event, token, decisions) =>
-    service.applySnapshot(requireId(token), decisions && typeof decisions === "object" && !Array.isArray(decisions) ? (decisions as Record<string, string>) : {}));
+    projectWorkspaceForRenderer(service.applySnapshot(requireId(token), decisions && typeof decisions === "object" && !Array.isArray(decisions) ? (decisions as Record<string, string>) : {})));
   ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
   ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>
     sharedSync.configure(requireText(directory, "同期フォルダ")));

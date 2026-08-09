@@ -213,6 +213,24 @@ export const workspaceApi = {
   cancelAudioCapture(sessionId: string) {
     return desktopApi().mediaCapture.cancelAudio({ sessionId });
   },
+  prepareVideoImport(request: import("../../../shared/mediaCapture").VideoImportPrepareRequest) {
+    return desktopApi().mediaCapture.prepareVideo(request);
+  },
+  listPreparedVideoImports() {
+    return desktopApi().mediaCapture.listPreparedVideo();
+  },
+  commitVideoImport(request: import("../../../shared/mediaCapture").VideoImportCommitRequest) {
+    return desktopApi().mediaCapture.commitVideo(request);
+  },
+  cancelVideoImport(sessionId: string) {
+    return desktopApi().mediaCapture.cancelVideo({ sessionId });
+  },
+  openMediaArtifactExternal(artifactId: string) {
+    return desktopApi().mediaCapture.openArtifactExternal({ artifactId });
+  },
+  inspectMediaArtifact(artifactId: string) {
+    return desktopApi().mediaCapture.inspectArtifact({ artifactId });
+  },
   reload() {
     return desktopApi().app.reload();
   },

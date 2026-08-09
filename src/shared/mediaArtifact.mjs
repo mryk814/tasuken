@@ -1,8 +1,8 @@
 /**
  * Media Artifact の保存契約。
  *
- * Phase 0 では audio だけを有効化する。video は #352 が同じ共通fieldへ
- * 追加できるが、未検証形式を先回りして受理しない。
+ * audio / video は同じ Media Artifact field と安全な再生境界を使う。
+ * 拡張子と MIME の対応をここだけで固定し、未検証形式は受理しない。
  */
 
 export const AUDIO_MEDIA_TYPES = Object.freeze({
@@ -15,6 +15,13 @@ export const AUDIO_MEDIA_TYPES = Object.freeze({
   opus: "audio/ogg",
   m4a: "audio/mp4",
   mp4: "audio/mp4",
+});
+
+export const VIDEO_MEDIA_TYPES = Object.freeze({
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
 });
 
 export const AUDIO_CAPTURE_METHODS = Object.freeze([
@@ -75,10 +82,18 @@ export function isSupportedAudioFileName(fileName) {
   return Boolean(audioMimeTypeOf(fileName));
 }
 
-function requireFiniteNonNegativeInteger(value, field) {
+export function videoMimeTypeOf(fileName) {
+  return VIDEO_MEDIA_TYPES[mediaExtensionOf(fileName)] || null;
+}
+
+export function isSupportedVideoFileName(fileName) {
+  return Boolean(videoMimeTypeOf(fileName));
+}
+
+function requireFiniteNonNegativeInteger(value, field, maximum = Number.MAX_SAFE_INTEGER) {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric) || numeric < 0) {
-    throw new Error(`${field}は0以上の整数で指定してください。`);
+  if (!Number.isSafeInteger(numeric) || numeric < 0 || numeric > maximum) {
+    throw new Error(`${field}は0以上${maximum}以下の安全な整数で指定してください。`);
   }
   return numeric;
 }
@@ -96,6 +111,34 @@ export function validateAudioArtifactMetadata(input) {
   }
   requireFiniteNonNegativeInteger(input.file_size, "artifact.file_size");
   if (input.duration_ms != null) requireFiniteNonNegativeInteger(input.duration_ms, "artifact.duration_ms");
+  if (typeof input.content_hash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(input.content_hash)) {
+    throw new Error("artifact.content_hashはsha256形式で指定してください。");
+  }
+  if (input.container != null && (typeof input.container !== "string" || !input.container.trim())) {
+    throw new Error("artifact.containerが不正です。");
+  }
+  if (input.codec != null && (typeof input.codec !== "string" || !input.codec.trim())) {
+    throw new Error("artifact.codecが不正です。");
+  }
+  return input;
+}
+
+/** video Artifact の media field だけを strict に検証する。 */
+export function validateVideoArtifactMetadata(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("video Artifactのmetadataが不正です。");
+  }
+  if (input.media_kind !== "video") throw new Error("artifact.media_kindはvideoである必要があります。");
+  const expectedMime = videoMimeTypeOf(input.filename);
+  if (!expectedMime) throw new Error("対応していない動画形式です。MP4、M4V、MOV、WebMを選択してください。");
+  if (input.mime_type !== expectedMime) {
+    throw new Error(`artifact.mime_typeが拡張子と一致しません（expected: ${expectedMime}）。`);
+  }
+  requireFiniteNonNegativeInteger(input.file_size, "artifact.file_size", 1024 * 1024 * 1024 * 1024);
+  requireFiniteNonNegativeInteger(input.duration_ms, "artifact.duration_ms", 7 * 24 * 60 * 60 * 1000);
+  const width = requireFiniteNonNegativeInteger(input.width_px, "artifact.width_px", 16384);
+  const height = requireFiniteNonNegativeInteger(input.height_px, "artifact.height_px", 16384);
+  if (width === 0 || height === 0) throw new Error("artifactの動画dimensionsは1px以上で指定してください。");
   if (typeof input.content_hash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(input.content_hash)) {
     throw new Error("artifact.content_hashはsha256形式で指定してください。");
   }

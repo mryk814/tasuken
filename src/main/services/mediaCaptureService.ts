@@ -8,19 +8,24 @@ import type {
   AudioCaptureCommitResult,
   AudioCapturePrepared,
   InternalAudioCaptureCommitResult,
+  InternalVideoImportCommitResult,
+  VideoArtifactSourceType,
+  VideoImportCommitRequest,
+  VideoImportPrepared,
+  VideoStorageMode,
 } from "../../shared/mediaCapture";
-import { audioMimeTypeOf, mediaExtensionOf } from "../../shared/mediaArtifact.mjs";
+import { audioMimeTypeOf, mediaExtensionOf, videoMimeTypeOf } from "../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../shared/mediaArtifact.mjs";
 import { resolveUniqueArtifactFileName, safeArtifactFileName } from "./artifactStorage.mjs";
 import type { Entity } from "../../shared/types/workspace";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 import { buildThemeFolderManifest, THEME_FOLDER_MANIFEST, themeFolderManifestMatches } from "../../shared/storageResolver.mjs";
-import { PERSONAL_DEFAULT_THEME_ID } from "../../shared/themeRef.mjs";
 
 const MANIFEST_SCHEMA = "tasken-media-session/v1";
 const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const HASH_CHUNK_SIZE = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+const EXTERNAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 
 type SessionState = "prepared" | "finalizing" | "finalized" | "committed";
 
@@ -34,6 +39,13 @@ interface AudioSessionManifest {
   fileSize: number;
   contentHash: string;
   themeId: string | null;
+  storageMode?: VideoStorageMode;
+  sourceType?: VideoArtifactSourceType;
+  sourceId?: string;
+  sourcePath?: string;
+  sourceRealPath?: string;
+  sourceDevice?: string;
+  sourceInode?: string;
   stagedFileName: string;
   createdAt: string;
   updatedAt: string;
@@ -43,13 +55,15 @@ interface AudioSessionManifest {
   managedRootDevice?: string;
   managedRootInode?: string;
   durationMs?: number;
+  widthPx?: number;
+  heightPx?: number;
   commandIssuedAt?: string;
   command?: CommandEnvelope;
   recoveryError?: "final_file_missing" | "final_hash_mismatch" | "commit_failed";
 }
 
 interface MediaRepository {
-  get(type: "artifact", id: string, includeDeleted?: boolean): Entity | null;
+  get(type: "artifact" | "project" | "theme" | "task" | "note" | "capture_entry", id: string, includeDeleted?: boolean): Entity | null;
 }
 
 interface AudioCommandExecutor {
@@ -68,6 +82,7 @@ export interface MediaCaptureServiceOptions {
   resolveManagedDirectory: (themeId: string | null) => DirectoryResolution;
   idFactory?: () => string;
   now?: () => string;
+  openPath?: (filePath: string) => Promise<string>;
 }
 
 function assertSessionId(value: unknown): string {
@@ -117,7 +132,7 @@ function hashFileDescriptor(descriptor: number): string {
   return `sha256:${hash.digest("hex")}`;
 }
 
-function hasExpectedAudioSignature(descriptor: number, mimeType: string): boolean {
+function hasExpectedMediaSignature(descriptor: number, mimeType: string): boolean {
   const header = Buffer.alloc(16);
   const length = fs.readSync(descriptor, header, 0, header.length, 0);
   const bytes = header.subarray(0, length);
@@ -129,34 +144,41 @@ function hasExpectedAudioSignature(descriptor: number, mimeType: string): boolea
       || length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0;
   }
   if (mimeType === "audio/mp4") return length >= 12 && bytes.subarray(4, 8).toString("ascii") === "ftyp";
+  if (mimeType === "video/mp4" || mimeType === "video/quicktime") {
+    return length >= 12 && bytes.subarray(4, 8).toString("ascii") === "ftyp";
+  }
+  if (mimeType === "video/webm") return length >= 4 && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
   return false;
 }
 
-function copyVerifiedSourceToExclusiveStage(sourcePath: string, stagedPath: string, mimeType: string): { fileSize: number; contentHash: string } {
+function copyVerifiedSourceToExclusiveStage(sourcePath: string, stagedPath: string, mimeType: string, mediaLabel = "音声"): { fileSize: number; contentHash: string; sourceRealPath: string; sourceDevice: string; sourceInode: string } {
   let sourceDescriptor: number | null = null;
   let stagedDescriptor: number | null = null;
   try {
-    assertNoSymlinkOrJunctionAncestors(sourcePath, "音声Capture source");
+    assertNoSymlinkOrJunctionAncestors(sourcePath, `${mediaLabel} source`);
+    const sourceRealPath = fs.realpathSync.native(sourcePath);
     const before = fs.lstatSync(sourcePath);
     if (before.isSymbolicLink() || !before.isFile()) {
-      throw new UnsafeMediaSourceError("symlink/junctionやファイル以外は音声Captureへ取り込めません。");
+      throw new UnsafeMediaSourceError(`symlink/junctionやファイル以外は${mediaLabel}へ取り込めません。`);
     }
-    if (before.size <= 0) throw new Error("空の音声ファイルは取り込めません。録音元を確認してください。");
+    if (before.size <= 0) throw new Error(`空の${mediaLabel}ファイルは取り込めません。元ファイルを確認してください。`);
     const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
     sourceDescriptor = fs.openSync(sourcePath, fs.constants.O_RDONLY | noFollow);
     const opened = fs.fstatSync(sourceDescriptor);
     const afterOpen = fs.lstatSync(sourcePath);
+    const afterRealPath = fs.realpathSync.native(sourcePath);
     if (
       !opened.isFile()
       || afterOpen.isSymbolicLink()
       || !afterOpen.isFile()
       || !sameFileIdentity(before, opened)
       || !sameFileIdentity(opened, afterOpen)
+      || afterRealPath !== sourceRealPath
     ) {
-      throw new UnsafeMediaSourceError("音声Capture sourceが確認中に差し替えられました。取り込みを中止しました。");
+      throw new UnsafeMediaSourceError(`${mediaLabel} sourceが確認中に差し替えられました。取り込みを中止しました。`);
     }
-    if (!hasExpectedAudioSignature(sourceDescriptor, mimeType)) {
-      throw new Error("音声ファイルの内容と拡張子が一致しません。正しい音声ファイルを選択してください。");
+    if (!hasExpectedMediaSignature(sourceDescriptor, mimeType)) {
+      throw new Error(`${mediaLabel}ファイルの内容と拡張子が一致しません。正しいファイルを選択してください。`);
     }
     stagedDescriptor = fs.openSync(
       stagedPath,
@@ -183,7 +205,13 @@ function copyVerifiedSourceToExclusiveStage(sourcePath: string, stagedPath: stri
     if (!stagedStat.isFile() || stagedStat.size !== opened.size) {
       throw new Error("音声ファイルをtemporary保存へ完全にコピーできませんでした。空き容量を確認してください。");
     }
-    return { fileSize: stagedStat.size, contentHash: `sha256:${hash.digest("hex")}` };
+    return {
+      fileSize: stagedStat.size,
+      contentHash: `sha256:${hash.digest("hex")}`,
+      sourceRealPath,
+      sourceDevice: String(opened.dev),
+      sourceInode: String(opened.ino),
+    };
   } finally {
     if (stagedDescriptor !== null) fs.closeSync(stagedDescriptor);
     if (sourceDescriptor !== null) fs.closeSync(sourceDescriptor);
@@ -205,6 +233,7 @@ function existingPathSegments(target: string): string[] {
 }
 
 class UnsafeMediaSourceError extends Error {}
+class VideoOwnerBindingError extends Error {}
 
 function assertNoSymlinkOrJunctionAncestors(target: string, label: string): void {
   for (const candidate of existingPathSegments(target)) {
@@ -318,10 +347,127 @@ function baseNameWithoutExtension(fileName: string): string {
 
 function validDuration(value: unknown): number {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric) || numeric < 0) {
+  if (!Number.isSafeInteger(numeric) || numeric < 0 || numeric > 7 * 24 * 60 * 60 * 1000) {
     throw new Error("音声の長さを取得できませんでした。対応形式を確認して、もう一度選択してください。");
   }
   return numeric;
+}
+
+function linkedIdentityMatches(
+  filePath: string,
+  descriptor: number,
+  identity: { sourceRealPath?: unknown; sourceDevice?: unknown; sourceInode?: unknown },
+): boolean {
+  try {
+    const stat = fs.fstatSync(descriptor);
+    return typeof identity.sourceRealPath === "string"
+      && fs.realpathSync.native(filePath) === identity.sourceRealPath
+      && String(stat.dev) === identity.sourceDevice
+      && String(stat.ino) === identity.sourceInode;
+  } catch {
+    return false;
+  }
+}
+
+function publishVerifiedStageExclusive(stagedPath: string, finalPath: string, expectedSize: number, expectedHash: string): void {
+  let sourceDescriptor: number | null = null;
+  let finalDescriptor: number | null = null;
+  let createdFinal = false;
+  try {
+    assertNoSymlinkOrJunctionAncestors(stagedPath, "Media temporary source");
+    const before = fs.lstatSync(stagedPath);
+    if (before.isSymbolicLink() || !before.isFile()) throw new UnsafeMediaSourceError("Media temporary sourceが安全な通常fileではありません。");
+    const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+    sourceDescriptor = fs.openSync(stagedPath, fs.constants.O_RDONLY | noFollow);
+    const opened = fs.fstatSync(sourceDescriptor);
+    const afterOpen = fs.lstatSync(stagedPath);
+    if (!opened.isFile() || afterOpen.isSymbolicLink() || !afterOpen.isFile() || !sameFileIdentity(before, opened) || !sameFileIdentity(opened, afterOpen) || opened.size !== expectedSize) {
+      throw new UnsafeMediaSourceError("Media temporary sourceがpublish前に差し替えられました。");
+    }
+    if (hashFileDescriptor(sourceDescriptor) !== expectedHash) throw new Error("Media temporary sourceのhashが一致しません。");
+    finalDescriptor = fs.openSync(finalPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow, 0o600);
+    createdFinal = true;
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(HASH_CHUNK_SIZE);
+    let position = 0;
+    while (position < opened.size) {
+      const bytesRead = fs.readSync(sourceDescriptor, buffer, 0, Math.min(buffer.length, opened.size - position), position);
+      if (bytesRead <= 0) throw new Error("Media temporary sourceを最後までpublishできませんでした。");
+      let written = 0;
+      while (written < bytesRead) {
+        const bytesWritten = fs.writeSync(finalDescriptor, buffer, written, bytesRead - written, position + written);
+        if (bytesWritten <= 0) throw new Error("managed Media fileへ完全に書き込めませんでした。");
+        written += bytesWritten;
+      }
+      hash.update(buffer.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    fs.fsyncSync(finalDescriptor);
+    const finalStat = fs.fstatSync(finalDescriptor);
+    if (finalStat.size !== expectedSize || `sha256:${hash.digest("hex")}` !== expectedHash) throw new Error("managed Media fileのpublish検証に失敗しました。");
+  } catch (error) {
+    if (finalDescriptor !== null) {
+      fs.closeSync(finalDescriptor);
+      finalDescriptor = null;
+    }
+    if (createdFinal) fs.rmSync(finalPath, { force: true });
+    throw error;
+  } finally {
+    if (finalDescriptor !== null) fs.closeSync(finalDescriptor);
+    if (sourceDescriptor !== null) fs.closeSync(sourceDescriptor);
+  }
+}
+
+function copyVerifiedDescriptorToExclusiveFile(sourceDescriptor: number, finalPath: string, expectedSize: number, expectedHash: string): void {
+  let finalDescriptor: number | null = null;
+  let createdFinal = false;
+  try {
+    const opened = fs.fstatSync(sourceDescriptor);
+    if (!opened.isFile() || opened.size !== expectedSize || hashFileDescriptor(sourceDescriptor) !== expectedHash) {
+      throw new Error("検証済みMedia descriptorのidentityが一致しません。");
+    }
+    const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+    finalDescriptor = fs.openSync(finalPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow, 0o600);
+    createdFinal = true;
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(HASH_CHUNK_SIZE);
+    let position = 0;
+    while (position < expectedSize) {
+      const bytesRead = fs.readSync(sourceDescriptor, buffer, 0, Math.min(buffer.length, expectedSize - position), position);
+      if (bytesRead <= 0) throw new Error("検証済みMediaをsnapshotへ完全にcopyできませんでした。");
+      let written = 0;
+      while (written < bytesRead) {
+        const bytesWritten = fs.writeSync(finalDescriptor, buffer, written, bytesRead - written, position + written);
+        if (bytesWritten <= 0) throw new Error("Media snapshotへ完全に書き込めませんでした。");
+        written += bytesWritten;
+      }
+      hash.update(buffer.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    fs.fsyncSync(finalDescriptor);
+    const finalStat = fs.fstatSync(finalDescriptor);
+    if (finalStat.size !== expectedSize || `sha256:${hash.digest("hex")}` !== expectedHash) throw new Error("Media snapshotのpublish検証に失敗しました。");
+  } catch (error) {
+    if (finalDescriptor !== null) { fs.closeSync(finalDescriptor); finalDescriptor = null; }
+    if (createdFinal) fs.rmSync(finalPath, { force: true });
+    throw error;
+  } finally {
+    if (finalDescriptor !== null) fs.closeSync(finalDescriptor);
+  }
+}
+
+function validVideoDimensions(widthValue: unknown, heightValue: unknown): { widthPx: number; heightPx: number } {
+  const widthPx = Number(widthValue);
+  const heightPx = Number(heightValue);
+  if (
+    !Number.isSafeInteger(widthPx)
+    || !Number.isSafeInteger(heightPx)
+    || widthPx <= 0
+    || heightPx <= 0
+    || widthPx > 16384
+    || heightPx > 16384
+  ) throw new Error("動画のdimensionsを取得できませんでした。対応形式を確認して、もう一度選択してください。");
+  return { widthPx, heightPx };
 }
 
 function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
@@ -340,16 +486,54 @@ function validateManifestCommand(value: unknown, manifest: Partial<AudioSessionM
   assertExactKeys(raw, ["commandId", "name", "payload", "actor", "source", "sessionId", "issuedAt"], "Media Capture command");
   const parsed = parseCommandEnvelope(raw);
   if (
-    parsed.name !== "CommitAudioCapture"
+    (manifest.mediaKind === "audio" ? parsed.name !== "CommitAudioCapture" : parsed.name !== "CommitVideoArtifact")
     || parsed.actor.kind !== "user"
-    || parsed.source !== "inbox"
+    || (manifest.mediaKind === "audio" ? parsed.source !== "inbox" : parsed.source !== "main_ui")
     || parsed.sessionId !== manifest.sessionId
     || !SESSION_ID_PATTERN.test(parsed.commandId)
   ) throw new Error("Media Capture command identityが不正です。");
   const actor = raw.actor as Record<string, unknown>;
   assertExactKeys(actor, ["kind"], "Media Capture actor");
   const payload = raw.payload as Record<string, unknown>;
-  assertExactKeys(payload, ["capture", "artifact"], "Media Capture payload");
+  assertExactKeys(payload, manifest.mediaKind === "audio" ? ["capture", "artifact"] : ["artifact"], "Media Capture payload");
+  if (manifest.mediaKind === "video") {
+    const artifact = payload.artifact as Record<string, unknown>;
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) throw new Error("Video Artifact payloadが不正です。");
+    assertExactKeys(artifact, [
+      "id", "title", "filename", "file_type", "mime_type", "file_size", "stored_path", "original_path", "target",
+      "storage_mode", "copied_at", "link_type", "link_status", "last_checked_at", "source_type", "source_id", "theme_id",
+      "linked_source_real_path", "linked_source_device", "linked_source_inode",
+      "media_kind", "duration_ms", "width_px", "height_px", "container", "content_hash", "media_availability", "ai_visibility",
+    ], "Video Artifact payload");
+    if (typeof artifact.id !== "string" || !SESSION_ID_PATTERN.test(artifact.id)) throw new Error("Video Artifact IDが不正です。");
+    const expectedTitle = baseNameWithoutExtension(String(manifest.filename || ""));
+    const expectedContainer = mediaExtensionOf(String(manifest.filename || ""));
+    const emptyArray = (value: unknown): boolean => Array.isArray(value) && value.length === 0;
+    const managed = manifest.storageMode === "managed";
+    const identityChecks: Array<[string, boolean]> = [
+      ["artifact.title", artifact.title === expectedTitle], ["artifact.filename", artifact.filename === manifest.filename],
+      ["artifact.file_type", artifact.file_type === expectedContainer], ["artifact.mime_type", artifact.mime_type === manifest.mimeType],
+      ["artifact.file_size", artifact.file_size === manifest.fileSize], ["artifact.storage_mode", artifact.storage_mode === manifest.storageMode],
+      ["artifact.stored_path", artifact.stored_path === (managed ? manifest.finalPath : "")],
+      ["artifact.target", artifact.target === (managed ? null : manifest.finalPath)],
+      ["artifact.original_path", artifact.original_path === null], ["artifact.copied_at", artifact.copied_at === (managed ? raw.issuedAt : null)],
+      ["artifact.link_type", artifact.link_type === (managed ? null : "local_path")],
+      ["artifact.link_status", artifact.link_status === (managed ? null : "ok")],
+      ["artifact.last_checked_at", artifact.last_checked_at === (managed ? null : raw.issuedAt)],
+      ["artifact.linked_source_real_path", artifact.linked_source_real_path === (managed ? null : manifest.sourceRealPath)],
+      ["artifact.linked_source_device", artifact.linked_source_device === (managed ? null : manifest.sourceDevice)],
+      ["artifact.linked_source_inode", artifact.linked_source_inode === (managed ? null : manifest.sourceInode)],
+      ["artifact.source_type", artifact.source_type === manifest.sourceType], ["artifact.source_id", artifact.source_id === manifest.sourceId],
+      ["artifact.theme_id", artifact.theme_id === manifest.themeId], ["artifact.media_kind", artifact.media_kind === "video"],
+      ["artifact.duration_ms", artifact.duration_ms === manifest.durationMs], ["artifact.width_px", artifact.width_px === manifest.widthPx],
+      ["artifact.height_px", artifact.height_px === manifest.heightPx], ["artifact.container", artifact.container === expectedContainer],
+      ["artifact.content_hash", artifact.content_hash === manifest.contentHash], ["artifact.media_availability", artifact.media_availability === "available"],
+      ["artifact.ai_visibility", emptyArray(artifact.ai_visibility)], ["command.issuedAt", raw.issuedAt === manifest.commandIssuedAt],
+    ];
+    const mismatch = identityChecks.find(([, matches]) => !matches)?.[0];
+    if (mismatch) throw new Error(`Media Capture commandがmanifest identityと一致しません: ${mismatch}`);
+    return value as CommandEnvelope;
+  }
   const capture = payload.capture as Record<string, unknown>;
   const artifact = payload.artifact as Record<string, unknown>;
   if (!capture || typeof capture !== "object" || Array.isArray(capture) || !artifact || typeof artifact !== "object" || Array.isArray(artifact)) {
@@ -432,8 +616,8 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
   const manifest = value as Record<string, unknown>;
   assertExactKeys(manifest, [
     "schema", "sessionId", "state", "mediaKind", "filename", "mimeType", "fileSize", "contentHash",
-    "themeId", "stagedFileName", "createdAt", "updatedAt", "finalPath", "managedRootPath",
-    "managedRootRealPath", "managedRootDevice", "managedRootInode", "durationMs", "commandIssuedAt", "command", "recoveryError",
+    "themeId", "storageMode", "sourceType", "sourceId", "sourcePath", "sourceRealPath", "sourceDevice", "sourceInode", "stagedFileName", "createdAt", "updatedAt", "finalPath", "managedRootPath",
+    "managedRootRealPath", "managedRootDevice", "managedRootInode", "durationMs", "widthPx", "heightPx", "commandIssuedAt", "command", "recoveryError",
   ], "Media Capture manifest");
   if (manifest.schema !== MANIFEST_SCHEMA || manifest.sessionId !== expectedSessionId || !SESSION_ID_PATTERN.test(expectedSessionId)) {
     throw new Error("Media Capture manifest identityが不正です。");
@@ -442,12 +626,15 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
   if (manifest.mediaKind !== "audio" && manifest.mediaKind !== "video") throw new Error("Media Capture kindが不正です。");
   if (typeof manifest.filename !== "string" || path.basename(manifest.filename) !== manifest.filename || !manifest.filename.trim()) throw new Error("Media filenameが不正です。");
   if (manifest.mediaKind === "audio" && audioMimeTypeOf(manifest.filename) !== manifest.mimeType) throw new Error("Media MIMEが不正です。");
-  if (!Number.isInteger(manifest.fileSize) || Number(manifest.fileSize) <= 0) throw new Error("Media file sizeが不正です。");
+  if (manifest.mediaKind === "video" && videoMimeTypeOf(manifest.filename) !== manifest.mimeType) throw new Error("Media MIMEが不正です。");
+  if (!Number.isSafeInteger(manifest.fileSize) || Number(manifest.fileSize) <= 0 || Number(manifest.fileSize) > 1024 * 1024 * 1024 * 1024) throw new Error("Media file sizeが不正です。");
   if (typeof manifest.contentHash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(manifest.contentHash)) throw new Error("Media content hashが不正です。");
   if (
     manifest.themeId !== null
     && (typeof manifest.themeId !== "string"
-      || (!SESSION_ID_PATTERN.test(manifest.themeId) && manifest.themeId !== PERSONAL_DEFAULT_THEME_ID))
+      || !manifest.themeId
+      || manifest.themeId !== manifest.themeId.trim()
+      || manifest.themeId.length > 200)
   ) throw new Error("Media Theme IDが不正です。");
   if (typeof manifest.stagedFileName !== "string" || path.basename(manifest.stagedFileName) !== manifest.stagedFileName) throw new Error("Media staged filenameが不正です。");
   if (!isIsoTimestamp(manifest.createdAt) || !isIsoTimestamp(manifest.updatedAt)) throw new Error("Media timestampが不正です。");
@@ -455,14 +642,37 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
     throw new Error("Media recovery stateが不正です。");
   }
   const state = manifest.state as SessionState;
-  const finalFields = ["finalPath", "managedRootPath", "managedRootRealPath", "managedRootDevice", "managedRootInode", "durationMs", "commandIssuedAt", "command"];
-  if (state === "prepared" && finalFields.some((field) => manifest[field] !== undefined)) throw new Error("prepared Media manifestにfinalize fieldがあります。");
+  if (manifest.mediaKind === "video") {
+    if (manifest.storageMode !== "managed" && manifest.storageMode !== "linked") throw new Error("Video storage modeが不正です。");
+    if (!manifest.sourceType || !["task", "note", "report", "capture_entry"].includes(String(manifest.sourceType))) throw new Error("Video source typeが不正です。");
+    if (typeof manifest.sourceId !== "string" || !manifest.sourceId || manifest.sourceId !== manifest.sourceId.trim() || manifest.sourceId.length > 200) throw new Error("Video source IDが不正です。");
+    if (manifest.storageMode === "linked") {
+      if (typeof manifest.sourcePath !== "string" || !path.isAbsolute(manifest.sourcePath)
+        || typeof manifest.sourceRealPath !== "string" || !path.isAbsolute(manifest.sourceRealPath)
+        || typeof manifest.sourceDevice !== "string" || !manifest.sourceDevice
+        || typeof manifest.sourceInode !== "string" || !manifest.sourceInode) throw new Error("Linked Video source identityが不正です。");
+    } else if (["sourcePath", "sourceRealPath", "sourceDevice", "sourceInode"].some((field) => manifest[field] !== undefined)) {
+      throw new Error("managed Video manifestにlinked source identityは保存できません。");
+    }
+  } else if (["storageMode", "sourceType", "sourceId", "sourcePath", "sourceRealPath", "sourceDevice", "sourceInode", "widthPx", "heightPx"].some((field) => manifest[field] !== undefined)) {
+    throw new Error("Audio manifestにVideo fieldがあります。");
+  }
+  const finalFields = ["finalPath", "durationMs", "commandIssuedAt", "command"];
+  const managedFields = ["managedRootPath", "managedRootRealPath", "managedRootDevice", "managedRootInode"];
+  const finalizedOnlyFields = [...finalFields, ...managedFields, "widthPx", "heightPx"];
+  if (state === "prepared" && finalizedOnlyFields.some((field) => manifest[field] !== undefined)) throw new Error("prepared Media manifestにfinalize fieldがあります。");
   if (state !== "prepared" && finalFields.some((field) => manifest[field] === undefined)) throw new Error("Media manifestのfinalize fieldが不足しています。");
   if (state !== "prepared") {
-    for (const field of finalFields.slice(0, 5)) {
-      if (typeof manifest[field] !== "string" || !(manifest[field] as string).trim()) throw new Error("Media managed root identityが不正です。");
+    if (typeof manifest.finalPath !== "string" || !manifest.finalPath.trim()) throw new Error("Media final pathが不正です。");
+    if ((manifest.storageMode || "managed") === "managed") {
+      for (const field of managedFields) {
+        if (typeof manifest[field] !== "string" || !(manifest[field] as string).trim()) throw new Error("Media managed root identityが不正です。");
+      }
+    } else if (managedFields.some((field) => manifest[field] !== undefined)) {
+      throw new Error("linked Video manifestにmanaged root fieldがあります。");
     }
     validDuration(manifest.durationMs);
+    if (manifest.mediaKind === "video") validVideoDimensions(manifest.widthPx, manifest.heightPx);
     if (!isIsoTimestamp(manifest.commandIssuedAt)) throw new Error("Media command timestampが不正です。");
     manifest.command = validateManifestCommand(manifest.command, manifest as Partial<AudioSessionManifest>);
   }
@@ -471,15 +681,38 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
 
 export class MediaCaptureService {
   private readonly recoveryRoot: string;
+  private readonly externalOpenRoot: string;
   private readonly idFactory: () => string;
   private readonly now: () => string;
   private readonly verificationCache = new Map<string, { dev: string; ino: string; size: number; mtimeMs: number; ctimeMs: number; contentHash: string }>();
 
   constructor(private readonly options: MediaCaptureServiceOptions) {
     this.recoveryRoot = path.resolve(options.userDataPath, "media-recovery", "sessions");
+    this.externalOpenRoot = path.resolve(options.userDataPath, "media-external-open");
     this.idFactory = options.idFactory || randomUUID;
     this.now = options.now || (() => new Date().toISOString());
     ensureSafeDirectory(this.recoveryRoot, "Media recovery保存先");
+    const externalRoot = ensureSafeDirectory(this.externalOpenRoot, "Media external-open snapshot保存先");
+    let removed = 0;
+    for (const entry of fs.readdirSync(externalRoot.real, { withFileTypes: true })) {
+      if (removed >= 64) break;
+      if (!entry.isFile() || !/^tasken-external-[0-9a-f-]{36}-[^\\/]+$/i.test(entry.name)) continue;
+      try {
+        const candidate = path.resolve(externalRoot.real, entry.name);
+        assertWithin(externalRoot.real, candidate, "Media external-open stale snapshot");
+        const stat = fs.lstatSync(candidate);
+        if (
+          stat.isFile()
+          && !stat.isSymbolicLink()
+          && Date.now() - stat.mtimeMs >= EXTERNAL_SNAPSHOT_TTL_MS
+        ) {
+          fs.rmSync(candidate, { force: true });
+          removed += 1;
+        }
+      } catch (error) {
+        console.warn("Media external-openの古いsnapshotを削除できませんでした。次回起動時に再試行します。", error);
+      }
+    }
   }
 
   prepareFile(sourcePathValue: unknown, themeIdValue: unknown = null): AudioCapturePrepared {
@@ -533,6 +766,87 @@ export class MediaCaptureService {
       canCommit: true,
       canRetry: false,
       canDiscard: true,
+    };
+  }
+
+  prepareVideoFile(sourcePathValue: unknown, request: {
+    storageMode: VideoStorageMode;
+    sourceType: VideoArtifactSourceType;
+    sourceId: string;
+  }): VideoImportPrepared {
+    if (typeof sourcePathValue !== "string" || !path.isAbsolute(sourcePathValue)) {
+      throw new Error("動画ファイルの場所が不正です。ファイル選択からやり直してください。");
+    }
+    const ownerType = request.sourceType === "report" ? "note" : request.sourceType;
+    const owner = this.options.repository.get(ownerType, request.sourceId);
+    if (!owner || owner.deleted_at) {
+      throw new Error("動画の添付先が見つかりません。画面を再読み込みしてください。");
+    }
+    const themeId = typeof owner.project_id === "string" && owner.project_id
+      ? owner.project_id
+      : typeof owner.theme_id === "string" && owner.theme_id
+        ? owner.theme_id
+        : null;
+    if (themeId && !this.options.repository.get("project", themeId) && !this.options.repository.get("theme", themeId)) {
+      throw new Error("動画の添付先Themeが見つかりません。添付先を保存してからやり直してください。");
+    }
+    const sourcePath = path.resolve(sourcePathValue);
+    assertNoSymlinkOrJunctionAncestors(sourcePath, "動画 source");
+    const filename = safeArtifactFileName(path.basename(sourcePath));
+    const mimeType = videoMimeTypeOf(filename);
+    if (!mimeType) throw new Error("対応していない動画形式です。MP4、M4V、MOV、WebMを選択してください。");
+    const sessionId = assertSessionId(this.idFactory());
+    const sessionDirectory = this.sessionDirectory(sessionId);
+    ensureSafeDirectory(sessionDirectory, "Media Capture session保存先");
+    const stagedFileName = `original.${mediaExtensionOf(filename)}`;
+    const stagedPath = path.resolve(sessionDirectory, stagedFileName);
+    assertWithin(sessionDirectory, stagedPath, "動画temporary file");
+    let staged: { fileSize: number; contentHash: string; sourceRealPath: string; sourceDevice: string; sourceInode: string };
+    try {
+      staged = copyVerifiedSourceToExclusiveStage(sourcePath, stagedPath, mimeType, "動画");
+    } catch (error) {
+      this.removeSessionDirectory(sessionDirectory);
+      throw error;
+    }
+    const timestamp = this.now();
+    const manifest: AudioSessionManifest = {
+      schema: MANIFEST_SCHEMA,
+      sessionId,
+      state: "prepared",
+      mediaKind: "video",
+      filename,
+      mimeType,
+      fileSize: staged.fileSize,
+      contentHash: staged.contentHash,
+      themeId,
+      storageMode: request.storageMode,
+      sourceType: request.sourceType,
+      sourceId: request.sourceId,
+      ...(request.storageMode === "linked" ? {
+        sourcePath,
+        sourceRealPath: staged.sourceRealPath,
+        sourceDevice: staged.sourceDevice,
+        sourceInode: staged.sourceInode,
+      } : {}),
+      stagedFileName,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.writeManifest(sessionDirectory, manifest);
+    return {
+      sessionId,
+      filename,
+      mimeType,
+      fileSize: staged.fileSize,
+      mediaUrl: `tasken-media://session/${sessionId}`,
+      status: "ready",
+      availability: "available",
+      canCommit: true,
+      canRetry: false,
+      canDiscard: true,
+      storageMode: request.storageMode,
+      sourceType: request.sourceType,
+      sourceId: request.sourceId,
     };
   }
 
@@ -590,11 +904,12 @@ export class MediaCaptureService {
           }),
         }, createdAt: manifest.createdAt });
       } catch {
+        if (this.readManifestMediaKindLoose(this.sessionDirectory(entry.name)) === "video") continue;
         // 壊れたsessionも不可視orphanにしない。pathやmanifest本文はRendererへ出さず、
         // UUID directoryの安全な診断行だけを返す。stateを証明できないため破棄は許可しない。
         pending.push({ summary: {
           sessionId: entry.name,
-          filename: "復旧が必要な音声",
+          filename: "復旧が必要なMedia",
           mimeType: "不明",
           fileSize: 0,
           mediaUrl: "",
@@ -611,6 +926,71 @@ export class MediaCaptureService {
       if (left.createdAt && right.createdAt) {
         return right.createdAt.localeCompare(left.createdAt) || left.summary.sessionId.localeCompare(right.summary.sessionId);
       }
+      if (left.createdAt) return -1;
+      if (right.createdAt) return 1;
+      return left.summary.sessionId.localeCompare(right.summary.sessionId);
+    });
+    return pending.map((entry) => entry.summary);
+  }
+
+  listPreparedVideo(): VideoImportPrepared[] {
+    const pending: Array<{ summary: VideoImportPrepared; createdAt: string | null }> = [];
+    for (const entry of fs.readdirSync(this.recoveryRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !SESSION_ID_PATTERN.test(entry.name)) continue;
+      try {
+        const manifest = this.readManifest(this.sessionDirectory(entry.name));
+        if (manifest.state === "committed" || manifest.mediaKind !== "video" || !manifest.storageMode || !manifest.sourceType || !manifest.sourceId) continue;
+        let resolution = this.resolveSessionMedia(manifest.sessionId);
+        if (resolution.availability === "available") fs.closeSync(resolution.fileDescriptor);
+        if (manifest.state === "finalizing" && manifest.storageMode !== "linked" && resolution.availability !== "available") {
+          const stagedPath = path.resolve(this.sessionDirectory(manifest.sessionId), manifest.stagedFileName);
+          assertWithin(this.sessionDirectory(manifest.sessionId), stagedPath, "動画temporary file");
+          const stagedResolution = openVerifiedMedia(stagedPath, manifest.fileSize, manifest.contentHash, manifest.mimeType, this.verificationCache, `session-staged:${manifest.sessionId}`);
+          if (stagedResolution.availability === "available") {
+            fs.closeSync(stagedResolution.fileDescriptor);
+            resolution = { availability: "available", fileDescriptor: -1, mimeType: stagedResolution.mimeType, fileSize: stagedResolution.fileSize };
+          }
+        }
+        const ready = manifest.state === "prepared" && resolution.availability === "available";
+        const retryable = manifest.state !== "prepared" && resolution.availability === "available";
+        pending.push({ summary: {
+          sessionId: manifest.sessionId,
+          filename: manifest.filename,
+          mimeType: manifest.mimeType,
+          fileSize: manifest.fileSize,
+          mediaUrl: ready ? `tasken-media://session/${manifest.sessionId}` : "",
+          status: ready ? "ready" : "recovery_required",
+          availability: resolution.availability,
+          storageMode: manifest.storageMode,
+          sourceType: manifest.sourceType,
+          sourceId: manifest.sourceId,
+          ...(manifest.durationMs === undefined ? {} : { durationMs: manifest.durationMs }),
+          ...(manifest.widthPx === undefined ? {} : { widthPx: manifest.widthPx }),
+          ...(manifest.heightPx === undefined ? {} : { heightPx: manifest.heightPx }),
+          canCommit: ready,
+          canRetry: retryable,
+          canDiscard: manifest.state === "prepared",
+          ...(ready ? {} : { recoveryReason: manifest.recoveryError === "commit_failed" ? "commit_failed" as const : retryable ? "recovery_pending" as const : resolution.availability === "changed" ? "media_changed" as const : resolution.availability === "unsafe_source" ? "unsafe_source" as const : resolution.availability === "unsupported_codec" ? "unsupported_codec" as const : "media_missing" as const }),
+        }, createdAt: manifest.createdAt });
+      } catch {
+        if (this.readManifestMediaKindLoose(this.sessionDirectory(entry.name)) !== "video") continue;
+        pending.push({ summary: {
+          sessionId: entry.name,
+          filename: "復旧が必要な動画",
+          mimeType: "不明",
+          fileSize: 0,
+          mediaUrl: "",
+          status: "recovery_required",
+          availability: "missing",
+          recoveryReason: "manifest_invalid",
+          canCommit: false,
+          canRetry: false,
+          canDiscard: false,
+        }, createdAt: null });
+      }
+    }
+    pending.sort((left, right) => {
+      if (left.createdAt && right.createdAt) return right.createdAt.localeCompare(left.createdAt) || left.summary.sessionId.localeCompare(right.summary.sessionId);
       if (left.createdAt) return -1;
       if (right.createdAt) return 1;
       return left.summary.sessionId.localeCompare(right.summary.sessionId);
@@ -636,6 +1016,43 @@ export class MediaCaptureService {
       this.writeManifest(sessionDirectory, committed);
       this.removeStagedFile(sessionDirectory, committed);
       return this.toInternalResult(committed, receipt);
+    } catch (error) {
+      this.writeManifest(sessionDirectory, { ...manifest, recoveryError: "commit_failed", updatedAt: this.now() });
+      throw error;
+    }
+  }
+
+  commitVideo(request: VideoImportCommitRequest): InternalVideoImportCommitResult {
+    const sessionId = assertSessionId(request?.sessionId);
+    const durationMs = validDuration(request?.durationMs);
+    const { widthPx, heightPx } = validVideoDimensions(request?.widthPx, request?.heightPx);
+    const sessionDirectory = this.sessionDirectory(sessionId);
+    let manifest = this.readManifest(sessionDirectory);
+    if (manifest.mediaKind !== "video") throw new Error("動画Import sessionが見つかりません。保存待ち動画を読み直してください。");
+    if (manifest.state === "committed") {
+      if (!manifest.command) throw new Error("動画Import receiptの復元情報がありません。");
+      return this.toInternalVideoResult(manifest, this.options.commands.executeMediaCapture(manifest.command));
+    }
+    if (manifest.state === "prepared") {
+      this.assertVideoOwnerBinding(manifest);
+      manifest = this.beginFinalizeVideo(sessionDirectory, manifest, { durationMs, widthPx, heightPx });
+    }
+    try {
+      manifest = this.ensureFinalized(sessionDirectory, manifest);
+      this.assertVideoOwnerBinding(manifest);
+    } catch (error) {
+      if (error instanceof VideoOwnerBindingError && manifest.state !== "prepared") {
+        manifest = this.resetVideoToPrepared(sessionDirectory, manifest);
+      }
+      throw error;
+    }
+    if (!manifest.command) throw new Error("動画Import commandの復元情報がありません。");
+    try {
+      const receipt = this.options.commands.executeMediaCapture(manifest.command);
+      const committed = { ...manifest, state: "committed" as const, updatedAt: this.now(), recoveryError: undefined };
+      this.writeManifest(sessionDirectory, committed);
+      this.removeStagedFile(sessionDirectory, committed);
+      return this.toInternalVideoResult(committed, receipt);
     } catch (error) {
       this.writeManifest(sessionDirectory, { ...manifest, recoveryError: "commit_failed", updatedAt: this.now() });
       throw error;
@@ -689,14 +1106,20 @@ export class MediaCaptureService {
         : manifest.finalPath ? path.resolve(manifest.finalPath) : "";
       if (!candidate) return { availability: "missing" };
       if (manifest.state === "prepared") assertWithin(sessionDirectory, candidate, "音声temporary file");
-      if (manifest.state !== "prepared") {
+      if (manifest.state !== "prepared" && manifest.storageMode !== "linked") {
         const location = this.options.resolveManagedDirectory(manifest.themeId);
         if (location.kind === "needs_directory") return { availability: "missing" };
         const managedRoot = resolveSafeExistingDirectory(location.directory, "managed Media保存先");
         assertWithin(managedRoot.real, candidate, "managed Media file");
       }
-      if (!audioMimeTypeOf(manifest.filename)) return { availability: "unsupported_codec" };
-      return openVerifiedMedia(candidate, manifest.fileSize, manifest.contentHash, manifest.mimeType, this.verificationCache, `session:${manifest.sessionId}`);
+      const expectedMime = manifest.mediaKind === "video" ? videoMimeTypeOf(manifest.filename) : audioMimeTypeOf(manifest.filename);
+      if (!expectedMime || expectedMime !== manifest.mimeType) return { availability: "unsupported_codec" };
+      const resolution = openVerifiedMedia(candidate, manifest.fileSize, manifest.contentHash, manifest.mimeType, this.verificationCache, `session:${manifest.sessionId}`);
+      if (resolution.availability === "available" && manifest.storageMode === "linked" && !linkedIdentityMatches(candidate, resolution.fileDescriptor, manifest)) {
+        fs.closeSync(resolution.fileDescriptor);
+        return { availability: "changed" };
+      }
+      return resolution;
     } catch {
       return { availability: "missing" };
     }
@@ -705,10 +1128,17 @@ export class MediaCaptureService {
   resolveArtifactMedia(artifactIdValue: unknown): MediaFileResolution {
     if (typeof artifactIdValue !== "string" || !SESSION_ID_PATTERN.test(artifactIdValue)) return { availability: "missing" };
     const artifact = this.options.repository.get("artifact", artifactIdValue);
-    if (!artifact || artifact.media_kind !== "audio") return { availability: "missing" };
-    if (!audioMimeTypeOf(String(artifact.filename || "")) || String(artifact.mime_type || "") !== audioMimeTypeOf(String(artifact.filename || ""))) {
+    if (!artifact || (artifact.media_kind !== "audio" && artifact.media_kind !== "video")) return { availability: "missing" };
+    const expectedMime = artifact.media_kind === "video"
+      ? videoMimeTypeOf(String(artifact.filename || ""))
+      : audioMimeTypeOf(String(artifact.filename || ""));
+    if (!expectedMime || String(artifact.mime_type || "") !== expectedMime) {
       return { availability: "unsupported_codec" };
     }
+    return this.resolveArtifactBytes(artifactIdValue, artifact);
+  }
+
+  private resolveArtifactBytes(artifactId: string, artifact: Entity): MediaFileResolution {
     const rawPath = artifact.storage_mode === "linked" ? artifact.target : artifact.stored_path;
     if (typeof rawPath !== "string" || !path.isAbsolute(rawPath)) return { availability: "missing" };
     const filePath = path.resolve(rawPath);
@@ -723,7 +1153,52 @@ export class MediaCaptureService {
       }
     }
     if (typeof artifact.content_hash !== "string" || typeof artifact.file_size !== "number") return { availability: "changed" };
-    return openVerifiedMedia(filePath, artifact.file_size, artifact.content_hash, String(artifact.mime_type), this.verificationCache, `artifact:${artifactIdValue}`);
+    const resolution = openVerifiedMedia(filePath, artifact.file_size, artifact.content_hash, String(artifact.mime_type || "application/octet-stream"), this.verificationCache, `artifact:${artifactId}`);
+    if (resolution.availability === "available" && artifact.media_kind === "video" && artifact.storage_mode === "linked" && !linkedIdentityMatches(filePath, resolution.fileDescriptor, {
+      sourceRealPath: artifact.linked_source_real_path,
+      sourceDevice: artifact.linked_source_device,
+      sourceInode: artifact.linked_source_inode,
+    })) {
+      fs.closeSync(resolution.fileDescriptor);
+      return { availability: "changed" };
+    }
+    return resolution;
+  }
+
+  async openArtifactExternally(artifactIdValue: unknown): Promise<{ ok: boolean; error?: string }> {
+    if (!this.options.openPath) return { ok: false, error: "外部アプリを開けません。アプリを再起動してください。" };
+    if (typeof artifactIdValue !== "string" || !SESSION_ID_PATTERN.test(artifactIdValue)) return { ok: false, error: "Media Artifact IDが不正です。" };
+    const artifact = this.options.repository.get("artifact", artifactIdValue);
+    const resolution = artifact && (artifact.media_kind === "audio" || artifact.media_kind === "video")
+      ? this.resolveArtifactBytes(artifactIdValue, artifact)
+      : { availability: "missing" as const };
+    if (!artifact || resolution.availability !== "available") {
+      return { ok: false, error: "動画ファイルを安全に確認できません。保存場所または内容を確認してください。" };
+    }
+    const snapshotRoot = ensureSafeDirectory(this.externalOpenRoot, "Media external-open snapshot保存先");
+    const snapshotName = `tasken-external-${randomUUID()}-${safeArtifactFileName(String(artifact.filename || "media.bin"))}`;
+    const snapshotPath = path.resolve(snapshotRoot.real, snapshotName);
+    assertWithin(snapshotRoot.real, snapshotPath, "Media external-open snapshot");
+    try {
+      copyVerifiedDescriptorToExclusiveFile(resolution.fileDescriptor, snapshotPath, resolution.fileSize, String(artifact.content_hash));
+    } finally {
+      fs.closeSync(resolution.fileDescriptor);
+    }
+    try {
+      const error = await this.options.openPath(snapshotPath);
+      if (error) fs.rmSync(snapshotPath, { force: true });
+      return error ? { ok: false, error: "外部アプリで動画を開けませんでした。関連付けを確認してください。" } : { ok: true };
+    } catch {
+      try { fs.rmSync(snapshotPath, { force: true }); } catch { /* 次回のTTL cleanupへ委ねる。 */ }
+      return { ok: false, error: "外部アプリで動画を開けませんでした。関連付けを確認してください。" };
+    }
+  }
+
+  inspectArtifactMedia(artifactIdValue: unknown): { availability: MediaAvailability; mimeType?: string; fileSize?: number } {
+    const resolution = this.resolveArtifactMedia(artifactIdValue);
+    if (resolution.availability !== "available") return { availability: resolution.availability };
+    fs.closeSync(resolution.fileDescriptor);
+    return { availability: "available", mimeType: resolution.mimeType, fileSize: resolution.fileSize };
   }
 
   private beginFinalize(sessionDirectory: string, manifest: AudioSessionManifest, durationMs: number): AudioSessionManifest {
@@ -804,24 +1279,142 @@ export class MediaCaptureService {
     return finalizing;
   }
 
+  private beginFinalizeVideo(
+    sessionDirectory: string,
+    manifest: AudioSessionManifest,
+    metadata: { durationMs: number; widthPx: number; heightPx: number },
+  ): AudioSessionManifest {
+    if (manifest.mediaKind !== "video" || !manifest.storageMode || !manifest.sourceType || !manifest.sourceId) {
+      throw new Error("動画Import manifestが不正です。");
+    }
+    this.assertVideoOwnerBinding(manifest);
+    let finalPath: string;
+    let managedIdentity: Pick<AudioSessionManifest, "managedRootPath" | "managedRootRealPath" | "managedRootDevice" | "managedRootInode"> = {};
+    let filename = manifest.filename;
+    if (manifest.storageMode === "managed") {
+      const location = this.options.resolveManagedDirectory(manifest.themeId);
+      if (location.kind === "needs_directory") throw new Error("Artifact保存先が未設定です。Settingsで同期ストレージを選択してから、もう一度保存してください。");
+      const managedRoot = ensureSafeDirectory(location.directory, "managed Media保存先");
+      ensureThemeMarker(location, managedRoot);
+      filename = resolveUniqueArtifactFileName(manifest.filename, (candidate: string) => fs.existsSync(path.join(managedRoot.real, candidate)));
+      finalPath = path.resolve(managedRoot.real, filename);
+      assertWithin(managedRoot.real, finalPath, "managed video file");
+      managedIdentity = {
+        managedRootPath: managedRoot.resolved,
+        managedRootRealPath: managedRoot.real,
+        managedRootDevice: managedRoot.device,
+        managedRootInode: managedRoot.inode,
+      };
+    } else {
+      if (!manifest.sourcePath || !path.isAbsolute(manifest.sourcePath)) throw new Error("linked動画の元ファイルが不正です。");
+      finalPath = path.resolve(manifest.sourcePath);
+      const linked = openVerifiedMedia(finalPath, manifest.fileSize, manifest.contentHash, manifest.mimeType, this.verificationCache, `linked-source:${manifest.sessionId}`);
+      if (linked.availability !== "available") throw new Error("linked動画が変更されたため保存できません。元ファイルを確認してください。");
+      if (!linkedIdentityMatches(finalPath, linked.fileDescriptor, manifest)) {
+        fs.closeSync(linked.fileDescriptor);
+        throw new Error("linked動画のfile identityが取り込み時から変わっています。元ファイルを戻してください。");
+      }
+      fs.closeSync(linked.fileDescriptor);
+    }
+    const commandId = this.idFactory();
+    const artifactId = this.idFactory();
+    const timestamp = this.now();
+    const managed = manifest.storageMode === "managed";
+    const artifact: Entity = {
+      id: artifactId,
+      title: baseNameWithoutExtension(filename),
+      filename,
+      file_type: mediaExtensionOf(filename),
+      mime_type: manifest.mimeType,
+      file_size: manifest.fileSize,
+      stored_path: managed ? finalPath : "",
+      original_path: null,
+      target: managed ? null : finalPath,
+      storage_mode: manifest.storageMode,
+      copied_at: managed ? timestamp : null,
+      link_type: managed ? null : "local_path",
+      link_status: managed ? null : "ok",
+      last_checked_at: managed ? null : timestamp,
+      linked_source_real_path: managed ? null : manifest.sourceRealPath,
+      linked_source_device: managed ? null : manifest.sourceDevice,
+      linked_source_inode: managed ? null : manifest.sourceInode,
+      source_type: manifest.sourceType,
+      source_id: manifest.sourceId,
+      theme_id: manifest.themeId,
+      media_kind: "video",
+      duration_ms: metadata.durationMs,
+      width_px: metadata.widthPx,
+      height_px: metadata.heightPx,
+      container: mediaExtensionOf(filename),
+      content_hash: manifest.contentHash,
+      media_availability: "available",
+      ai_visibility: [],
+    };
+    const command: CommandEnvelope = {
+      commandId,
+      name: "CommitVideoArtifact",
+      payload: { artifact },
+      actor: { kind: "user" },
+      source: "main_ui",
+      sessionId: manifest.sessionId,
+      issuedAt: timestamp,
+    };
+    const finalizing: AudioSessionManifest = {
+      ...manifest,
+      ...managedIdentity,
+      state: "finalizing",
+      filename,
+      finalPath,
+      durationMs: metadata.durationMs,
+      widthPx: metadata.widthPx,
+      heightPx: metadata.heightPx,
+      commandIssuedAt: timestamp,
+      command,
+      updatedAt: timestamp,
+      recoveryError: undefined,
+    };
+    this.writeManifest(sessionDirectory, finalizing);
+    return finalizing;
+  }
+
   private ensureFinalized(sessionDirectory: string, manifest: AudioSessionManifest): AudioSessionManifest {
     if (manifest.state === "committed") return manifest;
     if (
       (manifest.state !== "finalizing" && manifest.state !== "finalized")
       || !manifest.finalPath
-      || !manifest.managedRootPath
-      || !manifest.managedRootRealPath
-      || !manifest.managedRootDevice
-      || !manifest.managedRootInode
+      || ((manifest.storageMode || "managed") === "managed" && (
+        !manifest.managedRootPath
+        || !manifest.managedRootRealPath
+        || !manifest.managedRootDevice
+        || !manifest.managedRootInode
+      ))
     ) throw new Error("音声Capture finalize状態が不正です。");
+    if (manifest.mediaKind === "video") this.assertVideoOwnerBinding(manifest);
     const stagedPath = path.resolve(sessionDirectory, manifest.stagedFileName);
     assertWithin(sessionDirectory, stagedPath, "音声temporary file");
     const stagedStat = fs.lstatSync(stagedPath);
     if (stagedStat.isSymbolicLink() || !stagedStat.isFile() || stagedStat.size !== manifest.fileSize || hashFile(stagedPath) !== manifest.contentHash) {
       throw new Error("temporary原音が変更されたため、安全にfinalizeできません。原音は読み込まず復旧待ちにしました。");
     }
+    if (manifest.mediaKind === "video" && manifest.storageMode === "linked") {
+      const linkedPath = path.resolve(manifest.finalPath);
+      if (!manifest.sourcePath || linkedPath !== path.resolve(manifest.sourcePath)) throw new Error("linked動画のmanifest identityが不正です。");
+      const linked = openVerifiedMedia(linkedPath, manifest.fileSize, manifest.contentHash, manifest.mimeType, this.verificationCache, `linked-source:${manifest.sessionId}`);
+      if (linked.availability !== "available") {
+        throw new Error("linked動画が見つからないか変更されています。元ファイルを戻してから再試行してください。");
+      }
+      if (!linkedIdentityMatches(linkedPath, linked.fileDescriptor, manifest)) {
+        fs.closeSync(linked.fileDescriptor);
+        throw new Error("linked動画のfile identityが取り込み時から変わっています。元ファイルを戻してください。");
+      }
+      fs.closeSync(linked.fileDescriptor);
+      if (manifest.state === "finalized") return manifest;
+      const finalized = { ...manifest, state: "finalized" as const, recoveryError: undefined, updatedAt: this.now() };
+      this.writeManifest(sessionDirectory, finalized);
+      return finalized;
+    }
     const location = this.options.resolveManagedDirectory(manifest.themeId);
-    if (location.kind === "needs_directory" || path.resolve(location.directory) !== path.resolve(manifest.managedRootPath)) {
+    if (location.kind === "needs_directory" || path.resolve(location.directory) !== path.resolve(manifest.managedRootPath!)) {
       throw new Error("managed保存先がsession作成時から変更されています。原音を保持したまま復旧待ちにしました。");
     }
     const managedRoot = ensureSafeDirectory(location.directory, "managed Media保存先");
@@ -846,7 +1439,7 @@ export class MediaCaptureService {
         throw new Error("managed保存先に別内容の競合fileがあります。既存fileを変更せず復旧待ちにしました。");
       }
     } else if (manifest.state === "finalizing") {
-      fs.copyFileSync(stagedPath, finalPath, fs.constants.COPYFILE_EXCL);
+      publishVerifiedStageExclusive(stagedPath, finalPath, manifest.fileSize, manifest.contentHash);
     } else {
       const failed = { ...manifest, recoveryError: "final_file_missing" as const, updatedAt: this.now() };
       this.writeManifest(sessionDirectory, failed);
@@ -864,6 +1457,58 @@ export class MediaCaptureService {
     return finalized;
   }
 
+  private assertVideoOwnerBinding(manifest: AudioSessionManifest): void {
+    if (manifest.mediaKind !== "video" || !manifest.sourceType || !manifest.sourceId) return;
+    const ownerType = manifest.sourceType === "report" ? "note" : manifest.sourceType;
+    const owner = this.options.repository.get(ownerType, manifest.sourceId);
+    if (!owner || owner.deleted_at) {
+      throw new VideoOwnerBindingError("動画の添付先が削除されています。保存待ち動画を破棄して、添付先を選び直してください。");
+    }
+    const currentThemeId = typeof owner.project_id === "string" && owner.project_id
+      ? owner.project_id
+      : typeof owner.theme_id === "string" && owner.theme_id
+        ? owner.theme_id
+        : null;
+    if (currentThemeId !== manifest.themeId) {
+      throw new VideoOwnerBindingError("動画の添付先Themeが変更されています。保存待ち動画を破棄して、選び直してください。");
+    }
+    if (currentThemeId && !this.options.repository.get("project", currentThemeId) && !this.options.repository.get("theme", currentThemeId)) {
+      throw new VideoOwnerBindingError("動画の添付先Themeが見つかりません。保存待ち動画を破棄して、添付先を保存し直してください。");
+    }
+  }
+
+  private resetVideoToPrepared(sessionDirectory: string, manifest: AudioSessionManifest): AudioSessionManifest {
+    if (manifest.mediaKind !== "video") return manifest;
+    if (manifest.storageMode === "managed" && manifest.finalPath && manifest.managedRootRealPath) {
+      try {
+        const finalPath = path.resolve(manifest.finalPath);
+        assertWithin(path.resolve(manifest.managedRootRealPath), finalPath, "managed video rollback file");
+        const stat = fs.lstatSync(finalPath);
+        if (!stat.isSymbolicLink() && stat.isFile() && stat.size === manifest.fileSize && hashFile(finalPath) === manifest.contentHash) {
+          fs.rmSync(finalPath);
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    const prepared = { ...manifest } as AudioSessionManifest;
+    prepared.state = "prepared";
+    delete prepared.finalPath;
+    delete prepared.managedRootPath;
+    delete prepared.managedRootRealPath;
+    delete prepared.managedRootDevice;
+    delete prepared.managedRootInode;
+    delete prepared.durationMs;
+    delete prepared.widthPx;
+    delete prepared.heightPx;
+    delete prepared.commandIssuedAt;
+    delete prepared.command;
+    delete prepared.recoveryError;
+    prepared.updatedAt = this.now();
+    this.writeManifest(sessionDirectory, prepared);
+    return prepared;
+  }
+
   private toInternalResult(manifest: AudioSessionManifest, receipt: CommandReceipt): InternalAudioCaptureCommitResult {
     const payload = manifest.command?.payload as { capture?: Entity; artifact?: Entity } | undefined;
     if (!manifest.command || !payload?.capture?.id || !payload.artifact?.id) throw new Error("音声Capture receiptのidentityが不正です。");
@@ -874,6 +1519,21 @@ export class MediaCaptureService {
       artifactId: payload.artifact.id,
     };
     return { publicResult, receipt };
+  }
+
+  private toInternalVideoResult(manifest: AudioSessionManifest, receipt: CommandReceipt): InternalVideoImportCommitResult {
+    const payload = manifest.command?.payload as { artifact?: Entity } | undefined;
+    if (!manifest.command || !payload?.artifact?.id || !manifest.sourceType || !manifest.sourceId) throw new Error("動画Import receiptのidentityが不正です。");
+    return {
+      publicResult: {
+        status: receipt.status === "no_change" ? "no_change" : "applied",
+        commandId: manifest.command.commandId,
+        artifactId: payload.artifact.id,
+        sourceType: manifest.sourceType,
+        sourceId: manifest.sourceId,
+      },
+      receipt,
+    };
   }
 
   private sessionDirectory(sessionId: string): string {
@@ -902,6 +1562,18 @@ export class MediaCaptureService {
   private writeManifest(sessionDirectory: string, manifest: AudioSessionManifest): void {
     validateManifest(manifest, path.basename(sessionDirectory));
     writeAtomicTextFile(this.manifestPath(sessionDirectory), `${JSON.stringify(manifest, null, 2)}\n`, randomUUID());
+  }
+
+  private readManifestMediaKindLoose(sessionDirectory: string): "audio" | "video" | null {
+    try {
+      const manifestPath = this.manifestPath(sessionDirectory);
+      const stat = fs.lstatSync(manifestPath);
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.size <= 0 || stat.size > MAX_MANIFEST_BYTES) return null;
+      const value = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { mediaKind?: unknown };
+      return value.mediaKind === "audio" || value.mediaKind === "video" ? value.mediaKind : null;
+    } catch {
+      return null;
+    }
   }
 
   private removeStagedFile(sessionDirectory: string, manifest: AudioSessionManifest): void {
