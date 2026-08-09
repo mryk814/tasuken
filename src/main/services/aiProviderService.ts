@@ -37,6 +37,22 @@ const DEFAULT_MODEL_ID = "openai-default-model";
 const MAX_BODY_CHARS = 300_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const CONNECTION_TIMEOUT_MS = 30_000;
+const BATCH_TRANSCRIPTION_MAX_FILE_SIZE = 25 * 1024 * 1024;
+const BATCH_TRANSCRIPTION_MODELS = new Set([
+  "gpt-4o-transcribe",
+  "gpt-4o-mini-transcribe",
+  "whisper-1",
+]);
+const BATCH_TRANSCRIPTION_MIME_TYPES = [
+  "audio/flac",
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/mpga",
+  "audio/m4a",
+  "audio/ogg",
+  "audio/wav",
+  "audio/webm",
+] as const;
 
 interface SafeStorageAdapter {
   isEncryptionAvailable(): boolean;
@@ -528,6 +544,71 @@ export class AiProviderService {
     return resolveFeatureAvailability(feature, this.toPublicProvider(provider), model);
   }
 
+  resolveBatchTranscriptionProvider() {
+    const config = this.readConfig();
+    const provider = config.providers.find((candidate) => candidate.id === config.defaultProviderProfileId);
+    const model = config.models.find((candidate) => candidate.id === config.defaultModelProfileId);
+    if (!provider || !model || model.providerProfileId !== provider.id) {
+      return {
+        binding: null,
+        provider: null,
+        reason: "binding_unavailable",
+        message: "文字起こし用のdefault provider/modelが設定されていません。Settingsで選択してください。",
+      };
+    }
+    const exactModelSupported = provider.adapterKind === "openai-native" && BATCH_TRANSCRIPTION_MODELS.has(model.model);
+    const binding = {
+      feature: "transcript_batch" as const,
+      provider_profile_id: provider.id,
+      provider_label: provider.label,
+      model_profile_id: model.id,
+      model_id: model.model,
+      processing_mode: "cloud" as const,
+      enabled: provider.enabled,
+      credential_configured: Boolean(provider.encryptedCredential),
+      model_lifecycle: model.lifecycle,
+      capabilities: exactModelSupported ? ["batch_transcription" as const, "language_detection" as const] : [],
+      max_file_size: BATCH_TRANSCRIPTION_MAX_FILE_SIZE,
+      supported_mime_types: [...BATCH_TRANSCRIPTION_MIME_TYPES],
+    };
+    if (!exactModelSupported) {
+      return {
+        binding,
+        provider: null,
+        reason: "capability_missing",
+        message: "選択中のprovider/modelはbatch文字起こしに対応していません。別modelへ自動切替しません。",
+      };
+    }
+    if (!provider.enabled || (model.lifecycle !== "available" && model.lifecycle !== "experimental") || !provider.encryptedCredential) {
+      return {
+        binding,
+        provider: null,
+        reason: !provider.enabled ? "provider_disabled" : !provider.encryptedCredential ? "missing_credential" : "model_unavailable",
+        message: !provider.enabled
+          ? "文字起こしProviderが無効です。Settingsで有効にしてください。"
+          : !provider.encryptedCredential
+            ? "文字起こしProviderの資格情報をSettingsで設定してください。"
+            : "選択中の文字起こしmodelを利用できません。Settingsを確認してください。",
+      };
+    }
+    return {
+      binding,
+      provider: {
+        providerProfileId: provider.id,
+        transcribe: (input: {
+          source: { fileDescriptor: number };
+          fileSize: number;
+          mimeType: string;
+          model: string;
+          language: string;
+          signal?: AbortSignal;
+        }) => this.transcribeOpenAiBatch(provider, model, input),
+      },
+      reason: null,
+      message: null,
+    };
+  }
+
   async testConnection(request: AiTestConnectionRequest): Promise<AiConnectionTestResult> {
     const config = this.readConfig();
     const provider = config.providers.find((candidate) => candidate.id === request?.providerProfileId);
@@ -605,6 +686,97 @@ export class AiProviderService {
 
   cancelNoteStream(requestId: string): boolean {
     return this.noteStreams.cancel(requestId);
+  }
+
+  private async transcribeOpenAiBatch(
+    provider: StoredProviderProfile,
+    model: AiModelProfile,
+    input: {
+      source: { fileDescriptor: number };
+      fileSize: number;
+      mimeType: string;
+      model: string;
+      language: string;
+      signal?: AbortSignal;
+    },
+  ): Promise<{ rawText: string; language: string }> {
+    if (provider.adapterKind !== "openai-native" || model.model !== input.model || !BATCH_TRANSCRIPTION_MODELS.has(model.model)) {
+      throw new AiProviderServiceError("文字起こしProviderまたはmodelが一致しません。", "unsupported");
+    }
+    if (!BATCH_TRANSCRIPTION_MIME_TYPES.includes(input.mimeType as (typeof BATCH_TRANSCRIPTION_MIME_TYPES)[number])
+      || !Number.isSafeInteger(input.fileSize)
+      || input.fileSize <= 0
+      || input.fileSize > BATCH_TRANSCRIPTION_MAX_FILE_SIZE) {
+      throw new AiProviderServiceError("音声形式または容量がProviderの上限に一致しません。", "invalid_request");
+    }
+    const credential = this.credentialFor(provider);
+    if (!credential) throw new AiProviderServiceError("文字起こしProviderの資格情報がありません。", "missing_credential");
+    const bytes = Buffer.allocUnsafe(input.fileSize);
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const count = fs.readSync(input.source.fileDescriptor, bytes, offset, bytes.byteLength - offset, offset);
+      if (count <= 0) throw new AiProviderServiceError("原音を最後まで読み取れませんでした。Artifactを確認してください。", "invalid_request");
+      offset += count;
+    }
+    const extension = input.mimeType === "audio/wav" ? "wav"
+      : input.mimeType === "audio/webm" ? "webm"
+        : input.mimeType === "audio/ogg" ? "ogg"
+          : input.mimeType === "audio/flac" ? "flac"
+            : input.mimeType === "audio/mp4" ? "mp4"
+              : input.mimeType === "audio/m4a" ? "m4a" : "mp3";
+    const form = new FormData();
+    form.set("model", model.model);
+    form.set("file", new Blob([bytes], { type: input.mimeType }), `audio.${extension}`);
+    if (input.language && input.language !== "und") form.set("language", input.language);
+    const endpoint = `${provider.endpoint || "https://api.openai.com/v1"}/audio/transcriptions`;
+    const requestController = new AbortController();
+    const abortFromCaller = () => requestController.abort();
+    if (input.signal?.aborted) requestController.abort();
+    else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    const timeout = setTimeout(() => requestController.abort(), provider.requestTimeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetcher(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${credential}`,
+          ...(provider.organization ? { "OpenAI-Organization": provider.organization } : {}),
+          ...(provider.project ? { "OpenAI-Project": provider.project } : {}),
+        },
+        body: form,
+        signal: requestController.signal,
+      });
+    } catch (error) {
+      if (input.signal?.aborted) throw new AiProviderServiceError("文字起こしをキャンセルしました。", "cancelled");
+      if (requestController.signal.aborted) throw new AiProviderServiceError("文字起こしProviderが時間内に応答しませんでした。原音を保持したまま再試行できます。", "timeout");
+      throw this.normalizeError(error, provider, model, credential);
+    } finally {
+      clearTimeout(timeout);
+      input.signal?.removeEventListener("abort", abortFromCaller);
+      bytes.fill(0);
+    }
+    if (!response.ok) {
+      const code = response.status === 401 || response.status === 403 ? "authentication"
+        : response.status === 429 ? "rate_limit"
+          : response.status === 404 ? "model_unavailable"
+            : response.status === 402 ? "quota"
+              : response.status >= 400 && response.status < 500 ? "invalid_request" : "provider_failure";
+      throw new AiProviderServiceError("文字起こしProviderが要求を処理できませんでした。設定または時間を置いて再試行してください。", code, response.status);
+    }
+    let payload: Record<string, unknown>;
+    try {
+      const value: unknown = await response.json();
+      payload = record(value);
+    } catch {
+      throw new AiProviderServiceError("文字起こしProviderの応答を読み取れませんでした。時間を置いて再試行してください。", "provider_failure");
+    }
+    if (typeof payload.text !== "string" || !payload.text.trim()) {
+      throw new AiProviderServiceError("文字起こしProviderの応答が空でした。原音は保持されています。", "provider_failure");
+    }
+    return {
+      rawText: payload.text,
+      language: typeof payload.language === "string" ? payload.language : input.language,
+    };
   }
 
   private createAdapter(provider: StoredProviderProfile, credential = this.credentialFor(provider), timeoutMs = provider.requestTimeoutMs, signal?: AbortSignal): AiAdapter {

@@ -246,6 +246,18 @@ export const workspaceApi = {
   inspectMediaArtifact(artifactId: string) {
     return desktopApi().mediaCapture.inspectArtifact({ artifactId });
   },
+  previewBatchTranscription(artifactId: string) {
+    return desktopApi().batchTranscription.preview({ artifactId });
+  },
+  getBatchTranscriptionHistory(artifactId: string) {
+    return desktopApi().batchTranscription.history({ artifactId });
+  },
+  runBatchTranscription(request: import("../../../shared/batchTranscriptionIpc").BatchTranscriptionRunRequest) {
+    return desktopApi().batchTranscription.run(request);
+  },
+  cancelBatchTranscription(artifactId: string, operationId: string) {
+    return desktopApi().batchTranscription.cancel({ artifactId, operationId });
+  },
   reload() {
     return desktopApi().app.reload();
   },

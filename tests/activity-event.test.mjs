@@ -399,7 +399,7 @@ test("schema v3 migrates a real legacy row idempotently without parsing plain af
 
   const first = new WorkspaceDatabase(file);
   const migrated = first.get("change_event", "legacy-event", true);
-  assert.equal(first.getMeta().schemaVersion, 3);
+  assert.equal(first.getMeta().schemaVersion, 4);
   assert.equal(migrated.event_kind, "task_created");
   assert.deepEqual(migrated.entity_ref, { type: "task", id: "task-legacy" });
   assert.equal(migrated.metadata.migrated_from, "legacy_change_event");

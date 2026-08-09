@@ -51,12 +51,24 @@ test("packaged smoke records, commits, plays and restart-checks a synthetic micr
   assert.match(source, /navigator\.mediaDevices\.getUserMedia\(\{ audio: true \}\)/);
   assert.match(source, /new MediaRecorder\(stream, \{ mimeType \}\)/);
   assert.match(source, /window\.api\.mediaCapture\.appendRecording/);
+  assert.match(source, /flushPausedRecorder[\s\S]*?setTimeout\([\s\S]*?200\)[\s\S]*?await flushPausedRecorder\(\)[\s\S]*?await appendChain[\s\S]*?pauseRecording/);
+  assert.match(source, /appendFailure \|\|= error[\s\S]*?if \(appendFailure\) throw appendFailure/);
   assert.match(source, /window\.api\.mediaCapture\.commitAudio/);
   assert.match(source, /created\.audioArtifactId = audioSmoke\.artifactId/);
   assert.match(source, /created\.microphoneArtifactId = microphoneSmoke\.artifactId/);
   assert.match(source, /created\.microphoneRangeVerified = await verifySmokeVideoRange\(microphoneSmoke\.artifactId\)/);
   assert.doesNotMatch(source, /created\.audioArtifactId = microphoneSmoke\.artifactId/);
   assert.match(source, /result\.microphonePlayback/);
+});
+
+test("packaged smoke confirms fake batch transcription and verifies the raw revision after restart", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.match(source, /Tasken packaged fake provider/);
+  assert.match(source, /window\.api\.batchTranscription\.preview/);
+  assert.match(source, /window\.api\.batchTranscription\.run/);
+  assert.match(source, /batchTranscriptionCompleted/);
+  assert.match(source, /window\.api\.batchTranscription\.history/);
+  assert.match(source, /batchTranscriptionRestarted/);
 });
 
 test("native clipboard smoke lock serializes only the shared interval and records ownership", async () => {

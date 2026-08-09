@@ -8,6 +8,7 @@ const drawer = readFileSync("src/renderer/src/features/workspace/components/draw
 const uiStore = readFileSync("src/renderer/src/stores/uiStore.ts", "utf8");
 const workspaceApp = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 const mediaFlushRegistry = readFileSync("src/renderer/src/features/workspace/lib/mediaRecordingFlushRegistry.ts", "utf8");
+const mediaRecorderFlush = readFileSync("src/renderer/src/features/workspace/lib/mediaRecorderFlush.ts", "utf8");
 
 test("Inbox keeps Memo primary while exposing audio import as a secondary action", () => {
   assert.match(inbox, /<Button variant="secondary"[\s\S]*?captureAudio\(\)/);
@@ -26,7 +27,9 @@ test("Inbox microphone recorder keeps bounded chunks, device choice and compact 
   assert.match(inbox, /pauseMicrophoneRecording\(\)/);
   assert.match(inbox, /resumeMicrophoneRecording\(\)/);
   assert.match(inbox, /async function pauseMicrophoneRecordingNow[\s\S]*?try \{[\s\S]*?pauseMediaRecording[\s\S]*?catch \(error\)[\s\S]*?stopMicrophoneRecordingNow\(false, true\)/);
-  assert.match(inbox, /recorder\.addEventListener\("pause"[\s\S]*?recorder\.pause\(\)[\s\S]*?await recorderPaused[\s\S]*?recorder\.addEventListener\("dataavailable"[\s\S]*?recorder\.requestData\(\)[\s\S]*?await chunkQueued[\s\S]*?await recordingAppendRef\.current[\s\S]*?pauseMediaRecording/);
+  assert.match(inbox, /recorder\.addEventListener\("pause"[\s\S]*?recorder\.pause\(\)[\s\S]*?await recorderPaused[\s\S]*?waitForMediaRecorderDataFlush\(recorder\)[\s\S]*?await recordingAppendRef\.current[\s\S]*?pauseMediaRecording/);
+  assert.match(mediaRecorderFlush, /const quietMs = options\.quietMs \?\? 200/);
+  assert.match(mediaRecorderFlush, /removeEventListener\("dataavailable"[\s\S]*?requestData\(\)/);
   assert.match(inbox, /async function resumeMicrophoneRecordingNow[\s\S]*?try \{[\s\S]*?resumeMediaRecording[\s\S]*?catch \(error\)[\s\S]*?stopMicrophoneRecordingNow\(false, true\)/);
   assert.match(inbox, /stopMicrophoneRecording\(\)/);
   assert.match(inbox, /discardActiveRecording\(\)/);

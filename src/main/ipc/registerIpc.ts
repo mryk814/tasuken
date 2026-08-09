@@ -8,6 +8,12 @@ import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
+import type { BatchTranscriptionService } from "../services/batchTranscriptionService.mjs";
+import {
+  parseBatchTranscriptionArtifactRequest,
+  parseBatchTranscriptionCancelRequest,
+  parseBatchTranscriptionRunRequest,
+} from "../../shared/batchTranscriptionIpc";
 import {
   parseAudioCaptureCancelRequest,
   parseAudioCaptureCommitRequest,
@@ -23,6 +29,7 @@ import { projectCommandReceiptForRenderer, projectEntityForRenderer, projectSnap
 import type { CommandReceipt } from "../../shared/applicationCommand";
 import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
+import { projectBatchTranscriptionIpcError } from "../batchTranscriptionIpcError";
 import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
 import { assertRendererBootstrapContainsNoMedia } from "../services/snapshotMediaValidation";
 import {
@@ -134,6 +141,7 @@ export function registerIpc(
   calendar: CalendarService,
   applicationCommands: ApplicationCommandService,
   mediaCapture: MediaCaptureService,
+  batchTranscription: BatchTranscriptionService,
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
   notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number, options?: { senderReceivesAll?: boolean }) => void = () => {},
 ): void {
@@ -362,6 +370,34 @@ export function registerIpc(
   ipcMain.handle(IPC.mediaArtifactInspect, (_event, request) => {
     const { artifactId } = parseMediaArtifactOpenRequest(request);
     return mediaCapture.inspectArtifactMedia(artifactId);
+  });
+  ipcMain.handle(IPC.batchTranscriptionPreview, (_event, request) => {
+    try {
+      return batchTranscription.preview(parseBatchTranscriptionArtifactRequest(request));
+    } catch (error) {
+      throw projectBatchTranscriptionIpcError("preview", error);
+    }
+  });
+  ipcMain.handle(IPC.batchTranscriptionHistory, (_event, request) => {
+    try {
+      return batchTranscription.history(parseBatchTranscriptionArtifactRequest(request));
+    } catch (error) {
+      throw projectBatchTranscriptionIpcError("history", error);
+    }
+  });
+  ipcMain.handle(IPC.batchTranscriptionRun, async (_event, request) => {
+    try {
+      return await batchTranscription.run(parseBatchTranscriptionRunRequest(request));
+    } catch (error) {
+      throw projectBatchTranscriptionIpcError("run", error);
+    }
+  });
+  ipcMain.handle(IPC.batchTranscriptionCancel, (_event, request) => {
+    try {
+      return batchTranscription.cancel(parseBatchTranscriptionCancelRequest(request));
+    } catch (error) {
+      throw projectBatchTranscriptionIpcError("cancel", error);
+    }
   });
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());

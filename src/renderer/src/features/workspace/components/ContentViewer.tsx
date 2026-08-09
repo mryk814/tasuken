@@ -36,6 +36,7 @@ import {
 import { MarkdownPreview } from "./MarkdownPreview";
 import { ConversationPreview } from "./ConversationPreview";
 import { ConversationContextPanel } from "./ConversationContextPanel";
+import { BatchTranscriptionPanel } from "./BatchTranscriptionPanel";
 import { parseConversation } from "../lib/conversationParser";
 
 export type { ContentViewerTarget };
@@ -643,6 +644,7 @@ export function ContentViewer({
                 <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
                 <span>{load.artifact.media_availability === "available" ? "保存済み" : "要確認"}</span>
               </div>
+              <BatchTranscriptionPanel key={load.artifact.id} artifactId={load.artifact.id} />
             </div>
           )}
           {load.status === "ready" && load.mode === "video" && (

@@ -39,6 +39,7 @@ import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
 import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared } from "../mediaCapture";
+import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest, BatchTranscriptionHistoryResult, BatchTranscriptionPreviewResult, BatchTranscriptionRunRequest, BatchTranscriptionRunResult } from "../batchTranscriptionIpc";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -82,6 +83,10 @@ export const IPC = {
   videoImportCancel: "video-import:cancel",
   mediaArtifactOpenExternal: "media-artifact:open-external",
   mediaArtifactInspect: "media-artifact:inspect",
+  batchTranscriptionPreview: "batch-transcription:preview",
+  batchTranscriptionHistory: "batch-transcription:history",
+  batchTranscriptionRun: "batch-transcription:run",
+  batchTranscriptionCancel: "batch-transcription:cancel",
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
@@ -559,6 +564,12 @@ export interface ResearchDeskApi {
     cancelVideo(request: AudioCaptureCancelRequest): Promise<boolean>;
     openArtifactExternal(request: MediaArtifactOpenRequest): Promise<{ ok: boolean; error?: string }>;
     inspectArtifact(request: MediaArtifactOpenRequest): Promise<MediaArtifactInspection>;
+  };
+  batchTranscription: {
+    preview(request: BatchTranscriptionArtifactRequest): Promise<BatchTranscriptionPreviewResult>;
+    history(request: BatchTranscriptionArtifactRequest): Promise<BatchTranscriptionHistoryResult>;
+    run(request: BatchTranscriptionRunRequest): Promise<BatchTranscriptionRunResult>;
+    cancel(request: BatchTranscriptionCancelRequest): Promise<BatchTranscriptionRunResult>;
   };
   app: {
     reload(): Promise<boolean>;
