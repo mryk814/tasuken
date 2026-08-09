@@ -93,7 +93,6 @@ import {
   publishConversationContextFile,
   removeConversationContextFile,
 } from "./conversationContextPublisher.mjs";
-import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
 
 type SnapshotDecisions = Record<string, string>;
 
@@ -487,7 +486,6 @@ export class WorkspaceService {
   private readonly themeAiPackRecoveryDirectory: string;
   private readonly dataHealthEvaluator = new DataHealthEvaluator();
   private readonly conversationContextRecoveryDirectory: string;
-  private readonly dataHealthEvaluator = new DataHealthEvaluator();
 
   constructor(
     private readonly repository: WorkspaceRepository,
