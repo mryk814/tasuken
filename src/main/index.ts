@@ -321,6 +321,7 @@ interface SmokeCreatedResult {
   clipboardWritten: boolean;
   sketchClipboardWritten: boolean;
   sketchClipboardPasted: boolean;
+  sketchCreatedAndOpened: boolean;
   /** AI共通metadata（#294）の保存・継承・検証。 */
   aiMetadataPersisted: boolean;
   aiThemeDefaultPersisted: boolean;
@@ -898,6 +899,19 @@ flowchart LR
       const savedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)}));
       const markdownSavedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)}));
 
+      // Sketchの作成は保存だけでなく、実在する編集routeへ到達して初めて成立する。
+      location.hash = "sketch";
+      const sketchLibrary = await waitFor(() => document.querySelector(".sketch-library-page"), "Sketch一覧");
+      const createSketchButton = [...sketchLibrary.querySelectorAll("button")]
+        .find((button) => button.textContent.trim().includes("新しいSketch"));
+      if (!createSketchButton) throw new Error("新しいSketchボタンがありません");
+      createSketchButton.click();
+      const sketchEditor = await waitFor(() => document.querySelector(".sketch-page"), "作成したSketchの編集面");
+      const sketchCreatedAndOpened = location.hash === "#sketch-editor"
+        && Boolean(sketchEditor.querySelector(".sketch-canvas-area"));
+      location.hash = "notes";
+      await waitFor(() => document.querySelector(".note-preview-panel"), "Notesプレビューへの復帰");
+
       return {
         title: document.title,
         rootReady: Boolean(document.querySelector("#root > *")),
@@ -923,6 +937,7 @@ flowchart LR
         themeMode,
         clipboardWritten: false,
         sketchClipboardWritten: false,
+        sketchCreatedAndOpened,
         aiMetadataPersisted,
         aiThemeDefaultPersisted,
         aiMetadataRejectedInvalid,
@@ -1326,6 +1341,7 @@ flowchart LR
         && result.clipboardWritten
         && result.sketchClipboardWritten
         && result.sketchClipboardPasted
+        && result.sketchCreatedAndOpened
         && result.themeMode === "dark"
         && result.themeModeAfterReload === "dark"
         && result.aiMetadataPersisted

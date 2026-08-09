@@ -44,6 +44,11 @@ export type RouteSemanticRole = "hub" | "view" | "tool" | "context";
 export interface RouteAliasDefinition {
   id: string;
   parent?: CanonicalRouteId;
+  /**
+   * redirect は旧URLを正規画面へ寄せる。child は親のlabel/iconを共有しつつ、
+   * 自身の画面IDを保つ（例: Sketch一覧に対する編集画面）。
+   */
+  kind?: "redirect" | "child";
 }
 
 export interface RouteDefinition {
@@ -101,7 +106,7 @@ export const ROUTE_DEFINITIONS = {
   sketch: {
     id: "sketch", label: "Sketch", icon: IconWriting,
     semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 3 },
-    aliases: [{ id: "sketch-editor", parent: "sketch" }],
+    aliases: [{ id: "sketch-editor", parent: "sketch", kind: "child" }],
   },
   "chat-refs": {
     id: "chat-refs", label: "Chat Refs", description: "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。", icon: IconMessageCircle,
@@ -137,6 +142,12 @@ export const routeAliases: Record<string, string> = Object.fromEntries(
   definitions.flatMap((definition) => (definition.aliases || []).map((alias) => [alias.id, definition.id])),
 );
 
+const routeRedirects: Record<string, string> = Object.fromEntries(
+  definitions.flatMap((definition) => (definition.aliases || [])
+    .filter((alias) => alias.kind !== "child")
+    .map((alias) => [alias.id, definition.id])),
+);
+
 export const routeParent: Record<string, string> = Object.fromEntries(
   definitions.flatMap((definition) => {
     const entries: [string, string][] = [];
@@ -163,6 +174,12 @@ export const knowledgeHubTabs = routeIdsForGroup("knowledge");
 export function resolveRouteId(id: string): CanonicalRouteId | undefined {
   const resolved = routeAliases[id] || id;
   return resolved in ROUTE_DEFINITIONS ? resolved as CanonicalRouteId : undefined;
+}
+
+/** URL・保存済みrouteを、実在する子画面を潰さずに正規化する。 */
+export function normalizeRoute(route: string): string {
+  if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
+  return routeRedirects[route] || route;
 }
 
 export function routeDefinition(id: string): RouteDefinition | undefined {

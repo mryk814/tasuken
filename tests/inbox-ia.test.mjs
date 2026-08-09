@@ -9,7 +9,7 @@ const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/Wor
 test("micro memos are folded into Inbox navigation instead of a separate nav item", () => {
   assert.doesNotMatch(routesSource, /\["micro-memos", "付箋メモ"\]/);
   assert.match(workspaceAppSource, /normalizeRoute/);
-  assert.match(workspaceAppSource, /micro-memos/);
+  assert.match(routesSource, /id: "micro-memos", parent: "inbox"/);
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/MicroMemoPage.tsx"), false);
 });
 
