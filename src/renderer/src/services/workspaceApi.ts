@@ -213,6 +213,21 @@ export const workspaceApi = {
   cancelAudioCapture(sessionId: string) {
     return desktopApi().mediaCapture.cancelAudio({ sessionId });
   },
+  startMediaRecording(request: import("../../../shared/mediaCapture").MediaRecordingStartRequest) {
+    return desktopApi().mediaCapture.startRecording(request);
+  },
+  appendMediaRecording(request: import("../../../shared/mediaCapture").MediaRecordingAppendRequest) {
+    return desktopApi().mediaCapture.appendRecording(request);
+  },
+  pauseMediaRecording(sessionId: string) {
+    return desktopApi().mediaCapture.pauseRecording({ sessionId });
+  },
+  resumeMediaRecording(sessionId: string) {
+    return desktopApi().mediaCapture.resumeRecording({ sessionId });
+  },
+  stopMediaRecording(sessionId: string) {
+    return desktopApi().mediaCapture.stopRecording({ sessionId });
+  },
   prepareVideoImport(request: import("../../../shared/mediaCapture").VideoImportPrepareRequest) {
     return desktopApi().mediaCapture.prepareVideo(request);
   },

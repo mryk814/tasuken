@@ -6,6 +6,41 @@ export interface AudioCapturePrepareRequest {
   themeId?: string | null;
 }
 
+export const MICROPHONE_RECORDING_MIME_TYPES = ["audio/webm"] as const;
+export type MicrophoneRecordingMimeType = (typeof MICROPHONE_RECORDING_MIME_TYPES)[number];
+
+export interface MediaRecordingStartRequest {
+  mediaKind: "audio";
+  themeId?: string | null;
+  mimeType: MicrophoneRecordingMimeType;
+}
+
+export interface MediaRecordingStarted {
+  sessionId: string;
+  mediaKind: "audio";
+  mimeType: MicrophoneRecordingMimeType;
+  maxChunkBytes: number;
+  maxRecordingBytes: number;
+  maxDurationMs: number;
+}
+
+export interface MediaRecordingAppendRequest {
+  sessionId: string;
+  sequence: number;
+  chunk: ArrayBuffer;
+}
+
+export interface MediaRecordingControlRequest {
+  sessionId: string;
+}
+
+export interface MediaRecordingProgress {
+  sessionId: string;
+  nextSequence: number;
+  fileSize: number;
+  state: "recording" | "paused";
+}
+
 export interface AudioCapturePrepared {
   sessionId: string;
   filename: string;
@@ -14,11 +49,12 @@ export interface AudioCapturePrepared {
   mediaUrl: string;
   status: "ready" | "recovery_required";
   availability: MediaAvailability;
-  recoveryReason?: "manifest_invalid" | "media_missing" | "media_changed" | "unsafe_source" | "unsupported_codec" | "commit_failed" | "recovery_pending";
+  recoveryReason?: "manifest_invalid" | "media_missing" | "media_changed" | "unsafe_source" | "unsupported_codec" | "commit_failed" | "recovery_pending" | "recording_interrupted";
   durationMs?: number;
   canCommit: boolean;
   canRetry: boolean;
   canDiscard: boolean;
+  canRecoverRecording?: boolean;
 }
 
 export const VIDEO_ARTIFACT_SOURCE_TYPES = ["task", "note", "report", "capture_entry"] as const;
@@ -135,6 +171,32 @@ export function parseAudioCapturePrepareRequest(value: unknown): AudioCapturePre
     throw new Error("音声CaptureのTheme IDが不正です。");
   }
   return { themeId: input.themeId };
+}
+
+export function parseMediaRecordingStartRequest(value: unknown): MediaRecordingStartRequest {
+  const input = requireExactObject(value, ["mediaKind", "themeId", "mimeType"], "media recording start");
+  if (input.mediaKind !== "audio") throw new Error("この録音種別にはまだ対応していません。");
+  const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
+  if (typeof input.mimeType !== "string" || !MICROPHONE_RECORDING_MIME_TYPES.includes(input.mimeType as MicrophoneRecordingMimeType)) {
+    throw new Error("対応していない録音形式です。アプリを再起動して、もう一度試してください。");
+  }
+  return { ...theme, mediaKind: "audio", mimeType: input.mimeType as MicrophoneRecordingMimeType };
+}
+
+export function parseMediaRecordingAppendRequest(value: unknown): MediaRecordingAppendRequest {
+  const input = requireExactObject(value, ["sessionId", "sequence", "chunk"], "microphone recording append");
+  if (!Number.isSafeInteger(input.sequence) || Number(input.sequence) < 0) {
+    throw new Error("録音chunkの順序が不正です。録音を停止し、保存待ち音声を確認してください。");
+  }
+  if (!(input.chunk instanceof ArrayBuffer)) {
+    throw new Error("録音chunkが不正です。録音を停止し、もう一度試してください。");
+  }
+  return { sessionId: requireSessionId(input.sessionId), sequence: Number(input.sequence), chunk: input.chunk };
+}
+
+export function parseMediaRecordingControlRequest(value: unknown): MediaRecordingControlRequest {
+  const input = requireExactObject(value, ["sessionId"], "microphone recording control");
+  return { sessionId: requireSessionId(input.sessionId) };
 }
 
 export function parseAudioCaptureCommitRequest(value: unknown): AudioCaptureCommitRequest {

@@ -47,6 +47,22 @@ test("audio cancel IPC accepts only an exact session envelope", () => {
   assert.throws(() => parsers.parseAudioCaptureCancelRequest({ sessionId: "not-a-uuid" }), /session ID/);
 });
 
+test("media recording IPC is mediaKind-discriminated and accepts only ArrayBuffer chunks", () => {
+  assert.deepEqual(parsers.parseMediaRecordingStartRequest({ mediaKind: "audio", themeId: THEME_ID, mimeType: "audio/webm" }), {
+    mediaKind: "audio",
+    themeId: THEME_ID,
+    mimeType: "audio/webm",
+  });
+  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm" }), /まだ対応/);
+  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "audio", mimeType: "audio/wav" }), /対応していない録音形式/);
+  const chunk = new ArrayBuffer(16);
+  assert.deepEqual(parsers.parseMediaRecordingAppendRequest({ sessionId: SESSION_ID, sequence: 0, chunk }), { sessionId: SESSION_ID, sequence: 0, chunk });
+  assert.throws(() => parsers.parseMediaRecordingAppendRequest({ sessionId: SESSION_ID, sequence: 1, chunk: new Uint8Array(16) }), /録音chunkが不正/);
+  assert.throws(() => parsers.parseMediaRecordingAppendRequest({ sessionId: SESSION_ID, sequence: -1, chunk }), /順序/);
+  assert.deepEqual(parsers.parseMediaRecordingControlRequest({ sessionId: SESSION_ID }), { sessionId: SESSION_ID });
+  assert.throws(() => parsers.parseMediaRecordingControlRequest({ sessionId: SESSION_ID, force: true }), /未定義field/);
+});
+
 test("preload and Main keep prepared list/cancel behind typed narrow IPC", () => {
   const preload = readFileSync("src/preload/index.ts", "utf8");
   const register = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
@@ -54,4 +70,7 @@ test("preload and Main keep prepared list/cancel behind typed narrow IPC", () =>
   assert.match(register, /if \(args\.length > 0\) throw new Error\("保存待ち音声の一覧requestに引数は指定できません。"\)/);
   assert.match(register, /parseAudioCaptureCancelRequest\(request\)/);
   assert.match(register, /parseAudioCaptureCommitRequest\(request\)/);
+  assert.match(preload, /startRecording: \(request\) => ipcRenderer\.invoke\(IPC\.mediaRecordingStart, request\)/);
+  assert.match(register, /requireAudioCaptureThemeId\(repository, \{ themeId: parsed\.themeId \}\)/);
+  assert.match(register, /parseMediaRecordingAppendRequest\(request\)/);
 });

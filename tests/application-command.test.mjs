@@ -386,6 +386,23 @@ test("CommitAudioCapture is a Main-owned typed command and persists the Capture-
   assert.deepEqual(retry, receipt);
   assert.equal(repo.list("artifact").filter(({ id }) => id === "audio-artifact").length, 1);
   assert.equal(repo.list("change_event").filter(({ command_id }) => command_id === "audio-command").length, 1);
+  const microphoneCommand = {
+    ...envelope("CommitAudioCapture", {
+      capture: { ...payload.capture, id: "microphone-capture", text: "voice.webm", capture_method: "microphone" },
+      artifact: {
+        ...payload.artifact,
+        id: "microphone-artifact",
+        filename: "voice.webm",
+        file_type: "webm",
+        mime_type: "audio/webm",
+        source_id: "microphone-capture",
+      },
+    }, "microphone-command"),
+    source: "inbox",
+  };
+  const microphoneReceipt = service.executeMediaCapture(microphoneCommand);
+  assert.equal(microphoneReceipt.status, "applied");
+  assert.equal(repo.get("capture_entry", "microphone-capture").capture_method, "microphone");
   assert.throws(() => service.executeMediaCapture({
     ...command,
     commandId: "audio-mismatch",

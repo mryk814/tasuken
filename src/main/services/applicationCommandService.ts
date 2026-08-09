@@ -791,10 +791,10 @@ export class ApplicationCommandService {
     if (
       capture.content_type !== "audio"
       || capture.kind !== "voice_memo"
-      || capture.capture_method !== "audio_import"
+      || !["audio_import", "microphone"].includes(String(capture.capture_method))
       || capture.media_status !== "ready"
     ) {
-      throw new ApplicationCommandError("INVALID_PAYLOAD", "Voice Captureのaudio import contractが不正です。");
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Voice Captureのcommit contractが不正です。");
     }
     if (
       artifact.media_kind !== "audio"

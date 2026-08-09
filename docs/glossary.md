@@ -26,7 +26,7 @@
 | Context Preview | `AiContextPreviewPanel.tsx` / `aiContextPreview.mjs` | Theme / Taskについて、M365向けAI PackまたはCoding Agent向けMCPが実際に選んだbounded contextを表示する。専用の選択規則は持たず、included / excluded / relation path / visibility / freshness / authority / truncationを実producer responseから投影する |
 | Data Health | `KnowledgePage.tsx` / `dataHealth.mjs` | AI公開・Relation・Internal Link・Canonical Markdown・AI Packの不整合を理由と修正候補付きで検出する診断。無視/解決済みはMain-ownedのversioned stateへ保存し、内容やRelationを自動変更しない |
 | Conversation AI Context | `ContentViewer.tsx` / `ConversationContextPanel.tsx` | Conversation Viewerから利用者が明示的にOneDriveへ昇格するM365用Markdown projection。取り込み時はローカルのみ。`AI Context/Conversations`へstable pathで保存し、Theme AI Packは本文を複製せず参照だけを持つ。詳細は `docs/conversation-ai-context.md` |
-| Voice Capture | `InboxPage.tsx` / `ContentViewer.tsx` | Inboxの「音声を取り込む」で既存audio fileを原音のままmanaged保存する。保存前・復旧待ちは「保存待ち音声」、保存後はCaptureEntryのcompact metadataからContent Viewerで再生する。microphone録音・文字起こしは含まない。詳細は `docs/media-capture.md` |
+| Voice Capture | `InboxPage.tsx` / `ContentViewer.tsx` | Inboxの「音声を取り込む」で既存audio fileをmanaged保存するか、「マイクで録音」で入力deviceを選び明示録音する。録音中はcompact recorder、保存前・復旧待ちは「保存待ち音声」、保存後はCaptureEntryからContent Viewerで再生する。文字起こしは含まない。詳細は `docs/media-capture.md` |
 | Video Artifact | `ArtifactSection.tsx` / `ContentViewer.tsx` | Task / Note / Capture / 実行中Focusから既存動画をmanagedまたはlinkedで添付し、Artifact IDから再生する。選択後・確定前と復旧待ちは「保存待ち動画」。録画・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
 
 ## エンティティと状態
@@ -36,7 +36,7 @@
 | エンティティ | ユーザーの呼び方 | 状態値 |
 |---|---|---|
 | Theme (Project) | テーマ | 構想 / 進行中 / 保留 / 終了。`system_kind: personal_default` の「個人業務」は常設の既定Themeで、削除・アーカイブできず一覧の先頭に固定される（#282）。判定は表示名ではなく `shared/personalTheme.mjs` の `isPersonalDefaultTheme` で行う。`project_id` 未設定は `resolveThemeId` でこのThemeへ解決し、既存データは書き換えない |
-| CaptureEntry | クイック記録、Inboxのやつ。文字・Markdown・URL・ファイル・画像・手書き・Voice Captureを受け取る正本。Voice Captureは`content_type=audio`、`capture_method=audio_import` | 未整理 / 整理済み / アーカイブ。Voice Captureは`media_status`と`transcription_status`も持つ |
+| CaptureEntry | クイック記録、Inboxのやつ。文字・Markdown・URL・ファイル・画像・手書き・Voice Captureを受け取る正本。Voice Captureは`content_type=audio`、`capture_method=audio_import \| microphone` | 未整理 / 整理済み / アーカイブ。Voice Captureは`media_status`と`transcription_status`も持つ |
 | Task | タスク | 未着手 / 進行中 / 待ち / 確認待ち / 完了 / 中止 |
 | Waiting | 待ち | 待ち / 受領 / 中止 |
 | Schedule | 予定。Task / Waiting / PlanNode へ日付を付ける | `date_kind`: point / deadline / range / unknown。範囲（開始日 < 終了日）は `range_semantics` で意味を分ける（#309）。判定の正本は `domain-model/scheduleSemantics.ts` の `getScheduleKind` |
