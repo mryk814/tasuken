@@ -68,9 +68,13 @@ export const entityTypes = Object.freeze(entityDefinitions.map((definition) => d
 
 /** Referenceのsource/targetは、Repositoryの内部enumではなくRegistryのdomain境界を正本にする。 */
 export const referenceTargetEntityTypes = Object.freeze([
-  "project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact",
+  "project", "capture_entry", "task", "work_receipt", "waiting", "plan_node", "note", "resource",
+  "knowledge_node", "sketch", "artifact", "change_event",
 ]);
-export const referenceRelationTypes = Object.freeze(["related_to", "derived_from", "mentions", "blocks", "supports"]);
+export const referenceRelationTypes = Object.freeze([
+  "related_to", "derived_from", "mentions", "links_to", "blocks", "supports", "contradicts", "answers",
+  "depends_on", "created_for", "generated_from", "exported_from", "attached_to", "implements", "supersedes",
+]);
 
 export function entityDefinition(type) {
   const definition = definitionsByType.get(type);

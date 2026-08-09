@@ -46,15 +46,9 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   if (type === "resource") repository.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
   if (type === "capture_entry") repository.cascadeWhere("artifact", (entry) => entry.source_type === "capture_entry" && entry.source_id === id, type, id);
   if (type === "ai_proposal") repository.cascadeWhere("artifact", (entry) => entry.source_type === "ai_proposal" && entry.source_id === id, type, id);
-  if (type === "sketch") {
-    repository.cascadeWhere(
-      "reference",
-      (entry) => (entry.source_type === "sketch" && entry.source_id === id)
-        || (entry.target_type === "sketch" && entry.target_id === id),
-      type,
-      id,
-    );
-  }
+  // Relation assertions are durable history. Deleting either endpoint leaves
+  // the assertion dangling so the graph can report a broken_relation instead
+  // of silently deleting or reconnecting it.
 
   if (type === "source_record") {
     repository.nullifyReferences(type, [

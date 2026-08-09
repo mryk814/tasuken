@@ -25,6 +25,7 @@ import {
 } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent, migrateChangeEvent, normalizeActivityEvent, activityEventDedupeKey } from "../../shared/activityEvent.mjs";
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
+import { normalizeReferenceAssertion, referenceAssertionIdentity } from "../../shared/relationAssertion.mjs";
 
 const SCHEMA_VERSION = 3;
 
@@ -33,7 +34,7 @@ const uuid = () => crypto.randomUUID();
 
 function parseRow(row) {
   if (!row) return null;
-  return {
+  const entity = {
     ...JSON.parse(row.data_json),
     id: row.id,
     created_at: row.created_at,
@@ -43,6 +44,9 @@ function parseRow(row) {
     source: row.source,
     version: row.version,
   };
+  return row.entity_type === "reference"
+    ? normalizeReferenceAssertion(entity, { legacyRead: true })
+    : entity;
 }
 
 function contentOf(entity) {
@@ -651,8 +655,9 @@ export class WorkspaceDatabase {
       }
     }
     if (type === "reference") {
-      requireV2(entity.source_type, entity.source_id, "source_id");
-      requireV2(entity.target_type, entity.target_id, "target_id");
+      const { subject, object } = referenceAssertionIdentity(entity);
+      requireV2(subject.type, subject.id, "subject.id");
+      requireV2(object.type, object.id, "object.id");
     }
     if (type === "task_dependency") {
       requireV2("task", entity.task_id, "task_id");
@@ -769,8 +774,9 @@ export class WorkspaceDatabase {
           requireV2Ref(record.owner_type, record.owner_id, "owner_id");
         }
         if (type === "reference") {
-          requireV2Ref(record.source_type, record.source_id, "source_id");
-          requireV2Ref(record.target_type, record.target_id, "target_id");
+          const { subject, object } = referenceAssertionIdentity(record);
+          requireV2Ref(subject.type, subject.id, "subject.id");
+          requireV2Ref(object.type, object.id, "object.id");
         }
         if (type === "task_dependency") {
           requireV2Ref("task", record.task_id, "task_id");

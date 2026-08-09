@@ -3,6 +3,7 @@ import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
 import { normalizeActivityEvent, ACTIVITY_EVENT_KINDS } from "../../shared/activityEvent.mjs";
 import { normalizeRepositoryContext, normalizeRepositoryLinkFields } from "../../shared/repositoryContext.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
+import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import {
   assertEntityPayload,
   assertEntityType as assertRegistryEntityType,
@@ -73,7 +74,6 @@ const scheduleRangeSemantics = new Set(["once_within_window", "ongoing"]);
 // 表示名の文字列比較で特別扱いせず、この値と安定IDで識別する。
 const themeSystemKinds = new Set(["personal_default"]);
 const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact"]);
-const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
 const changeSources = new Set(["manual", "import", "ai", "migration"]);
 const repositoryContextRecordFields = new Set([
@@ -266,6 +266,10 @@ export function validateEntity(type, input) {
   assertEntityPayload(type, input);
   if (!isPlainObject(input)) throw new Error(`${type}の保存内容が不正です。`);
 
+  // Legacy rows remain readable/importable. Validation uses their canonical
+  // projection without mutating the persisted input.
+  if (type === "reference") input = normalizeReferenceAssertion(input);
+
   // AI共通metadata（#294）は正規化と同じ規則で検証する。規則の正本は aiMetadata.mjs 側。
   if (hasAiMetadataContract(type)) normalizeAiMetadata(type, input);
 
@@ -391,9 +395,10 @@ export function validateEntity(type, input) {
     }
   }
   if (type === "reference") {
-    if (!entityRefTypes.has(input.source_type) || !entityRefTypes.has(input.target_type)) throw new Error("referenceの参照先種別が不正です。");
-    if (!referenceRelationTypes.has(input.relation_type)) throw new Error("reference.relation_typeが不正です。");
-    if (input.source_type === input.target_type && input.source_id === input.target_id) throw new Error("Referenceで自分自身は参照できません。");
+    // normalizeReferenceAssertion owns the complete assertion validation.
+    // Keep this branch explicit so Reference does not silently fall back to a
+    // generic record contract.
+    normalizeReferenceAssertion(input);
   }
   if (type === "task_dependency" && input.task_id === input.depends_on_task_id) {
     throw new Error("TaskDependencyで自分自身は参照できません。");
@@ -498,6 +503,7 @@ export function normalizeTaskAssignment(input, previous = null) {
 
 export function normalizeEntity(type, input) {
   const normalized = { ...input };
+  if (type === "reference") Object.assign(normalized, normalizeReferenceAssertion(normalized, { writeBoundary: true }));
   if (type === "change_event") Object.assign(normalized, normalizeActivityEvent(normalized));
   // AI共通metadata（#294）。本文フィールドには触れず、概要・鮮度・根拠・公開範囲だけを揃える。
   if (hasAiMetadataContract(type)) Object.assign(normalized, normalizeAiMetadata(type, normalized));

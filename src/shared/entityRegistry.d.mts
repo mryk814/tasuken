@@ -7,8 +7,10 @@ export type RegistryEntityType =
   | "change_event" | "work_receipt" | "artifact" | "sketch";
 
 export const entityTypes: readonly RegistryEntityType[];
-export const referenceTargetEntityTypes: readonly Exclude<RegistryEntityType, "theme" | "item" | "link" | "view" | "status_update" | "source_record" | "entity_source" | "field_definition" | "field_value" | "log_entry" | "import_batch" | "ai_proposal" | "repository_context" | "schedule" | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge" | "change_event" | "work_receipt">[];
-export const referenceRelationTypes: readonly ["related_to", "derived_from", "mentions", "blocks", "supports"];
+export const referenceTargetEntityTypes: readonly Exclude<RegistryEntityType, "theme" | "item" | "link" | "view" | "status_update" | "source_record" | "entity_source" | "field_definition" | "field_value" | "log_entry" | "import_batch" | "ai_proposal" | "repository_context" | "schedule" | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge">[];
+export const referenceRelationTypes: readonly ["related_to", "derived_from", "mentions", "links_to", "blocks", "supports", "contradicts", "answers", "depends_on", "created_for", "generated_from", "exported_from", "attached_to", "implements", "supersedes"];
+export type ReferenceTargetEntityType = typeof referenceTargetEntityTypes[number];
+export type ReferenceRelationType = typeof referenceRelationTypes[number];
 export interface EntityDefinition {
   readonly type: RegistryEntityType;
   readonly collectionKey: string;

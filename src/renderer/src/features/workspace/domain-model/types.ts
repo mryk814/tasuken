@@ -1,6 +1,7 @@
 import type { AiMetadataFields } from "../../../../../shared/aiMetadata.mjs";
 import type { RepositoryContext } from "../../../../../shared/repositoryContext.mjs";
 import type { ExternalReference } from "../../../../../shared/externalReference.mjs";
+import type { RelationAssertion, RelationEvidenceRef, RelationLayer, RelationOrigin, RelationPredicate, RelationRef, RelationStatus } from "../../../../../shared/relationAssertion.mjs";
 
 /**
  * AI可読の共通metadata（#294）。本文schemaは種別ごとに別のまま、
@@ -289,15 +290,31 @@ export type EntityRefType =
 
 export interface Reference {
   id: string;
+  assertion_id?: string;
+  subject?: RelationRef;
+  predicate?: RelationPredicate;
+  object?: RelationRef;
+  layer?: RelationLayer;
+  status?: RelationStatus;
+  origin?: RelationOrigin;
+  evidence_refs?: RelationEvidenceRef[];
+  legacy_evidence_refs?: string[];
+  confidence?: number | null;
+  metadata?: Record<string, unknown>;
+  recorded_at?: string | null;
+  superseded_by_assertion_id?: string | null;
+  legacy_read?: boolean;
   source_type: EntityRefType;
   source_id: string;
   target_type: EntityRefType;
   target_id: string;
-  relation_type: "related_to" | "derived_from" | "mentions" | "blocks" | "supports";
+  relation_type: RelationPredicate;
   note?: string | null;
   source_heading?: string | null;
   source_excerpt?: string | null;
 }
+
+export type CanonicalReference = Reference & RelationAssertion;
 
 export interface TaskDependency {
   id: string;
