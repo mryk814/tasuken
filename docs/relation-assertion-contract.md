@@ -41,3 +41,9 @@ Work Receiptは`work_receipt -> task`の`created_for` provenance assertionとし
 ## Legacy Internal Link migration
 
 旧`[[title]]`は自動rewriteしない。exact title matchが1件だけなら`migration_candidate`、複数なら`ambiguous`、0件なら`unresolved`と分類する。候補提示後に採用された場合だけtyped `{ type, id }`を持つ`links_to` assertionを作る。raw titleとsource spanはmetadataに残し、同名Entityの追加・削除で無言再接続しない。
+
+canonical syntaxは`[[type:percent-encoded-id|表示alias]]`（`typed-stable-link/v1`）とする。例は`[[task:task%3A42|調査タスク]]`。identityは常に`{ type, id }`であり、表示aliasやEntity titleの変更で接続先を変えない。parserはMarkdownのfenced code、inline code、backslashでescapeされたopening bracketsをRelationへ変換しない。
+
+同じsourceから同じtargetへの複数リンクは出現ordinalでassertionを区別する。ordinalは`assertion_id`のidentityに使うが、`source_span`はevidence metadataに限定するため、本文前方への追記でRelation IDは変わらない。canonical Markdown writerは`reconcileStableLinkAssertions`のupsert/delete差分を同じ保存単位へ含める。これにより同一保存はidempotentとなり、削除・置換されたstable-link assertionだけを除去し、手動作成の`links_to`は変更しない。
+
+Entity詳細のLink / BacklinkはReference正本からContext Graphのpublic bounded queryを通して読む。outbound、backlink、broken、legacy各statusはカテゴリ別に上限を持ち、一方向の大量edgeが他カテゴリを隠さない。resolvedだけをtyped遷移可能にし、broken / ambiguous / unresolved / migration candidateは確認表示に留める。
