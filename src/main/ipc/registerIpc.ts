@@ -80,15 +80,10 @@ function saveManyTypes(operations: unknown[]): EntityType[] {
 }
 
 export function documentSaveChangedTypes(request: unknown): EntityType[] {
-  if (!request || typeof request !== "object" || Array.isArray(request)) return ["note"];
-  const companions = (request as { companions?: unknown }).companions;
-  const hasReference = Array.isArray(companions) && companions.some((operation) => (
-    Boolean(operation)
-    && typeof operation === "object"
-    && !Array.isArray(operation)
-    && (operation as { type?: unknown }).type === "reference"
-  ));
-  return hasReference ? ["note", "reference"] : ["note"];
+  // Stable Internal Links are derived inside WorkspaceService from the
+  // canonical Markdown body, so the request does not enumerate every changed
+  // Reference. Always refresh both projections after a successful Note save.
+  return ["note", "reference"];
 }
 
 function rejectTaskPersistence(type: EntityType, operation = "保存"): void {

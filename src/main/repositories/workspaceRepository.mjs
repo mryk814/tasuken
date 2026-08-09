@@ -508,6 +508,7 @@ export class WorkspaceDatabase {
         if (!operation || operation.action !== "save") throw new Error("Application Commandの保存内容が不正です。");
         return this.saveWithinTransaction(operation.type, operation.entity, operation.options || {});
       }),
+      remove: (type, id) => this.removeWithinTransaction(type, id),
     }));
     return transaction();
   }
@@ -912,18 +913,21 @@ export class WorkspaceDatabase {
 
   remove(type, id) {
     assertEntityType(type);
-    const transaction = this.db.transaction(() => {
-      const existing = this.get(type, id);
-      if (!existing) return null;
-      // 常設の既定Themeは削除させない。消えるとTheme未設定の解決先が失われる（#282）。
-      if (type === "theme" && !isThemeDeletable(existing)) {
-        throw new Error("既定Theme「個人業務」は削除できません。");
-      }
-      this.applyDeletePolicy(type, String(id));
-      this.markRemoved(type, String(id));
-      return this.get(type, id, true);
-    });
+    const transaction = this.db.transaction(() => this.removeWithinTransaction(type, id));
     return transaction();
+  }
+
+  removeWithinTransaction(type, id) {
+    assertEntityType(type);
+    const existing = this.get(type, id);
+    if (!existing) return null;
+    // 常設の既定Themeは削除させない。消えるとTheme未設定の解決先が失われる（#282）。
+    if (type === "theme" && !isThemeDeletable(existing)) {
+      throw new Error("既定Theme「個人業務」は削除できません。");
+    }
+    this.applyDeletePolicy(type, String(id));
+    this.markRemoved(type, String(id));
+    return this.get(type, id, true);
   }
 
   restore(type, id) {

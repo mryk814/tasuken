@@ -249,11 +249,7 @@ export function stableLinkAssertion(source, link, options = {}) {
  * removed or replaced links explicitly return their stale IDs for deletion.
  */
 export function reconcileStableLinkAssertions(source, markdown, existingAssertions = [], options = {}) {
-  const assertions = parseStableLinks(markdown)
-    .filter((link) => link.kind === "canonical")
-    .map((link) => stableLinkAssertion(source, link, options));
-  const desiredIds = new Set(assertions.map((assertion) => assertion.assertion_id));
-  const ownedExistingIds = existingAssertions
+  const normalizedExisting = existingAssertions
     .map((assertion) => {
       try {
         return normalizeReferenceAssertion(assertion, { legacyRead: true });
@@ -261,6 +257,21 @@ export function reconcileStableLinkAssertions(source, markdown, existingAssertio
         return null;
       }
     })
+    .filter(Boolean);
+  const existingById = new Map(normalizedExisting.map((assertion) => [assertion.assertion_id, assertion]));
+  const assertions = parseStableLinks(markdown)
+    .filter((link) => link.kind === "canonical")
+    .map((link) => {
+      const preliminary = stableLinkAssertion(source, link, options);
+      const existing = existingById.get(preliminary.assertion_id);
+      return stableLinkAssertion(source, link, {
+        ...options,
+        origin: existing?.origin || options.origin,
+        recordedAt: existing?.recorded_at || options.recordedAt,
+      });
+    });
+  const desiredIds = new Set(assertions.map((assertion) => assertion.assertion_id));
+  const ownedExistingIds = normalizedExisting
     .filter((assertion) => (
       assertion
       && assertion.subject.type === source.type
@@ -329,11 +340,24 @@ export function buildStableLinkContext(workspace, seed, options = {}) {
     })
     .filter(Boolean);
   const seedRecord = graph.records.get(refKey(seed));
-  const legacy = seedRecord
-    ? resolveStableLinks(recordBody(seedRecord), workspace)
-      .filter((link) => link.kind === "legacy")
-      .map((link) => ({ kind: link.resolution, ...link }))
-    : [];
+  const parsedResolutions = seedRecord ? resolveStableLinks(recordBody(seedRecord), workspace) : [];
+  const brokenRelationTargets = new Set(broken.map((item) => refKey(item.ref)));
+  const parsedBroken = parsedResolutions
+    .filter((link) => link.kind === "canonical" && link.resolution === "broken" && !brokenRelationTargets.has(refKey(link.ref)))
+    .map((link) => ({
+      kind: "broken",
+      assertion_id: `unpersisted:${link.source_span.start}:${link.source_span.end}`,
+      direction: "outbound",
+      ref: link.ref,
+      title: link.title,
+      predicate: "links_to",
+      metadata: { syntax: stableLinkSyntax, raw: link.raw, raw_alias: link.alias, source_span: link.source_span },
+      missing_refs: [link.ref],
+    }));
+  broken.push(...parsedBroken);
+  const legacy = parsedResolutions
+    .filter((link) => link.kind === "legacy")
+    .map((link) => ({ kind: link.resolution, ...link }));
   const select = (items) => [...items].sort((a, b) => itemKey(a).localeCompare(itemKey(b))).slice(0, maxItems);
   const migrationCandidates = legacy.filter((item) => item.kind === "migration_candidate");
   const ambiguous = legacy.filter((item) => item.kind === "ambiguous");
@@ -344,11 +368,7 @@ export function buildStableLinkContext(workspace, seed, options = {}) {
   const allInboundEdges = (graph.incoming.get(seedKey) || []).filter(isDefaultFact);
   const resolvedOutboundTotal = allOutboundEdges.filter((edge) => graph.nodes.has(refKey(edge.target))).length;
   const resolvedBacklinkTotal = allInboundEdges.filter((edge) => graph.nodes.has(refKey(edge.source))).length;
-  const brokenTotal = new Set(
-    [...allOutboundEdges, ...allInboundEdges]
-      .filter((edge) => !graph.nodes.has(refKey(edge.source)) || !graph.nodes.has(refKey(edge.target)))
-      .map((edge) => edge.assertion_id),
-  ).size;
+  const brokenTotal = new Set(broken.map((item) => item.assertion_id)).size;
   const categories = {
     outbound: { total: resolvedOutboundTotal, truncated: resolvedOutboundTotal > maxItems },
     backlinks: { total: resolvedBacklinkTotal, truncated: resolvedBacklinkTotal > maxItems },
