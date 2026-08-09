@@ -50,6 +50,8 @@ import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 import type { ApplicationCommandSource, ApplyAiProposalCommandPayload, CommandEnvelope, CommandReceipt, ExpectedVersion } from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
+import { buildSaveNoteOperations } from "./domain-model/persistence";
+import { buildDerivedFromReferenceOperation, stripLineageDraftMetadata } from "./lib/lineageOperations";
 
 const ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "themes", "items", "notes", "links", "resources", "views",
@@ -1159,7 +1161,8 @@ export function WorkspaceApp() {
           heading_number_levels: hasHeadingNumberLevels ? headingNumberLevels : [2, 3, 4],
         }
         : {};
-      const { theme_id: _legacyThemeId, ...canonicalBase } = base;
+      const { theme_id: _legacyThemeId, ...baseWithoutLegacyTheme } = base;
+      const canonicalBase = stripLineageDraftMetadata(baseWithoutLegacyTheme);
       entity = {
         ...canonicalBase,
         // Canonical document IPC requires a stable owner ID even for a new Note.
@@ -1261,9 +1264,29 @@ export function WorkspaceApp() {
       entity = { ...entity, ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))) };
     }
 
+    // Conversation詳細からの明示作成は、Note本体とderived_fromを同じ保存単位で確定する。
+    // Draft専用metadataはEntityへ残さない。
+    if (type === "note" && entity.id) {
+      const lineageReference = buildDerivedFromReferenceOperation(base, "note", String(entity.id));
+      if (lineageReference) {
+        const noteThemeId = (entity.project_id as string | null) || null;
+        await saveEntities([
+          ...buildSaveNoteOperations(entity as unknown as import("./domain-model/types").Note, { reason: "created_from_conversation", newSession: true }),
+          lineageReference,
+          ...buildArtifactThemeSyncOperations(data.artifacts || [], {
+            sourceTypes: ["note", "report"],
+            sourceId: String(entity.id),
+            themeId: noteThemeId,
+          }),
+        ], "ConversationからNoteを作成しました。");
+        finishSave(entity as Entity);
+        return true;
+      }
+    }
+
     // Note の Theme 変更時は添付 Artifact の theme_id も揃える（ファイルは動かさない）。
     if (type === "note" && entity.id) {
-      const noteThemeId = (entity.theme_id as string | null) || null;
+      const noteThemeId = (entity.project_id as string | null) || null;
       const syncOps = buildArtifactThemeSyncOperations(data.artifacts || [], {
         sourceTypes: ["note", "report"],
         sourceId: String(entity.id),

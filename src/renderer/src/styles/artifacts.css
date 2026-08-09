@@ -294,6 +294,7 @@
   white-space: nowrap;
 }
 .artifact-card-actions { display: inline-flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+.artifact-card-lineage { grid-column: 2 / -1; min-width: 0; }
 .artifact-card-open { min-height: 30px; white-space: nowrap; }
 .artifact-card-menu {
   display: inline-flex;

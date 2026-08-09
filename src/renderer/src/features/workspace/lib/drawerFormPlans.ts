@@ -29,6 +29,7 @@ import { normalizeReminderDateTime } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
 import { normalizeTaskShelf } from "./taskShelves";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { buildDerivedFromReferenceOperation } from "./lineageOperations";
 
 export type DrawerFormPlan =
   | {
@@ -187,6 +188,8 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       sourceId: taskId,
       themeId: projectId,
     }));
+    const lineageReference = buildDerivedFromReferenceOperation(base, "task", taskId);
+    if (lineageReference) operations.push(lineageReference);
     return {
       kind: "operations",
       operations,
