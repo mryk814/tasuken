@@ -192,7 +192,7 @@ test("AI report stays needs_human_review and cannot complete before human accept
         kind: "merge_request",
         provider: "gitlab",
         display_label: "!42",
-        url: "https://gitlab.example/group/project/-/merge_requests/42?token=drop#overview",
+        url: "https://gitlab.example/group/project/-/merge_requests/42?utm_source=agent#overview",
         external_id: "42",
       }],
     },
