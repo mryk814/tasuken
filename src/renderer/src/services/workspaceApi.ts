@@ -38,6 +38,15 @@ export const workspaceApi = {
   openActivityCanonicalRef(ref: Record<string, unknown>) {
     return desktopApi().activity.openCanonicalRef(ref);
   },
+  previewAiContext(request: Parameters<Window["api"]["aiContext"]["preview"]>[0]) {
+    return desktopApi().aiContext.preview(request);
+  },
+  getDataHealth(query: Parameters<Window["api"]["dataHealth"]["get"]>[0] = {}) {
+    return desktopApi().dataHealth.get(query);
+  },
+  setDataHealthIssueState(request: Parameters<Window["api"]["dataHealth"]["setState"]>[0]) {
+    return desktopApi().dataHealth.setState(request);
+  },
   getThemeAiPackStatus(themeId: string) {
     return desktopApi().themeAiPack.status(themeId);
   },
