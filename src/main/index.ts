@@ -20,8 +20,10 @@ import { createNoteWindowController, type NoteWindowController } from "./noteWin
 import { createTrayController, type TrayController } from "./trayController";
 import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
+import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
+import { BatchTranscriptionService } from "./services/batchTranscriptionService.mjs";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
@@ -31,6 +33,7 @@ import { MediaCaptureService } from "./services/mediaCaptureService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
+import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
@@ -336,6 +339,9 @@ interface SmokeCreatedResult {
   audioArtifactId?: string;
   audioMetadataLoaded?: boolean;
   audioRangeVerified?: boolean;
+  batchTranscriptionPreview?: boolean;
+  batchTranscriptionCompleted?: boolean;
+  batchTranscriptionProvenance?: boolean;
   microphoneArtifactId?: string;
   microphoneRecorded?: boolean;
   microphonePlayback?: boolean;
@@ -1055,12 +1061,34 @@ flowchart LR
       if (serialized.includes("stored_path") || serialized.includes("original_path") || serialized.includes("target")) {
         throw new Error("audio Artifact leaked a path to Renderer");
       }
-      return { artifactId: committed.artifactId, metadataLoaded: durationMs >= 90 && durationMs <= 110 };
+      const transcriptionPreview = await window.api.batchTranscription.preview({ artifactId: committed.artifactId });
+      if (!transcriptionPreview.available || transcriptionPreview.provider.processing_mode !== "local"
+        || transcriptionPreview.provider.sends_audio_to_provider) throw new Error("fake batch transcription Preview mismatch");
+      const transcription = await window.api.batchTranscription.run({
+        artifactId: committed.artifactId,
+        operationId: transcriptionPreview.operationId,
+        confirmationToken: transcriptionPreview.confirmationToken,
+      });
+      const revision = transcription.revision;
+      return {
+        artifactId: committed.artifactId,
+        metadataLoaded: durationMs >= 90 && durationMs <= 110,
+        transcriptionPreview: true,
+        transcriptionCompleted: revision.status === "completed" && revision.raw_text === "Tasken packaged fake transcript",
+        transcriptionProvenance: revision.source_artifact_id === committed.artifactId
+          && revision.provider_profile_id === "tasken-smoke-provider"
+          && revision.model_id === "tasken-smoke-transcriber"
+          && revision.processing_mode === "local"
+          && revision.language === "ja",
+      };
     })()
-  `) as { artifactId: string; metadataLoaded: boolean };
+  `) as { artifactId: string; metadataLoaded: boolean; transcriptionPreview: boolean; transcriptionCompleted: boolean; transcriptionProvenance: boolean };
   created.audioArtifactId = audioSmoke.artifactId;
   created.audioMetadataLoaded = audioSmoke.metadataLoaded;
   created.audioRangeVerified = await verifySmokeMediaRange(audioSmoke.artifactId);
+  created.batchTranscriptionPreview = audioSmoke.transcriptionPreview;
+  created.batchTranscriptionCompleted = audioSmoke.transcriptionCompleted;
+  created.batchTranscriptionProvenance = audioSmoke.transcriptionProvenance;
 
   const microphoneSmoke = await window.webContents.executeJavaScript(`
     (async () => {
@@ -1448,6 +1476,9 @@ flowchart LR
         && result.settingsReloadRestored
         && result.audioMetadataLoaded
         && result.audioRangeVerified
+        && result.batchTranscriptionPreview
+        && result.batchTranscriptionCompleted
+        && result.batchTranscriptionProvenance
         && result.microphoneRecorded
         && result.microphonePlayback
         && result.microphoneCaptureMethod
@@ -1482,6 +1513,15 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
       const artifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeMediaArtifactId)});
       if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav") throw new Error("restarted imported audio Artifact missing");
       if (JSON.stringify(artifact).includes("stored_path")) throw new Error("restarted audio Artifact leaked path");
+      const transcription = await window.api.batchTranscription.history({ artifactId: artifact.id });
+      const revision = transcription.revisions.at(-1);
+      const transcriptionRestarted = transcription.revisions.length === 1
+        && revision?.status === "completed"
+        && revision.raw_text === "Tasken packaged fake transcript"
+        && revision.source_artifact_id === artifact.id
+        && revision.provider_profile_id === "tasken-smoke-provider"
+        && revision.model_id === "tasken-smoke-transcriber"
+        && revision.processing_mode === "local";
       const playable = await new Promise((resolve, reject) => {
         const audio = new Audio();
         const timer = setTimeout(() => reject(new Error("restart audio playback timeout")), 15000);
@@ -1540,18 +1580,19 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
         video.onerror = () => { clearTimeout(timer); reject(new Error("restart video playback failed")); };
         video.src = "tasken-media://artifact/" + encodeURIComponent(videoArtifact.id);
       });
-      return { artifactId: artifact.id, playable, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, videoArtifactId: videoArtifact.id, videoOwnerLinked: true, ...videoPlayback };
+      return { artifactId: artifact.id, playable, transcriptionRestarted, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, videoArtifactId: videoArtifact.id, videoOwnerLinked: true, ...videoPlayback };
     })()
-  `) as { artifactId: string; playable: boolean; microphoneArtifactId: string; microphonePlayable: boolean; videoArtifactId: string; videoOwnerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean };
+  `) as { artifactId: string; playable: boolean; transcriptionRestarted: boolean; microphoneArtifactId: string; microphonePlayable: boolean; videoArtifactId: string; videoOwnerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean };
   const rangeVerified = await verifySmokeMediaRange(renderer.artifactId);
   const microphoneRangeVerified = await verifySmokeVideoRange(renderer.microphoneArtifactId);
   const videoRangeVerified = await verifySmokeVideoRange(renderer.videoArtifactId);
-  const passed = renderer.playable && rangeVerified && renderer.microphonePlayable && microphoneRangeVerified && renderer.canPlay && renderer.seeked && renderer.metadata && renderer.videoOwnerLinked && videoRangeVerified
+  const passed = renderer.playable && rangeVerified && renderer.transcriptionRestarted && renderer.microphonePlayable && microphoneRangeVerified && renderer.canPlay && renderer.seeked && renderer.metadata && renderer.videoOwnerLinked && videoRangeVerified
     && (!isPackagedSmokeRequired || app.isPackaged);
   recordSmoke(passed ? "passed" : "failed", {
     audioArtifactId: renderer.artifactId,
     playable: renderer.playable,
     rangeVerified,
+    batchTranscriptionRestarted: renderer.transcriptionRestarted,
     microphoneArtifactId: renderer.microphoneArtifactId,
     microphonePlayable: renderer.microphonePlayable,
     microphoneRangeVerified,
@@ -1718,6 +1759,56 @@ async function startDesktopApp(): Promise<void> {
     resolveManagedDirectory: (themeId) => workspaceService.resolveManagedArtifactDirectory(themeId),
     openPath: (filePath) => shell.openPath(filePath),
   });
+  const aiProvider = new AiProviderService(app.getPath("userData"));
+  const batchTranscriptionRepository = new BatchTranscriptionRepository(workspaceRepository);
+  const batchTranscription = new BatchTranscriptionService({
+    repository: batchTranscriptionRepository,
+    entityRepository: workspaceRepository,
+    mediaCapture,
+    providerRegistry: isSmokeTest ? {
+      resolve: () => ({
+        binding: {
+          feature: "transcript_batch",
+          provider_profile_id: "tasken-smoke-provider",
+          provider_label: "Tasken packaged fake provider",
+          model_profile_id: "tasken-smoke-model",
+          model_id: "tasken-smoke-transcriber",
+          processing_mode: "local",
+          enabled: true,
+          credential_configured: false,
+          model_lifecycle: "available",
+          capabilities: ["batch_transcription", "local_processing"],
+          max_file_size: 1024 * 1024,
+          supported_mime_types: ["audio/wav", "audio/webm"],
+        },
+        provider: {
+          providerProfileId: "tasken-smoke-provider",
+          transcribe: ({ source, fileSize }: { source: { fileDescriptor: number }; fileSize: number }) => {
+            const bytes = Buffer.alloc(fileSize);
+            const count = fs.readSync(source.fileDescriptor, bytes, 0, fileSize, 0);
+            if (count !== fileSize || !bytes.subarray(0, 4).equals(Buffer.from("RIFF"))) throw new Error("fake transcription source mismatch");
+            return Promise.resolve({ rawText: "Tasken packaged fake transcript", language: "ja" });
+          },
+        },
+      }),
+    } : { resolve: () => aiProvider.resolveBatchTranscriptionProvider() },
+    confirmationSecret: workspaceRepository.ensureMeta(
+      "batch_transcription_confirmation_secret",
+      `${randomUUID()}${randomUUID()}`,
+    ),
+    resolveVisibility: (artifact: Entity | null) => {
+      const themeId = typeof artifact?.theme_id === "string" ? artifact.theme_id : null;
+      const theme = themeId
+        ? workspaceRepository.get("theme", themeId) || workspaceRepository.get("project", themeId)
+        : null;
+      return resolveAiVisibility({
+        entity: artifact,
+        theme,
+        workspaceDefault: workspaceRepository.getPreference("aiVisibilityDefault"),
+      }).audiences;
+    },
+    notifyChanged: () => notifyMainWindowRefresh(),
+  });
   smokeMediaCaptureService = isSmokeTest ? mediaCapture : null;
   const mediaRecovery = mediaCapture.recoverPending();
   if (mediaRecovery.recovered || mediaRecovery.pending) {
@@ -1734,10 +1825,11 @@ async function startDesktopApp(): Promise<void> {
     workspaceRepository,
     workspaceService,
     sharedFolderSyncService,
-    new AiProviderService(app.getPath("userData")),
+    aiProvider,
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
     applicationCommands,
     mediaCapture,
+    batchTranscription,
     (types) => {
       notifyMainWindowRefresh();
       notifyTodayMiniRefresh(types);

@@ -105,6 +105,12 @@ const api: ResearchDeskApi = {
     openArtifactExternal: (request) => ipcRenderer.invoke(IPC.mediaArtifactOpenExternal, request),
     inspectArtifact: (request) => ipcRenderer.invoke(IPC.mediaArtifactInspect, request),
   },
+  batchTranscription: {
+    preview: (request) => ipcRenderer.invoke(IPC.batchTranscriptionPreview, request),
+    history: (request) => ipcRenderer.invoke(IPC.batchTranscriptionHistory, request),
+    run: (request) => ipcRenderer.invoke(IPC.batchTranscriptionRun, request),
+    cancel: (request) => ipcRenderer.invoke(IPC.batchTranscriptionCancel, request),
+  },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),
     checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),

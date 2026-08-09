@@ -59,6 +59,16 @@ test("packaged smoke records, commits, plays and restart-checks a synthetic micr
   assert.match(source, /result\.microphonePlayback/);
 });
 
+test("packaged smoke confirms fake batch transcription and verifies the raw revision after restart", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.match(source, /Tasken packaged fake provider/);
+  assert.match(source, /window\.api\.batchTranscription\.preview/);
+  assert.match(source, /window\.api\.batchTranscription\.run/);
+  assert.match(source, /batchTranscriptionCompleted/);
+  assert.match(source, /window\.api\.batchTranscription\.history/);
+  assert.match(source, /batchTranscriptionRestarted/);
+});
+
 test("native clipboard smoke lock serializes only the shared interval and records ownership", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "tasken-smoke-lock-test-"));
   const lockPath = path.join(root, "clipboard.lock");

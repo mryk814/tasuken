@@ -28,7 +28,7 @@ import { buildActivityEvent, migrateChangeEvent, normalizeActivityEvent, activit
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
 import { normalizeReferenceAssertion, referenceAssertionIdentity } from "../../shared/relationAssertion.mjs";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
@@ -197,6 +197,29 @@ export class WorkspaceDatabase {
             update.run(JSON.stringify(contentOf(migrated)), event.id);
           }
         },
+      },
+      {
+        version: 4,
+        up: () => this.db.exec(`
+          CREATE TABLE IF NOT EXISTS transcription_operations (
+            operation_id TEXT PRIMARY KEY,
+            artifact_id TEXT NOT NULL,
+            revision_id TEXT NOT NULL,
+            attempt_key TEXT NOT NULL UNIQUE,
+            preview_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL,
+            lease_token TEXT,
+            lease_expires_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(artifact_id, revision_id)
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_transcription_operations_artifact
+            ON transcription_operations(artifact_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_transcription_operations_lease
+            ON transcription_operations(status, lease_expires_at);
+        `),
       },
     ];
     const applyMigrations = this.db.transaction(() => {
