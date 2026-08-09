@@ -30,7 +30,7 @@ test("RouteDefinition is the only route label/icon/navigation registry", () => {
 test("ActionDefinition covers practical action and toast semantics", () => {
   for (const id of [
     "todayAddTask", "todoAddTask", "inboxAddMemo", "timelineAddPlan",
-    "notesCreate", "chatRefsAdd", "aiAnswer", "aiDraft", "aiContext", "actionCancel",
+    "notesCreate", "chatRefsAdd", "aiAnswer", "aiContext", "actionCancel",
     "actionReject", "actionDelete", "aiProposalPreview", "notesSave", "toastInfo", "toastSuccess", "toastWarning", "toastDanger",
   ]) {
     assert.match(actions, new RegExp(`${id}: \\{`));

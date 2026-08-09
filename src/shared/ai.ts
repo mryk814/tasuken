@@ -17,7 +17,6 @@ export const AI_CAPABILITIES = [
 ] as const;
 
 export type AiCapability = (typeof AI_CAPABILITIES)[number];
-export type AiNoteMode = "rewrite" | "continue" | "chat";
 export type AiNoteScope = "document" | "selection";
 
 export const AI_ADAPTER_KINDS = [
@@ -231,7 +230,11 @@ export interface AiFeatureAvailability {
 }
 
 export interface AiNoteGenerateRequest {
-  mode: AiNoteMode;
+  noteId: string;
+  baseRevision: number;
+  expectedBodySignature: string;
+  confirmationToken: "note-ai-context-confirmed/v1";
+  anchorOffset: number;
   scope: AiNoteScope;
   title: string;
   body: string;
@@ -241,6 +244,17 @@ export interface AiNoteGenerateRequest {
     end: number;
     text: string;
   };
+  context: {
+    includeTitle: boolean;
+    includeBody: boolean;
+    includeSelection: boolean;
+    includeHeading: boolean;
+    includeHistory: boolean;
+    heading?: string;
+    theme?: { id: string; title: string; summary: string };
+    resource?: { id: string; title: string; summary: string };
+  };
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
 }
 
 export interface AiNoteGenerateResult {

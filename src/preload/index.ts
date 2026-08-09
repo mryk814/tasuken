@@ -58,7 +58,13 @@ const api: ResearchDeskApi = {
     setDefaultModelProfile: (id) => ipcRenderer.invoke(IPC.aiDefaultModel, id),
     testConnection: (request) => ipcRenderer.invoke(IPC.aiTestConnection, request),
     featureAvailability: (feature, providerProfileId, modelProfileId) => ipcRenderer.invoke(IPC.aiFeatureAvailability, feature, providerProfileId, modelProfileId),
-    generateNote: (request) => ipcRenderer.invoke(IPC.aiNoteGenerate, request),
+    startNoteStream: (requestId, request) => ipcRenderer.invoke(IPC.aiNoteStreamStart, requestId, request),
+    cancelNoteStream: (requestId) => ipcRenderer.invoke(IPC.aiNoteStreamCancel, requestId),
+    onNoteStreamEvent: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, requestId: string, streamEvent: Parameters<typeof callback>[1]): void => callback(requestId, streamEvent);
+      ipcRenderer.on(IPC.aiNoteStreamEvent, handler);
+      return () => { ipcRenderer.removeListener(IPC.aiNoteStreamEvent, handler); };
+    },
   },
   clipboard: {
     writeText: (text) => ipcRenderer.invoke(IPC.clipboardWriteText, text),
@@ -186,6 +192,7 @@ const api: ResearchDeskApi = {
   },
   documents: {
     save: (request) => ipcRenderer.invoke(IPC.documentSave, request),
+    applyAiProposal: (request, envelope) => ipcRenderer.invoke(IPC.documentApplyAiProposal, request, envelope),
   },
   commands: {
     execute: (envelope) => ipcRenderer.invoke(IPC.applicationCommand, envelope),

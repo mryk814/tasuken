@@ -249,5 +249,6 @@ test("AI iconはAIの操作にだけ使う（#312）", () => {
   // Knowledge化はNotesの日常導線から撤去し、AI iconを流用する余地も残さない。
   assert.doesNotMatch(source, /Knowledge化|IconBulb/);
   // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
-  assert.match(source, /<AI_ICON size=\{16\} \/>AI Draft/);
+  assert.match(source, /label: "Note AIを開く"/);
+  assert.doesNotMatch(source, /AI Draft|DraftWorkspaceDialog|NoteAiDialog/);
 });

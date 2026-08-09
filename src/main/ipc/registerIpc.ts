@@ -8,6 +8,7 @@ import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import type { CommandReceipt } from "../../shared/applicationCommand";
+import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
 import {
   isViewPreferenceId,
   normalizeViewPreference,
@@ -171,7 +172,20 @@ export function registerIpc(
   ipcMain.handle(IPC.aiDefaultModel, (_event, id) => aiProvider.setDefaultModelProfile(id));
   ipcMain.handle(IPC.aiTestConnection, (_event, request) => aiProvider.testConnection(request));
   ipcMain.handle(IPC.aiFeatureAvailability, (_event, feature, providerProfileId, modelProfileId) => aiProvider.getFeatureAvailability(feature, providerProfileId, modelProfileId));
-  ipcMain.handle(IPC.aiNoteGenerate, (_event, request) => aiProvider.generateNote(request));
+  ipcMain.handle(IPC.aiNoteStreamStart, async (event, requestId, request) => {
+    const normalizedRequestId = requireId(requestId);
+    const authorizedRequest = authorizeNoteAiRequest(repository, request);
+    const cancelOnDestroyed = () => { aiProvider.cancelNoteStream(normalizedRequestId); };
+    event.sender.once("destroyed", cancelOnDestroyed);
+    try {
+      return await aiProvider.streamNote(normalizedRequestId, authorizedRequest, (streamEvent) => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC.aiNoteStreamEvent, normalizedRequestId, streamEvent);
+      });
+    } finally {
+      event.sender.removeListener("destroyed", cancelOnDestroyed);
+    }
+  });
+  ipcMain.handle(IPC.aiNoteStreamCancel, (_event, requestId) => aiProvider.cancelNoteStream(requireId(requestId)));
   ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
   ipcMain.handle(IPC.clipboardWriteHtml, (_event, payload) => service.writeClipboardHtml(payload));
   ipcMain.handle(IPC.clipboardWriteImage, (_event, payload) => service.writeClipboardImage(payload));
@@ -218,6 +232,16 @@ export function registerIpc(
     const saved = service.saveCanonicalNote(request);
     notifyEntitiesChanged(documentSaveChangedTypes(request));
     return saved;
+  });
+  ipcMain.handle(IPC.documentApplyAiProposal, (event, request, envelope) => {
+    const receipt = applicationCommands.executeCanonicalNoteAiProposal(envelope, (note, operations) => {
+      const input = request && typeof request === "object" && !Array.isArray(request)
+        ? request as Record<string, unknown>
+        : {};
+      return service.saveCanonicalNote({ ...input, entity: note }, operations) as import("../../shared/types/workspace").Entity;
+    });
+    notifyCommandApplied(receipt, event.sender.id);
+    return receipt;
   });
   ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {
     if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");

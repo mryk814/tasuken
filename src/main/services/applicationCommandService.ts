@@ -6,7 +6,7 @@ import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeTaskAssignment } from "../repositories/domain.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
-import type { Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
+import type { CanonicalNoteAiCompanion, Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
 import {
   ApplicationCommandError,
   parseCommandEnvelope,
@@ -301,11 +301,88 @@ function commandFingerprint(command: CommandEnvelope): string {
   });
 }
 
+const NOTE_AI_COMMAND_MARKER_SCHEMA = "tasken-note-ai-command-marker/v1";
+
+interface NoteAiCommandMarker {
+  schema: typeof NOTE_AI_COMMAND_MARKER_SCHEMA;
+  commandId: string;
+  commandFingerprint: string;
+  noteId: string;
+  proposalId: string;
+  noteVersion: number;
+  proposalVersion: number;
+}
+
+function noteAiCommandMarker(event: Entity): NoteAiCommandMarker | null {
+  const metadata = event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+    ? event.metadata as Record<string, unknown>
+    : {};
+  const value = metadata.note_ai_command_marker;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const marker = value as Record<string, unknown>;
+  if (
+    marker.schema !== NOTE_AI_COMMAND_MARKER_SCHEMA
+    || typeof marker.commandId !== "string"
+    || typeof marker.commandFingerprint !== "string"
+    || marker.commandFingerprint.length === 0
+    || typeof marker.noteId !== "string"
+    || typeof marker.proposalId !== "string"
+    || !Number.isInteger(marker.noteVersion)
+    || !Number.isInteger(marker.proposalVersion)
+  ) return null;
+  return marker as unknown as NoteAiCommandMarker;
+}
+
+function recoverNoteAiReceipt(repository: Repository, command: CommandEnvelope, event: Entity): CommandReceipt | null {
+  if (command.name !== "ApplyAiProposal") return null;
+  const marker = noteAiCommandMarker(event);
+  if (
+    !marker
+    || marker.commandId !== command.commandId
+    || marker.commandFingerprint !== event.command_fingerprint
+    || marker.commandFingerprint !== commandFingerprint(command)
+    || event.entity_id !== marker.noteId
+  ) return null;
+  const note = repository.get("note", marker.noteId, true);
+  const proposal = repository.get("ai_proposal", marker.proposalId, true);
+  if (
+    !note || !proposal
+    || Number(note.version || 0) < marker.noteVersion
+    || Number(proposal.version || 0) < marker.proposalVersion
+    || !["accepted", "partially_accepted"].includes(String(proposal.status || ""))
+  ) return null;
+  const receipt: CommandReceipt = {
+    ...receiptFor(command, "applied", [{ type: "note", entity: note }, { type: "ai_proposal", entity: proposal }], [event.id]),
+    saved: [
+      { type: "note", id: note.id, version: marker.noteVersion },
+      { type: "ai_proposal", id: proposal.id, version: marker.proposalVersion },
+    ],
+    revisions: [
+      { type: "note", id: note.id, version: marker.noteVersion },
+      { type: "ai_proposal", id: proposal.id, version: marker.proposalVersion },
+    ],
+  };
+  try {
+    repository.save("change_event", { ...event, receipt_json: JSON.stringify(receipt) });
+  } catch {
+    // marker自体がcanonical transaction内にあるため、後書きが再び失敗しても同じreceiptを復元できる。
+  }
+  return { ...receipt, eventChanges: eventChangesFor(repository, [event.id]) };
+}
+
 function readIdempotent(repository: Repository, command: CommandEnvelope): CommandReceipt | null {
   const existing = repository.list("change_event", true).find((event) => event.command_id === command.commandId);
   if (!existing) return null;
-  if (existing.command_name !== command.name || existing.command_fingerprint !== commandFingerprint(command) || typeof existing.receipt_json !== "string") {
+  if (existing.command_name !== command.name || existing.command_fingerprint !== commandFingerprint(command)) {
     throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdを別のCommandで再利用できません。", { commandId: command.commandId });
+  }
+  if (typeof existing.receipt_json !== "string") {
+    const recovered = recoverNoteAiReceipt(repository, command, existing);
+    if (recovered) {
+      Object.defineProperty(recovered, "replayed", { value: true, enumerable: false });
+      return recovered;
+    }
+    throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態を復元できません。", { commandId: command.commandId });
   }
   const storedReceipt = JSON.parse(existing.receipt_json) as CommandReceipt;
   const receipt = storedReceipt.status === "applied"
@@ -476,6 +553,86 @@ export class ApplicationCommandService {
       const service = new ApplicationCommandService(transactionRepository);
       return commands.map((command) => service.executeParsed(command));
     });
+  }
+
+  /**
+   * Canonical Markdownを持つNoteだけのApplyAiProposal。
+   * Note保存はWorkspaceServiceへ委譲し、proposal/eventを同じDB transactionへ
+   * 同伴させる。Rendererのgeneric saveや二段階保存は許可しない。
+   */
+  executeCanonicalNoteAiProposal(
+    input: unknown,
+    saveCanonicalNote: (note: Entity, companion: CanonicalNoteAiCompanion) => Entity,
+  ): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    if (!applicationCommandSources.includes(command.source) || command.name !== "ApplyAiProposal") {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "canonical NoteにはApplyAiProposalが必要です。");
+    }
+    // Validation of nested proposal payloads may normalize their objects.  Pin
+    // the idempotency identity before those validators run so the transaction
+    // marker and a later retry compare the same original command envelope.
+    const durableCommandFingerprint = commandFingerprint(command);
+    const previous = readIdempotent(this.repository, command);
+    if (previous) return previous;
+    const payload = command.payload as { proposal: Entity; candidates: Array<{ type: EntityType; entity: Entity }> };
+    if (payload.candidates.length !== 1 || payload.candidates[0]?.type !== "note") {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "canonical Note採用にはNote候補を1件だけ指定してください。");
+    }
+    const currentProposal = this.repository.get("ai_proposal", payload.proposal.id);
+    if (!currentProposal) throw new ApplicationCommandError("NOT_FOUND", "AI Proposalがありません。", { id: payload.proposal.id });
+    if (!expectedVersionFor(command, "ai_proposal", currentProposal.id)) {
+      throw new ApplicationCommandError("CONFLICT", "ApplyAiProposalにはProposalのexpected versionが必要です。", { type: "ai_proposal", id: currentProposal.id });
+    }
+    assertExpectedVersion(this.repository, command, "ai_proposal", currentProposal.id, currentProposal);
+    if (currentProposal.status !== "pending") throw new ApplicationCommandError("INVALID_TRANSITION", "Pending以外のProposalは採用できません。", { id: currentProposal.id });
+    const proposal = { ...payload.proposal };
+    if (proposal.status !== "accepted" && proposal.status !== "partially_accepted") {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "canonical NoteのProposal採用状態が不正です。");
+    }
+    entityDefinition("ai_proposal").parseUpdate(proposal);
+
+    const currentNote = this.repository.get("note", payload.candidates[0].entity.id, true);
+    if (!currentNote || currentNote.deleted_at) throw new ApplicationCommandError("NOT_FOUND", "採用対象のNoteがありません。", { id: payload.candidates[0].entity.id });
+    if (!expectedVersionFor(command, "note", currentNote.id)) {
+      throw new ApplicationCommandError("CONFLICT", "ApplyAiProposalにはNoteのexpected versionが必要です。", { type: "note", id: currentNote.id });
+    }
+    assertExpectedVersion(this.repository, command, "note", currentNote.id, currentNote);
+    const note = normalizeCanonicalNote(payload.candidates[0].entity, String(currentNote.project_id || currentNote.theme_id || ""));
+    entityDefinition("note").parseUpdate(note);
+    const marker: NoteAiCommandMarker = {
+      schema: NOTE_AI_COMMAND_MARKER_SCHEMA,
+      commandId: command.commandId,
+      commandFingerprint: durableCommandFingerprint,
+      noteId: note.id,
+      proposalId: proposal.id,
+      noteVersion: Number(currentNote.version || 0) + 1,
+      proposalVersion: Number(currentProposal.version || 0) + 1,
+    };
+    const noteEvent = annotateEvent(command, commandEvent(command, "note", note.id, "updated", currentNote, note));
+    noteEvent.command_fingerprint = durableCommandFingerprint;
+    noteEvent.metadata = {
+      ...(noteEvent.metadata && typeof noteEvent.metadata === "object" && !Array.isArray(noteEvent.metadata) ? noteEvent.metadata : {}),
+      note_ai_command_marker: marker,
+    };
+    const companion: CanonicalNoteAiCompanion = {
+      schema: "tasken-note-ai-companion/v1",
+      noteId: note.id,
+      commandId: command.commandId,
+      proposal,
+      event: noteEvent,
+    };
+    const savedNote = saveCanonicalNote(note, companion);
+    const savedProposal = this.repository.get("ai_proposal", proposal.id, true);
+    if (!savedProposal) throw new Error("AI Proposalが保存されていません。");
+    const changes = [{ type: "note" as const, entity: savedNote }, { type: "ai_proposal" as const, entity: savedProposal }];
+    const eventIds = [noteEvent.id];
+    const baseReceipt = receiptFor(command, "applied", changes, eventIds);
+    for (const eventId of eventIds) {
+      const event = this.repository.get("change_event", eventId, true);
+      if (!event) throw new Error(`Change Eventが保存されていません: ${eventId}`);
+      this.repository.save("change_event", { ...event, after_json: JSON.stringify(savedNote), receipt_json: JSON.stringify(baseReceipt) });
+    }
+    return { ...baseReceipt, eventChanges: eventChangesFor(this.repository, eventIds) };
   }
 
   private executeParsed(command: CommandEnvelope): CommandReceipt {

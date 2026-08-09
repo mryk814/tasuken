@@ -28,6 +28,7 @@ import type {
   AiModelProfileUpdate,
   AiNoteGenerateRequest,
   AiNoteGenerateResult,
+  AiStreamEvent,
   AiProviderConfig,
   AiProviderProfileUpdate,
   AiTestConnectionRequest,
@@ -102,6 +103,7 @@ export const IPC = {
   entitySave: "entity:save",
   entitySaveMany: "entity:save-many",
   documentSave: "document:save",
+  documentApplyAiProposal: "document:apply-ai-proposal",
   entityRemove: "entity:remove",
   entityRestore: "entity:restore",
   snapshotExport: "snapshot:export",
@@ -127,7 +129,9 @@ export const IPC = {
   aiDefaultModel: "ai:default-model",
   aiTestConnection: "ai:test-connection",
   aiFeatureAvailability: "ai:feature-availability",
-  aiNoteGenerate: "ai:note-generate",
+  aiNoteStreamStart: "ai:note-stream-start",
+  aiNoteStreamEvent: "ai:note-stream-event",
+  aiNoteStreamCancel: "ai:note-stream-cancel",
   calendarStatus: "calendar:status",
   calendarConnect: "calendar:connect",
   calendarDisconnect: "calendar:disconnect",
@@ -495,7 +499,9 @@ export interface ResearchDeskApi {
     setDefaultModelProfile(id: string): Promise<AiProviderConfig>;
     testConnection(request: AiTestConnectionRequest): Promise<AiConnectionTestResult>;
     featureAvailability(feature: AiFeature, providerProfileId?: string, modelProfileId?: string): Promise<AiFeatureAvailability>;
-    generateNote(request: AiNoteGenerateRequest): Promise<AiNoteGenerateResult>;
+    startNoteStream(requestId: string, request: AiNoteGenerateRequest): Promise<AiNoteGenerateResult>;
+    cancelNoteStream(requestId: string): Promise<boolean>;
+    onNoteStreamEvent(callback: (requestId: string, event: AiStreamEvent) => void): () => void;
   };
   clipboard: {
     writeText(text: string): Promise<boolean>;
@@ -568,6 +574,7 @@ export interface ResearchDeskApi {
   documents: {
     /** Note / Report本文の保存とcanonical Markdown更新を同じuse caseで行う。 */
     save(request: DocumentSaveRequest): Promise<Entity>;
+    applyAiProposal(request: DocumentSaveRequest, envelope: CommandEnvelope): Promise<CommandReceipt>;
   };
   commands: {
     execute(envelope: CommandEnvelope): Promise<CommandReceipt>;

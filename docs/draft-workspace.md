@@ -1,17 +1,7 @@
-# Draft Workspace
+# 旧 Draft Workspace data
 
-## 利用者の一周
+独立したDraft Workspace UIはIssue #314で撤去し、Notes右側の`NoteAiDrawer`へ統合した。
+既存の`properties_json.draft_workspace.sources`は削除せず、Note IDに紐づく旧会話履歴としてread-only表示する。
 
-1. Notesの「AI Draft」で、AI原稿・任意のサービス名・元チャットURL・指示メモを受け取る。
-2. AI原稿を不変の`Source Draft`としてNoteの`properties_json.draft_workspace`へ保存し、通常の`body_markdown`を`Working Draft`として作る。
-3. Source / Edit / Diffを切り替え、変更ブロック単位でSource側を採用する。採用とSnapshot復元は保存前ならUndoできる。
-4. Working Draftを通常のMarkdown Noteとして保存し、既存NotesのPreview・Markdown保存・PDF出力を使う。
-5. 再依頼文をクリップボードへ出し、返答は新しいSource Draftとして追加する。既存Working Draftは上書きしない。
-
-## データと境界
-
-- Source Draft、AIサービス、URL、指示、軽量SnapshotはNoteの`properties_json.draft_workspace`に保持する。
-- Working Draftの正本は既存どおりNoteの`body_markdown`。別Entityや別ファイルへ複製しない。
-- Source Draftは最大12件、Snapshotは最大20件を保持し、長期運用でNoteの付帯データが無制限に増えないようにする。
-- Diffは表示時だけ計算し、既存の長文向けcoarse diff境界を再利用する。
-- AI APIは内蔵せず、再依頼と返答はクリップボード往復を正規経路にする。
+新しいAI返答は`ai_proposal`へPendingで保存する。途中tokenは保存せず、採用時だけApplication Commandを通してNoteの`body_markdown`とcanonical Markdownを更新する。
+したがってWorking Draftの正本は引き続きNote本文だけであり、旧Draftデータへ新規書込みする経路はない。

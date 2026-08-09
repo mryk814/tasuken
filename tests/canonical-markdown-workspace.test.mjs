@@ -61,6 +61,17 @@ async function importWorkspaceService() {
 }
 
 const { WorkspaceService } = await importWorkspaceService();
+const { ApplicationCommandService } = await (async () => {
+  const result = await build({
+    entryPoints: [path.resolve("src/main/services/applicationCommandService.ts")],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+})();
 
 function createFixture(prefix) {
   const userDataPath = mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
@@ -98,6 +109,188 @@ function canonicalContent(note) {
     body: note.body_markdown,
   });
 }
+
+function applyProposalEnvelope(proposal, note, body, commandId = "note-ai-apply") {
+  return {
+    commandId,
+    name: "ApplyAiProposal",
+    payload: {
+      proposal: { ...proposal, status: "accepted" },
+      candidates: [{ type: "note", entity: { ...note, body_markdown: body } }],
+    },
+    actor: { kind: "user" },
+    source: "main_ui",
+    expectedVersions: [
+      { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+      { type: "note", id: note.id, version: Number(note.version || 0) },
+    ],
+    issuedAt: "2026-08-09T00:00:00.000Z",
+  };
+}
+
+function expectedCommandFingerprint(command) {
+  return JSON.stringify({
+    name: command.name,
+    payload: command.payload,
+    actor: command.actor,
+    source: command.source,
+    windowId: command.windowId || null,
+    sessionId: command.sessionId || null,
+    expectedVersions: command.expectedVersions || [],
+    issuedAt: command.issuedAt,
+  });
+}
+
+test("Note AI accept couples canonical file, Note, Proposal, and command receipt", () => {
+  const fixture = createFixture("tasken-note-ai-canonical-apply");
+  try {
+    fixture.database.save("note", { id: "note-ai-canonical", title: "AI Note", body_markdown: "before", ai_visibility: ["external_ai"] });
+    const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const initial = workspace.saveCanonicalNote(saveRequest(fixture.database.get("note", "note-ai-canonical"), "before"));
+    const proposal = fixture.database.save("ai_proposal", { id: "proposal-canonical", source: "embedded_llm", payload_type: "notes", status: "pending", payload: { notes: [{ target_id: initial.id, body: "after" }] }, request: { target: { type: "note", id: initial.id } } });
+    const command = new ApplicationCommandService(fixture.database);
+    const receipt = command.executeCanonicalNoteAiProposal(
+      applyProposalEnvelope(proposal, initial, "after"),
+      (candidate, operations) => workspace.saveCanonicalNote(saveRequest(candidate, "after"), operations),
+    );
+    const saved = fixture.database.get("note", initial.id);
+    assert.equal(saved.body_markdown, "after");
+    assert.equal(fixture.database.get("ai_proposal", proposal.id).status, "accepted");
+    assert.equal(readFileSync(canonicalBinding(saved).canonical_path, "utf8"), canonicalContent(saved));
+    assert.deepEqual(receipt.changes.map(({ type }) => type), ["note", "ai_proposal"]);
+    assert.equal(receipt.events.length, 1);
+    assert.equal(JSON.parse(fixture.database.get("change_event", receipt.events[0], true).receipt_json).commandId, "note-ai-apply");
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Note AI receipt後書き失敗後もdurable markerから同commandを再生する", () => {
+  const fixture = createFixture("tasken-note-ai-command-marker");
+  let initialClosed = false;
+  let restartedDatabase = null;
+  try {
+    fixture.database.save("note", { id: "note-ai-marker", title: "AI Marker", body_markdown: "before" });
+    const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const initial = workspace.saveCanonicalNote(saveRequest(fixture.database.get("note", "note-ai-marker"), "before"));
+    const proposal = fixture.database.save("ai_proposal", {
+      id: "proposal-marker", source: "embedded_llm", payload_type: "notes", status: "pending",
+      payload: { notes: [{ target_id: initial.id, body: "after marker" }] },
+      request: { target: { type: "note", id: initial.id } },
+    });
+    const envelope = applyProposalEnvelope(proposal, initial, "after marker", "note-ai-marker-command");
+    const retryEnvelope = structuredClone(envelope);
+    const receiptWriteFailure = new Proxy(fixture.database, {
+      get(target, property, receiver) {
+        if (property === "save") return (type, entity, options) => {
+          if (type === "change_event" && typeof entity?.receipt_json === "string") throw new Error("injected receipt write failure");
+          return target.save(type, entity, options);
+        };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    assert.throws(() => new ApplicationCommandService(receiptWriteFailure).executeCanonicalNoteAiProposal(
+      structuredClone(envelope),
+      (candidate, companion) => workspace.saveCanonicalNote(saveRequest(candidate, "after marker"), companion),
+    ), /receipt write failure/);
+    assert.equal(fixture.database.get("note", initial.id).body_markdown, "after marker");
+    assert.equal(fixture.database.get("ai_proposal", proposal.id).status, "accepted");
+    fixture.database.db.close();
+    initialClosed = true;
+    restartedDatabase = new WorkspaceDatabase(path.join(fixture.userDataPath, "workspace.sqlite"));
+    const durableEvent = restartedDatabase.list("change_event", true).find((entry) => entry.command_id === envelope.commandId);
+    const durableMarker = durableEvent.metadata.note_ai_command_marker;
+    assert.equal(durableEvent.command_fingerprint, durableMarker.commandFingerprint);
+    assert.equal(durableEvent.command_fingerprint, expectedCommandFingerprint(retryEnvelope));
+    const replay = new ApplicationCommandService(restartedDatabase).executeCanonicalNoteAiProposal(
+      retryEnvelope,
+      () => { throw new Error("replay must not save again"); },
+    );
+    assert.equal(replay.commandId, envelope.commandId);
+    assert.equal(replay.status, "applied");
+    assert.equal(replay.replayed, true);
+    const event = restartedDatabase.list("change_event", true).find((entry) => entry.command_id === envelope.commandId);
+    assert.equal(JSON.parse(event.receipt_json).commandId, envelope.commandId);
+  } finally {
+    if (restartedDatabase) restartedDatabase.db.close();
+    if (!initialClosed) fixture.database.db.close();
+    rmSync(fixture.userDataPath, { recursive: true, force: true });
+  }
+});
+
+test("Note AI canonical DB failure recovery restores Proposal with the Note", () => {
+  const fixture = createFixture("tasken-note-ai-canonical-recovery");
+  const databases = [fixture.database];
+  try {
+    fixture.database.save("note", { id: "note-ai-recovery", title: "AI Recovery", body_markdown: "before" });
+    const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const initial = workspace.saveCanonicalNote(saveRequest(fixture.database.get("note", "note-ai-recovery"), "before"));
+    const proposal = fixture.database.save("ai_proposal", { id: "proposal-recovery", source: "embedded_llm", payload_type: "notes", status: "pending", payload: { notes: [{ target_id: initial.id, body: "after recovery" }] }, request: { target: { type: "note", id: initial.id } } });
+    const failingRepository = new Proxy(fixture.database, {
+      get(target, property, receiver) {
+        if (property === "saveMany") return () => { throw new Error("injected Note AI transaction failure"); };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const failingWorkspace = new WorkspaceService(failingRepository, fixture.userDataPath);
+    const command = new ApplicationCommandService(fixture.database);
+    assert.throws(() => command.executeCanonicalNoteAiProposal(
+      applyProposalEnvelope(proposal, initial, "after recovery", "note-ai-recovery-command"),
+      (candidate, operations) => failingWorkspace.saveCanonicalNote(saveRequest(candidate, "after recovery"), operations),
+    ), /Tasken内部への保存に失敗/);
+    assert.equal(fixture.database.get("ai_proposal", proposal.id).status, "pending");
+    fixture.database.db.close();
+    const recoveredDatabase = new WorkspaceDatabase(path.join(fixture.userDataPath, "workspace.sqlite"));
+    databases.push(recoveredDatabase);
+    new WorkspaceService(recoveredDatabase, fixture.userDataPath).loadWorkspace();
+    assert.equal(recoveredDatabase.get("note", initial.id).body_markdown, "after recovery");
+    assert.equal(recoveredDatabase.get("ai_proposal", proposal.id).status, "accepted");
+    recoveredDatabase.db.close();
+  } finally {
+    for (const database of databases) { try { database.db.close(); } catch { /* closed */ } }
+    rmSync(fixture.userDataPath, { recursive: true, force: true });
+  }
+});
+
+test("改ざんされたNote AI recovery companionは任意Entityへ適用せず隔離する", () => {
+  const fixture = createFixture("tasken-note-ai-recovery-quarantine");
+  try {
+    fixture.database.save("note", { id: "note-ai-quarantine", title: "AI Quarantine", body_markdown: "before" });
+    const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const initial = workspace.saveCanonicalNote(saveRequest(fixture.database.get("note", "note-ai-quarantine"), "before"));
+    const proposal = fixture.database.save("ai_proposal", {
+      id: "proposal-quarantine", source: "embedded_llm", payload_type: "notes", status: "pending",
+      payload: { notes: [{ target_id: initial.id, body: "after quarantine" }] },
+      request: { target: { type: "note", id: initial.id } },
+    });
+    const failingRepository = new Proxy(fixture.database, {
+      get(target, property, receiver) {
+        if (property === "saveMany") return () => { throw new Error("injected quarantine transaction failure"); };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    assert.throws(() => new ApplicationCommandService(fixture.database).executeCanonicalNoteAiProposal(
+      applyProposalEnvelope(proposal, initial, "after quarantine", "note-ai-quarantine-command"),
+      (candidate, companion) => new WorkspaceService(failingRepository, fixture.userDataPath)
+        .saveCanonicalNote(saveRequest(candidate, "after quarantine"), companion),
+    ), /Tasken内部への保存に失敗/);
+    const recoveryPath = path.join(fixture.userDataPath, "canonical-markdown-recovery.json");
+    const receipts = JSON.parse(readFileSync(recoveryPath, "utf8"));
+    receipts[0].noteAiCompanion.event.entity_id = "another-note";
+    receipts[0].additionalOperations = [{ action: "save", type: "resource", entity: { id: "forged-resource", title: "forged" } }];
+    writeFileSync(recoveryPath, `${JSON.stringify(receipts, null, 2)}\n`, "utf8");
+
+    new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace();
+    assert.equal(fixture.database.get("note", initial.id).body_markdown, "before");
+    assert.equal(fixture.database.get("ai_proposal", proposal.id).status, "pending");
+    assert.equal(fixture.database.get("resource", "forged-resource", true), null);
+    assert.equal(fs.existsSync(recoveryPath), false);
+    assert.ok(readdirSync(fixture.userDataPath).some((name) => name.startsWith("canonical-markdown-recovery.json.corrupt-")));
+    assert.equal(fs.existsSync(path.join(fixture.userDataPath, "canonical-markdown-recovery-warning.json")), true);
+  } finally {
+    closeFixture(fixture);
+  }
+});
 
 function conversationLineageCompanion(noteId, resourceId, id = `reference-${noteId}`) {
   return {

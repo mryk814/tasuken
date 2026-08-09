@@ -9,13 +9,14 @@ import { validateEntity } from "../src/main/repositories/domain.mjs";
 
 test("Note AI is Main-only for credentials and creates a pending safe proposal", () => {
   const service = readFileSync("src/main/services/aiProviderService.ts", "utf8");
-  const dialog = readFileSync("src/renderer/src/features/workspace/components/NoteAiDialog.tsx", "utf8");
+  const drawer = readFileSync("src/renderer/src/features/workspace/components/NoteAiDrawer.tsx", "utf8");
+  const proposal = readFileSync("src/shared/noteAiConversation.mjs", "utf8");
   const settings = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
   assert.match(service, /safeStorage/);
   assert.match(service, /encryptString/);
-  assert.doesNotMatch(dialog, /apiKey|Authorization/);
-  assert.match(dialog, /payload_type: "notes"/);
-  assert.match(dialog, /status: "pending"/);
+  assert.doesNotMatch(drawer, /apiKey|Authorization/);
+  assert.match(proposal, /payload_type: "notes"/);
+  assert.match(proposal, /status: "pending"/);
   assert.match(settings, /type="password"/);
 });
 

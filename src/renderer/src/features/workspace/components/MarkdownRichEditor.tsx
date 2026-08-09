@@ -97,6 +97,7 @@ import {
   type MarkdownRenderOptions,
 } from "../lib/markdown";
 import type { NoteDraftEditorSession } from "../lib/noteDraftIdentity";
+import { markdownCaretAnchor } from "../../../../../shared/noteAiConversation.mjs";
 
 type MarkdownRichEditorProps = {
   ownerKey: string;
@@ -122,6 +123,7 @@ type MarkdownRichEditorProps = {
    */
   selectionCommand?: SelectionCommandRequest | null;
   onSelectionUnavailable?: () => void;
+  onCaretAnchorChange?: (anchor: { heading: string; offset: number }) => void;
 };
 
 export type SelectionCommandRequest = {
@@ -278,6 +280,32 @@ function preserveEditorViewport(anchor: HTMLElement | null, update: () => void):
     scroller.style.overflowAnchor = previousOverflowAnchor;
   };
   restore();
+}
+
+/** Read only the active block up to the DOM caret; never scan the whole editor. */
+function domTextBeforeCaret(block: HTMLElement, target: Node, offset: number): string {
+  let text = "";
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) return;
+    if (node === target) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += String(node.nodeValue || "").slice(0, Math.max(0, offset));
+      } else {
+        const children = Array.from(node.childNodes).slice(0, Math.max(0, offset));
+        text += children.map((child) => child.textContent || "").join("");
+      }
+      found = true;
+      return;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.nodeValue || "";
+      return;
+    }
+    for (const child of Array.from(node.childNodes)) visit(child);
+  };
+  visit(block);
+  return found ? text : "";
 }
 
 const LazyMermaidPreview = memo(MarkdownPreview, () => true);
@@ -494,6 +522,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   onAiEditSelection,
   selectionCommand,
   onSelectionUnavailable,
+  onCaretAnchorChange,
 }: MarkdownRichEditorProps) {
   const headingNumbersEnabled = headingNumberOptions?.headingNumbers === true;
   const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions?.headingNumberStart);
@@ -656,14 +685,34 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     const remember = () => {
       const content = contentElement();
       const selection = window.getSelection();
-      if (!content || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+      if (!content || !selection || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
-      if (!rangeInsideContent(range, content) || !selection.toString().trim()) return;
-      lastSelectionRangeRef.current = range.cloneRange();
+      if (!rangeInsideContent(range, content)) return;
+      if (!selection.isCollapsed && selection.toString().trim()) lastSelectionRangeRef.current = range.cloneRange();
+      if (onCaretAnchorChange) {
+        const anchorNode = range.startContainer;
+        const headings = [...content.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
+        let headingIndex = -1;
+        for (let index = 0; index < headings.length; index += 1) {
+          const candidate = headings[index];
+          const position = candidate.compareDocumentPosition(anchorNode);
+          if (position & Node.DOCUMENT_POSITION_FOLLOWING || candidate.contains(anchorNode)) headingIndex = index;
+          else if (headingIndex >= 0) break;
+        }
+        const source = normalizeRichEditorMarkdown(
+          restoreAmbiguousMarkdownComparisons(editorRef.current?.getMarkdown() || lastInternalMarkdown.current),
+        );
+        const anchorElement = anchorNode.nodeType === Node.TEXT_NODE ? anchorNode.parentElement : anchorNode as HTMLElement;
+        const block = anchorElement?.closest<HTMLElement>("p, li, blockquote, pre, h1, h2, h3, h4, h5, h6") || anchorElement;
+        const prefixText = block && content.contains(block)
+          ? domTextBeforeCaret(block, range.startContainer, range.startOffset)
+          : "";
+        onCaretAnchorChange(markdownCaretAnchor(source, headingIndex, block?.textContent || "", prefixText));
+      }
     };
     document.addEventListener("selectionchange", remember);
     return () => document.removeEventListener("selectionchange", remember);
-  }, []);
+  }, [onCaretAnchorChange]);
 
   // 本文が変わったら覚えていた範囲は当てにならない。
   useEffect(() => {

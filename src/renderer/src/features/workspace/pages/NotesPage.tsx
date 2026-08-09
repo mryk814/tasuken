@@ -34,16 +34,15 @@ import {
   type CanonicalMarkdownFileState,
 } from "../../../../../shared/canonicalMarkdown.mjs";
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
+import { markdownHeadingAt } from "../../../../../shared/noteAiConversation.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { AI_ICON } from "../../../pages/semanticIcons";
 import { ActionButton, Button, ContextMenu, EmptyState, PageHeader, ThemePickerSelect, type ContextMenuItem } from "../components/common";
 import { ChatRefArtifactLinkDialog } from "../components/ChatRefArtifactLinkDialog";
-import { DraftWorkspaceDialog } from "../components/DraftWorkspaceDialog";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
 import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
 import { MarkdownPreview } from "../components/MarkdownPreview";
-import { NoteAiDialog, type NoteAiTarget } from "../components/NoteAiDialog";
+import { NoteAiDrawer, type NoteAiTarget } from "../components/NoteAiDrawer";
 import { NoteCreateMenu } from "../components/NoteCreateMenu";
 import { ToolbarMenu, type ToolbarMenuItem } from "../components/ToolbarMenu";
 import type { SelectionCommandRequest } from "../components/MarkdownRichEditor";
@@ -276,7 +275,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replaceQuery, setReplaceQuery] = useState("");
   const [diffOpen, setDiffOpen] = useState(false);
-  const [draftWorkspaceTarget, setDraftWorkspaceTarget] = useState<BaseRecord | null | undefined>(undefined);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [recentExport, setRecentExport] = useState<NoteDocumentExport | null>(null);
@@ -411,20 +409,37 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       setToast("選択範囲をMarkdown本文上で一意に特定できません。Rawで選び直すか文書全体を指定してください。", "warning");
       return;
     }
-    setAiTarget({ scope: "selection", start: first, end: first + selection.text.length, text: selection.text });
+    setAiTarget({
+      scope: "selection", start: first, end: first + selection.text.length, text: selection.text,
+      heading: selection.heading || markdownHeadingAt(source, first),
+      baseRevision: Number(selected?.version || 0), bodySignature: markdownSignature(source), anchorOffset: first,
+    });
   }
 
   function openNoteAi() {
     const textarea = textareaRef.current;
+    const body = currentDraftBodyForSelected();
     if (textarea && (previewMode === "raw" || hasMarkdownFootnotes(draftBody)) && textarea.selectionEnd > textarea.selectionStart) {
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      setAiTarget({ scope: "selection", start, end, text: draftBody.slice(start, end) });
+      setAiTarget({
+        scope: "selection", start, end, text: body.slice(start, end), heading: markdownHeadingAt(body, start),
+        baseRevision: Number(selected?.version || 0), bodySignature: markdownSignature(body), anchorOffset: start,
+      });
       return;
     }
-    setAiTarget({ scope: "document" });
+    const richAnchor = previewMode === "edit" ? richAiAnchorRef.current : null;
+    const start = richAnchor?.offset ?? textarea?.selectionStart ?? body.length;
+    setAiTarget({
+      scope: "document", start, end: start, heading: richAnchor?.heading || markdownHeadingAt(body, start),
+      baseRevision: Number(selected?.version || 0), bodySignature: markdownSignature(body), anchorOffset: start,
+    });
   }
   const mdxMarkdownInsertRef = useRef<((markdown: string) => void) | null>(null);
+  const richAiAnchorRef = useRef<{ heading: string; offset: number } | null>(null);
+  useEffect(() => {
+    richAiAnchorRef.current = null;
+  }, [selectedOwnerKey]);
   const selectedBodyRef = useRef<NoteDraftSnapshot | null>(selectedOwner
     ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody, Number(selected?.version || 0))
     : null);
@@ -469,7 +484,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const markdownExportStale = Boolean(str(markdownExport?.bodySignature) && str(markdownExport?.bodySignature) !== currentExportSignature);
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && (richEditorDirty || draftBody !== selectedBody));
-  const closeDraftWorkspace = useCallback(() => setDraftWorkspaceTarget(undefined), []);
   // Editのキー入力を最優先し、見出し索引など全文走査が必要な派生表示は後続レンダーへ送る。
   const deferredDraftBody = useDeferredValue(draftBody);
   const [indexedDraftBody, setIndexedDraftBody] = useState(draftBody);
@@ -1264,6 +1278,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   function openRecord(record: Combined) {
     // 一覧クリックは右ペイン選択 + 編集ドロワー（メタ・タイトル・種別の編集）。
     if (isWorkbenchRecord(record)) {
+      if (record.id !== selected?.id) setAiTarget(null);
       switchDocument(record);
     }
     openDrawer({ type: record.recordType, mode: "edit", entity: record });
@@ -1919,7 +1934,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     }
   }
 
-  function handleDraftWorkspaceSaved(saved: BaseRecord, body: string) {
+  function handleNoteAiApplied(saved: BaseRecord, body: string) {
+    if (saved.id !== selected?.id) setAiTarget(null);
     setSelectedId(saved.id);
     const owner = noteDraftOwner("note", saved.id);
     setDraftOwner(owner);
@@ -1939,8 +1955,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       ? openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)
       : setToast("先にNoteを保存して正本Markdownの保存先を決めてください。", "warning"),
     draft: () => selected?.recordType === "note"
-      ? setDraftWorkspaceTarget(selected)
-      : setToast("Draft Workspaceで扱うNoteまたはMarkdown文書を選択してください。", "warning"),
+      ? openNoteAi()
+      : setToast("Note AIで扱うNoteを選択してください。", "warning"),
     // 選択範囲の変換（#313）。自動toolbarを撤去したので、ここが正規の入口。
     "selection-task": () => requestSelectionCommand("task"),
     "selection-note": () => requestSelectionCommand("note"),
@@ -2034,12 +2050,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     } as ToolbarMenuItem] : []),
     { kind: "group", id: "group-ai", label: "AI" },
     ...(selected.recordType === "note" ? [{
-      id: "draft-workspace",
-      label: "Draft WorkspaceでAIと書く",
-      onSelect: () => setDraftWorkspaceTarget(selected),
-    } as ToolbarMenuItem, {
       id: "ai-edit",
-      label: "AIで編集する",
+      label: "Note AIを開く",
       onSelect: () => openNoteAi(),
     } as ToolbarMenuItem] : []),
   ] : [];
@@ -2065,7 +2077,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         ) : (
           <>
             <Button variant="secondary" onClick={copy}>一覧をコピー</Button>
-            <Button variant="ai" onClick={() => setDraftWorkspaceTarget(null)}><AI_ICON size={16} />AI Draft</Button>
             {/* 作成は一つのprimary actionへ集約する。既定の種類は現在のfilterから決める（#313）。 */}
             <NoteCreateMenu defaultKind={createDefaultKind} onCreate={createRecord} />
           </>
@@ -2111,7 +2122,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         <span>{visible.length}件</span>
       </div>
       <div
-        className={`notes-workbench${listCollapsed || documentFocus || detachedNoteId ? " is-list-collapsed" : ""}`}
+        className={`notes-workbench${listCollapsed || documentFocus || detachedNoteId ? " is-list-collapsed" : ""}${aiTarget ? " has-note-ai-drawer" : ""}`}
         ref={workbenchRef}
         style={!listCollapsed && !documentFocus && !detachedNoteId && listWidth ? { "--notes-list-width": `${listWidth}px` } as React.CSSProperties : undefined}
       >
@@ -2501,6 +2512,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                         onError={reportRichEditorError}
                         onExtractSelection={selected.recordType === "note" ? extractSelection : undefined}
                         onAiEditSelection={selected.recordType === "note" ? openSelectionAi : undefined}
+                        onCaretAnchorChange={(anchor) => { richAiAnchorRef.current = anchor; }}
                         selectionCommand={selectionCommand}
                         onSelectionUnavailable={() => setToast("先に本文の範囲を選択してください。", "warning")}
                       />
@@ -2530,6 +2542,22 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             <EmptyState title="項目がありません" action="Noteを書く" onAction={() => addNote("note")} />
           )}
         </section>
+        {selected && selected.recordType === "note" && aiTarget && (
+          <NoteAiDrawer
+            note={selected}
+            body={currentDraftBodyForSelected()}
+            target={aiTarget}
+            proposals={data.ai_proposals || []}
+            theme={themes.find((entry) => entry.id === str(selected.project_id || selected.theme_id)) || null}
+            resources={(data.resources || []).filter((entry) => !str(selected.project_id || selected.theme_id) || str(entry.project_id || entry.theme_id) === str(selected.project_id || selected.theme_id))}
+            saveEntity={saveEntity}
+            saveEntities={saveEntities}
+            setToast={setToast}
+            onApplied={handleNoteAiApplied}
+            onClose={() => setAiTarget(null)}
+            onOpenSettings={() => navigate("settings")}
+          />
+        )}
       </div>
       {sketchPickerOpen && (
         <div className="modal-backdrop" onMouseDown={() => setSketchPickerOpen(false)}>
@@ -2564,27 +2592,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             </div>
           </section>
         </div>
-      )}
-      {draftWorkspaceTarget !== undefined && (
-        <DraftWorkspaceDialog
-          note={draftWorkspaceTarget}
-          themes={themes}
-          activeThemeId={activeTheme?.id || null}
-          saveEntity={saveEntity}
-          setToast={setToast}
-          onSaved={handleDraftWorkspaceSaved}
-          close={closeDraftWorkspace}
-        />
-      )}
-      {selected && selected.recordType === "note" && aiTarget && (
-        <NoteAiDialog
-          note={selected}
-          body={currentDraftBodyForSelected()}
-          target={aiTarget}
-          saveEntity={saveEntity}
-          setToast={setToast}
-          onClose={() => setAiTarget(null)}
-        />
       )}
       {exportLinkDialogOpen && recentExport && (
         <ChatRefArtifactLinkDialog

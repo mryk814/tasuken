@@ -344,6 +344,7 @@ export function buildActivityEvent(input = {}) {
   };
   if (text(input.command_id)) event.command_id = text(input.command_id);
   if (text(input.command_name)) event.command_name = text(input.command_name);
+  if (text(input.command_fingerprint)) event.command_fingerprint = text(input.command_fingerprint);
   if (text(input.command_source)) event.command_source = text(input.command_source);
   if (text(input.actor_kind)) event.actor_kind = text(input.actor_kind);
   if (text(input.actor_id)) event.actor_id = text(input.actor_id);
