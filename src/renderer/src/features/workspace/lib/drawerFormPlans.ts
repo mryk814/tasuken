@@ -238,6 +238,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       || null;
     const entity = {
       ...rest,
+      id: String(base.id || uuid()),
       name,
       code: formText(values, "code") || null,
       description: formText(values, "description"),
