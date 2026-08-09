@@ -79,6 +79,18 @@ function saveManyTypes(operations: unknown[]): EntityType[] {
   return types;
 }
 
+export function documentSaveChangedTypes(request: unknown): EntityType[] {
+  if (!request || typeof request !== "object" || Array.isArray(request)) return ["note"];
+  const companions = (request as { companions?: unknown }).companions;
+  const hasReference = Array.isArray(companions) && companions.some((operation) => (
+    Boolean(operation)
+    && typeof operation === "object"
+    && !Array.isArray(operation)
+    && (operation as { type?: unknown }).type === "reference"
+  ));
+  return hasReference ? ["note", "reference"] : ["note"];
+}
+
 function rejectTaskPersistence(type: EntityType, operation = "保存"): void {
   if (type === "task") {
     throw new Error(`Taskの${operation}はApplication Command経由で実行してください。`);
@@ -179,7 +191,7 @@ export function registerIpc(
   });
   ipcMain.handle(IPC.documentSave, (_event, request) => {
     const saved = service.saveCanonicalNote(request);
-    notifyEntitiesChanged(["note"]);
+    notifyEntitiesChanged(documentSaveChangedTypes(request));
     return saved;
   });
   ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {

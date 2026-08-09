@@ -87,10 +87,39 @@ export interface DocumentSaveSnapshot {
   expectedRevision: number;
 }
 
+export type ReferenceTargetEntityType =
+  | "project"
+  | "capture_entry"
+  | "task"
+  | "waiting"
+  | "plan_node"
+  | "note"
+  | "resource"
+  | "knowledge_node"
+  | "sketch"
+  | "artifact";
+
+/** document:saveに同伴できる副作用は、保存対象Noteを起点にした派生Referenceだけ。 */
+export interface DocumentSaveReferenceCompanion {
+  action: "save";
+  type: "reference";
+  entity: Entity & {
+    source_type: "note";
+    source_id: string;
+    target_type: ReferenceTargetEntityType;
+    target_id: string;
+    relation_type: "derived_from";
+    note?: string | null;
+    created_at?: string;
+  };
+  options?: Pick<SaveOptions, "reason" | "source">;
+}
+
 export interface DocumentSaveRequest {
   entity: Entity;
   snapshot: DocumentSaveSnapshot;
   options?: SaveOptions;
+  companions?: DocumentSaveReferenceCompanion[];
 }
 
 export interface SaveOperation {
