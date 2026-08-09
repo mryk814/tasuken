@@ -47,6 +47,7 @@ import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { AiContextFields, AiContextSummary, ThemeAiVisibilityField, workspaceAiVisibility } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
+import { AiContextPreviewPanel } from "./AiContextPreviewPanel";
 import { ConversationPreview } from "./ConversationPreview";
 import { LineagePanel } from "./LineagePanel";
 import {
@@ -628,6 +629,11 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             seed={{ type: "task", id: task.id }}
             openDrawer={(next) => close(next)}
             openContentViewer={openContentViewer}
+          />
+          <AiContextPreviewPanel
+            scope={{ type: "task", id: task.id }}
+            data={data}
+            openDrawer={(next) => close(next)}
           />
           <TaskWorkSection task={task} receipts={(data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]} executeCommand={executeCommand} setToast={setToast} />
           <section className="task-learning-section">

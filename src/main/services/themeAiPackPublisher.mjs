@@ -59,6 +59,32 @@ function isWithin(parentPath, candidatePath) {
   return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
+/**
+ * Theme markerで確定したfolder配下の追加projectionにも、AI Packと同じ
+ * containment / symlink拒否を適用する。relativePath自体は呼出側の契約で固定する。
+ */
+export function assertSafeThemeChildPath({ themeFolder, relativePath, fileSystem = fs } = {}) {
+  const root = path.resolve(text(themeFolder));
+  const relative = text(relativePath).replace(/\\/g, "/");
+  if (!root || !relative || path.isAbsolute(relative) || relative.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new Error("Theme配下の保存先が不正です。");
+  }
+  const target = path.resolve(root, ...relative.split("/"));
+  if (!isWithin(root, target)) throw new Error("Theme配下の保存先がroot外です。");
+  if (!isDirectory(fileSystem, root) || isSymbolicLink(fileSystem, root)) {
+    throw new Error("Theme folderにsymlink/junctionは利用できません。");
+  }
+  let current = root;
+  for (const segment of relative.split("/")) {
+    current = path.join(current, segment);
+    if (!fileSystem.existsSync(current)) continue;
+    if (isSymbolicLink(fileSystem, current)) {
+      throw new Error("Theme配下の保存先にsymlink/junctionは利用できません。");
+    }
+  }
+  return target;
+}
+
 function readJson(fileSystem, filePath, maxBytes = 256 * 1024) {
   if (isSymbolicLink(fileSystem, filePath)) throw new Error("manifestにsymlink/junctionは利用できません。");
   const stat = fileSystem.statSync(filePath);

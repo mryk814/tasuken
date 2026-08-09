@@ -166,8 +166,8 @@ test("未公開Conversation本文はexcerptにもせず、公開済みでも参�
       }, {
         publication: {
           published: true,
-          storage_root_id: "onedrive",
-          relative_path: "Themes/MAT/AI Pack/Conversations/published-chat.md",
+          storage_root_id: `theme:${theme.id}`,
+          relative_path: "AI Context/Conversations/published-chat.md",
         },
       }),
       candidate("resource", {
@@ -178,7 +178,7 @@ test("未公開Conversation本文はexcerptにもせず、公開済みでも参�
       }, {
         publication: {
           published: true,
-          relative_path: "Themes/MAT/AI Pack/Conversations/unsafe.md",
+          storage_root_id: `theme:${theme.id}`,
         },
       }),
     ],
@@ -188,7 +188,7 @@ test("未公開Conversation本文はexcerptにもせず、公開済みでも参�
   assert.doesNotMatch(meetings, /未公開会話の先頭も漏らさない|公開済みでも全文は複製しない|参照先が不十分な公開会話|参照先なし/);
   assert.doesNotMatch(meetings, /private-chat/);
   assert.match(meetings, /公開済み会話の要約/);
-  assert.match(meetings, /onedrive:Themes\/MAT\/AI Pack\/Conversations\/published-chat\.md/);
+  assert.match(meetings, /theme:theme-materials:AI Context\/Conversations\/published-chat\.md/);
   assert.match(meetings, /本文はこのPackへ複製せず/);
   assert.ok(plan.excluded_reasons.some((entry) => /明示公開されていない/.test(entry.reason)));
   assert.ok(plan.excluded_reasons.some((entry) => /安全な参照先がない/.test(entry.reason)));

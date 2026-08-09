@@ -35,6 +35,8 @@ import type {
 import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
+import type { AiContextPreview } from "../aiContextPreview.mjs";
+import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -42,6 +44,9 @@ export const IPC = {
   workspaceMeta: "workspace:meta",
   activityCanonicalRootStatus: "activity:canonical-root-status",
   activityOpenCanonicalRef: "activity:open-canonical-ref",
+  aiContextPreview: "ai-context:preview",
+  dataHealthGet: "data-health:get",
+  dataHealthSetState: "data-health:set-state",
   preferenceGet: "preference:get",
   preferenceSet: "preference:set",
   viewPreferenceGet: "view-preference:get",
@@ -134,6 +139,9 @@ export const IPC = {
   themeAiPackPublish: "theme-ai-pack:publish",
   themeAiPackOpenFolder: "theme-ai-pack:open-folder",
   themeAiPackChanged: "theme-ai-pack:changed",
+  conversationContextPreview: "conversation-context:preview",
+  conversationContextPublish: "conversation-context:publish",
+  conversationContextRemove: "conversation-context:remove",
   workspaceChanged: "workspace:changed",
   quickCaptureSave: "quick-capture:save",
   quickCapturePreviewDue: "quick-capture:preview-due",
@@ -301,6 +309,111 @@ export interface ThemeAiPackChangedPayload {
   dirty: boolean;
 }
 
+export type AiContextPreviewAudience = "m365" | "coding_agent";
+export type AiContextPreviewScope = { type: "theme" | "task"; id: string };
+
+export interface AiContextPreviewRequest {
+  audience: AiContextPreviewAudience;
+  scope: AiContextPreviewScope;
+}
+
+export interface AiContextPreviewResult {
+  state: "ready" | "empty" | "error";
+  requestedScope: AiContextPreviewScope;
+  effectiveScope: AiContextPreviewScope;
+  producer: "theme_ai_pack" | "mcp_task_context" | "mcp_theme_context";
+  preview: AiContextPreview | null;
+  includedInEffectiveScope: boolean | null;
+  error?: string;
+}
+
+export interface DataHealthQuery {
+  themeId?: string;
+  entityType?: string;
+  severity?: DataHealthSeverity;
+  state?: "open" | "ignored" | "resolved" | "all";
+}
+
+export interface DataHealthQueryResult extends Omit<DataHealthResult, "issues"> {
+  issues: DataHealthIssue[];
+  totalIssueCount: number;
+}
+
+export interface DataHealthStateUpdateRequest {
+  issueId: string;
+  state: "open" | "ignored" | "resolved";
+  expectedRevision: number;
+  note?: string;
+}
+
+export type ConversationContextScope = "full" | "selected_turns";
+
+export interface ConversationContextPreviewRequest {
+  conversationId: string;
+  scope?: ConversationContextScope;
+  selectedMessageIndexes?: number[];
+}
+
+export interface ConversationContextPreviewResult {
+  conversationId: string;
+  themeId: string;
+  storageRootId: string;
+  relativePath: string;
+  plannedPublishedAt: string;
+  scope: ConversationContextScope;
+  selectedMessageIndexes: number[];
+  messageCount: number;
+  sourceMessageCount: number;
+  publicationState: string;
+  dirty: boolean;
+  allowed: boolean;
+  locationStatus: string;
+  content: string;
+  contentHash: string;
+  sourceRevision: string;
+  exclusions: Array<{ kind: string; message_index: number; role: string }>;
+  warnings: string[];
+  blockingReasons: string[];
+  sourceUrl: string;
+  theme: { id: string; title: string };
+  summary: string;
+  freshness: string;
+  authority: string;
+  aiVisibility: string[];
+}
+
+export interface ConversationContextPublishRequest extends ConversationContextPreviewRequest {
+  scope: ConversationContextScope;
+  selectedMessageIndexes: number[];
+  expectedContentHash: string;
+  plannedPublishedAt: string;
+}
+
+export interface ConversationContextPublishResult {
+  conversationId: string;
+  themeId: string;
+  publicationState: string;
+  dirty: boolean;
+  written: boolean;
+  contentHash?: string;
+  themePackState?: string;
+  error?: string;
+  warning?: string;
+}
+
+export interface ConversationContextRemoveRequest {
+  conversationId: string;
+}
+
+export interface ConversationContextRemoveResult {
+  conversationId: string;
+  themeId: string;
+  publicationState: string;
+  removed: boolean;
+  themePackState?: string;
+  warning?: string;
+}
+
 export interface SharedSyncConflict {
   id: string;
   entityType: EntityType;
@@ -346,12 +459,24 @@ export interface ResearchDeskApi {
     getCanonicalRootStatus(): Promise<CanonicalRootStatusMap>;
     openCanonicalRef(ref: Record<string, unknown>): Promise<{ ok: boolean; error?: string }>;
   };
+  aiContext: {
+    preview(request: AiContextPreviewRequest): Promise<AiContextPreviewResult>;
+  };
+  dataHealth: {
+    get(query?: DataHealthQuery): Promise<DataHealthQueryResult>;
+    setState(request: DataHealthStateUpdateRequest): Promise<DataHealthQueryResult>;
+  };
   themeAiPack: {
     status(themeId: string): Promise<ThemeAiPackStatusResult>;
     preview(themeId: string): Promise<ThemeAiPackPreviewResult>;
     publish(request: ThemeAiPackPublishRequest): Promise<ThemeAiPackPublishResult>;
     openFolder(themeId: string): Promise<{ ok: boolean; error?: string }>;
     onChanged(callback: (change: ThemeAiPackChangedPayload) => void): () => void;
+  };
+  conversationContext: {
+    preview(request: ConversationContextPreviewRequest): Promise<ConversationContextPreviewResult>;
+    publish(request: ConversationContextPublishRequest): Promise<ConversationContextPublishResult>;
+    remove(request: ConversationContextRemoveRequest): Promise<ConversationContextRemoveResult>;
   };
   preferences: {
     get(key: string): Promise<unknown>;

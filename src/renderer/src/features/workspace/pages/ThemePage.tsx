@@ -13,6 +13,7 @@ import { compactNotesBodyPreview } from "../lib/notes";
 import { buildCompleteTaskOperations } from "../domain-model/taskRecurrence";
 import { buildTaskSection, groupTasksBySection, listTaskSections, type TaskSection, type TaskSectionGroup } from "../lib/taskSections";
 import { ArtifactSection } from "../components/artifacts";
+import { AiContextPreviewPanel } from "../components/AiContextPreviewPanel";
 import { ActionButton, Button, EmptyState, IntegrationStatus, PageHeader, SimpleRows, StatusBadge } from "../components/common";
 import type { Schedule, Task } from "../domain-model/types";
 
@@ -420,6 +421,12 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
           </div>
         )}
       </section>
+
+      <AiContextPreviewPanel
+        scope={{ type: "theme", id: theme.id }}
+        data={data}
+        openDrawer={openDrawer}
+      />
 
       <div className="dashboard-grid theme-task-grid">
         <section className="panel">

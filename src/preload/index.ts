@@ -14,6 +14,13 @@ const api: ResearchDeskApi = {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),
   },
+  aiContext: {
+    preview: (request) => ipcRenderer.invoke(IPC.aiContextPreview, request),
+  },
+  dataHealth: {
+    get: (query) => ipcRenderer.invoke(IPC.dataHealthGet, query),
+    setState: (request) => ipcRenderer.invoke(IPC.dataHealthSetState, request),
+  },
   themeAiPack: {
     status: (themeId) => ipcRenderer.invoke(IPC.themeAiPackStatus, themeId),
     preview: (themeId) => ipcRenderer.invoke(IPC.themeAiPackPreview, themeId),
@@ -24,6 +31,11 @@ const api: ResearchDeskApi = {
       ipcRenderer.on(IPC.themeAiPackChanged, handler);
       return () => { ipcRenderer.removeListener(IPC.themeAiPackChanged, handler); };
     },
+  },
+  conversationContext: {
+    preview: (request) => ipcRenderer.invoke(IPC.conversationContextPreview, request),
+    publish: (request) => ipcRenderer.invoke(IPC.conversationContextPublish, request),
+    remove: (request) => ipcRenderer.invoke(IPC.conversationContextRemove, request),
   },
   preferences: {
     get: (key) => ipcRenderer.invoke(IPC.preferenceGet, key),

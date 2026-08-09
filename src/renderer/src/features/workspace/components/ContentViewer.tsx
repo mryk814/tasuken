@@ -31,6 +31,7 @@ import {
 } from "./artifacts";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { ConversationPreview } from "./ConversationPreview";
+import { ConversationContextPanel } from "./ConversationContextPanel";
 import { parseConversation } from "../lib/conversationParser";
 
 export type { ContentViewerTarget };
@@ -569,7 +570,10 @@ export function ContentViewer({
             />
           )}
           {load.status === "ready" && load.mode === "conversation" && (
-            <ConversationPreview className="content-viewer-conversation" body={load.body} showCount={false} />
+            <>
+              <ConversationContextPanel resource={load.resource} setToast={setToast} />
+              <ConversationPreview className="content-viewer-conversation" body={load.body} showCount={false} />
+            </>
           )}
           {load.status === "ready" && load.mode === "image" && (
             <div

@@ -7,8 +7,16 @@ import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactPropo
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
 import type {
   AppUpdateCheckResult,
+  ConversationContextPreviewResult,
+  ConversationContextPublishResult,
+  ConversationContextRemoveResult,
   FilePreviewReadResult,
   McpBridgeInfo,
+  AiContextPreviewRequest,
+  AiContextPreviewResult,
+  DataHealthQuery,
+  DataHealthQueryResult,
+  DataHealthStateUpdateRequest,
   ThemeAiPackPreviewResult,
   ThemeAiPackPublishResult,
   ThemeAiPackStatusResult,
@@ -31,6 +39,15 @@ import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs"
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
+import { previewTaskCoding, previewThemeCoding, previewThemeM365 } from "../../shared/aiContextPreview.mjs";
+import { DataHealthEvaluator, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
+import {
+  CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
+  buildConversationContextPlan,
+  normalizeConversationContextPublication,
+  publicationForThemeAiPack,
+  type ConversationContextPlan,
+} from "../../shared/conversationContext.mjs";
 import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
 import {
   buildCanonicalMarkdownContent,
@@ -68,6 +85,14 @@ import {
   publishThemeAiPack,
   recoverThemeAiPackOperations,
 } from "./themeAiPackPublisher.mjs";
+import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
+import {
+  completeConversationContextOperation,
+  inspectConversationContextFile,
+  listConversationContextOperations,
+  publishConversationContextFile,
+  removeConversationContextFile,
+} from "./conversationContextPublisher.mjs";
 
 type SnapshotDecisions = Record<string, string>;
 
@@ -122,6 +147,9 @@ interface WorkspaceRepository {
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
+  setPreference(key: string, value: unknown): unknown;
+  getDataHealthState(): unknown;
+  setDataHealthState(expectedRevision: number, value: unknown): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
   runTransaction<T>(callback: (repository: {
@@ -189,6 +217,14 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function safeContextPreviewError(value: unknown): string {
+  const source = objectValue(value);
+  const code = typeof source.code === "string" ? source.code : "";
+  if (code === "not_found") return "対象が見つからないか、AI公開範囲に含まれていません。元Entityのvisibilityを確認してください。";
+  if (code === "unsupported_schema") return "保存形式を解釈できません。Taskenを更新してからもう一度お試しください。";
+  return "Context Previewを作成できませんでした。元Entityの公開範囲を確認して、もう一度お試しください。";
 }
 
 function sameStableLinkAssertion(existing: Record<string, unknown> | undefined, desired: Record<string, unknown>): boolean {
@@ -448,6 +484,8 @@ export class WorkspaceService {
   private readonly canonicalRecoveryPath: string;
   private readonly canonicalRecoveryWarningPath: string;
   private readonly themeAiPackRecoveryDirectory: string;
+  private readonly dataHealthEvaluator = new DataHealthEvaluator();
+  private readonly conversationContextRecoveryDirectory: string;
 
   constructor(
     private readonly repository: WorkspaceRepository,
@@ -457,9 +495,11 @@ export class WorkspaceService {
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
     this.canonicalRecoveryWarningPath = path.join(userDataPath, "canonical-markdown-recovery-warning.json");
     this.themeAiPackRecoveryDirectory = path.join(userDataPath, "theme-ai-pack-recovery");
+    this.conversationContextRecoveryDirectory = path.join(userDataPath, "conversation-context-recovery");
   }
 
   loadWorkspace(includeDeleted = false): unknown {
+    this.recoverConversationContextReceipts();
     this.recoverThemeAiPackReceipts();
     this.recoverCanonicalMarkdownReceipts();
     this.migrateCanonicalMarkdownBindings();
@@ -485,7 +525,10 @@ export class WorkspaceService {
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (!theme || theme.deleted_at) throw new Error("AI Packを作成するThemeが見つかりません。");
     const candidates = THEME_AI_PACK_CANDIDATE_TYPES.flatMap((type) => (
-      this.repository.list(type).map((entity) => ({ type, entity }))
+      this.repository.list(type).map((entity) => {
+        const publication = type === "resource" ? publicationForThemeAiPack(entity) : null;
+        return { type, entity, ...(publication ? { publication } : {}) };
+      })
     ));
     const workspace = this.repository.loadWorkspace(false) as Record<string, unknown>;
     const workspaceDefault = normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault"));
@@ -516,6 +559,179 @@ export class WorkspaceService {
     };
   }
 
+  getAiContextPreview(requestValue: unknown): AiContextPreviewResult {
+    const request = objectValue(requestValue) as Partial<AiContextPreviewRequest>;
+    const scopeValue = objectValue(request.scope);
+    const scopeType = scopeValue.type === "theme" || scopeValue.type === "task" ? scopeValue.type : null;
+    const scopeId = typeof scopeValue.id === "string" ? scopeValue.id.trim() : "";
+    const audience = request.audience === "m365" || request.audience === "coding_agent" ? request.audience : null;
+    if (!scopeType || !scopeId || !audience) {
+      throw new Error("Context Previewの対象またはAudienceが不正です。画面を開き直してください。");
+    }
+    const requestedScope = { type: scopeType, id: scopeId } as const;
+    try {
+      if (audience === "m365") {
+        let themeId = scopeId;
+        if (scopeType === "task") {
+          const task = this.repository.get("task", scopeId);
+          themeId = typeof task?.project_id === "string" && task.project_id.trim()
+            ? task.project_id.trim()
+            : typeof task?.theme_id === "string" ? task.theme_id.trim() : "";
+          if (!task || task.deleted_at || !themeId) {
+            return {
+              state: "error",
+              requestedScope,
+              effectiveScope: requestedScope,
+              producer: "theme_ai_pack",
+              preview: null,
+              includedInEffectiveScope: false,
+              error: "Taskまたは所属Themeが見つかりません。TaskのThemeを確認してください。",
+            };
+          }
+        }
+        const { plan } = this.buildThemeAiPack(themeId);
+        const preview = previewThemeM365(plan);
+        const included = scopeType === "theme" || preview.untypedIncludedIds.includes(scopeId);
+        return {
+          state: preview.counts.included || preview.files.length ? "ready" : "empty",
+          requestedScope,
+          effectiveScope: { type: "theme", id: themeId },
+          producer: "theme_ai_pack",
+          preview,
+          includedInEffectiveScope: included,
+        };
+      }
+      const workspace = this.repository.loadWorkspace(false);
+      const context = new ReadOnlyTaskenContext("workspace-memory", {
+        workspace,
+        audience: "coding_agent",
+        aiVisibilityDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
+      });
+      try {
+        const response = scopeType === "task"
+          ? context.toolGetTaskContext({ task_id: scopeId })
+          : context.toolGetThemeContext({ theme_id: scopeId });
+        const responseRecord = response as Record<string, unknown>;
+        if (responseRecord.error) {
+          return {
+            state: "error",
+            requestedScope,
+            effectiveScope: requestedScope,
+            producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+            preview: null,
+            includedInEffectiveScope: false,
+            error: safeContextPreviewError(responseRecord.error),
+          };
+        }
+        const preview = scopeType === "task" ? previewTaskCoding(response) : previewThemeCoding(response);
+        return {
+          state: preview.counts.included ? "ready" : "empty",
+          requestedScope,
+          effectiveScope: requestedScope,
+          producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+          preview,
+          includedInEffectiveScope: preview.included.some((entry) => entry.ref.id === scopeId),
+        };
+      } finally {
+        context.close();
+      }
+    } catch (error) {
+      return {
+        state: "error",
+        requestedScope,
+        effectiveScope: requestedScope,
+        producer: audience === "m365" ? "theme_ai_pack" : scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+        preview: null,
+        includedInEffectiveScope: null,
+        error: safeContextPreviewError(error),
+      };
+    }
+  }
+
+  getDataHealth(queryValue: unknown = {}): DataHealthQueryResult {
+    try {
+      return this.evaluateDataHealth(queryValue);
+    } catch {
+      throw new Error("Data Healthを確認できませんでした。画面を再読み込みして、もう一度お試しください。");
+    }
+  }
+
+  private evaluateDataHealth(queryValue: unknown = {}): DataHealthQueryResult {
+    const query = objectValue(queryValue) as DataHealthQuery;
+    const workspace = this.repository.loadWorkspace(false) as Workspace;
+    const state = normalizeDataHealthState(this.repository.getDataHealthState());
+    const themes = [
+      ...((workspace.projects || []) as Array<Record<string, unknown>>),
+      ...((workspace.themes || []) as Array<Record<string, unknown>>),
+    ].filter((theme) => !theme.deleted_at && typeof theme.id === "string");
+    const seenThemeIds = new Set<string>();
+    const themeAiPackStatuses = themes.flatMap((theme) => {
+      const themeId = String(theme.id);
+      if (seenThemeIds.has(themeId)) return [];
+      seenThemeIds.add(themeId);
+      try {
+        const status = this.getThemeAiPackStatus(themeId);
+        return [{ themeId, state: status.state }];
+      } catch {
+        return [{ themeId, state: "failed_retryable" }];
+      }
+    });
+    const evaluated = this.dataHealthEvaluator.evaluate(workspace, {
+      state,
+      generatedAt: this.now(),
+      themeAiPackStatuses,
+    });
+    const stateFilter = query.state && query.state !== "all" ? query.state : "open";
+    const issues = evaluated.issues.filter((entry) => (
+      (!query.themeId || entry.themeId === query.themeId)
+      && (!query.entityType || entry.ref.type === query.entityType)
+      && (!query.severity || entry.severity === query.severity)
+      && (!stateFilter || entry.state === stateFilter)
+    ));
+    return { ...evaluated, issues, totalIssueCount: evaluated.issues.length };
+  }
+
+  setDataHealthIssueState(requestValue: unknown): DataHealthQueryResult {
+    const request = objectValue(requestValue) as Partial<DataHealthStateUpdateRequest>;
+    const issueId = typeof request.issueId === "string" ? request.issueId.trim() : "";
+    const nextState = request.state;
+    if (!issueId || !["open", "ignored", "resolved"].includes(String(nextState))) {
+      throw new Error("Data Healthの状態変更が不正です。画面を開き直してください。");
+    }
+    let current;
+    try {
+      current = normalizeDataHealthState(this.repository.getDataHealthState());
+    } catch {
+      throw new Error("Data Healthの状態を読み込めませんでした。画面を再読み込みしてください。");
+    }
+    if (request.expectedRevision !== current.revision) {
+      throw new Error("Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。");
+    }
+    const currentResult = this.getDataHealth({ state: "all" });
+    if (!currentResult.issues.some((entry) => entry.id === issueId)) {
+      throw new Error("Data Health issueは解消済みです。再読み込みしてください。");
+    }
+    const issues = { ...current.issues };
+    if (nextState === "open") delete issues[issueId];
+    else {
+      issues[issueId] = {
+        state: nextState as "ignored" | "resolved",
+        updatedAt: this.now(),
+        note: typeof request.note === "string" ? request.note.trim().slice(0, 500) : "",
+      };
+    }
+    try {
+      this.repository.setDataHealthState(current.revision, {
+        schema: "tasken-data-health-state/v1",
+        updatedAt: this.now(),
+        issues,
+      });
+    } catch {
+      throw new Error("Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。");
+    }
+    return this.getDataHealth({ state: "all" });
+  }
+
   private resolveThemeAiPack(theme: Record<string, unknown>) {
     return discoverThemeAiPackLocation({
       syncRoot: String(this.repository.getPreference("artifactDirectory") || ""),
@@ -524,6 +740,400 @@ export class WorkspaceService {
       themeCode: typeof theme.code === "string" ? theme.code : "",
       displayName: String(theme.name || theme.title || ""),
     });
+  }
+
+  private saveConversationContextResource(entity: Record<string, unknown>): Record<string, unknown> {
+    return this.repository.save("resource", entity, { __conversationContextPublicationWrite: true });
+  }
+
+  private conversationContextInput(requestValue: unknown, publishedAt?: string): {
+    resource: Record<string, unknown>;
+    theme: Record<string, unknown>;
+    plan: ConversationContextPlan;
+  } {
+    const request = objectValue(requestValue);
+    const conversationId = typeof request.conversationId === "string" ? request.conversationId.trim() : "";
+    if (!conversationId) throw new Error("Conversation IDがありません。Viewerを開き直してください。");
+    const resource = this.repository.get("resource", conversationId);
+    if (!resource || resource.deleted_at || resource.resource_scope !== "chat_ref") {
+      throw new Error("Conversationが見つかりません。Viewerを開き直してください。");
+    }
+    const themeId = String(resource.theme_id || resource.project_id || "").trim();
+    const theme = themeId
+      ? this.repository.get("theme", themeId) || this.repository.get("project", themeId)
+      : null;
+    if (!theme || theme.deleted_at) {
+      throw new Error("AI Contextへ保存するにはConversationへThemeを設定してください。");
+    }
+    const selectedMessageIndexes = Array.isArray(request.selectedMessageIndexes)
+      ? request.selectedMessageIndexes
+      : undefined;
+    const plan = buildConversationContextPlan({
+      resource,
+      theme,
+      workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
+      scope: request.scope === "selected_turns" ? "selected_turns" : request.scope === "full" ? "full" : undefined,
+      selectedMessageIndexes,
+      publishedAt,
+    });
+    return { resource, theme, plan };
+  }
+
+  private conversationContextLocation(theme: Record<string, unknown>, plan: ConversationContextPlan) {
+    const publication = normalizeConversationContextPublication(
+      this.repository.get("resource", plan.conversation_id)?.conversation_context_publication,
+    );
+    const bindingThemeId = publication?.status !== "removed" ? publication?.theme_id : null;
+    const bindingTheme = bindingThemeId
+      ? this.repository.get("theme", bindingThemeId, true) || this.repository.get("project", bindingThemeId, true)
+      : theme;
+    if (!bindingTheme) return { location: { status: "theme_missing" as const }, storage: null };
+    const location = this.resolveThemeAiPack(bindingTheme);
+    if (location.status !== "ok") return { location, storage: null };
+    const storage = publication?.status === "published"
+      ? inspectConversationContextFile({
+          themeFolder: location.themeFolder,
+          relativePath: publication.relative_path,
+          contentHash: publication.content_hash,
+        })
+      : null;
+    return { location, storage };
+  }
+
+  getConversationContextPreview(requestValue: unknown): ConversationContextPreviewResult {
+    const request = objectValue(requestValue);
+    const existing = typeof request.conversationId === "string"
+      ? this.repository.get("resource", request.conversationId.trim())
+      : null;
+    const publication = normalizeConversationContextPublication(existing?.conversation_context_publication);
+    const plannedPublishedAt = publication?.published_at || this.now();
+    const { theme, plan } = this.conversationContextInput(request, plannedPublishedAt);
+    const { location, storage } = this.conversationContextLocation(theme, plan);
+    const storageDirty = publication?.status === "published" && (!storage?.exists || !storage.current);
+    return {
+      conversationId: plan.conversation_id,
+      themeId: plan.theme_id,
+      storageRootId: publication?.status !== "removed" && publication?.storage_root_id
+        ? publication.storage_root_id
+        : plan.storage_root_id,
+      relativePath: plan.relative_path,
+      plannedPublishedAt,
+      scope: plan.scope,
+      selectedMessageIndexes: plan.selected_message_indexes,
+      messageCount: plan.message_count,
+      sourceMessageCount: plan.source_message_count,
+      publicationState: storageDirty ? "dirty" : plan.publication_state,
+      dirty: plan.dirty || Boolean(storageDirty),
+      allowed: plan.allowed && location.status === "ok",
+      locationStatus: location.status,
+      content: plan.content,
+      contentHash: plan.content_hash,
+      sourceRevision: plan.source_revision,
+      exclusions: plan.exclusion_reasons,
+      warnings: plan.warnings,
+      blockingReasons: [
+        ...plan.blocking_reasons,
+        ...(location.status === "ok" ? [] : ["ThemeのOneDrive保存先を利用できません。Settingsを確認してください。"]),
+      ],
+      sourceUrl: plan.source_url,
+      theme: plan.theme,
+      summary: plan.summary,
+      freshness: plan.freshness,
+      authority: plan.authority,
+      aiVisibility: plan.ai_visibility,
+    };
+  }
+
+  private publishThemeAiPackAfterConversationChange(themeId: string): { state: string; error?: string } {
+    try {
+      const preview = this.getThemeAiPackPreview(themeId);
+      const result = this.publishThemeAiPack({ themeId, expectedContentHash: preview.contentHash });
+      return { state: result.state, ...(result.error ? { error: result.error } : {}) };
+    } catch (error) {
+      return { state: "failed_retryable", error: errorText(error) };
+    }
+  }
+
+  publishConversationContext(requestValue: unknown): ConversationContextPublishResult {
+    const request = objectValue(requestValue);
+    const plannedPublishedAt = typeof request.plannedPublishedAt === "string" ? request.plannedPublishedAt.trim() : "";
+    const expectedContentHash = typeof request.expectedContentHash === "string" ? request.expectedContentHash.trim() : "";
+    if (!plannedPublishedAt || Number.isNaN(new Date(plannedPublishedAt).getTime()) || !expectedContentHash) {
+      throw new Error("AI Context Previewが古いため、内容を確認し直してください。");
+    }
+    const { resource, theme, plan } = this.conversationContextInput(request, plannedPublishedAt);
+    if (plan.content_hash !== expectedContentHash) {
+      return {
+        conversationId: plan.conversation_id,
+        themeId: plan.theme_id,
+        publicationState: "stale_preview",
+        dirty: true,
+        written: false,
+        contentHash: plan.content_hash,
+        error: "ConversationがPreview後に変更されました。内容を確認し直してください。",
+      };
+    }
+    if (!plan.allowed) {
+      throw new Error(plan.blocking_reasons[0] || "M365への公開が許可されていません。");
+    }
+    const location = this.resolveThemeAiPack(theme);
+    if (location.status !== "ok") throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
+    const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
+    if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
+    const existingPublication = normalizeConversationContextPublication(resource.conversation_context_publication);
+    if (existingPublication?.status !== "removed"
+      && existingPublication?.theme_id
+      && existingPublication.theme_id !== plan.theme_id) {
+      throw new Error("以前のThemeに公開済みです。先にAI Contextから外してから、新しいThemeへ公開してください。");
+    }
+    if (existingPublication?.status === "published"
+      && existingPublication.content_hash === plan.content_hash
+      && existingPublication.source_revision === plan.source_revision) {
+      const storage = inspectConversationContextFile({ themeFolder: ensured.themeFolder, relativePath: plan.relative_path, contentHash: plan.content_hash });
+      if (storage.current) {
+        return {
+          conversationId: plan.conversation_id,
+          themeId: plan.theme_id,
+          publicationState: "published",
+          dirty: false,
+          written: false,
+          contentHash: plan.content_hash,
+          themePackState: this.getThemeAiPackStatus(plan.theme_id).state,
+        };
+      }
+    }
+    const operationId = randomUUID();
+    const pendingPublication = {
+      schema: CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
+      status: "publishing",
+      scope: plan.scope,
+      selected_message_indexes: plan.selected_message_indexes,
+      theme_id: plan.theme_id,
+      storage_root_id: plan.storage_root_id,
+      relative_path: plan.relative_path,
+      content_hash: plan.content_hash,
+      source_revision: plan.source_revision,
+      published_at: plannedPublishedAt,
+      updated_at: this.now(),
+      removed_at: null,
+      operation_id: operationId,
+      last_error: null,
+    };
+    const pendingResource = this.saveConversationContextResource({ ...resource, conversation_context_publication: pendingPublication });
+    try {
+      const fileResult = publishConversationContextFile({
+        themeFolder: ensured.themeFolder,
+        conversationId: plan.conversation_id,
+        themeId: plan.theme_id,
+        relativePath: plan.relative_path,
+        content: plan.content,
+        contentHash: plan.content_hash,
+        operationId,
+        recoveryDirectory: this.conversationContextRecoveryDirectory,
+      });
+      this.saveConversationContextResource({
+        ...pendingResource,
+        conversation_context_publication: { ...pendingPublication, status: "published", operation_id: null, updated_at: this.now() },
+      });
+      completeConversationContextOperation(this.conversationContextRecoveryDirectory, operationId);
+      const pack = this.publishThemeAiPackAfterConversationChange(plan.theme_id);
+      return {
+        conversationId: plan.conversation_id,
+        themeId: plan.theme_id,
+        publicationState: "published",
+        dirty: false,
+        written: fileResult.written,
+        contentHash: plan.content_hash,
+        themePackState: pack.state,
+        ...(pack.error ? { warning: "Conversationは公開済みですが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。" } : {}),
+      };
+    } catch (error) {
+      try {
+        const recoverable = listConversationContextOperations(this.conversationContextRecoveryDirectory)
+          .some((item) => item.receipt?.operationId === operationId && item.receipt.phase === "file_written");
+        const current = this.repository.get("resource", plan.conversation_id);
+        if (current && normalizeConversationContextPublication(current.conversation_context_publication)?.operation_id === operationId) {
+          this.saveConversationContextResource({
+            ...current,
+            conversation_context_publication: {
+              ...pendingPublication,
+              status: "publish_failed",
+              operation_id: recoverable ? operationId : null,
+              last_error: "file_or_database_write_failed",
+              updated_at: this.now(),
+            },
+          });
+        }
+      } catch {
+        // Receiptとpublishing stateを残し、次回起動でfile read-back後に復旧する。
+      }
+      throw new Error("AI Contextファイルを更新できませんでした。OneDriveの同期状態と保存先を確認して再試行してください。");
+    }
+  }
+
+  removeConversationContext(requestValue: unknown): ConversationContextRemoveResult {
+    const request = objectValue(requestValue);
+    const conversationId = typeof request.conversationId === "string" ? request.conversationId.trim() : "";
+    const resource = conversationId ? this.repository.get("resource", conversationId) : null;
+    if (!resource || resource.deleted_at || resource.resource_scope !== "chat_ref") throw new Error("Conversationが見つかりません。");
+    const publication = normalizeConversationContextPublication(resource.conversation_context_publication);
+    if (!publication || publication.status === "removed") {
+      return { conversationId, themeId: String(resource.theme_id || resource.project_id || ""), publicationState: "removed", removed: false };
+    }
+    const themeId = publication.theme_id || String(resource.theme_id || resource.project_id || "").trim();
+    const storageRootId = publication.storage_root_id || `theme:${themeId}`;
+    if (!themeId || storageRootId !== `theme:${themeId}`) throw new Error("Conversationの公開先bindingが不正です。再読込してから再試行してください。");
+    const theme = this.repository.get("theme", themeId, true) || this.repository.get("project", themeId, true);
+    if (!theme) throw new Error("ConversationのThemeが見つかりません。");
+    const location = this.resolveThemeAiPack(theme);
+    if (location.status !== "ok") throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
+    const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
+    if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
+    const operationId = randomUUID();
+    const pendingPublication = { ...publication, status: "removing", operation_id: operationId, updated_at: this.now(), last_error: null };
+    const pendingResource = this.saveConversationContextResource({ ...resource, conversation_context_publication: pendingPublication });
+    try {
+      const fileResult = removeConversationContextFile({
+        themeFolder: ensured.themeFolder,
+        conversationId,
+        themeId,
+        relativePath: publication.relative_path,
+        operationId,
+        recoveryDirectory: this.conversationContextRecoveryDirectory,
+      });
+      this.saveConversationContextResource({
+        ...pendingResource,
+        conversation_context_publication: {
+          ...pendingPublication,
+          status: "removed",
+          content_hash: null,
+          source_revision: null,
+          operation_id: null,
+          removed_at: this.now(),
+          updated_at: this.now(),
+        },
+      });
+      completeConversationContextOperation(this.conversationContextRecoveryDirectory, operationId);
+      const pack = this.publishThemeAiPackAfterConversationChange(themeId);
+      return {
+        conversationId,
+        themeId,
+        publicationState: "removed",
+        removed: fileResult.removed,
+        themePackState: pack.state,
+        ...(pack.error ? { warning: "AI Contextから外しましたが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。" } : {}),
+      };
+    } catch (error) {
+      try {
+        const recoverable = listConversationContextOperations(this.conversationContextRecoveryDirectory)
+          .some((item) => item.receipt?.operationId === operationId && item.receipt.phase === "file_removed");
+        const current = this.repository.get("resource", conversationId);
+        if (current && normalizeConversationContextPublication(current.conversation_context_publication)?.operation_id === operationId) {
+          this.saveConversationContextResource({
+            ...current,
+            conversation_context_publication: {
+              ...pendingPublication,
+              status: "removal_failed",
+              operation_id: recoverable ? operationId : null,
+              last_error: "file_or_database_write_failed",
+              updated_at: this.now(),
+            },
+          });
+        }
+      } catch {
+        // Receiptとremoving stateを残し、次回起動でfile absence確認後に復旧する。
+      }
+      throw new Error("AI Contextファイルを解除できませんでした。OneDriveの同期状態と保存先を確認して再試行してください。");
+    }
+  }
+
+  private recoverConversationContextReceipts(): void {
+    for (const item of listConversationContextOperations(this.conversationContextRecoveryDirectory)) {
+      const receipt = item.receipt;
+      if (!receipt) {
+        console.warn(`Conversation AI Context recovery receiptを読めませんでした。${item.error || ""}`);
+        continue;
+      }
+      try {
+        const resource = this.repository.get("resource", receipt.conversationId, true);
+        const publication = normalizeConversationContextPublication(resource?.conversation_context_publication);
+        if (!resource || !publication || publication.operation_id !== receipt.operationId) {
+          // 新しい操作が正本なら古いreceiptは再適用しない。
+          completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+          continue;
+        }
+        const theme = this.repository.get("theme", receipt.themeId, true) || this.repository.get("project", receipt.themeId, true);
+        if (!theme) throw new Error("Themeが見つかりません。");
+        const location = this.resolveThemeAiPack(theme);
+        if (location.status !== "ok") throw new Error(`Theme保存先を再発見できません: ${location.status}`);
+        let phase = receipt.phase;
+        if (phase === "planned") {
+          const storage = inspectConversationContextFile({
+            themeFolder: location.themeFolder,
+            relativePath: receipt.relativePath,
+            contentHash: receipt.contentHash,
+          });
+          if (receipt.action === "publish" && storage.current) phase = "file_written";
+          else if (receipt.action === "remove" && !storage.exists) phase = "file_removed";
+          else {
+            this.saveConversationContextResource({
+              ...resource,
+              conversation_context_publication: {
+                ...publication,
+                status: receipt.action === "publish" ? "publish_failed" : "removal_failed",
+                operation_id: null,
+                last_error: "file_operation_incomplete",
+                updated_at: this.now(),
+              },
+            });
+            completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+            continue;
+          }
+        }
+        if (receipt.action === "publish" && phase === "file_written") {
+          const storage = inspectConversationContextFile({
+            themeFolder: location.themeFolder,
+            relativePath: receipt.relativePath,
+            contentHash: receipt.contentHash,
+          });
+          if (!storage.current) throw new Error("公開fileのread-back hashが一致しません。");
+          this.saveConversationContextResource({
+            ...resource,
+            conversation_context_publication: { ...publication, status: "published", operation_id: null, last_error: null, updated_at: this.now() },
+          });
+          completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+          this.publishThemeAiPackAfterConversationChange(receipt.themeId);
+          continue;
+        }
+        if (receipt.action === "remove" && phase === "file_removed") {
+          const storage = inspectConversationContextFile({
+            themeFolder: location.themeFolder,
+            relativePath: receipt.relativePath,
+            contentHash: publication.content_hash,
+          });
+          if (storage.exists) throw new Error("解除済みfileが残っています。");
+          this.saveConversationContextResource({
+            ...resource,
+            conversation_context_publication: {
+              ...publication,
+              status: "removed",
+              content_hash: null,
+              source_revision: null,
+              operation_id: null,
+              removed_at: this.now(),
+              last_error: null,
+              updated_at: this.now(),
+            },
+          });
+          completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+          this.publishThemeAiPackAfterConversationChange(receipt.themeId);
+          continue;
+        }
+        throw new Error("file操作が完了していないため自動確定できません。");
+      } catch (error) {
+        console.warn(`Conversation AI Context ${receipt.operationId} を自動復旧できませんでした。${errorText(error)}`);
+      }
+    }
   }
 
   getThemeAiPackPreview(themeIdValue: unknown): ThemeAiPackPreviewResult {

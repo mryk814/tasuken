@@ -107,6 +107,9 @@ export function registerIpc(
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.activityCanonicalRootStatus, () => service.getActivityCanonicalRootStatus());
   ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) => service.openActivityCanonicalRef(ref));
+  ipcMain.handle(IPC.aiContextPreview, (_event, request) => service.getAiContextPreview(request));
+  ipcMain.handle(IPC.dataHealthGet, (_event, query) => service.getDataHealth(query));
+  ipcMain.handle(IPC.dataHealthSetState, (_event, request) => service.setDataHealthIssueState(request));
   ipcMain.handle(IPC.themeAiPackStatus, (_event, themeId) => service.getThemeAiPackStatus(requireId(themeId)));
   ipcMain.handle(IPC.themeAiPackPreview, (_event, themeId) => service.getThemeAiPackPreview(requireId(themeId)));
   ipcMain.handle(IPC.themeAiPackPublish, (_event, request) => {
@@ -123,6 +126,17 @@ export function registerIpc(
     return result;
   });
   ipcMain.handle(IPC.themeAiPackOpenFolder, (_event, themeId) => service.openThemeAiPackFolder(requireId(themeId)));
+  ipcMain.handle(IPC.conversationContextPreview, (_event, request) => service.getConversationContextPreview(request));
+  ipcMain.handle(IPC.conversationContextPublish, (_event, request) => {
+    const result = service.publishConversationContext(request);
+    notifyEntitiesChanged(["resource"]);
+    return result;
+  });
+  ipcMain.handle(IPC.conversationContextRemove, (_event, request) => {
+    const result = service.removeConversationContext(request);
+    notifyEntitiesChanged(["resource"]);
+    return result;
+  });
   ipcMain.handle(IPC.preferenceGet, (_event, key) => repository.getPreference(requireId(key)));
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
     const normalizedKey = requireId(key);
