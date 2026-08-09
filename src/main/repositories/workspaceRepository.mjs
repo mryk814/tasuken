@@ -25,6 +25,7 @@ import {
 } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent, migrateChangeEvent, normalizeActivityEvent, activityEventDedupeKey } from "../../shared/activityEvent.mjs";
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
+import { normalizeReferenceAssertion, referenceAssertionIdentity } from "../../shared/relationAssertion.mjs";
 
 const SCHEMA_VERSION = 3;
 
@@ -33,7 +34,7 @@ const uuid = () => crypto.randomUUID();
 
 function parseRow(row) {
   if (!row) return null;
-  return {
+  const entity = {
     ...JSON.parse(row.data_json),
     id: row.id,
     created_at: row.created_at,
@@ -43,6 +44,9 @@ function parseRow(row) {
     source: row.source,
     version: row.version,
   };
+  return row.entity_type === "reference"
+    ? normalizeReferenceAssertion(entity, { legacyRead: true })
+    : entity;
 }
 
 function contentOf(entity) {
@@ -504,6 +508,7 @@ export class WorkspaceDatabase {
         if (!operation || operation.action !== "save") throw new Error("Application Commandの保存内容が不正です。");
         return this.saveWithinTransaction(operation.type, operation.entity, operation.options || {});
       }),
+      remove: (type, id) => this.removeWithinTransaction(type, id),
     }));
     return transaction();
   }
@@ -626,6 +631,13 @@ export class WorkspaceDatabase {
       if (legacyField !== themeField) requireReference("theme", entity[legacyField], legacyField);
     }
 
+    if (type === "theme" || type === "project" || type === "task") {
+      for (const contextId of entity.repository_context_ids || []) {
+        requireReference("repository_context", contextId, "repository_context_ids");
+      }
+      requireReference("repository_context", entity.primary_repository_context_id, "primary_repository_context_id");
+    }
+
     if (type === "task") {
       requireV2("plan_node", entity.plan_node_id, "plan_node_id");
       requireV2("task", entity.parent_task_id, "parent_task_id");
@@ -644,8 +656,9 @@ export class WorkspaceDatabase {
       }
     }
     if (type === "reference") {
-      requireV2(entity.source_type, entity.source_id, "source_id");
-      requireV2(entity.target_type, entity.target_id, "target_id");
+      const { subject, object } = referenceAssertionIdentity(entity);
+      requireV2(subject.type, subject.id, "subject.id");
+      requireV2(object.type, object.id, "object.id");
     }
     if (type === "task_dependency") {
       requireV2("task", entity.task_id, "task_id");
@@ -676,17 +689,21 @@ export class WorkspaceDatabase {
   validateSnapshotWorkspace(snapshot) {
     if (!isPlainObject(snapshot)) throw new Error("Snapshotのworkspace構造が不正です。");
     const activeIds = new Map();
+    const allIds = new Map();
     for (const type of workspaceEntityTypes) {
       const records = snapshot[collectionKeyForEntityType(type)] || [];
       if (!Array.isArray(records)) throw new Error(`${collectionKeyForEntityType(type)}は配列で指定してください。`);
       const ids = new Set();
+      const everyId = new Set();
       for (const record of records) {
         if (!isPlainObject(record)) throw new Error(`${type}のレコード構造が不正です。`);
         if (typeof record.id !== "string" || !record.id.trim()) throw new Error(`${type}.idがありません。`);
         validateEntity(type, record);
+        everyId.add(String(record.id));
         if (!record.deleted_at) ids.add(String(record.id));
       }
       activeIds.set(type, ids);
+      allIds.set(type, everyId);
     }
 
     const requireSnapshotReference = (type, record, targetType, id, field) => {
@@ -733,6 +750,17 @@ export class WorkspaceDatabase {
             requireSnapshotReference(type, record, "theme", record[legacyField], legacyField);
           }
         }
+        if (type === "theme" || type === "project" || type === "task") {
+          for (const contextId of record.repository_context_ids || []) {
+            requireSnapshotReference(type, record, "repository_context", contextId, "repository_context_ids");
+          }
+          requireSnapshotReference(type, record, "repository_context", record.primary_repository_context_id, "primary_repository_context_id");
+          for (const marker of record.repository_context_detachments || []) {
+            if (!allIds.get("repository_context")?.has(String(marker.contextId))) {
+              throw new Error(`${type}.repository_context_detachmentsがSnapshot内に存在しないrepository_contextを記録しています。`);
+            }
+          }
+        }
         if (type === "task") {
           requireV2Ref("plan_node", record.plan_node_id, "plan_node_id");
           requireV2Ref("task", record.parent_task_id, "parent_task_id");
@@ -747,8 +775,9 @@ export class WorkspaceDatabase {
           requireV2Ref(record.owner_type, record.owner_id, "owner_id");
         }
         if (type === "reference") {
-          requireV2Ref(record.source_type, record.source_id, "source_id");
-          requireV2Ref(record.target_type, record.target_id, "target_id");
+          const { subject, object } = referenceAssertionIdentity(record);
+          requireV2Ref(subject.type, subject.id, "subject.id");
+          requireV2Ref(object.type, object.id, "object.id");
         }
         if (type === "task_dependency") {
           requireV2Ref("task", record.task_id, "task_id");
@@ -884,18 +913,21 @@ export class WorkspaceDatabase {
 
   remove(type, id) {
     assertEntityType(type);
-    const transaction = this.db.transaction(() => {
-      const existing = this.get(type, id);
-      if (!existing) return null;
-      // 常設の既定Themeは削除させない。消えるとTheme未設定の解決先が失われる（#282）。
-      if (type === "theme" && !isThemeDeletable(existing)) {
-        throw new Error("既定Theme「個人業務」は削除できません。");
-      }
-      this.applyDeletePolicy(type, String(id));
-      this.markRemoved(type, String(id));
-      return this.get(type, id, true);
-    });
+    const transaction = this.db.transaction(() => this.removeWithinTransaction(type, id));
     return transaction();
+  }
+
+  removeWithinTransaction(type, id) {
+    assertEntityType(type);
+    const existing = this.get(type, id);
+    if (!existing) return null;
+    // 常設の既定Themeは削除させない。消えるとTheme未設定の解決先が失われる（#282）。
+    if (type === "theme" && !isThemeDeletable(existing)) {
+      throw new Error("既定Theme「個人業務」は削除できません。");
+    }
+    this.applyDeletePolicy(type, String(id));
+    this.markRemoved(type, String(id));
+    return this.get(type, id, true);
   }
 
   restore(type, id) {
@@ -910,6 +942,7 @@ export class WorkspaceDatabase {
         WHERE entity_type = ? AND id = ?
       `).run(timestamp, this.deviceId, type, String(id));
       this.restoreCascadeChildren(type, String(id));
+      if (type === "repository_context") this.restoreRepositoryContextReferences(String(id));
       const restored = this.get(type, id);
       this.enqueueSyncEntity(type, restored);
       return restored;
@@ -932,6 +965,42 @@ export class WorkspaceDatabase {
           detached_references: [
             ...detached.filter((entry) => entry.field !== field),
             { field, parentType, parentId: removedId },
+          ],
+        });
+      }
+    }
+  }
+
+  nullifyRepositoryContextReferences(removedId) {
+    const contextId = String(removedId);
+    for (const entityType of ["project", "theme", "task"]) {
+      for (const entity of this.list(entityType)) {
+        const previousContextIds = Array.isArray(entity.repository_context_ids)
+          ? [...new Set(entity.repository_context_ids.map(String).filter(Boolean))]
+          : [];
+        const previousPrimaryContextId = entity.primary_repository_context_id
+          ? String(entity.primary_repository_context_id)
+          : null;
+        const previousIndex = previousContextIds.indexOf(contextId);
+        const wasPrimary = previousPrimaryContextId === contextId;
+        if (previousIndex < 0 && !wasPrimary) continue;
+
+        const detachments = Array.isArray(entity.repository_context_detachments)
+          ? entity.repository_context_detachments
+          : [];
+        const marker = {
+          kind: "repository_context_detachment",
+          contextId,
+          previousIndex: previousIndex < 0 ? null : previousIndex,
+          wasPrimary,
+        };
+        this.saveWithinTransaction(entityType, {
+          ...entity,
+          repository_context_ids: previousContextIds.filter((id) => id !== contextId),
+          primary_repository_context_id: wasPrimary ? null : previousPrimaryContextId,
+          repository_context_detachments: [
+            ...detachments.filter((entry) => String(entry?.contextId || "") !== contextId),
+            marker,
           ],
         });
       }
@@ -991,6 +1060,41 @@ export class WorkspaceDatabase {
         const remaining = detached.filter((entry) => !matching.includes(entry));
         if (remaining.length) next.detached_references = remaining;
         else delete next.detached_references;
+        this.saveWithinTransaction(entityType, next);
+      }
+    }
+  }
+
+  restoreRepositoryContextReferences(contextId) {
+    for (const entityType of ["project", "theme", "task"]) {
+      for (const entity of this.list(entityType)) {
+        const detachments = Array.isArray(entity.repository_context_detachments)
+          ? entity.repository_context_detachments
+          : [];
+        const matching = detachments.filter((entry) => (
+          entry?.kind === "repository_context_detachment"
+          && String(entry.contextId || "") === String(contextId)
+        ));
+        if (!matching.length) continue;
+
+        let restoredIds = [...new Set((entity.repository_context_ids || []).map(String).filter(Boolean))];
+        for (const entry of matching) {
+          if (restoredIds.includes(String(entry.contextId))) continue;
+          const index = Number.isInteger(entry.previousIndex)
+            ? Math.max(0, Math.min(entry.previousIndex, restoredIds.length))
+            : restoredIds.length;
+          restoredIds.splice(index, 0, String(entry.contextId));
+        }
+        const restoredPrimary = entity.primary_repository_context_id
+          || (matching.some((entry) => entry.wasPrimary) ? String(contextId) : null);
+        const remaining = detachments.filter((entry) => !matching.includes(entry));
+        const next = {
+          ...entity,
+          repository_context_ids: restoredIds,
+          primary_repository_context_id: restoredPrimary,
+        };
+        if (remaining.length) next.repository_context_detachments = remaining;
+        else delete next.repository_context_detachments;
         this.saveWithinTransaction(entityType, next);
       }
     }

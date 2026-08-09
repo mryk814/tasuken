@@ -9,11 +9,13 @@ import { applyMarkdownDiffHunks, buildMarkdownDiffHunks, diffMarkdownLines } fro
 import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTaskOperations, buildSaveWaitingOperations } from "../domain-model/persistence";
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
 import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
+import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
+import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../../../../../shared/repositoryContextProposal.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ActionButton, Button } from "./common";
 
-type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work";
-type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact" | "task_work";
+type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work" | "repository_contexts";
+type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact" | "task_work" | "repository_context";
 const taskEntityType = "task" as const;
 
 interface ProposalCandidate {
@@ -24,6 +26,7 @@ interface ProposalCandidate {
   action: string;
   issues: string[];
   acceptedHunks?: number[];
+  normalized?: Record<string, unknown>;
 }
 
 interface ProposalPreview {
@@ -55,6 +58,25 @@ function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data" | "the
     return {
       candidates: entries.map((entry) => ({ type: "task_work", entry, action: "create", issues: [] })),
       payloadIssues: ["Work Receiptの採用はTask本文を変更せず、typed work commandとして適用します。"],
+    };
+  }
+  if (payloadType === "repository_contexts") {
+    const entries = Array.isArray(payload.repository_contexts) ? payload.repository_contexts as Record<string, unknown>[] : [];
+    if (!entries.length) throw new Error("repository_contextsがありません。");
+    const contexts = (props.data.repository_contexts || []) as BaseRecord[];
+    return {
+      candidates: entries.map((entry) => {
+        const candidate = buildRepositoryContextProposalCandidate(entry, contexts);
+        return {
+          type: "repository_context",
+          entry: candidate.entry,
+          normalized: candidate.normalized,
+          duplicate: candidate.duplicate as BaseRecord | undefined,
+          action: candidate.action,
+          issues: candidate.issues,
+        };
+      }),
+      payloadIssues: ["RepositoryContextはcredential-free normalized projectionを確認してから保存します。local pathはAI Proposalへ公開しません。"],
     };
   }
   if (payloadType === "sketches" || payloadType === "artifacts") {
@@ -100,8 +122,18 @@ function noteDiffHunks(candidate: ProposalCandidate) {
   );
 }
 
-function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperation[] {
+function buildCandidateOperations(candidates: ProposalCandidate[], repositoryContexts: BaseRecord[] = []): SaveOperation[] {
   const operations: SaveOperation[] = [];
+  const repositoryCandidates = candidates
+    .filter((entry) => entry.type === "repository_context")
+    .map((entry) => ({
+      ...entry,
+      action: entry.action as "create" | "merge" | "ignore",
+    }));
+  operations.push(...buildRepositoryContextProposalOperations(
+    repositoryCandidates,
+    repositoryContexts,
+  ) as SaveOperation[]);
   const acceptedKnowledgeNodeIds = new Map<string, string>();
   for (const candidate of candidates.filter((entry) => entry.type === "knowledge_node")) {
     if (candidate.action === "ignore") continue;
@@ -128,7 +160,7 @@ function buildCandidateOperations(candidates: ProposalCandidate[]): SaveOperatio
       options: { source: "imported" },
     });
   }
-  for (const candidate of candidates.filter((entry) => entry.type !== "knowledge_node")) {
+  for (const candidate of candidates.filter((entry) => entry.type !== "knowledge_node" && entry.type !== "repository_context")) {
     if (candidate.action === "ignore") continue;
     const base: Record<string, unknown> = candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
     const entry = candidate.entry;
@@ -339,7 +371,11 @@ export function AiProposalPanel(props: PageProps) {
         const taskId = str(candidate.entry.task_id);
         const task = domain.tasks.find((entry) => entry.id === taskId);
         if (!task) throw new Error("対象Taskが見つかりません。Taskを再読み込みしてください。");
-        const expectedVersions = [{ type: taskEntityType, id: task.id, version: Number((task as unknown as BaseRecord).version || 0) }];
+        const currentVersion = Number((task as unknown as BaseRecord).version || 0);
+        const proposalExpectedVersion = Number(candidate.entry.expected_version);
+        if (!Number.isInteger(proposalExpectedVersion) || proposalExpectedVersion < 0) throw new Error("Work proposalにexpected_versionがありません。再取得してから報告してください。");
+        if (proposalExpectedVersion !== currentVersion) throw new Error(`Taskが更新されています（proposal: ${proposalExpectedVersion} / current: ${currentVersion}）。contextを再取得して報告し直してください。`);
+        const expectedVersions = [{ type: taskEntityType, id: task.id, version: proposalExpectedVersion }];
         const action = str(candidate.entry.action);
         let name: CommandEnvelope["name"];
         let payload: CommandEnvelope["payload"];
@@ -349,14 +385,16 @@ export function AiProposalPanel(props: PageProps) {
             taskId,
             executorKind: str(candidate.entry.executor_kind) || "ai_agent",
             executorIdentity: str(candidate.entry.executor_identity) || null,
+            startedAt: str(candidate.entry.started_at) || null,
+            sourceSession: proposal.id,
           };
-        } else if (action === "append_receipt" || action === "report_done") {
-          name = "AppendWorkReceipt";
-          const reportedAt = str(candidate.entry.reported_at) || new Date().toISOString();
+        } else if (action === "append_receipt" || action === "report_done" || action === "report_blocked") {
+          name = action === "report_blocked" ? "ReportTaskBlocked" : action === "report_done" ? "ReportTaskDone" : "AppendWorkReceipt";
+          const reportedAt = str(candidate.entry.reported_at) || str(proposal.created_at) || str(proposal.received_at) || new Date().toISOString();
           payload = {
             taskId,
             receipt: {
-              id: uuid(),
+              id: proposal.id,
               task_id: taskId,
               executor_kind: str(candidate.entry.executor_kind) || "ai_agent",
               executor_label: str(candidate.entry.executor_label) || "AI agent",
@@ -367,7 +405,11 @@ export function AiProposalPanel(props: PageProps) {
               changed_or_created_items: Array.isArray(candidate.entry.changed_or_created_items) ? candidate.entry.changed_or_created_items : [],
               verification: Array.isArray(candidate.entry.verification) ? candidate.entry.verification : [],
               remaining_work: Array.isArray(candidate.entry.remaining_work) ? candidate.entry.remaining_work : [],
+              ...(candidate.entry.external_references != null
+                ? { external_references: normalizeExternalReferences(candidate.entry.external_references) }
+                : {}),
               source_session: proposal.id,
+              repository_context: candidate.entry.repository_context && typeof candidate.entry.repository_context === "object" ? candidate.entry.repository_context : null,
               runtime_metadata: candidate.entry.runtime_metadata && typeof candidate.entry.runtime_metadata === "object" ? candidate.entry.runtime_metadata : null,
             },
           };
@@ -375,7 +417,7 @@ export function AiProposalPanel(props: PageProps) {
           throw new Error("未対応のtask_work actionです。");
         }
         await executeCommand({
-          commandId: uuid(),
+          commandId: proposal.id,
           name,
           payload,
           actor: { kind: "user" },
@@ -392,10 +434,17 @@ export function AiProposalPanel(props: PageProps) {
     }
     try {
       preview.candidates
-        .filter((candidate) => candidate.type !== "sketch" && candidate.type !== "artifact")
+        .filter((candidate) => candidate.type !== "sketch" && candidate.type !== "artifact" && candidate.type !== "repository_context")
         .forEach(assertImportCandidateSavable);
+      preview.candidates
+        .filter((candidate) => candidate.type === "repository_context")
+        .forEach((candidate) => {
+          if (candidate.action !== "ignore" && candidate.issues.length) {
+            throw new Error(`確認事項が残っているRepositoryContext候補があります: ${candidate.issues.join(" / ")}`);
+          }
+        });
       const accepted = preview.candidates.filter((candidate) => candidate.action !== "ignore");
-      const operations = buildCandidateOperations(preview.candidates);
+      const operations = buildCandidateOperations(preview.candidates, (data.repository_contexts || []) as BaseRecord[]);
       for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
         const normalized = validateArtifactProposal(candidate.entry);
         const result = await workspaceApi.materializeArtifactProposal({
@@ -519,8 +568,12 @@ export function AiProposalPanel(props: PageProps) {
           {preview.candidates.map((candidate, index) => (
             <div className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`} key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
               <div>
-                <strong>{str(candidate.entry.title) || str(candidate.entry.summary) || str(candidate.entry.task_id) || str(candidate.entry.relation_type) || "無題"}</strong>
-                <small>{candidate.type === "task_work" ? `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}` : `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title)}` : ""}</small>
+                <strong>{str(candidate.entry.title) || str(candidate.entry.label) || str(candidate.entry.summary) || str(candidate.entry.task_id) || str(candidate.entry.relation_type) || "無題"}</strong>
+                <small>{candidate.type === "task_work"
+                  ? `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}`
+                  : candidate.type === "repository_context"
+                    ? `RepositoryContext / ${str(candidate.entry.provider) || "unknown"} / ${str(candidate.entry.canonical_identity) || "identity unavailable"} / credential-free normalized`
+                    : `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}` : ""}</small>
                 {candidate.issues.length > 0 && <p className="field-help">確認: {candidate.issues.join(" / ")}</p>}
               </div>
               <select value={candidate.action} onChange={(event) => setPreview((current) => current ? { ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) } : current)}>
@@ -601,6 +654,7 @@ function proposalTypeLabel(proposal: BaseRecord): string {
     artifacts: "Artifact",
     status_update: "Status Update",
     task_work: "Task Work Receipt",
+    repository_contexts: "Repository Context",
   };
   return labels[str(proposal.payload_type)] || "Proposal";
 }

@@ -1,5 +1,6 @@
 import type {
   CanonicalRootStatusMap,
+  DocumentSaveReferenceCompanion,
   DocumentSaveSnapshot,
   Entity,
   EntityType,
@@ -11,7 +12,7 @@ import type { WorkReceipt, WorkspaceDomain } from "./domain-model/types";
 import type { ApplicationCommandSource, CommandEnvelope, CommandReceipt } from "../../../../shared/applicationCommand";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
-export type { DocumentSaveSnapshot, Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
+export type { DocumentSaveReferenceCompanion, DocumentSaveSnapshot, Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
 
 // DBのdata_jsonはスキーマレスなので、利用するフィールドだけを型付けし、
 // それ以外はindex signatureで許容する（カスタム項目・将来フィールドのため）。
@@ -34,6 +35,9 @@ export interface Theme extends BaseRecord {
   group?: string;
   /** managed Artifact の任意保存ルート（絶対パス）。未設定時は共通ルート配下に自動配置 */
   storage_root?: string | null;
+  repository_context_ids?: string[];
+  primary_repository_context_id?: string | null;
+  repository_context_detachments?: Array<Record<string, unknown>>;
 }
 
 export interface Item extends BaseRecord {
@@ -256,6 +260,7 @@ export interface WorkspaceData {
   projects: BaseRecord[];
   capture_entrys: BaseRecord[];
   tasks: BaseRecord[];
+  repository_contexts?: BaseRecord[];
   work_receipts: WorkReceipt[];
   waitings: BaseRecord[];
   plan_nodes: BaseRecord[];
@@ -319,6 +324,7 @@ export type SaveEntity = (
   entity: DrawerEntity,
   options?: SaveOptions,
   documentSnapshot?: DocumentSaveSnapshot,
+  documentCompanions?: DocumentSaveReferenceCompanion[],
 ) => Promise<Entity>;
 
 export type SaveEntities = (

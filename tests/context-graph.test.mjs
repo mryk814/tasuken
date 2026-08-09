@@ -9,6 +9,8 @@ import {
   traceProvenance,
 } from "../src/shared/contextGraph.mjs";
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { buildContextSelection, contextSelectionEntry } from "../src/main/mcp/contextSelection.mjs";
+import { previewContextSubgraph } from "../src/shared/aiContextPreview.mjs";
 
 const fixture = {
   themes: [{ id: "theme-research", name: "Graph Research", project_id: null }],
@@ -69,6 +71,72 @@ test("bounded graph projects explicit relations with typed IDs and no input muta
   assert.equal(new Set(result.edges.map((edge) => edge.id)).size, result.edges.length);
   assert.equal(new Set(result.nodes.map((node) => `${node.type}:${node.id}`)).size, result.nodes.length);
   assert.ok(result.edges.every((edge) => Array.isArray(edge.path) && edge.path.length <= 2));
+});
+
+test("legacy Theme and canonical Project both expose repository context edges, while canonical members target Project", () => {
+  for (const { type, collection } of [
+    { type: "theme", collection: "themes" },
+    { type: "project", collection: "projects" },
+  ]) {
+    const workspace = {
+      [collection]: [{ id: "scope-1", name: "Scope", state: "active", repository_context_ids: ["repo-1"] }],
+      repository_contexts: [{ id: "repo-1", label: "Repository", active: true }],
+      tasks: [{ id: "task-1", title: "Task", state: "todo", project_id: "scope-1" }],
+    };
+    const result = getContextSubgraph(projectContextGraph(workspace), { type, id: "scope-1" }, { maxHops: 1 });
+    assert.ok(result.edges.some((edge) => edge.predicate === "uses_repository_context"
+      && edge.source.type === type && edge.target.type === "repository_context"));
+    assert.ok(result.edges.some((edge) => edge.predicate === "belongs_to_theme"
+      && edge.source.type === "task" && edge.target.type === type));
+  }
+});
+
+test("Context selection preserves colon IDs but rejects path-like and credential-bearing legacy evidence", () => {
+  const result = buildContextSelection({
+    relations: [{
+      id: "edge-1",
+      source: { type: "note", id: "note:with:colon" },
+      target: { type: "task", id: "task-1" },
+      predicate: "supports",
+      evidence_refs: [
+        { type: "reference", id: "ref:with:colon" },
+        "legacy:ref:with:colon",
+        "C:\\Users\\private\\evidence.md",
+        "\\\\server\\share\\evidence.md",
+        "file:///C:/private/evidence.md",
+        "https://alice:secret@example.com/private",
+      ],
+    }],
+  });
+  assert.deepEqual(result.relations[0].evidence_refs, [
+    "legacy:ref:with:colon",
+    { type: "reference", id: "ref:with:colon" },
+  ]);
+  assert.doesNotMatch(JSON.stringify(result), /Users|server|alice|secret@example|file:/);
+});
+
+test("Context selection re-sanitizes AI metadata and locator arguments at its public boundary", () => {
+  const entry = contextSelectionEntry("note", {
+    id: "note:stable:id",
+    title: "Public title",
+    ai: {
+      id: "note:stable:id",
+      type: "note",
+      title: "Public title",
+      summary: "Public summary",
+      ai_visibility: ["coding_agent"],
+      private_path: "C:\\Users\\private\\note.md",
+      source_refs: [{ kind: "file", locator: "C:\\Users\\private\\note.md" }],
+    },
+    locator: {
+      tool: "tasken.get_note",
+      arguments: { note_id: "note:stable:id", cwd: "C:\\Users\\private" },
+    },
+  });
+  assert.equal(entry.locator.arguments.note_id, "note:stable:id");
+  assert.equal("cwd" in entry.locator.arguments, false);
+  assert.deepEqual(entry.ai.source_refs, []);
+  assert.doesNotMatch(JSON.stringify(entry), /private_path|C:\\\\Users/);
 });
 
 test("provenance trace is inbound, bounded, and preserves source evidence", () => {
@@ -147,6 +215,84 @@ test("collection ordering does not change the bounded result", () => {
   assert.deepEqual(second, first);
 });
 
+test("parallel assertions keep stable IDs and inbound/outbound traversal is symmetric", () => {
+  const graph = projectContextGraph({
+    notes: [{ id: "note-a", title: "A" }],
+    tasks: [{ id: "task-a", title: "A" }],
+    references: [
+      { id: "assertion-a", source_type: "note", source_id: "note-a", target_type: "task", target_id: "task-a", relation_type: "links_to" },
+      { id: "assertion-b", source_type: "note", source_id: "note-a", target_type: "task", target_id: "task-a", relation_type: "links_to" },
+      { id: "assertion-old", source_type: "note", source_id: "note-a", target_type: "task", target_id: "task-a", relation_type: "links_to", status: "superseded", superseded_by_assertion_id: "assertion-a" },
+    ],
+  });
+  const outbound = getContextSubgraph(graph, { type: "note", id: "note-a" }, { direction: "outgoing", maxHops: 1 });
+  const inbound = getContextSubgraph(graph, { type: "task", id: "task-a" }, { direction: "incoming", maxHops: 1 });
+  assert.deepEqual(outbound.edges.map((edge) => edge.assertion_id).sort(), ["assertion-a", "assertion-b"]);
+  assert.deepEqual(inbound.edges.map((edge) => edge.assertion_id).sort(), ["assertion-a", "assertion-b"]);
+  assert.ok(graph.edges.some((edge) => edge.assertion_id === "assertion-old" && edge.status === "superseded"));
+});
+
+test("dangling assertions remain diagnostic without inventing the missing node", () => {
+  const graph = projectContextGraph({
+    notes: [{ id: "note-a", title: "A" }],
+    references: [{
+      id: "assertion-broken",
+      subject: { type: "note", id: "note-a" },
+      predicate: "links_to",
+      object: { type: "task", id: "deleted-task" },
+      layer: "operational",
+      status: "asserted",
+      origin: "user",
+    }],
+  });
+  const result = getContextSubgraph(graph, { type: "note", id: "note-a" }, { direction: "outgoing", maxHops: 1 });
+  assert.deepEqual(result.nodes.map(({ type, id }) => ({ type, id })), [{ type: "note", id: "note-a" }]);
+  assert.deepEqual(result.edges, []);
+  assert.deepEqual(result.diagnostics, [{
+    kind: "broken_relation",
+    assertion_id: "assertion-broken",
+    missing_refs: [{ type: "task", id: "deleted-task" }],
+  }]);
+});
+
+test("dangling diagnostics obey an explicit bound and token budget", () => {
+  const graph = projectContextGraph({
+    notes: [{ id: "note-a", title: "A" }],
+    references: Array.from({ length: 20 }, (_, index) => ({
+      id: `assertion-broken-${String(index).padStart(2, "0")}`,
+      source_type: "note",
+      source_id: "note-a",
+      target_type: "task",
+      target_id: `missing-${index}`,
+      relation_type: "links_to",
+    })),
+  });
+  const result = getContextSubgraph(graph, { type: "note", id: "note-a" }, {
+    direction: "outgoing",
+    maxHops: 1,
+    maxDiagnostics: 3,
+    tokenBudget: 220,
+  });
+  assert.ok(result.diagnostics.length <= 3);
+  assert.equal(result.truncated, true);
+  assert.ok(result.estimated_tokens <= 220);
+  assert.deepEqual(result.edges, []);
+});
+
+test("Work Receipt projects a provenance assertion to its Task", () => {
+  const graph = projectContextGraph({
+    tasks: [{ id: "task-a", title: "A" }],
+    work_receipts: [{ id: "receipt-a", task_id: "task-a", executor_kind: "ai_agent", executor_label: "Codex", reported_at: "2026-08-09T00:00:00.000Z", summary: "done" }],
+  });
+  const upstream = traceProvenance(graph, { type: "work_receipt", id: "receipt-a" }, { direction: "upstream", maxHops: 1 });
+  assert.ok(upstream.nodes.some((node) => node.type === "task" && node.id === "task-a"));
+  assert.deepEqual(upstream.edges.map((edge) => ({ id: edge.assertion_id, predicate: edge.predicate, layer: edge.layer })), [{
+    id: "work_receipt:receipt-a:created_for",
+    predicate: "created_for",
+    layer: "provenance",
+  }]);
+});
+
 test("read-only MCP boundary exposes the same pure projection without a database write", () => {
   const context = new ReadOnlyTaskenContext("ignored", { workspace: fixture });
   const result = context.toolGetContextSubgraph({ entity_type: "artifact", entity_id: "artifact-1", max_hops: 2 });
@@ -154,8 +300,45 @@ test("read-only MCP boundary exposes the same pure projection without a database
   assert.equal(result.ai_audience, "coding_agent");
   assert.ok(result.nodes.some((node) => node.type === "note" && node.id === "note-1"));
   assert.equal(result.nodes.some((node) => node.id === "hidden-resource"), false);
+  assert.deepEqual(
+    previewContextSubgraph(result).included.map((entry) => entry.ref),
+    result.context_selection.included.map((entry) => entry.ref),
+  );
   const hiddenSeed = context.toolGetContextSubgraph({ entity_type: "resource", entity_id: "hidden-resource", max_hops: 2 });
   assert.deepEqual(hiddenSeed.nodes, []);
   assert.deepEqual(hiddenSeed.exclusions, ["seed_not_allowed"]);
+  assert.deepEqual(hiddenSeed.context_selection.excluded, [{
+    ref: { type: "resource", id: "hidden-resource" },
+    reason: "この項目のAI公開範囲に含まれていません。",
+    count: 1,
+  }]);
+  context.close();
+});
+
+test("MCP subgraph applies token budget after safe AI metadata projection", () => {
+  const workspace = structuredClone(fixture);
+  Object.assign(workspace.notes.find((note) => note.id === "note-1"), {
+    ai_summary: "S".repeat(20_000),
+    ai_visibility: ["coding_agent"],
+    ai_source_refs: [
+      { kind: "canonical_document", locator: "ignored", storage_root_id: "C:\\Users\\private", relative_path: "secret.md" },
+      { kind: "url", locator: "https://alice:secret@example.com/private" },
+    ],
+  });
+  const context = new ReadOnlyTaskenContext("ignored", { workspace });
+  const result = context.toolGetContextSubgraph({
+    entity_type: "note",
+    entity_id: "note-1",
+    max_hops: 1,
+    token_budget: 120,
+  });
+  assert.ok(result.estimated_tokens <= 120);
+  assert.equal(result.truncated, true);
+  assert.ok(result.exclusions.includes("ai_metadata_budget"));
+  assert.doesNotMatch(JSON.stringify(result), /C:\\\\Users|alice:secret|secret\.md/);
+  assert.deepEqual(
+    previewContextSubgraph(result).included.map((entry) => entry.ref),
+    result.context_selection.included.map((entry) => entry.ref),
+  );
   context.close();
 });

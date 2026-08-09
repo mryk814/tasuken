@@ -38,6 +38,21 @@ export const workspaceApi = {
   openActivityCanonicalRef(ref: Record<string, unknown>) {
     return desktopApi().activity.openCanonicalRef(ref);
   },
+  getThemeAiPackStatus(themeId: string) {
+    return desktopApi().themeAiPack.status(themeId);
+  },
+  previewThemeAiPack(themeId: string) {
+    return desktopApi().themeAiPack.preview(themeId);
+  },
+  publishThemeAiPack(themeId: string, expectedContentHash: string) {
+    return desktopApi().themeAiPack.publish({ themeId, expectedContentHash });
+  },
+  openThemeAiPackFolder(themeId: string) {
+    return desktopApi().themeAiPack.openFolder(themeId);
+  },
+  onThemeAiPackChanged(callback: Parameters<Window["api"]["themeAiPack"]["onChanged"]>[0]) {
+    return desktopApi().themeAiPack.onChanged(callback);
+  },
   // 明示的にサンプルデータを投入する（Settingsの操作からのみ呼ぶ）。
   // Repository側のbootstrapはDBが空のときだけ登録し、データがあれば現状をそのまま返す。
   loadSample(): Promise<Workspace> {

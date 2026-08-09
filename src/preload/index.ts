@@ -14,6 +14,17 @@ const api: ResearchDeskApi = {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),
   },
+  themeAiPack: {
+    status: (themeId) => ipcRenderer.invoke(IPC.themeAiPackStatus, themeId),
+    preview: (themeId) => ipcRenderer.invoke(IPC.themeAiPackPreview, themeId),
+    publish: (request) => ipcRenderer.invoke(IPC.themeAiPackPublish, request),
+    openFolder: (themeId) => ipcRenderer.invoke(IPC.themeAiPackOpenFolder, themeId),
+    onChanged: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, change: Parameters<typeof callback>[0]): void => callback(change);
+      ipcRenderer.on(IPC.themeAiPackChanged, handler);
+      return () => { ipcRenderer.removeListener(IPC.themeAiPackChanged, handler); };
+    },
+  },
   preferences: {
     get: (key) => ipcRenderer.invoke(IPC.preferenceGet, key),
     set: (key, value) => ipcRenderer.invoke(IPC.preferenceSet, key, value),

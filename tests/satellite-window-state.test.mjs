@@ -74,6 +74,16 @@ const memoPresentation = await importBundled("src/shared/memoPresentation.ts");
 const registryModule = await importBundled("src/main/satelliteWindowRegistry.ts", [electronMockPlugin]);
 const ipcRegistration = await importBundled("src/main/ipc/registerIpc.ts", [electronMockPlugin]);
 
+test("document:saveはstable linkとcompanionのReferenceをrenderer再読込通知へ含める", () => {
+  assert.deepEqual(ipcRegistration.documentSaveChangedTypes({}), ["note", "reference"]);
+  assert.deepEqual(ipcRegistration.documentSaveChangedTypes({
+    companions: [{ action: "save", type: "reference", entity: {} }],
+  }), ["note", "reference"]);
+  assert.deepEqual(ipcRegistration.documentSaveChangedTypes({
+    companions: [{ action: "save", type: "artifact", entity: {} }],
+  }), ["note", "reference"]);
+});
+
 function tempStatePath() {
   return path.join(mkdtempSync(path.join(tmpdir(), "tasken-satellite-")), "windows.json");
 }

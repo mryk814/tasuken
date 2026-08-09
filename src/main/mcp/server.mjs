@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import { ReadOnlyTaskenContext, defaultTaskenDbPath } from "./readOnlyContext.mjs";
 import { queueMcpProposal } from "./proposalInbox.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
+import { repositoryContextProposalInput } from "../../shared/repositoryContextProposal.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -43,12 +44,19 @@ function sourceApp(args) {
   return args.source_app || "mcp-client";
 }
 
-export function createTaskenMcpServer() {
+export function mcpReadOnlyMode(env = process.env) {
+  return ["1", "true", "yes", "on"].includes(String(env.TASKEN_MCP_READ_ONLY || "").trim().toLowerCase());
+}
+
+export function createTaskenMcpServer(options = {}) {
+  const readOnly = options.readOnly ?? mcpReadOnlyMode(options.env || process.env);
   const server = new McpServer({
     name: "tasken",
     version: "1.0.0",
   }, {
-    instructions: "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools only queue a Proposal; tell the user to review it in Tasken before it becomes official data.",
+    instructions: readOnly
+      ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
+      : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools only queue a Proposal; tell the user to review it in Tasken before it becomes official data.",
   });
 
   server.registerTool("tasken.search_items", {
@@ -92,13 +100,123 @@ export function createTaskenMcpServer() {
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolGetTaskAssignment(args)));
 
+  const boundedTextLength = z.number().int().positive().max(100000).optional();
+  const taskContextWorkspaceSchema = z.object({
+    repository_id: optionalText,
+    provider: optionalText,
+    cwd: optionalText,
+    git_root: optionalText,
+    remote_url: optionalText,
+    remote_urls: z.array(z.string().trim().max(2000)).max(20).optional(),
+    remotes: z.array(z.string().trim().max(2000)).max(20).optional(),
+    repository_slug: optionalText,
+    branch: optionalText,
+    workspace_folder: optionalText,
+  }).strict().optional();
+  server.registerTool("tasken.get_task_context", {
+    description: "Return bounded, AI-visible Task context: assignment, Theme, RepositoryContext match, explicit/provenance-related summaries, Activity, and Work Receipts. Summary items contain stable locators instead of full bodies.",
+    inputSchema: {
+      task_id: z.string().trim().min(1).max(200),
+      include: z.array(z.enum(["theme", "repository", "notes", "conversations", "artifacts", "resources", "activity", "work_receipts"])).max(8).optional(),
+      max_items_per_type: z.number().int().positive().max(25).optional(),
+      max_text_length: boundedTextLength,
+      detail: z.literal("summary").optional(),
+      workspace: taskContextWorkspaceSchema,
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetTaskContext(args)));
+
+  server.registerTool("tasken.get_note", {
+    description: "Read one AI-visible Note body by stable ID with a text limit.",
+    inputSchema: {
+      note_id: z.string().trim().min(1).max(200),
+      max_text_length: boundedTextLength,
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetNote(args)));
+
+  server.registerTool("tasken.get_conversation", {
+    description: "Read one AI-visible Chat Ref conversation by stable ID with a text limit. URL credentials, query, and fragment are removed.",
+    inputSchema: {
+      conversation_id: z.string().trim().min(1).max(200),
+      max_text_length: boundedTextLength,
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetConversation(args)));
+
+  server.registerTool("tasken.get_artifact_metadata", {
+    description: "Read safe Artifact metadata by stable ID. External file content and private filesystem paths are never returned.",
+    inputSchema: {
+      artifact_id: z.string().trim().min(1).max(200),
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetArtifactMetadata(args)));
+
+  server.registerTool("tasken.get_activity_entries", {
+    description: "Read AI-visible Activity entries for one Task by stable ID.",
+    inputSchema: {
+      task_id: z.string().trim().min(1).max(200),
+      limit: optionalLimit,
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetActivityEntries(args)));
+
+  const repositoryLookupSchema = {
+    repository_context_id: optionalText,
+    repository_id: optionalText,
+    provider: optionalText,
+    remote_url: optionalText,
+    remote_urls: z.array(z.string().trim().max(2000)).max(20).optional(),
+    repository_slug: optionalText,
+    git_root: optionalText,
+    cwd: optionalText,
+    workspace_folder: optionalText,
+    include_archived: z.boolean().optional(),
+  };
+  server.registerTool("tasken.resolve_repository_context", {
+    description: "Resolve a current workspace to a RepositoryContext without choosing an ambiguous candidate.",
+    inputSchema: repositoryLookupSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolResolveRepositoryContext(args)));
+
+  server.registerTool("tasken.find_themes_for_repository", {
+    description: "Find AI-visible Themes associated with a current repository workspace.",
+    inputSchema: repositoryLookupSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolFindThemesForRepository(args)));
+
+  server.registerTool("tasken.find_tasks_for_repository", {
+    description: "Find AI-visible Tasks associated with a current repository workspace, respecting Task subdirectories.",
+    inputSchema: repositoryLookupSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolFindTasksForRepository(args)));
+
+  server.registerTool("tasken.get_repository_context", {
+    description: "Read one RepositoryContext and its AI-visible Theme/Task associations. Private local paths are redacted.",
+    inputSchema: {
+      repository_context_id: z.string().trim().min(1).max(200),
+      include_archived: z.boolean().optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withReadContext((context, args) => context.toolGetRepositoryContext(args)));
+
   server.registerTool("tasken.get_theme_context", {
     description: "Return themes, open work, recent notes, knowledge, and health.",
     inputSchema: {
-      theme_id: optionalText,
+      theme_id: z.string().trim().min(1).max(200),
       limit: optionalLimit,
       max_chars: z.number().int().positive().max(8000).optional(),
       include_raw_body: z.boolean().optional(),
+      max_hops: z.number().int().positive().max(2).optional(),
+      max_nodes: z.number().int().positive().max(100).optional(),
+      max_edges: z.number().int().nonnegative().max(200).optional(),
+      token_budget: z.number().int().positive().max(12000).optional(),
+      include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolGetThemeContext(args)));
@@ -204,20 +322,65 @@ export function createTaskenMcpServer() {
     annotations: READ_ONLY_ANNOTATIONS,
   }, withReadContext((context, args) => context.toolExportAiContext(args)));
 
+  if (readOnly) return server;
+
   const workItemList = z.array(z.string().trim().min(1).max(1000)).max(100).optional();
+  const externalReferenceInput = z.object({
+    kind: z.enum(["issue", "pull_request", "merge_request", "commit", "branch", "file", "pipeline", "other"]),
+    provider: z.string().trim().max(120).optional(),
+    display_label: z.string().trim().min(1).max(200),
+    url: z.string().trim().url().refine((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === "https:" && !parsed.username && !parsed.password;
+      } catch {
+        return false;
+      }
+    }, "HTTPS URL without credentialsが必要です。"),
+    external_id: z.string().trim().max(200).optional(),
+  }).strict();
+  const externalReferenceList = z.array(externalReferenceInput).max(100).optional();
+  const optionalTimestamp = z.string().trim().refine((value) => !Number.isNaN(Date.parse(value)), "ISO 8601 timestampが必要です。").optional();
+  const taskWorkRepositoryContextSchema = z.object({
+    repository_context_id: z.string().trim().min(1).max(200).optional(),
+    provider: z.enum(["github", "gitlab", "azure_devops", "local", "generic_git", "unknown"]).optional(),
+    repository_slug: z.string().trim().min(1).max(500).regex(/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/).optional(),
+    branch: z.string().trim().min(1).max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value), "branchに制御文字は使えません。").optional(),
+  }).strict().optional();
   const taskWorkBase = {
     task_id: z.string().trim().min(1).max(200),
+    expected_version: z.number().int().nonnegative(),
+    idempotency_key: z.string().trim().min(1).max(200),
+    caller: z.string().trim().min(1).max(200),
+    source_session: z.string().trim().min(1).max(200).optional(),
+    repository_context: taskWorkRepositoryContextSchema,
     source_app: z.string().trim().min(1).max(120).optional(),
   };
   const queueTaskWork = (args, action, extra = {}) => toolResult(queueMcpProposal({
     payloadType: "task_work",
     sourceApp: sourceApp(args),
-    payload: { task_work: [{ action, task_id: args.task_id, ...extra }] },
-    request: { tool: {
+    idempotencyKey: args.idempotency_key,
+    payload: { task_work: [{
+      action,
+      task_id: args.task_id,
+      expected_version: args.expected_version,
+      caller: args.caller,
+      source_session: args.source_session || null,
+      repository_context: args.repository_context || null,
+      ...extra,
+    }] },
+    request: {
+      tool: {
       start: "tasken.start_task_work",
       append_receipt: "tasken.append_work_receipt",
       report_done: "tasken.report_task_done",
-    }[action] || `tasken.${action}` },
+      report_blocked: "tasken.report_task_blocked",
+      }[action] || `tasken.${action}`,
+      expected_version: args.expected_version,
+      idempotency_key: args.idempotency_key,
+      caller: args.caller,
+      source_session: args.source_session || null,
+    },
   }));
 
   server.registerTool("tasken.start_task_work", {
@@ -226,11 +389,13 @@ export function createTaskenMcpServer() {
       ...taskWorkBase,
       executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
       executor_identity: z.string().trim().max(200).optional(),
+      started_at: optionalTimestamp,
     },
     annotations: PROPOSAL_ANNOTATIONS,
   }, async (args) => queueTaskWork(args, "start", {
     executor_kind: args.executor_kind || "ai_agent",
     executor_identity: args.executor_identity || null,
+    started_at: args.started_at || null,
   }));
 
   const receiptProposalSchema = {
@@ -242,6 +407,8 @@ export function createTaskenMcpServer() {
     changed_or_created_items: workItemList,
     verification: workItemList,
     remaining_work: workItemList,
+    external_references: externalReferenceList,
+    reported_at: optionalTimestamp,
     provider: z.string().trim().max(120).optional(),
     model: z.string().trim().max(200).optional(),
   };
@@ -253,6 +420,9 @@ export function createTaskenMcpServer() {
     changed_or_created_items: args.changed_or_created_items || [],
     verification: args.verification || [],
     remaining_work: args.remaining_work || [],
+    external_references: args.external_references || [],
+    reported_at: args.reported_at || null,
+    repository_context: args.repository_context || null,
     runtime_metadata: args.provider || args.model ? { provider: args.provider || null, model: args.model || null } : null,
   });
 
@@ -267,6 +437,64 @@ export function createTaskenMcpServer() {
     inputSchema: receiptProposalSchema,
     annotations: PROPOSAL_ANNOTATIONS,
   }, async (args) => queueTaskWork(args, "report_done", receiptProposalFields(args)));
+
+  server.registerTool("tasken.report_task_blocked", {
+    description: "Queue an append-only blocker report. The Task changes only after human review; the original Task body is never overwritten.",
+    inputSchema: {
+      ...taskWorkBase,
+      executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
+      executor_label: z.string().trim().min(1).max(200),
+      blocker: z.string().trim().min(1).max(10000),
+      attempted_work: workItemList,
+      needed_input: workItemList,
+      retained_artifacts: workItemList,
+      external_references: externalReferenceList,
+      reported_at: optionalTimestamp,
+      provider: z.string().trim().max(120).optional(),
+      model: z.string().trim().max(200).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => queueTaskWork(args, "report_blocked", {
+    executor_kind: args.executor_kind || "ai_agent",
+    executor_label: args.executor_label,
+    summary: args.blocker,
+    completed_items: args.attempted_work || [],
+    changed_or_created_items: args.retained_artifacts || [],
+    verification: [],
+    remaining_work: args.needed_input || [],
+    external_references: args.external_references || [],
+    reported_at: args.reported_at || null,
+    repository_context: args.repository_context || null,
+    runtime_metadata: {
+      ...(args.provider ? { provider: args.provider } : {}),
+      ...(args.model ? { model: args.model } : {}),
+      report_kind: "blocked",
+    },
+  }));
+
+  server.registerTool("tasken.propose_repository_context", {
+    description: "Queue a RepositoryContext proposal for user review. This never writes a context directly and never stores credentials.",
+    inputSchema: {
+      label: z.string().trim().min(1).max(200),
+      provider: z.enum(["github", "gitlab", "azure_devops", "local", "generic_git", "unknown"]).optional(),
+      remote_url: optionalText,
+      local_path: optionalText,
+      web_url: optionalText,
+      repository_slug: optionalText,
+      subdirectory: optionalText,
+      default_branch: optionalText,
+      reason: z.string().max(2000).optional(),
+      source_app: z.string().trim().min(1).max(120).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, async (args) => toolResult(queueMcpProposal({
+    payloadType: "repository_contexts",
+    sourceApp: sourceApp(args),
+    payload: {
+      repository_contexts: [repositoryContextProposalInput(args)],
+    },
+    request: { tool: "tasken.propose_repository_context" },
+  })));
 
   server.registerTool("tasken.propose_task", {
     description: "Queue a new Task proposal. This does not create the Task until the user accepts it in Tasken.",

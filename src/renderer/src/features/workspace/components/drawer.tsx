@@ -5,6 +5,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
 import type {
   BaseRecord,
   DrawerConfig,
@@ -47,6 +48,7 @@ import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { AiContextFields, AiContextSummary, ThemeAiVisibilityField, workspaceAiVisibility } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
 import { ConversationPreview } from "./ConversationPreview";
+import { LineagePanel } from "./LineagePanel";
 import {
   CaptureEntryFields,
   findSchedule,
@@ -58,11 +60,13 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { DrawerHeader, Field, StatusBadge, ThemePickerSelect, ThemeSelect, type CloseDrawer } from "./common";
 import { ChecklistProgressBadge } from "./taskChecklist";
 import { ChatGroupPicker, ThemeColorPicker, ThemeGroupPicker, ThemeStorageRootField } from "./drawerPickers";
+import { ThemeRepositoryContextFields } from "./repositoryContextFields";
 import {
   TASK_STATE_LABELS,
   TASK_REQUESTER_LABELS,
   TASK_INTENDED_EXECUTOR_LABELS,
   TASK_WORK_STATE_LABELS,
+  EXTERNAL_REFERENCE_KIND_LABELS,
   WAITING_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -165,6 +169,14 @@ function splitWorkLines(value: string): string[] {
   return value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+function receiptExternalReferences(receipt: WorkReceipt) {
+  try {
+    return normalizeExternalReferences(receipt.external_references);
+  } catch {
+    return [];
+  }
+}
+
 function TaskWorkSection({
   task,
   receipts,
@@ -222,7 +234,7 @@ function TaskWorkSection({
       return;
     }
     const reportedAt = new Date().toISOString();
-    void run("AppendWorkReceipt", {
+    void run("ReportTaskDone", {
       taskId: task.id,
       receipt: {
         id: uuid(),
@@ -258,6 +270,15 @@ function TaskWorkSection({
               {receipt.changed_or_created_items?.length > 0 && <p><strong>変更・作成:</strong> {receipt.changed_or_created_items.join("、")}</p>}
               {receipt.verification?.length ? <p><strong>検証:</strong> {receipt.verification.join("、")}</p> : null}
               {receipt.remaining_work?.length ? <p><strong>残り:</strong> {receipt.remaining_work.join("、")}</p> : null}
+              {receiptExternalReferences(receipt).length > 0 && (
+                <div className="task-work-external-references" aria-label="External references">
+                  {receiptExternalReferences(receipt).map((reference) => (
+                    <a key={`${reference.kind}:${reference.url}`} href={reference.url} target="_blank" rel="noreferrer" title={EXTERNAL_REFERENCE_KIND_LABELS[reference.kind]}>
+                      {reference.display_label}
+                    </a>
+                  ))}
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -362,6 +383,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <dt>作成</dt><dd>{formatDate(sketch.created_at)}</dd>
           <dt>更新</dt><dd>{formatDate(sketch.updated_at)}</dd>
         </dl>
+        <LineagePanel
+          data={data}
+          seed={{ type: "sketch", id: sketch.id }}
+          openDrawer={(next) => close(next)}
+          openContentViewer={openContentViewer}
+        />
         <AiContextSummary type="sketch" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
       </DetailDrawer>
     );
@@ -437,6 +464,52 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           isChatRef && isConversationMarkdown(str(entity.body_markdown))
             ? <ConversationPreview body={str(entity.body_markdown)} />
             : <MarkdownPreview className="markdown-preview" html={previewHtml(str(entity.body_markdown), "markdown")} />
+        )}
+        <LineagePanel
+          data={data}
+          seed={{ type: "resource", id: resourceId }}
+          conversation={isChatRef}
+          openDrawer={(next) => close(next)}
+          openContentViewer={openContentViewer}
+        />
+        {isChatRef && (
+          <>
+            <div className="lineage-create-actions" aria-label="この会話から作成">
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => close({
+                  type: "task",
+                  mode: "edit",
+                  entity: {
+                    project_id: entity.project_id || entity.theme_id || null,
+                    _lineage_source_type: "resource",
+                    _lineage_source_id: resourceId,
+                    _lineage_reference_id: uuid(),
+                  },
+                })}
+              >
+                Taskを作る
+              </button>
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => close({
+                  type: "note",
+                  mode: "edit",
+                  entity: {
+                    project_id: entity.project_id || entity.theme_id || null,
+                    note_type: "note",
+                    _lineage_source_type: "resource",
+                    _lineage_source_id: resourceId,
+                    _lineage_reference_id: uuid(),
+                  },
+                })}
+              >
+                Noteを作る
+              </button>
+            </div>
+          </>
         )}
         <AiContextSummary type="resource" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
         {isChatRef && (
@@ -550,6 +623,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             entityId={task.id}
             openSource={(source) => close({ type: "note", entity: source })}
           />
+          <LineagePanel
+            data={data}
+            seed={{ type: "task", id: task.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+          />
           <TaskWorkSection task={task} receipts={(data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]} executeCommand={executeCommand} setToast={setToast} />
           <section className="task-learning-section">
             <div className="section-heading">
@@ -616,6 +695,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>期限</dt><dd>{formatDate(schedule?.end_date)}</dd>
           </dl>
           {waiting.description && <p>{waiting.description}</p>}
+          <LineagePanel
+            data={data}
+            seed={{ type: "waiting", id: waiting.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+          />
           <AiContextSummary type="waiting" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "waiting", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
@@ -660,6 +745,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             <dt>Theme</dt><dd>{themeName}</dd>
             <dt>予定</dt><dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
           </dl>
+          <LineagePanel
+            data={data}
+            seed={{ type: "plan_node", id: planNode.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+          />
           <AiContextSummary type="plan_node" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "plan_node", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
@@ -683,6 +774,12 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
           <StatusBadge value={entry.state} label={CAPTURE_ENTRY_STATE_LABELS[entry.state]} />
           <h2>{entry.title || entry.text}</h2>
           <dl><dt>記録日</dt><dd>{formatDate(entry.captured_at)}</dd></dl>
+          <LineagePanel
+            data={data}
+            seed={{ type: "capture_entry", id: entry.id }}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+          />
           <AiContextSummary type="capture_entry" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
           <div className="drawer-actions">
             <button className="secondary-button" onClick={() => close({ type: "capture_entry", mode: "edit", entity })}><IconPencil size={16} />編集する</button>
@@ -794,6 +891,7 @@ function EditDrawer({
             <ThemeColorPicker value={str(entity.color)} />
             <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
             <ThemeStorageRootField value={str(entity.storage_root)} setToast={setToast} />
+            <ThemeRepositoryContextFields entity={entity} data={data} saveEntities={saveEntities} removeEntity={removeEntity} />
             <ThemeAiVisibilityField
               value={entity.default_ai_visibility as AiAudience[] | null | undefined}
               workspaceDefault={workspaceAiVisibilityDefault}
@@ -1399,6 +1497,12 @@ function NoteDetailDrawer({
           entityId={note.id}
           openSource={(source) => close({ type: "note", entity: source })}
         />
+        <LineagePanel
+          data={data}
+          seed={{ type: "note", id: note.id }}
+          openDrawer={(next) => close(next)}
+          openContentViewer={openContentViewer}
+        />
         <section className={`document-rule-strip ${publishEnabled ? "is-export-target" : "is-export-muted"}`}>
           <div>
             <strong>{publishEnabled ? "一括出力対象" : "一括出力対象外"}</strong>
@@ -1673,6 +1777,11 @@ function KnowledgeNodeDetailDrawer({
             ))}
           </div>
         )}
+        <LineagePanel
+          data={data}
+          seed={{ type: "knowledge_node", id: node.id }}
+          openDrawer={(next) => close(next)}
+        />
       </div>
     </aside>
   );

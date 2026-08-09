@@ -206,6 +206,7 @@ export function ArtifactsPage({
               saveEntities={saveEntities}
               setToast={setToast}
               showSource
+              showLineage
               onOpened={() => setRecentTick((value) => value + 1)}
             />
           ))}

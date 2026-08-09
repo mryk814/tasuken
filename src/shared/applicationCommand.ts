@@ -1,4 +1,6 @@
 import { entityTypes, type Entity, type EntityType } from "./types/workspace";
+import { normalizeExternalReferences } from "./externalReference.mjs";
+import type { ExternalReference } from "./externalReference.mjs";
 
 export const applicationCommandNames = [
   "CreateTask",
@@ -12,6 +14,8 @@ export const applicationCommandNames = [
   "ApplyAiProposal",
   "StartTaskWork",
   "AppendWorkReceipt",
+  "ReportTaskDone",
+  "ReportTaskBlocked",
   "AcceptTaskWork",
   "ReturnTaskWork",
 ] as const;
@@ -88,7 +92,7 @@ export interface EndFocusSessionCommandPayload {
 export interface ApplyAiProposalCommandPayload {
   proposal: Entity;
   candidates: Array<{
-    type: Extract<EntityType, "task" | "note" | "waiting" | "plan_node" | "schedule" | "resource" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch">;
+    type: Extract<EntityType, "task" | "note" | "waiting" | "plan_node" | "schedule" | "resource" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch" | "repository_context">;
     entity: Entity;
   }>;
 }
@@ -98,11 +102,12 @@ export interface StartTaskWorkCommandPayload {
   executorKind?: string;
   executorIdentity?: string | null;
   startedAt?: string | null;
+  sourceSession?: string | null;
 }
 
 export interface AppendWorkReceiptCommandPayload {
   taskId: string;
-  receipt: Entity;
+  receipt: Entity & { external_references?: ExternalReference[] };
 }
 
 export interface TaskWorkReviewCommandPayload {
@@ -229,13 +234,20 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
   }
-  if (["StartTaskWork", "AppendWorkReceipt", "AcceptTaskWork", "ReturnTaskWork"].includes(name)
+  if (["StartTaskWork", "AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked", "AcceptTaskWork", "ReturnTaskWork"].includes(name)
     && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
   }
-  if (name === "AppendWorkReceipt") {
+  if (["AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked"].includes(name)) {
     if (!isRecord(value.payload.receipt) || typeof value.payload.receipt.id !== "string" || !value.payload.receipt.id.trim()) {
-      throw new ApplicationCommandError("INVALID_PAYLOAD", "AppendWorkReceiptのreceiptが不正です。");
+      throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のreceiptが不正です。`);
+    }
+    if (value.payload.receipt.external_references !== undefined) {
+      try {
+        normalizeExternalReferences(value.payload.receipt.external_references);
+      } catch (error) {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", `Work Receiptのexternal_referencesが不正です: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
   if (name === "ReturnTaskWork" && value.payload.reviewNote !== undefined
@@ -267,7 +279,7 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
         || typeof candidate.entity.id !== "string" || !candidate.entity.id.trim()) {
         throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのcandidateが不正です。");
       }
-      if (!["task", "note", "waiting", "plan_node", "schedule", "resource", "knowledge_node", "knowledge_edge", "artifact", "sketch"].includes(candidate.type)) {
+      if (!["task", "note", "waiting", "plan_node", "schedule", "resource", "knowledge_node", "knowledge_edge", "artifact", "sketch", "repository_context"].includes(candidate.type)) {
         throw new ApplicationCommandError("INVALID_PAYLOAD", `ApplyAiProposalで未対応のcandidate typeです: ${candidate.type}`);
       }
     }

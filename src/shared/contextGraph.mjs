@@ -1,4 +1,5 @@
 import { collectionKeyForEntityType, entityTypes } from "./entityRegistry.mjs";
+import { normalizeReferenceAssertion } from "./relationAssertion.mjs";
 
 const DEFAULT_MAX_HOPS = 2;
 const DEFAULT_MAX_NODES = 24;
@@ -71,8 +72,8 @@ function collectionRecords(workspace, type) {
 function stableSourceRef(record) {
   const refs = Array.isArray(record.ai_source_refs) ? record.ai_source_refs : [];
   return refs
-    .map((entry) => text(entry?.id || entry?.ref || entry?.relative_path))
-    .filter(Boolean)
+    .map((entry) => text(entry?.id || entry?.ref).trim())
+    .filter((entry) => entry && entry.length <= 200 && !/[\s\\/]/.test(entry) && !/^file:/i.test(entry))
     .sort();
 }
 
@@ -99,11 +100,11 @@ function compareEdges(a, b) {
   if (statusCompare) return statusCompare;
   const layerCompare = (LAYER_ORDER.get(a.layer) ?? 9) - (LAYER_ORDER.get(b.layer) ?? 9);
   if (layerCompare) return layerCompare;
-  return `${a.predicate}:${a.target.type}:${a.target.id}`.localeCompare(`${b.predicate}:${b.target.type}:${b.target.id}`);
+  return `${a.predicate}:${a.target.type}:${a.target.id}:${a.id}`.localeCompare(`${b.predicate}:${b.target.type}:${b.target.id}:${b.id}`);
 }
 
 function edgeKey(edge) {
-  return JSON.stringify([edge.source.type, edge.source.id, edge.predicate, edge.target.type, edge.target.id]);
+  return JSON.stringify([edge.source.type, edge.source.id, edge.predicate, edge.target.type, edge.target.id, edge.id]);
 }
 
 function isActive(record) {
@@ -112,15 +113,25 @@ function isActive(record) {
 
 function stableEvidenceRefs(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((entry) => {
+  const seen = new Set();
+  const refs = [];
+  for (const entry of value) {
     if (entry && typeof entry === "object") {
       const type = text(entry.type);
       const id = text(entry.id);
-      return type && id ? `${type}:${id}` : "";
+      if (!type || !id) continue;
+      const key = JSON.stringify([type, id]);
+      if (!seen.has(key)) refs.push({ type, id });
+      seen.add(key);
+      continue;
     }
     const candidate = text(entry);
-    return candidate && !/\s/.test(candidate) && candidate.length <= 200 ? candidate : "";
-  }).filter(Boolean))].sort();
+    if (!candidate || /[\s\\/]/.test(candidate) || /^file:/i.test(candidate) || candidate.length > 200) continue;
+    const key = JSON.stringify(["legacy", candidate]);
+    if (!seen.has(key)) refs.push(candidate);
+    seen.add(key);
+  }
+  return refs.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 
 /**
@@ -141,15 +152,21 @@ export function projectContextGraph(workspace, options = {}) {
   }
 
   const edges = new Map();
-  const addEdge = ({ sourceType, sourceId, targetType, targetId, predicate, layer = "operational", status = ASSERTED_STATUS, origin = "explicit", evidenceRefs = [], validFrom = null, validTo = null }) => {
+  const diagnostics = [];
+  const addEdge = ({ assertionId = "", edgeId = "", sourceType, sourceId, targetType, targetId, predicate, layer = "operational", status = ASSERTED_STATUS, origin = "explicit", evidenceRefs = [], legacyEvidenceRefs = [], confidence = null, metadata = {}, validFrom = null, validTo = null, allowDangling = false }) => {
     if (!validRef(sourceType, sourceId) || !validRef(targetType, targetId)) return;
     const source = ref(sourceType, sourceId);
     const target = ref(targetType, targetId);
-    if (!nodes.has(refKey(source.type, source.id)) || !nodes.has(refKey(target.type, target.id))) return;
+    const sourcePresent = nodes.has(refKey(source.type, source.id));
+    const targetPresent = nodes.has(refKey(target.type, target.id));
+    if ((!sourcePresent || !targetPresent) && !allowDangling) return;
     const rawStatus = text(status).toLowerCase();
     const normalizedStatus = normalizeStatus(status);
+    const canonicalAssertionId = text(assertionId) || `projection:${JSON.stringify([source.type, source.id, text(predicate), target.type, target.id, text(origin)])}`;
+    const id = text(edgeId) || canonicalAssertionId;
     const edge = {
-      id: JSON.stringify([source.type, source.id, predicate, target.type, target.id]),
+      id,
+      assertion_id: canonicalAssertionId,
       source,
       target,
       predicate: text(predicate),
@@ -157,14 +174,30 @@ export function projectContextGraph(workspace, options = {}) {
       status: normalizedStatus,
       origin: text(origin) || "explicit",
       evidence_refs: stableEvidenceRefs(evidenceRefs),
+      ...(legacyEvidenceRefs.length ? { legacy_evidence_refs: [...new Set(legacyEvidenceRefs.map(text).filter(Boolean))].sort() } : {}),
     };
+    if (confidence != null && Number.isFinite(Number(confidence))) edge.confidence = Number(confidence);
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata) && Object.keys(metadata).length) edge.metadata = { ...metadata };
     if (rawStatus && normalizedStatus === UNKNOWN_STATUS && rawStatus !== UNKNOWN_STATUS) edge.status_raw = rawStatus;
     if (validFrom) edge.valid_from = text(validFrom);
     if (validTo) edge.valid_to = text(validTo);
-    const key = edgeKey(edge);
-    const previous = edges.get(key);
-    if (!previous || compareEdges(edge, previous) < 0) edges.set(key, edge);
-    else if (previous.evidence_refs.length < edge.evidence_refs.length) previous.evidence_refs = edge.evidence_refs;
+    if (!sourcePresent || !targetPresent) {
+      const diagnostic = {
+        kind: "broken_relation",
+        assertion_id: canonicalAssertionId,
+        missing_refs: [
+          ...(!sourcePresent ? [source] : []),
+          ...(!targetPresent ? [target] : []),
+        ],
+      };
+      diagnostics.push(diagnostic);
+      edge.diagnostic = diagnostic;
+    }
+    const previous = edges.get(id);
+    if (!previous) edges.set(id, edge);
+    else if (edgeKey(previous) !== edgeKey(edge)) {
+      diagnostics.push({ kind: "duplicate_assertion_id", assertion_id: canonicalAssertionId });
+    }
   };
 
   const addFieldRef = (type, record, field, targetType, predicate, layer = "operational") => {
@@ -177,7 +210,24 @@ export function projectContextGraph(workspace, options = {}) {
     if (!entity) continue;
     const { type, id } = entity;
     const themeId = text(record.project_id || (LEGACY_THEME_TYPES.has(type) ? record.theme_id : ""));
-    if (themeId) addEdge({ sourceType: type, sourceId: id, targetType: "theme", targetId: themeId, predicate: "belongs_to_theme" });
+    if (themeId) {
+      const targetThemeType = nodes.has(refKey("project", themeId)) ? "project" : "theme";
+      addEdge({ sourceType: type, sourceId: id, targetType: targetThemeType, targetId: themeId, predicate: "belongs_to_theme" });
+    }
+    if (type === "theme" || type === "project") {
+      for (const repositoryContextId of Array.isArray(record.repository_context_ids) ? record.repository_context_ids : []) {
+        addEdge({
+          assertionId: `${type}:${id}:repository_context:${text(repositoryContextId)}`,
+          sourceType: type,
+          sourceId: id,
+          targetType: "repository_context",
+          targetId: repositoryContextId,
+          predicate: "uses_repository_context",
+          layer: "operational",
+          origin: `${type}.repository_context_ids`,
+        });
+      }
+    }
     if (record.source_record_id) addEdge({ sourceType: type, sourceId: id, targetType: "source_record", targetId: record.source_record_id, predicate: "captured_from", layer: "provenance", origin: "source_record_id" });
     if (type === "task") {
       addFieldRef(type, record, "parent_task_id", "task", "child_of");
@@ -192,17 +242,45 @@ export function projectContextGraph(workspace, options = {}) {
     if (type === "schedule" && record.owner_type && record.owner_id) {
       addEdge({ sourceType: record.owner_type, sourceId: record.owner_id, targetType: type, targetId: id, predicate: "scheduled_as", layer: "operational", origin: "schedule" });
     }
-    if (type === "reference" && record.source_type && record.source_id && record.target_type && record.target_id) {
-      addEdge({ sourceType: record.source_type, sourceId: record.source_id, targetType: record.target_type, targetId: record.target_id, predicate: record.relation_type || "related_to", layer: "operational", origin: "reference", evidenceRefs: [record.id] });
+    if (type === "reference") {
+      try {
+        const assertion = normalizeReferenceAssertion(record, { legacyRead: true });
+        addEdge({
+          assertionId: assertion.assertion_id,
+          edgeId: `reference:${assertion.assertion_id}`,
+          sourceType: assertion.subject.type,
+          sourceId: assertion.subject.id,
+          targetType: assertion.object.type,
+          targetId: assertion.object.id,
+          predicate: assertion.predicate,
+          layer: assertion.layer,
+          status: assertion.status,
+          // Old Reference rows historically projected origin="reference";
+          // keep that read-only signal for #279 consumers. Canonical rows use
+          // the explicit assertion origin contract.
+          origin: assertion.legacy_read ? "reference" : assertion.origin,
+          evidenceRefs: assertion.evidence_refs.length ? assertion.evidence_refs : [{ type: "reference", id: assertion.id }],
+          legacyEvidenceRefs: assertion.legacy_evidence_refs || [],
+          confidence: assertion.confidence,
+          metadata: assertion.metadata,
+          validFrom: assertion.recorded_at,
+          allowDangling: true,
+        });
+      } catch (error) {
+        diagnostics.push({ kind: "invalid_relation", assertion_id: text(record.assertion_id || record.id), message: String(error?.message || error) });
+      }
     }
     if (type === "task_dependency") {
-      addEdge({ sourceType: "task", sourceId: record.task_id, targetType: "task", targetId: record.depends_on_task_id, predicate: "depends_on", origin: "task_dependency", evidenceRefs: [id] });
+      addEdge({ assertionId: `task_dependency:${id}`, sourceType: "task", sourceId: record.task_id, targetType: "task", targetId: record.depends_on_task_id, predicate: "depends_on", origin: "task_dependency", evidenceRefs: [{ type: "task_dependency", id }] });
     }
     if (type === "plan_dependency") {
-      addEdge({ sourceType: "plan_node", sourceId: record.plan_node_id, targetType: "plan_node", targetId: record.depends_on_plan_node_id, predicate: "depends_on", origin: "plan_dependency", evidenceRefs: [id] });
+      addEdge({ assertionId: `plan_dependency:${id}`, sourceType: "plan_node", sourceId: record.plan_node_id, targetType: "plan_node", targetId: record.depends_on_plan_node_id, predicate: "depends_on", origin: "plan_dependency", evidenceRefs: [{ type: "plan_dependency", id }] });
     }
     if (type === "knowledge_edge") {
-      addEdge({ sourceType: "knowledge_node", sourceId: record.source_node_id, targetType: "knowledge_node", targetId: record.target_node_id, predicate: record.relation_type || "related_to", layer: "semantic", status: record.status, origin: record.origin || "legacy_knowledge_edge", evidenceRefs: record.evidence_refs });
+      addEdge({ assertionId: `knowledge_edge:${id}`, sourceType: "knowledge_node", sourceId: record.source_node_id, targetType: "knowledge_node", targetId: record.target_node_id, predicate: record.relation_type || "related_to", layer: "semantic", status: record.status, origin: record.origin || "legacy_knowledge_edge", evidenceRefs: record.evidence_refs });
+    }
+    if (type === "work_receipt") {
+      addEdge({ assertionId: `work_receipt:${id}:created_for`, sourceType: "work_receipt", sourceId: id, targetType: "task", targetId: record.task_id, predicate: "created_for", layer: "provenance", origin: "system_action", evidenceRefs: [{ type: "work_receipt", id }] });
     }
     if (type === "artifact") {
       const targetType = ARTIFACT_SOURCE_TYPES.get(text(record.source_type));
@@ -241,7 +319,8 @@ export function projectContextGraph(workspace, options = {}) {
   }
   for (const list of outgoing.values()) list.sort(compareEdges);
   for (const list of incoming.values()) list.sort(compareEdges);
-  return { nodes, records, edges: orderedEdges, outgoing, incoming, options: { ...options } };
+  diagnostics.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return { nodes, records, edges: orderedEdges, outgoing, incoming, diagnostics, options: { ...options } };
 }
 
 function normalizeLimits(options = {}) {
@@ -251,6 +330,7 @@ function normalizeLimits(options = {}) {
     maxHops: Math.min(2, positiveInt(options.maxHops, DEFAULT_MAX_HOPS)),
     maxNodes: Math.min(100, positiveInt(options.maxNodes, DEFAULT_MAX_NODES)),
     maxEdges: Math.min(200, nonNegativeInt(options.maxEdges, DEFAULT_MAX_EDGES)),
+    maxDiagnostics: Math.min(100, nonNegativeInt(options.maxDiagnostics, DEFAULT_MAX_EDGES)),
     tokenBudget: Math.min(12000, Math.max(16, positiveInt(options.tokenBudget, DEFAULT_TOKEN_BUDGET))),
   };
 }
@@ -258,7 +338,14 @@ function normalizeLimits(options = {}) {
 function estimatedTokens(value) {
   // The seed and envelope are protocol overhead; budget the context payload
   // itself so a small budget can still return the typed seed node.
-  return Math.ceil(JSON.stringify({ nodes: value.nodes, edges: value.edges, paths: value.paths }).length / 4);
+  const payload = {
+    nodes: value.nodes,
+    edges: value.edges,
+    paths: value.paths,
+    diagnostics: value.diagnostics || [],
+  };
+  if (value.excluded_nodes?.length) payload.excluded_nodes = value.excluded_nodes;
+  return Math.ceil(JSON.stringify(payload).length / 4);
 }
 
 function edgeAllowed(edge, options) {
@@ -270,6 +357,19 @@ function edgeAllowed(edge, options) {
 
 function nodeAllowed(node, options) {
   return typeof options.nodeFilter !== "function" || options.nodeFilter(node);
+}
+
+function nodeExclusion(node, options) {
+  const proposed = typeof options.nodeExclusion === "function" ? options.nodeExclusion(node) : null;
+  const value = proposed && typeof proposed === "object" && !Array.isArray(proposed) ? proposed : {};
+  const proposedRef = value.ref && typeof value.ref === "object" && !Array.isArray(value.ref) ? value.ref : node?.ref;
+  const excludedRef = ref(proposedRef?.type, proposedRef?.id);
+  if (!validRef(excludedRef.type, excludedRef.id)) return null;
+  return {
+    ref: excludedRef,
+    reason: text(value.reason) || "node_filter",
+    count: 1,
+  };
 }
 
 function nodeOutput(graph, key) {
@@ -302,14 +402,29 @@ export function traceProvenance(graph, seed, options = {}) {
 export function getContextSubgraph(graph, seed, options = {}) {
   const seedRef = ref(seed?.type, seed?.id);
   const seedKey = refKey(seedRef.type, seedRef.id);
-  if (!graph?.nodes?.has(seedKey)) return { seed: seedRef, nodes: [], edges: [], paths: [], truncated: false, limits: normalizeLimits(options), estimated_tokens: 0, exclusions: ["seed_not_found"] };
-  if (!nodeAllowed(graph.nodes.get(seedKey), options)) return { seed: seedRef, nodes: [], edges: [], paths: [], truncated: false, limits: normalizeLimits(options), estimated_tokens: 0, exclusions: ["seed_not_allowed"] };
   const limits = normalizeLimits(options);
+  if (!graph?.nodes?.has(seedKey)) return { seed: seedRef, nodes: [], edges: [], paths: [], diagnostics: [], excluded_nodes: [], truncated: false, limits, estimated_tokens: 0, exclusions: ["seed_not_found"] };
+  if (!nodeAllowed(graph.nodes.get(seedKey), options)) return {
+    seed: seedRef,
+    nodes: [],
+    edges: [],
+    paths: [],
+    diagnostics: [],
+    excluded_nodes: [nodeExclusion(graph.nodes.get(seedKey), options)].filter(Boolean),
+    truncated: false,
+    limits,
+    estimated_tokens: 0,
+    exclusions: ["seed_not_allowed"],
+  };
   const direction = options.direction === "incoming" ? "incoming" : options.direction === "outgoing" ? "outgoing" : "both";
   const included = new Set([seedKey]);
   const queue = [{ key: seedKey, depth: 0, path: [] }];
   const selectedEdges = [];
   const selectedKeys = new Set();
+  const selectedDiagnostics = [];
+  const selectedDiagnosticKeys = new Set();
+  const excludedNodes = [];
+  const excludedNodeKeys = new Set();
   const paths = [];
   let truncated = false;
   const neighborEdges = (key) => {
@@ -324,7 +439,28 @@ export function getContextSubgraph(graph, seed, options = {}) {
     for (const { edge, next } of neighborEdges(current.key)) {
       if (!edgeAllowed(edge, options)) continue;
       const nextNode = graph.nodes.get(next);
-      if (!nextNode || !nodeAllowed(nextNode, options)) continue;
+      if (!nextNode) {
+        if (edge.diagnostic && !selectedDiagnosticKeys.has(edge.id)) {
+          if (selectedDiagnostics.length >= limits.maxDiagnostics) truncated = true;
+          else {
+            selectedDiagnosticKeys.add(edge.id);
+            selectedDiagnostics.push(edge.diagnostic);
+          }
+        }
+        continue;
+      }
+      if (!nodeAllowed(nextNode, options)) {
+        const exclusion = nodeExclusion(nextNode, options);
+        const exclusionKey = exclusion ? refKey(exclusion.ref.type, exclusion.ref.id) : "";
+        if (exclusion && !excludedNodeKeys.has(exclusionKey)) {
+          if (excludedNodes.length >= limits.maxDiagnostics) truncated = true;
+          else {
+            excludedNodeKeys.add(exclusionKey);
+            excludedNodes.push(exclusion);
+          }
+        }
+        continue;
+      }
       const nextPath = [...current.path, edge.id];
       if (!selectedKeys.has(edge.id) && selectedEdges.length >= limits.maxEdges) { truncated = true; continue; }
       if (!included.has(next)) {
@@ -348,6 +484,8 @@ export function getContextSubgraph(graph, seed, options = {}) {
     truncated,
     limits,
     policy: { asserted_first: true, suggested_included: Boolean(options.includeSuggested), suggested_is_fact: false },
+    diagnostics: selectedDiagnostics,
+    excluded_nodes: excludedNodes,
     exclusions: [],
   };
   sanitizeResult(result);
@@ -362,6 +500,14 @@ export function getContextSubgraph(graph, seed, options = {}) {
     while (result.estimated_tokens > limits.tokenBudget && result.nodes.length > 1) {
       result.nodes.pop();
       sanitizeResult(result);
+      result.estimated_tokens = estimatedTokens(result);
+    }
+    while (result.estimated_tokens > limits.tokenBudget && result.diagnostics.length) {
+      result.diagnostics.pop();
+      result.estimated_tokens = estimatedTokens(result);
+    }
+    while (result.estimated_tokens > limits.tokenBudget && result.excluded_nodes.length) {
+      result.excluded_nodes.pop();
       result.estimated_tokens = estimatedTokens(result);
     }
     if (result.estimated_tokens > limits.tokenBudget) {
@@ -422,6 +568,7 @@ export function explainContextSelection(result) {
     limits: result.limits,
     estimated_tokens: result.estimated_tokens,
     truncated: result.truncated,
+    excluded_nodes: result.excluded_nodes || [],
     exclusions: result.exclusions,
   };
 }
@@ -432,6 +579,7 @@ export function contextGraphMcpShape(result) {
     nodes: result.nodes.map(({ ref: _ref, ...node }) => node),
     edges: result.edges.map((edge) => ({
       id: edge.id,
+      assertion_id: edge.assertion_id,
       source: edge.source,
       target: edge.target,
       predicate: edge.predicate,
@@ -440,10 +588,15 @@ export function contextGraphMcpShape(result) {
       ...(edge.status_raw ? { status_raw: edge.status_raw } : {}),
       origin: edge.origin,
       evidence_refs: edge.evidence_refs,
+      ...(edge.legacy_evidence_refs ? { legacy_evidence_refs: edge.legacy_evidence_refs } : {}),
+      ...(edge.confidence != null ? { confidence: edge.confidence } : {}),
+      ...(edge.metadata ? { metadata: edge.metadata } : {}),
       reason: edge.reason,
       path: edge.path,
     })),
     paths: result.paths,
+    diagnostics: result.diagnostics || [],
+    excluded_nodes: result.excluded_nodes || [],
     limits: result.limits,
     estimated_tokens: result.estimated_tokens,
     truncated: result.truncated,

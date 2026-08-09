@@ -23,12 +23,14 @@ import type {
 import type { DrawerEntityType, SaveOperation, WorkspaceData } from "../types";
 import { inferChatServiceFromUrl } from "./chatServices";
 import { resolveSubmittedChatCapturedAt } from "./chatRefs";
-import { aiMetadataFromForm } from "./aiMetadataForm";
+import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./aiMetadataForm";
 import { formText, uuid } from "./format";
 import { normalizeReminderDateTime } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
 import { normalizeTaskShelf } from "./taskShelves";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
+import { normalizeRepositoryContext } from "../../../../../shared/repositoryContext.mjs";
+import { buildDerivedFromReferenceOperation } from "./lineageOperations";
 
 export type DrawerFormPlan =
   | {
@@ -151,6 +153,14 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
         : null,
       repeat_parent_task_id: (base.repeat_parent_task_id as string | null) ?? null,
       checklist_items: taskChecklistFromForm(values),
+      repository_context_mode: (formText(values, "repository_context_mode") || String(base.repository_context_mode || "inherit")) as Task["repository_context_mode"],
+      repository_context_ids: values.getAll("repository_context_ids").map(String),
+      primary_repository_context_id: formText(values, "primary_repository_context_id") || null,
+      repository_subdirectory: formText(values, "repository_subdirectory") || null,
+      repository_branch_hint: formText(values, "repository_branch_hint") || null,
+      repository_context_detachments: Array.isArray(base.repository_context_detachments)
+        ? base.repository_context_detachments as Array<Record<string, unknown>>
+        : undefined,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       created_at: (base.created_at as string) || new Date().toISOString(),
       ...aiMetadataFromForm(values, base, hasField),
@@ -187,10 +197,65 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       sourceId: taskId,
       themeId: projectId,
     }));
+    const lineageReference = buildDerivedFromReferenceOperation(base, "task", taskId);
+    if (lineageReference) operations.push(lineageReference);
     return {
       kind: "operations",
       operations,
       successMessage: base.id ? "変更を保存しました。" : "タスクを追加しました。",
+    };
+  }
+
+  if (type === "theme") {
+    const name = formText(values, "name");
+    if (!name) return { kind: "invalid", field: "name", message: "テーマ名を入力してください。" };
+    const { status: _status, ...rest } = base;
+    const existingContextIds = values.getAll("repository_context_ids").map(String).filter(Boolean);
+    const newRemoteUrl = formText(values, "repository_new_url");
+    const newLocalPath = formText(values, "repository_new_local_path");
+    const newContextOperations: SaveOperation[] = [];
+    let newContextId: string | null = null;
+    if (newRemoteUrl || newLocalPath) {
+      newContextId = uuid();
+      try {
+        const context = normalizeRepositoryContext({
+          id: newContextId,
+          label: formText(values, "repository_new_label"),
+          provider: formText(values, "repository_new_provider"),
+          remote_url: newRemoteUrl,
+          local_path: newLocalPath,
+          default_branch: formText(values, "repository_new_default_branch"),
+          subdirectory: formText(values, "repository_new_subdirectory"),
+        });
+        newContextOperations.push({ action: "save", type: "repository_context", entity: context as SaveOperation["entity"] });
+      } catch (error) {
+        return { kind: "invalid", field: "repository_new_url", message: error instanceof Error ? error.message : "RepositoryContextを正規化できませんでした。" };
+      }
+    }
+    const repositoryContextIds = newContextId
+      ? [...existingContextIds, newContextId]
+      : existingContextIds;
+    const primaryRepositoryContextId = formText(values, "primary_repository_context_id")
+      || newContextId
+      || repositoryContextIds[0]
+      || null;
+    const entity = {
+      ...rest,
+      id: String(base.id || uuid()),
+      name,
+      code: formText(values, "code") || null,
+      description: formText(values, "description"),
+      color: formText(values, "color") || String(base.color || ""),
+      group: formText(values, "group"),
+      storage_root: formText(values, "storage_root") || null,
+      repository_context_ids: repositoryContextIds,
+      primary_repository_context_id: primaryRepositoryContextId,
+      default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, hasField),
+    };
+    return {
+      kind: "operations",
+      operations: [...newContextOperations, { action: "save", type: "theme", entity: entity as SaveOperation["entity"] }],
+      successMessage: base.id ? "変更を保存しました。" : "Themeを追加しました。",
     };
   }
 

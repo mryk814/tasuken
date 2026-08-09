@@ -303,6 +303,12 @@ Read-only MCPは以下を守る。
 - archivedデータを含めるかは明示オプションにする
 - raw note bodyを返す場合は`include_raw_body`のような明示フラグを必要にする
 
+### Task-oriented context
+
+Coding AgentのTask入口は`tasken.get_task_context`とする。Task、assignment、Theme、RepositoryContext、および明示Relation・provenanceで到達したNote / Conversation / Artifact / Activity / Work Receiptの概要だけを、種別ごとの件数上限と全体文字数上限の範囲で返す。Themeが同じだけのEntityを一括投入せず、各項目に採用理由とstable locatorを付ける。RepositoryContextは現在のworkspaceと照合し、`matched` / `mismatch` / `ambiguous` / `unknown`を明示する。秘密情報、非公開Entity、外部Artifact本文、ローカル絶対パスは返さない。
+
+詳細取得は`tasken.get_note`、`tasken.get_conversation`、`tasken.get_artifact_metadata`、`tasken.get_activity_entries`へ分ける。Context取得自体は常にread-onlyである。`TASKEN_MCP_READ_ONLY=1`ではProposalを含む全write toolを登録しない。
+
 ## MCP Safe Write Proposal
 
 MCP経由のwriteは直接保存しない。Tasken側のpreview inboxに「提案」として送る。
@@ -355,6 +361,8 @@ type AiProposal = {
 - 採用結果はsource_record / import_batchに残す
 
 write系toolには`create_*`ではなく`propose_*`を使う。
+
+Task作業報告だけは既存TaskへのApplication Commandを提案する専用workflowとして、`tasken.start_task_work`、`tasken.append_work_receipt`、`tasken.report_task_done`、`tasken.report_task_blocked`を提供する。BridgeはTask本文やstateを直接更新せず、`task_work` ProposalをInboxへ送る。途中のReceipt追加と最終報告はtyped Application Commandを分け、Appendは`in_progress`を維持し、Doneだけが`needs_human_review`へ進む。全操作にTaskの`expected_version`、再試行用`idempotency_key`、`caller`を必須とし、任意で`source_session`、実行時刻、RepositoryContextを記録する。RepositoryContextは`repository_context_id`、provider、repository slug、branchだけの公開whitelistとし、cwd、git root、workspace folder、remote URLは受理も永続化もしない。同じkeyと同じpayloadの再送は同一Proposalとして扱い、異なるpayloadでのkey再利用は拒否する。Done / Blockedはいずれもappend-only Work Receiptであり、Task完了や正式な状態変更は人間のPreview採用後にApplication Command境界で行う。
 
 ## AI Import統合
 

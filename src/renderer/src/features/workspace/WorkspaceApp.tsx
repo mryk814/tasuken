@@ -10,6 +10,7 @@ import { usePreference } from "../../utils/usePreference";
 import type {
   BaseRecord,
   ContentViewerTarget,
+  DocumentSaveReferenceCompanion,
   DocumentSaveSnapshot,
   DrawerConfig,
   DrawerEntityType,
@@ -50,38 +51,13 @@ import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 import type { ApplicationCommandSource, ApplyAiProposalCommandPayload, CommandEnvelope, CommandReceipt, ExpectedVersion } from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
-
-const ARRAY_KEYS: (keyof WorkspaceData)[] = [
-  "themes", "items", "notes", "links", "resources", "views",
-  "status_updates", "source_records", "entity_sources",
-  "field_definitions", "field_values", "log_entries", "import_batchs",
-  "knowledge_nodes", "ai_proposals", "plan_revisions",
-  "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
-  "schedules", "references", "task_dependencies", "plan_dependencies",
-  "knowledge_edges", "change_events", "artifacts",
-  "sketches", "work_receipts",
-];
+import { projectWorkspaceData } from "./lib/workspaceProjection";
+import { buildDerivedFromDocumentCompanion, stripLineageDraftMetadata } from "./lib/lineageOperations";
 const TASK_REFERENCE_TYPE: EntityType = "reference";
 
 function normalizeRoute(route: string): string {
   if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
   return route === "micro-memos" ? "inbox" : route === "prompts" ? "notes" : route === "proposal-inbox" ? "ai-io" : routeAliases[route] || route;
-}
-
-function emptyData(): WorkspaceData {
-  return Object.fromEntries(ARRAY_KEYS.map((key) => [key, []])) as unknown as WorkspaceData;
-}
-
-function projectWorkspace(workspace: Record<string, unknown> | null): WorkspaceData {
-  const result = emptyData();
-  if (!workspace) return result;
-  for (const key of ARRAY_KEYS) {
-    const value = workspace[key];
-    if (Array.isArray(value)) (result[key] as BaseRecord[]) = activeRecords(value as BaseRecord[]);
-  }
-  result.meta = (workspace.meta as WorkspaceData["meta"]) || undefined;
-  result.canonical_root_status = workspace.canonical_root_status as WorkspaceData["canonical_root_status"];
-  return result;
 }
 
 function errorMessage(error: unknown): string {
@@ -349,7 +325,7 @@ export function WorkspaceApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawer, showShortcuts]);
 
-  const fullData = useMemo(() => projectWorkspace(workspace as Record<string, unknown> | null), [workspace]);
+  const fullData = useMemo(() => projectWorkspaceData(workspace as Record<string, unknown> | null), [workspace]);
   const fullDomain = useMemo(() => buildWorkspaceDomain(fullData), [fullData]);
   // 常設の既定Themeは並びの先頭へ固定し、グループ絞り込みでも消さない（#282）。
   // Themeが0件に見える状態でも個人業務は残る。
@@ -678,7 +654,13 @@ export function WorkspaceApp() {
     return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
   }, [detachedNoteId, loadState, setInboxLane, setRoute]);
 
-  const saveEntity: SaveEntity = async (type, entity, options = {}, documentSnapshot?: DocumentSaveSnapshot) => {
+  const saveEntity: SaveEntity = async (
+    type,
+    entity,
+    options = {},
+    documentSnapshot?: DocumentSaveSnapshot,
+    documentCompanions: DocumentSaveReferenceCompanion[] = [],
+  ) => {
     try {
       if (type === "task") {
         const existing = fullDomain.tasks.find((candidate) => candidate.id === entity.id);
@@ -712,6 +694,7 @@ export function WorkspaceApp() {
             expectedRevision: Number(entity.version || 0),
           },
           options,
+          companions: documentCompanions,
         })
         : await saveWorkspaceEntity(type, entity as Entity, options);
       if (!options.quiet) {
@@ -1159,7 +1142,8 @@ export function WorkspaceApp() {
           heading_number_levels: hasHeadingNumberLevels ? headingNumberLevels : [2, 3, 4],
         }
         : {};
-      const { theme_id: _legacyThemeId, ...canonicalBase } = base;
+      const { theme_id: _legacyThemeId, ...baseWithoutLegacyTheme } = base;
+      const canonicalBase = stripLineageDraftMetadata(baseWithoutLegacyTheme);
       entity = {
         ...canonicalBase,
         // Canonical document IPC requires a stable owner ID even for a new Note.
@@ -1261,9 +1245,26 @@ export function WorkspaceApp() {
       entity = { ...entity, ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))) };
     }
 
+    // Conversation詳細からの明示作成は、Note本体とderived_fromを同じ保存単位で確定する。
+    // Draft専用metadataはEntityへ残さない。
+    if (type === "note" && entity.id) {
+      const lineageCompanion = buildDerivedFromDocumentCompanion(base, String(entity.id));
+      if (lineageCompanion) {
+        const saved = await saveEntity(
+          "note",
+          entity,
+          { reason: "created_from_conversation", quiet: options.quiet },
+          undefined,
+          [lineageCompanion],
+        );
+        finishSave(saved);
+        return true;
+      }
+    }
+
     // Note の Theme 変更時は添付 Artifact の theme_id も揃える（ファイルは動かさない）。
     if (type === "note" && entity.id) {
-      const noteThemeId = (entity.theme_id as string | null) || null;
+      const noteThemeId = (entity.project_id as string | null) || null;
       const syncOps = buildArtifactThemeSyncOperations(data.artifacts || [], {
         sourceTypes: ["note", "report"],
         sourceId: String(entity.id),

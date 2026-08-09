@@ -1,6 +1,9 @@
 import { hasAiMetadataContract, normalizeAiMetadata } from "../../shared/aiMetadata.mjs";
 import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
 import { normalizeActivityEvent, ACTIVITY_EVENT_KINDS } from "../../shared/activityEvent.mjs";
+import { normalizeRepositoryContext, normalizeRepositoryLinkFields } from "../../shared/repositoryContext.mjs";
+import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
+import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import {
   assertEntityPayload,
   assertEntityType as assertRegistryEntityType,
@@ -45,7 +48,7 @@ const knowledgeDirectionalRelationTypes = new Set(["depends_on", "causes", "lead
 const confidenceValues = new Set(["low", "medium", "high"]);
 const knowledgeStatusValues = new Set(["active", "resolved", "deprecated", "rejected"]);
 const proposalSources = new Set(["mcp", "ai_import", "manual", "embedded_llm"]);
-const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work"]);
+const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work", "repository_contexts"]);
 const proposalStatuses = new Set(["pending", "accepted", "rejected", "partially_accepted", "quarantined"]);
 const projectStates = new Set(["idea", "active", "paused", "closed"]);
 const captureEntryStates = new Set(["untriaged", "triaged", "archived"]);
@@ -71,9 +74,14 @@ const scheduleRangeSemantics = new Set(["once_within_window", "ongoing"]);
 // 表示名の文字列比較で特別扱いせず、この値と安定IDで識別する。
 const themeSystemKinds = new Set(["personal_default"]);
 const entityRefTypes = new Set(["project", "capture_entry", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "sketch", "artifact"]);
-const referenceRelationTypes = new Set(["related_to", "derived_from", "mentions", "blocks", "supports"]);
 const changeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
 const changeSources = new Set(["manual", "import", "ai", "migration"]);
+const repositoryContextRecordFields = new Set([
+  "id", "created_at", "updated_at", "deleted_at", "device_id", "source", "version",
+  "label", "provider", "canonical_url", "canonical_identity", "web_url", "local_path",
+  "repository_slug", "owner", "name", "remote_aliases", "repository_root_hint",
+  "default_branch", "subdirectory", "active", "metadata",
+]);
 
 // Artifactのsource_typeは意味ラベル。実体エンティティ種別への対応はこの1箇所で管理する
 // （chat_refはresource、reportはnoteとして保存されている）。
@@ -258,6 +266,10 @@ export function validateEntity(type, input) {
   assertEntityPayload(type, input);
   if (!isPlainObject(input)) throw new Error(`${type}の保存内容が不正です。`);
 
+  // Legacy rows remain readable/importable. Validation uses their canonical
+  // projection without mutating the persisted input.
+  if (type === "reference") input = normalizeReferenceAssertion(input);
+
   // AI共通metadata（#294）は正規化と同じ規則で検証する。規則の正本は aiMetadata.mjs 側。
   if (hasAiMetadataContract(type)) normalizeAiMetadata(type, input);
 
@@ -266,6 +278,9 @@ export function validateEntity(type, input) {
       throw new Error(`${type}.${field}を入力してください。`);
     }
   }
+
+  if (type === "repository_context") normalizeRepositoryContext(input);
+  if (type === "theme" || type === "project" || type === "task") normalizeRepositoryLinkFields(type, input);
 
   for (const field of isoDateFields) {
     if (input[field] != null && input[field] !== "" && !isIsoDate(input[field])) {
@@ -348,7 +363,7 @@ export function validateEntity(type, input) {
     validateWorkItemList(input.changed_or_created_items, "work_receipt.changed_or_created_items");
     validateWorkItemList(input.verification, "work_receipt.verification");
     validateWorkItemList(input.remaining_work, "work_receipt.remaining_work");
-    if (input.external_references != null && (!Array.isArray(input.external_references) || input.external_references.length > 100 || input.external_references.some((entry) => !isPlainObject(entry)))) throw new Error("work_receipt.external_referencesが不正です。");
+    if (input.external_references != null) normalizeExternalReferences(input.external_references);
     for (const field of ["repository_context", "runtime_metadata"]) {
       if (input[field] != null && !isPlainObject(input[field])) throw new Error(`work_receipt.${field}が不正です。`);
     }
@@ -380,9 +395,10 @@ export function validateEntity(type, input) {
     }
   }
   if (type === "reference") {
-    if (!entityRefTypes.has(input.source_type) || !entityRefTypes.has(input.target_type)) throw new Error("referenceの参照先種別が不正です。");
-    if (!referenceRelationTypes.has(input.relation_type)) throw new Error("reference.relation_typeが不正です。");
-    if (input.source_type === input.target_type && input.source_id === input.target_id) throw new Error("Referenceで自分自身は参照できません。");
+    // normalizeReferenceAssertion owns the complete assertion validation.
+    // Keep this branch explicit so Reference does not silently fall back to a
+    // generic record contract.
+    normalizeReferenceAssertion(input);
   }
   if (type === "task_dependency" && input.task_id === input.depends_on_task_id) {
     throw new Error("TaskDependencyで自分自身は参照できません。");
@@ -487,9 +503,23 @@ export function normalizeTaskAssignment(input, previous = null) {
 
 export function normalizeEntity(type, input) {
   const normalized = { ...input };
+  if (type === "reference") Object.assign(normalized, normalizeReferenceAssertion(normalized, { writeBoundary: true }));
   if (type === "change_event") Object.assign(normalized, normalizeActivityEvent(normalized));
   // AI共通metadata（#294）。本文フィールドには触れず、概要・鮮度・根拠・公開範囲だけを揃える。
   if (hasAiMetadataContract(type)) Object.assign(normalized, normalizeAiMetadata(type, normalized));
+  if (type === "repository_context") {
+    const safeContext = normalizeRepositoryContext(normalized);
+    for (const key of Object.keys(normalized)) {
+      if (!repositoryContextRecordFields.has(key)) delete normalized[key];
+    }
+    Object.assign(normalized, safeContext);
+  }
+  if (type === "work_receipt" && normalized.external_references != null) {
+    normalized.external_references = normalizeExternalReferences(normalized.external_references);
+  }
+  if (type === "theme" || type === "project" || type === "task") {
+    Object.assign(normalized, normalizeRepositoryLinkFields(type, normalized));
+  }
   for (const field of requiredFieldsForEntityType(type)) {
     if (typeof normalized[field] === "string") normalized[field] = normalized[field].trim();
   }
