@@ -217,3 +217,22 @@ test("re-arming a sender releases the superseded token from the active ledger", 
   registry.consumeDisplayRequest(displayRequest());
   assert.equal(registry.issueSources(sources().slice(0, 1), context({ senderWebContentsId: 8, frameTreeNodeId: 18 })).length, 1);
 });
+
+test("display requestのoriginは末尾スラッシュ付きでも一致し、dev serverで録画を弾かない（#383）", async () => {
+  const { normalizeScreenRecordingSecurityOrigin, screenRecordingOriginsMatch } = await import("../src/shared/screenRecording.mjs");
+
+  // Chromiumはserialized originを末尾スラッシュ付きで渡す。
+  assert.equal(screenRecordingOriginsMatch("http://localhost:5173/", "http://localhost:5173"), true);
+  assert.equal(screenRecordingOriginsMatch("http://localhost:5173", "http://localhost:5173"), true);
+  assert.equal(normalizeScreenRecordingSecurityOrigin("http://localhost:5173/"), "http://localhost:5173");
+
+  // packaged版のfile:frameはopaque originで届くことがある。
+  assert.equal(screenRecordingOriginsMatch("file://", "file://"), true);
+  assert.equal(screenRecordingOriginsMatch("null", "file://"), true);
+
+  // 別originは通さない。opaque originをhttp frameへ流用させない。
+  assert.equal(screenRecordingOriginsMatch("http://localhost:5174/", "http://localhost:5173"), false);
+  assert.equal(screenRecordingOriginsMatch("null", "http://localhost:5173"), false);
+  assert.equal(screenRecordingOriginsMatch("http://localhost:5173", "file://"), false);
+  assert.equal(screenRecordingOriginsMatch("", "file://"), false);
+});

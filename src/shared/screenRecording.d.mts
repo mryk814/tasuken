@@ -84,6 +84,7 @@ export interface AuthorizedScreenRecordingGrant {
 
 export function sanitizeScreenRecordingSourceLabel(value: unknown, kind: ScreenRecordingSourceKind): string;
 export function normalizeScreenRecordingSecurityOrigin(value: unknown): string;
+export function screenRecordingOriginsMatch(requestOrigin: unknown, frameOrigin: unknown): boolean;
 export function validateScreenRecordingSourceProjection(value: unknown): Readonly<ScreenRecordingSourceProjection>;
 export function parseScreenRecordingArmRequest(value: unknown): Readonly<ScreenRecordingArmRequest>;
 export function buildScreenRecordingCapabilities(value: unknown): Readonly<ScreenRecordingCapabilities>;

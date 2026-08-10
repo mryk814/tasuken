@@ -77,10 +77,25 @@ export function normalizeScreenRecordingSecurityOrigin(value) {
     (parsed.protocol === "http:" || parsed.protocol === "https:")
     && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]")
   );
-  if (!localDevelopmentOrigin || !parsed.origin || parsed.username || parsed.password || value !== parsed.origin) {
+  // Chromiumは末尾スラッシュ付きのserialized originを渡すことがあるので、そこだけ許して正規化する。
+  const serialized = value === `${parsed.origin}/` ? parsed.origin : value;
+  if (!localDevelopmentOrigin || !parsed.origin || parsed.username || parsed.password || serialized !== parsed.origin) {
     throw new Error("画面録画のoriginが不正です。");
   }
   return parsed.origin;
+}
+
+/**
+ * display media requestのsecurity originとframeのoriginを突き合わせる。
+ * Chromiumは "http://localhost:5173/" のように末尾スラッシュ付きで渡すため、
+ * 生の文字列比較にするとdev serverでは必ず不一致になる。
+ */
+export function screenRecordingOriginsMatch(requestOrigin, frameOrigin) {
+  if (typeof requestOrigin !== "string" || typeof frameOrigin !== "string" || !requestOrigin || !frameOrigin) return false;
+  const request = requestOrigin === "file://" ? requestOrigin : requestOrigin.replace(/\/+$/, "");
+  // file:のframeはopaque origin（"null"）で届くことがある。
+  if (frameOrigin === "file://") return request === "file://" || request === "null";
+  return request === frameOrigin;
 }
 
 export function sanitizeScreenRecordingSourceLabel(value, kind) {

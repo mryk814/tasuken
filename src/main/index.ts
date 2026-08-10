@@ -33,6 +33,7 @@ import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import { configureMainLog, logMain } from "./log";
+import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
@@ -2271,10 +2272,11 @@ function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingSe
       if (!sender) throw new Error("画面録画の要求元が閉じられました。もう一度選択してください。");
       const parsedFrameUrl = new URL(frame.url);
       const frameOrigin = parsedFrameUrl.protocol === "file:" ? "file://" : parsedFrameUrl.origin;
-      const handlerOriginMatches = frameOrigin === "file://"
-        ? request.securityOrigin === "file://" || request.securityOrigin === "null"
-        : request.securityOrigin === frameOrigin;
-      if (!handlerOriginMatches) throw new Error("画面録画のoriginが一致しません。画面を再読み込みしてください。");
+      // Chromiumはsecurity originを "http://localhost:5173/" のように末尾スラッシュ付きで渡す。
+      // 生の文字列比較にすると、dev serverで動かしたときだけ必ず不一致になる。
+      if (!screenRecordingOriginsMatch(request.securityOrigin, frameOrigin)) {
+        throw new Error(`画面録画のoriginが一致しません。画面を再読み込みしてください。(request=${request.securityOrigin} frame=${frameOrigin})`);
+      }
       const grant = await screenRecording.consumePermissionRequest({
         senderWebContentsId: sender.id,
         frameTreeNodeId: frame.frameTreeNodeId,
