@@ -517,3 +517,27 @@ test("付箋表示対象は同じMemoのproperties_jsonへ保存し、閉じて�
   assert.equal(memoPresentation.isStickyMemoTarget({ ...marked, state: "archived" }), false);
   assert.equal(memoPresentation.isStickyMemoTarget({ ...marked, deleted_at: "2026-08-08T00:00:00Z" }), false);
 });
+
+test("録画中インジケータは録画に写り込まず、操作を本体へ転送する（#383）", () => {
+  const indicator = readFileSync("src/main/recordingIndicatorController.ts", "utf8");
+  const panel = readFileSync("src/renderer/src/features/workspace/components/ScreenRecorderPanel.tsx", "utf8");
+  const indicatorHtml = readFileSync("src/renderer/recording-indicator.html", "utf8");
+  const viteConfig = readFileSync("electron.vite.config.ts", "utf8");
+
+  // 本題。WDA_EXCLUDEFROMCAPTUREで自分自身を録画から外す。
+  assert.match(indicator, /win\.setContentProtection\(true\)/);
+  assert.match(indicator, /alwaysOnTop: true/);
+  // 表示に要らないものを別Windowへ渡さない。
+  assert.match(indicator, /return \{ state: input\.state, targetLabel, elapsedMs \}/);
+  assert.doesNotMatch(indicator, /sourceToken|stored_path|sourceId/);
+  // 録画本体はRendererが持つので、操作は本体へ転送する。
+  assert.match(indicator, /main\.webContents\.send\(IPC\.recordingIndicatorCommand, value\)/);
+  assert.match(panel, /workspaceApi\.onRecordingIndicatorCommand\([\s\S]*?stopRecording\(\)/);
+  // 録画が終わったらnullで畳む。出しっぱなしにしない。
+  assert.match(panel, /applyRecordingIndicator\(visible \? \{[\s\S]*?\} : null\)/);
+  assert.match(indicator, /if \(!state\) \{\s*\n\s*close\(\);/);
+  // 対象と経過を出す。
+  assert.match(indicatorHtml, /id="target"/);
+  assert.match(indicatorHtml, /id="elapsed"/);
+  assert.match(viteConfig, /recordingIndicator: resolve\(__dirname, "src\/renderer\/recording-indicator\.html"\)/);
+});

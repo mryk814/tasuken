@@ -90,6 +90,25 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
     onActiveChange?.(active);
   }, [active, onActiveChange, state]);
 
+  // 録画中は本体を開かなくても状態が分かるよう、録画に写り込まないインジケータへ流す（#383）。
+  useEffect(() => {
+    const visible = state === "recording" || state === "paused" || state === "stopping";
+    void workspaceApi.applyRecordingIndicator(visible ? {
+      state,
+      targetLabel: selectedSource?.label || "",
+      elapsedMs: Math.round(elapsedMs),
+    } : null).catch(() => undefined);
+  }, [elapsedMs, selectedSource, state]);
+
+  // インジケータの操作はMain経由で届く。録画本体はこの面が持っているため、ここで実行する。
+  useEffect(() => workspaceApi.onRecordingIndicatorCommand((command) => {
+    if (command === "pause") void pauseRecording();
+    else if (command === "resume") void resumeRecording();
+    else if (command === "stop") void stopRecording();
+    else if (command === "discard") void discardActive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
   function releaseStreams() {
     for (const stream of streamsRef.current) {
       for (const track of stream.getTracks()) track.stop();

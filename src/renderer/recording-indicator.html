@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>録画中</title>
+    <link rel="stylesheet" href="../../design-standard/tokens.css" />
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        font-family: var(--font-sans);
+        color: var(--color-text);
+        background: transparent;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface);
+        -webkit-app-region: drag;
+      }
+      button { -webkit-app-region: no-drag; }
+      .state {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        white-space: nowrap;
+        font-size: var(--text-xs);
+      }
+      .state::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: var(--radius-pill);
+        background: var(--color-text-muted);
+      }
+      .state.is-recording::before { background: var(--color-danger); }
+      .target {
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--text-xs);
+        color: var(--color-text-secondary);
+      }
+      .elapsed {
+        font: var(--text-sm) var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+      .actions { display: inline-flex; gap: var(--space-2); }
+      .actions button {
+        min-height: 26px;
+        padding: 0 var(--space-2);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        background: var(--color-surface-subtle);
+        color: var(--color-text);
+        font-size: var(--text-xs);
+      }
+      .actions button:hover { background: var(--color-surface-muted); }
+      .actions button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+      .actions button.primary {
+        border-color: var(--color-accent);
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+      .actions button.danger { color: var(--color-danger-strong); }
+    </style>
+  </head>
+  <body>
+    <span class="state" id="state">準備中</span>
+    <span class="target" id="target"></span>
+    <strong class="elapsed" id="elapsed">00:00</strong>
+    <span class="actions">
+      <button type="button" id="pause">一時停止</button>
+      <button type="button" id="stop" class="primary">停止</button>
+      <button type="button" id="discard" class="danger">破棄</button>
+    </span>
+    <script type="module">
+      const stateEl = document.querySelector("#state");
+      const targetEl = document.querySelector("#target");
+      const elapsedEl = document.querySelector("#elapsed");
+      const pauseButton = document.querySelector("#pause");
+      const stopButton = document.querySelector("#stop");
+      const discardButton = document.querySelector("#discard");
+      const api = window.recordingIndicatorApi;
+
+      const STATE_LABELS = {
+        recording: "録画中",
+        paused: "一時停止",
+        stopping: "停止しています",
+      };
+
+      function formatElapsed(milliseconds) {
+        const seconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1000));
+        return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+      }
+
+      function render(state) {
+        const kind = STATE_LABELS[state.state] ? state.state : "recording";
+        stateEl.textContent = STATE_LABELS[kind];
+        stateEl.classList.toggle("is-recording", kind === "recording");
+        targetEl.textContent = state.targetLabel || "";
+        targetEl.title = state.targetLabel || "";
+        elapsedEl.textContent = formatElapsed(state.elapsedMs);
+        pauseButton.textContent = kind === "paused" ? "再開" : "一時停止";
+        pauseButton.disabled = kind === "stopping";
+        stopButton.disabled = kind === "stopping";
+        discardButton.disabled = kind === "stopping";
+      }
+
+      pauseButton.addEventListener("click", () => { void api.command(pauseButton.textContent === "再開" ? "resume" : "pause"); });
+      stopButton.addEventListener("click", () => { void api.command("stop"); });
+      discardButton.addEventListener("click", () => { void api.command("discard"); });
+      api.onState(render);
+      void api.requestState();
+    </script>
+  </body>
+</html>

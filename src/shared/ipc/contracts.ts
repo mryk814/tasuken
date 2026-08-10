@@ -43,6 +43,15 @@ import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCapture
 import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest, BatchTranscriptionHistoryResult, BatchTranscriptionPreviewResult, BatchTranscriptionRunRequest, BatchTranscriptionRunResult } from "../batchTranscriptionIpc";
 import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
 
+/** 録画中インジケータが表示する状態（#383）。pathやsource IDは載せない。 */
+export interface RecordingIndicatorState {
+  state: "recording" | "paused" | "stopping";
+  targetLabel: string;
+  elapsedMs: number;
+}
+
+export type RecordingIndicatorCommand = "pause" | "resume" | "stop" | "discard";
+
 export const IPC = {
   workspaceLoad: "workspace:load",
   workspaceBootstrap: "workspace:bootstrap",
@@ -82,6 +91,10 @@ export const IPC = {
   screenRecordingCapabilities: "screen-recording:capabilities",
   screenRecordingListSources: "screen-recording:list-sources",
   screenRecordingArm: "screen-recording:arm",
+  recordingIndicatorState: "recording-indicator:state",
+  recordingIndicatorRequestState: "recording-indicator:request-state",
+  recordingIndicatorCommand: "recording-indicator:command",
+  recordingIndicatorApply: "recording-indicator:apply",
   videoImportPrepare: "video-import:prepare",
   videoImportListPrepared: "video-import:list-prepared",
   videoImportCommit: "video-import:commit",
@@ -583,6 +596,8 @@ export interface ResearchDeskApi {
     capabilities(): Promise<ScreenRecordingEnvironment>;
     listSources(): Promise<readonly Readonly<ScreenRecordingSourceProjection>[]>;
     arm(request: ScreenRecordingArmRequest): Promise<ArmedScreenRecordingProjection>;
+    applyIndicator(state: RecordingIndicatorState | null): Promise<boolean>;
+    onIndicatorCommand(callback: (command: RecordingIndicatorCommand) => void): () => void;
   };
   app: {
     reload(): Promise<boolean>;

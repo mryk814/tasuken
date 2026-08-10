@@ -33,6 +33,7 @@ import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import { configureMainLog, logMain } from "./log";
+import { createRecordingIndicatorController } from "./recordingIndicatorController";
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
@@ -2466,6 +2467,10 @@ async function startDesktopApp(): Promise<void> {
     executeCommand: (envelope) => applicationCommands.execute(envelope),
   });
   todayMiniController.registerIpc();
+  createRecordingIndicatorController({
+    satelliteWindows,
+    getMainWindow: () => findMainWindow(),
+  }).registerIpc();
   reminderController = createReminderController({
     repository: workspaceRepository,
     getAppIconPath,

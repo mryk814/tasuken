@@ -234,6 +234,13 @@ export const workspaceApi = {
   listScreenRecordingSources() {
     return desktopApi().screenRecording.listSources();
   },
+  /** 録画中インジケータへ表示状態を送る。終了時はnullで畳む（#383）。 */
+  applyRecordingIndicator(state: import("../../../shared/ipc/contracts").RecordingIndicatorState | null) {
+    return desktopApi().screenRecording.applyIndicator(state);
+  },
+  onRecordingIndicatorCommand(callback: (command: import("../../../shared/ipc/contracts").RecordingIndicatorCommand) => void) {
+    return desktopApi().screenRecording.onIndicatorCommand(callback);
+  },
   armScreenRecording(request: import("../../../shared/screenRecording.mjs").ScreenRecordingArmRequest) {
     return desktopApi().screenRecording.arm(request);
   },

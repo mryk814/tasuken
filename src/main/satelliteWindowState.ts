@@ -12,7 +12,7 @@ import path from "node:path";
  */
 
 /** 切り離せる面の種類。EntityのtypeではなくUIの面としてのkind。 */
-export type SatelliteWindowKind = "memo" | "note" | "today";
+export type SatelliteWindowKind = "memo" | "note" | "today" | "recording";
 
 export interface SatelliteWindowKey {
   kind: SatelliteWindowKind;

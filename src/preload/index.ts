@@ -115,6 +115,12 @@ const api: ResearchDeskApi = {
     capabilities: () => ipcRenderer.invoke(IPC.screenRecordingCapabilities),
     listSources: () => ipcRenderer.invoke(IPC.screenRecordingListSources),
     arm: (request) => ipcRenderer.invoke(IPC.screenRecordingArm, request),
+    applyIndicator: (state) => ipcRenderer.invoke(IPC.recordingIndicatorApply, state),
+    onIndicatorCommand: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, command: Parameters<typeof callback>[0]): void => callback(command);
+      ipcRenderer.on(IPC.recordingIndicatorCommand, handler);
+      return () => { ipcRenderer.removeListener(IPC.recordingIndicatorCommand, handler); };
+    },
   },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),

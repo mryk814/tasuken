@@ -68,6 +68,7 @@
 | Focus Session | Taskを中心に関連Note / Artifact / Resource、作業中Scratchpad、経過時間を一面へ集める単一active session。終了時にTask状態・Note化・次Task・Activity要約を整理する |
 | 保存待ち | Studioの共有表。音声・画面録画のprepared sessionと復旧対象を種別列付きで1つに並べる（#383）。内容を確認して保存・再試行・復旧・破棄を選ぶ。画面録画はここで紐づけ先も選ぶ。0件の通常詳細には説明panelを出さない |
 | 保存待ち画面録画 | 画面/window録画の停止後または中断復旧後、Video Artifact確定前のsession。Inboxでpreviewし「Artifactへ保存」「録画を復旧」「保存を再試行」「破棄」を状態に応じて選ぶ |
+| 録画中インジケータ | `recordingIndicatorController.ts` / `recording-indicator.html` | 画面録画中だけ出る細い常時最前面のWindow。録画対象・経過時間・一時停止/停止/破棄を持つ。`setContentProtection(true)`（WDA_EXCLUDEFROMCAPTURE）で**自分自身は録画に写らない**。録画本体はStudioのRendererが持つので、操作はMain経由で本体へ転送する（#383） |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
 | 付箋対象 | Top Barの一括展開・収納が対象にするMemoか（`capture_entry.properties_json.presentation = "floating"`）。Inboxのピンと付箋Window左上のピンはこの入切だけを意味し、押しても本文は消えない。正本はDB（#377） |
 | 付箋表示中 | いま実際にデスクトップへ付箋Windowが出ているか。正本はMainのsatellite window registryで、Inboxは購読して「表示中」バッジに出す。収納しても付箋対象は残る（#377） |
