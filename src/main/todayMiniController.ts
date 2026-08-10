@@ -34,6 +34,7 @@ export interface TodayMiniController {
   getWindow: () => BrowserWindow | null;
   show: () => void;
   hide: () => boolean;
+  toggle: () => boolean;
   openTask: (taskId: string) => boolean;
   registerIpc: () => void;
 }
@@ -65,7 +66,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
       title: "今日やること",
       width: 380,
       height: 520,
-      minWidth: 320,
+      minWidth: 300,
       minHeight: 360,
       page: "today-mini",
       preload: path.join(__dirname, "../preload/todayMini.mjs"),
@@ -99,11 +100,21 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     return hidden;
   }
 
+  function toggle(): boolean {
+    const current = options.satelliteWindows.get(windowKey);
+    if (current && !current.isDestroyed() && current.isVisible()) {
+      hide();
+      return false;
+    }
+    show();
+    return true;
+  }
+
   function pinTopRight(): boolean {
     const win = ensureWindow();
     const bounds = win.getBounds();
     const { workArea } = screen.getDisplayMatching(bounds);
-    const width = Math.min(PINNED_WIDTH, Math.max(320, workArea.width - SCREEN_MARGIN * 2));
+    const width = Math.min(PINNED_WIDTH, Math.max(300, workArea.width - SCREEN_MARGIN * 2));
     const height = Math.min(PINNED_HEIGHT, Math.max(360, workArea.height - SCREEN_MARGIN * 2));
     const x = workArea.x + workArea.width - width - SCREEN_MARGIN;
     const y = workArea.y + SCREEN_MARGIN;
@@ -204,6 +215,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
       show();
       return true;
     });
+    ipcMain.handle(IPC.todayMiniToggleWindow, () => toggle());
     ipcMain.handle(IPC.todayMiniPinTopRight, () => pinTopRight());
     ipcMain.handle(IPC.todayMiniHide, () => hide());
     ipcMain.handle(IPC.todayMiniList, () => listTasks());
@@ -243,6 +255,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     getWindow: () => options.satelliteWindows.get(windowKey),
     show,
     hide,
+    toggle,
     openTask,
     registerIpc,
   };

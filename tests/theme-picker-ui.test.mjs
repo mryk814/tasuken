@@ -16,7 +16,7 @@ test("canonical picker exposes personal and explicit none together", () => {
     { allowPersonal: true, allowNone: true },
   );
   assert.deepEqual(options.slice(0, 2), [
-    { value: PERSONAL_DEFAULT_THEME_ID, label: "個人業務", kind: "personal" },
+    { value: PERSONAL_DEFAULT_THEME_ID, label: "個人業務", kind: "personal", colorToken: "chart-6" },
     { value: "", label: "Themeなし", kind: "none" },
   ]);
   assert.equal(options.some((option) => option.value === "all"), false, "all is a filter projection, not Themeなし");

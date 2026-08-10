@@ -1290,9 +1290,9 @@ export function WorkspaceApp() {
   const dispatchNotesCommand = (command: string) => {
     window.dispatchEvent(new CustomEvent("tasken:notes-command", { detail: command }));
   };
-  const openTodayWindow = () => {
-    void workspaceApi.showTodayMiniWindow().catch((error) => {
-      setToast(`Todayウィンドウを表示できませんでした。${errorMessage(error)}`, "danger");
+  const toggleTodayWindow = () => {
+    void workspaceApi.toggleTodayMiniWindow().catch((error) => {
+      setToast(`Todayウィンドウを表示／収納できませんでした。${errorMessage(error)}`, "danger");
     });
   };
   const toggleStickyWindows = () => {
@@ -1333,10 +1333,10 @@ export function WorkspaceApp() {
     },
     {
       id: "open:today-window",
-      label: "今日のTaskを別ウィンドウで表示",
+      label: "今日のTaskウィンドウを表示／収納",
       keywords: ["today", "今日", "ポップアウト", "window"],
       category: "Commands",
-      execute: openTodayWindow,
+      execute: toggleTodayWindow,
     },
     { id: "navigate:today", label: `${routeLabel("today")}へ移動`, keywords: ["今日", "home"], category: "Commands", execute: () => navigate("today") },
     { id: "navigate:todo", label: `${routeLabel("todo")}へ移動`, keywords: ["task", "タスク"], category: "Commands", execute: () => navigate("todo") },
@@ -1476,7 +1476,7 @@ export function WorkspaceApp() {
     stickyWindowsShown: stickyMemoTargetIds.length > 0
       && stickyMemoTargetIds.every((memoId) => openStickyMemoIds.includes(memoId)),
     toggleStickyWindows,
-    openTodayWindow,
+    toggleTodayWindow,
   };
 
   const titleBar = (

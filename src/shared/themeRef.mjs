@@ -6,6 +6,26 @@ export const PERSONAL_DEFAULT_THEME_KIND = "personal_default";
 
 /** Empty/null is the explicit Themeなし value; it is never a personal identity. */
 export const THEME_NONE_VALUE = "";
+export const THEME_COLOR_TOKENS = [
+  "chart-1",
+  "chart-2",
+  "chart-3",
+  "chart-4",
+  "chart-5",
+  "chart-6",
+  "theme-extra-1",
+  "theme-extra-2",
+  "theme-extra-3",
+  "theme-extra-4",
+];
+const THEME_COLOR_TOKEN_SET = new Set(THEME_COLOR_TOKENS);
+
+function themeColorToken(theme, index) {
+  const color = typeof theme?.color === "string" ? theme.color.trim() : "";
+  return THEME_COLOR_TOKEN_SET.has(color)
+    ? color
+    : THEME_COLOR_TOKENS[((index % THEME_COLOR_TOKENS.length) + THEME_COLOR_TOKENS.length) % THEME_COLOR_TOKENS.length];
+}
 
 export function normalizeThemeId(value) {
   const id = typeof value === "string" ? value.trim() : "";
@@ -55,14 +75,25 @@ export function themeIdForEntityType(type) {
 
 export function themePickerOptions(themes = [], { allowPersonal = true, allowNone = false } = {}) {
   const options = [];
+  const personal = themes.find((theme) => normalizeThemeId(theme?.id) === PERSONAL_DEFAULT_THEME_ID);
   if (allowPersonal) {
-    options.push({ value: PERSONAL_DEFAULT_THEME_ID, label: PERSONAL_DEFAULT_THEME_NAME, kind: "personal" });
+    options.push({
+      value: PERSONAL_DEFAULT_THEME_ID,
+      label: PERSONAL_DEFAULT_THEME_NAME,
+      kind: "personal",
+      colorToken: themeColorToken(personal || { color: "chart-6" }, 5),
+    });
   }
   if (allowNone) options.push({ value: THEME_NONE_VALUE, label: "Themeなし", kind: "none" });
-  for (const theme of themes) {
+  for (const [index, theme] of themes.entries()) {
     const id = normalizeThemeId(theme?.id);
     if (!id || id === PERSONAL_DEFAULT_THEME_ID) continue;
-    options.push({ value: id, label: theme.name || id, kind: "theme" });
+    options.push({
+      value: id,
+      label: theme.name || id,
+      kind: "theme",
+      colorToken: themeColorToken(theme, index),
+    });
   }
   return options;
 }

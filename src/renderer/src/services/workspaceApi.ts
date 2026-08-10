@@ -276,6 +276,9 @@ export const workspaceApi = {
   showTodayMiniWindow() {
     return desktopApi().app.showTodayMiniWindow();
   },
+  toggleTodayMiniWindow() {
+    return desktopApi().app.toggleTodayMiniWindow();
+  },
   showMemoStickyWindow(memoId: string) {
     return desktopApi().app.showMemoStickyWindow(memoId);
   },

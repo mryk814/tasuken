@@ -8,8 +8,10 @@
       * { box-sizing: border-box; }
       body {
         min-width: 300px;
+        max-width: 100%;
         min-height: 100vh;
         margin: 0;
+        overflow-x: hidden;
         background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-subtle-bg-strong) 58%, var(--color-bg) 100%);
         color: var(--color-text);
         font-family: var(--font-base);
@@ -24,10 +26,12 @@
       button:active { transform: translateY(1px); }
       button:focus-visible, input:focus-visible { outline: 2px solid var(--color-on-accent); outline-offset: 2px; }
       .app-shell {
+        max-width: 100%;
         min-height: 100vh;
         display: grid;
         grid-template-rows: auto 1fr auto;
         padding: 22px 18px 14px;
+        overflow-x: hidden;
         -webkit-app-region: drag;
       }
       button, input, main, .add-task-bar { -webkit-app-region: no-drag; }
@@ -203,7 +207,7 @@
       .open-button:hover { background: var(--color-surface); }
       .add-task-bar {
         display: grid;
-        grid-template-columns: 22px minmax(0, 1fr) minmax(112px, 148px);
+        grid-template-columns: minmax(0, 1fr) 34px;
         align-items: center;
         gap: var(--space-2);
         min-height: 48px;
@@ -214,12 +218,6 @@
         color: var(--color-on-accent);
       }
       .add-task-bar:hover { background: color-mix(in srgb, var(--color-text) 58%, transparent); }
-      .add-icon {
-        width: 22px;
-        height: 22px;
-        border: 2px solid color-mix(in srgb, var(--color-on-accent) 88%, transparent);
-        border-radius: 999px;
-      }
       .add-input {
         width: 100%;
         min-height: 30px;
@@ -230,13 +228,86 @@
       }
       .add-input::placeholder { color: color-mix(in srgb, var(--color-on-accent) 88%, transparent); }
       .add-input:disabled { opacity: .62; }
+      .add-submit {
+        width: 34px;
+        min-height: 32px;
+        padding: 0;
+        border: 1px solid color-mix(in srgb, var(--color-on-accent) 44%, transparent);
+        border-radius: var(--radius-md);
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        font-size: var(--text-lg);
+        font-weight: 800;
+      }
+      .add-submit:hover { background: var(--color-accent-hover); }
+      .add-submit:active { transform: scale(.98); }
+      .add-submit:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+      .add-submit:disabled { cursor: not-allowed; opacity: .62; }
       .add-theme-picker {
         min-width: 0;
         width: 100%;
-        grid-column: 2 / -1;
-        overflow-x: auto;
+        max-width: 100%;
+        grid-column: 1 / -1;
       }
-      .theme-picker-standalone { display: flex; gap: var(--space-1); min-width: max-content; }
+      .theme-picker-standalone { position: relative; min-width: 0; max-width: 100%; }
+      .theme-picker-trigger,
+      .theme-picker-option {
+        display: grid;
+        grid-template-columns: 10px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--space-2);
+        width: 100%;
+        min-width: 0;
+        min-height: 30px;
+        padding: 0 var(--space-2);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface-subtle);
+        color: var(--color-text);
+        text-align: left;
+      }
+      .theme-picker-trigger:hover,
+      .theme-picker-option:hover { background: var(--color-surface-muted); }
+      .theme-picker-trigger:focus-visible,
+      .theme-picker-option:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+      .theme-picker-color {
+        width: 8px;
+        height: 8px;
+        border-radius: var(--radius-pill);
+        background: var(--theme-picker-color, var(--color-chart-6));
+      }
+      .theme-picker-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .theme-picker-caret,
+      .theme-picker-selected-marker { color: var(--color-text-secondary); }
+      .theme-picker-menu {
+        position: absolute;
+        z-index: 5;
+        left: 0;
+        right: 0;
+        bottom: calc(100% + var(--space-1));
+        display: grid;
+        gap: var(--space-1);
+        max-height: min(220px, 45vh);
+        padding: var(--space-1);
+        overflow-y: auto;
+        overflow-x: hidden;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface);
+        box-shadow: var(--shadow-md);
+      }
+      .theme-picker-menu[hidden] { display: none; }
+      .theme-picker-option.is-selected {
+        border-color: var(--color-accent);
+        background: var(--color-accent-subtle-bg-strong);
+        color: var(--color-accent-strong);
+        font-weight: 800;
+      }
       .theme-picker-standalone .theme-chip {
         min-height: 28px;
         padding: 0 var(--space-2);
@@ -256,7 +327,6 @@
       .theme-picker-standalone .theme-chip:disabled { cursor: not-allowed; opacity: .62; }
       @media (max-width: 390px) {
         .app-shell { padding-inline: 12px; }
-        .add-task-bar { grid-template-columns: 22px minmax(0, 1fr); }
       }
     </style>
   </head>
@@ -284,8 +354,8 @@
         <div class="state"><strong>読み込み中</strong><span>今日のタスクを確認しています。</span></div>
       </main>
       <form class="add-task-bar" id="add-task-form">
-        <span class="add-icon" aria-hidden="true"></span>
         <input class="add-input" id="add-task-input" autocomplete="off" placeholder="タスクの追加" aria-label="タスクの追加" />
+        <button class="add-submit" id="add-task-submit" type="submit" aria-label="タスクを追加" title="タスクを追加">＋</button>
         <div class="add-theme-picker" id="add-task-theme-picker"></div>
       </form>
     </div>
@@ -300,7 +370,8 @@
       const closeWindowButton = document.querySelector("#close-window");
       const addTaskForm = document.querySelector("#add-task-form");
       const addTaskInput = document.querySelector("#add-task-input");
-      const addTaskThemePicker = createThemePicker({ label: "TaskのTheme" });
+      const addTaskSubmit = document.querySelector("#add-task-submit");
+      const addTaskThemePicker = createThemePicker({ label: "TaskのTheme", variant: "compact-popover" });
       document.querySelector("#add-task-theme-picker").append(addTaskThemePicker.element);
 
       // 日付は起動時に固定せず、日付をまたいでも表示が古くならないよう都度更新する。
@@ -339,8 +410,19 @@
       }
 
       async function loadThemeOptions() {
+        const selectedValue = addTaskThemePicker.getValue();
+        const previousLabel = addTaskThemePicker.element.querySelector(".theme-picker-trigger")?.getAttribute("title")
+          ?.replace(/（利用不可）$/, "");
         const options = await window.todayMiniApi.listThemes();
-        addTaskThemePicker.setOptions(options);
+        if (selectedValue && !options.some((option) => option.value === selectedValue)) {
+          options.push({
+            value: selectedValue,
+            label: `${previousLabel || "Theme不明"}（利用不可）`,
+            kind: "theme",
+            unavailable: true,
+          });
+        }
+        addTaskThemePicker.setOptions(options, selectedValue || undefined);
       }
 
       function scheduleHint(task) {
@@ -382,9 +464,11 @@
           content.innerHTML = tasks.length
             ? `<div class="task-list">${tasks.map(rowHtml).join("")}</div>`
             : stateHtml("今日のタスクはありません", "下のバーから追加できます。");
+          return true;
         } catch (error) {
           count.textContent = "--";
           content.innerHTML = stateHtml("読み込めませんでした", error instanceof Error ? error.message : String(error), "is-error");
+          return false;
         } finally {
           refreshButton.disabled = false;
         }
@@ -398,12 +482,14 @@
         const title = addTaskInput.value.trim();
         if (!title) return;
         addTaskInput.disabled = true;
+        addTaskSubmit.disabled = true;
         addTaskThemePicker.setDisabled(true);
         try {
-          await render(() => window.todayMiniApi.addTask({ title, themeId: addTaskThemePicker.getValue() }));
-          addTaskInput.value = "";
+          const saved = await render(() => window.todayMiniApi.addTask({ title, themeId: addTaskThemePicker.getValue() }));
+          if (saved) addTaskInput.value = "";
         } finally {
           addTaskInput.disabled = false;
+          addTaskSubmit.disabled = false;
           addTaskThemePicker.setDisabled(false);
           addTaskInput.focus();
         }
@@ -430,6 +516,7 @@
         syncing = true;
         try {
           applyToday();
+          await loadThemeOptions();
           await render(window.todayMiniApi.refresh);
         } finally {
           syncing = false;

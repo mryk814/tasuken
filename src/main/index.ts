@@ -375,6 +375,11 @@ interface SmokeMiniResult {
   todayMiniTaskVisible: boolean;
   todayMiniCompletionSaved: boolean;
   todayMiniOpenDetail: boolean;
+  todayMiniToggleRestored: boolean;
+  todayMiniResponsive: boolean;
+  todayMiniThemeKeyboard: boolean;
+  todayMiniThemeSaved: boolean;
+  todayMiniFailurePreserved: boolean;
 }
 
 function recordSmoke(stage: string, details: Record<string, unknown> = {}): void {
@@ -457,6 +462,11 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
   const smokeTaskTitle = `Todayミニ動作確認 ${Date.now()}`;
   const smokeTaskId = randomUUID();
   const smokeThemeId = `smoke-theme-${Date.now()}`;
+  const todayMiniThemeMatrix = Array.from({ length: 20 }, (_, index) => ({
+    id: `today-mini-theme-${Date.now()}-${index}`,
+    name: index === 19 ? "とても長い日本語のTheme名を省略表示して全文をtooltipで確認する" : `Today Theme ${String(index + 1).padStart(2, "0")}`,
+    color: ["chart-1", "chart-2", "chart-3", "chart-4", "chart-5", "chart-6", "theme-extra-1", "theme-extra-2", "theme-extra-3", "theme-extra-4"][index % 10],
+  }));
   const markdownBody = `---
 theme: smoke
 type: report
@@ -610,6 +620,9 @@ flowchart LR
       await delay(200);
 
       await window.api.entities.save("theme", { id: ${JSON.stringify(smokeThemeId)}, name: "Smoke Theme", code: "SMOKE", status: "active" });
+      for (const theme of ${JSON.stringify(todayMiniThemeMatrix)}) {
+        await window.api.entities.save("theme", { ...theme, status: "active" });
+      }
       const smokeImage = await window.api.attachments.saveMarkdownImage({
         fileName: "smoke.png",
         mimeType: "image/png",
@@ -1254,6 +1267,11 @@ flowchart LR
     todayMiniTaskVisible: false,
     todayMiniCompletionSaved: false,
     todayMiniOpenDetail: false,
+    todayMiniToggleRestored: false,
+    todayMiniResponsive: false,
+    todayMiniThemeKeyboard: false,
+    todayMiniThemeSaved: false,
+    todayMiniFailurePreserved: false,
   };
   const todayMiniWindow = todayMiniController?.getWindow();
   const todayMini = todayMiniWindow && !todayMiniWindow.isDestroyed() ? todayMiniWindow : null;
@@ -1266,6 +1284,70 @@ flowchart LR
     }
     mini.todayMiniOpened = created.todayMiniWindowOpened && todayMini.isVisible();
     mini.todayMiniAlwaysOnTop = todayMini.isAlwaysOnTop();
+    const initialMiniId = todayMini.webContents.id;
+    const initialMiniBounds = todayMini.getBounds();
+    const toggleResult = await window.webContents.executeJavaScript(`
+      (async () => {
+        const hidden = await window.api.app.toggleTodayMiniWindow();
+        const shown = await window.api.app.toggleTodayMiniWindow();
+        return { hidden, shown };
+      })()
+    `) as { hidden: boolean; shown: boolean };
+    mini.todayMiniToggleRestored = toggleResult.hidden === false
+      && toggleResult.shown === true
+      && todayMini.isVisible()
+      && todayMini.webContents.id === initialMiniId
+      && todayMini.getBounds().x === initialMiniBounds.x
+      && todayMini.getBounds().y === initialMiniBounds.y
+      && todayMini.getBounds().width === initialMiniBounds.width
+      && todayMini.getBounds().height === initialMiniBounds.height;
+    const longTheme = todayMiniThemeMatrix.at(-1)!;
+    await todayMini.webContents.executeJavaScript(`
+      (() => {
+        const trigger = document.querySelector(".theme-picker-trigger");
+        trigger?.click();
+        [...document.querySelectorAll(".theme-picker-option")]
+          .find((candidate) => candidate.getAttribute("title") === ${JSON.stringify(longTheme.name)})?.click();
+      })()
+    `);
+    const responsiveResults: boolean[] = [];
+    for (const width of [300, 320, 360, 420]) {
+      todayMini.setSize(width, Math.max(360, initialMiniBounds.height), false);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      responsiveResults.push(await todayMini.webContents.executeJavaScript(`
+        (() => {
+          const doc = document.scrollingElement;
+          const form = document.querySelector(".add-task-bar");
+          const trigger = document.querySelector(".theme-picker-trigger");
+          const submit = document.querySelector("#add-task-submit");
+          trigger?.click();
+          const menu = document.querySelector(".theme-picker-menu");
+          const menuRect = menu?.getBoundingClientRect();
+          const triggerRect = trigger?.getBoundingClientRect();
+          const result = Boolean(doc && form && trigger && submit && menu && menuRect
+            && menu.hidden === false
+            && menuRect.width > 0
+            && menuRect.height > 0
+            && triggerRect && triggerRect.width > 0
+            && trigger.getAttribute("title") === ${JSON.stringify(longTheme.name)}
+            && doc.scrollWidth <= doc.clientWidth + 1
+            && form.scrollWidth <= form.clientWidth + 1
+            && trigger.getBoundingClientRect().right <= innerWidth + 1
+            && submit.getBoundingClientRect().right <= innerWidth + 1
+            && menu.querySelectorAll(".theme-picker-option").length >= 21
+            && menu.scrollWidth <= menu.clientWidth + 1
+            && menu.scrollHeight > menu.clientHeight
+            && menuRect.left >= -1
+            && menuRect.right <= innerWidth + 1
+            && menuRect.top >= -1
+            && menuRect.bottom <= innerHeight + 1);
+          trigger?.click();
+          return result;
+        })()
+      `) as boolean);
+    }
+    todayMini.setBounds(initialMiniBounds, false);
+    mini.todayMiniResponsive = responsiveResults.every(Boolean);
     const miniInteraction = await todayMini.webContents.executeJavaScript(`
       (async () => {
         const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1283,6 +1365,123 @@ flowchart LR
       })()
     `) as Pick<SmokeMiniResult, "todayMiniTaskVisible" | "todayMiniCompletionSaved" | "todayMiniOpenDetail">;
     mini = { ...mini, ...miniInteraction };
+
+    await todayMini.webContents.executeJavaScript(`
+      (() => {
+        const trigger = document.querySelector(".theme-picker-trigger");
+        trigger?.focus();
+      })()
+    `);
+    for (const keyCode of ["ArrowDown"]) {
+      todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode });
+      todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode });
+    }
+    await todayMini.webContents.executeJavaScript(`
+      (() => {
+        const option = [...document.querySelectorAll(".theme-picker-option")]
+          .find((candidate) => candidate.getAttribute("title") === "Smoke Theme");
+        option?.focus();
+      })()
+    `);
+    for (const keyCode of ["ArrowDown", "ArrowUp", "ENTER"]) {
+      todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode });
+      todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    mini.todayMiniThemeKeyboard = await todayMini.webContents.executeJavaScript(`
+      document.querySelector(".theme-picker-trigger")?.getAttribute("title") === "Smoke Theme"
+        && document.activeElement === document.querySelector(".theme-picker-trigger")
+    `) as boolean;
+    const miniAddedTitle = `Today追加動作確認 ${Date.now()}`;
+    await todayMini.webContents.executeJavaScript(`
+      (() => {
+        const input = document.querySelector("#add-task-input");
+        input.value = ${JSON.stringify(miniAddedTitle)};
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+      })()
+    `);
+    todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
+    todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
+    const enterAdded = await todayMini.webContents.executeJavaScript(`
+      (async () => {
+        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const input = document.querySelector("#add-task-input");
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          if (document.body.innerText.includes(${JSON.stringify(miniAddedTitle)})) break;
+          await delay(100);
+        }
+        const added = (await window.todayMiniApi.list()).find((task) => task.title === ${JSON.stringify(miniAddedTitle)});
+        return Boolean(added?.themeName === "Smoke Theme" && input.value === "" && document.querySelector(".theme-picker-trigger")?.getAttribute("title") === "Smoke Theme");
+      })()
+    `) as boolean;
+    const enterSavedTask = (workspaceRepository.list("task") as Entity[])
+      .find((task) => task.title === miniAddedTitle);
+    const miniButtonTitle = `Today＋動作確認 ${Date.now()}`;
+    const submitPoint = await todayMini.webContents.executeJavaScript(`
+      (() => {
+        const input = document.querySelector("#add-task-input");
+        input.value = ${JSON.stringify(miniButtonTitle)};
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        const rect = document.querySelector("#add-task-submit")?.getBoundingClientRect();
+        return rect ? { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) } : null;
+      })()
+    `) as { x: number; y: number } | null;
+    if (submitPoint) {
+      todayMini.webContents.sendInputEvent({ type: "mouseDown", x: submitPoint.x, y: submitPoint.y, button: "left", clickCount: 1 });
+      todayMini.webContents.sendInputEvent({ type: "mouseUp", x: submitPoint.x, y: submitPoint.y, button: "left", clickCount: 1 });
+    }
+    const buttonAdded = await todayMini.webContents.executeJavaScript(`
+      (async () => {
+        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          if (document.body.innerText.includes(${JSON.stringify(miniButtonTitle)})) break;
+          await delay(100);
+        }
+        return Boolean(document.body.innerText.includes(${JSON.stringify(miniButtonTitle)})
+          && document.querySelector("#add-task-input")?.value === "");
+      })()
+    `) as boolean;
+    const buttonSavedTask = (workspaceRepository.list("task") as Entity[])
+      .find((task) => task.title === miniButtonTitle);
+    mini.todayMiniThemeSaved = enterAdded
+      && enterSavedTask?.project_id === smokeThemeId
+      && buttonAdded
+      && buttonSavedTask?.project_id === smokeThemeId;
+
+    const failedTheme = todayMiniThemeMatrix.at(-1)!;
+    await todayMini.webContents.executeJavaScript(`
+      (() => {
+        const trigger = document.querySelector(".theme-picker-trigger");
+        trigger?.click();
+        [...document.querySelectorAll(".theme-picker-option")]
+          .find((candidate) => candidate.getAttribute("title") === ${JSON.stringify(failedTheme.name)})?.click();
+        const input = document.querySelector("#add-task-input");
+        input.value = "失敗しても残る入力";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()
+    `);
+    workspaceRepository.remove("theme", failedTheme.id);
+    todayMini.webContents.send(IPC.todayMiniRefresh);
+    mini.todayMiniFailurePreserved = await todayMini.webContents.executeJavaScript(`
+      (async () => {
+        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          if (document.querySelector(".theme-picker-trigger")?.dataset.unavailable === "true") break;
+          await delay(50);
+        }
+        document.querySelector("#add-task-form")?.requestSubmit();
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          if (document.querySelector(".state.is-error")) break;
+          await delay(100);
+        }
+        return document.querySelector("#add-task-input")?.value === "失敗しても残る入力"
+          && document.querySelector(".theme-picker-trigger")?.getAttribute("title") === ${JSON.stringify(`${todayMiniThemeMatrix.at(-1)!.name}（利用不可）`)}
+          && document.querySelector(".theme-picker-trigger")?.dataset.unavailable === "true"
+          && document.querySelector(".theme-picker-trigger .theme-picker-color")?.style.getPropertyValue("--theme-picker-color") === "var(--color-border-strong)"
+          && !document.querySelector("#add-task-submit")?.disabled;
+      })()
+    `) as boolean;
   }
   const detailOpened = await window.webContents.executeJavaScript(`
     (async () => {
@@ -1477,6 +1676,11 @@ flowchart LR
         && result.todayMiniTaskVisible
         && result.todayMiniCompletionSaved
         && result.todayMiniOpenDetail
+        && result.todayMiniToggleRestored
+        && result.todayMiniResponsive
+        && result.todayMiniThemeKeyboard
+        && result.todayMiniThemeSaved
+        && result.todayMiniFailurePreserved
         && result.clipboardWritten
         && result.sketchClipboardWritten
         && result.sketchClipboardPasted

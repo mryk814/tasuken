@@ -142,15 +142,22 @@ test("位置・サイズはEntityごとに覚え、忘れられる（#290）", (
   const store = state.createSatelliteWindowStateStore(filePath);
   const memo = { kind: "memo", entityId: "memo-1" };
   const note = { kind: "note", entityId: "note-1" };
+  const today = { kind: "today", entityId: "today" };
 
   assert.equal(store.read(memo), null, "未保存なら既定位置で開く");
   store.write(memo, { x: 10, y: 20, width: 300, height: 400 });
   store.write(note, { x: 50, y: 60, width: 800, height: 600 });
+  store.write(today, { x: 70, y: 80, width: 360, height: 520 });
   assert.deepEqual(store.read(memo), { x: 10, y: 20, width: 300, height: 400 });
   assert.deepEqual(store.read(note), { x: 50, y: 60, width: 800, height: 600 });
 
   // 別インスタンスからも読める（再起動後の復元）。
   assert.deepEqual(state.createSatelliteWindowStateStore(filePath).read(memo), { x: 10, y: 20, width: 300, height: 400 });
+  assert.deepEqual(
+    state.createSatelliteWindowStateStore(filePath).read(today),
+    { x: 70, y: 80, width: 360, height: 520 },
+    "Today固有の四辺boundsもfresh processで復元する",
+  );
 
   store.forget(memo);
   assert.equal(store.read(memo), null);
@@ -274,10 +281,13 @@ test("Todayの表示状態はregistryのvisibility遷移を通知する（#327�
   assert.match(registrySource, /if \(wasVisible && !window\.isVisible\(\)\) options\.onChanged\?\.\(\);/);
   assert.match(registrySource, /focus\(key\)[\s\S]*reveal\(window\)/);
   assert.match(registrySource, /window\.on\("closed"[\s\S]*options\.onChanged\?\.\(\);/);
+  assert.match(mainSource, /todayMiniToggleRestored/);
+  assert.match(mainSource, /toggleResult\.hidden === false[\s\S]*toggleResult\.shown === true/);
 });
 
 test("Top BarのToday／付箋はicon中心で状態を色だけに頼らない（#327）", () => {
-  assert.match(shellSource, /aria-label="Todayウィンドウを表示"[\s\S]*title="Todayウィンドウを表示"[\s\S]*aria-pressed=\{launcher\.todayWindowOpen\}/);
+  assert.match(shellSource, /const todayLabel = launcher\.todayWindowOpen \? "今日やることを収納" : "今日やることを表示"/);
+  assert.match(shellSource, /aria-label=\{todayLabel\}[\s\S]*title=\{todayLabel\}[\s\S]*aria-pressed=\{launcher\.todayWindowOpen\}/);
   assert.match(shellSource, /aria-label="付箋を展開または収納"[\s\S]*title="付箋を展開または収納"[\s\S]*aria-pressed=\{launcher\.stickyWindowsShown\}/);
   assert.match(shellSource, /className="titlebar-launcher-state"/);
   assert.doesNotMatch(shellSource, />Today<\/span>/);
@@ -488,6 +498,7 @@ test("上部バーはPopoverを経由せずRegistryの衛星ウィンドウを�
   assert.match(workspaceAppSource, /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/);
   assert.match(workspaceAppSource, /workspaceApi\.showAllMemoStickies\(\)/);
   assert.match(workspaceAppSource, /workspaceApi\.closeAllMemoStickies\(\)/);
+  assert.match(workspaceAppSource, /workspaceApi\.toggleTodayMiniWindow\(\)/);
 });
 
 test("付箋表示対象は同じMemoのproperties_jsonへ保存し、閉じても状態を消さない（#327）", () => {

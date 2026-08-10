@@ -110,9 +110,9 @@ test("ThemeRefはpersonal defaultとThemeなしを別のcanonical値として扱
   assert.equal(resolveThemeRef([], null, { legacyNullMeansPersonal: true }).id, PERSONAL_DEFAULT_THEME_ID);
   assert.equal(resolveThemeRef([], null).id, null);
   assert.deepEqual(themePickerOptions([{ id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務" }, { id: "theme-a", name: "A" }], { allowNone: true }), [
-    { value: PERSONAL_DEFAULT_THEME_ID, label: "個人業務", kind: "personal" },
+    { value: PERSONAL_DEFAULT_THEME_ID, label: "個人業務", kind: "personal", colorToken: "chart-6" },
     { value: "", label: "Themeなし", kind: "none" },
-    { value: "theme-a", label: "A", kind: "theme" },
+    { value: "theme-a", label: "A", kind: "theme", colorToken: "chart-2" },
   ]);
   assert.equal(resolveStorageLocation({ syncRoot: "C:/sync", themeRef: { kind: "theme", id: PERSONAL_DEFAULT_THEME_ID } }).segments[0], "Inbox");
 });

@@ -56,6 +56,7 @@
 |---|---|
 | ドロワー | 右側の詳細兼編集パネル。「行クリック→詳細→編集」の既定導線。自動保存が期待される |
 | クイック記録 | Ctrl+Shift+N（Inbox行き）。Ctrl+Enterで記録して閉じ、Ctrl+Shift+Enterで連続記録。Themeは任意 |
+| Today別Window | Top BarのToday buttonで表示／収納する、今日のTask用の細幅実行面。Task追加は題名＋compact Theme picker＋明示的な追加buttonで行い、Window位置・サイズと直前のTheme選択を表示中は維持する |
 | 整理済み | InboxでTask / Note / Markdown / Resource / Artifactへ整理した履歴とアーカイブ。整理先を再び開ける |
 | 選択範囲から切り出す | NotesのEditで選んだMarkdownを、元本文を変更せずTaskまたはNoteとして作成する。作成先から元Note・見出し・引用を辿れる |
 | Command Palette | `Ctrl+Shift+K`またはタイトルバーから開く共通操作入口。コマンドとTask / Note / Theme / Resource / Artifactを横断検索する |

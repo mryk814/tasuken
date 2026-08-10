@@ -128,6 +128,7 @@ const api: ResearchDeskApi = {
     ackAppFlush: (requestId, ok) => ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok }),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
     showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
+    toggleTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniToggleWindow),
     showMemoStickyWindow: (memoId) => ipcRenderer.invoke(IPC.memoStickyOpen, memoId),
     listOpenMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyListOpen),
     listStickyMemoTargets: () => ipcRenderer.invoke(IPC.memoStickyListTargets),
