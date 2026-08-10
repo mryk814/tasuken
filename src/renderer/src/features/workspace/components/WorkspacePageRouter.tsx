@@ -30,6 +30,7 @@ const KnowledgePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("knowledg
 const NotesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("notes"), "NotesPage");
 const SketchLibraryPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch"), "SketchLibraryPage");
 const SketchPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch-editor"), "SketchPage");
+const StudioPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("studio"), "StudioPage");
 const SettingsPage = lazyNamedPage<SettingsPageProps>(() => loadWorkspacePage("settings"), "SettingsPage");
 const ThemePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("theme"), "ThemePage");
 const ThemesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("themes"), "ThemesPage");
@@ -60,6 +61,9 @@ export function WorkspacePageRouter({
   switch (route) {
     case "inbox":
       page = <InboxPage {...common} />;
+      break;
+    case "studio":
+      page = <StudioPage {...common} />;
       break;
     case "chat-refs":
       page = <ChatRefsPage {...common} />;

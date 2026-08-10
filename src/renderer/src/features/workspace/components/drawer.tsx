@@ -941,8 +941,9 @@ function EditDrawer({
                 className="secondary-button"
                 type="button"
                 onClick={() => {
+                  // 録音の入口はStudioへ移した（#383）。手数を増やさないよう導線は残す。
                   close();
-                  navigate?.("inbox");
+                  navigate?.("studio");
                   requestInboxRecorder();
                 }}
               >

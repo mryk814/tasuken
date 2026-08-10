@@ -10,51 +10,59 @@ const workspaceApp = readFileSync("src/renderer/src/features/workspace/Workspace
 const mediaFlushRegistry = readFileSync("src/renderer/src/features/workspace/lib/mediaRecordingFlushRegistry.ts", "utf8");
 const mediaRecorderFlush = readFileSync("src/renderer/src/features/workspace/lib/mediaRecorderFlush.ts", "utf8");
 const screenRecorder = readFileSync("src/renderer/src/features/workspace/components/ScreenRecorderPanel.tsx", "utf8");
+const voiceRecorder = readFileSync("src/renderer/src/features/workspace/components/VoiceRecorderPanel.tsx", "utf8");
+const studio = readFileSync("src/renderer/src/features/workspace/pages/StudioPage.tsx", "utf8");
 const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const mainIndex = readFileSync("src/main/index.ts", "utf8");
 
-test("Inbox keeps Memo primary while exposing audio import as a secondary action", () => {
-  assert.match(inbox, /<Button variant="secondary"[\s\S]*?captureAudio\(\)/);
-  assert.match(inbox, /<IconVolume size=\{16\} \/>音声を取り込む/);
+test("InboxはMemoだけを主操作にし、音声の入口はStudioへ移す（#383）", () => {
   assert.match(inbox, /<Button variant="primary" onClick=\{addMemo\}><IconPlus size=\{16\} \/>Memo<\/Button>/);
+  // 録音・画面録画はInboxに要らない機能なので、入口ごと持たない。
+  assert.doesNotMatch(inbox, /音声を取り込む|マイクで録音|ScreenRecorderPanel/);
+  assert.match(voiceRecorder, /<IconVolume size=\{15\} \/>音声を取り込む/);
+  assert.match(voiceRecorder, /captureAudioFile\(\)/);
+  // Studioは音声と画面録画を同じ面に並べ、同時録画させない。
+  assert.match(studio, /<VoiceRecorderPanel[\s\S]*?disabled=\{screenRecordingActive\}/);
+  assert.match(studio, /<ScreenRecorderPanel[\s\S]*?disabled=\{voiceActive\}/);
 });
 
 test("Inbox microphone recorder keeps bounded chunks, device choice and compact control states", () => {
-  assert.match(inbox, /"idle" \| "permission" \| "ready" \| "recording" \| "paused" \| "stopping" \| "error"/);
-  assert.match(inbox, /<IconMicrophone size=\{16\} \/>\{recorderState === "permission" \? "確認中…" : "マイクで録音"\}/);
-  assert.match(inbox, /navigator\.mediaDevices\.enumerateDevices\(\)/);
-  assert.match(inbox, /deviceId: \{ exact: selectedAudioDeviceId \}/);
-  assert.match(inbox, /blob\.slice\(offset, Math\.min\(blob\.size, offset \+ session\.maxChunkBytes\)\)/);
-  assert.match(inbox, /sequence: recordingSequenceRef\.current/);
-  assert.match(inbox, /録音中/);
-  assert.match(inbox, /pauseMicrophoneRecording\(\)/);
-  assert.match(inbox, /resumeMicrophoneRecording\(\)/);
-  assert.match(inbox, /async function pauseMicrophoneRecordingNow[\s\S]*?try \{[\s\S]*?pauseMediaRecording[\s\S]*?catch \(error\)[\s\S]*?stopMicrophoneRecordingNow\(false, true\)/);
-  assert.match(inbox, /recorder\.addEventListener\("pause"[\s\S]*?recorder\.pause\(\)[\s\S]*?await recorderPaused[\s\S]*?waitForMediaRecorderDataFlush\(recorder\)[\s\S]*?await recordingAppendRef\.current[\s\S]*?pauseMediaRecording/);
+  assert.match(voiceRecorder, /"idle" \| "permission" \| "ready" \| "recording" \| "paused" \| "stopping" \| "error"/);
+  assert.match(voiceRecorder, /<IconMicrophone size=\{15\} \/>\{recorderState === "permission" \? "確認中…" : "マイクで録音"\}/);
+  assert.match(voiceRecorder, /navigator\.mediaDevices\.enumerateDevices\(\)/);
+  assert.match(voiceRecorder, /deviceId: \{ exact: selectedAudioDeviceId \}/);
+  assert.match(voiceRecorder, /blob\.slice\(offset, Math\.min\(blob\.size, offset \+ session\.maxChunkBytes\)\)/);
+  assert.match(voiceRecorder, /sequence: recordingSequenceRef\.current/);
+  assert.match(voiceRecorder, /録音中/);
+  assert.match(voiceRecorder, /pauseMicrophoneRecording\(\)/);
+  assert.match(voiceRecorder, /resumeMicrophoneRecording\(\)/);
+  assert.match(voiceRecorder, /async function pauseMicrophoneRecordingNow[\s\S]*?try \{[\s\S]*?pauseMediaRecording[\s\S]*?catch \(error\)[\s\S]*?stopMicrophoneRecordingNow\(false, true\)/);
+  assert.match(voiceRecorder, /recorder\.addEventListener\("pause"[\s\S]*?recorder\.pause\(\)[\s\S]*?await recorderPaused[\s\S]*?waitForMediaRecorderDataFlush\(recorder\)[\s\S]*?await recordingAppendRef\.current[\s\S]*?pauseMediaRecording/);
   assert.match(mediaRecorderFlush, /const quietMs = options\.quietMs \?\? 200/);
   assert.match(mediaRecorderFlush, /removeEventListener\("dataavailable"[\s\S]*?requestData\(\)/);
-  assert.match(inbox, /async function resumeMicrophoneRecordingNow[\s\S]*?try \{[\s\S]*?resumeMediaRecording[\s\S]*?catch \(error\)[\s\S]*?stopMicrophoneRecordingNow\(false, true\)/);
-  assert.match(inbox, /stopMicrophoneRecording\(\)/);
-  assert.match(inbox, /discardActiveRecording\(\)/);
-  assert.match(inbox, /tasken:app-flush-requested/);
-  assert.match(inbox, /removeEventListener\("tasken:app-flush-requested", onFlush\)[\s\S]*?flushMicrophoneRecording\(\)/);
-  assert.match(inbox, /progress\.fileSize >= session\.maxRecordingBytes[\s\S]*?stopMicrophoneRecording\(false, true\)/);
-  assert.match(inbox, /elapsed >= maximum[\s\S]*?stopMicrophoneRecording\(\)/);
-  assert.match(inbox, /recorder\.addEventListener\("error"[\s\S]*?stopMicrophoneRecording\(false, true\)/);
-  assert.match(inbox, /track\.addEventListener\("ended"[\s\S]*?stopMicrophoneRecording\(false, true\)/);
-  assert.match(inbox, /recorder\.addEventListener\("stop"[\s\S]*?recorder\.requestData\(\)[\s\S]*?await recordingAppendRef\.current/);
-  assert.match(inbox, /recordingDiscardingRef = useRef\(false\)/);
-  assert.match(inbox, /recordingTransitionRef = useRef<Promise<void>>\(Promise\.resolve\(\)\)[\s\S]*?recordingTransitionRef\.current\.then\(transition, transition\)/);
-  assert.match(inbox, /recordingBeginRef = useRef<Promise<void> \| null>\(null\)[\s\S]*?if \(recordingBeginRef\.current\) return recordingBeginRef\.current[\s\S]*?disabled=\{recorderStarting\}/);
-  assert.match(inbox, /startedSession = session[\s\S]*?new MediaRecorder\(stream, \{ mimeType \}\)[\s\S]*?recorder\.start\(1000\)[\s\S]*?await workspaceApi\.cancelAudioCapture\(startedSession\.sessionId\)/);
-  assert.match(inbox, /if \(!session \|\| recordingDiscardingRef\.current \|\| blob\.size <= 0\) return/);
-  assert.match(inbox, /MAX_PENDING_RECORDING_CHUNKS = 8[\s\S]*?recordingQueuedBytesRef\.current \+ blob\.size > maxQueuedBytes[\s\S]*?stopMicrophoneRecording\(false, true\)/);
-  assert.match(inbox, /recordingQueuedBytesRef\.current = Math\.max\(0, recordingQueuedBytesRef\.current - blob\.size\)/);
-  assert.match(inbox, /recordingDiscardingRef\.current = true[\s\S]*?recorder\.stop\(\)[\s\S]*?await recordingAppendRef\.current[\s\S]*?cancelAudioCapture[\s\S]*?recordingDiscardingRef\.current = false/);
-  assert.match(inbox, /function releaseMicrophoneStream\(\)[\s\S]*?track\.stop\(\)/);
-  assert.match(inbox, /<button type="button"[\s\S]*?pauseMicrophoneRecording\(\)/);
-  assert.match(inbox, /<button type="button"[\s\S]*?resumeMicrophoneRecording\(\)/);
-  assert.doesNotMatch(inbox, /new Blob\(.*record/i);
+  assert.match(voiceRecorder, /async function resumeMicrophoneRecordingNow[\s\S]*?try \{[\s\S]*?resumeMediaRecording[\s\S]*?catch \(error\)[\s\S]*?stopMicrophoneRecordingNow\(false, true\)/);
+  assert.match(voiceRecorder, /stopMicrophoneRecording\(\)/);
+  assert.match(voiceRecorder, /discardActiveRecording\(\)/);
+  assert.match(voiceRecorder, /tasken:app-flush-requested/);
+  assert.match(voiceRecorder, /removeEventListener\("tasken:app-flush-requested", onFlush\)[\s\S]*?flushMicrophoneRecording\(\)/);
+  assert.match(voiceRecorder, /progress\.fileSize >= session\.maxRecordingBytes[\s\S]*?stopMicrophoneRecording\(false, true\)/);
+  assert.match(voiceRecorder, /elapsed >= maximum[\s\S]*?stopMicrophoneRecording\(\)/);
+  assert.match(voiceRecorder, /recorder\.addEventListener\("error"[\s\S]*?stopMicrophoneRecording\(false, true\)/);
+  assert.match(voiceRecorder, /track\.addEventListener\("ended"[\s\S]*?stopMicrophoneRecording\(false, true\)/);
+  assert.match(voiceRecorder, /recorder\.addEventListener\("stop"[\s\S]*?recorder\.requestData\(\)[\s\S]*?await recordingAppendRef\.current/);
+  assert.match(voiceRecorder, /recordingDiscardingRef = useRef\(false\)/);
+  assert.match(voiceRecorder, /recordingTransitionRef = useRef<Promise<void>>\(Promise\.resolve\(\)\)[\s\S]*?recordingTransitionRef\.current\.then\(transition, transition\)/);
+  assert.match(voiceRecorder, /recordingBeginRef = useRef<Promise<void> \| null>\(null\)[\s\S]*?if \(recordingBeginRef\.current\) return recordingBeginRef\.current[\s\S]*?disabled=\{recorderStarting\}/);
+  assert.match(voiceRecorder, /startedSession = session[\s\S]*?new MediaRecorder\(stream, \{ mimeType \}\)[\s\S]*?recorder\.start\(1000\)[\s\S]*?await workspaceApi\.cancelAudioCapture\(startedSession\.sessionId\)/);
+  assert.match(voiceRecorder, /if \(!session \|\| recordingDiscardingRef\.current \|\| blob\.size <= 0\) return/);
+  assert.match(voiceRecorder, /MAX_PENDING_RECORDING_CHUNKS = 8[\s\S]*?recordingQueuedBytesRef\.current \+ blob\.size > maxQueuedBytes[\s\S]*?stopMicrophoneRecording\(false, true\)/);
+  assert.match(voiceRecorder, /recordingQueuedBytesRef\.current = Math\.max\(0, recordingQueuedBytesRef\.current - blob\.size\)/);
+  assert.match(voiceRecorder, /recordingDiscardingRef\.current = true[\s\S]*?recorder\.stop\(\)[\s\S]*?await recordingAppendRef\.current[\s\S]*?cancelAudioCapture[\s\S]*?recordingDiscardingRef\.current = false/);
+  assert.match(voiceRecorder, /function releaseMicrophoneStream\(\)[\s\S]*?track\.stop\(\)/);
+  assert.match(voiceRecorder, /recorderState === "recording" && \(\s*\n\s*<Button[\s\S]*?pauseMicrophoneRecording\(\)/);
+  assert.match(voiceRecorder, /recorderState === "paused" && \(\s*\n\s*<Button[\s\S]*?resumeMicrophoneRecording\(\)/);
+  assert.match(voiceRecorder, /<button type="button" className="text-button compact"[\s\S]*?discardActiveRecording\(\)/);
+  assert.doesNotMatch(voiceRecorder, /new Blob\(.*record/i);
 });
 
 test("画面録画のpause→即stop等は単一transition queueで直列化する", () => {
@@ -104,42 +112,44 @@ test("画面録画の失敗はabsolute path非露出errorへ丸め、原因はMa
 test("Quick Captureからも同じInbox recorderへ到達し保存経路を分裂させない", () => {
   assert.match(drawer, /type === "capture_entry"[\s\S]*?!entityId[\s\S]*?requestInboxRecorder\(\)/);
   assert.match(drawer, /<IconMicrophone size=\{16\} \/>マイクで録音/);
+  // 入口はStudioへ移したが、Quick Captureからの手数は増やさない（#383）。
+  assert.match(drawer, /navigate\?\.\("studio"\);\s*\n\s*requestInboxRecorder\(\);/);
   assert.match(uiStore, /inboxRecorderRequested: false/);
   assert.match(uiStore, /requestInboxRecorder: \(\) => set\(\{ inboxRecorderRequested: true \}\)/);
   assert.match(uiStore, /consumeInboxRecorderRequest: \(\) => set\(\{ inboxRecorderRequested: false \}\)/);
-  assert.match(inbox, /if \(!inboxRecorderRequested\) return;[\s\S]*?consumeInboxRecorderRequest\(\);[\s\S]*?prepareMicrophone\(\)/);
-  assert.match(inbox, /async function prepareMicrophone\(\) \{[\s\S]*?if \(recordingSessionRef\.current\) return/);
-  assert.doesNotMatch(inbox, /handledRecorderRequestRef|inboxRecorderRequestId/);
+  assert.match(voiceRecorder, /if \(!inboxRecorderRequested\) return;[\s\S]*?consumeInboxRecorderRequest\(\);[\s\S]*?prepareMicrophone\(\)/);
+  assert.match(voiceRecorder, /async function prepareMicrophone\(\) \{[\s\S]*?if \(recordingSessionRef\.current\) return/);
+  assert.doesNotMatch(voiceRecorder, /handledRecorderRequestRef|inboxRecorderRequestId/);
 });
 
 test("route unmountで開始した録音stopはglobal app flushが完了まで待つ", () => {
-  assert.match(inbox, /const flushMicrophoneRecording = async \(\): Promise<boolean> => \{[\s\S]*?await recordingBeginRef\.current[\s\S]*?if \(!recordingSessionRef\.current\) return true[\s\S]*?stopMicrophoneRecordingRef\.current\(false\)/);
-  assert.match(inbox, /if \(!recordingBeginRef\.current && !recordingSessionRef\.current\) return[\s\S]*?const previous = detail\.flush[\s\S]*?Promise\.all\(\[previous \|\| Promise\.resolve\(true\), flushMicrophoneRecording\(\)\]\)/);
-  assert.match(inbox, /if \(recordingBeginRef\.current \|\| recordingSessionRef\.current\)[\s\S]*?const routeFlush = flushMicrophoneRecording\(\)[\s\S]*?trackPendingMediaRecordingFlush\(routeFlush\)/);
-  assert.match(inbox, /trackPendingMediaRecordingFlush\(routeFlush\)/);
+  assert.match(voiceRecorder, /const flushMicrophoneRecording = async \(\): Promise<boolean> => \{[\s\S]*?await recordingBeginRef\.current[\s\S]*?if \(!recordingSessionRef\.current\) return true[\s\S]*?stopMicrophoneRecordingRef\.current\(false\)/);
+  assert.match(voiceRecorder, /if \(!recordingBeginRef\.current && !recordingSessionRef\.current\) return[\s\S]*?const previous = detail\.flush[\s\S]*?Promise\.all\(\[previous \|\| Promise\.resolve\(true\), flushMicrophoneRecording\(\)\]\)/);
+  assert.match(voiceRecorder, /if \(recordingBeginRef\.current \|\| recordingSessionRef\.current\)[\s\S]*?const routeFlush = flushMicrophoneRecording\(\)[\s\S]*?trackPendingMediaRecordingFlush\(routeFlush\)/);
+  assert.match(voiceRecorder, /trackPendingMediaRecordingFlush\(routeFlush\)/);
   assert.match(mediaFlushRegistry, /pendingMediaRecordingFlushes = new Set<Promise<boolean>>\(\)/);
   assert.match(mediaFlushRegistry, /while \(pendingMediaRecordingFlushes\.size\)/);
   assert.match(workspaceApp, /Promise\.all\(\[pageFlush, flushPendingNoteDraftSaves\(\), flushPendingMediaRecordingFlushes\(\)\]\)/);
 });
 
 test("permission denial, missing device and disconnect retain reason plus next action", () => {
-  assert.match(inbox, /マイクが許可されていません。Windowsのプライバシー設定/);
-  assert.match(inbox, /入力デバイスが見つかりません。マイクを接続してから再試行/);
-  assert.match(inbox, /マイクが切断されました。録音済み部分を保存/);
-  assert.match(inbox, /録音を復旧/);
+  assert.match(voiceRecorder, /マイクが許可されていません。Windowsのプライバシー設定/);
+  assert.match(voiceRecorder, /入力デバイスが見つかりません。マイクを接続してから再試行/);
+  assert.match(voiceRecorder, /マイクが切断されました。録音済み部分を保存/);
+  assert.match(voiceRecorder, /録音を復旧/);
 });
 
 test("Inbox prepared audio has explicit loading, error, preview, commit and discard states", () => {
-  assert.match(inbox, /preparedAudioState === "loading"/);
-  assert.match(inbox, /role="status">保存待ち音声を確認しています/);
-  assert.match(inbox, /preparedAudioState === "error"/);
-  assert.match(inbox, /role="alert"/);
-  assert.match(inbox, /onClick=\{\(\) => \{ void refreshPreparedAudio\(\); \}\}>一覧を再試行/);
-  assert.match(inbox, /preparedAudioState === "ready" && preparedAudio\.length === 0/);
-  assert.match(inbox, /role="status">保存待ち音声はありません/);
-  assert.match(inbox, /aria-label=\{`\$\{prepared\.filename\}の保存前プレビュー`\}/);
-  assert.match(inbox, /commitPreparedAudio\(prepared\)/);
-  assert.match(inbox, /discardPreparedAudio\(prepared\)/);
+  assert.match(voiceRecorder, /preparedAudioState === "loading"/);
+  assert.match(voiceRecorder, /role="status">保存待ち音声を確認しています/);
+  assert.match(voiceRecorder, /preparedAudioState === "error"/);
+  assert.match(voiceRecorder, /role="alert"/);
+  assert.match(voiceRecorder, /onClick=\{\(\) => \{ void refreshPreparedAudio\(\); \}\}>一覧を再試行/);
+  assert.match(voiceRecorder, /preparedAudioState === "ready" && preparedAudio\.length === 0/);
+  assert.match(voiceRecorder, /role="status">保存待ち音声はありません/);
+  assert.match(voiceRecorder, /aria-label=\{`\$\{prepared\.filename\}の保存前プレビュー`\}/);
+  assert.match(voiceRecorder, /commitPreparedAudio\(prepared\)/);
+  assert.match(voiceRecorder, /discardPreparedAudio\(prepared\)/);
 });
 
 test("saved audio uses one metadata-rich button in untriaged and processed Inbox rows", () => {

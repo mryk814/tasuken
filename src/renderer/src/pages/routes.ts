@@ -9,6 +9,7 @@ import {
   IconSparkles,
   IconSun,
   IconTimeline,
+  IconMicrophone,
   IconWriting,
   type Icon,
 } from "@tabler/icons-react";
@@ -22,6 +23,7 @@ export type CanonicalRouteId =
   | "knowledge"
   | "notes"
   | "sketch"
+  | "studio"
   | "chat-refs"
   | "artifacts"
   | "theme"
@@ -108,13 +110,17 @@ export const ROUTE_DEFINITIONS = {
     semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 3 },
     aliases: [{ id: "sketch-editor", parent: "sketch", kind: "child" }],
   },
+  studio: {
+    id: "studio", label: "Studio", description: "マイク録音と画面録画をここから始めます。録ったものはArtifactとして残り、Note等から参照できます。", icon: IconMicrophone,
+    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 4 },
+  },
   "chat-refs": {
     id: "chat-refs", label: "Chat Refs", description: "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。", icon: IconMessageCircle,
-    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 4 },
+    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 5 },
   },
   artifacts: {
     id: "artifacts", label: "Artifacts", description: "AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。", icon: IconPaperclip,
-    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 5 },
+    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 6 },
   },
   theme: {
     id: "theme", label: "Theme", description: "選択中の研究テーマの現在地と作業を確認します。", icon: IconBulb,

@@ -3484,6 +3484,45 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   gap: var(--space-2);
 }
 
+/* Studio: 録音と画面録画を同じ面へ並べる（#383）。 */
+.studio-page {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+}
+
+.studio-recorder {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.studio-recorder-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.studio-recorder-body.is-error {
+  border-color: var(--color-danger-bd);
+  color: var(--color-danger-strong);
+}
+
+.studio-recorder-body label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.studio-recorder-body select {
+  max-width: 320px;
+}
+
 .inbox-recorder {
   display: flex;
   align-items: center;
