@@ -176,8 +176,8 @@ function buildWorkspace(managedDirectory) {
 
   put("theme",
     buildPersonalDefaultTheme("2026-06-02T00:15:00.000Z"),
-    record({ id: theme.llzo, name: "Ta置換LLZO 固体電解質探索", code: "MI-LLZO-26", description: "組成・焼成条件・微構造から室温Liイオン伝導度を高める。ベイズ最適化で候補提案と実験を反復する。", status: "active", color: "chart-1", group: "材料インフォマティクス", storage_root: managedDirectory, ai_visibility: ["coding_agent"] }, "2026-06-03T01:00:00.000Z"),
-    record({ id: theme.aluminum, name: "再生Al-Mg-Si 熱処理最適化", code: "CIRC-AL-07", description: "スクラップ由来の組成変動を含め、時効条件と強度・導電率のPareto最適化を行う。", status: "paused", color: "chart-4", group: "サーキュラーマテリアル", storage_root: managedDirectory }, "2026-06-12T02:30:00.000Z"),
+    record({ id: theme.llzo, name: "Ta置換LLZO 固体電解質探索", code: "MI-LLZO-26", description: "組成・焼成条件・微構造から室温Liイオン伝導度を高める。ベイズ最適化で候補提案と実験を反復する。", status: "active", color: "chart-1", group: "材料インフォマティクス", storage_root: path.join(managedDirectory, "MI-LLZO-26"), ai_visibility: ["coding_agent"] }, "2026-06-03T01:00:00.000Z"),
+    record({ id: theme.aluminum, name: "再生Al-Mg-Si 熱処理最適化", code: "CIRC-AL-07", description: "スクラップ由来の組成変動を含め、時効条件と強度・導電率のPareto最適化を行う。", status: "paused", color: "chart-4", group: "サーキュラーマテリアル", storage_root: path.join(managedDirectory, "CIRC-AL-07") }, "2026-06-12T02:30:00.000Z"),
   );
 
   put("plan_node",
@@ -435,6 +435,10 @@ function seed(targetPath) {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   const managedDirectory = path.join(path.dirname(targetPath), "materials-informatics-artifacts");
   fs.mkdirSync(managedDirectory, { recursive: true });
+  // Theme folderのmarkerは1フォルダにつき1Theme。共有すると後続のThemeが保存できなくなる。
+  for (const segment of ["MI-LLZO-26", "CIRC-AL-07"]) {
+    fs.mkdirSync(path.join(managedDirectory, segment), { recursive: true });
+  }
   const backup = backupExistingDatabase(targetPath);
   const workspace = buildWorkspace(managedDirectory);
   const repository = new WorkspaceDatabase(targetPath);
