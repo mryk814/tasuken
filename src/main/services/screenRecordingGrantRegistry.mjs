@@ -140,19 +140,24 @@ export class ScreenRecordingGrantRegistry {
     this.sources.delete(request.sourceToken);
     const previous = this.armedBySender.get(senderWebContentsId);
     if (previous) this.activeTokens.delete(previous.sourceToken);
+    // source tokenの残り時間を引き継ぐと、選ぶのに時間をかけただけで
+    // 直後のgetDisplayMediaが期限切れになる。armは自分の窓を持つ。
+    const armExpiresAtMs = now + SCREEN_RECORDING_LIMITS.armTtlMs;
     this.armedBySender.set(senderWebContentsId, {
       ...source,
+      expiresAtMs: armExpiresAtMs,
       consumed: false,
       audioMode,
       includePointer: request.includePointer,
     });
+    this.activeTokens.set(source.sourceToken, { senderWebContentsId, expiresAtMs: armExpiresAtMs });
     return Object.freeze({
       armed: true,
       kind: source.kind,
       label: source.label,
       audioMode,
       includePointer: request.includePointer,
-      expiresAt: new Date(source.expiresAtMs).toISOString(),
+      expiresAt: new Date(armExpiresAtMs).toISOString(),
     });
   }
 

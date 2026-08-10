@@ -32,6 +32,7 @@ import { ApplicationCommandService } from "./services/applicationCommandService"
 import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
+import { configureMainLog, logMain } from "./log";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
@@ -2245,11 +2246,24 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+/**
+ * 拒否はvideo無しのcallbackで表す。Electronは内部でこれをgetDisplayMediaのrejectへ
+ * 変換する際にTypeErrorを投げ、握られないままunhandled rejectionとして残るため、
+ * 拒否経路をここへ集約して捕まえる。
+ */
+function denyDisplayMediaRequest(callback: (streams: Electron.Streams) => void): void {
+  try {
+    callback({});
+  } catch (error) {
+    logMain("warn", "screen-recording:display-request", "拒否callbackが失敗した", error);
+  }
+}
+
 function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingService): void {
   electronSession.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     const frame = request.frame;
     if (!frame || frame.detached) {
-      callback({});
+      denyDisplayMediaRequest(callback);
       return;
     }
     try {
@@ -2276,9 +2290,10 @@ function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingSe
         ...(grant.displayAudio ? { audio: grant.displayAudio } : {}),
       });
     } catch (error) {
-      const errorName = error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : "Error";
-      console.warn("画面録画のpermission grantを拒否しました。録画対象を選び直してください。", { errorName });
-      callback({});
+      // 拒否理由はRendererへ渡さない。ただしMainのログには残す。
+      // ここを名前だけにすると、録画が始まらない理由へ誰も到達できない。
+      logMain("warn", "screen-recording:display-request", "permission grantを拒否した", error);
+      denyDisplayMediaRequest(callback);
     }
   }, { useSystemPicker: false });
 }
@@ -2286,6 +2301,7 @@ function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingSe
 async function startDesktopApp(): Promise<void> {
   await app.whenReady();
   migrateLegacyUserDataIfNeeded();
+  configureMainLog(app.getPath("userData"));
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
   let smokeAudioSourcePath = "";

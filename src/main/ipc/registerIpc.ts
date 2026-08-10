@@ -29,6 +29,8 @@ import {
 import { projectCommandReceiptForRenderer, projectEntityForRenderer, projectSnapshotInspectForRenderer, projectWorkspaceForRenderer } from "../rendererMediaProjection";
 import type { CommandReceipt } from "../../shared/applicationCommand";
 import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
+import { projectScreenRecordingIpcError } from "../screenRecordingIpcError";
+import { logMain } from "../log";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
 import { projectBatchTranscriptionIpcError } from "../batchTranscriptionIpcError";
 import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
@@ -311,7 +313,8 @@ export function registerIpc(
       if (args.length) throw new Error("画面録画capability requestに引数は指定できません。");
       return { ...screenRecording.capabilities(), ...mediaCapture.recordingCapacity() };
     } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
+      logMain("error", "screen-recording:capabilities", "capabilityを取得できません", error);
+      throw projectScreenRecordingIpcError(error);
     }
   });
   ipcMain.handle(IPC.screenRecordingListSources, async (event, ...args) => {
@@ -330,14 +333,16 @@ export function registerIpc(
       }
       return await screenRecording.listSources(screenRecordingRequestContext(event));
     } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
+      logMain("error", "screen-recording:list-sources", "録画対象を列挙できません", error);
+      throw projectScreenRecordingIpcError(error);
     }
   });
   ipcMain.handle(IPC.screenRecordingArm, (event, request) => {
     try {
       return screenRecording.arm(request, screenRecordingRequestContext(event));
     } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
+      logMain("error", "screen-recording:arm", "録画対象を確定できません", error);
+      throw projectScreenRecordingIpcError(error);
     }
   });
   ipcMain.handle(IPC.mediaRecordingStart, (_event, request) => {

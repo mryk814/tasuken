@@ -1,3 +1,5 @@
+import { logMain } from "./log";
+
 export type MediaCaptureIpcAction = "prepare" | "list" | "commit" | "cancel" | "record";
 
 const ACTION_FALLBACK: Record<MediaCaptureIpcAction, string> = {
@@ -21,8 +23,12 @@ const SAFE_MESSAGES: Array<[RegExp, string]> = [
   [/録音中では|一時停止中では|録音chunk|録音サイズ|録音データ|録音形式|録音時間|録音session/, "録音を続けられませんでした。録音を停止し、保存待ち音声を確認してください。"],
 ];
 
-/** Node/fsのmessageやabsolute pathをRendererへ渡さない。 */
+/**
+ * Node/fsのmessageやabsolute pathをRendererへ渡さない。
+ * ここで原因が消えるので、Main側のログにだけ生の理由を残す。
+ */
 export function projectMediaCaptureIpcError(action: MediaCaptureIpcAction, error: unknown): Error {
+  logMain("error", `media-capture:${action}`, "Rendererへは安全な文言を返す", error);
   const message = error instanceof Error ? error.message : "";
   for (const [pattern, safeMessage] of SAFE_MESSAGES) {
     if (pattern.test(message)) return new Error(safeMessage);

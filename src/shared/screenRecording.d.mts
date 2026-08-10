@@ -6,6 +6,7 @@ export const SCREEN_RECORDING_STATES: readonly ["idle", "arming", "recording", "
 export type ScreenRecordingState = (typeof SCREEN_RECORDING_STATES)[number];
 export const SCREEN_RECORDING_LIMITS: Readonly<{
   sourceTokenTtlMs: number;
+  armTtlMs: number;
   maxSources: number;
   maxLabelChars: number;
   maxThumbnailChars: number;

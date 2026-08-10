@@ -80,8 +80,26 @@ test("arm is sender, origin and expiry bound, and a source token is one-shot", (
   assert.throws(() => registry.arm({ sourceToken: source.sourceToken, audioMode: "off", includePointer: true }, context()), /期限/);
 
   const [expiring] = registry.issueSources(sources().slice(0, 1), context());
-  setNow(31_001);
+  setNow(301_001);
   assert.throws(() => registry.arm({ sourceToken: expiring.sourceToken, audioMode: "off", includePointer: true }, context()), /期限/);
+});
+
+test("armは自分の窓を持ち、対象選びに時間をかけても直後のgetDisplayMediaを弾かない", () => {
+  const { registry, setNow } = fixture();
+  const [source] = registry.issueSources(sources().slice(0, 1), context());
+  // 対象を見比べて音声まで決めるのに5分近くかけた状況。
+  setNow(295_000);
+  const armed = registry.arm({ sourceToken: source.sourceToken, audioMode: "off", includePointer: false }, context());
+  assert.equal(Date.parse(armed.expiresAt), 295_000 + 30_000);
+  setNow(300_100);
+  assert.equal(registry.consumeDisplayRequest(displayRequest()).kind, "screen");
+
+  // armからgetDisplayMediaまでの窓自体は短いまま。
+  const { registry: slow, setNow: setSlowNow } = fixture();
+  const [slowSource] = slow.issueSources(sources().slice(0, 1), context());
+  slow.arm({ sourceToken: slowSource.sourceToken, audioMode: "off", includePointer: false }, context());
+  setSlowNow(1_000 + 30_001);
+  assert.throws(() => slow.consumeDisplayRequest(displayRequest()), /期限/);
 });
 
 test("permission grant requires transient user gesture and is consumed even when validation fails", () => {

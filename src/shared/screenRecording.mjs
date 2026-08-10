@@ -18,7 +18,10 @@ export const SCREEN_RECORDING_STATES = Object.freeze([
 ]);
 
 export const SCREEN_RECORDING_LIMITS = Object.freeze({
-  sourceTokenTtlMs: 30_000,
+  // 対象を見比べて音声・pointerまで決める時間。人が選ぶ前提の窓。
+  sourceTokenTtlMs: 300_000,
+  // armからgetDisplayMediaまでの窓。ここは機械的に連続するので短く保つ。
+  armTtlMs: 30_000,
   maxSources: 100,
   maxLabelChars: 120,
   maxThumbnailChars: 512 * 1024,

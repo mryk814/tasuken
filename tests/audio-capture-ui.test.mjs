@@ -80,10 +80,25 @@ test("main-frame navigationは旧screen source token ledgerを即時clearする"
   assert.match(registerIpc, /event\.sender\.on\("did-start-navigation"[\s\S]*?if \(isMainFrame\) screenRecording\.clearSender\(senderId\)/);
 });
 
-test("画面録画capabilityのfilesystem失敗もabsolute path非露出errorへ丸める", () => {
-  assert.match(registerIpc, /IPC\.screenRecordingCapabilities[\s\S]*?try \{[\s\S]*?mediaCapture\.recordingCapacity\(\)[\s\S]*?catch \(error\)[\s\S]*?projectMediaCaptureIpcError\("record", error\)/);
-  assert.match(mainIndex, /permission grantを拒否しました。録画対象を選び直してください。[\s\S]*?\{ errorName \}/);
-  assert.doesNotMatch(mainIndex, /permission grantを拒否しました。[\s\S]{0,200}?error\.message/);
+test("画面録画の失敗はabsolute path非露出errorへ丸め、原因はMainログだけに残す", () => {
+  const screenRecordingError = readFileSync("src/main/screenRecordingIpcError.ts", "utf8");
+  // 画面録画は音声Captureと原因も次の操作も違うので、専用の対応表を使う。
+  assert.match(registerIpc, /IPC\.screenRecordingCapabilities[\s\S]*?try \{[\s\S]*?mediaCapture\.recordingCapacity\(\)[\s\S]*?catch \(error\)[\s\S]*?projectScreenRecordingIpcError\(error\)/);
+  assert.match(registerIpc, /IPC\.screenRecordingArm[\s\S]*?catch \(error\)[\s\S]*?projectScreenRecordingIpcError\(error\)/);
+  const screenRecordingHandlers = registerIpc.slice(
+    registerIpc.indexOf("IPC.screenRecordingCapabilities"),
+    registerIpc.indexOf("IPC.mediaRecordingStart"),
+  );
+  assert.ok(screenRecordingHandlers.length > 0);
+  assert.doesNotMatch(screenRecordingHandlers, /projectMediaCaptureIpcError/);
+  // Rendererへ返すのは固定文言だけ。生のmessageは渡さない。
+  assert.match(screenRecordingError, /return new Error\(safeMessage\)/);
+  assert.match(screenRecordingError, /return new Error\(FALLBACK\)/);
+  assert.doesNotMatch(screenRecordingError, /new Error\([^)]*error[^)]*message/);
+  // 拒否理由はMainのログにだけ残す。ここを消すと録画が始まらない理由へ到達できない。
+  assert.match(mainIndex, /logMain\("warn", "screen-recording:display-request", "permission grantを拒否した", error\)/);
+  assert.match(registerIpc, /logMain\("error", "screen-recording:arm"/);
+  assert.match(readFileSync("src/main/mediaCaptureIpcError.ts", "utf8"), /logMain\("error", `media-capture:\$\{action\}`/);
 });
 
 test("Quick Captureからも同じInbox recorderへ到達し保存経路を分裂させない", () => {
