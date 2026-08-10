@@ -8,8 +8,21 @@ export interface AudioCapturePrepareRequest {
 
 export const MICROPHONE_RECORDING_MIME_TYPES = ["audio/webm"] as const;
 export type MicrophoneRecordingMimeType = (typeof MICROPHONE_RECORDING_MIME_TYPES)[number];
-export const SCREEN_RECORDING_MIME_TYPES = ["video/webm"] as const;
+/**
+ * 画面録画はMP4(H.264/AAC)を既定にする。WebMは保存効率が良い一方で
+ * PowerPoint等での扱いが悪く、「録ったものを他所で使う」導線が切れるため。
+ * 変換は挟まず、録画時点でMP4を選ぶ（#388）。
+ */
+export const SCREEN_RECORDING_MIME_TYPES = ["video/mp4", "video/webm"] as const;
 export type ScreenRecordingMimeType = (typeof SCREEN_RECORDING_MIME_TYPES)[number];
+
+/** 保存ファイルの拡張子は録画形式から決める。webm固定にしない。 */
+export const MEDIA_RECORDING_EXTENSIONS: Record<string, string> = {
+  "audio/webm": "webm",
+  "audio/mp4": "m4a",
+  "video/webm": "webm",
+  "video/mp4": "mp4",
+};
 
 export interface MicrophoneRecordingStartRequest {
   mediaKind: "audio";

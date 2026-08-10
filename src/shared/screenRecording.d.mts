@@ -12,6 +12,8 @@ export const SCREEN_RECORDING_LIMITS: Readonly<{
   maxThumbnailChars: number;
 }>;
 export const SCREEN_RECORDING_MIME_CANDIDATES: readonly string[];
+export const SCREEN_RECORDING_BITRATES: Readonly<{ videoBitsPerSecond: number; audioBitsPerSecond: number }>;
+export function screenRecordingContainerOf(recorderMimeType: unknown): "video/mp4" | "video/webm";
 
 export interface ScreenRecordingSourceProjection {
   sourceToken: string;

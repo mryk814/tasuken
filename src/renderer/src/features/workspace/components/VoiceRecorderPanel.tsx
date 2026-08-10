@@ -12,6 +12,8 @@ import type { AudioCapturePrepared, MediaRecordingStarted } from "../../../../..
 type RecorderState = "idle" | "permission" | "ready" | "recording" | "paused" | "stopping" | "error";
 
 const MAX_PENDING_RECORDING_CHUNKS = 8;
+/** 音声メモは48kbps monoで内容が判る。既定任せだと数倍の容量になる（#388）。 */
+const VOICE_RECORDING_BITS_PER_SECOND = 48_000;
 
 interface VoiceRecorderPanelProps {
   /** 画面録画中は同時に録音させない。 */
@@ -213,7 +215,7 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast 
       }
       const session = await workspaceApi.startMediaRecording({ mediaKind: "audio", themeId: activeThemeId || null, mimeType: "audio/webm" });
       startedSession = session;
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: VOICE_RECORDING_BITS_PER_SECOND });
       microphoneStreamRef.current = stream;
       recordingSessionRef.current = session;
       recordingSequenceRef.current = 0;

@@ -18,6 +18,7 @@ import type {
   VideoImportPrepared,
   VideoStorageMode,
 } from "../../shared/mediaCapture";
+import { MEDIA_RECORDING_EXTENSIONS, MICROPHONE_RECORDING_MIME_TYPES, SCREEN_RECORDING_MIME_TYPES } from "../../shared/mediaCapture";
 import { audioMimeTypeOf, mediaExtensionOf, videoMimeTypeOf } from "../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../shared/mediaArtifact.mjs";
 import { resolveUniqueArtifactFileName, safeArtifactFileName } from "./artifactStorage.mjs";
@@ -34,6 +35,16 @@ export const MICROPHONE_CHUNK_MAX_BYTES = 1024 * 1024;
 export const MICROPHONE_RECORDING_MAX_BYTES = 512 * 1024 * 1024;
 export const MICROPHONE_RECORDING_MAX_CHUNKS = 16_000;
 const MICROPHONE_RECORDING_MAX_DURATION_MS = 4 * 60 * 60 * 1000;
+/**
+ * 画面録画は30分の収録を想定し、余裕を見て40分で止める（#388）。
+ * それより長いものはTaskenで録らず別の方法へ委ねる。
+ * 音声は48kbpsなら4時間でも約86MBで容量上限に当たらないため据え置く。
+ */
+const SCREEN_RECORDING_MAX_DURATION_MS = 40 * 60 * 1000;
+
+function maxDurationMsFor(mediaKind: "audio" | "video"): number {
+  return mediaKind === "audio" ? MICROPHONE_RECORDING_MAX_DURATION_MS : SCREEN_RECORDING_MAX_DURATION_MS;
+}
 export const MEDIA_RECORDING_CHUNK_MAX_BYTES = MICROPHONE_CHUNK_MAX_BYTES;
 export const MEDIA_RECORDING_MAX_BYTES = MICROPHONE_RECORDING_MAX_BYTES;
 export const MEDIA_RECORDING_MAX_CHUNKS = MICROPHONE_RECORDING_MAX_CHUNKS;
@@ -784,8 +795,9 @@ export class MediaCaptureService {
 
   startRecording(request: MediaRecordingStartRequest): MediaRecordingStarted {
     const isAudio = request.mediaKind === "audio";
-    if ((isAudio && request.mimeType !== "audio/webm") || (!isAudio && request.mimeType !== "video/webm")) {
-      throw new Error(isAudio ? "対応していない録音形式です。WebM/Opusで録音してください。" : "対応していない画面録画形式です。WebMで録画してください。");
+    const allowed: readonly string[] = isAudio ? MICROPHONE_RECORDING_MIME_TYPES : SCREEN_RECORDING_MIME_TYPES;
+    if (!allowed.includes(request.mimeType)) {
+      throw new Error(isAudio ? "対応していない録音形式です。WebM/Opusで録音してください。" : "対応していない画面録画形式です。MP4またはWebMで録画してください。");
     }
     let themeId: string | null = null;
     let videoOwner: { storageMode: "managed"; sourceType: VideoArtifactSourceType; sourceId: string } | null = null;
@@ -809,7 +821,8 @@ export class MediaCaptureService {
     const sessionDirectory = this.sessionDirectory(sessionId);
     ensureSafeDirectory(sessionDirectory, "Media recording session保存先");
     const timestamp = this.now();
-    const filename = `${isAudio ? "voice-memo" : "screen-recording"}-${timestamp.replace(/\D/g, "").slice(0, 14)}.webm`;
+    const extension = MEDIA_RECORDING_EXTENSIONS[request.mimeType] || "webm";
+    const filename = `${isAudio ? "voice-memo" : "screen-recording"}-${timestamp.replace(/\D/g, "").slice(0, 14)}.${extension}`;
     const manifest: AudioSessionManifest = {
       schema: MANIFEST_SCHEMA,
       sessionId,
@@ -821,7 +834,7 @@ export class MediaCaptureService {
       contentHash: `sha256:${createHash("sha256").digest("hex")}`,
       themeId,
       ...(videoOwner || {}),
-      stagedFileName: "original.webm",
+      stagedFileName: `original.${extension}`,
       createdAt: timestamp,
       updatedAt: timestamp,
       captureMethod: isAudio ? "microphone" : "screen_recording",
@@ -838,7 +851,7 @@ export class MediaCaptureService {
       mimeType: request.mimeType,
       maxChunkBytes: MICROPHONE_CHUNK_MAX_BYTES,
       maxRecordingBytes: MICROPHONE_RECORDING_MAX_BYTES,
-      maxDurationMs: MICROPHONE_RECORDING_MAX_DURATION_MS,
+      maxDurationMs: maxDurationMsFor(request.mediaKind),
     };
   }
 
@@ -851,7 +864,7 @@ export class MediaCaptureService {
     const timestamp = this.now();
     if (
       !manifest.recordingStateStartedAt
-      || (manifest.recordingElapsedMs || 0) + elapsedSince(manifest.recordingStateStartedAt, timestamp) > MICROPHONE_RECORDING_MAX_DURATION_MS
+      || (manifest.recordingElapsedMs || 0) + elapsedSince(manifest.recordingStateStartedAt, timestamp) > maxDurationMsFor(manifest.mediaKind)
     ) {
       throw new Error("録音時間の上限に達しました。録音を停止して保存してください。");
     }
@@ -927,7 +940,7 @@ export class MediaCaptureService {
     if (manifest.state !== "recording" || !manifest.recordingStateStartedAt) throw new Error("録音中ではないため一時停止できません。");
     const timestamp = this.now();
     const nextElapsedMs = (manifest.recordingElapsedMs || 0) + elapsedSince(manifest.recordingStateStartedAt, timestamp);
-    if (nextElapsedMs > MICROPHONE_RECORDING_MAX_DURATION_MS) {
+    if (nextElapsedMs > maxDurationMsFor(manifest.mediaKind)) {
       throw new Error("録音時間の上限を超えたため一時停止できません。録音を停止して保存してください。");
     }
     const next: AudioSessionManifest = {
@@ -949,7 +962,7 @@ export class MediaCaptureService {
     const manifest = this.readManifest(sessionDirectory);
     assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
     if (manifest.state !== "recording_paused") throw new Error("一時停止中ではないため再開できません。");
-    if ((manifest.recordingElapsedMs || 0) >= MICROPHONE_RECORDING_MAX_DURATION_MS) {
+    if ((manifest.recordingElapsedMs || 0) >= maxDurationMsFor(manifest.mediaKind)) {
       throw new Error("録音時間の上限に達しているため再開できません。録音を停止して保存してください。");
     }
     const timestamp = this.now();

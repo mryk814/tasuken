@@ -53,7 +53,9 @@ test("Inbox microphone recorder keeps bounded chunks, device choice and compact 
   assert.match(voiceRecorder, /recordingDiscardingRef = useRef\(false\)/);
   assert.match(voiceRecorder, /recordingTransitionRef = useRef<Promise<void>>\(Promise\.resolve\(\)\)[\s\S]*?recordingTransitionRef\.current\.then\(transition, transition\)/);
   assert.match(voiceRecorder, /recordingBeginRef = useRef<Promise<void> \| null>\(null\)[\s\S]*?if \(recordingBeginRef\.current\) return recordingBeginRef\.current[\s\S]*?disabled=\{recorderStarting\}/);
-  assert.match(voiceRecorder, /startedSession = session[\s\S]*?new MediaRecorder\(stream, \{ mimeType \}\)[\s\S]*?recorder\.start\(1000\)[\s\S]*?await workspaceApi\.cancelAudioCapture\(startedSession\.sessionId\)/);
+  assert.match(voiceRecorder, /startedSession = session[\s\S]*?new MediaRecorder\(stream, \{ mimeType, audioBitsPerSecond: VOICE_RECORDING_BITS_PER_SECOND \}\)[\s\S]*?recorder\.start\(1000\)[\s\S]*?await workspaceApi\.cancelAudioCapture\(startedSession\.sessionId\)/);
+  // 既定任せにすると容量が数倍になる（#388）。
+  assert.match(voiceRecorder, /const VOICE_RECORDING_BITS_PER_SECOND = 48_000;/);
   assert.match(voiceRecorder, /if \(!session \|\| recordingDiscardingRef\.current \|\| blob\.size <= 0\) return/);
   assert.match(voiceRecorder, /MAX_PENDING_RECORDING_CHUNKS = 8[\s\S]*?recordingQueuedBytesRef\.current \+ blob\.size > maxQueuedBytes[\s\S]*?stopMicrophoneRecording\(false, true\)/);
   assert.match(voiceRecorder, /recordingQueuedBytesRef\.current = Math\.max\(0, recordingQueuedBytesRef\.current - blob\.size\)/);

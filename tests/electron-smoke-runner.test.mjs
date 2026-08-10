@@ -93,7 +93,8 @@ test("packaged smoke records an actual display source through Main authority and
   assert.match(source, /created\.screenRecordingArtifactId = screenRecordingSmoke\.artifactId/);
   assert.match(source, /created\.screenRecordingPausedResumed = screenRecordingSmoke\.pausedResumed/);
   assert.match(source, /created\.screenRecordingRangeVerified = await verifySmokeVideoRange\(screenRecordingSmoke\.artifactId\)/);
-  assert.match(source, /importedVideo = await verifyVideo\([^\n]+null\)[\s\S]*?screenRecording = await verifyVideo\([^\n]+"screen_recording"\)/);
+  // 画面録画はMP4既定、取り込み動画のfixtureはWebMのまま（#388）。
+  assert.match(source, /importedVideo = await verifyVideo\([^\n]+null, \["video\/webm"\]\)[\s\S]*?screenRecording = await verifyVideo\([^\n]+"screen_recording", \["video\/mp4", "video\/webm"\]\)/);
   assert.match(source, /importedVideoRangeVerified[\s\S]*?screenRecordingRangeVerified/);
   assert.doesNotMatch(source, /created\.videoArtifactId/);
 });

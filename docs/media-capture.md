@@ -109,3 +109,21 @@ session manifest、recovery root、availability、ID-based protocol、Range配�
 - `finalizing` / `finalized`: managed rootが戻れば同一起動中も明示再試行できる。DB適用有無が曖昧なため破棄しない。
 - `manifest_invalid`: path非露出の診断行として表示するが、stateを証明できないため自動確定・破棄をしない。
 - `committed`:一覧へ出さず、Artifact IDから通常の再生経路へ解決する。
+
+## 収録の品質・容量方針（#388）
+
+想定する最長録画は30分。それより長いものはTaskenで録らず別の方法へ委ねる。
+
+| 項目 | 値 | 根拠 |
+|---|---|---|
+| 画面録画の映像 | 2 Mbps | 画面キャプチャは動きが少なく、1080pでも文字が読める。30分で約450MBに収まり、容量上限512MBに当たらない |
+| 画面録画の音声 | 48 kbps | 声の記録に十分 |
+| マイク録音 | 48 kbps | 30分で約11MB。4時間でも約86MBで上限に当たらない |
+| 画面録画の最長 | 40分 | 想定30分に余裕を持たせた停止点 |
+| マイク録音の最長 | 4時間 | 音声は容量が小さく、長時間録音を巻き添えにしない |
+
+保存形式は画面録画がMP4（H.264/AAC）。WebMは保存効率で勝るが、PowerPoint等での扱いが悪く「録ったものを他所で使う」導線が切れるため、既定を持ち出しやすさへ振っている。`MediaRecorder.isTypeSupported` がMP4を返さない環境ではWebMへfallbackする。録画後の再エンコードは行わない。
+
+マイク録音はWebM/Opusのまま。m4a（AAC）へ寄せる案はあるが、Batch transcriptionのprovider側が受け付けるMIMEを確認してから判断する。
+
+ffmpegは同梱しない。**導入条件**: trim・chapter・clip export（#374）を実装するとき、または録画後の形式変換が必須になったとき。それまでは録画時のビットレート指定で足りる。

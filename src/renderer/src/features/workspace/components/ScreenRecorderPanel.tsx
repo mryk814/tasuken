@@ -12,6 +12,7 @@ import {
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { MediaRecordingStarted, VideoArtifactSourceType, VideoImportPrepared } from "../../../../../shared/mediaCapture";
 import type { ScreenRecordingAudioMode, ScreenRecordingEnvironment, ScreenRecordingSourceProjection } from "../../../../../shared/screenRecording.mjs";
+import { SCREEN_RECORDING_BITRATES, screenRecordingContainerOf } from "../../../../../shared/screenRecording.mjs";
 import { formatArtifactFileSize } from "./artifacts";
 import { Button } from "./common";
 import { trackPendingMediaRecordingFlush } from "../lib/mediaRecordingFlushRegistry";
@@ -268,11 +269,11 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
       if (!mimeType) throw new Error("WebM画面録画形式を利用できなくなりました。アプリを再起動してください。");
       startedSession = await workspaceApi.startMediaRecording({
         mediaKind: "video",
-        mimeType: "video/webm",
+        mimeType: screenRecordingContainerOf(mimeType),
         sourceType: selectedOwner.sourceType,
         sourceId: selectedOwner.sourceId,
       });
-      const recorder = new MediaRecorder(combined, { mimeType });
+      const recorder = new MediaRecorder(combined, { mimeType, ...SCREEN_RECORDING_BITRATES });
       recorder.addEventListener("dataavailable", (event) => queueBlob(event.data));
       recorder.addEventListener("error", () => {
         setError("録画対象でエラーが発生しました。録画済み部分を停止して確認してください。");

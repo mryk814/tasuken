@@ -73,11 +73,19 @@ test("capabilities expose Windows loopback only and select an explicit supported
     systemAudioAvailable: true,
     supportedMimeTypes: [],
   }).systemAudio, false);
+  // MP4(H.264/AAC)を既定にした（#388）。持ち出しやすさを優先し、WebMはfallbackへ下げる。
+  assert.equal(buildScreenRecordingCapabilities({
+    platform: "win32",
+    microphoneAvailable: true,
+    systemAudioAvailable: true,
+    supportedMimeTypes: ["video/mp4", "video/webm;codecs=vp9,opus"],
+  }).recorderMimeType, "video/mp4");
+  // 候補外の形式は選ばない。
   assert.equal(buildScreenRecordingCapabilities({
     platform: "linux",
     microphoneAvailable: false,
     systemAudioAvailable: false,
-    supportedMimeTypes: ["video/mp4"],
+    supportedMimeTypes: ["video/x-matroska;codecs=avc1"],
   }).recorderMimeType, null);
 });
 

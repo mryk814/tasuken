@@ -446,10 +446,13 @@ async function verifySmokeVideoRange(artifactId: string): Promise<boolean> {
     headers: { Range: "bytes=0-31" },
   });
   const bytes = Buffer.from(await response.arrayBuffer());
+  // WebMはEBML header、MP4はftyp box。画面録画はMP4既定になった（#388）。
+  const isWebm = bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  const isMp4 = bytes.subarray(4, 8).toString("ascii") === "ftyp";
   return response.status === 206
     && response.headers.get("content-range")?.startsWith("bytes 0-31/") === true
     && bytes.length === 32
-    && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+    && (isWebm || isMp4);
 }
 
 app.disableHardwareAcceleration();
@@ -1173,9 +1176,10 @@ flowchart LR
       });
       const mimeType = capabilities.mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
       if (!mimeType) throw new Error("screen recording MIME is unavailable");
+      const container = mimeType.startsWith("video/mp4") ? "video/mp4" : "video/webm";
       const started = await window.api.mediaCapture.startRecording({
         mediaKind: "video",
-        mimeType: "video/webm",
+        mimeType: container,
         sourceType: "task",
         sourceId: ${JSON.stringify(smokeTaskId)},
       });
@@ -1244,7 +1248,7 @@ flowchart LR
       });
       const committed = await window.api.mediaCapture.commitVideo({ sessionId: prepared.sessionId, ...metadata });
       const artifact = await window.api.entities.get("artifact", committed.artifactId);
-      if (!artifact || artifact.media_kind !== "video" || artifact.mime_type !== "video/webm"
+      if (!artifact || artifact.media_kind !== "video" || artifact.mime_type !== container
         || artifact.capture_method !== "screen_recording"
         || artifact.source_type !== "task" || artifact.source_id !== ${JSON.stringify(smokeTaskId)}
         || artifact.duration_ms !== metadata.durationMs || artifact.width_px !== metadata.widthPx || artifact.height_px !== metadata.heightPx) {
@@ -2045,9 +2049,9 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
       });
       const videoOwner = await window.api.entities.get("task", ${JSON.stringify(smokeVideoOwnerId)});
       if (!videoOwner || videoOwner.id !== ${JSON.stringify(smokeVideoOwnerId)}) throw new Error("restarted video owner missing");
-      const verifyVideo = async (artifactId, label, expectedCaptureMethod) => {
+      const verifyVideo = async (artifactId, label, expectedCaptureMethod, allowedMimeTypes) => {
         const videoArtifact = await window.api.entities.get("artifact", artifactId);
-        if (!videoArtifact || videoArtifact.media_kind !== "video" || videoArtifact.mime_type !== "video/webm") throw new Error("restarted " + label + " Artifact missing");
+        if (!videoArtifact || videoArtifact.media_kind !== "video" || !allowedMimeTypes.includes(videoArtifact.mime_type)) throw new Error("restarted " + label + " Artifact missing");
         if (expectedCaptureMethod === null ? Object.hasOwn(videoArtifact, "capture_method") : videoArtifact.capture_method !== expectedCaptureMethod) {
           throw new Error("restarted " + label + " provenance mismatch");
         }
@@ -2078,8 +2082,8 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
         });
         return { artifactId: videoArtifact.id, ownerLinked: true, ...playback };
       };
-      const importedVideo = await verifyVideo(${JSON.stringify(smokeImportedVideoArtifactId)}, "imported video", null);
-      const screenRecording = await verifyVideo(${JSON.stringify(smokeScreenRecordingArtifactId)}, "screen recording", "screen_recording");
+      const importedVideo = await verifyVideo(${JSON.stringify(smokeImportedVideoArtifactId)}, "imported video", null, ["video/webm"]);
+      const screenRecording = await verifyVideo(${JSON.stringify(smokeScreenRecordingArtifactId)}, "screen recording", "screen_recording", ["video/mp4", "video/webm"]);
       return { artifactId: artifact.id, playable, transcriptionRestarted, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, importedVideo, screenRecording };
     })()
   `) as { artifactId: string; playable: boolean; transcriptionRestarted: boolean; microphoneArtifactId: string; microphonePlayable: boolean; importedVideo: { artifactId: string; ownerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean }; screenRecording: { artifactId: string; ownerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean } };

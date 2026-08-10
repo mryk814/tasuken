@@ -27,11 +27,28 @@ export const SCREEN_RECORDING_LIMITS = Object.freeze({
   maxThumbnailChars: 512 * 1024,
 });
 
+// MP4(H.264/AAC)を先に試す。録ったものをPowerPoint等へそのまま持ち出せる形式を既定にする（#388）。
 export const SCREEN_RECORDING_MIME_CANDIDATES = Object.freeze([
+  "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+  "video/mp4",
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
   "video/webm",
 ]);
+
+/**
+ * 画面キャプチャは動きが少ないので、1080pでも2 Mbpsで文字が読める。
+ * 30分でおよそ450MBに収まり、既定の容量上限（512MB）に当たらない（#388）。
+ */
+export const SCREEN_RECORDING_BITRATES = Object.freeze({
+  videoBitsPerSecond: 2_000_000,
+  audioBitsPerSecond: 48_000,
+});
+
+/** 録画形式からMain契約のmimeType（container）を決める。 */
+export function screenRecordingContainerOf(recorderMimeType) {
+  return typeof recorderMimeType === "string" && recorderMimeType.startsWith("video/mp4") ? "video/mp4" : "video/webm";
+}
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
