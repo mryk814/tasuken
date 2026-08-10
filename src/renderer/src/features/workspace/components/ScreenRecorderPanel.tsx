@@ -16,7 +16,6 @@ import { SCREEN_RECORDING_BITRATES, screenRecordingContainerOf } from "../../../
 import { formatArtifactFileSize } from "./artifacts";
 import { Button } from "./common";
 import { trackPendingMediaRecordingFlush } from "../lib/mediaRecordingFlushRegistry";
-import { useUiStore } from "../../../stores/uiStore";
 
 const MAX_PENDING_RECORDING_CHUNKS = 8;
 
@@ -62,7 +61,6 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
   const [sources, setSources] = useState<readonly Readonly<ScreenRecordingSourceProjection>[]>([]);
   const [environment, setEnvironment] = useState<ScreenRecordingEnvironment | null>(null);
   const [sourceToken, setSourceToken] = useState("");
-  const activeThemeId = useUiStore((state) => state.activeThemeId);
   const [audioMode, setAudioMode] = useState<ScreenRecordingAudioMode>("off");
   const [includePointer, setIncludePointer] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -220,10 +218,12 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
       const mimeType = environment.mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
       if (!mimeType) throw new Error("WebM画面録画形式を利用できなくなりました。アプリを再起動してください。");
       // ownerは保存時に決める。録るために先に何かを作らせない（#383）。
+      // Themeもownerに従うので、ここでは持たせない。紐づけ先を選ばない収録が、
+      // 選んでもいないThemeの保存先を要求して保存できなくなるのを避ける。
       startedSession = await workspaceApi.startMediaRecording({
         mediaKind: "video",
         mimeType: screenRecordingContainerOf(mimeType),
-        themeId: activeThemeId || null,
+        themeId: null,
       });
       const recorder = new MediaRecorder(combined, { mimeType, ...SCREEN_RECORDING_BITRATES });
       recorder.addEventListener("dataavailable", (event) => queueBlob(event.data));

@@ -206,3 +206,9 @@ test("Content Viewerはウィンドウを変えずアプリ内で大きく見ら
   assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-dialog \{[\s\S]*?height: 100vh;/);
   assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-video video \{[\s\S]*?object-fit: contain;/);
 });
+
+test("紐づけ先を選ばない画面録画はThemeの保存先を要求しない（#383）", () => {
+  // 録画開始時にactiveThemeを持たせると、Inbox行きの収録がThemeフォルダの解決に巻き込まれる。
+  assert.match(screenRecorder, /startMediaRecording\(\{[\s\S]*?mediaKind: "video",[\s\S]*?themeId: null,/);
+  assert.doesNotMatch(screenRecorder, /themeId: activeThemeId/);
+});
