@@ -33,7 +33,7 @@ export interface CaptureEntry extends AiMetadata {
   text: string;
   title?: string | null;
   kind?: "inbox" | "micro_memo" | string | null;
-  content_type?: "text" | "url" | "file" | "image" | "markdown" | "ink" | "audio" | null;
+  content_type?: "text" | "url" | "file" | "image" | "markdown" | "ink" | "audio" | "video" | null;
   capture_method?: "audio_import" | "microphone" | "external_dictation" | "transcript_import" | null;
   media_status?: "preparing" | "ready" | "failed" | null;
   transcription_status?: "not_requested" | "queued" | "processing" | "completed" | "failed" | null;

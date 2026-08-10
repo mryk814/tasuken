@@ -90,10 +90,27 @@ export function buildTodoView(domain: WorkspaceDomain): TodoView {
   };
 }
 
+/**
+ * 収録物（音声・画面録画）は録れた時点で完成しているので、Inboxの分類対象にしない（#383）。
+ * Inboxは「あとで分類する受け取り」、Studioは「録れたものの棚」で役割を分ける。
+ */
+export function isRecordingCapture(entry: { content_type?: string | null }): boolean {
+  return entry.content_type === "audio" || entry.content_type === "video";
+}
+
 export function buildInboxView(domain: WorkspaceDomain): InboxView {
   return {
     entries: domain.capture_entries
-      .filter((entry) => entry.state === "untriaged" && entry.kind !== "micro_memo")
+      .filter((entry) => entry.state === "untriaged" && entry.kind !== "micro_memo" && !isRecordingCapture(entry))
+      .sort(compareCapturesNewestFirst),
+  };
+}
+
+/** Studioの収録物一覧。Notesと同じく「棚」として並べる（#383）。 */
+export function buildRecordingView(domain: WorkspaceDomain): InboxView {
+  return {
+    entries: domain.capture_entries
+      .filter((entry) => isRecordingCapture(entry) && entry.state !== "archived")
       .sort(compareCapturesNewestFirst),
   };
 }

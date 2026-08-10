@@ -6,6 +6,8 @@ import { PageHeader } from "../components/common";
 import { ScreenRecorderPanel, type ScreenRecordingOwnerOption } from "../components/ScreenRecorderPanel";
 import { VoiceRecorderPanel } from "../components/VoiceRecorderPanel";
 import { PendingRecordingsPanel } from "../components/PendingRecordingsPanel";
+import { RecordingsPanel } from "../components/RecordingsPanel";
+import { buildRecordingView } from "../domain-model/selectors";
 import type { PageProps } from "../types";
 
 /**
@@ -13,13 +15,16 @@ import type { PageProps } from "../types";
  * Inboxは「受け取ったものを分類する」場所なので、録るという行為はここへ分ける。
  * 収録物そのものの正本はCaptureEntry / Artifactのままで、この画面は独自コピーを持たない。
  */
-export function StudioPage({ domain: v2, setToast }: PageProps) {
+export function StudioPage({ data, domain: v2, openContentViewer, removeEntity, setToast }: PageProps) {
   // 音声と画面録画のsessionは同時に持たせない。どちらかが動いている間は他方を止める。
   const [voiceActive, setVoiceActive] = useState(false);
   const [screenRecordingActive, setScreenRecordingActive] = useState(false);
   // 録音・録画側の保存待ちが変わったら共有の表を読み直す。
   const [preparedToken, setPreparedToken] = useState(0);
   const bumpPrepared = useCallback(() => setPreparedToken((current) => current + 1), []);
+
+  // 収録物はCaptureEntry / Artifactの投影として並べる。独自コピーは持たない。
+  const recordings = useMemo(() => buildRecordingView(v2).entries, [v2]);
 
   const screenRecordingOwners = useMemo<ScreenRecordingOwnerOption[]>(() => {
     const activeFocus = v2.notes
@@ -55,6 +60,12 @@ export function StudioPage({ domain: v2, setToast }: PageProps) {
         owners={screenRecordingOwners}
         refreshToken={preparedToken}
         setToast={setToast}
+      />
+      <RecordingsPanel
+        entries={recordings}
+        artifacts={data.artifacts}
+        onOpen={(artifact) => openContentViewer({ type: "artifact", artifactId: artifact.id })}
+        onRemove={(entry) => removeEntity("capture_entry", entry as unknown as Record<string, unknown>)}
       />
     </div>
   );

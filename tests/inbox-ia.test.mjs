@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+
+import { build } from "esbuild";
+
+async function importBundled(relativePath) {
+  const result = await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+}
 
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
 const inboxPageSource = readFileSync("src/renderer/src/features/workspace/pages/InboxPage.tsx", "utf8");
@@ -97,4 +112,20 @@ test("ToDoは表から追加を撤去し、作成しただけで今日へ入れ�
   assert.equal(isTodayRow({ task: { id: "t3" }, schedule: { end_date: "2026-08-08" } }, today), false);
   assert.equal(isTodayRow({ task: { id: "t4" }, schedule: { end_date: today } }, today), true);
   assert.equal(isTodayRow({ task: { id: "t5" }, schedule: { start_date: today } }, today), true);
+});
+
+test("収録物はInboxの分類対象にせず、Studioの棚に並べる（#383）", async () => {
+  const selectors = await importBundled("src/renderer/src/features/workspace/domain-model/selectors.ts");
+  const domain = {
+    capture_entries: [
+      { id: "c1", state: "untriaged", kind: "inbox", content_type: "text", captured_at: "2026-08-10T00:00:00.000Z" },
+      { id: "c2", state: "untriaged", kind: "voice_memo", content_type: "audio", captured_at: "2026-08-10T00:00:01.000Z" },
+      { id: "c3", state: "untriaged", kind: "screen_capture", content_type: "video", captured_at: "2026-08-10T00:00:02.000Z" },
+      { id: "c4", state: "archived", kind: "screen_capture", content_type: "video", captured_at: "2026-08-10T00:00:03.000Z" },
+    ],
+  };
+  // Inboxは「あとで分類する受け取り」だけを持つ。録れたものは出さない。
+  assert.deepEqual(selectors.buildInboxView(domain).entries.map((entry) => entry.id), ["c1"]);
+  // Studioは録れたものを並べる。アーカイブ済みは棚から外す。
+  assert.deepEqual(selectors.buildRecordingView(domain).entries.map((entry) => entry.id).sort(), ["c2", "c3"]);
 });

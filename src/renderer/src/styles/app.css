@@ -3510,6 +3510,40 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   max-width: 220px;
 }
 
+/* 収録物の棚。Notesと同じく「並んでいるもの」として読ませる（#383）。 */
+.studio-recording-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.studio-recording-icon {
+  display: inline-flex;
+  color: var(--color-text-secondary);
+}
+
+.studio-recording-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.studio-recording-body strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-recording-body small {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
 /* Studio: 録音と画面録画を同じ面へ並べる（#383）。 */
 .studio-page {
   display: grid;
