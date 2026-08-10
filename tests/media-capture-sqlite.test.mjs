@@ -186,11 +186,11 @@ test("screen recording provenance persists on only its Video Artifact after SQLi
     resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
     now: () => currentNow,
   });
-  const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: "task-1" });
+  const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm" });
   currentNow = "2026-08-09T00:00:01.000Z";
   media.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(tinyWebm("screen-provenance")) });
   const prepared = media.stopRecording(started.sessionId);
-  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720, sourceType: "task", sourceId: "task-1" });
   db.db.close();
 
   const reopened = new WorkspaceDatabase(dbPath);

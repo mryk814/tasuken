@@ -30,11 +30,14 @@ export interface MicrophoneRecordingStartRequest {
   mimeType: MicrophoneRecordingMimeType;
 }
 
+/**
+ * 録画開始時にownerを決めない（#383）。
+ * 「録るために先に何かを作る」順序を避け、紐づけ先は保存時に選ぶ。
+ */
 export interface ScreenRecordingStartRequest {
   mediaKind: "video";
   mimeType: ScreenRecordingMimeType;
-  sourceType: VideoArtifactSourceType;
-  sourceId: string;
+  themeId?: string | null;
 }
 
 export type MediaRecordingStartRequest = MicrophoneRecordingStartRequest | ScreenRecordingStartRequest;
@@ -110,6 +113,9 @@ export interface VideoImportCommitRequest {
   durationMs: number;
   widthPx: number;
   heightPx: number;
+  /** 未指定ならInbox（CaptureEntry）へ落とす。指定時はそのEntityへ添付する（#383）。 */
+  sourceType?: VideoArtifactSourceType | null;
+  sourceId?: string | null;
 }
 
 export interface VideoImportCommitResult {
@@ -211,12 +217,12 @@ export function parseMediaRecordingStartRequest(value: unknown): MediaRecordingS
     return { ...theme, mediaKind: "audio", mimeType: input.mimeType as MicrophoneRecordingMimeType };
   }
   if (mediaKind === "video") {
-    const input = requireExactObject(value, ["mediaKind", "mimeType", "sourceType", "sourceId"], "screen recording start");
+    const input = requireExactObject(value, ["mediaKind", "mimeType", "themeId"], "screen recording start");
     if (typeof input.mimeType !== "string" || !SCREEN_RECORDING_MIME_TYPES.includes(input.mimeType as ScreenRecordingMimeType)) {
       throw new Error("対応していない画面録画形式です。Windows版Taskenを再起動してください。");
     }
-    const owner = parseVideoImportPrepareRequest({ storageMode: "managed", sourceType: input.sourceType, sourceId: input.sourceId });
-    return { mediaKind: "video", mimeType: input.mimeType as ScreenRecordingMimeType, sourceType: owner.sourceType, sourceId: owner.sourceId };
+    const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
+    return { ...theme, mediaKind: "video", mimeType: input.mimeType as ScreenRecordingMimeType };
   }
   throw new Error("この録音種別には対応していません。");
 }
@@ -272,18 +278,28 @@ export function parseVideoImportPrepareRequest(value: unknown): VideoImportPrepa
 }
 
 export function parseVideoImportCommitRequest(value: unknown): VideoImportCommitRequest {
-  const input = requireExactObject(value, ["sessionId", "durationMs", "widthPx", "heightPx"], "動画Import commit");
+  const input = requireExactObject(value, ["sessionId", "durationMs", "widthPx", "heightPx", "sourceType", "sourceId"], "動画Import commit");
   for (const field of ["durationMs", "widthPx", "heightPx"] as const) {
     const maximum = field === "durationMs" ? 7 * 24 * 60 * 60 * 1000 : 16_384;
     if (!Number.isSafeInteger(input[field]) || Number(input[field]) < 0 || Number(input[field]) > maximum || (field !== "durationMs" && Number(input[field]) === 0)) {
       throw new Error(`動画Importの${field}が不正です。動画を読み直してください。`);
     }
   }
+  // ownerは保存時に決める。両方nullならInbox（CaptureEntry）へ落とす（#383）。
+  const hasOwner = input.sourceType !== null && input.sourceType !== undefined;
+  if (hasOwner !== (input.sourceId !== null && input.sourceId !== undefined)) {
+    throw new Error("動画の紐づけ先が中途半端です。保存先を選び直してください。");
+  }
+  const owner = hasOwner
+    ? parseVideoImportPrepareRequest({ storageMode: "managed", sourceType: input.sourceType, sourceId: input.sourceId })
+    : null;
   return {
     sessionId: requireSessionId(input.sessionId),
     durationMs: Number(input.durationMs),
     widthPx: Number(input.widthPx),
     heightPx: Number(input.heightPx),
+    sourceType: owner ? owner.sourceType : null,
+    sourceId: owner ? owner.sourceId : null,
   };
 }
 

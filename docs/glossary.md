@@ -29,7 +29,7 @@
 | Studio | `StudioPage.tsx` | 「収録」「録音・録画の画面」。マイク録音と画面録画の入口をまとめた画面。Notesと同階層に置く。録るという行為と保存待ちの復旧までを持ち、できたものはArtifactとして残る。Inboxは受け取ったものを分類する場所なので、録音・録画の入口は持たない（#383） |
 | Voice Capture | `VoiceRecorderPanel.tsx` / `ContentViewer.tsx` | Studioの「音声を取り込む」で既存audio fileをmanaged保存するか、「マイクで録音」で入力deviceを選び明示録音する。録音中はcompact recorder、保存前・復旧待ちは「保存待ち音声」、保存後はCaptureEntryからContent Viewerで再生する。Audio Artifact詳細からBatch transcriptionのPreviewを開ける。詳細は `docs/media-capture.md` と `docs/batch-transcription.md` |
 | Batch transcription | `BatchTranscriptionPanel.tsx` / `BatchTranscriptionService` | Audio Artifactを対象に、Mainが原音とexact provider/modelを再検証し、Cloud送信Previewへの明示確認後だけ一括文字起こしする。raw transcriptは原音hash/provider/model/language/mode/statusを持つappend-only revisionとしてArtifact/Captureへ残す。再試行は同じrevision、再実行は新しいrevision |
-| Screen Recording | `ScreenRecorderPanel.tsx` / `StudioPage.tsx` | 「画面録画」「window録画」。Studioで画面/window、保存先、Off/Mic/System、Pointerを選び、停止後の「保存待ち画面録画」をpreviewしてからVideo Artifactへ明示保存する。rectangle選択・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
+| Screen Recording | `ScreenRecorderPanel.tsx` / `StudioPage.tsx` | 「画面録画」「window録画」。Studioで画面/window、Off/Mic/System、Pointerを選んで録る。**紐づけ先は録画前ではなく保存時に選ぶ**（未選択はInboxのCaptureEntryへ落ちる。#383）。停止後の「保存待ち画面録画」をpreviewしてからVideo Artifactへ明示保存する。rectangle選択・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
 | Video Artifact | `ArtifactSection.tsx` / `ContentViewer.tsx` | Task / Note / Capture / 実行中Focusへ既存動画または画面録画をmanagedで添付し、既存動画はlinkedも選べる。Artifact IDから再生し、確定前と復旧待ちは「保存待ち動画」または「保存待ち画面録画」。trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
 
 ## エンティティと状態

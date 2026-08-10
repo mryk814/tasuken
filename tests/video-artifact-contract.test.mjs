@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import {
   videoMimeTypeOf,
@@ -63,12 +64,57 @@ test("video IPC requests accept exact ID-only metadata envelopes", () => {
   assert.throws(() => parseVideoImportPrepareRequest({ storageMode: "linked", sourceType: "theme", sourceId: ID }));
   assert.throws(() => parseVideoImportPrepareRequest({ storageMode: "linked", sourceType: "note", sourceId: ID, path: "C:\\secret.mp4" }));
   assert.throws(() => parseVideoImportPrepareRequest({ storageMode: "linked", sourceType: "task", sourceId: "task-1", themeId: ID }));
+  // 紐づけ先は保存時に決める。未指定はInbox（CaptureEntry）行き（#383）。
   assert.deepEqual(parseVideoImportCommitRequest({ sessionId: ID, durationMs: 100, widthPx: 2, heightPx: 2 }), {
-    sessionId: ID, durationMs: 100, widthPx: 2, heightPx: 2,
+    sessionId: ID, durationMs: 100, widthPx: 2, heightPx: 2, sourceType: null, sourceId: null,
   });
+  assert.deepEqual(parseVideoImportCommitRequest({ sessionId: ID, durationMs: 100, widthPx: 2, heightPx: 2, sourceType: "task", sourceId: "task-1" }), {
+    sessionId: ID, durationMs: 100, widthPx: 2, heightPx: 2, sourceType: "task", sourceId: "task-1",
+  });
+  // 片方だけの指定は受け付けない。
+  assert.throws(() => parseVideoImportCommitRequest({ sessionId: ID, durationMs: 100, widthPx: 2, heightPx: 2, sourceType: "task", sourceId: null }), /中途半端/);
   assert.throws(() => parseVideoImportCommitRequest({ sessionId: ID, durationMs: 100, widthPx: 0, heightPx: 2 }));
   assert.throws(() => parseVideoImportCommitRequest({ sessionId: ID, durationMs: 100, widthPx: 2 ** 53, heightPx: 2 }));
   assert.throws(() => parseVideoImportCommitRequest({ sessionId: ID, durationMs: 100, widthPx: 16_385, heightPx: 2 }));
   assert.deepEqual(parseMediaArtifactOpenRequest({ artifactId: ID }), { artifactId: ID });
   assert.throws(() => parseMediaArtifactOpenRequest({ artifactId: ID, path: "C:\\secret.mp4" }));
+});
+
+test("紐づけ先未選択の画面録画はCaptureEntryごとInboxへ確定する（#383）", () => {
+  const captureId = "7a1e4567-e89b-42d3-a456-426614174999";
+  const artifact = {
+    id: "8b2e4567-e89b-42d3-a456-426614174998",
+    media_kind: "video",
+    storage_mode: "managed",
+    source_type: "capture_entry",
+    source_id: captureId,
+  };
+  const capture = {
+    id: captureId,
+    content_type: "video",
+    kind: "screen_capture",
+    capture_method: "screen_recording",
+    media_status: "ready",
+  };
+  // commit contractの必須項目。どれかが欠けたらInboxに置き場のない動画が生まれる。
+  assert.equal(artifact.source_type, "capture_entry");
+  assert.equal(artifact.source_id, capture.id);
+  assert.equal(capture.content_type, "video");
+  assert.equal(capture.kind, "screen_capture");
+  assert.equal(capture.capture_method, "screen_recording");
+});
+
+test("紐づけ先未選択の画面録画はCaptureEntryごとInboxへ確定する（#383）", () => {
+  const service = readFileSync("src/main/services/mediaCaptureService.ts", "utf8");
+  const commands = readFileSync("src/main/services/applicationCommandService.ts", "utf8");
+  // 録画開始はownerを取らず、commitで決める。未選択ならCaptureEntryを作る。
+  assert.match(service, /private resolveVideoCommitOwner\([\s\S]*?sourceType: "capture_entry",[\s\S]*?pendingCaptureEntry: true/);
+  assert.match(service, /manifest\.pendingCaptureEntry \? \{[\s\S]*?kind: "screen_capture",[\s\S]*?content_type: "video",[\s\S]*?capture_method: "screen_recording"/);
+  assert.match(service, /payload: capture \? \{ capture, artifact \} : \{ artifact \}/);
+  // まだrepositoryに無いCaptureEntryをownerとして扱えるようにする。
+  assert.match(service, /manifest\.pendingCaptureEntry\) return;/);
+  // Command側はcaptureとartifactを同じtransactionで確定する。
+  assert.match(commands, /const \{ capture = null, artifact \} = command\.payload/);
+  assert.match(commands, /capture\.kind !== "screen_capture"[\s\S]*?INVALID_PAYLOAD/);
+  assert.match(commands, /capture \? \["capture_entry", "artifact"\] : \["artifact"\]/);
 });

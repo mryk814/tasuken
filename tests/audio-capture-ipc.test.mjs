@@ -54,14 +54,13 @@ test("media recording IPC is mediaKind-discriminated and accepts only ArrayBuffe
     themeId: THEME_ID,
     mimeType: "audio/webm",
   });
-  assert.deepEqual(parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: OWNER_ID }), {
+  // 録画開始はownerを取らない。紐づけ先は保存時に決める（#383）。
+  assert.deepEqual(parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/mp4", themeId: null }), {
     mediaKind: "video",
-    mimeType: "video/webm",
-    sourceType: "task",
-    sourceId: OWNER_ID,
+    mimeType: "video/mp4",
   });
-  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm" }), /添付先種別/);
-  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: OWNER_ID, desktopSourceId: "screen:0:0" }), /未定義field/);
+  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: OWNER_ID, themeId: null }), /未定義field/);
+  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm", themeId: null, desktopSourceId: "screen:0:0" }), /未定義field/);
   assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "audio", mimeType: "audio/wav" }), /対応していない録音形式/);
   const chunk = new ArrayBuffer(16);
   assert.deepEqual(parsers.parseMediaRecordingAppendRequest({ sessionId: SESSION_ID, sequence: 0, chunk }), { sessionId: SESSION_ID, sequence: 0, chunk });

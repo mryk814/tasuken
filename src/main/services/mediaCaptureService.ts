@@ -84,6 +84,8 @@ interface AudioSessionManifest {
   command?: CommandEnvelope;
   recoveryError?: "final_file_missing" | "final_hash_mismatch" | "commit_failed";
   captureMethod?: "audio_import" | "microphone" | "screen_recording";
+  /** 紐づけ先未選択の画面録画。commit時にCaptureEntryごと作る（#383）。 */
+  pendingCaptureEntry?: boolean;
   recordingNextSequence?: number;
   recordingChunkHashes?: string;
   recordingStartedAt?: string;
@@ -675,7 +677,7 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
     "schema", "sessionId", "state", "mediaKind", "filename", "mimeType", "fileSize", "contentHash",
     "themeId", "storageMode", "sourceType", "sourceId", "sourcePath", "sourceRealPath", "sourceDevice", "sourceInode", "stagedFileName", "createdAt", "updatedAt", "finalPath", "managedRootPath",
     "managedRootRealPath", "managedRootDevice", "managedRootInode", "durationMs", "widthPx", "heightPx", "commandIssuedAt", "command", "recoveryError",
-    "captureMethod", "recordingNextSequence", "recordingChunkHashes", "recordingStartedAt", "recordingElapsedMs", "recordingStateStartedAt",
+    "captureMethod", "pendingCaptureEntry", "recordingNextSequence", "recordingChunkHashes", "recordingStartedAt", "recordingElapsedMs", "recordingStateStartedAt",
   ], "Media Capture manifest");
   if (manifest.schema !== MANIFEST_SCHEMA || manifest.sessionId !== expectedSessionId || !SESSION_ID_PATTERN.test(expectedSessionId)) {
     throw new Error("Media Capture manifest identityが不正です。");
@@ -719,8 +721,13 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
   if (!recordingState && Number(manifest.fileSize) <= 0) throw new Error("Media file sizeが不正です。");
   if (manifest.mediaKind === "video") {
     if (manifest.storageMode !== "managed" && manifest.storageMode !== "linked") throw new Error("Video storage modeが不正です。");
-    if (!manifest.sourceType || !["task", "note", "report", "capture_entry"].includes(String(manifest.sourceType))) throw new Error("Video source typeが不正です。");
-    if (typeof manifest.sourceId !== "string" || !manifest.sourceId || manifest.sourceId !== manifest.sourceId.trim() || manifest.sourceId.length > 200) throw new Error("Video source IDが不正です。");
+    // 録画中と停止直後（prepared）はownerが未確定でよい。commitで決める（#383）。
+    const ownerPending = (recordingState || state === "prepared")
+      && manifest.sourceType === undefined && manifest.sourceId === undefined;
+    if (!ownerPending) {
+      if (!manifest.sourceType || !["task", "note", "report", "capture_entry"].includes(String(manifest.sourceType))) throw new Error("Video source typeが不正です。");
+      if (typeof manifest.sourceId !== "string" || !manifest.sourceId || manifest.sourceId !== manifest.sourceId.trim() || manifest.sourceId.length > 200) throw new Error("Video source IDが不正です。");
+    }
     if (manifest.storageMode === "linked") {
       if (typeof manifest.sourcePath !== "string" || !path.isAbsolute(manifest.sourcePath)
         || typeof manifest.sourceRealPath !== "string" || !path.isAbsolute(manifest.sourceRealPath)
@@ -800,22 +807,16 @@ export class MediaCaptureService {
       throw new Error(isAudio ? "対応していない録音形式です。WebM/Opusで録音してください。" : "対応していない画面録画形式です。MP4またはWebMで録画してください。");
     }
     let themeId: string | null = null;
-    let videoOwner: { storageMode: "managed"; sourceType: VideoArtifactSourceType; sourceId: string } | null = null;
+    let videoOwner: { storageMode: "managed"; sourceType?: VideoArtifactSourceType; sourceId?: string } | null = null;
     if (isAudio) {
       themeId = typeof request.themeId === "string" && request.themeId.trim() ? request.themeId.trim() : null;
     } else {
-      const ownerType = request.sourceType === "report" ? "note" : request.sourceType;
-      const owner = this.options.repository.get(ownerType, request.sourceId);
-      if (!owner || owner.deleted_at) throw new Error("画面録画の添付先が見つかりません。添付先を選び直してください。");
-      themeId = typeof owner.project_id === "string" && owner.project_id
-        ? owner.project_id
-        : typeof owner.theme_id === "string" && owner.theme_id
-          ? owner.theme_id
-          : null;
+      themeId = typeof request.themeId === "string" && request.themeId.trim() ? request.themeId.trim() : null;
       if (themeId && !this.options.repository.get("project", themeId) && !this.options.repository.get("theme", themeId)) {
-        throw new Error("画面録画の添付先Themeが見つかりません。添付先を保存してからやり直してください。");
+        throw new Error("画面録画のThemeが見つかりません。Themeを選び直してください。");
       }
-      videoOwner = { storageMode: "managed", sourceType: request.sourceType, sourceId: request.sourceId };
+      // ownerは保存時に決める。ここではmanaged保存だけを固定する（#383）。
+      videoOwner = { storageMode: "managed" };
     }
     const sessionId = assertSessionId(this.idFactory());
     const sessionDirectory = this.sessionDirectory(sessionId);
@@ -1263,7 +1264,8 @@ export class MediaCaptureService {
       if (!entry.isDirectory() || !SESSION_ID_PATTERN.test(entry.name)) continue;
       try {
         const manifest = this.readManifest(this.sessionDirectory(entry.name));
-        if (manifest.state === "committed" || manifest.mediaKind !== "video" || !manifest.storageMode || !manifest.sourceType || !manifest.sourceId) continue;
+        // 画面録画は保存時までownerを持たない。ownerの有無で一覧から落とさない（#383）。
+        if (manifest.state === "committed" || manifest.mediaKind !== "video" || !manifest.storageMode) continue;
         if (manifest.state === "recording" || manifest.state === "recording_paused") {
           pending.push({ summary: {
             sessionId: manifest.sessionId,
@@ -1279,8 +1281,8 @@ export class MediaCaptureService {
             canDiscard: true,
             canRecoverRecording: manifest.fileSize > 0 && (manifest.recordingNextSequence || 0) > 0,
             storageMode: manifest.storageMode,
-            sourceType: manifest.sourceType,
-            sourceId: manifest.sourceId,
+            ...(manifest.sourceType ? { sourceType: manifest.sourceType } : {}),
+            ...(manifest.sourceId ? { sourceId: manifest.sourceId } : {}),
           }, createdAt: manifest.createdAt });
           continue;
         }
@@ -1384,6 +1386,7 @@ export class MediaCaptureService {
       return this.toInternalVideoResult(manifest, this.options.commands.executeMediaCapture(manifest.command));
     }
     if (manifest.state === "prepared") {
+      manifest = this.resolveVideoCommitOwner(sessionDirectory, manifest, request);
       this.assertVideoOwnerBinding(manifest);
       manifest = this.beginFinalizeVideo(sessionDirectory, manifest, { durationMs, widthPx, heightPx });
     }
@@ -1633,6 +1636,46 @@ export class MediaCaptureService {
     return finalizing;
   }
 
+  /**
+   * 録画開始時にownerを持たないsessionへ、保存時の選択を書き込む（#383）。
+   * 未選択ならCaptureEntryを新規に用意してInboxへ落とす。音声と同じ着地にする。
+   */
+  private resolveVideoCommitOwner(
+    sessionDirectory: string,
+    manifest: AudioSessionManifest,
+    request: VideoImportCommitRequest,
+  ): AudioSessionManifest {
+    if (manifest.sourceType && manifest.sourceId) return manifest;
+    if (request.sourceType && request.sourceId) {
+      const ownerType = request.sourceType === "report" ? "note" : request.sourceType;
+      const owner = this.options.repository.get(ownerType, request.sourceId);
+      if (!owner || owner.deleted_at) throw new Error("動画の紐づけ先が見つかりません。保存先を選び直してください。");
+      const ownerThemeId = typeof owner.project_id === "string" && owner.project_id
+        ? owner.project_id
+        : typeof owner.theme_id === "string" && owner.theme_id
+          ? owner.theme_id
+          : null;
+      const next: AudioSessionManifest = {
+        ...manifest,
+        sourceType: request.sourceType,
+        sourceId: request.sourceId,
+        themeId: ownerThemeId,
+        updatedAt: this.now(),
+      };
+      this.writeManifest(sessionDirectory, next);
+      return next;
+    }
+    const next: AudioSessionManifest = {
+      ...manifest,
+      sourceType: "capture_entry",
+      sourceId: this.idFactory(),
+      pendingCaptureEntry: true,
+      updatedAt: this.now(),
+    };
+    this.writeManifest(sessionDirectory, next);
+    return next;
+  }
+
   private beginFinalizeVideo(
     sessionDirectory: string,
     manifest: AudioSessionManifest,
@@ -1705,10 +1748,24 @@ export class MediaCaptureService {
       media_availability: "available",
       ai_visibility: [],
     };
+    const capture: Entity | null = manifest.pendingCaptureEntry ? {
+      id: String(manifest.sourceId),
+      title: baseNameWithoutExtension(filename),
+      text: filename,
+      kind: "screen_capture",
+      content_type: "video",
+      capture_method: "screen_recording",
+      media_status: "ready",
+      transcription_status: "not_requested",
+      captured_at: timestamp,
+      state: "untriaged",
+      project_id: manifest.themeId,
+      ai_visibility: [],
+    } : null;
     const command: CommandEnvelope = {
       commandId,
       name: "CommitVideoArtifact",
-      payload: { artifact },
+      payload: capture ? { capture, artifact } : { artifact },
       actor: { kind: "user" },
       source: "main_ui",
       sessionId: manifest.sessionId,
@@ -1813,7 +1870,7 @@ export class MediaCaptureService {
   }
 
   private assertVideoOwnerBinding(manifest: AudioSessionManifest): void {
-    if (manifest.mediaKind !== "video" || !manifest.sourceType || !manifest.sourceId) return;
+    if (manifest.mediaKind !== "video" || !manifest.sourceType || !manifest.sourceId || manifest.pendingCaptureEntry) return;
     const ownerType = manifest.sourceType === "report" ? "note" : manifest.sourceType;
     const owner = this.options.repository.get(ownerType, manifest.sourceId);
     if (!owner || owner.deleted_at) {
@@ -1926,7 +1983,8 @@ export class MediaCaptureService {
   }
 
   private toPreparedVideo(manifest: AudioSessionManifest): VideoImportPrepared {
-    if (manifest.mediaKind !== "video" || !manifest.storageMode || !manifest.sourceType || !manifest.sourceId) {
+    // 画面録画は保存時までownerを持たない。取り込み動画は開始時から持つ（#383）。
+    if (manifest.mediaKind !== "video" || !manifest.storageMode) {
       throw new Error("画面録画sessionのowner情報が不正です。");
     }
     return {
@@ -1939,8 +1997,8 @@ export class MediaCaptureService {
       availability: "available",
       ...(manifest.durationMs === undefined ? {} : { durationMs: manifest.durationMs }),
       storageMode: manifest.storageMode,
-      sourceType: manifest.sourceType,
-      sourceId: manifest.sourceId,
+      ...(manifest.sourceType ? { sourceType: manifest.sourceType } : {}),
+      ...(manifest.sourceId ? { sourceId: manifest.sourceId } : {}),
       canCommit: true,
       canRetry: false,
       canDiscard: true,

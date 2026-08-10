@@ -1180,8 +1180,6 @@ flowchart LR
       const started = await window.api.mediaCapture.startRecording({
         mediaKind: "video",
         mimeType: container,
-        sourceType: "task",
-        sourceId: ${JSON.stringify(smokeTaskId)},
       });
       const recorder = new MediaRecorder(stream, { mimeType });
       let sequence = 0;
@@ -1246,7 +1244,7 @@ flowchart LR
         video.onerror = () => { clearTimeout(timer); reject(new Error("screen recording metadata failed")); };
         video.src = prepared.mediaUrl;
       });
-      const committed = await window.api.mediaCapture.commitVideo({ sessionId: prepared.sessionId, ...metadata });
+      const committed = await window.api.mediaCapture.commitVideo({ sessionId: prepared.sessionId, ...metadata, sourceType: "task", sourceId: ${JSON.stringify(smokeTaskId)} });
       const artifact = await window.api.entities.get("artifact", committed.artifactId);
       if (!artifact || artifact.media_kind !== "video" || artifact.mime_type !== container
         || artifact.capture_method !== "screen_recording"

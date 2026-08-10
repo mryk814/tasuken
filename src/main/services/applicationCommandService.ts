@@ -827,16 +827,32 @@ export class ApplicationCommandService {
   }
 
   private commitVideoArtifact(command: CommandEnvelope): CommandReceipt {
-    const artifact = (command.payload as { artifact: Entity }).artifact;
-    if (this.repository.get("artifact", artifact.id, true)) {
-      throw new ApplicationCommandError("CONFLICT", "artifactのIDを再利用できません。", { type: "artifact", id: artifact.id });
+    // captureを伴う場合は紐づけ先未選択の画面録画。CaptureEntryごと同じtransactionで作る（#383）。
+    const { capture = null, artifact } = command.payload as { capture?: Entity; artifact: Entity };
+    for (const [type, entity] of ([["capture_entry", capture], ["artifact", artifact]] as const)) {
+      if (entity && this.repository.get(type, entity.id, true)) {
+        throw new ApplicationCommandError("CONFLICT", `${type}のIDを再利用できません。`, { type, id: entity.id });
+      }
+    }
+    if (capture) {
+      captureDefinition.parseCreate(capture);
+      if (
+        capture.content_type !== "video"
+        || capture.kind !== "screen_capture"
+        || capture.capture_method !== "screen_recording"
+        || capture.media_status !== "ready"
+        || artifact.source_type !== "capture_entry"
+        || artifact.source_id !== capture.id
+      ) {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", "画面録画Captureのcommit contractが不正です。");
+      }
     }
     artifactDefinition.parseCreate(artifact);
     const ownerTypes = new Set<EntityType>(["task", "note", "capture_entry"]);
     const ownerType = artifact.source_type === "report" ? "note" : artifact.source_type as EntityType;
-    const owner = ownerTypes.has(ownerType) && typeof artifact.source_id === "string"
+    const owner = capture || (ownerTypes.has(ownerType) && typeof artifact.source_id === "string"
       ? this.repository.get(ownerType, artifact.source_id)
-      : null;
+      : null);
     const ownerThemeId = owner && typeof owner.project_id === "string" && owner.project_id
       ? owner.project_id
       : owner && typeof owner.theme_id === "string" && owner.theme_id
@@ -869,9 +885,10 @@ export class ApplicationCommandService {
       content_hash: artifact.content_hash,
     };
     return persistReceipt(this.repository, command, [
+      ...(capture ? [{ action: "save" as const, type: "capture_entry" as const, entity: capture }] : []),
       { action: "save", type: "artifact", entity: artifact },
       { action: "save", type: "change_event", entity: event },
-    ], [event.id], ["artifact"]);
+    ], [event.id], capture ? ["capture_entry", "artifact"] : ["artifact"]);
   }
 
   private startTaskWork(command: CommandEnvelope): CommandReceipt {

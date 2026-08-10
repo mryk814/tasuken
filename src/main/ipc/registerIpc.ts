@@ -352,7 +352,7 @@ export function registerIpc(
         const themeId = requireAudioCaptureThemeId(repository, { themeId: parsed.themeId });
         return mediaCapture.startRecording({ ...parsed, themeId });
       }
-      requireVideoImportRequest(repository, { storageMode: "managed", sourceType: parsed.sourceType, sourceId: parsed.sourceId });
+      // 録画開始時にownerを検証しない。紐づけ先は保存時に決める（#383）。
       return mediaCapture.startRecording(parsed);
     } catch (error) {
       throw projectMediaCaptureIpcError("record", error);

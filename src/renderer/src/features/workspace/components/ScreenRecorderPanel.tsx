@@ -16,6 +16,7 @@ import { SCREEN_RECORDING_BITRATES, screenRecordingContainerOf } from "../../../
 import { formatArtifactFileSize } from "./artifacts";
 import { Button } from "./common";
 import { trackPendingMediaRecordingFlush } from "../lib/mediaRecordingFlushRegistry";
+import { useUiStore } from "../../../stores/uiStore";
 
 const MAX_PENDING_RECORDING_CHUNKS = 8;
 
@@ -105,7 +106,9 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
   const [sources, setSources] = useState<readonly Readonly<ScreenRecordingSourceProjection>[]>([]);
   const [environment, setEnvironment] = useState<ScreenRecordingEnvironment | null>(null);
   const [sourceToken, setSourceToken] = useState("");
-  const [ownerKey, setOwnerKey] = useState(owners[0]?.key || "");
+  const activeThemeId = useUiStore((state) => state.activeThemeId);
+  /** 保存待ち行ごとの紐づけ先。未選択はInbox（CaptureEntry）行き。 */
+  const [commitOwnerKeys, setCommitOwnerKeys] = useState<Record<string, string>>({});
   const [audioMode, setAudioMode] = useState<ScreenRecordingAudioMode>("off");
   const [includePointer, setIncludePointer] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -129,13 +132,8 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
   const transitionRef = useRef<Promise<void>>(Promise.resolve());
   const stopNowRef = useRef<(showToast?: boolean) => Promise<VideoImportPrepared | null>>(async () => null);
 
-  const selectedOwner = useMemo(() => owners.find((owner) => owner.key === ownerKey) || null, [ownerKey, owners]);
   const selectedSource = useMemo(() => sources.find((source) => source.sourceToken === sourceToken) || null, [sourceToken, sources]);
   const active = Boolean(startRef.current || sessionRef.current);
-
-  useEffect(() => {
-    if (!owners.some((owner) => owner.key === ownerKey)) setOwnerKey(owners[0]?.key || "");
-  }, [ownerKey, owners]);
 
   useEffect(() => {
     onActiveChange?.(active);
@@ -238,8 +236,8 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
   }
 
   async function beginRecordingNow() {
-    if (!selectedSource || !selectedOwner || !environment) {
-      setError("録画対象と保存先を選択してください。");
+    if (!selectedSource || !environment) {
+      setError("録画対象を選択してください。");
       setState("error");
       return;
     }
@@ -267,11 +265,11 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
       acquiredStreams.push(combined);
       const mimeType = environment.mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
       if (!mimeType) throw new Error("WebM画面録画形式を利用できなくなりました。アプリを再起動してください。");
+      // ownerは保存時に決める。録るために先に何かを作らせない（#383）。
       startedSession = await workspaceApi.startMediaRecording({
         mediaKind: "video",
         mimeType: screenRecordingContainerOf(mimeType),
-        sourceType: selectedOwner.sourceType,
-        sourceId: selectedOwner.sourceId,
+        themeId: activeThemeId || null,
       });
       const recorder = new MediaRecorder(combined, { mimeType, ...SCREEN_RECORDING_BITRATES });
       recorder.addEventListener("dataavailable", (event) => queueBlob(event.data));
@@ -459,9 +457,17 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
     setBusySessionId(entry.sessionId);
     try {
       const metadata = await readVideoMetadata(entry.mediaUrl);
-      await workspaceApi.commitVideoImport({ sessionId: entry.sessionId, ...metadata });
+      const owner = owners.find((candidate) => candidate.key === (commitOwnerKeys[entry.sessionId] || "")) || null;
+      await workspaceApi.commitVideoImport({
+        sessionId: entry.sessionId,
+        ...metadata,
+        sourceType: owner ? owner.sourceType : null,
+        sourceId: owner ? owner.sourceId : null,
+      });
       setPrepared((current) => current.filter((candidate) => candidate.sessionId !== entry.sessionId));
-      setToast(`画面録画「${entry.filename}」をVideo Artifactへ保存しました。`, "success");
+      setToast(owner
+        ? `画面録画「${entry.filename}」を${owner.label}へ保存しました。`
+        : `画面録画「${entry.filename}」をInboxへ保存しました。`, "success");
     } catch (caught) {
       setToast(`画面録画を保存できませんでした。${caught instanceof Error ? caught.message : String(caught)} 保存待ち画面録画から再試行できます。`, "danger");
     } finally {
@@ -581,9 +587,6 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
                 ))}
               </div>
               <div className="screen-recorder-settings">
-                <label><span>保存先</span><select value={ownerKey} onChange={(event) => setOwnerKey(event.target.value)}>
-                  {owners.map((owner) => <option key={owner.key} value={owner.key}>{owner.label}</option>)}
-                </select></label>
                 <label><span>音声</span><select value={audioMode} onChange={(event) => setAudioMode(event.target.value as ScreenRecordingAudioMode)}>
                   <option value="off">Off</option>
                   <option value="microphone">Mic</option>
@@ -592,12 +595,11 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
                 <label className="screen-recorder-check"><input type="checkbox" checked={includePointer} onChange={(event) => setIncludePointer(event.target.checked)} />Pointer</label>
                 <small>{environment ? `空き ${formatArtifactFileSize(environment.availableRecordingBytes)} · 上限 ${formatArtifactFileSize(environment.maxRecordingBytes)}` : ""}</small>
               </div>
-              {!owners.length && <span role="alert">保存先にするTask、Capture、または実行中Focusを先に作成してください。</span>}
               {environment && !environment.systemAudio && <small>{environment.systemAudioReason}</small>}
               <div className="inline-actions">
                 <Button variant="secondary" compact disabled={transitioning} onClick={() => { void openPicker(); }}><IconRefresh size={15} />更新</Button>
                 <Button variant="secondary" compact disabled={transitioning} onClick={() => setState("idle")}>閉じる</Button>
-                <Button variant="primary" compact disabled={transitioning || !selectedSource || !selectedOwner} onClick={() => { void beginRecording(); }}><IconVideo size={15} />録画を開始</Button>
+                <Button variant="primary" compact disabled={transitioning || !selectedSource} onClick={() => { void beginRecording(); }}><IconVideo size={15} />録画を開始</Button>
               </div>
             </>
           )}
@@ -633,7 +635,20 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
             {entry.status === "ready" ? <video controls preload="metadata" src={entry.mediaUrl} aria-label={`${entry.filename}の保存前Preview`} /> : <div className="inbox-audio-recovery-warning">要確認</div>}
             <div><strong>{entry.filename}</strong><small>{entry.status === "ready" ? `${entry.mimeType} · ${formatArtifactFileSize(entry.fileSize)}` : "録画が中断されたか、保存を復旧する必要があります。"}</small></div>
             <div className="inline-actions">
-              {entry.canCommit && <Button variant="primary" compact disabled={busy} onClick={() => { void commitPrepared(entry); }}>{busy ? "処理中…" : "Artifactへ保存"}</Button>}
+              {/* 紐づけ先はここで決める。未選択のままならInboxへ落ちる（#383）。 */}
+              {entry.canCommit && (
+                <label className="screen-recorder-commit-owner">
+                  <span>紐づけ先</span>
+                  <select
+                    value={commitOwnerKeys[entry.sessionId] || ""}
+                    onChange={(event) => setCommitOwnerKeys((current) => ({ ...current, [entry.sessionId]: event.target.value }))}
+                  >
+                    <option value="">Inbox（あとで整理）</option>
+                    {owners.map((owner) => <option key={owner.key} value={owner.key}>{owner.label}</option>)}
+                  </select>
+                </label>
+              )}
+              {entry.canCommit && <Button variant="primary" compact disabled={busy} onClick={() => { void commitPrepared(entry); }}>{busy ? "処理中…" : "保存"}</Button>}
               {entry.canRecoverRecording && <Button variant="secondary" compact disabled={busy} onClick={() => { void recoverInterrupted(entry); }}>録画を復旧</Button>}
               {entry.canRetry && <Button variant="secondary" compact disabled={busy} onClick={() => { void retryPrepared(entry); }}>保存を再試行</Button>}
               {entry.canDiscard && <button type="button" className="text-button compact" disabled={busy} onClick={() => { void discardPrepared(entry); }}>破棄</button>}

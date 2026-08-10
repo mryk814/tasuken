@@ -400,7 +400,7 @@ test("preparedとcommitted画面録画の残留chunkも読込時にidempotent cl
   service.listPreparedVideo();
   assert.equal(fs.existsSync(chunkPath), false);
 
-  service.commitVideo({ sessionId: started.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  service.commitVideo({ sessionId: started.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720, sourceType: "task", sourceId: ownerId });
   fs.writeFileSync(chunkPath, webmBytes("committed-screen-leftover"));
   service.listPreparedVideo();
   service.listPreparedVideo();
@@ -429,7 +429,7 @@ test("画面録画stop失敗後も同じsessionを再試行してpreparedとVide
       },
     },
   });
-  const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: ownerId });
+  const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm" });
   service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("screen-stop-retry")) });
   const chunkPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "chunk-00000000.part");
   const realOpen = fs.openSync;
@@ -454,7 +454,7 @@ test("画面録画stop失敗後も同じsessionを再試行してpreparedとVide
   assert.equal(prepared.sessionId, started.sessionId);
   assert.equal(prepared.status, "ready");
   assert.equal(service.listPreparedVideo().filter((entry) => entry.sessionId === started.sessionId).length, 1);
-  const committed = service.commitVideo({ sessionId: started.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  const committed = service.commitVideo({ sessionId: started.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720, sourceType: "task", sourceId: ownerId });
   assert.equal(committed.publicResult.status, "applied");
   assert.equal(appliedCommands.length, 1);
   assert.equal(appliedCommands[0].name, "CommitVideoArtifact");
@@ -472,7 +472,7 @@ test("zero-byte画面録画はstop不能でも破棄でき、cancel失敗時は�
       },
     },
   });
-  const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: ownerId });
+  const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm" });
   const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
   assert.throws(() => service.stopRecording(started.sessionId), /録音データがありません/);
 
@@ -509,7 +509,7 @@ test("画面録画ownerはtask/note/report/capture_entryを同じmanaged binding
         },
       },
     });
-    const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType, sourceId: ownerId });
+    const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm" });
     assert.equal(started.mediaKind, "video");
     assert.equal(service.cancel(started.sessionId), true);
   }
