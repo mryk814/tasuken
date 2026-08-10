@@ -348,9 +348,11 @@ test("付箋ウィンドウはrevision queueとMain flushで入力を失わな�
   assert.match(stickyHtml, /coordinator\.overwriteConflict\(\)/);
   assert.doesNotMatch(stickyHtml, /beforeunload/);
   // 参照用途のコピーとリンク導線。
-  assert.match(stickyHtml, /aria-label="全文をコピー"/);
-  assert.match(stickyHtml, /aria-label="常に手前に表示"/);
-  assert.match(stickyHtml, /aria-label="付箋を閉じる。メモは残ります"/);
+  assert.match(stickyHtml, /role="menuitem" id="copy">全文をコピー</);
+  // pinは「付箋対象」、常に手前はmenuのcheckboxへ分けた（#377）。
+  assert.match(stickyHtml, /aria-label="付箋対象から外して収納"/);
+  assert.match(stickyHtml, /role="menuitemcheckbox" id="always-on-top" aria-checked="false">常に手前に表示</);
+  assert.match(stickyHtml, /aria-label="付箋を閉じる。付箋対象の設定は残ります"/);
 });
 
 test("付箋ウィンドウがビルド対象に登録されている（#298）", () => {
@@ -373,30 +375,32 @@ test("付箋を閉じる・アーカイブ・削除を別の操作として区�
   // Inbox側: アーカイブと削除を別ボタンで並べる。
   assert.match(inboxSource, /aria-label="付箋メモをアーカイブ"/);
   assert.match(inboxSource, /aria-label="付箋メモを削除"/);
-  // すべて閉じてもMemoは削除しない。
-  assert.match(inboxSource, /メモは残っています/);
+  // 収納は表示をやめるだけで、付箋対象からもMemoからも外さない（#377）。
+  assert.match(inboxSource, /allTargetStickiesVisible \? "対象を収納" : "対象を表示"/);
 });
 
-test("付箋で開いているMemoを本体から区別できる（#298）", () => {
+test("付箋で開いているMemoを本体から区別できる（#298 / #377）", () => {
   const inboxSource = readFileSync("src/renderer/src/features/workspace/pages/InboxPage.tsx", "utf8");
   const cssSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
-  // 開閉状態の正本はMainのregistry。画面は購読するだけで自前に持たない。
-  assert.match(inboxSource, /workspaceApi\.listOpenMemoStickies\(\)/);
-  assert.match(inboxSource, /return workspaceApi\.onMemoStickyOpenChanged\(setOpenStickyIds\);/);
+  // A=付箋対象、B=表示中、C=最前面の正本はMainのregistry。画面は購読するだけで自前に持たない。
+  assert.match(inboxSource, /workspaceApi\.getSatelliteWindowState\(\)/);
+  assert.match(inboxSource, /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/);
   assert.match(registrySource, /options\.onChanged\?\.\(\);/);
 
-  // 色だけに頼らず語でも示す。
-  assert.match(inboxSource, /micro-memo-floating-badge">付箋表示中/);
-  assert.match(cssSource, /\.micro-memo-floating-badge \{/);
-  // 既に浮いているMemoはボタンの意味が「前面へ出す」に変わる。
-  assert.match(inboxSource, /openStickyIds\.includes\(memo\.id\) \? "付箋を前面に表示" : "付箋として表示"/);
+  // 色だけに頼らず語でも3状態を区別する。
+  assert.match(inboxSource, /micro-memo-target-badge">付箋対象/);
+  assert.match(inboxSource, /micro-memo-visible-badge">表示中/);
+  assert.match(inboxSource, /micro-memo-top-badge">最前面/);
+  assert.match(cssSource, /\.micro-memo-target-badge,/);
+  assert.match(cssSource, /\.micro-memo-visible-badge \{/);
+  // pinは付箋対象の入切だけを意味する。前面へ出す・常に手前と混ぜない。
+  assert.match(inboxSource, /aria-label=\{targeted \? "付箋対象から外して収納" : "付箋対象にして表示"\}/);
 
-  // 開いている付箋の一括操作。
-  assert.match(inboxSource, /すべて前面へ/);
-  assert.match(inboxSource, /すべて閉じる/);
-  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyShowAll/);
-  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyCloseAll/);
+  // 付箋対象の一括表示・収納は単一のtoggle IPCへ集約する。
+  assert.match(inboxSource, /workspaceApi\.toggleMemoStickyTargetsVisibility\(\)/);
+  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyToggleTargetsVisibility/);
+  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickySetTarget/);
 });
 
 // --- 切り離しNote編集ウィンドウ（#290） ---
@@ -490,8 +494,7 @@ test("上部バーはPopoverを経由せずRegistryの衛星ウィンドウを�
   assert.doesNotMatch(shellSource, /titlebar-popover/);
   assert.match(workspaceAppSource, /workspaceApi\.getSatelliteWindowState\(\)/);
   assert.match(workspaceAppSource, /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/);
-  assert.match(workspaceAppSource, /workspaceApi\.showAllMemoStickies\(\)/);
-  assert.match(workspaceAppSource, /workspaceApi\.closeAllMemoStickies\(\)/);
+  assert.match(workspaceAppSource, /workspaceApi\.toggleMemoStickyTargetsVisibility\(\)/);
 });
 
 test("付箋表示対象は同じMemoのproperties_jsonへ保存し、閉じても状態を消さない（#327）", () => {

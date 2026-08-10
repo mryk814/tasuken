@@ -276,20 +276,14 @@ export const workspaceApi = {
   showTodayMiniWindow() {
     return desktopApi().app.showTodayMiniWindow();
   },
-  showMemoStickyWindow(memoId: string) {
-    return desktopApi().app.showMemoStickyWindow(memoId);
+  setMemoStickyTarget(memoId: string, target: boolean) {
+    return desktopApi().app.setMemoStickyTarget({ memoId, target });
   },
-  listOpenMemoStickies() {
-    return desktopApi().app.listOpenMemoStickies();
+  toggleMemoStickyTargetsVisibility() {
+    return desktopApi().app.toggleMemoStickyTargetsVisibility();
   },
-  listStickyMemoTargets() {
-    return desktopApi().app.listStickyMemoTargets();
-  },
-  showAllMemoStickies() {
-    return desktopApi().app.showAllMemoStickies();
-  },
-  closeAllMemoStickies() {
-    return desktopApi().app.closeAllMemoStickies();
+  setMemoStickyTheme(theme: "light" | "dark") {
+    return desktopApi().app.setMemoStickyTheme({ theme });
   },
   getSatelliteWindowState() {
     return desktopApi().app.getSatelliteWindowState();
@@ -302,9 +296,6 @@ export const workspaceApi = {
   },
   ackAppFlush(requestId: string, ok: boolean) {
     return desktopApi().app.ackAppFlush(requestId, ok);
-  },
-  onMemoStickyOpenChanged(callback: (memoIds: string[]) => void) {
-    return desktopApi().app.onMemoStickyOpenChanged(callback);
   },
   openNoteWindow(noteId: string) {
     return desktopApi().app.openNoteWindow(noteId);

@@ -9,6 +9,7 @@ import type {
   WorkspaceMeta,
 } from "../types/workspace";
 import type { CanonicalRootStatusMap } from "../types/workspace";
+import type { MemoStickyColor, MemoStickyTargetRequest, MemoStickyThemeRequest } from "../memoPresentation";
 import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
@@ -103,21 +104,20 @@ export const IPC = {
   todayMiniAddTask: "today-mini:add-task",
   todayMiniToggle: "today-mini:toggle",
   todayMiniOpenTask: "today-mini:open-task",
-  memoStickyOpen: "memo-sticky:open",
   memoStickyLoad: "memo-sticky:load",
   memoStickySave: "memo-sticky:save",
   memoStickyCopy: "memo-sticky:copy",
   memoStickyClose: "memo-sticky:close",
+  memoStickySetTarget: "memo-sticky:set-target",
+  memoStickySetColor: "memo-sticky:set-color",
+  memoStickySetTheme: "memo-sticky:set-theme",
+  memoStickyThemeChanged: "memo-sticky:theme-changed",
+  memoStickyToggleTargetsVisibility: "memo-sticky:toggle-targets-visibility",
   memoStickySetAlwaysOnTop: "memo-sticky:set-always-on-top",
   memoStickyIsAlwaysOnTop: "memo-sticky:is-always-on-top",
   memoStickyOpenInMain: "memo-sticky:open-in-main",
   memoStickyArchive: "memo-sticky:archive",
   memoStickyDelete: "memo-sticky:delete",
-  memoStickyOpenChanged: "memo-sticky:open-changed",
-  memoStickyListOpen: "memo-sticky:list-open",
-  memoStickyListTargets: "memo-sticky:list-targets",
-  memoStickyShowAll: "memo-sticky:show-all",
-  memoStickyCloseAll: "memo-sticky:close-all",
   satelliteWindowState: "satellite-window:state",
   entityList: "entity:list",
   entityGet: "entity:get",
@@ -244,6 +244,7 @@ export interface SatelliteWindowStatePayload {
   todayOpen: boolean;
   openMemoIds: string[];
   stickyMemoIds: string[];
+  alwaysOnTopMemoIds: string[];
 }
 
 export interface AppUpdateCheckResult {
@@ -582,15 +583,10 @@ export interface ResearchDeskApi {
     ackAppFlush(requestId: string, ok: boolean): Promise<boolean>;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
     showTodayMiniWindow(): Promise<boolean>;
-    /** Memoをデスクトップ付箋として浮かせる。既に開いていれば前面へ出す（#298）。 */
-    showMemoStickyWindow(memoId: string): Promise<boolean>;
-    /** いま付箋として浮いているMemoのID（#298）。 */
-    listOpenMemoStickies(): Promise<string[]>;
-    listStickyMemoTargets(): Promise<string[]>;
-    showAllMemoStickies(): Promise<number>;
-    /** すべて閉じる。Memoは削除しない。 */
-    closeAllMemoStickies(): Promise<number>;
-    onMemoStickyOpenChanged(callback: (memoIds: string[]) => void): () => void;
+    /** A=付箋表示対象をdesired stateで保存し、B=window表示をMainで調停する（#377）。 */
+    setMemoStickyTarget(request: MemoStickyTargetRequest): Promise<MemoStickyTargetResult>;
+    toggleMemoStickyTargetsVisibility(): Promise<MemoStickyVisibilityResult>;
+    setMemoStickyTheme(request: MemoStickyThemeRequest): Promise<boolean>;
     getSatelliteWindowState(): Promise<SatelliteWindowStatePayload>;
     onSatelliteWindowStateChanged(callback: (state: SatelliteWindowStatePayload) => void): () => void;
     /** Noteを別ウィンドウで開く。既に開いていれば前面へ出す（#290）。 */
@@ -666,6 +662,27 @@ export interface MemoStickyContent {
   url: string;
   capturedAt: string;
   version: number;
+  target: boolean;
+  color: MemoStickyColor;
+  theme: "light" | "dark";
+}
+
+export interface MemoStickyTargetResult {
+  status: "applied" | "not_found" | "flush_failed";
+  target: boolean;
+  visible: boolean;
+  content: MemoStickyContent | null;
+}
+
+export interface MemoStickyVisibilityResult {
+  status: "shown" | "hidden" | "empty" | "flush_failed";
+  targetCount: number;
+  visibleCount: number;
+}
+
+export interface MemoStickyColorResult {
+  status: "applied" | "not_found" | "flush_failed";
+  content: MemoStickyContent | null;
 }
 
 export interface MemoStickySaveRequest {

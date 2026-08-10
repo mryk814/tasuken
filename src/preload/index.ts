@@ -128,11 +128,9 @@ const api: ResearchDeskApi = {
     ackAppFlush: (requestId, ok) => ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok }),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
     showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
-    showMemoStickyWindow: (memoId) => ipcRenderer.invoke(IPC.memoStickyOpen, memoId),
-    listOpenMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyListOpen),
-    listStickyMemoTargets: () => ipcRenderer.invoke(IPC.memoStickyListTargets),
-    showAllMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyShowAll),
-    closeAllMemoStickies: () => ipcRenderer.invoke(IPC.memoStickyCloseAll),
+    setMemoStickyTarget: (request) => ipcRenderer.invoke(IPC.memoStickySetTarget, request),
+    toggleMemoStickyTargetsVisibility: () => ipcRenderer.invoke(IPC.memoStickyToggleTargetsVisibility),
+    setMemoStickyTheme: (request) => ipcRenderer.invoke(IPC.memoStickySetTheme, request),
     getSatelliteWindowState: () => ipcRenderer.invoke(IPC.satelliteWindowState),
     onSatelliteWindowStateChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, state: unknown): void => {
@@ -141,6 +139,7 @@ const api: ResearchDeskApi = {
           todayOpen: value.todayOpen === true,
           openMemoIds: Array.isArray(value.openMemoIds) ? value.openMemoIds.map(String) : [],
           stickyMemoIds: Array.isArray(value.stickyMemoIds) ? value.stickyMemoIds.map(String) : [],
+          alwaysOnTopMemoIds: Array.isArray(value.alwaysOnTopMemoIds) ? value.alwaysOnTopMemoIds.map(String) : [],
         });
       };
       ipcRenderer.on(IPC.satelliteWindowState, handler);
@@ -167,13 +166,6 @@ const api: ResearchDeskApi = {
       return () => { ipcRenderer.removeListener(IPC.noteWindowFlushRequested, handler); };
     },
     ackNoteWindowFlush: (requestId, ok) => ipcRenderer.invoke(IPC.noteWindowFlushAck, { requestId, ok }),
-    onMemoStickyOpenChanged: (callback): Unsubscribe => {
-      const handler = (_event: Electron.IpcRendererEvent, memoIds: unknown): void => {
-        callback(Array.isArray(memoIds) ? memoIds.map(String) : []);
-      };
-      ipcRenderer.on(IPC.memoStickyOpenChanged, handler);
-      return () => { ipcRenderer.removeListener(IPC.memoStickyOpenChanged, handler); };
-    },
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {
         callback(change as Parameters<typeof callback>[0]);

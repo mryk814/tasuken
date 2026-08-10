@@ -202,12 +202,17 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (detachedNoteId) return undefined;
-    const applyState = (state: { todayOpen: boolean; openMemoIds: string[]; stickyMemoIds: string[] }) => {
+    const applyState = (state: { todayOpen: boolean; openMemoIds: string[]; stickyMemoIds: string[]; alwaysOnTopMemoIds: string[] }) => {
       setTodayWindowOpen(state.todayOpen);
       setOpenStickyMemoIds(state.openMemoIds);
       setStickyMemoTargetIds(state.stickyMemoIds);
     };
-    void workspaceApi.getSatelliteWindowState().then(applyState).catch(() => applyState({ todayOpen: false, openMemoIds: [], stickyMemoIds: [] }));
+    void workspaceApi.getSatelliteWindowState().then(applyState).catch(() => applyState({
+      todayOpen: false,
+      openMemoIds: [],
+      stickyMemoIds: [],
+      alwaysOnTopMemoIds: [],
+    }));
     return workspaceApi.onSatelliteWindowStateChanged(applyState);
   }, [detachedNoteId]);
 
@@ -242,6 +247,7 @@ export function WorkspaceApp() {
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
     void workspaceApi.setTitleBarTheme(themeMode);
+    void workspaceApi.setMemoStickyTheme(themeMode);
     if (loadState === "success") {
       workspaceApi.setPreference("themeMode", themeMode).catch((error) => {
         setToast(`表示設定を保存できませんでした。${errorMessage(error)}`, "danger");
@@ -1297,14 +1303,11 @@ export function WorkspaceApp() {
   };
   const toggleStickyWindows = () => {
     void (async () => {
-      const allShown = stickyMemoTargetIds.length > 0
-        && stickyMemoTargetIds.every((memoId) => openStickyMemoIds.includes(memoId));
-      if (allShown) {
-        await workspaceApi.closeAllMemoStickies();
-        return;
+      const result = await workspaceApi.toggleMemoStickyTargetsVisibility();
+      if (result.status === "empty") setToast("表示する付箋がありません。", "info");
+      if (result.status === "flush_failed") {
+        setToast("付箋を収納できませんでした。保存エラーを解消してから再試行してください。", "danger");
       }
-      const shown = await workspaceApi.showAllMemoStickies();
-      if (shown === 0) setToast("表示する付箋がありません。", "info");
     })().catch((error) => {
       setToast(`付箋を切り替えられませんでした。${errorMessage(error)}`, "danger");
     });

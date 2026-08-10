@@ -50,6 +50,7 @@ import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
 import type { Entity } from "../../../../../shared/types/workspace";
 import type { AudioCapturePrepared, MediaRecordingStarted } from "../../../../../shared/mediaCapture";
 import { formatMediaDuration, MEDIA_AVAILABILITY_LABELS, TRANSCRIPTION_STATUS_LABELS } from "../../../../../shared/mediaArtifact.mjs";
+import { memoStickyColorOf } from "../../../../../shared/memoPresentation";
 import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
@@ -293,14 +294,30 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
   const [recorderStarting, setRecorderStarting] = useState(false);
   const recordingDiscardingRef = useRef(false);
   const recordingTransitionRef = useRef<Promise<void>>(Promise.resolve());
-  // いま付箋として浮いているMemo（#298）。Mainのwindow registryが正本なので、
-  // 画面側では保持せず開閉のたびに受け取る。
+  // A=付箋対象、B=visible、C=always-on-topはMainの正本を別々に投影する（#377）。
   const [openStickyIds, setOpenStickyIds] = useState<string[]>([]);
+  const [stickyTargetIds, setStickyTargetIds] = useState<string[]>([]);
+  const [alwaysOnTopStickyIds, setAlwaysOnTopStickyIds] = useState<string[]>([]);
   const today = todayIso();
+  const allTargetStickiesVisible = stickyTargetIds.length > 0
+    && stickyTargetIds.every((memoId) => openStickyIds.includes(memoId));
 
   useEffect(() => {
-    void workspaceApi.listOpenMemoStickies().then(setOpenStickyIds).catch(() => setOpenStickyIds([]));
-    return workspaceApi.onMemoStickyOpenChanged(setOpenStickyIds);
+    const applyState = (state: {
+      openMemoIds: string[];
+      stickyMemoIds: string[];
+      alwaysOnTopMemoIds: string[];
+    }) => {
+      setOpenStickyIds(state.openMemoIds);
+      setStickyTargetIds(state.stickyMemoIds);
+      setAlwaysOnTopStickyIds(state.alwaysOnTopMemoIds);
+    };
+    void workspaceApi.getSatelliteWindowState().then(applyState).catch(() => applyState({
+      openMemoIds: [],
+      stickyMemoIds: [],
+      alwaysOnTopMemoIds: [],
+    }));
+    return workspaceApi.onSatelliteWindowStateChanged(applyState);
   }, []);
 
   useEffect(() => {
@@ -707,25 +724,22 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
   }
 
-  /**
-   * Memoをデスクトップ付箋として浮かせる（#298）。
-   * 同じMemoが既に浮いていれば新しい窓を作らず前面へ出すので、押し直しても複製されない。
-   * つまりこのボタンは「浮かせる」と「前面へ出す」を兼ねる。
-   */
-  async function floatMicroMemo(memo: CaptureEntry) {
-    const opened = await workspaceApi.showMemoStickyWindow(memo.id);
-    if (!opened) setToast("付箋として表示できませんでした。メモが見つかりません。", "danger");
+  async function toggleMicroMemoTarget(memo: CaptureEntry) {
+    const target = !stickyTargetIds.includes(memo.id);
+    const result = await workspaceApi.setMemoStickyTarget(memo.id, target);
+    if (result.status === "not_found") {
+      setToast("付箋対象を変更できませんでした。メモを再読み込みしてください。", "danger");
+    } else if (result.status === "flush_failed") {
+      setToast("付箋を収納できませんでした。付箋側の保存エラーを解消してください。", "danger");
+    }
   }
 
-  async function showAllMicroMemoStickies() {
-    const count = await workspaceApi.showAllMemoStickies();
-    setToast(`${count}件の付箋を前面に表示しました。`);
-  }
-
-  /** すべて閉じてもMemoは削除しない。閉じるとアーカイブ・削除を混同させない（#298）。 */
-  async function closeAllMicroMemoStickies() {
-    const count = await workspaceApi.closeAllMemoStickies();
-    setToast(`${count}件の付箋を閉じました。メモは残っています。`);
+  async function toggleMicroMemoStickies() {
+    const result = await workspaceApi.toggleMemoStickyTargetsVisibility();
+    if (result.status === "empty") setToast("表示する付箋がありません。", "info");
+    if (result.status === "flush_failed") {
+      setToast("付箋を収納できませんでした。付箋側の保存エラーを解消してください。", "danger");
+    }
   }
 
   async function sendMicroMemoToInbox(memo: CaptureEntry) {
@@ -1586,23 +1600,30 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
         <div className="section-heading">
           <h2>付箋メモ</h2>
           <span>{microMemoRows.length}件</span>
-          {/* 開いている付箋の管理（#298）。行動を促す数なのでカウントを出す。 */}
-          {openStickyIds.length > 0 && (
-            <div className="inline-actions">
-              <span className="sticky-open-count">表示中 {openStickyIds.length}</span>
-              <button className="text-button compact" onClick={() => void showAllMicroMemoStickies()}>すべて前面へ</button>
-              <button className="text-button compact" onClick={() => void closeAllMicroMemoStickies()}>すべて閉じる</button>
-            </div>
-          )}
+          <div className="inline-actions">
+            <span className="sticky-open-count">対象 {stickyTargetIds.length} · 表示中 {openStickyIds.length}</span>
+            <button className="text-button compact" onClick={() => void toggleMicroMemoStickies()}>
+              {allTargetStickiesVisible ? "対象を収納" : "対象を表示"}
+            </button>
+          </div>
         </div>
         {microMemoRows.length ? (
           <div className="micro-memo-grid">
-            {microMemoRows.map((memo) => (
-              <article className={`micro-memo-card ${openStickyIds.includes(memo.id) ? "is-floating" : ""}`} key={memo.id}>
+            {microMemoRows.map((memo) => {
+              const targeted = stickyTargetIds.includes(memo.id);
+              const visible = openStickyIds.includes(memo.id);
+              const alwaysOnTop = alwaysOnTopStickyIds.includes(memo.id);
+              return (
+              <article
+                className={`micro-memo-card ${targeted ? "is-targeted" : ""} ${visible ? "is-visible" : ""}`}
+                data-sticky-color={memoStickyColorOf(memo as unknown as Entity)}
+                key={memo.id}
+              >
                 <div className="micro-memo-card-meta">
                   <time dateTime={memo.captured_at} title={`記録日 ${memo.captured_at}`}>記録 {formatDate(memo.captured_at)}</time>
-                  {/* 付箋で開いていることを本体からも分かるようにする（#298）。 */}
-                  {openStickyIds.includes(memo.id) && <span className="micro-memo-floating-badge">付箋表示中</span>}
+                  {targeted && <span className="micro-memo-target-badge">付箋対象</span>}
+                  {visible && <span className="micro-memo-visible-badge">表示中</span>}
+                  {alwaysOnTop && <span className="micro-memo-top-badge">最前面</span>}
                 </div>
                 {memo.title ? <>
                   <strong>{memo.title}</strong>
@@ -1611,10 +1632,11 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
                 <div className="micro-memo-actions">
                   {/* 付箋化は同じMemoの表示状態でしかない。複製も別Entityも作らない（#298）。 */}
                   <button
-                    className={`row-action-button ${openStickyIds.includes(memo.id) ? "is-active" : ""}`}
-                    onClick={() => void floatMicroMemo(memo)}
-                    aria-label={openStickyIds.includes(memo.id) ? "付箋を前面に表示" : "付箋として表示"}
-                    title={openStickyIds.includes(memo.id) ? "付箋を前面に表示" : "付箋として表示"}
+                    className={`row-action-button ${targeted ? "is-active" : ""}`}
+                    onClick={() => void toggleMicroMemoTarget(memo)}
+                    aria-label={targeted ? "付箋対象から外して収納" : "付箋対象にして表示"}
+                    aria-pressed={targeted}
+                    title={targeted ? "付箋対象から外す" : "付箋対象にする"}
                   ><IconPin size={15} /></button>
                   <button className="row-action-button" onClick={() => copyMicroMemo(memo)} aria-label="付箋メモをコピー" title="コピー"><IconCopy size={15} /></button>
                   <button className="row-action-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })} aria-label="付箋メモを編集" title="編集"><IconPencil size={15} /></button>
@@ -1624,7 +1646,8 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
                   <button className="row-action-button danger" onClick={() => removeEntity("capture_entry", memo as unknown as Record<string, unknown>)} aria-label="付箋メモを削除" title="削除"><IconTrash size={15} /></button>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <EmptyState title={query ? "検索に一致する付箋メモはありません" : "付箋メモはありません"} />

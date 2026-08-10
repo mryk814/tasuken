@@ -203,17 +203,18 @@ function isVisibleWindow(win: BrowserWindow | null): boolean {
 
 /** 開いている付箋の一覧を本体へ配る。本体側で「付箋表示中」を区別するために使う（#298）。 */
 function notifyMemoStickyWindowsChanged(): void {
-  const openMemoIds = memoStickyController?.openMemoIds() || [];
+  const openMemoIds = memoStickyController?.visibleMemoIds() || [];
   const stickyMemoIds = memoStickyController?.stickyMemoIds() || [];
+  const alwaysOnTopMemoIds = memoStickyController?.alwaysOnTopMemoIds() || [];
   const openNoteIds = noteWindowController?.openNoteIds() || [];
   const state: SatelliteWindowStatePayload = {
     todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
     openMemoIds,
     stickyMemoIds,
+    alwaysOnTopMemoIds,
   };
   for (const win of BrowserWindow.getAllWindows()) {
     if (isAuxiliaryWindow(win) || win.isDestroyed() || win.webContents.isLoading()) continue;
-    win.webContents.send(IPC.memoStickyOpenChanged, openMemoIds);
     win.webContents.send(IPC.noteWindowOpenChanged, openNoteIds);
     win.webContents.send(IPC.satelliteWindowState, state);
   }
@@ -285,7 +286,7 @@ function rendererWindowsForAppFlush(): BrowserWindow[] {
     const noteWindow = satelliteWindows?.get({ kind: "note", entityId: noteId });
     if (noteWindow && !windows.includes(noteWindow)) windows.push(noteWindow);
   }
-  for (const memoId of memoStickyController?.openMemoIds() || []) {
+  for (const memoId of memoStickyController?.windowMemoIds() || []) {
     const memoWindow = satelliteWindows?.get({ kind: "memo", entityId: memoId });
     if (memoWindow && !windows.includes(memoWindow)) windows.push(memoWindow);
   }
@@ -1969,14 +1970,16 @@ async function startDesktopApp(): Promise<void> {
   });
   ipcMain.handle(IPC.satelliteWindowState, () => ({
     todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
-    openMemoIds: memoStickyController?.openMemoIds() || [],
+    openMemoIds: memoStickyController?.visibleMemoIds() || [],
     stickyMemoIds: memoStickyController?.stickyMemoIds() || [],
+    alwaysOnTopMemoIds: memoStickyController?.alwaysOnTopMemoIds() || [],
   } satisfies SatelliteWindowStatePayload));
   memoStickyController = createMemoStickyController({
     repository: workspaceRepository,
     satelliteWindows,
     showMainWindow,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
+    notifyStickyStateChanged: notifyMemoStickyWindowsChanged,
     requestRendererFlush,
     isAppQuitApproved: () => appQuitApproved,
   });
