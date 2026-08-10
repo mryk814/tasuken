@@ -3,7 +3,8 @@ import { spawnSync } from "node:child_process";
 const isWindows = process.platform === "win32";
 const npmCommand = isWindows ? "npm.cmd" : "npm";
 const steps = [
-  ["Node ABI rebuild", "rebuild:node", []],
+  // testもsmokeもElectronのABIで動くので、rebuildは最初の一回だけでよい。
+  ["Electron ABI rebuild", "rebuild:electron", []],
   ["TypeScript typecheck", "typecheck", []],
   ["Unit and contract tests", "test:unit-contract", []],
   ["Behavior and data-safety tests", "test:behavior", []],
@@ -11,7 +12,6 @@ const steps = [
   ["Strict consistency audit", "audit:consistency", ["--strict", "--format=json"]],
   ["Script inventory audit", "audit:scripts", []],
   ["Renderer and main build", "build", []],
-  ["Electron ABI rebuild", "rebuild:electron", []],
   ["Focused Electron smoke", "smoke:desktop:focused", []],
 ];
 

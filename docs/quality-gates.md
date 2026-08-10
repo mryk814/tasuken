@@ -6,11 +6,12 @@ release.ymlのtag-based package workflowは独立して維持する。
 ## Stable checks
 
 quality-gates.ymlのjob nameとstatus check contextは、`typecheck`、`unit-contract`、`behavior-data-safety`、`full-test`、`consistency-audit`、`build-windows`、`electron-smoke`の7つで固定する。これらをrequired status checksの実設定対象とする。
-各jobはnpm.cmd ci後、必要なNode ABI rebuildを行う。
-Electron smokeだけはbuild後にElectron ABI rebuildを行い、生成済みbuildを起動する。
+各jobはnpm.cmd ci後、testを実行するjobだけElectron ABI rebuildを行う。typecheckはnative moduleを読まないのでrebuildしない。
 
-ローカルではnpm.cmd run ciがNode ABI rebuild → typecheck → unit/contract → behavior/data-safety → full-test → strict consistency/script inventory → build → Electron ABI rebuild → focused smokeの順で同じ経路を再現する。
-full-testは全tests/*.test.mjsをnpm test経由で実行する。新しいtest fileはこのglobへ自動的に含まれるため、手動partitionから漏れない。
+testは`ELECTRON_RUN_AS_NODE=1 electron --test`で実行する。better-sqlite3のようなnative moduleは1つの`.node`に1つのABIしか持てず、素のNodeとElectronでは`NODE_MODULE_VERSION`が異なるため、両方から実行するとrebuildの往復が必要になる。実行環境をElectron側へ一本化してこれを解消している。Node ABI向けのrebuild scriptは持たない。
+
+ローカルではnpm.cmd run ciがElectron ABI rebuild → typecheck → unit/contract → behavior/data-safety → full-test → strict consistency/script inventory → build → focused smokeの順で同じ経路を再現する。
+full-testは全tests/*.test.mjsをnpm test経由で実行する。globはNodeのtest runnerが解決するため、新しいtest fileは自動的に含まれ、手動partitionから漏れない。
 
 ## Audits
 

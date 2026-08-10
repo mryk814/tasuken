@@ -29,8 +29,8 @@ jobs:
       - name: Verify release tag
         run: npm run release:verify-version
 
-      - name: Prepare native dependencies for Node tests
-        run: npm rebuild better-sqlite3
+      - name: Prepare native dependencies for Electron
+        run: npm run rebuild:electron
 
       - name: Run tests
         run: npm test
