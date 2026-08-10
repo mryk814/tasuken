@@ -174,3 +174,14 @@ test("ContentViewer audio exposes loading, error and successful playback metadat
   assert.match(viewer, /formatArtifactFileSize\(load\.artifact\.file_size\)/);
   assert.match(viewer, /元ファイルの変更・削除、または対応形式を確認してください/);
 });
+
+test("Studioの録音と画面録画は同じ形の面で、開始操作を見出しの右に揃える（#383）", () => {
+  // 「画面を録画」が面の中央に落ちていたのを、マイク録音と同じ位置づけへ揃える。
+  assert.match(screenRecorder, /<section className="panel studio-recorder" aria-label="画面録画">/);
+  assert.match(screenRecorder, /<div className="section-heading">[\s\S]*?<h2>画面録画<\/h2>[\s\S]*?画面を録画/);
+  assert.match(voiceRecorder, /<section className="panel studio-recorder" aria-label="音声">/);
+  assert.match(voiceRecorder, /<div className="section-heading">[\s\S]*?<h2>音声<\/h2>[\s\S]*?マイクで録音/);
+  // 面の中に面を入れない。保存待ちは見出しレベルを下げた同一面の中に置く。
+  assert.doesNotMatch(screenRecorder, /<section className="panel inbox-screen-recovery"/);
+  assert.doesNotMatch(voiceRecorder, /<section className="panel inbox-audio-recovery"/);
+});

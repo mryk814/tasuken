@@ -3578,6 +3578,12 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   padding: var(--space-3);
 }
 
+/* 画面録画は対象グリッドと設定を縦に積む。音声側のflex行レイアウトを継がせない。 */
+.studio-recorder-body.inbox-screen-recorder {
+  display: grid;
+  align-items: stretch;
+}
+
 .inbox-screen-recorder.is-error {
   border-color: var(--color-danger-bd);
   color: var(--color-danger-strong);

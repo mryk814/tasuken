@@ -545,12 +545,22 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
   }, [state]);
 
   return (
-    <>
-      <Button variant="secondary" onClick={() => { void openPicker(); }} disabled={disabled || active || transitioning || (state !== "idle" && state !== "error")}>
-        <IconDeviceDesktop size={16} />{state === "loading" ? "確認中…" : "画面を録画"}
-      </Button>
+    <section className="panel studio-recorder" aria-label="画面録画">
+      <div className="section-heading">
+        <h2>画面録画</h2>
+        <div className="inline-actions">
+          <Button
+            variant="primary"
+            compact
+            onClick={() => { void openPicker(); }}
+            disabled={disabled || active || transitioning || (state !== "idle" && state !== "error")}
+          >
+            <IconDeviceDesktop size={15} />{state === "loading" ? "確認中…" : "画面を録画"}
+          </Button>
+        </div>
+      </div>
       {state !== "idle" && (
-        <section className={`panel inbox-screen-recorder ${state === "error" ? "is-error" : ""}`} aria-label="画面録画" aria-live="polite">
+        <div className={`studio-recorder-body inbox-screen-recorder ${state === "error" ? "is-error" : ""}`} aria-live="polite">
           {(state === "loading" || state === "starting") && <span>{state === "loading" ? "録画対象を確認しています…" : "録画を開始しています…"}</span>}
           {state === "ready" && (
             <>
@@ -611,12 +621,12 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
             </>}
             {!sessionRef.current && <Button variant="secondary" compact disabled={transitioning} onClick={() => { void openPicker(); }}>再試行</Button>}
           </div></>}
-        </section>
+        </div>
       )}
       {preparedState === "loading" && <div className="inbox-audio-recovery-state">保存待ち画面録画を確認しています…</div>}
       {preparedState === "error" && <div className="inbox-audio-recovery-state is-error" role="alert">保存待ち画面録画を確認できませんでした。<button type="button" className="text-button compact" onClick={() => { void refreshPrepared(); }}>再試行</button></div>}
-      {prepared.length > 0 && <section className="panel inbox-screen-recovery" aria-label="保存待ち画面録画">
-        <div className="section-heading"><h2>保存待ち画面録画</h2><span>{prepared.length}件</span></div>
+      {prepared.length > 0 && <div className="inbox-screen-recovery" aria-label="保存待ち画面録画">
+        <div className="section-heading"><h3>保存待ち画面録画</h3><span>{prepared.length}件</span></div>
         {prepared.map((entry) => {
           const busy = busySessionId === entry.sessionId;
           return <div className="inbox-screen-recovery-row" key={entry.sessionId}>
@@ -630,7 +640,7 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
             </div>
           </div>;
         })}
-      </section>}
-    </>
+      </div>}
+    </section>
   );
 }
