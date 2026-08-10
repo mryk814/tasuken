@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { isActiveFocusSession } from "../../../../../shared/focusSession.mjs";
 import { quickCaptureTitle } from "../../../../../shared/quickCapture.mjs";
 import { PageHeader } from "../components/common";
 import { ScreenRecorderPanel, type ScreenRecordingOwnerOption } from "../components/ScreenRecorderPanel";
 import { VoiceRecorderPanel } from "../components/VoiceRecorderPanel";
+import { PendingRecordingsPanel } from "../components/PendingRecordingsPanel";
 import type { PageProps } from "../types";
 
 /**
@@ -16,6 +17,9 @@ export function StudioPage({ domain: v2, setToast }: PageProps) {
   // 音声と画面録画のsessionは同時に持たせない。どちらかが動いている間は他方を止める。
   const [voiceActive, setVoiceActive] = useState(false);
   const [screenRecordingActive, setScreenRecordingActive] = useState(false);
+  // 録音・録画側の保存待ちが変わったら共有の表を読み直す。
+  const [preparedToken, setPreparedToken] = useState(0);
+  const bumpPrepared = useCallback(() => setPreparedToken((current) => current + 1), []);
 
   const screenRecordingOwners = useMemo<ScreenRecordingOwnerOption[]>(() => {
     const activeFocus = v2.notes
@@ -37,12 +41,19 @@ export function StudioPage({ domain: v2, setToast }: PageProps) {
       <VoiceRecorderPanel
         disabled={screenRecordingActive}
         onActiveChange={setVoiceActive}
+        onPreparedChanged={bumpPrepared}
         setToast={setToast}
       />
       <ScreenRecorderPanel
-        owners={screenRecordingOwners}
         disabled={voiceActive}
         onActiveChange={setScreenRecordingActive}
+        onPreparedChanged={bumpPrepared}
+        setToast={setToast}
+      />
+      {/* 音声と画面録画は同じ経路を通るので、保存待ちは1つの表にまとめる（#383）。 */}
+      <PendingRecordingsPanel
+        owners={screenRecordingOwners}
+        refreshToken={preparedToken}
         setToast={setToast}
       />
     </div>

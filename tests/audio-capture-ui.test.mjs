@@ -12,6 +12,7 @@ const mediaRecorderFlush = readFileSync("src/renderer/src/features/workspace/lib
 const screenRecorder = readFileSync("src/renderer/src/features/workspace/components/ScreenRecorderPanel.tsx", "utf8");
 const voiceRecorder = readFileSync("src/renderer/src/features/workspace/components/VoiceRecorderPanel.tsx", "utf8");
 const studio = readFileSync("src/renderer/src/features/workspace/pages/StudioPage.tsx", "utf8");
+const pendingRecordings = readFileSync("src/renderer/src/features/workspace/components/PendingRecordingsPanel.tsx", "utf8");
 const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const mainIndex = readFileSync("src/main/index.ts", "utf8");
 
@@ -138,20 +139,24 @@ test("permission denial, missing device and disconnect retain reason plus next a
   assert.match(voiceRecorder, /マイクが許可されていません。Windowsのプライバシー設定/);
   assert.match(voiceRecorder, /入力デバイスが見つかりません。マイクを接続してから再試行/);
   assert.match(voiceRecorder, /マイクが切断されました。録音済み部分を保存/);
-  assert.match(voiceRecorder, /録音を復旧/);
+  assert.match(pendingRecordings, /収録を復旧/);
 });
 
-test("Inbox prepared audio has explicit loading, error, preview, commit and discard states", () => {
-  assert.match(voiceRecorder, /preparedAudioState === "loading"/);
-  assert.match(voiceRecorder, /role="status">保存待ち音声を確認しています/);
-  assert.match(voiceRecorder, /preparedAudioState === "error"/);
-  assert.match(voiceRecorder, /role="alert"/);
-  assert.match(voiceRecorder, /onClick=\{\(\) => \{ void refreshPreparedAudio\(\); \}\}>一覧を再試行/);
-  assert.match(voiceRecorder, /preparedAudioState === "ready" && preparedAudio\.length === 0/);
-  assert.match(voiceRecorder, /role="status">保存待ち音声はありません/);
-  assert.match(voiceRecorder, /aria-label=\{`\$\{prepared\.filename\}の保存前プレビュー`\}/);
-  assert.match(voiceRecorder, /commitPreparedAudio\(prepared\)/);
-  assert.match(voiceRecorder, /discardPreparedAudio\(prepared\)/);
+test("保存待ちは音声と画面録画を1つの表に統合し、4状態と行操作を持つ（#383）", () => {
+  assert.match(pendingRecordings, /loadState === "loading"/);
+  assert.match(pendingRecordings, /role="status">保存待ちを確認しています/);
+  assert.match(pendingRecordings, /loadState === "error"/);
+  assert.match(pendingRecordings, /role="alert"/);
+  assert.match(pendingRecordings, /loadState === "ready" && rows\.length === 0/);
+  assert.match(pendingRecordings, /role="status">保存待ちはありません/);
+  assert.match(pendingRecordings, /aria-label=\{`\$\{entry\.filename\}の保存前プレビュー`\}/);
+  // 種別を列として持ち、音声と動画で表を割らない。
+  assert.match(pendingRecordings, /KIND_LABELS: Record<PendingKind, string> = \{[\s\S]*?audio: "音声",[\s\S]*?video: "画面録画",/);
+  assert.match(pendingRecordings, /row\.kind === "audio"[\s\S]*?commitAudioCapture/);
+  assert.match(pendingRecordings, /commitVideoImport\(\{[\s\S]*?sourceType: owner \? owner\.sourceType : null/);
+  // 録る面は保存待ちの一覧を持たない。導線を二重にしない。
+  assert.doesNotMatch(voiceRecorder, /保存待ち音声はありません/);
+  assert.doesNotMatch(screenRecorder, /保存待ち画面録画を確認しています/);
 });
 
 test("saved audio uses one metadata-rich button in untriaged and processed Inbox rows", () => {

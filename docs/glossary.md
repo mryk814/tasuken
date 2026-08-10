@@ -27,9 +27,9 @@
 | Data Health | `KnowledgePage.tsx` / `dataHealth.mjs` | AI公開・Relation・Internal Link・Canonical Markdown・AI Packの不整合を理由と修正候補付きで検出する診断。無視/解決済みはMain-ownedのversioned stateへ保存し、内容やRelationを自動変更しない |
 | Conversation AI Context | `ContentViewer.tsx` / `ConversationContextPanel.tsx` | Conversation Viewerから利用者が明示的にOneDriveへ昇格するM365用Markdown projection。取り込み時はローカルのみ。`AI Context/Conversations`へstable pathで保存し、Theme AI Packは本文を複製せず参照だけを持つ。詳細は `docs/conversation-ai-context.md` |
 | Studio | `StudioPage.tsx` | 「収録」「録音・録画の画面」。マイク録音と画面録画の入口をまとめた画面。Notesと同階層に置く。録るという行為と保存待ちの復旧までを持ち、できたものはArtifactとして残る。Inboxは受け取ったものを分類する場所なので、録音・録画の入口は持たない（#383） |
-| Voice Capture | `VoiceRecorderPanel.tsx` / `ContentViewer.tsx` | Studioの「音声を取り込む」で既存audio fileをmanaged保存するか、「マイクで録音」で入力deviceを選び明示録音する。録音中はcompact recorder、保存前・復旧待ちは「保存待ち音声」、保存後はCaptureEntryからContent Viewerで再生する。Audio Artifact詳細からBatch transcriptionのPreviewを開ける。詳細は `docs/media-capture.md` と `docs/batch-transcription.md` |
+| Voice Capture | `VoiceRecorderPanel.tsx` / `ContentViewer.tsx` | Studioの「音声を取り込む」で既存audio fileをmanaged保存するか、「マイクで録音」で入力deviceを選び明示録音する。録音中はcompact recorder、保存前・復旧待ちはStudioの「保存待ち」、保存後はCaptureEntryからContent Viewerで再生する。Audio Artifact詳細からBatch transcriptionのPreviewを開ける。詳細は `docs/media-capture.md` と `docs/batch-transcription.md` |
 | Batch transcription | `BatchTranscriptionPanel.tsx` / `BatchTranscriptionService` | Audio Artifactを対象に、Mainが原音とexact provider/modelを再検証し、Cloud送信Previewへの明示確認後だけ一括文字起こしする。raw transcriptは原音hash/provider/model/language/mode/statusを持つappend-only revisionとしてArtifact/Captureへ残す。再試行は同じrevision、再実行は新しいrevision |
-| Screen Recording | `ScreenRecorderPanel.tsx` / `StudioPage.tsx` | 「画面録画」「window録画」。Studioで画面/window、Off/Mic/System、Pointerを選んで録る。**紐づけ先は録画前ではなく保存時に選ぶ**（未選択はInboxのCaptureEntryへ落ちる。#383）。停止後の「保存待ち画面録画」をpreviewしてからVideo Artifactへ明示保存する。rectangle選択・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
+| Screen Recording | `ScreenRecorderPanel.tsx` / `StudioPage.tsx` | 「画面録画」「window録画」。Studioで画面/window、Off/Mic/System、Pointerを選んで録る。**紐づけ先は録画前ではなく保存時に選ぶ**（未選択はInboxのCaptureEntryへ落ちる。#383）。停止後はStudioの「保存待ち」でpreviewしてからVideo Artifactへ明示保存する。rectangle選択・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
 | Video Artifact | `ArtifactSection.tsx` / `ContentViewer.tsx` | Task / Note / Capture / 実行中Focusへ既存動画または画面録画をmanagedで添付し、既存動画はlinkedも選べる。Artifact IDから再生し、確定前と復旧待ちは「保存待ち動画」または「保存待ち画面録画」。trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
 
 ## エンティティと状態
@@ -66,7 +66,7 @@
 | 旧AI Draft | 既存`properties_json.draft_workspace`をNote AIの会話履歴として読み取る互換データ。独立した画面・保存経路は持たない |
 | Daily Scratchpad | 日付ごとに一枚だけ作る分類前の作業メモ。TodayまたはCommand Paletteから開き、通常Noteとして自動保存する。Activity Logへ全文を自動転記しない |
 | Focus Session | Taskを中心に関連Note / Artifact / Resource、作業中Scratchpad、経過時間を一面へ集める単一active session。終了時にTask状態・Note化・次Task・Activity要約を整理する |
-| 保存待ち動画 | 動画選択後、Artifact確定前のprepared sessionと復旧対象。metadataを確認して「添付する」か「破棄」を選ぶ。0件の通常詳細には説明panelを出さない |
+| 保存待ち | Studioの共有表。音声・画面録画のprepared sessionと復旧対象を種別列付きで1つに並べる（#383）。内容を確認して保存・再試行・復旧・破棄を選ぶ。画面録画はここで紐づけ先も選ぶ。0件の通常詳細には説明panelを出さない |
 | 保存待ち画面録画 | 画面/window録画の停止後または中断復旧後、Video Artifact確定前のsession。Inboxでpreviewし「Artifactへ保存」「録画を復旧」「保存を再試行」「破棄」を状態に応じて選ぶ |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
 | 付箋対象 | Top Barの一括展開・収納が対象にするMemoか（`capture_entry.properties_json.presentation = "floating"`）。Inboxのピンと付箋Window左上のピンはこの入切だけを意味し、押しても本文は消えない。正本はDB（#377） |

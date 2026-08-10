@@ -19,6 +19,8 @@ interface VoiceRecorderPanelProps {
   /** 画面録画中は同時に録音させない。 */
   disabled?: boolean;
   onActiveChange?: (active: boolean) => void;
+  /** 保存待ちの内容が変わったことを共有パネルへ知らせる（#383）。 */
+  onPreparedChanged?: () => void;
   setToast: (message: string, tone?: ToastTone) => void;
 }
 
@@ -68,12 +70,10 @@ function audioDurationMs(mediaUrl: string): Promise<number> {
   });
 }
 
-export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast }: VoiceRecorderPanelProps) {
+export function VoiceRecorderPanel({ disabled = false, onActiveChange, onPreparedChanged, setToast }: VoiceRecorderPanelProps) {
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const inboxRecorderRequested = useUiStore((state) => state.inboxRecorderRequested);
   const consumeInboxRecorderRequest = useUiStore((state) => state.consumeInboxRecorderRequest);
-  const [preparedAudio, setPreparedAudio] = useState<AudioCapturePrepared[]>([]);
-  const [preparedAudioState, setPreparedAudioState] = useState<"loading" | "ready" | "error">("loading");
   const [audioBusySessionId, setAudioBusySessionId] = useState<string | null>(null);
   const [recorderState, setRecorderState] = useState<RecorderState>("idle");
   const [recorderError, setRecorderError] = useState("");
@@ -99,10 +99,6 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast 
     onActiveChange?.(recorderState !== "idle" && recorderState !== "error");
   }, [onActiveChange, recorderState]);
 
-  useEffect(() => {
-    void refreshPreparedAudio();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Quick Captureからの「マイクで録音」は、この画面のrecorderをそのまま開く（#383）。
   useEffect(() => {
@@ -111,17 +107,6 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast 
     void prepareMicrophone();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consumeInboxRecorderRequest, inboxRecorderRequested]);
-
-  async function refreshPreparedAudio() {
-    setPreparedAudioState("loading");
-    try {
-      setPreparedAudio(await workspaceApi.listPreparedAudioCaptures());
-      setPreparedAudioState("ready");
-    } catch (error) {
-      setPreparedAudioState("error");
-      setToast(`保存待ち音声を確認できませんでした。${error instanceof Error ? error.message : String(error)}`, "warning");
-    }
-  }
 
   function releaseMicrophoneStream() {
     for (const track of microphoneStreamRef.current?.getTracks() || []) track.stop();
@@ -341,7 +326,7 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast 
       const prepared = await workspaceApi.stopMediaRecording(session.sessionId);
       releaseMicrophoneStream();
       recordingSessionRef.current = null;
-      setPreparedAudio((current) => [prepared, ...current.filter((entry) => entry.sessionId !== prepared.sessionId)]);
+      onPreparedChanged?.();
       if (autoCommit) await commitPreparedAudio(prepared);
       if (!preserveError) {
         setRecorderState("idle");
@@ -440,38 +425,10 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast 
     try {
       const durationMs = prepared.durationMs ?? await audioDurationMs(prepared.mediaUrl);
       await workspaceApi.commitAudioCapture({ sessionId: prepared.sessionId, durationMs });
-      setPreparedAudio((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      onPreparedChanged?.();
       setToast(`音声「${prepared.filename}」をInboxへ保存しました。`, "success");
     } catch (error) {
       setToast(`音声を保存できませんでした。${error instanceof Error ? error.message : String(error)} 保存待ち音声から再試行できます。`, "danger");
-    } finally {
-      setAudioBusySessionId(null);
-    }
-  }
-
-  async function retryRecoveredAudio(prepared: AudioCapturePrepared) {
-    if (!prepared.canRetry) return;
-    setAudioBusySessionId(prepared.sessionId);
-    try {
-      await workspaceApi.commitAudioCapture({ sessionId: prepared.sessionId, durationMs: prepared.durationMs || 0 });
-      setPreparedAudio((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
-      setToast(`音声「${prepared.filename}」の保存を復旧しました。`, "success");
-    } catch (error) {
-      setToast(`音声の保存を復旧できませんでした。${error instanceof Error ? error.message : String(error)} 手動確認が必要です。`, "danger");
-    } finally {
-      setAudioBusySessionId(null);
-    }
-  }
-
-  async function recoverInterruptedRecording(prepared: AudioCapturePrepared) {
-    if (!prepared.canRecoverRecording) return;
-    setAudioBusySessionId(prepared.sessionId);
-    try {
-      const recovered = await workspaceApi.stopMediaRecording(prepared.sessionId);
-      setPreparedAudio((current) => [recovered, ...current.filter((entry) => entry.sessionId !== prepared.sessionId)]);
-      setToast("中断された録音を復旧しました。内容を確認してInboxへ保存できます。", "success");
-    } catch (error) {
-      setToast(`録音を復旧できませんでした。${error instanceof Error ? error.message : String(error)} 原音は保持されています。`, "danger");
     } finally {
       setAudioBusySessionId(null);
     }
@@ -481,23 +438,10 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast 
     try {
       const result = await workspaceApi.prepareAudioCapture(activeThemeId || null);
       if (result.canceled) return;
-      setPreparedAudio((current) => [result, ...current.filter((entry) => entry.sessionId !== result.sessionId)]);
+      onPreparedChanged?.();
       await commitPreparedAudio(result);
     } catch (error) {
       setToast(`音声を取り込めませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
-    }
-  }
-
-  async function discardPreparedAudio(prepared: AudioCapturePrepared) {
-    setAudioBusySessionId(prepared.sessionId);
-    try {
-      await workspaceApi.cancelAudioCapture(prepared.sessionId);
-      setPreparedAudio((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
-      setToast("保存待ち音声を破棄しました。", "info");
-    } catch (error) {
-      setToast(`保存待ち音声を破棄できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
-    } finally {
-      setAudioBusySessionId(null);
     }
   }
 
@@ -571,74 +515,6 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, setToast 
               </div>
             </>
           )}
-        </div>
-      )}
-      {preparedAudioState === "loading" && (
-        <div className="inbox-audio-recovery-state" role="status">保存待ち音声を確認しています…</div>
-      )}
-      {preparedAudioState === "error" && (
-        <div className="inbox-audio-recovery-state is-error" role="alert">
-          <span>保存待ち音声を確認できませんでした。</span>
-          <button type="button" className="text-button compact" onClick={() => { void refreshPreparedAudio(); }}>一覧を再試行</button>
-        </div>
-      )}
-      {preparedAudioState === "ready" && preparedAudio.length === 0 && (
-        <div className="inbox-audio-recovery-state" role="status">保存待ち音声はありません。</div>
-      )}
-      {preparedAudio.length > 0 && (
-        <div className="inbox-audio-recovery" aria-label="保存待ち音声">
-          <div className="section-heading">
-            <h3>保存待ち音声</h3>
-            <span>{preparedAudio.length}件</span>
-          </div>
-          {preparedAudio.map((prepared) => {
-            const busy = audioBusySessionId === prepared.sessionId;
-            return (
-              <div className="inbox-audio-recovery-row" key={prepared.sessionId}>
-                {prepared.status === "ready" ? (
-                  <audio controls preload="metadata" src={prepared.mediaUrl} aria-label={`${prepared.filename}の保存前プレビュー`} />
-                ) : (
-                  <div className="inbox-audio-recovery-warning" role="status">要確認</div>
-                )}
-                <div>
-                  <strong>{prepared.filename}</strong>
-                  <small>
-                    {prepared.status === "ready"
-                      ? `${prepared.mimeType} · ${formatArtifactFileSize(prepared.fileSize)}`
-                      : prepared.canRetry
-                        ? "保存が完了していません。安全確認後に再試行できます。"
-                        : prepared.canDiscard
-                          ? "安全に読み込めません。保存せず破棄できます。"
-                          : "安全に自動復旧できません。手動確認が必要です。"}
-                  </small>
-                </div>
-                <div className="inline-actions">
-                  {prepared.canCommit && (
-                    <Button variant="secondary" compact disabled={busy} onClick={() => { void commitPreparedAudio(prepared); }}>
-                      {busy ? "処理中…" : "Inboxへ保存"}
-                    </Button>
-                  )}
-                  {prepared.canRetry && (
-                    <Button variant="secondary" compact disabled={busy} onClick={() => { void retryRecoveredAudio(prepared); }}>
-                      {busy ? "処理中…" : "保存を再試行"}
-                    </Button>
-                  )}
-                  {prepared.canRecoverRecording && (
-                    <Button variant="secondary" compact disabled={busy} onClick={() => { void recoverInterruptedRecording(prepared); }}>
-                      {busy ? "処理中…" : "録音を復旧"}
-                    </Button>
-                  )}
-                  {prepared.canDiscard ? (
-                    <button type="button" className="text-button compact" disabled={busy} onClick={() => { void discardPreparedAudio(prepared); }}>
-                      破棄
-                    </button>
-                  ) : !prepared.canRetry ? (
-                    <span className="status-text is-warning">手動確認が必要</span>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
         </div>
       )}
     </section>

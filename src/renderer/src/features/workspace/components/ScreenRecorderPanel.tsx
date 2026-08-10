@@ -30,9 +30,10 @@ export interface ScreenRecordingOwnerOption {
 }
 
 interface ScreenRecorderPanelProps {
-  owners: ScreenRecordingOwnerOption[];
   disabled?: boolean;
   onActiveChange?: (active: boolean) => void;
+  /** 保存待ちの内容が変わったことを共有パネルへ知らせる（#383）。 */
+  onPreparedChanged?: () => void;
   setToast: (message: string, tone: "success" | "warning" | "danger" | "info") => void;
 }
 
@@ -55,67 +56,17 @@ function formatElapsed(milliseconds: number): string {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function readVideoMetadata(mediaUrl: string): Promise<{ durationMs: number; widthPx: number; heightPx: number }> {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement("video");
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      video.onloadedmetadata = null;
-      video.onseeked = null;
-      video.onerror = null;
-      video.removeAttribute("src");
-      video.load();
-    };
-    const timer = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("動画metadataの読み込みが時間内に完了しませんでした。"));
-    }, 10_000);
-    const resolveMetadata = () => {
-      const durationMs = Math.round(video.duration * 1000);
-      const widthPx = video.videoWidth;
-      const heightPx = video.videoHeight;
-      if (!Number.isSafeInteger(durationMs) || durationMs < 0 || !widthPx || !heightPx) return false;
-      cleanup();
-      resolve({ durationMs, widthPx, heightPx });
-      return true;
-    };
-    video.preload = "metadata";
-    video.onloadedmetadata = () => {
-      if (resolveMetadata()) return;
-      // MediaRecorder WebMはduration cueを持たず最初にInfinityを返す場合がある。
-      // seekでdemux済みの終端時刻を確定させ、同じprepared bytesからだけmetadataを得る。
-      video.onseeked = () => {
-        if (!resolveMetadata()) {
-          cleanup();
-          reject(new Error("動画metadataを確認できませんでした。"));
-        }
-      };
-      video.currentTime = 7 * 24 * 60 * 60;
-    };
-    video.onerror = () => {
-      cleanup();
-      reject(new Error("録画動画を再生できません。内容を確認して破棄してください。"));
-    };
-    video.src = mediaUrl;
-  });
-}
-
-export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, setToast }: ScreenRecorderPanelProps) {
+export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPreparedChanged, setToast }: ScreenRecorderPanelProps) {
   const [state, setState] = useState<ScreenRecorderState>("idle");
   const [error, setError] = useState("");
   const [sources, setSources] = useState<readonly Readonly<ScreenRecordingSourceProjection>[]>([]);
   const [environment, setEnvironment] = useState<ScreenRecordingEnvironment | null>(null);
   const [sourceToken, setSourceToken] = useState("");
   const activeThemeId = useUiStore((state) => state.activeThemeId);
-  /** 保存待ち行ごとの紐づけ先。未選択はInbox（CaptureEntry）行き。 */
-  const [commitOwnerKeys, setCommitOwnerKeys] = useState<Record<string, string>>({});
   const [audioMode, setAudioMode] = useState<ScreenRecordingAudioMode>("off");
   const [includePointer, setIncludePointer] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [recordedBytes, setRecordedBytes] = useState(0);
-  const [prepared, setPrepared] = useState<VideoImportPrepared[]>([]);
-  const [preparedState, setPreparedState] = useState<"loading" | "ready" | "error">("loading");
-  const [busySessionId, setBusySessionId] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -138,22 +89,6 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
   useEffect(() => {
     onActiveChange?.(active);
   }, [active, onActiveChange, state]);
-
-  async function refreshPrepared() {
-    setPreparedState("loading");
-    try {
-      const entries = await workspaceApi.listPreparedVideoImports();
-      setPrepared(entries.filter((entry) => entry.filename.startsWith("screen-recording-")));
-      setPreparedState("ready");
-    } catch (caught) {
-      setPreparedState("error");
-      setToast(`保存待ち画面録画を確認できませんでした。${caught instanceof Error ? caught.message : String(caught)}`, "warning");
-    }
-  }
-
-  useEffect(() => {
-    void refreshPrepared();
-  }, []);
 
   function releaseStreams() {
     for (const stream of streamsRef.current) {
@@ -405,7 +340,7 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
       const stopped = await workspaceApi.stopMediaRecording(session.sessionId);
       if (!("storageMode" in stopped)) throw new Error("画面録画sessionの種別が一致しません。");
       const preparedVideo = stopped as VideoImportPrepared;
-      setPrepared((current) => [preparedVideo, ...current.filter((entry) => entry.sessionId !== preparedVideo.sessionId)]);
+      onPreparedChanged?.();
       sessionRef.current = null;
       releaseStreams();
       setState("idle");
@@ -449,74 +384,6 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
       setError(`画面録画を破棄できませんでした。${caught instanceof Error ? caught.message : String(caught)} 保存待ち画面録画から再試行してください。`);
     } finally {
       discardingRef.current = false;
-    }
-  }
-
-  async function commitPrepared(entry: VideoImportPrepared) {
-    if (!entry.canCommit || entry.status !== "ready" || !entry.mediaUrl) return;
-    setBusySessionId(entry.sessionId);
-    try {
-      const metadata = await readVideoMetadata(entry.mediaUrl);
-      const owner = owners.find((candidate) => candidate.key === (commitOwnerKeys[entry.sessionId] || "")) || null;
-      await workspaceApi.commitVideoImport({
-        sessionId: entry.sessionId,
-        ...metadata,
-        sourceType: owner ? owner.sourceType : null,
-        sourceId: owner ? owner.sourceId : null,
-      });
-      setPrepared((current) => current.filter((candidate) => candidate.sessionId !== entry.sessionId));
-      setToast(owner
-        ? `画面録画「${entry.filename}」を${owner.label}へ保存しました。`
-        : `画面録画「${entry.filename}」をInboxへ保存しました。`, "success");
-    } catch (caught) {
-      setToast(`画面録画を保存できませんでした。${caught instanceof Error ? caught.message : String(caught)} 保存待ち画面録画から再試行できます。`, "danger");
-    } finally {
-      setBusySessionId(null);
-    }
-  }
-
-  async function recoverInterrupted(entry: VideoImportPrepared) {
-    if (!entry.canRecoverRecording) return;
-    setBusySessionId(entry.sessionId);
-    try {
-      const stopped = await workspaceApi.stopMediaRecording(entry.sessionId);
-      if (!("storageMode" in stopped)) throw new Error("画面録画sessionの種別が一致しません。");
-      setPrepared((current) => [stopped as VideoImportPrepared, ...current.filter((candidate) => candidate.sessionId !== entry.sessionId)]);
-      setToast("中断された画面録画を復旧しました。内容を確認して保存できます。", "success");
-    } catch (caught) {
-      setToast(`画面録画を復旧できませんでした。${caught instanceof Error ? caught.message : String(caught)} 録画データは保持されています。`, "danger");
-    } finally {
-      setBusySessionId(null);
-    }
-  }
-
-  async function retryPrepared(entry: VideoImportPrepared) {
-    if (!entry.canRetry || !entry.durationMs || !entry.widthPx || !entry.heightPx) {
-      setToast("保存を再試行するmetadataが不足しています。動画をPreviewして確認してください。", "warning");
-      return;
-    }
-    setBusySessionId(entry.sessionId);
-    try {
-      await workspaceApi.commitVideoImport({ sessionId: entry.sessionId, durationMs: entry.durationMs, widthPx: entry.widthPx, heightPx: entry.heightPx });
-      setPrepared((current) => current.filter((candidate) => candidate.sessionId !== entry.sessionId));
-      setToast("画面録画の保存を復旧しました。", "success");
-    } catch (caught) {
-      setToast(`画面録画の保存を復旧できませんでした。${caught instanceof Error ? caught.message : String(caught)}`, "danger");
-    } finally {
-      setBusySessionId(null);
-    }
-  }
-
-  async function discardPrepared(entry: VideoImportPrepared) {
-    setBusySessionId(entry.sessionId);
-    try {
-      await workspaceApi.cancelVideoImport(entry.sessionId);
-      setPrepared((current) => current.filter((candidate) => candidate.sessionId !== entry.sessionId));
-      setToast("保存待ち画面録画を破棄しました。", "info");
-    } catch (caught) {
-      setToast(`保存待ち画面録画を破棄できませんでした。${caught instanceof Error ? caught.message : String(caught)}`, "danger");
-    } finally {
-      setBusySessionId(null);
     }
   }
 
@@ -625,37 +492,6 @@ export function ScreenRecorderPanel({ owners, disabled = false, onActiveChange, 
           </div></>}
         </div>
       )}
-      {preparedState === "loading" && <div className="inbox-audio-recovery-state">保存待ち画面録画を確認しています…</div>}
-      {preparedState === "error" && <div className="inbox-audio-recovery-state is-error" role="alert">保存待ち画面録画を確認できませんでした。<button type="button" className="text-button compact" onClick={() => { void refreshPrepared(); }}>再試行</button></div>}
-      {prepared.length > 0 && <div className="inbox-screen-recovery" aria-label="保存待ち画面録画">
-        <div className="section-heading"><h3>保存待ち画面録画</h3><span>{prepared.length}件</span></div>
-        {prepared.map((entry) => {
-          const busy = busySessionId === entry.sessionId;
-          return <div className="inbox-screen-recovery-row" key={entry.sessionId}>
-            {entry.status === "ready" ? <video controls preload="metadata" src={entry.mediaUrl} aria-label={`${entry.filename}の保存前Preview`} /> : <div className="inbox-audio-recovery-warning">要確認</div>}
-            <div><strong>{entry.filename}</strong><small>{entry.status === "ready" ? `${entry.mimeType} · ${formatArtifactFileSize(entry.fileSize)}` : "録画が中断されたか、保存を復旧する必要があります。"}</small></div>
-            <div className="inline-actions">
-              {/* 紐づけ先はここで決める。未選択のままならInboxへ落ちる（#383）。 */}
-              {entry.canCommit && (
-                <label className="screen-recorder-commit-owner">
-                  <span>紐づけ先</span>
-                  <select
-                    value={commitOwnerKeys[entry.sessionId] || ""}
-                    onChange={(event) => setCommitOwnerKeys((current) => ({ ...current, [entry.sessionId]: event.target.value }))}
-                  >
-                    <option value="">Inbox（あとで整理）</option>
-                    {owners.map((owner) => <option key={owner.key} value={owner.key}>{owner.label}</option>)}
-                  </select>
-                </label>
-              )}
-              {entry.canCommit && <Button variant="primary" compact disabled={busy} onClick={() => { void commitPrepared(entry); }}>{busy ? "処理中…" : "保存"}</Button>}
-              {entry.canRecoverRecording && <Button variant="secondary" compact disabled={busy} onClick={() => { void recoverInterrupted(entry); }}>録画を復旧</Button>}
-              {entry.canRetry && <Button variant="secondary" compact disabled={busy} onClick={() => { void retryPrepared(entry); }}>保存を再試行</Button>}
-              {entry.canDiscard && <button type="button" className="text-button compact" disabled={busy} onClick={() => { void discardPrepared(entry); }}>破棄</button>}
-            </div>
-          </div>;
-        })}
-      </div>}
     </section>
   );
 }
