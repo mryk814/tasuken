@@ -321,3 +321,39 @@ test("Capture to Task transfer preserves managed video storage identity and owne
   assert.equal(workspace.references.length, 0);
   reopened.db.close();
 });
+
+test("紐づけ先未選択の画面録画は実DBでCaptureEntryごと確定しInboxへ残る（#383）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-screen-inbox-sqlite-"));
+  const dbPath = path.join(root, "workspace.sqlite");
+  const userDataPath = path.join(root, "user-data");
+  const managedDirectory = path.join(root, "managed");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  let currentNow = "2026-08-09T00:00:00.000Z";
+  const db = new WorkspaceDatabase(dbPath);
+  const commands = new ApplicationCommandService(db);
+  const media = new MediaCaptureService({
+    userDataPath,
+    repository: db,
+    commands: { executeMediaCapture: (command) => commands.executeMediaCapture(command) },
+    resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
+    now: () => currentNow,
+  });
+  const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm" });
+  currentNow = "2026-08-09T00:00:01.000Z";
+  media.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(tinyWebm("screen-inbox")) });
+  const prepared = media.stopRecording(started.sessionId);
+  // ownerを渡さない。既定のInbox行きが実Command経由で通ることを確かめる。
+  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  db.db.close();
+
+  const reopened = new WorkspaceDatabase(dbPath);
+  const artifact = reopened.get("artifact", committed.publicResult.artifactId);
+  assert.equal(artifact?.media_kind, "video");
+  assert.equal(artifact?.source_type, "capture_entry");
+  const capture = reopened.get("capture_entry", artifact.source_id);
+  assert.equal(capture?.kind, "screen_capture");
+  assert.equal(capture?.content_type, "video");
+  assert.equal(capture?.state, "untriaged");
+  reopened.db.close();
+});
