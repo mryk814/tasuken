@@ -3532,10 +3532,128 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   font-variant-numeric: tabular-nums;
 }
 
+.inbox-screen-recorder,
+.inbox-screen-recovery {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.inbox-screen-recorder.is-error {
+  border-color: var(--color-danger-bd);
+  color: var(--color-danger-strong);
+}
+
+.screen-recorder-source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-2);
+  max-height: 310px;
+  overflow: auto;
+}
+
+.screen-recorder-source-grid button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.screen-recorder-source-grid button:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+.screen-recorder-source-grid button:active,
+.screen-recorder-source-grid button.is-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle-bg);
+}
+
+.screen-recorder-source-grid img {
+  grid-column: 1 / -1;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+}
+
+.screen-recorder-source-grid span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screen-recorder-source-grid small,
+.screen-recorder-settings small,
+.inbox-screen-recovery-row small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.screen-recorder-settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+
+.screen-recorder-settings label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.screen-recorder-settings select {
+  max-width: 320px;
+}
+
+.screen-recorder-check {
+  white-space: nowrap;
+}
+
+.inbox-screen-recovery-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 320px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-screen-recovery-row video {
+  width: 100%;
+  max-height: 180px;
+  border-radius: var(--radius-md);
+  background: #111;
+}
+
+.inbox-screen-recovery-row strong,
+.inbox-screen-recovery-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 820px) {
   .inbox-recorder {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .screen-recorder-settings,
+  .inbox-screen-recovery-row {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

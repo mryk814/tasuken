@@ -111,6 +111,11 @@ const api: ResearchDeskApi = {
     run: (request) => ipcRenderer.invoke(IPC.batchTranscriptionRun, request),
     cancel: (request) => ipcRenderer.invoke(IPC.batchTranscriptionCancel, request),
   },
+  screenRecording: {
+    capabilities: () => ipcRenderer.invoke(IPC.screenRecordingCapabilities),
+    listSources: () => ipcRenderer.invoke(IPC.screenRecordingListSources),
+    arm: (request) => ipcRenderer.invoke(IPC.screenRecordingArm, request),
+  },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),
     checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),

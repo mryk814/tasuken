@@ -41,6 +41,7 @@ import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
 import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared } from "../mediaCapture";
 import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest, BatchTranscriptionHistoryResult, BatchTranscriptionPreviewResult, BatchTranscriptionRunRequest, BatchTranscriptionRunResult } from "../batchTranscriptionIpc";
+import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -78,6 +79,9 @@ export const IPC = {
   mediaRecordingPause: "media-recording:pause",
   mediaRecordingResume: "media-recording:resume",
   mediaRecordingStop: "media-recording:stop",
+  screenRecordingCapabilities: "screen-recording:capabilities",
+  screenRecordingListSources: "screen-recording:list-sources",
+  screenRecordingArm: "screen-recording:arm",
   videoImportPrepare: "video-import:prepare",
   videoImportListPrepared: "video-import:list-prepared",
   videoImportCommit: "video-import:commit",
@@ -561,7 +565,7 @@ export interface ResearchDeskApi {
     appendRecording(request: MediaRecordingAppendRequest): Promise<MediaRecordingProgress>;
     pauseRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
     resumeRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
-    stopRecording(request: MediaRecordingControlRequest): Promise<AudioCapturePrepared>;
+    stopRecording(request: MediaRecordingControlRequest): Promise<AudioCapturePrepared | VideoImportPrepared>;
     prepareVideo(request: VideoImportPrepareRequest): Promise<VideoImportPrepareResult>;
     listPreparedVideo(): Promise<VideoImportPrepared[]>;
     commitVideo(request: VideoImportCommitRequest): Promise<VideoImportCommitResult>;
@@ -574,6 +578,11 @@ export interface ResearchDeskApi {
     history(request: BatchTranscriptionArtifactRequest): Promise<BatchTranscriptionHistoryResult>;
     run(request: BatchTranscriptionRunRequest): Promise<BatchTranscriptionRunResult>;
     cancel(request: BatchTranscriptionCancelRequest): Promise<BatchTranscriptionRunResult>;
+  };
+  screenRecording: {
+    capabilities(): Promise<ScreenRecordingEnvironment>;
+    listSources(): Promise<readonly Readonly<ScreenRecordingSourceProjection>[]>;
+    arm(request: ScreenRecordingArmRequest): Promise<ArmedScreenRecordingProjection>;
   };
   app: {
     reload(): Promise<boolean>;

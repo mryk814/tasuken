@@ -31,8 +31,13 @@ export function createThemePicker({
 
   element.addEventListener("focusout", (event) => {
     if (!expanded || element.contains(event.relatedTarget as Node | null)) return;
-    expanded = false;
-    render();
+    // 開閉のたびにtrigger/menuを作り直すため、focus中のtriggerが外れて一瞬relatedTarget無しの
+    // focusoutが出る。ここで即閉じると開いた直後にmenuが消えるので、focusの落ち着き先で判定する。
+    queueMicrotask(() => {
+      if (!expanded || element.contains(document.activeElement)) return;
+      expanded = false;
+      render();
+    });
   });
 
   function colorDot(option: ThemePickerDomOption): HTMLSpanElement {

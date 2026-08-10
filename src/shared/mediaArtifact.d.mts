@@ -1,6 +1,7 @@
 export const AUDIO_MEDIA_TYPES: Readonly<Record<string, string>>;
 export const VIDEO_MEDIA_TYPES: Readonly<Record<string, string>>;
 export const AUDIO_CAPTURE_METHODS: readonly ["audio_import", "microphone", "external_dictation", "transcript_import"];
+export const VIDEO_CAPTURE_METHODS: readonly ["screen_recording"];
 export const AUDIO_MEDIA_STATUSES: readonly ["preparing", "ready", "failed"];
 export const TRANSCRIPTION_STATUSES: readonly ["not_requested", "queued", "processing", "completed", "failed"];
 export const MEDIA_AVAILABILITIES: readonly ["available", "missing", "changed", "unsafe_source", "unsupported_codec"];

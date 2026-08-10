@@ -42,6 +42,13 @@ test("existing and deleted media identities are carried forward by entitySave/sa
   assert.equal(normalized.stored_path, current.stored_path);
   assert.equal(normalized.content_hash, current.content_hash);
   assert.equal(normalized.source_id, current.source_id);
+
+  const screenRecording = { ...current, id: "screen", filename: "screen.webm", mime_type: "video/webm", media_kind: "video", capture_method: "screen_recording" };
+  const screenRepository = { get: () => screenRecording };
+  const normalizedScreen = boundary.normalizeMediaCapturePersistence(screenRepository, "artifact", {
+    id: "screen", title: "renamed screen", media_kind: "video", capture_method: "microphone",
+  });
+  assert.equal(normalizedScreen.capture_method, "screen_recording");
 });
 
 test("generic import, proposal, direct save and batch are wired to Media rejection boundaries", () => {

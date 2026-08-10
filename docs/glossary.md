@@ -28,7 +28,8 @@
 | Conversation AI Context | `ContentViewer.tsx` / `ConversationContextPanel.tsx` | Conversation Viewerから利用者が明示的にOneDriveへ昇格するM365用Markdown projection。取り込み時はローカルのみ。`AI Context/Conversations`へstable pathで保存し、Theme AI Packは本文を複製せず参照だけを持つ。詳細は `docs/conversation-ai-context.md` |
 | Voice Capture | `InboxPage.tsx` / `ContentViewer.tsx` | Inboxの「音声を取り込む」で既存audio fileをmanaged保存するか、「マイクで録音」で入力deviceを選び明示録音する。録音中はcompact recorder、保存前・復旧待ちは「保存待ち音声」、保存後はCaptureEntryからContent Viewerで再生する。Audio Artifact詳細からBatch transcriptionのPreviewを開ける。詳細は `docs/media-capture.md` と `docs/batch-transcription.md` |
 | Batch transcription | `BatchTranscriptionPanel.tsx` / `BatchTranscriptionService` | Audio Artifactを対象に、Mainが原音とexact provider/modelを再検証し、Cloud送信Previewへの明示確認後だけ一括文字起こしする。raw transcriptは原音hash/provider/model/language/mode/statusを持つappend-only revisionとしてArtifact/Captureへ残す。再試行は同じrevision、再実行は新しいrevision |
-| Video Artifact | `ArtifactSection.tsx` / `ContentViewer.tsx` | Task / Note / Capture / 実行中Focusから既存動画をmanagedまたはlinkedで添付し、Artifact IDから再生する。選択後・確定前と復旧待ちは「保存待ち動画」。録画・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
+| Screen Recording | `ScreenRecorderPanel.tsx` / `InboxPage.tsx` | 「画面録画」「window録画」。Inboxで画面/window、保存先、Off/Mic/System、Pointerを選び、停止後の「保存待ち画面録画」をpreviewしてからVideo Artifactへ明示保存する。rectangle選択・trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
+| Video Artifact | `ArtifactSection.tsx` / `ContentViewer.tsx` | Task / Note / Capture / 実行中Focusへ既存動画または画面録画をmanagedで添付し、既存動画はlinkedも選べる。Artifact IDから再生し、確定前と復旧待ちは「保存待ち動画」または「保存待ち画面録画」。trim・文字起こしは含まない。詳細は `docs/media-capture.md` |
 
 ## エンティティと状態
 
@@ -65,6 +66,7 @@
 | Daily Scratchpad | 日付ごとに一枚だけ作る分類前の作業メモ。TodayまたはCommand Paletteから開き、通常Noteとして自動保存する。Activity Logへ全文を自動転記しない |
 | Focus Session | Taskを中心に関連Note / Artifact / Resource、作業中Scratchpad、経過時間を一面へ集める単一active session。終了時にTask状態・Note化・次Task・Activity要約を整理する |
 | 保存待ち動画 | 動画選択後、Artifact確定前のprepared sessionと復旧対象。metadataを確認して「添付する」か「破棄」を選ぶ。0件の通常詳細には説明panelを出さない |
+| 保存待ち画面録画 | 画面/window録画の停止後または中断復旧後、Video Artifact確定前のsession。Inboxでpreviewし「Artifactへ保存」「録画を復旧」「保存を再試行」「破棄」を状態に応じて選ぶ |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
 | 付箋対象 | Top Barの一括展開・収納が対象にするMemoか（`capture_entry.properties_json.presentation = "floating"`）。Inboxのピンと付箋Window左上のピンはこの入切だけを意味し、押しても本文は消えない。正本はDB（#377） |
 | 付箋表示中 | いま実際にデスクトップへ付箋Windowが出ているか。正本はMainのsatellite window registryで、Inboxは購読して「表示中」バッジに出す。収納しても付箋対象は残る（#377） |

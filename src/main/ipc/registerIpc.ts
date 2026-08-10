@@ -14,6 +14,7 @@ import {
   parseBatchTranscriptionCancelRequest,
   parseBatchTranscriptionRunRequest,
 } from "../../shared/batchTranscriptionIpc";
+import type { ScreenRecordingService } from "../services/screenRecordingService";
 import {
   parseAudioCaptureCancelRequest,
   parseAudioCaptureCommitRequest,
@@ -133,6 +134,24 @@ function requireVideoImportRequest(repository: WorkspaceRepository, request: unk
   return parsed;
 }
 
+function screenRecordingRequestContext(event: Electron.IpcMainInvokeEvent) {
+  const frame = event.senderFrame;
+  if (!frame || frame.detached) throw new Error("画面録画は現在のMain frameから操作してください。");
+  let parsed: URL;
+  try {
+    parsed = new URL(frame.url);
+  } catch {
+    throw new Error("画面録画のoriginを確認できません。画面を再読み込みしてください。");
+  }
+  return {
+    senderWebContentsId: event.sender.id,
+    frameTreeNodeId: frame.frameTreeNodeId,
+    securityOrigin: parsed.protocol === "file:" ? "file://" : parsed.origin,
+    isMainFrame: event.sender.mainFrame === frame,
+    detached: frame.detached,
+  };
+}
+
 export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
@@ -142,9 +161,11 @@ export function registerIpc(
   applicationCommands: ApplicationCommandService,
   mediaCapture: MediaCaptureService,
   batchTranscription: BatchTranscriptionService,
+  screenRecording: ScreenRecordingService,
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
   notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number, options?: { senderReceivesAll?: boolean }) => void = () => {},
 ): void {
+  const screenRecordingSenderIds = new Set<number>();
   ipcMain.handle(IPC.workspaceLoad, () => projectWorkspaceForRenderer(service.loadWorkspace()));
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => {
     assertRendererBootstrapContainsNoMedia(legacy);
@@ -285,11 +306,49 @@ export function registerIpc(
       throw projectMediaCaptureIpcError("cancel", error);
     }
   });
+  ipcMain.handle(IPC.screenRecordingCapabilities, (_event, ...args) => {
+    try {
+      if (args.length) throw new Error("画面録画capability requestに引数は指定できません。");
+      return { ...screenRecording.capabilities(), ...mediaCapture.recordingCapacity() };
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
+    }
+  });
+  ipcMain.handle(IPC.screenRecordingListSources, async (event, ...args) => {
+    try {
+      if (args.length) throw new Error("画面録画source一覧requestに引数は指定できません。");
+      if (!screenRecordingSenderIds.has(event.sender.id)) {
+        const senderId = event.sender.id;
+        screenRecordingSenderIds.add(senderId);
+        event.sender.on("did-start-navigation", (_navigationEvent, _url, _isInPlace, isMainFrame) => {
+          if (isMainFrame) screenRecording.clearSender(senderId);
+        });
+        event.sender.once("destroyed", () => {
+          screenRecordingSenderIds.delete(senderId);
+          screenRecording.clearSender(senderId);
+        });
+      }
+      return await screenRecording.listSources(screenRecordingRequestContext(event));
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
+    }
+  });
+  ipcMain.handle(IPC.screenRecordingArm, (event, request) => {
+    try {
+      return screenRecording.arm(request, screenRecordingRequestContext(event));
+    } catch (error) {
+      throw projectMediaCaptureIpcError("record", error);
+    }
+  });
   ipcMain.handle(IPC.mediaRecordingStart, (_event, request) => {
     try {
       const parsed = parseMediaRecordingStartRequest(request);
-      const themeId = requireAudioCaptureThemeId(repository, { themeId: parsed.themeId });
-      return mediaCapture.startRecording(themeId, parsed.mimeType);
+      if (parsed.mediaKind === "audio") {
+        const themeId = requireAudioCaptureThemeId(repository, { themeId: parsed.themeId });
+        return mediaCapture.startRecording({ ...parsed, themeId });
+      }
+      requireVideoImportRequest(repository, { storageMode: "managed", sourceType: parsed.sourceType, sourceId: parsed.sourceId });
+      return mediaCapture.startRecording(parsed);
     } catch (error) {
       throw projectMediaCaptureIpcError("record", error);
     }

@@ -228,6 +228,15 @@ export const workspaceApi = {
   stopMediaRecording(sessionId: string) {
     return desktopApi().mediaCapture.stopRecording({ sessionId });
   },
+  getScreenRecordingCapabilities() {
+    return desktopApi().screenRecording.capabilities();
+  },
+  listScreenRecordingSources() {
+    return desktopApi().screenRecording.listSources();
+  },
+  armScreenRecording(request: import("../../../shared/screenRecording.mjs").ScreenRecordingArmRequest) {
+    return desktopApi().screenRecording.arm(request);
+  },
   prepareVideoImport(request: import("../../../shared/mediaCapture").VideoImportPrepareRequest) {
     return desktopApi().mediaCapture.prepareVideo(request);
   },

@@ -19,21 +19,24 @@ export function createSmokePaths(tempRoot = os.tmpdir(), requestedRunId = "") {
 
 export function buildElectronSmokeArgs(paths, options = {}) {
   const args = [
-    "--disable-gpu",
-    "--disable-gpu-compositing",
+    // Packaged screen recording smoke must cross the real Windows Graphics Capture boundary.
+    // GPU-disabled Chromium cannot enumerate/capture that source reliably.
+    ...(options.packaged ? [] : ["--disable-gpu", "--disable-gpu-compositing"]),
     ...(options.packaged ? ["--smoke-require-packaged"] : ["."]),
     "--smoke-test",
     `--smoke-run-id=${paths.runId}`,
     `--user-data-dir=${paths.userDataDir}`,
     `--smoke-result-path=${paths.resultPath}`,
   ];
-  if (options.restartArtifactId && options.restartMicrophoneArtifactId && options.restartVideoArtifactId && options.restartVideoOwnerId) {
+  if (options.restartArtifactId && options.restartMicrophoneArtifactId && options.restartImportedVideoArtifactId && options.restartScreenRecordingArtifactId && options.restartVideoOwnerId) {
     args.push(
       "--smoke-restart-check",
       `--smoke-media-artifact-id=${options.restartArtifactId}`,
       `--smoke-microphone-artifact-id=${options.restartMicrophoneArtifactId}`,
-      `--smoke-video-artifact-id=${options.restartVideoArtifactId}`,
+      `--smoke-imported-video-artifact-id=${options.restartImportedVideoArtifactId}`,
+      `--smoke-screen-recording-artifact-id=${options.restartScreenRecordingArtifactId}`,
       `--smoke-video-owner-id=${options.restartVideoOwnerId}`,
+      "--smoke-screen-recording-paused-resumed",
     );
   }
   return args;
@@ -48,15 +51,20 @@ export function restartArtifactIdFromResult(value) {
 export function restartArtifactIdsFromResult(value) {
   const audioArtifactId = restartArtifactIdFromResult(value);
   const microphoneArtifactId = value?.stage === "restart-ready" ? value?.microphoneArtifactId : "";
-  const videoArtifactId = value?.stage === "restart-ready" ? value?.videoArtifactId : "";
+  const importedVideoArtifactId = value?.stage === "restart-ready" ? value?.importedVideoArtifactId : "";
+  const screenRecordingArtifactId = value?.stage === "restart-ready" ? value?.screenRecordingArtifactId : "";
+  const screenRecordingPausedResumed = value?.stage === "restart-ready" && value?.screenRecordingPausedResumed === true;
   const videoOwnerId = value?.stage === "restart-ready" ? value?.smokeTaskId : "";
   if (!audioArtifactId
     || typeof microphoneArtifactId !== "string"
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(microphoneArtifactId)
-    || typeof videoArtifactId !== "string"
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(videoArtifactId)
+    || typeof importedVideoArtifactId !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(importedVideoArtifactId)
+    || typeof screenRecordingArtifactId !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(screenRecordingArtifactId)
+    || !screenRecordingPausedResumed
     || typeof videoOwnerId !== "string" || !videoOwnerId.trim()) return null;
-  return { audioArtifactId, microphoneArtifactId, videoArtifactId, videoOwnerId };
+  return { audioArtifactId, microphoneArtifactId, importedVideoArtifactId, screenRecordingArtifactId, videoOwnerId };
 }
 
 function electronExecutable(cwd = process.cwd()) {
@@ -102,7 +110,8 @@ export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), 
       packaged,
       restartArtifactId: restartArtifactIds.audioArtifactId,
       restartMicrophoneArtifactId: restartArtifactIds.microphoneArtifactId,
-      restartVideoArtifactId: restartArtifactIds.videoArtifactId,
+      restartImportedVideoArtifactId: restartArtifactIds.importedVideoArtifactId,
+      restartScreenRecordingArtifactId: restartArtifactIds.screenRecordingArtifactId,
       restartVideoOwnerId: restartArtifactIds.videoOwnerId,
     }), {
       cwd, env: process.env, stdio: "inherit", windowsHide: true,

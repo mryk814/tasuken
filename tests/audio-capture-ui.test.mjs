@@ -9,6 +9,9 @@ const uiStore = readFileSync("src/renderer/src/stores/uiStore.ts", "utf8");
 const workspaceApp = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 const mediaFlushRegistry = readFileSync("src/renderer/src/features/workspace/lib/mediaRecordingFlushRegistry.ts", "utf8");
 const mediaRecorderFlush = readFileSync("src/renderer/src/features/workspace/lib/mediaRecorderFlush.ts", "utf8");
+const screenRecorder = readFileSync("src/renderer/src/features/workspace/components/ScreenRecorderPanel.tsx", "utf8");
+const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
+const mainIndex = readFileSync("src/main/index.ts", "utf8");
 
 test("Inbox keeps Memo primary while exposing audio import as a secondary action", () => {
   assert.match(inbox, /<Button variant="secondary"[\s\S]*?captureAudio\(\)/);
@@ -54,6 +57,35 @@ test("Inbox microphone recorder keeps bounded chunks, device choice and compact 
   assert.doesNotMatch(inbox, /new Blob\(.*record/i);
 });
 
+test("画面録画のpause→即stop等は単一transition queueで直列化する", () => {
+  assert.match(screenRecorder, /transitionRef = useRef<Promise<void>>\(Promise\.resolve\(\)\)/);
+  assert.match(screenRecorder, /function queueRecordingTransition<T>[\s\S]*?transitionRef\.current\.then\(transition, transition\)[\s\S]*?transitionRef\.current = settled/);
+  assert.match(screenRecorder, /function pauseRecording\(\): Promise<void> \{[\s\S]*?queueRecordingTransition\(pauseRecordingNow\)/);
+  assert.match(screenRecorder, /function resumeRecording\(\): Promise<void> \{[\s\S]*?queueRecordingTransition\(resumeRecordingNow\)/);
+  assert.match(screenRecorder, /function stopRecording\(showToast = true\)[\s\S]*?queueRecordingTransition\(\(\) => stopRecordingNow\(showToast\)\)/);
+  assert.match(screenRecorder, /function discardActive\(\): Promise<void> \{[\s\S]*?queueRecordingTransition\(discardActiveNow\)/);
+  assert.match(screenRecorder, /async function pauseRecordingNow[\s\S]*?catch \(caught\)[\s\S]*?await stopRecordingNow\(false\)/);
+  assert.match(screenRecorder, /async function discardActiveNow[\s\S]*?recorder\.stop\(\)[\s\S]*?await appendRef\.current\.catch\(\(\) => undefined\)[\s\S]*?cancelVideoImport/);
+  assert.match(screenRecorder, /disabled=\{transitioning \|\| state === "stopping"\}/);
+  assert.match(screenRecorder, /catch \(caught\) \{[\s\S]*?releaseStreams\(\);[\s\S]*?同じ録画sessionの停止を再試行してください/);
+  assert.doesNotMatch(screenRecorder, /catch \(caught\) \{\s*releaseStreams\(\);\s*sessionRef\.current = null;\s*setState\("error"\)/);
+  assert.match(screenRecorder, /state === "error"[\s\S]*?sessionRef\.current[\s\S]*?stopRecording\(false\)/);
+  assert.match(screenRecorder, /state === "error"[\s\S]*?sessionRef\.current[\s\S]*?stopRecording\(false\)[\s\S]*?discardActive\(\)/);
+  assert.match(screenRecorder, /async function discardActiveNow[\s\S]*?await workspaceApi\.cancelVideoImport\(session\.sessionId\)[\s\S]*?sessionRef\.current = null[\s\S]*?catch \(caught\) \{[\s\S]*?releaseStreams\(\)[\s\S]*?setState\("error"\)/);
+  assert.doesNotMatch(screenRecorder, /catch \(caught\) \{\s*releaseStreams\(\);\s*sessionRef\.current = null;\s*setState\("error"\)/);
+  assert.match(screenRecorder, /catch \(cancelError\) \{[\s\S]*?cancelFailed = true;[\s\S]*?sessionRef\.current = startedSession[\s\S]*?if \(!cancelFailed\) sessionRef\.current = null/);
+});
+
+test("main-frame navigationは旧screen source token ledgerを即時clearする", () => {
+  assert.match(registerIpc, /event\.sender\.on\("did-start-navigation"[\s\S]*?if \(isMainFrame\) screenRecording\.clearSender\(senderId\)/);
+});
+
+test("画面録画capabilityのfilesystem失敗もabsolute path非露出errorへ丸める", () => {
+  assert.match(registerIpc, /IPC\.screenRecordingCapabilities[\s\S]*?try \{[\s\S]*?mediaCapture\.recordingCapacity\(\)[\s\S]*?catch \(error\)[\s\S]*?projectMediaCaptureIpcError\("record", error\)/);
+  assert.match(mainIndex, /permission grantを拒否しました。録画対象を選び直してください。[\s\S]*?\{ errorName \}/);
+  assert.doesNotMatch(mainIndex, /permission grantを拒否しました。[\s\S]{0,200}?error\.message/);
+});
+
 test("Quick Captureからも同じInbox recorderへ到達し保存経路を分裂させない", () => {
   assert.match(drawer, /type === "capture_entry"[\s\S]*?!entityId[\s\S]*?requestInboxRecorder\(\)/);
   assert.match(drawer, /<IconMicrophone size=\{16\} \/>マイクで録音/);
@@ -67,7 +99,7 @@ test("Quick Captureからも同じInbox recorderへ到達し保存経路を分�
 
 test("route unmountで開始した録音stopはglobal app flushが完了まで待つ", () => {
   assert.match(inbox, /const flushMicrophoneRecording = async \(\): Promise<boolean> => \{[\s\S]*?await recordingBeginRef\.current[\s\S]*?if \(!recordingSessionRef\.current\) return true[\s\S]*?stopMicrophoneRecordingRef\.current\(false\)/);
-  assert.match(inbox, /if \(!recordingBeginRef\.current && !recordingSessionRef\.current\) return[\s\S]*?detail\.flush = flushMicrophoneRecording\(\)/);
+  assert.match(inbox, /if \(!recordingBeginRef\.current && !recordingSessionRef\.current\) return[\s\S]*?const previous = detail\.flush[\s\S]*?Promise\.all\(\[previous \|\| Promise\.resolve\(true\), flushMicrophoneRecording\(\)\]\)/);
   assert.match(inbox, /if \(recordingBeginRef\.current \|\| recordingSessionRef\.current\)[\s\S]*?const routeFlush = flushMicrophoneRecording\(\)[\s\S]*?trackPendingMediaRecordingFlush\(routeFlush\)/);
   assert.match(inbox, /trackPendingMediaRecordingFlush\(routeFlush\)/);
   assert.match(mediaFlushRegistry, /pendingMediaRecordingFlushes = new Set<Promise<boolean>>\(\)/);

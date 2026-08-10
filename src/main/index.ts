@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, safeStorage, shell } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, safeStorage, session as electronSession, shell, webContents } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -30,6 +30,7 @@ import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { ApplicationCommandService } from "./services/applicationCommandService";
 import { MediaCaptureService } from "./services/mediaCaptureService";
+import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
@@ -48,10 +49,13 @@ const smokeMediaArtifactArgument = process.argv.find((argument) => argument.star
 const smokeMediaArtifactId = smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
 const smokeMicrophoneArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-microphone-artifact-id="));
 const smokeMicrophoneArtifactId = smokeMicrophoneArtifactArgument?.slice("--smoke-microphone-artifact-id=".length) || "";
-const smokeVideoArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-artifact-id="));
-const smokeVideoArtifactId = smokeVideoArtifactArgument?.slice("--smoke-video-artifact-id=".length) || "";
+const smokeImportedVideoArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-imported-video-artifact-id="));
+const smokeImportedVideoArtifactId = smokeImportedVideoArtifactArgument?.slice("--smoke-imported-video-artifact-id=".length) || "";
+const smokeScreenRecordingArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-screen-recording-artifact-id="));
+const smokeScreenRecordingArtifactId = smokeScreenRecordingArtifactArgument?.slice("--smoke-screen-recording-artifact-id=".length) || "";
 const smokeVideoOwnerArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-owner-id="));
 const smokeVideoOwnerId = smokeVideoOwnerArgument?.slice("--smoke-video-owner-id=".length) || "";
+const smokeScreenRecordingPausedResumed = process.argv.includes("--smoke-screen-recording-paused-resumed");
 if (isSmokeTest && !isSmokeRestartCheck) {
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
   app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
@@ -356,12 +360,19 @@ interface SmokeCreatedResult {
   microphonePlayback?: boolean;
   microphoneCaptureMethod?: boolean;
   microphoneRangeVerified?: boolean;
-  videoArtifactId?: string;
-  videoMetadataLoaded?: boolean;
-  videoCanPlay?: boolean;
-  videoSeeked?: boolean;
-  videoVolumePreserved?: boolean;
-  videoRangeVerified?: boolean;
+  importedVideoArtifactId?: string;
+  importedVideoMetadataLoaded?: boolean;
+  importedVideoCanPlay?: boolean;
+  importedVideoSeeked?: boolean;
+  importedVideoVolumePreserved?: boolean;
+  importedVideoRangeVerified?: boolean;
+  screenRecordingArtifactId?: string;
+  screenRecordingMetadataLoaded?: boolean;
+  screenRecordingCanPlay?: boolean;
+  screenRecordingSeeked?: boolean;
+  screenRecordingVolumePreserved?: boolean;
+  screenRecordingRangeVerified?: boolean;
+  screenRecordingPausedResumed?: boolean;
   appIsPackaged?: boolean;
 }
 
@@ -448,7 +459,9 @@ app.disableHardwareAcceleration();
   // Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
   // 従来の contenteditable キャレット基準に戻す。
   app.commandLine.appendSwitch("disable-blink-features", "EditContext");
-  app.commandLine.appendSwitch("disable-features", "EditContext");
+  // Taskenはhardware accelerationを無効化しているため、D3D11前提のWGC capturerも無効化する。
+  // Windows画面録画はChromiumのlegacy desktop capturerへ固定して列挙と録画を同じbackendに揃える。
+  app.commandLine.appendSwitch("disable-features", "EditContext,AllowWgcScreenCapturer,AllowWgcWindowCapturer");
 
   if (requestedUserDataPath) {
     app.setPath("userData", path.resolve(requestedUserDataPath));
@@ -1090,6 +1103,7 @@ flowchart LR
       const committed = await window.api.mediaCapture.commitVideo({ sessionId: prepared.sessionId, ...metadata });
       const artifact = await window.api.entities.get("artifact", committed.artifactId);
       if (!artifact || artifact.media_kind !== "video" || artifact.mime_type !== "video/webm"
+        || Object.hasOwn(artifact, "capture_method")
         || artifact.duration_ms !== metadata.durationMs || artifact.width_px !== metadata.widthPx || artifact.height_px !== metadata.heightPx) {
         throw new Error("committed video Artifact metadata mismatch");
       }
@@ -1129,13 +1143,154 @@ flowchart LR
       };
     })()
   `) as { artifactId: string; metadataLoaded: boolean; canPlay: boolean; seeked: boolean; volumePreserved: boolean };
-  created.videoArtifactId = videoSmoke.artifactId;
-  created.videoMetadataLoaded = videoSmoke.metadataLoaded;
-  created.videoCanPlay = videoSmoke.canPlay;
-  created.videoSeeked = videoSmoke.seeked;
-  created.videoVolumePreserved = videoSmoke.volumePreserved;
-  created.videoRangeVerified = await verifySmokeVideoRange(videoSmoke.artifactId);
+  created.importedVideoArtifactId = videoSmoke.artifactId;
+  created.importedVideoMetadataLoaded = videoSmoke.metadataLoaded;
+  created.importedVideoCanPlay = videoSmoke.canPlay;
+  created.importedVideoSeeked = videoSmoke.seeked;
+  created.importedVideoVolumePreserved = videoSmoke.volumePreserved;
+  created.importedVideoRangeVerified = await verifySmokeVideoRange(videoSmoke.artifactId);
   created.appIsPackaged = app.isPackaged;
+  if (!created.importedVideoRangeVerified) throw new Error("imported video range request failed");
+
+  const screenRecordingSmoke = await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const capabilities = await window.api.screenRecording.capabilities();
+      if (!capabilities.screen || !capabilities.window || !capabilities.mimeCandidates.includes("video/webm")) {
+        throw new Error("screen recording capability mismatch");
+      }
+      const sources = await window.api.screenRecording.listSources();
+      const source = sources.find((candidate) => candidate.kind === "screen") || sources[0];
+      if (!source || JSON.stringify(source).match(/desktopSourceId|display_id|screen:\\d|window:\\d/)) {
+        throw new Error("screen recording source projection mismatch");
+      }
+      await window.api.screenRecording.arm({ sourceToken: source.sourceToken, audioMode: "off", includePointer: false });
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: false,
+        video: { cursor: "never" },
+      });
+      const mimeType = capabilities.mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+      if (!mimeType) throw new Error("screen recording MIME is unavailable");
+      const started = await window.api.mediaCapture.startRecording({
+        mediaKind: "video",
+        mimeType: "video/webm",
+        sourceType: "task",
+        sourceId: ${JSON.stringify(smokeTaskId)},
+      });
+      const recorder = new MediaRecorder(stream, { mimeType });
+      let sequence = 0;
+      let appendChain = Promise.resolve();
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size <= 0) return;
+        appendChain = appendChain.then(async () => {
+          for (let offset = 0; offset < event.data.size; offset += started.maxChunkBytes) {
+            const chunk = await event.data.slice(offset, Math.min(event.data.size, offset + started.maxChunkBytes)).arrayBuffer();
+            const progress = await window.api.mediaCapture.appendRecording({ sessionId: started.sessionId, sequence, chunk });
+            sequence = progress.nextSequence;
+          }
+        });
+      });
+      recorder.start(100);
+      await delay(300);
+      const recorderPaused = new Promise((resolve) => recorder.addEventListener("pause", resolve, { once: true }));
+      recorder.pause();
+      await recorderPaused;
+      const pauseChunk = new Promise((resolve) => recorder.addEventListener("dataavailable", resolve, { once: true }));
+      recorder.requestData();
+      await pauseChunk;
+      await appendChain;
+      const paused = await window.api.mediaCapture.pauseRecording({ sessionId: started.sessionId });
+      if (paused.state !== "paused") throw new Error("screen recording Main pause mismatch");
+      await delay(100);
+      const resumed = await window.api.mediaCapture.resumeRecording({ sessionId: started.sessionId });
+      if (resumed.state !== "recording") throw new Error("screen recording Main resume mismatch");
+      const recorderResumed = new Promise((resolve) => recorder.addEventListener("resume", resolve, { once: true }));
+      recorder.resume();
+      await recorderResumed;
+      await delay(400);
+      await new Promise((resolve) => {
+        recorder.addEventListener("stop", resolve, { once: true });
+        recorder.requestData();
+        recorder.stop();
+      });
+      await appendChain;
+      stream.getTracks().forEach((track) => track.stop());
+      const prepared = await window.api.mediaCapture.stopRecording({ sessionId: started.sessionId });
+      if (prepared.status !== "ready" || prepared.fileSize <= 0 || JSON.stringify(prepared).match(/stored_path|original_path|sourcePath|desktopSourceId/)) {
+        throw new Error("prepared screen recording projection mismatch");
+      }
+      const metadata = await new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        const timer = setTimeout(() => reject(new Error("screen recording metadata timeout")), 15000);
+        const finish = () => {
+          const durationMs = Math.round(video.duration * 1000);
+          if (!Number.isSafeInteger(durationMs) || durationMs <= 0 || !video.videoWidth || !video.videoHeight) return false;
+          clearTimeout(timer);
+          resolve({ durationMs, widthPx: video.videoWidth, heightPx: video.videoHeight });
+          return true;
+        };
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+          if (finish()) return;
+          video.onseeked = () => {
+            if (!finish()) reject(new Error("screen recording metadata invalid"));
+          };
+          video.currentTime = 7 * 24 * 60 * 60;
+        };
+        video.onerror = () => { clearTimeout(timer); reject(new Error("screen recording metadata failed")); };
+        video.src = prepared.mediaUrl;
+      });
+      const committed = await window.api.mediaCapture.commitVideo({ sessionId: prepared.sessionId, ...metadata });
+      const artifact = await window.api.entities.get("artifact", committed.artifactId);
+      if (!artifact || artifact.media_kind !== "video" || artifact.mime_type !== "video/webm"
+        || artifact.capture_method !== "screen_recording"
+        || artifact.source_type !== "task" || artifact.source_id !== ${JSON.stringify(smokeTaskId)}
+        || artifact.duration_ms !== metadata.durationMs || artifact.width_px !== metadata.widthPx || artifact.height_px !== metadata.heightPx) {
+        throw new Error("screen recording Artifact mismatch");
+      }
+      if (JSON.stringify(artifact).match(/stored_path|original_path|target|sourcePath/)) throw new Error("screen recording Artifact leaked path");
+      const playback = await new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        const timer = setTimeout(() => reject(new Error("screen recording canplay/seek timeout")), 15000);
+        let canPlay = false;
+        let seekRequested = false;
+        video.muted = true;
+        video.volume = 0.25;
+        video.preload = "auto";
+        video.oncanplay = async () => {
+          if (seekRequested) return;
+          seekRequested = true;
+          try {
+            await video.play();
+            canPlay = !video.paused;
+            video.pause();
+            video.currentTime = Math.min(0.25, video.duration / 2);
+          } catch (error) { clearTimeout(timer); reject(error); }
+        };
+        video.onseeked = () => {
+          clearTimeout(timer);
+          resolve({ canPlay, seeked: video.currentTime > 0, volumePreserved: Math.abs(video.volume - 0.25) < 0.001 });
+        };
+        video.onerror = () => { clearTimeout(timer); reject(new Error("screen recording playback failed")); };
+        video.src = "tasken-media://artifact/" + encodeURIComponent(artifact.id);
+      });
+      return {
+        artifactId: artifact.id,
+        metadataLoaded: metadata.durationMs > 0 && metadata.widthPx > 0 && metadata.heightPx > 0,
+        canPlay: playback.canPlay,
+        seeked: playback.seeked,
+        volumePreserved: playback.volumePreserved,
+        pausedResumed: true,
+      };
+    })()
+  `, true) as { artifactId: string; metadataLoaded: boolean; canPlay: boolean; seeked: boolean; volumePreserved: boolean; pausedResumed: boolean };
+  created.screenRecordingArtifactId = screenRecordingSmoke.artifactId;
+  created.screenRecordingMetadataLoaded = screenRecordingSmoke.metadataLoaded;
+  created.screenRecordingCanPlay = screenRecordingSmoke.canPlay;
+  created.screenRecordingSeeked = screenRecordingSmoke.seeked;
+  created.screenRecordingVolumePreserved = screenRecordingSmoke.volumePreserved;
+  created.screenRecordingPausedResumed = screenRecordingSmoke.pausedResumed;
+  created.screenRecordingRangeVerified = await verifySmokeVideoRange(screenRecordingSmoke.artifactId);
 
   const audioSmoke = await window.webContents.executeJavaScript(`
     (async () => {
@@ -1403,9 +1558,10 @@ flowchart LR
         (() => {
           const doc = document.scrollingElement;
           const form = document.querySelector(".add-task-bar");
-          const trigger = document.querySelector(".theme-picker-trigger");
           const submit = document.querySelector("#add-task-submit");
-          trigger?.click();
+          // Pickerはclickのたびにtrigger/menuを作り直すので、開いた後のnodeを測る。
+          document.querySelector(".theme-picker-trigger")?.click();
+          const trigger = document.querySelector(".theme-picker-trigger");
           const menu = document.querySelector(".theme-picker-menu");
           const menuRect = menu?.getBoundingClientRect();
           const triggerRect = trigger?.getBoundingClientRect();
@@ -1451,27 +1607,37 @@ flowchart LR
     `) as Pick<SmokeMiniResult, "todayMiniTaskVisible" | "todayMiniCompletionSaved" | "todayMiniOpenDetail">;
     mini = { ...mini, ...miniInteraction };
 
+    // 合成キーはwebContentsがfocusされるまで捨てられるので、キー送出前に前面へ出す。
+    todayMini.focus();
+    todayMini.webContents.focus();
+    await new Promise((resolve) => setTimeout(resolve, 60));
     await todayMini.webContents.executeJavaScript(`
       (() => {
         const trigger = document.querySelector(".theme-picker-trigger");
         trigger?.focus();
       })()
     `);
-    for (const keyCode of ["ArrowDown"]) {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    // 最初の合成キーはwebContentsのactivationに吸われることがあるので、開くまで押し直す。
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "Down" });
+      todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "Down" });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const opened = await todayMini.webContents.executeJavaScript(`
+        document.querySelector(".theme-picker-menu")?.hidden === false
+          && document.activeElement?.classList.contains("theme-picker-option") === true
+      `) as boolean;
+      if (opened) break;
+    }
+    // 開いた直後は選択中（長いTheme名）にfocusが当たる。Upで一つ前のSmoke Themeへ移る。
+    for (const keyCode of ["Up"]) {
       todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode });
       todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode });
     }
-    await todayMini.webContents.executeJavaScript(`
-      (() => {
-        const option = [...document.querySelectorAll(".theme-picker-option")]
-          .find((candidate) => candidate.getAttribute("title") === "Smoke Theme");
-        option?.focus();
-      })()
-    `);
-    for (const keyCode of ["ArrowDown", "ArrowUp", "ENTER"]) {
-      todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode });
-      todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode });
-    }
+    // ChromiumはkeyDownだけではbutton/formを実行しない。char eventまで送って実操作と同じにする。
+    todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
+    todayMini.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
     await new Promise((resolve) => setTimeout(resolve, 80));
     mini.todayMiniThemeKeyboard = await todayMini.webContents.executeJavaScript(`
       document.querySelector(".theme-picker-trigger")?.getAttribute("title") === "Smoke Theme"
@@ -1487,6 +1653,7 @@ flowchart LR
       })()
     `);
     todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
+    todayMini.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
     todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
     const enterAdded = await todayMini.webContents.executeJavaScript(`
       (async () => {
@@ -1798,11 +1965,17 @@ flowchart LR
         && result.microphonePlayback
         && result.microphoneCaptureMethod
         && result.microphoneRangeVerified
-        && result.videoMetadataLoaded
-        && result.videoCanPlay
-        && result.videoSeeked
-        && result.videoVolumePreserved
-        && result.videoRangeVerified
+        && result.importedVideoMetadataLoaded
+        && result.importedVideoCanPlay
+        && result.importedVideoSeeked
+        && result.importedVideoVolumePreserved
+        && result.importedVideoRangeVerified
+        && result.screenRecordingMetadataLoaded
+        && result.screenRecordingCanPlay
+        && result.screenRecordingSeeked
+        && result.screenRecordingVolumePreserved
+        && result.screenRecordingRangeVerified
+        && result.screenRecordingPausedResumed
         && (!isPackagedSmokeRequired || result.appIsPackaged)
       );
       recordSmoke(passed ? "restart-ready" : "failed", result);
@@ -1818,9 +1991,9 @@ flowchart LR
 }
 
 async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
-  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId, microphoneArtifactId: smokeMicrophoneArtifactId, videoArtifactId: smokeVideoArtifactId, smokeTaskId: smokeVideoOwnerId, appIsPackaged: app.isPackaged });
+  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId, microphoneArtifactId: smokeMicrophoneArtifactId, importedVideoArtifactId: smokeImportedVideoArtifactId, screenRecordingArtifactId: smokeScreenRecordingArtifactId, screenRecordingPausedResumed: smokeScreenRecordingPausedResumed, smokeTaskId: smokeVideoOwnerId, appIsPackaged: app.isPackaged });
   const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!idPattern.test(smokeMediaArtifactId) || !idPattern.test(smokeMicrophoneArtifactId) || !idPattern.test(smokeVideoArtifactId) || !idPattern.test(smokeVideoOwnerId)) {
+  if (!idPattern.test(smokeMediaArtifactId) || !idPattern.test(smokeMicrophoneArtifactId) || !idPattern.test(smokeImportedVideoArtifactId) || !idPattern.test(smokeScreenRecordingArtifactId) || !idPattern.test(smokeVideoOwnerId) || !smokeScreenRecordingPausedResumed) {
     throw new Error("restart Media Artifact IDs are invalid");
   }
   const renderer = await window.webContents.executeJavaScript(`
@@ -1868,40 +2041,54 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
         audio.onerror = () => { clearTimeout(timer); reject(new Error("restart microphone playback failed")); };
         audio.src = "tasken-media://artifact/" + encodeURIComponent(microphoneArtifact.id);
       });
-      const videoArtifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeVideoArtifactId)});
-      if (!videoArtifact || videoArtifact.media_kind !== "video" || videoArtifact.mime_type !== "video/webm") throw new Error("restarted video Artifact missing");
-      if (JSON.stringify(videoArtifact).match(/stored_path|original_path|target|sourcePath/)) throw new Error("restarted video Artifact leaked path");
       const videoOwner = await window.api.entities.get("task", ${JSON.stringify(smokeVideoOwnerId)});
-      if (videoArtifact.source_type !== "task" || videoArtifact.source_id !== ${JSON.stringify(smokeVideoOwnerId)}
-        || !videoOwner || videoOwner.id !== videoArtifact.source_id) throw new Error("restarted video owner backlink mismatch");
-      const videoPlayback = await new Promise((resolve, reject) => {
-        const video = document.createElement("video");
-        const timer = setTimeout(() => reject(new Error("restart video playback timeout")), 15000);
-        let canPlay = false;
-        let seekRequested = false;
-        video.muted = true;
-        video.preload = "auto";
-        video.oncanplay = async () => {
-          if (seekRequested) return;
-          seekRequested = true;
-          try {
-            await video.play();
-            canPlay = !video.paused;
-            video.pause();
-            video.currentTime = Math.min(0.25, video.duration / 2);
-          } catch (error) { clearTimeout(timer); reject(error); }
-        };
-        video.onseeked = () => { clearTimeout(timer); resolve({ canPlay, seeked: video.currentTime > 0, metadata: video.videoWidth === 16 && video.videoHeight === 16 }); };
-        video.onerror = () => { clearTimeout(timer); reject(new Error("restart video playback failed")); };
-        video.src = "tasken-media://artifact/" + encodeURIComponent(videoArtifact.id);
-      });
-      return { artifactId: artifact.id, playable, transcriptionRestarted, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, videoArtifactId: videoArtifact.id, videoOwnerLinked: true, ...videoPlayback };
+      if (!videoOwner || videoOwner.id !== ${JSON.stringify(smokeVideoOwnerId)}) throw new Error("restarted video owner missing");
+      const verifyVideo = async (artifactId, label, expectedCaptureMethod) => {
+        const videoArtifact = await window.api.entities.get("artifact", artifactId);
+        if (!videoArtifact || videoArtifact.media_kind !== "video" || videoArtifact.mime_type !== "video/webm") throw new Error("restarted " + label + " Artifact missing");
+        if (expectedCaptureMethod === null ? Object.hasOwn(videoArtifact, "capture_method") : videoArtifact.capture_method !== expectedCaptureMethod) {
+          throw new Error("restarted " + label + " provenance mismatch");
+        }
+        if (JSON.stringify(videoArtifact).match(/stored_path|original_path|target|sourcePath/)) throw new Error("restarted " + label + " Artifact leaked path");
+        if (videoArtifact.source_type !== "task" || videoArtifact.source_id !== ${JSON.stringify(smokeVideoOwnerId)} || videoOwner.id !== videoArtifact.source_id) {
+          throw new Error("restarted " + label + " owner backlink mismatch");
+        }
+        const playback = await new Promise((resolve, reject) => {
+          const video = document.createElement("video");
+          const timer = setTimeout(() => reject(new Error("restart " + label + " playback timeout")), 15000);
+          let canPlay = false;
+          let seekRequested = false;
+          video.muted = true;
+          video.preload = "auto";
+          video.oncanplay = async () => {
+            if (seekRequested) return;
+            seekRequested = true;
+            try {
+              await video.play();
+              canPlay = !video.paused;
+              video.pause();
+              video.currentTime = Math.min(0.25, video.duration / 2);
+            } catch (error) { clearTimeout(timer); reject(error); }
+          };
+          video.onseeked = () => { clearTimeout(timer); resolve({ canPlay, seeked: video.currentTime > 0, metadata: video.videoWidth > 0 && video.videoHeight > 0 }); };
+          video.onerror = () => { clearTimeout(timer); reject(new Error("restart " + label + " playback failed")); };
+          video.src = "tasken-media://artifact/" + encodeURIComponent(videoArtifact.id);
+        });
+        return { artifactId: videoArtifact.id, ownerLinked: true, ...playback };
+      };
+      const importedVideo = await verifyVideo(${JSON.stringify(smokeImportedVideoArtifactId)}, "imported video", null);
+      const screenRecording = await verifyVideo(${JSON.stringify(smokeScreenRecordingArtifactId)}, "screen recording", "screen_recording");
+      return { artifactId: artifact.id, playable, transcriptionRestarted, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, importedVideo, screenRecording };
     })()
-  `) as { artifactId: string; playable: boolean; transcriptionRestarted: boolean; microphoneArtifactId: string; microphonePlayable: boolean; videoArtifactId: string; videoOwnerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean };
+  `) as { artifactId: string; playable: boolean; transcriptionRestarted: boolean; microphoneArtifactId: string; microphonePlayable: boolean; importedVideo: { artifactId: string; ownerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean }; screenRecording: { artifactId: string; ownerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean } };
   const rangeVerified = await verifySmokeMediaRange(renderer.artifactId);
   const microphoneRangeVerified = await verifySmokeVideoRange(renderer.microphoneArtifactId);
-  const videoRangeVerified = await verifySmokeVideoRange(renderer.videoArtifactId);
-  const passed = renderer.playable && rangeVerified && renderer.transcriptionRestarted && renderer.microphonePlayable && microphoneRangeVerified && renderer.canPlay && renderer.seeked && renderer.metadata && renderer.videoOwnerLinked && videoRangeVerified
+  const importedVideoRangeVerified = await verifySmokeVideoRange(renderer.importedVideo.artifactId);
+  const screenRecordingRangeVerified = await verifySmokeVideoRange(renderer.screenRecording.artifactId);
+  const passed = renderer.playable && rangeVerified && renderer.transcriptionRestarted && renderer.microphonePlayable && microphoneRangeVerified
+    && renderer.importedVideo.canPlay && renderer.importedVideo.seeked && renderer.importedVideo.metadata && renderer.importedVideo.ownerLinked && importedVideoRangeVerified
+    && renderer.screenRecording.canPlay && renderer.screenRecording.seeked && renderer.screenRecording.metadata && renderer.screenRecording.ownerLinked && screenRecordingRangeVerified
+    && smokeScreenRecordingPausedResumed
     && (!isPackagedSmokeRequired || app.isPackaged);
   recordSmoke(passed ? "passed" : "failed", {
     audioArtifactId: renderer.artifactId,
@@ -1911,12 +2098,19 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
     microphoneArtifactId: renderer.microphoneArtifactId,
     microphonePlayable: renderer.microphonePlayable,
     microphoneRangeVerified,
-    videoArtifactId: renderer.videoArtifactId,
-    videoCanPlay: renderer.canPlay,
-    videoSeeked: renderer.seeked,
-    videoMetadataLoaded: renderer.metadata,
-    videoRangeVerified,
-    videoOwnerLinked: renderer.videoOwnerLinked,
+    importedVideoArtifactId: renderer.importedVideo.artifactId,
+    importedVideoCanPlay: renderer.importedVideo.canPlay,
+    importedVideoSeeked: renderer.importedVideo.seeked,
+    importedVideoMetadataLoaded: renderer.importedVideo.metadata,
+    importedVideoRangeVerified,
+    importedVideoOwnerLinked: renderer.importedVideo.ownerLinked,
+    screenRecordingArtifactId: renderer.screenRecording.artifactId,
+    screenRecordingCanPlay: renderer.screenRecording.canPlay,
+    screenRecordingSeeked: renderer.screenRecording.seeked,
+    screenRecordingMetadataLoaded: renderer.screenRecording.metadata,
+    screenRecordingRangeVerified,
+    screenRecordingOwnerLinked: renderer.screenRecording.ownerLinked,
+    screenRecordingPausedResumed: smokeScreenRecordingPausedResumed,
     smokeTaskId: smokeVideoOwnerId,
     appIsPackaged: app.isPackaged,
   });
@@ -2051,6 +2245,44 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingService): void {
+  electronSession.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    const frame = request.frame;
+    if (!frame || frame.detached) {
+      callback({});
+      return;
+    }
+    try {
+      const sender = webContents.fromFrame(frame);
+      if (!sender) throw new Error("画面録画の要求元が閉じられました。もう一度選択してください。");
+      const parsedFrameUrl = new URL(frame.url);
+      const frameOrigin = parsedFrameUrl.protocol === "file:" ? "file://" : parsedFrameUrl.origin;
+      const handlerOriginMatches = frameOrigin === "file://"
+        ? request.securityOrigin === "file://" || request.securityOrigin === "null"
+        : request.securityOrigin === frameOrigin;
+      if (!handlerOriginMatches) throw new Error("画面録画のoriginが一致しません。画面を再読み込みしてください。");
+      const grant = await screenRecording.consumePermissionRequest({
+        senderWebContentsId: sender.id,
+        frameTreeNodeId: frame.frameTreeNodeId,
+        frameIsMain: sender.mainFrame === frame,
+        frameDetached: frame.detached,
+        securityOrigin: frameOrigin,
+        userGesture: request.userGesture,
+        videoRequested: request.videoRequested,
+        audioRequested: request.audioRequested,
+      });
+      callback({
+        video: grant.source,
+        ...(grant.displayAudio ? { audio: grant.displayAudio } : {}),
+      });
+    } catch (error) {
+      const errorName = error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : "Error";
+      console.warn("画面録画のpermission grantを拒否しました。録画対象を選び直してください。", { errorName });
+      callback({});
+    }
+  }, { useSystemPicker: false });
+}
+
 async function startDesktopApp(): Promise<void> {
   await app.whenReady();
   migrateLegacyUserDataIfNeeded();
@@ -2124,6 +2356,8 @@ async function startDesktopApp(): Promise<void> {
     },
     notifyChanged: () => notifyMainWindowRefresh(),
   });
+  const screenRecording = new ScreenRecordingService();
+  installScreenRecordingDisplayHandler(screenRecording);
   smokeMediaCaptureService = isSmokeTest ? mediaCapture : null;
   const mediaRecovery = mediaCapture.recoverPending();
   if (mediaRecovery.recovered || mediaRecovery.pending) {
@@ -2145,6 +2379,7 @@ async function startDesktopApp(): Promise<void> {
     applicationCommands,
     mediaCapture,
     batchTranscription,
+    screenRecording,
     (types) => {
       notifyMainWindowRefresh();
       notifyTodayMiniRefresh(types);

@@ -3,7 +3,8 @@
 Issue #367 では、既存音声を Inbox の Voice Capture と managed Artifact へ取り込む。
 Issue #371 では、Inboxからmicrophoneを明示録音し、bounded chunkをMain-owned sessionへ順次保存して同じVoice Capture確定経路へ接続する。
 Issue #368 の Video Phase 0 では、既存動画を managed / linked Video Artifact として Task / Note / Capture / 実行中Focusから取り込む。
-画面録画・rectangle選択・trim/chapter/clip export・文字起こし・AI要約・codec変換はこの段階に含めない。
+Issue #373 では、Windowsの画面またはwindowをInboxから明示録画し、同じbounded recording sessionとVideo Artifact確定経路へ接続する。
+rectangle選択・trim/chapter/clip export・文字起こし・AI要約・codec変換はこの段階に含めない。
 
 ## 正本と確定順序
 
@@ -15,6 +16,7 @@ owner関係はContext Graphへ`derived_from`として投影し、同じ関係を
 DB失敗時は原音とmanifestを保持し、次回起動で同じcommand receiptを再実行する。
 prepare後・commit前に終了したsessionは自動確定せず、Inboxの「保存待ち音声」でpreview・保存・破棄を選べる。
 microphone録音は`recording / recording_paused`を同じmanifestへ保存し、stop時にchunkを検証・結合して`prepared`へ移す。app終了・device切断・Renderer障害で未停止のsessionは自動commitせず、「保存待ち音声」から復旧または破棄する。
+画面録画もsession manifestの`capture_method=screen_recording`で同じ状態遷移と上限を使い、自動commitしない。停止後はInboxの「保存待ち画面録画」でpreviewしてから既存`CommitVideoArtifact`へ明示保存し、確定したVideo Artifactにもtyped `capture_method=screen_recording`を残す。既存fileのimport Videoはこのfieldを持たず、両者を正本Entityから区別する。
 動画も選択直後には確定せず、各owner詳細の「保存待ち動画」でmetadataを確認してから「添付する」または「破棄」を選ぶ。
 
 ## Renderer境界
@@ -27,13 +29,15 @@ Mainはfile descriptorを一度だけopenし、同じdescriptorでidentity・siz
 availability は `available | missing | changed | unsafe_source | unsupported_codec` のいずれかである。
 symlink/junction、hash不一致、検証後のpath差替えでは未検証bytesを配信しない。
 
-録音中のRendererはMediaRecorderの各BlobをMainが返す`maxChunkBytes`以下へ分割し、sequence付きArrayBufferとして逐次IPC送信する。未送信Blobは8 chunk相当のbyte上限を超えてqueueせず、録音済み部分のstop・復旧へ移る。開始処理はpromise gateで一度だけ実行し、Main session作成後にMediaRecorderの生成・開始が失敗した場合はそのsessionを破棄する。Mainは1 chunk 1 MiB、1 session 512 MiB、active duration 4時間、16,000 chunkを上限とし、sequence重複・欠落・size/duration/manifest超過をfile書込み前に拒否する。stop前のfinal Blob append時刻をdurableなactive duration cutoffとし、Renderer crash / reload後の無通信時間は録音時間へ加算しない。全録音Blob、absolute path、raw audioをRenderer state・response・通知・ログへ保持しない。選択中のdevice IDはRenderer内だけに留め、Mainへ送らない。
+録音中のRendererはMediaRecorderの各BlobをMainが返す`maxChunkBytes`以下へ分割し、sequence付きArrayBufferとして逐次IPC送信する。未送信Blobは8 chunk相当のbyte上限を超えてqueueせず、録音済み部分のstop・復旧へ移る。開始処理はpromise gateで一度だけ実行し、Main session作成後にMediaRecorderの生成・開始が失敗した場合はそのsessionを破棄する。Mainはaudio/video共通で1 chunk 1 MiB、1 session 512 MiB、active duration 4時間、16,000 chunkを上限とし、sequence重複・欠落・size/duration/manifest超過をfile書込み前に拒否する。stop前のfinal Blob append時刻をdurableなactive duration cutoffとし、Renderer crash / reload後の無通信時間は録音時間へ加算しない。全録音Blob、absolute path、raw mediaをRenderer state・response・通知・ログへ保持しない。選択中のaudio device IDはRenderer内だけに留め、Mainへ送らない。
+
+画面/windowの列挙・選択・許可はMain authorityで行う。Rendererへは短命`sourceToken`、bounded label/thumbnail、kind、期限だけを返し、Electron/OSのsource IDやdisplay IDを渡さない。tokenはsender WebContents、Main frame tree node、originへ結び、30秒、一回限りとする。Main-frame navigation/reload・sender破棄で即時無効化し、permission handlerでuser gesture、video/audio要求、capability、source存続を再検証してから消費する。system audioはWindows loopback capabilityがある場合だけ、microphoneは別の`getUserMedia` streamとして取得し、非対応・capability driftはfail-closedにする。
 
 ## #352 / #368 との共有境界
 
 session manifest、recovery root、availability、ID-based protocol、Range配信、Renderer projectionはmedia共通基盤である。
 `CommitAudioCapture`と`CommitVideoArtifact`、各media形式、Voice Capture / Video Artifact表示はmedia kind固有である。
-将来の画面録画も同じ共通基盤を再利用し、音声sessionやUIへvideo条件分岐を追加しない。
+画面録画は同じrecording sessionとchunk protocolを再利用し、source permissionとVideo Artifact固有UIだけを別境界に置く。
 
 ## #367 Acceptance 対応表
 
@@ -84,6 +88,19 @@ session manifest、recovery root、availability、ID-based protocol、Range配�
 | app終了・再起動後に復旧または破棄できる | app flushとroute cleanupでstopを試み、未停止のdurable sessionは`recording_interrupted`として保存待ち音声に表示する。同一Main processのRenderer crashでも最後のdurable chunk時刻をduration cutoffにしてdowntimeを除外する |
 | path/raw audioをresponse/logへ出さない | start/progress/stopはsession ID・MIME・size・durationだけを返し、device IDはRenderer内だけ、OS pathはMain manifestだけに保持する |
 | Quality / Windows packaged実証 | focused/full/typecheck/build/audit/diff-checkと、packaged版のsynthetic microphone stream→stop→再生→同一userData再起動を最終gateで実行する |
+
+## #373 Acceptance 対応表
+
+| Issue原文 | 実装・証拠 |
+|---|---|
+| 画面またはwindowを選んで録画できる | Main `desktopCapturer`がscreen/windowを別々に列挙し、Inboxのcompact pickerへraw ID非公開の短命tokenとして投影する |
+| source許可をRendererへ委ねない | list→arm→display permissionをsender/Main frame/origin/user gesture/TTL/one-shotで結び、permission時にcapabilityと同じraw sourceの存続を再列挙する |
+| pointerとaudio modeを選べる | Pointer on/off、Audio Off/Mic/Systemをpickerに置く。SystemはWindows loopbackのみ、Micはdisplay audioと混ぜず別streamから明示取得する |
+| bounded録画とrace-free controls | #371と同じ1 MiB/512 MiB/4時間/16,000 chunk、8 chunk queueを使い、pause/resume/stop/discardを単一transition queueで直列化する |
+| preview後だけVideo Artifactへ保存する | stopは`prepared`までで、保存待ち画面録画のnative video preview後にだけ既存`CommitVideoArtifact`を実行する。破棄は正式Entityを作らない |
+| app/route終了とcrashから復旧できる | global app flushとroute cleanupを合成してstopを待ち、未停止sessionは自動commitせず「録画を復旧」または「破棄」を選べる |
+| path/raw source/mediaを漏らさない | public envelopeはtoken/session/artifact IDとbounded metadataだけ。raw source ID、path、receipt内部path、全Blobをprojection/logへ出さない |
+| Windows packaged実証 | packaged版で実source list→arm→`getDisplayMedia`→MediaRecorder→pause/requestData/append flush/Main pause→Main resume/recorder resume→prepared metadata→commit→canplay/seek/Range→同一userData再起動を通す。#368のimport VideoとはArtifact ID・結果field・restart検証を分離し、両経路を必須にする。実行結果は最終gateで記録する |
 
 ## 復旧状態
 

@@ -31,6 +31,10 @@ export const AUDIO_CAPTURE_METHODS = Object.freeze([
   "transcript_import",
 ]);
 
+export const VIDEO_CAPTURE_METHODS = Object.freeze([
+  "screen_recording",
+]);
+
 export const AUDIO_MEDIA_STATUSES = Object.freeze([
   "preparing",
   "ready",
@@ -129,6 +133,9 @@ export function validateVideoArtifactMetadata(input) {
     throw new Error("video Artifactのmetadataが不正です。");
   }
   if (input.media_kind !== "video") throw new Error("artifact.media_kindはvideoである必要があります。");
+  if (input.capture_method != null && !VIDEO_CAPTURE_METHODS.includes(input.capture_method)) {
+    throw new Error("video Artifactのcapture_methodが不正です。");
+  }
   const expectedMime = videoMimeTypeOf(input.filename);
   if (!expectedMime) throw new Error("対応していない動画形式です。MP4、M4V、MOV、WebMを選択してください。");
   if (input.mime_type !== expectedMime) {

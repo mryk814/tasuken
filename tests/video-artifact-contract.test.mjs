@@ -38,6 +38,8 @@ test("video MIME is strict for mp4/m4v/mov/webm and never falls back", () => {
 
 test("video metadata enforces safe practical bounds", () => {
   assert.equal(validateVideoArtifactMetadata(video()).media_kind, "video");
+  assert.equal(Object.hasOwn(validateVideoArtifactMetadata(video()), "capture_method"), false);
+  assert.equal(validateVideoArtifactMetadata(video({ capture_method: "screen_recording" })).capture_method, "screen_recording");
   for (const invalid of [
     { mime_type: "application/octet-stream" },
     { media_kind: "audio" },
@@ -49,6 +51,7 @@ test("video metadata enforces safe practical bounds", () => {
     { width_px: 16385 },
     { height_px: 16385 },
     { content_hash: "sha256:bad" },
+    { capture_method: "microphone" },
   ]) assert.throws(() => validateVideoArtifactMetadata(video(invalid)));
 });
 

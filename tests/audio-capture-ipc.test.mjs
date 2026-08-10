@@ -18,6 +18,7 @@ const parsers = await import(`data:text/javascript;base64,${Buffer.from(result.o
 
 const SESSION_ID = "123e4567-e89b-42d3-a456-426614174000";
 const THEME_ID = "8ecf07e4-1491-4e52-b39c-30a65991e78b";
+const OWNER_ID = "523e4567-e89b-42d3-a456-426614174000";
 
 test("audio prepare IPC accepts only the exact optional themeId envelope", () => {
   assert.deepEqual(parsers.parseAudioCapturePrepareRequest({}), {});
@@ -53,7 +54,14 @@ test("media recording IPC is mediaKind-discriminated and accepts only ArrayBuffe
     themeId: THEME_ID,
     mimeType: "audio/webm",
   });
-  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm" }), /まだ対応/);
+  assert.deepEqual(parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: OWNER_ID }), {
+    mediaKind: "video",
+    mimeType: "video/webm",
+    sourceType: "task",
+    sourceId: OWNER_ID,
+  });
+  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm" }), /添付先種別/);
+  assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: OWNER_ID, desktopSourceId: "screen:0:0" }), /未定義field/);
   assert.throws(() => parsers.parseMediaRecordingStartRequest({ mediaKind: "audio", mimeType: "audio/wav" }), /対応していない録音形式/);
   const chunk = new ArrayBuffer(16);
   assert.deepEqual(parsers.parseMediaRecordingAppendRequest({ sessionId: SESSION_ID, sequence: 0, chunk }), { sessionId: SESSION_ID, sequence: 0, chunk });

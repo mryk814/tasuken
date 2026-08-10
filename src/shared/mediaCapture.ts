@@ -8,17 +8,28 @@ export interface AudioCapturePrepareRequest {
 
 export const MICROPHONE_RECORDING_MIME_TYPES = ["audio/webm"] as const;
 export type MicrophoneRecordingMimeType = (typeof MICROPHONE_RECORDING_MIME_TYPES)[number];
+export const SCREEN_RECORDING_MIME_TYPES = ["video/webm"] as const;
+export type ScreenRecordingMimeType = (typeof SCREEN_RECORDING_MIME_TYPES)[number];
 
-export interface MediaRecordingStartRequest {
+export interface MicrophoneRecordingStartRequest {
   mediaKind: "audio";
   themeId?: string | null;
   mimeType: MicrophoneRecordingMimeType;
 }
 
+export interface ScreenRecordingStartRequest {
+  mediaKind: "video";
+  mimeType: ScreenRecordingMimeType;
+  sourceType: VideoArtifactSourceType;
+  sourceId: string;
+}
+
+export type MediaRecordingStartRequest = MicrophoneRecordingStartRequest | ScreenRecordingStartRequest;
+
 export interface MediaRecordingStarted {
   sessionId: string;
-  mediaKind: "audio";
-  mimeType: MicrophoneRecordingMimeType;
+  mediaKind: "audio" | "video";
+  mimeType: MicrophoneRecordingMimeType | ScreenRecordingMimeType;
   maxChunkBytes: number;
   maxRecordingBytes: number;
   maxDurationMs: number;
@@ -174,13 +185,27 @@ export function parseAudioCapturePrepareRequest(value: unknown): AudioCapturePre
 }
 
 export function parseMediaRecordingStartRequest(value: unknown): MediaRecordingStartRequest {
-  const input = requireExactObject(value, ["mediaKind", "themeId", "mimeType"], "media recording start");
-  if (input.mediaKind !== "audio") throw new Error("この録音種別にはまだ対応していません。");
-  const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
-  if (typeof input.mimeType !== "string" || !MICROPHONE_RECORDING_MIME_TYPES.includes(input.mimeType as MicrophoneRecordingMimeType)) {
-    throw new Error("対応していない録音形式です。アプリを再起動して、もう一度試してください。");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("media recording start requestが不正です。画面を再読み込みして、もう一度試してください。");
   }
-  return { ...theme, mediaKind: "audio", mimeType: input.mimeType as MicrophoneRecordingMimeType };
+  const mediaKind = (value as Record<string, unknown>).mediaKind;
+  if (mediaKind === "audio") {
+    const input = requireExactObject(value, ["mediaKind", "themeId", "mimeType"], "media recording start");
+    const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
+    if (typeof input.mimeType !== "string" || !MICROPHONE_RECORDING_MIME_TYPES.includes(input.mimeType as MicrophoneRecordingMimeType)) {
+      throw new Error("対応していない録音形式です。アプリを再起動して、もう一度試してください。");
+    }
+    return { ...theme, mediaKind: "audio", mimeType: input.mimeType as MicrophoneRecordingMimeType };
+  }
+  if (mediaKind === "video") {
+    const input = requireExactObject(value, ["mediaKind", "mimeType", "sourceType", "sourceId"], "screen recording start");
+    if (typeof input.mimeType !== "string" || !SCREEN_RECORDING_MIME_TYPES.includes(input.mimeType as ScreenRecordingMimeType)) {
+      throw new Error("対応していない画面録画形式です。Windows版Taskenを再起動してください。");
+    }
+    const owner = parseVideoImportPrepareRequest({ storageMode: "managed", sourceType: input.sourceType, sourceId: input.sourceId });
+    return { mediaKind: "video", mimeType: input.mimeType as ScreenRecordingMimeType, sourceType: owner.sourceType, sourceId: owner.sourceId };
+  }
+  throw new Error("この録音種別には対応していません。");
 }
 
 export function parseMediaRecordingAppendRequest(value: unknown): MediaRecordingAppendRequest {
