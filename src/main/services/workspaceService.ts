@@ -89,6 +89,20 @@ import {
 import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { validateSnapshotMediaWorkspace } from "./snapshotMediaValidation";
+import { logMain } from "../log";
+
+/**
+ * Theme保存先を解決できない理由ごとに、次の操作まで書く。
+ * 「Settingsを確認してください」だけでは何を直すのか分からない（#383）。
+ */
+function themeStorageResolutionMessage(status: string, reason: string): string {
+  if (status === "needs_root") return "Theme保存先が未設定です。Settingsで同期ストレージを選択してください。";
+  if (status === "root_unavailable") return "Theme保存先のフォルダへアクセスできません。同期が完了しているか、フォルダが移動・削除されていないか確認してください。";
+  if (reason === "duplicate_theme_manifest") return "同じThemeのフォルダが保存先に複数あります。片方を移動または削除してから、もう一度保存してください。";
+  if (reason === "theme_manifest_mismatch") return "Theme保存先のフォルダが別のThemeとして登録されています。Settingsで保存先を選び直してください。";
+  if (reason === "theme_manifest_invalid") return "Theme保存先の識別ファイルを読めません。フォルダの内容を確認するか、保存先を選び直してください。";
+  return "Theme保存先を確認できませんでした。Settingsで保存先を選び直してください。";
+}
 import {
   completeConversationContextOperation,
   inspectConversationContextFile,
@@ -2365,7 +2379,13 @@ export class WorkspaceService {
         themeCode: typeof theme.code === "string" ? theme.code : "",
         displayName: String(theme.name || theme.title || ""),
       });
-      if (discovered.status !== "ok") throw new Error("Theme保存先のidentityを安全に確認できませんでした。Settingsを確認してください。");
+      if (discovered.status !== "ok") {
+        // statusとreasonを持っているのに同じ文言へ潰すと、利用者も開発者も次の操作へ到達できない。
+        logMain("error", "workspace:managed-artifact-directory", "Theme保存先を解決できません", new Error(
+          `status=${discovered.status} reason=${"reason" in discovered ? discovered.reason : "-"} root=${root} themeId=${themeId}`,
+        ));
+        throw new Error(themeStorageResolutionMessage(discovered.status, "reason" in discovered ? String(discovered.reason) : ""));
+      }
       themeFolder = discovered.themeFolder;
     } else {
       const planned = this.resolveThemeContentDirectory(themeId, "artifacts", { writeThemeManifest: false });

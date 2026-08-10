@@ -27,9 +27,16 @@ const SAFE_MESSAGES: Array<[RegExp, string]> = [
  * Node/fsのmessageやabsolute pathをRendererへ渡さない。
  * ここで原因が消えるので、Main側のログにだけ生の理由を残す。
  */
+/**
+ * すでに原因＋次の操作の形になっていて、pathも内部語彙も含まない文言はそのまま通す。
+ * ここで丸めると「Settingsを確認してください」に潰れ、何を直すのか分からなくなる（#383）。
+ */
+const PASSTHROUGH = /^Theme保存先/;
+
 export function projectMediaCaptureIpcError(action: MediaCaptureIpcAction, error: unknown): Error {
   logMain("error", `media-capture:${action}`, "Rendererへは安全な文言を返す", error);
   const message = error instanceof Error ? error.message : "";
+  if (PASSTHROUGH.test(message)) return new Error(message);
   for (const [pattern, safeMessage] of SAFE_MESSAGES) {
     if (pattern.test(message)) return new Error(safeMessage);
   }
