@@ -17,6 +17,7 @@ import {
   IconRestore,
   IconSearch,
   IconTrash,
+  IconVideo,
   IconVolume,
   IconWriting,
 } from "@tabler/icons-react";
@@ -42,7 +43,7 @@ import {
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
 import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
 import type { Entity } from "../../../../../shared/types/workspace";
-import { formatMediaDuration, MEDIA_AVAILABILITY_LABELS, TRANSCRIPTION_STATUS_LABELS } from "../../../../../shared/mediaArtifact.mjs";
+import { CAPTURE_METHOD_LABELS, formatMediaDuration, MEDIA_AVAILABILITY_LABELS, TRANSCRIPTION_STATUS_LABELS } from "../../../../../shared/mediaArtifact.mjs";
 import { memoStickyColorOf } from "../../../../../shared/memoPresentation";
 import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
@@ -108,15 +109,22 @@ function CapturedArtifactButton({
   onOpen: () => void;
 }) {
   const isAudio = artifact.media_kind === "audio";
+  // 画面録画も音声と同じ「録ったもの」として、長さ・容量まで見せる（#383）。
+  const isVideo = artifact.media_kind === "video";
   const availability = String(artifact.media_availability || "available") as keyof typeof MEDIA_AVAILABILITY_LABELS;
   const transcription = String(capture.transcription_status || "not_requested") as keyof typeof TRANSCRIPTION_STATUS_LABELS;
   return (
-    <button type="button" className={isAudio ? "inbox-captured-audio" : undefined} onClick={onOpen}>
-      {isAudio ? <IconVolume size={14} /> : <IconFile size={14} />}
+    <button type="button" className={isAudio || isVideo ? "inbox-captured-audio" : undefined} onClick={onOpen}>
+      {isAudio ? <IconVolume size={14} /> : isVideo ? <IconVideo size={14} /> : <IconFile size={14} />}
       <span>{artifact.filename}</span>
-      {isAudio && (
+      {(isAudio || isVideo) && (
         <small>
-          {[formatMediaDuration(artifact.duration_ms), formatArtifactFileSize(artifact.file_size), TRANSCRIPTION_STATUS_LABELS[transcription], MEDIA_AVAILABILITY_LABELS[availability]]
+          {[
+            formatMediaDuration(artifact.duration_ms),
+            formatArtifactFileSize(artifact.file_size),
+            isAudio ? TRANSCRIPTION_STATUS_LABELS[transcription] : CAPTURE_METHOD_LABELS[String(capture.capture_method)],
+            MEDIA_AVAILABILITY_LABELS[availability],
+          ]
             .filter(Boolean)
             .join(" · ")}
         </small>

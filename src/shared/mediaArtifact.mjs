@@ -65,6 +65,21 @@ export const TRANSCRIPTION_STATUS_LABELS = Object.freeze({
   failed: "文字起こし失敗",
 });
 
+/** CaptureEntryの種類を画面へ出すときの対応表。内部コードをそのまま表示しない（#383）。 */
+export const CAPTURE_KIND_LABELS = Object.freeze({
+  voice_memo: "音声",
+  screen_capture: "画面録画",
+  micro_memo: "付箋メモ",
+});
+
+export const CAPTURE_METHOD_LABELS = Object.freeze({
+  audio_import: "音声を取り込み",
+  microphone: "マイク録音",
+  screen_recording: "画面録画",
+  external_dictation: "外部の書き起こし",
+  transcript_import: "文字起こしの取り込み",
+});
+
 export const MEDIA_AVAILABILITY_LABELS = Object.freeze({
   available: "保存済み",
   missing: "ファイルなし",

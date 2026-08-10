@@ -9,6 +9,8 @@ export type MediaAvailability = (typeof MEDIA_AVAILABILITIES)[number];
 export type TranscriptionStatus = (typeof TRANSCRIPTION_STATUSES)[number];
 export const TRANSCRIPTION_STATUS_LABELS: Readonly<Record<TranscriptionStatus, string>>;
 export const MEDIA_AVAILABILITY_LABELS: Readonly<Record<MediaAvailability, string>>;
+export const CAPTURE_KIND_LABELS: Readonly<Record<string, string>>;
+export const CAPTURE_METHOD_LABELS: Readonly<Record<string, string>>;
 export function mediaExtensionOf(fileName: unknown): string;
 export function audioMimeTypeOf(fileName: unknown): string | null;
 export function isSupportedAudioFileName(fileName: unknown): boolean;
