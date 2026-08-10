@@ -95,6 +95,7 @@ export const IPC = {
   appFlushAck: "app:flush-ack",
   mcpBridgeInfo: "mcp:bridge-info",
   todayMiniShow: "today-mini:show",
+  todayMiniToggleWindow: "today-mini:toggle-window",
   todayMiniRefresh: "today-mini:refresh",
   todayMiniPinTopRight: "today-mini:pin-top-right",
   todayMiniHide: "today-mini:hide",
@@ -582,6 +583,7 @@ export interface ResearchDeskApi {
     ackAppFlush(requestId: string, ok: boolean): Promise<boolean>;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
     showTodayMiniWindow(): Promise<boolean>;
+    toggleTodayMiniWindow(): Promise<boolean>;
     /** Memoをデスクトップ付箋として浮かせる。既に開いていれば前面へ出す（#298）。 */
     showMemoStickyWindow(memoId: string): Promise<boolean>;
     /** いま付箋として浮いているMemoのID（#298）。 */

@@ -93,13 +93,93 @@ test("Today mini task追加は共通Theme pickerの選択をcanonical project_id
   assert.match(preloadSource, /listThemes/);
   assert.match(contractsSource, /listThemes\(\): Promise<TodayMiniThemeOption\[\]>/);
   assert.match(htmlSource, /createThemePicker/);
+  assert.match(htmlSource, /variant: "compact-popover"/);
   assert.match(htmlSource, /id="add-task-theme-picker"/);
   assert.match(htmlSource, /window\.todayMiniApi\.listThemes/);
+  assert.match(htmlSource, /previousLabel[\s\S]*利用不可/);
+  assert.match(htmlSource, /await loadThemeOptions\(\);[\s\S]*await render\(window\.todayMiniApi\.refresh\)/);
   assert.match(htmlSource, /themeId: addTaskThemePicker\.getValue\(\)/);
   assert.doesNotMatch(htmlSource, /<select[^>]+add-task-theme/);
   assert.match(mainSource, /themePickerOptions\(options\.repository\.list\("theme"\)/);
   assert.match(mainSource, /resolveTodayMiniThemeRef\(listThemeOptions\(\), themeId\)/);
   assert.doesNotMatch(mainSource, /project_id: canonicalThemeId\(null/);
+});
+
+test("Top Bar TodayはMain-owned visibilityをtoggleし、状態に合うlabelを出す", () => {
+  const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+  const appSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+  const preloadIndex = readFileSync("src/preload/index.ts", "utf8");
+  const controller = readFileSync("src/main/todayMiniController.ts", "utf8");
+  assert.match(ipcContractsSource, /todayMiniToggleWindow: "today-mini:toggle-window"/);
+  assert.match(preloadIndex, /toggleTodayMiniWindow/);
+  assert.match(appSource, /workspaceApi\.toggleTodayMiniWindow\(\)/);
+  assert.match(shellSource, /launcher\.todayWindowOpen \? "今日やることを収納" : "今日やることを表示"/);
+  assert.match(controller, /current\.isVisible\(\)[\s\S]*hide\(\)[\s\S]*show\(\)/);
+  assert.match(controller, /ipcMain\.handle\(IPC\.todayMiniToggleWindow/);
+});
+
+test("Today miniの追加欄は狭幅で横scrollせず、明示submitと入力保護を持つ", () => {
+  assert.doesNotMatch(htmlSource, /class="add-icon"/);
+  assert.match(htmlSource, /id="add-task-submit"[\s\S]*type="submit"[\s\S]*aria-label="タスクを追加"/);
+  assert.match(htmlSource, /grid-template-columns: minmax\(0, 1fr\) 34px/);
+  assert.match(htmlSource, /overflow-x: hidden/);
+  assert.doesNotMatch(htmlSource, /\.add-theme-picker[\s\S]{0,180}overflow-x: auto/);
+  assert.doesNotMatch(htmlSource, /min-width: max-content/);
+  assert.match(htmlSource, /max-height: min\(220px, 45vh\)/);
+  assert.match(htmlSource, /if \(saved\) addTaskInput\.value = ""/);
+  assert.match(htmlSource, /addTaskSubmit\.disabled = true/);
+  assert.match(mainSource, /minWidth: 300/);
+  assert.match(mainSource, /for \(const width of \[300, 320, 360, 420\]\)/);
+  assert.match(mainSource, /doc\.scrollWidth <= doc\.clientWidth \+ 1/);
+  assert.match(mainSource, /form\.scrollWidth <= form\.clientWidth \+ 1/);
+  assert.match(mainSource, /result\.todayMiniResponsive/);
+  assert.match(mainSource, /menu\.querySelectorAll\("\.theme-picker-option"\)\.length >= 21/);
+  assert.match(mainSource, /menu\.hidden === false/);
+  assert.match(mainSource, /menuRect\.width > 0/);
+  assert.match(mainSource, /menu\.scrollHeight > menu\.clientHeight/);
+  assert.match(mainSource, /sendInputEvent\(\{ type: "keyDown", keyCode: "ENTER" \}\)/);
+  assert.match(mainSource, /#add-task-submit[\s\S]*type: "mouseDown"/);
+  assert.match(mainSource, /enterSavedTask\?\.project_id === smokeThemeId/);
+  assert.match(mainSource, /todayMiniThemeKeyboard/);
+  assert.match(mainSource, /todayMiniThemeSaved/);
+  assert.match(mainSource, /todayMiniFailurePreserved/);
+  assert.match(mainSource, /失敗しても残る入力/);
+});
+
+test("共通Theme optionは安全なcolor tokenだけをcompact pickerへ渡す", async () => {
+  const theme = await importBundled("src/shared/themeRef.mjs");
+  const options = theme.themePickerOptions([
+    { id: "theme-personal-default", name: "個人業務", color: "chart-2" },
+    { id: "theme-a", name: "長いTheme", color: "theme-extra-3" },
+    { id: "theme-b", name: "不正色", color: "red" },
+  ]);
+  assert.equal(options[0].colorToken, "chart-2");
+  assert.equal(options[1].colorToken, "theme-extra-3");
+  assert.equal(options[2].colorToken, "chart-3");
+  const pickerSource = readFileSync("src/shared/themePickerDom.ts", "utf8");
+  assert.match(pickerSource, /role", "listbox"/);
+  assert.match(pickerSource, /menu\.setAttribute\("aria-label", label\)/);
+  assert.match(pickerSource, /aria-selected/);
+  assert.match(pickerSource, /ArrowDown/);
+  assert.match(pickerSource, /Escape/);
+  assert.match(pickerSource, /var\(--color-border-strong\)/);
+  assert.match(pickerSource, /option\.unavailable/);
+  assert.match(pickerSource, /queueMicrotask[\s\S]*theme-picker-trigger/);
+});
+
+test("Today miniのTheme表示は正式な追加色を保持し、未知Themeをneutral表示する", async () => {
+  const presentation = await importBundled("src/shared/todayMiniPresentation.ts");
+  assert.deepEqual(
+    presentation.presentTodayMiniTheme(
+      [{ id: "theme-extra", name: "追加色", color: "theme-extra-4" }],
+      "theme-extra",
+    ),
+    { name: "追加色", color: "var(--color-theme-extra-4)" },
+  );
+  assert.deepEqual(
+    presentation.presentTodayMiniTheme([], "deleted-theme"),
+    { name: "Theme不明", color: "var(--color-border-strong)" },
+  );
 });
 
 test("Today miniのTheme IPC境界はpersonalまたは実在Themeだけを許可する", async () => {

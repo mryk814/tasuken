@@ -24,7 +24,8 @@ test("the title bar launcher directly controls satellite windows without a popov
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
   assert.match(shellSource, /function TitleBarLauncher/);
-  assert.match(shellSource, /aria-label="Todayウィンドウを表示"/);
+  assert.match(shellSource, /const todayLabel = launcher\.todayWindowOpen \? "今日やることを収納" : "今日やることを表示"/);
+  assert.match(shellSource, /aria-label=\{todayLabel\}/);
   assert.match(shellSource, /aria-label="付箋を展開または収納"/);
   assert.match(shellSource, /aria-pressed=\{launcher\.todayWindowOpen\}/);
   assert.match(shellSource, /aria-pressed=\{launcher\.stickyWindowsShown\}/);
@@ -36,7 +37,7 @@ test("the title bar launcher directly controls satellite windows without a popov
   assert.match(workspaceAppSource, /id: "open:memos"/);
   assert.match(workspaceAppSource, /execute: \(\) => \{ void toggleStickyWindows\(\); \}/);
   assert.match(workspaceAppSource, /id: "open:today-window"/);
-  assert.match(workspaceAppSource, /execute: openTodayWindow/);
+  assert.match(workspaceAppSource, /execute: toggleTodayWindow/);
 
   assert.match(styles, /\.titlebar-launcher button:focus-visible \{ outline: 2px solid var\(--color-focus\)/);
   assert.match(styles, /\.titlebar-launcher button\.is-active[\s\S]*box-shadow/);
