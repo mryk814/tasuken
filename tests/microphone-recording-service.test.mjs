@@ -558,3 +558,33 @@ test("再起動後に同sizeへ変更されたchunkもmanifest hashで拒否す�
   assert.throws(() => createService(paths).stopRecording(started.sessionId), /hashが一致/);
   assert.equal(fs.existsSync(path.join(path.dirname(chunkPath), "original.webm")), false);
 });
+
+test("紐づけ先未選択の画面録画はCaptureEntryごとInboxへ確定する（#383）", (t) => {
+  const paths = fixture(t);
+  const appliedCommands = [];
+  const service = createService(paths, {
+    repository: { get() { return null; } },
+    commands: {
+      executeMediaCapture(command) {
+        appliedCommands.push(command);
+        return { status: "applied", commandId: command.commandId, changes: [], events: [] };
+      },
+    },
+  });
+  const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm" });
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("inbox-screen-recording")) });
+  const prepared = service.stopRecording(started.sessionId);
+  assert.equal(prepared.status, "ready");
+  // ownerを渡さない。Inboxへ落ちる経路はsmokeが通らないのでここで担保する。
+  const committed = service.commitVideo({ sessionId: started.sessionId, durationMs: 1000, widthPx: 1280, heightPx: 720 });
+  assert.equal(committed.publicResult.status, "applied");
+  assert.equal(appliedCommands.length, 1);
+  const command = appliedCommands[0];
+  assert.equal(command.name, "CommitVideoArtifact");
+  assert.equal(command.payload.capture.kind, "screen_capture");
+  assert.equal(command.payload.capture.content_type, "video");
+  assert.equal(command.payload.capture.capture_method, "screen_recording");
+  assert.equal(command.payload.capture.state, "untriaged");
+  assert.equal(command.payload.artifact.source_type, "capture_entry");
+  assert.equal(command.payload.artifact.source_id, command.payload.capture.id);
+});

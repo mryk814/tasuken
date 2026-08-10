@@ -3484,6 +3484,32 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   gap: var(--space-2);
 }
 
+/* 保存待ちのプレビューは縦を固定する。アスペクト比で行の高さが変わると表が読みにくい（#383）。 */
+.inbox-audio-recovery-row video {
+  height: 84px;
+  width: 149px;
+  flex: none;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+}
+
+.inbox-audio-recovery-row audio {
+  height: 84px;
+  flex: none;
+}
+
+.screen-recorder-commit-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.screen-recorder-commit-owner select {
+  max-width: 220px;
+}
+
 /* Studio: 録音と画面録画を同じ面へ並べる（#383）。 */
 .studio-page {
   display: grid;

@@ -550,8 +550,26 @@ function validateManifestCommand(value: unknown, manifest: Partial<AudioSessionM
   const actor = raw.actor as Record<string, unknown>;
   assertExactKeys(actor, ["kind"], "Media Capture actor");
   const payload = raw.payload as Record<string, unknown>;
-  assertExactKeys(payload, manifest.mediaKind === "audio" ? ["capture", "artifact"] : ["artifact"], "Media Capture payload");
+  // 紐づけ先未選択の画面録画はCaptureEntryごと確定するので、videoでもcaptureを許す（#383）。
+  const videoWithCapture = manifest.mediaKind === "video" && manifest.pendingCaptureEntry === true;
+  assertExactKeys(payload, manifest.mediaKind === "audio" || videoWithCapture ? ["capture", "artifact"] : ["artifact"], "Media Capture payload");
   if (manifest.mediaKind === "video") {
+    if (videoWithCapture) {
+      const pending = payload.capture as Record<string, unknown>;
+      if (!pending || typeof pending !== "object" || Array.isArray(pending)) throw new Error("画面録画Capture payloadが不正です。");
+      const pendingChecks: Array<[string, boolean]> = [
+        ["capture.id", pending.id === manifest.sourceId],
+        ["capture.kind", pending.kind === "screen_capture"],
+        ["capture.content_type", pending.content_type === "video"],
+        ["capture.capture_method", pending.capture_method === "screen_recording"],
+        ["capture.media_status", pending.media_status === "ready"],
+        ["capture.state", pending.state === "untriaged"],
+        ["capture.project_id", pending.project_id === manifest.themeId],
+        ["capture.captured_at", pending.captured_at === raw.issuedAt],
+      ];
+      const pendingMismatch = pendingChecks.find(([, matches]) => !matches)?.[0];
+      if (pendingMismatch) throw new Error(`Media Capture commandがmanifest identityと一致しません: ${pendingMismatch}`);
+    }
     const artifact = payload.artifact as Record<string, unknown>;
     if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) throw new Error("Video Artifact payloadが不正です。");
     assertExactKeys(artifact, [
