@@ -190,3 +190,19 @@ test("Studioの録音と画面録画は同じ形の面で、開始操作を見�
   assert.doesNotMatch(screenRecorder, /<section className="panel inbox-screen-recovery"/);
   assert.doesNotMatch(voiceRecorder, /<section className="panel inbox-audio-recovery"/);
 });
+
+test("Content Viewerはウィンドウを変えずアプリ内で大きく見られる（#387）", () => {
+  const contentViewer = readFileSync("src/renderer/src/features/workspace/components/ContentViewer.tsx", "utf8");
+  const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  // 動画・画像・文書で拡大へ入れる。音声は面を広げても得がないので出さない。
+  assert.match(contentViewer, /const canExpand = load\.status === "ready" && \(load\.mode === "video"/);
+  assert.match(contentViewer, /aria-pressed=\{expanded\}/);
+  assert.match(contentViewer, /\{expanded \? "縮小" : "大きく見る"\}/);
+  // Escapeは段階的に戻す。拡大中にいきなり閉じない。
+  assert.match(contentViewer, /if \(expandedRef\.current\) setExpanded\(false\);\s*\n\s*else onClose\(\);/);
+  // 一時的な見方なので保存しない。
+  assert.doesNotMatch(contentViewer, /usePreference\([^)]*expanded/);
+  // ウィンドウサイズは変えず、面の中だけで広げる。
+  assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-dialog \{[\s\S]*?height: 100vh;/);
+  assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-video video \{[\s\S]*?object-fit: contain;/);
+});

@@ -3,6 +3,7 @@ import {
   IconExternalLink,
   IconFolder,
   IconMaximize,
+  IconMinimize,
   IconPencil,
   IconX,
   IconZoomIn,
@@ -253,6 +254,10 @@ export function ContentViewer({
 }) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [zoom, setZoom] = useState(FIT_ZOOM);
+  /** 拡大は一時的な見方なので保存しない。開き直すたびに既定へ戻す（#387）。 */
+  const [expanded, setExpanded] = useState(false);
+  const expandedRef = useRef(false);
+  expandedRef.current = expanded;
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -277,7 +282,9 @@ export function ContentViewer({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        // 拡大中はまず縮小へ戻す。誤って閉じて読み込み直しにならないようにする（#387）。
+        if (expandedRef.current) setExpanded(false);
+        else onClose();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -442,6 +449,8 @@ export function ContentViewer({
 
   const title = load.status === "ready" ? load.title : "プレビュー";
   const isImage = load.status === "ready" && load.mode === "image";
+  // 動画・画像・PDFはウィンドウを大きくしなくてもアプリ内で大きく見られるようにする（#387）。
+  const canExpand = load.status === "ready" && (load.mode === "video" || load.mode === "image" || load.mode === "markdown" || load.mode === "conversation");
   const loadArtifact = loadedArtifact(load);
   const targetArtifact = target.type === "artifact"
     ? (data.artifacts || []).find((entry) => entry.id === target.artifactId)
@@ -476,7 +485,7 @@ export function ContentViewer({
 
   return (
     <div
-      className={`content-viewer-overlay ${isImage ? "is-image" : "is-markdown"}`}
+      className={`content-viewer-overlay ${isImage ? "is-image" : "is-markdown"} ${expanded ? "is-expanded" : ""}`}
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -553,6 +562,16 @@ export function ContentViewer({
             {canCopyPath && (
               <button type="button" className="text-button compact" onClick={() => { void copyPath(); }}>
                 パスをコピー
+              </button>
+            )}
+            {canExpand && (
+              <button
+                type="button"
+                className={`secondary-button compact ${expanded ? "is-active" : ""}`}
+                aria-pressed={expanded}
+                onClick={() => setExpanded((current) => !current)}
+              >
+                {expanded ? <IconMinimize size={15} /> : <IconMaximize size={15} />}{expanded ? "縮小" : "大きく見る"}
               </button>
             )}
             <button

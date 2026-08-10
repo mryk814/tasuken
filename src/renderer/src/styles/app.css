@@ -3422,6 +3422,33 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   font-variant-numeric: tabular-nums;
 }
 
+/* アプリ内で大きく見るモード（#387）。ウィンドウのサイズは変えない。 */
+.content-viewer-overlay.is-expanded .content-viewer-dialog {
+  width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  border-width: 0;
+}
+
+.content-viewer-overlay.is-expanded .content-viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.content-viewer-overlay.is-expanded .content-viewer-video {
+  height: 100%;
+  align-content: center;
+}
+
+.content-viewer-overlay.is-expanded .content-viewer-video video {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
 .content-viewer-video {
   display: grid;
   gap: var(--space-3);
