@@ -35,6 +35,10 @@ function tinyWebm(label = "tasken-video") {
   return Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.from(label)]);
 }
 
+function asArrayBuffer(buffer) {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+}
+
 test("real SQLite recovery is idempotent and projects one owner edge/backlink after reopen", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-media-sqlite-"));
   const dbPath = path.join(root, "workspace.sqlite");
@@ -145,6 +149,7 @@ test("video imports persist once for Task, Note, Capture, and active Focus Note 
     const artifact = workspace.artifacts.find((entry) => entry.id === result.publicResult.artifactId);
     assert.ok(artifact, owner.label);
     assert.equal(artifact.storage_mode, storageMode);
+    assert.equal(Object.hasOwn(artifact, "capture_method"), false);
     if (storageMode === "linked") assert.equal(artifact.target, sourcePath);
     const projected = rendererWorkspace.artifacts.find((entry) => entry.id === artifact.id);
     assert.ok(projected, `${owner.label}-${storageMode}`);
@@ -160,6 +165,41 @@ test("video imports persist once for Task, Note, Capture, and active Focus Note 
     assert.equal(lineage.ancestors.filter((item) => item.ref.type === owner.entityType && item.ref.id === owner.id).length, 1, owner.label);
   }
   assert.equal(workspace.references.length, 0);
+  reopened.db.close();
+});
+
+test("screen recording provenance persists on only its Video Artifact after SQLite reopen", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-screen-recording-sqlite-"));
+  const dbPath = path.join(root, "workspace.sqlite");
+  const userDataPath = path.join(root, "user-data");
+  const managedDirectory = path.join(root, "managed");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  let currentNow = "2026-08-09T00:00:00.000Z";
+  const db = new WorkspaceDatabase(dbPath);
+  db.save("task", { id: "task-1", title: "Screen owner", state: "todo", project_id: null });
+  const commands = new ApplicationCommandService(db);
+  const media = new MediaCaptureService({
+    userDataPath,
+    repository: db,
+    commands: { executeMediaCapture: (command) => commands.executeMediaCapture(command) },
+    resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
+    now: () => currentNow,
+  });
+  const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: "task-1" });
+  currentNow = "2026-08-09T00:00:01.000Z";
+  media.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(tinyWebm("screen-provenance")) });
+  const prepared = media.stopRecording(started.sessionId);
+  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  db.db.close();
+
+  const reopened = new WorkspaceDatabase(dbPath);
+  const artifact = reopened.get("artifact", committed.publicResult.artifactId);
+  assert.equal(artifact?.media_kind, "video");
+  assert.equal(artifact?.capture_method, "screen_recording");
+  assert.equal(artifact?.source_type, "task");
+  assert.equal(artifact?.source_id, "task-1");
+  assert.equal(reopened.list("artifact").length, 1);
   reopened.db.close();
 });
 

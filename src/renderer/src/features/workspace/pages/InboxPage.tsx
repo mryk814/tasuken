@@ -27,6 +27,7 @@ import {
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
+import { isActiveFocusSession } from "../../../../../shared/focusSession.mjs";
 import type { PageProps } from "../types";
 import { inferChatServiceFromUrl } from "../lib/chatServices";
 import { trackPendingMediaRecordingFlush } from "../lib/mediaRecordingFlushRegistry";
@@ -53,6 +54,7 @@ import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
 import { formatArtifactFileSize } from "../components/artifacts";
+import { ScreenRecorderPanel, type ScreenRecordingOwnerOption } from "../components/ScreenRecorderPanel";
 import {
   captureMatchesQuery,
   fileCaptureContentType,
@@ -290,12 +292,26 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
   const recordingStopRef = useRef<Promise<AudioCapturePrepared | null> | null>(null);
   const recordingBeginRef = useRef<Promise<void> | null>(null);
   const [recorderStarting, setRecorderStarting] = useState(false);
+  const [screenRecordingActive, setScreenRecordingActive] = useState(false);
   const recordingDiscardingRef = useRef(false);
   const recordingTransitionRef = useRef<Promise<void>>(Promise.resolve());
   // いま付箋として浮いているMemo（#298）。Mainのwindow registryが正本なので、
   // 画面側では保持せず開閉のたびに受け取る。
   const [openStickyIds, setOpenStickyIds] = useState<string[]>([]);
   const today = todayIso();
+  const screenRecordingOwners = useMemo<ScreenRecordingOwnerOption[]>(() => {
+    const activeFocus = v2.notes
+      .filter(isActiveFocusSession)
+      .map((note) => ({ key: `note:${note.id}`, label: `Focus · ${note.title || "実行中"}`, sourceType: "note" as const, sourceId: note.id }));
+    const captures = v2.capture_entries
+      .slice(0, 40)
+      .map((entry) => ({ key: `capture_entry:${entry.id}`, label: `Capture · ${entry.title || quickCaptureTitle(entry.text)}`, sourceType: "capture_entry" as const, sourceId: entry.id }));
+    const tasks = v2.tasks
+      .filter((task) => task.state !== "done" && task.state !== "cancelled")
+      .slice(0, 60)
+      .map((task) => ({ key: `task:${task.id}`, label: `Task · ${task.title}`, sourceType: "task" as const, sourceId: task.id }));
+    return [...activeFocus, ...captures, ...tasks];
+  }, [v2.capture_entries, v2.notes, v2.tasks]);
 
   useEffect(() => {
     void workspaceApi.listOpenMemoStickies().then(setOpenStickyIds).catch(() => setOpenStickyIds([]));
@@ -607,8 +623,9 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     const onFlush = (event: Event) => {
       if (!recordingBeginRef.current && !recordingSessionRef.current) return;
       const detail = (event as CustomEvent<{ handled: boolean; flush: Promise<boolean> | null }>).detail;
+      const previous = detail.flush;
       detail.handled = true;
-      detail.flush = flushMicrophoneRecording();
+      detail.flush = Promise.all([previous || Promise.resolve(true), flushMicrophoneRecording()]).then(([left, right]) => left && right);
     };
     window.addEventListener("tasken:app-flush-requested", onFlush);
     return () => {
@@ -1157,12 +1174,18 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
         <Button
           variant="secondary"
           onClick={() => { void prepareMicrophone(); }}
-          disabled={recorderState !== "idle" && recorderState !== "error"}
+          disabled={screenRecordingActive || (recorderState !== "idle" && recorderState !== "error")}
         >
           <IconMicrophone size={16} />{recorderState === "permission" ? "確認中…" : "マイクで録音"}
         </Button>
         <Button variant="primary" onClick={addMemo}><IconPlus size={16} />Memo</Button>
       </PageHeader>
+      <ScreenRecorderPanel
+        owners={screenRecordingOwners}
+        disabled={recorderState !== "idle" && recorderState !== "error"}
+        onActiveChange={setScreenRecordingActive}
+        setToast={setToast}
+      />
       {recorderState !== "idle" && (
         <section className={`panel inbox-recorder ${recorderState === "error" ? "is-error" : ""}`} aria-label="マイク録音" aria-live="polite">
           {recorderState === "permission" && <span>マイクの利用可否を確認しています…</span>}

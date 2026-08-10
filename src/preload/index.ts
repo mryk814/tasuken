@@ -105,6 +105,11 @@ const api: ResearchDeskApi = {
     openArtifactExternal: (request) => ipcRenderer.invoke(IPC.mediaArtifactOpenExternal, request),
     inspectArtifact: (request) => ipcRenderer.invoke(IPC.mediaArtifactInspect, request),
   },
+  screenRecording: {
+    capabilities: () => ipcRenderer.invoke(IPC.screenRecordingCapabilities),
+    listSources: () => ipcRenderer.invoke(IPC.screenRecordingListSources),
+    arm: (request) => ipcRenderer.invoke(IPC.screenRecordingArm, request),
+  },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),
     checkForUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),

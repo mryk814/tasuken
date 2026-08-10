@@ -10,7 +10,7 @@ import type {
   InternalAudioCaptureCommitResult,
   InternalVideoImportCommitResult,
   MediaRecordingAppendRequest,
-  MicrophoneRecordingMimeType,
+  MediaRecordingStartRequest,
   MediaRecordingProgress,
   MediaRecordingStarted,
   VideoArtifactSourceType,
@@ -34,6 +34,10 @@ export const MICROPHONE_CHUNK_MAX_BYTES = 1024 * 1024;
 export const MICROPHONE_RECORDING_MAX_BYTES = 512 * 1024 * 1024;
 export const MICROPHONE_RECORDING_MAX_CHUNKS = 16_000;
 const MICROPHONE_RECORDING_MAX_DURATION_MS = 4 * 60 * 60 * 1000;
+export const MEDIA_RECORDING_CHUNK_MAX_BYTES = MICROPHONE_CHUNK_MAX_BYTES;
+export const MEDIA_RECORDING_MAX_BYTES = MICROPHONE_RECORDING_MAX_BYTES;
+export const MEDIA_RECORDING_MAX_CHUNKS = MICROPHONE_RECORDING_MAX_CHUNKS;
+export const MEDIA_RECORDING_MAX_DURATION_MS = MICROPHONE_RECORDING_MAX_DURATION_MS;
 
 type SessionState = "recording" | "recording_paused" | "prepared" | "finalizing" | "finalized" | "committed";
 
@@ -68,7 +72,7 @@ interface AudioSessionManifest {
   commandIssuedAt?: string;
   command?: CommandEnvelope;
   recoveryError?: "final_file_missing" | "final_hash_mismatch" | "commit_failed";
-  captureMethod?: "audio_import" | "microphone";
+  captureMethod?: "audio_import" | "microphone" | "screen_recording";
   recordingNextSequence?: number;
   recordingChunkHashes?: string;
   recordingStartedAt?: string;
@@ -541,7 +545,7 @@ function validateManifestCommand(value: unknown, manifest: Partial<AudioSessionM
       "id", "title", "filename", "file_type", "mime_type", "file_size", "stored_path", "original_path", "target",
       "storage_mode", "copied_at", "link_type", "link_status", "last_checked_at", "source_type", "source_id", "theme_id",
       "linked_source_real_path", "linked_source_device", "linked_source_inode",
-      "media_kind", "duration_ms", "width_px", "height_px", "container", "content_hash", "media_availability", "ai_visibility",
+      "media_kind", "capture_method", "duration_ms", "width_px", "height_px", "container", "content_hash", "media_availability", "ai_visibility",
     ], "Video Artifact payload");
     if (typeof artifact.id !== "string" || !SESSION_ID_PATTERN.test(artifact.id)) throw new Error("Video Artifact IDが不正です。");
     const expectedTitle = baseNameWithoutExtension(String(manifest.filename || ""));
@@ -563,6 +567,9 @@ function validateManifestCommand(value: unknown, manifest: Partial<AudioSessionM
       ["artifact.linked_source_inode", artifact.linked_source_inode === (managed ? null : manifest.sourceInode)],
       ["artifact.source_type", artifact.source_type === manifest.sourceType], ["artifact.source_id", artifact.source_id === manifest.sourceId],
       ["artifact.theme_id", artifact.theme_id === manifest.themeId], ["artifact.media_kind", artifact.media_kind === "video"],
+      ["artifact.capture_method", manifest.captureMethod === "screen_recording"
+        ? artifact.capture_method === "screen_recording"
+        : !Object.hasOwn(artifact, "capture_method")],
       ["artifact.duration_ms", artifact.duration_ms === manifest.durationMs], ["artifact.width_px", artifact.width_px === manifest.widthPx],
       ["artifact.height_px", artifact.height_px === manifest.heightPx], ["artifact.container", artifact.container === expectedContainer],
       ["artifact.content_hash", artifact.content_hash === manifest.contentHash], ["artifact.media_availability", artifact.media_availability === "available"],
@@ -683,8 +690,10 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
   }
   const state = manifest.state as SessionState;
   const recordingState = state === "recording" || state === "recording_paused";
-  if (recordingState || manifest.captureMethod === "microphone") {
-    if (manifest.mediaKind !== "audio" || manifest.captureMethod !== "microphone") throw new Error("録音session kindが不正です。");
+  if (recordingState || manifest.captureMethod === "microphone" || manifest.captureMethod === "screen_recording") {
+    const isMicrophone = manifest.mediaKind === "audio" && manifest.captureMethod === "microphone";
+    const isScreenRecording = manifest.mediaKind === "video" && manifest.captureMethod === "screen_recording";
+    if (!isMicrophone && !isScreenRecording) throw new Error("録音session kindが不正です。");
     if (!Number.isSafeInteger(manifest.recordingNextSequence) || Number(manifest.recordingNextSequence) < 0 || Number(manifest.recordingNextSequence) > MICROPHONE_RECORDING_MAX_CHUNKS) throw new Error("録音chunk sequenceが不正です。");
     if (typeof manifest.recordingChunkHashes !== "string" || manifest.recordingChunkHashes.length !== Number(manifest.recordingNextSequence) * 64 || !/^[a-f0-9]*$/.test(manifest.recordingChunkHashes)) throw new Error("録音chunk hashが不正です。");
     if (!isIsoTimestamp(manifest.recordingStartedAt) || !Number.isSafeInteger(manifest.recordingElapsedMs) || Number(manifest.recordingElapsedMs) < 0 || Number(manifest.recordingElapsedMs) > MICROPHONE_RECORDING_MAX_DURATION_MS) throw new Error("録音経過時間が不正です。");
@@ -717,8 +726,8 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
   const finalizedOnlyFields = [...finalFields, ...managedFields, "widthPx", "heightPx"];
   if ((state === "prepared" || recordingState) && finalizedOnlyFields.some((field) => manifest[field] !== undefined)) throw new Error("未確定Media manifestにfinalize fieldがあります。");
   if (recordingState && manifest.durationMs !== undefined) throw new Error("録音中manifestにdurationがあります。");
-  if (state === "prepared" && manifest.captureMethod !== "microphone" && manifest.durationMs !== undefined) throw new Error("Import prepared manifestにdurationがあります。");
-  if (state === "prepared" && manifest.captureMethod === "microphone") validDuration(manifest.durationMs);
+  if (state === "prepared" && manifest.captureMethod !== "microphone" && manifest.captureMethod !== "screen_recording" && manifest.durationMs !== undefined) throw new Error("Import prepared manifestにdurationがあります。");
+  if (state === "prepared" && (manifest.captureMethod === "microphone" || manifest.captureMethod === "screen_recording")) validDuration(manifest.durationMs);
   if (!recordingState && state !== "prepared" && finalFields.some((field) => manifest[field] === undefined)) throw new Error("Media manifestのfinalize fieldが不足しています。");
   if (!recordingState && state !== "prepared") {
     if (typeof manifest.finalPath !== "string" || !manifest.finalPath.trim()) throw new Error("Media final pathが不正です。");
@@ -773,27 +782,49 @@ export class MediaCaptureService {
     }
   }
 
-  startRecording(themeIdValue: unknown, mimeType: MicrophoneRecordingMimeType): MediaRecordingStarted {
-    if (mimeType !== "audio/webm") throw new Error("対応していない録音形式です。WebM/Opusで録音してください。");
+  startRecording(request: MediaRecordingStartRequest): MediaRecordingStarted {
+    const isAudio = request.mediaKind === "audio";
+    if ((isAudio && request.mimeType !== "audio/webm") || (!isAudio && request.mimeType !== "video/webm")) {
+      throw new Error(isAudio ? "対応していない録音形式です。WebM/Opusで録音してください。" : "対応していない画面録画形式です。WebMで録画してください。");
+    }
+    let themeId: string | null = null;
+    let videoOwner: { storageMode: "managed"; sourceType: VideoArtifactSourceType; sourceId: string } | null = null;
+    if (isAudio) {
+      themeId = typeof request.themeId === "string" && request.themeId.trim() ? request.themeId.trim() : null;
+    } else {
+      const ownerType = request.sourceType === "report" ? "note" : request.sourceType;
+      const owner = this.options.repository.get(ownerType, request.sourceId);
+      if (!owner || owner.deleted_at) throw new Error("画面録画の添付先が見つかりません。添付先を選び直してください。");
+      themeId = typeof owner.project_id === "string" && owner.project_id
+        ? owner.project_id
+        : typeof owner.theme_id === "string" && owner.theme_id
+          ? owner.theme_id
+          : null;
+      if (themeId && !this.options.repository.get("project", themeId) && !this.options.repository.get("theme", themeId)) {
+        throw new Error("画面録画の添付先Themeが見つかりません。添付先を保存してからやり直してください。");
+      }
+      videoOwner = { storageMode: "managed", sourceType: request.sourceType, sourceId: request.sourceId };
+    }
     const sessionId = assertSessionId(this.idFactory());
     const sessionDirectory = this.sessionDirectory(sessionId);
     ensureSafeDirectory(sessionDirectory, "Media recording session保存先");
     const timestamp = this.now();
-    const filename = `voice-memo-${timestamp.replace(/\D/g, "").slice(0, 14)}.webm`;
+    const filename = `${isAudio ? "voice-memo" : "screen-recording"}-${timestamp.replace(/\D/g, "").slice(0, 14)}.webm`;
     const manifest: AudioSessionManifest = {
       schema: MANIFEST_SCHEMA,
       sessionId,
       state: "recording",
-      mediaKind: "audio",
+      mediaKind: request.mediaKind,
       filename,
-      mimeType,
+      mimeType: request.mimeType,
       fileSize: 0,
       contentHash: `sha256:${createHash("sha256").digest("hex")}`,
-      themeId: typeof themeIdValue === "string" && themeIdValue.trim() ? themeIdValue.trim() : null,
+      themeId,
+      ...(videoOwner || {}),
       stagedFileName: "original.webm",
       createdAt: timestamp,
       updatedAt: timestamp,
-      captureMethod: "microphone",
+      captureMethod: isAudio ? "microphone" : "screen_recording",
       recordingNextSequence: 0,
       recordingChunkHashes: "",
       recordingStartedAt: timestamp,
@@ -803,8 +834,8 @@ export class MediaCaptureService {
     this.writeManifest(sessionDirectory, manifest);
     return {
       sessionId,
-      mediaKind: "audio",
-      mimeType,
+      mediaKind: request.mediaKind,
+      mimeType: request.mimeType,
       maxChunkBytes: MICROPHONE_CHUNK_MAX_BYTES,
       maxRecordingBytes: MICROPHONE_RECORDING_MAX_BYTES,
       maxDurationMs: MICROPHONE_RECORDING_MAX_DURATION_MS,
@@ -929,14 +960,15 @@ export class MediaCaptureService {
     return this.recordingProgress(next);
   }
 
-  stopRecording(sessionIdValue: unknown): AudioCapturePrepared {
+  stopRecording(sessionIdValue: unknown): AudioCapturePrepared | VideoImportPrepared {
     const sessionDirectory = this.sessionDirectory(assertSessionId(sessionIdValue));
     const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "録音session");
     const manifest = this.readManifest(sessionDirectory);
     assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
     if (manifest.state === "prepared" && manifest.captureMethod === "microphone") return this.toPreparedAudio(manifest);
-    if (manifest.captureMethod !== "microphone" || (manifest.state !== "recording" && manifest.state !== "recording_paused")) {
-      throw new Error("復旧できる録音sessionがありません。保存待ち音声を読み直してください。");
+    if (manifest.state === "prepared" && manifest.captureMethod === "screen_recording") return this.toPreparedVideo(manifest);
+    if (!["microphone", "screen_recording"].includes(String(manifest.captureMethod)) || (manifest.state !== "recording" && manifest.state !== "recording_paused")) {
+      throw new Error("復旧できる録音sessionがありません。保存待ちMediaを読み直してください。");
     }
     const timestamp = this.now();
     // Rendererはstop前にfinal dataavailableのappend完了を待つ。
@@ -974,7 +1006,7 @@ export class MediaCaptureService {
       fs.rmSync(path.resolve(sessionDirectory, recordingChunkFileName(sequence)), { force: true });
       assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
     }
-    return this.toPreparedAudio(prepared);
+    return prepared.mediaKind === "video" ? this.toPreparedVideo(prepared) : this.toPreparedAudio(prepared);
   }
 
   prepareFile(sourcePathValue: unknown, themeIdValue: unknown = null): AudioCapturePrepared {
@@ -1219,6 +1251,26 @@ export class MediaCaptureService {
       try {
         const manifest = this.readManifest(this.sessionDirectory(entry.name));
         if (manifest.state === "committed" || manifest.mediaKind !== "video" || !manifest.storageMode || !manifest.sourceType || !manifest.sourceId) continue;
+        if (manifest.state === "recording" || manifest.state === "recording_paused") {
+          pending.push({ summary: {
+            sessionId: manifest.sessionId,
+            filename: manifest.filename,
+            mimeType: manifest.mimeType,
+            fileSize: manifest.fileSize,
+            mediaUrl: "",
+            status: "recovery_required",
+            availability: "missing",
+            recoveryReason: "recording_interrupted",
+            canCommit: false,
+            canRetry: false,
+            canDiscard: true,
+            canRecoverRecording: manifest.fileSize > 0 && (manifest.recordingNextSequence || 0) > 0,
+            storageMode: manifest.storageMode,
+            sourceType: manifest.sourceType,
+            sourceId: manifest.sourceId,
+          }, createdAt: manifest.createdAt });
+          continue;
+        }
         let resolution = this.resolveSessionMedia(manifest.sessionId);
         if (resolution.availability === "available") fs.closeSync(resolution.fileDescriptor);
         if (manifest.state === "finalizing" && manifest.storageMode !== "linked" && resolution.availability !== "available") {
@@ -1631,6 +1683,7 @@ export class MediaCaptureService {
       source_id: manifest.sourceId,
       theme_id: manifest.themeId,
       media_kind: "video",
+      ...(manifest.captureMethod === "screen_recording" ? { capture_method: "screen_recording" } : {}),
       duration_ms: metadata.durationMs,
       width_px: metadata.widthPx,
       height_px: metadata.heightPx,
@@ -1850,6 +1903,37 @@ export class MediaCaptureService {
     };
   }
 
+  recordingCapacity(): { availableRecordingBytes: number; maxRecordingBytes: number } {
+    const stats = fs.statfsSync(this.recoveryRoot);
+    const available = Number(stats.bavail) * Number(stats.bsize);
+    return {
+      availableRecordingBytes: Number.isSafeInteger(available) && available >= 0 ? available : 0,
+      maxRecordingBytes: MEDIA_RECORDING_MAX_BYTES,
+    };
+  }
+
+  private toPreparedVideo(manifest: AudioSessionManifest): VideoImportPrepared {
+    if (manifest.mediaKind !== "video" || !manifest.storageMode || !manifest.sourceType || !manifest.sourceId) {
+      throw new Error("画面録画sessionのowner情報が不正です。");
+    }
+    return {
+      sessionId: manifest.sessionId,
+      filename: manifest.filename,
+      mimeType: manifest.mimeType,
+      fileSize: manifest.fileSize,
+      mediaUrl: `tasken-media://session/${manifest.sessionId}`,
+      status: "ready",
+      availability: "available",
+      ...(manifest.durationMs === undefined ? {} : { durationMs: manifest.durationMs }),
+      storageMode: manifest.storageMode,
+      sourceType: manifest.sourceType,
+      sourceId: manifest.sourceId,
+      canCommit: true,
+      canRetry: false,
+      canDiscard: true,
+    };
+  }
+
   private assembleRecordingChunks(
     sessionDirectory: string,
     stagedPath: string,
@@ -1989,7 +2073,10 @@ export class MediaCaptureService {
   }
 
   private cleanupRecordingChunks(sessionDirectory: string, manifest: AudioSessionManifest, sessionIdentity: DirectoryIdentity): void {
-    if (manifest.captureMethod !== "microphone" || (manifest.state !== "prepared" && manifest.state !== "committed")) return;
+    if (
+      (manifest.captureMethod !== "microphone" && manifest.captureMethod !== "screen_recording") ||
+      (manifest.state !== "prepared" && manifest.state !== "committed")
+    ) return;
     const sequenceCount = manifest.recordingNextSequence || 0;
     for (const entry of fs.readdirSync(sessionDirectory, { withFileTypes: true })) {
       const match = /^chunk-(\d{8})\.part$/.exec(entry.name);

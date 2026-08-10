@@ -34,6 +34,26 @@ export interface ScreenRecordingCapabilities {
   recorderMimeType: string | null;
 }
 
+export interface ScreenRecordingEnvironment {
+  screen: true;
+  window: true;
+  microphone: true;
+  systemAudio: boolean;
+  systemAudioReason: string | null;
+  mimeCandidates: readonly string[];
+  availableRecordingBytes: number;
+  maxRecordingBytes: number;
+}
+
+export interface ArmedScreenRecordingProjection {
+  armed: true;
+  kind: ScreenRecordingSourceKind;
+  label: string;
+  audioMode: ScreenRecordingAudioMode;
+  includePointer: boolean;
+  expiresAt: string;
+}
+
 export interface ScreenRecordingGrantContext {
   sourceToken: string;
   senderWebContentsId: number;

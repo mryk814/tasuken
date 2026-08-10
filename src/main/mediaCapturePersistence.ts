@@ -6,7 +6,7 @@ interface MediaPersistenceRepository {
 
 const MEDIA_ARTIFACT_OWNED_FIELDS = [
   "filename", "file_type", "mime_type", "file_size", "stored_path", "original_path", "target",
-  "storage_mode", "copied_at", "source_type", "source_id", "theme_id", "media_kind", "duration_ms", "width_px", "height_px",
+  "storage_mode", "copied_at", "source_type", "source_id", "theme_id", "media_kind", "capture_method", "duration_ms", "width_px", "height_px",
   "container", "codec", "content_hash", "media_availability", "link_type", "link_status", "last_checked_at",
   "linked_source_real_path", "linked_source_device", "linked_source_inode", "ai_visibility",
 ] as const;

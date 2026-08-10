@@ -37,11 +37,11 @@ function fixture(t) {
   return { root, userDataPath, managedDirectory };
 }
 
-function createService(paths, { commands, now } = {}) {
+function createService(paths, { commands, now, repository } = {}) {
   let idIndex = 0;
   return new MediaCaptureService({
     userDataPath: paths.userDataPath,
-    repository: { get: () => null },
+    repository: repository || { get: () => null },
     commands: commands || { executeMediaCapture: (command) => ({ status: "applied", commandId: command.commandId, changes: [], events: [] }) },
     resolveManagedDirectory: () => ({ kind: "ok", directory: paths.managedDirectory }),
     idFactory: () => IDS[idIndex++],
@@ -60,7 +60,7 @@ function asArrayBuffer(buffer) {
 test("recording sessionはsequence、重複、欠落、bounded chunkをfile書込み前に検証する", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const first = webmBytes();
 
   assert.equal(started.mediaKind, "audio");
@@ -92,7 +92,7 @@ test("pause/resume/stopは録音chunkをprepared原音へまとめ既存CommitAu
       },
     },
   });
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const first = webmBytes("first");
   const second = Buffer.from("second");
   service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(first) });
@@ -120,7 +120,7 @@ test("pause/resume/stopは録音chunkをprepared原音へまとめ既存CommitAu
 test("再起動後の未確定録音は自動commitせず復旧または破棄できる", (t) => {
   const paths = fixture(t);
   const first = createService(paths);
-  const started = first.startRecording(null, "audio/webm");
+  const started = first.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   first.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("recover")) });
 
   const reopened = createService(paths);
@@ -138,7 +138,7 @@ test("同じMain processでもRenderer停止後の無通信時間を録音durati
   const paths = fixture(t);
   let currentNow = "2026-08-09T00:00:00.000Z";
   const service = createService(paths, { now: () => currentNow });
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   currentNow = "2026-08-09T00:00:01.000Z";
   service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("final-before-crash")) });
   currentNow = "2026-08-09T01:00:01.000Z";
@@ -151,7 +151,7 @@ test("appendはMain clockの録音時間上限をfile書込み前に拒否する
   const paths = fixture(t);
   let currentNow = "2026-08-09T00:00:00.000Z";
   const service = createService(paths, { now: () => currentNow });
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   currentNow = "2026-08-09T04:00:00.001Z";
   assert.throws(
     () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("late")) }),
@@ -165,14 +165,14 @@ test("pause/resumeは4時間境界をmanifest変更前に拒否する", (t) => {
   const paths = fixture(t);
   let currentNow = "2026-08-09T00:00:00.000Z";
   const service = createService(paths, { now: () => currentNow });
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const manifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "session.json");
   const beforePause = fs.readFileSync(manifestPath, "utf8");
   currentNow = "2026-08-09T04:00:00.001Z";
   assert.throws(() => service.pauseRecording(started.sessionId), /録音時間の上限を超えた/);
   assert.equal(fs.readFileSync(manifestPath, "utf8"), beforePause);
 
-  const second = service.startRecording(null, "audio/webm");
+  const second = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const secondManifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", second.sessionId, "session.json");
   currentNow = "2026-08-09T08:00:00.001Z";
   const paused = service.pauseRecording(second.sessionId);
@@ -185,7 +185,7 @@ test("pause/resumeは4時間境界をmanifest変更前に拒否する", (t) => {
 test("crash retryの既存chunk path差替えは同じdescriptorで検出しmanifestを進めない", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const original = webmBytes("crash-retry-original");
   const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
   const chunkPath = path.join(sessionDirectory, "chunk-00000000.part");
@@ -222,7 +222,7 @@ test("crash retryの既存chunk path差替えは同じdescriptorで検出しmani
 test("4時間とpause余裕分のchunk hashは1 MiB manifest内へ固定長格納し件数上限をfile前に拒否する", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const manifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "session.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   assert.ok(MICROPHONE_RECORDING_MAX_CHUNKS > 4 * 60 * 60);
@@ -249,7 +249,7 @@ test("4時間とpause余裕分のchunk hashは1 MiB manifest内へ固定長格�
 test("manifest path差替えは同じdescriptorのidentity再検証で拒否しchunkを書かない", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
   const manifestPath = path.join(sessionDirectory, "session.json");
   const retainedPath = path.join(sessionDirectory, "retained-session.json");
@@ -280,7 +280,7 @@ test("manifest path差替えは同じdescriptorのidentity再検証で拒否しc
 test("append中のsession directory差替えはmanifest更新前に拒否する", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
   const retainedDirectory = `${sessionDirectory}-retained`;
   const manifestBytes = fs.readFileSync(path.join(sessionDirectory, "session.json"));
@@ -321,7 +321,7 @@ test("append中のsession directory差替えはmanifest更新前に拒否する"
 test("discard中のsession directory差替えはreplacementを削除しない", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
   const retainedDirectory = `${sessionDirectory}-retained`;
   const manifestBytes = fs.readFileSync(path.join(sessionDirectory, "session.json"));
@@ -350,7 +350,7 @@ test("discard中のsession directory差替えはreplacementを削除しない", 
 test("preparedとcommitted録音の残留chunkは読込時にidempotent cleanupする", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("cleanup")) });
   const prepared = service.stopRecording(started.sessionId);
   const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
@@ -365,10 +365,160 @@ test("preparedとcommitted録音の残留chunkは読込時にidempotent cleanup�
   assert.equal(fs.existsSync(chunkPath), false);
 });
 
+test("preparedとcommitted画面録画の残留chunkも読込時にidempotent cleanupする", (t) => {
+  const paths = fixture(t);
+  const ownerId = "523e4567-e89b-42d3-a456-426614174000";
+  let appliedCommand;
+  const service = createService(paths, {
+    repository: {
+      get(type, id) {
+        return type === "task" && id === ownerId
+          ? { id: ownerId, deleted_at: null, project_id: null }
+          : null;
+      },
+    },
+    commands: {
+      executeMediaCapture(command) {
+        appliedCommand = command;
+        return { status: "applied", commandId: command.commandId, changes: [], events: [] };
+      },
+    },
+  });
+  const started = service.startRecording({
+    mediaKind: "video",
+    mimeType: "video/webm",
+    sourceType: "task",
+    sourceId: ownerId,
+  });
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("screen-cleanup")) });
+  const prepared = service.stopRecording(started.sessionId);
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  const chunkPath = path.join(sessionDirectory, "chunk-00000000.part");
+
+  fs.writeFileSync(chunkPath, webmBytes("prepared-screen-leftover"));
+  service.listPreparedVideo();
+  service.listPreparedVideo();
+  assert.equal(fs.existsSync(chunkPath), false);
+
+  service.commitVideo({ sessionId: started.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  fs.writeFileSync(chunkPath, webmBytes("committed-screen-leftover"));
+  service.listPreparedVideo();
+  service.listPreparedVideo();
+  assert.equal(fs.existsSync(chunkPath), false);
+  assert.equal(appliedCommand.name, "CommitVideoArtifact");
+  assert.equal(appliedCommand.payload.artifact.media_kind, "video");
+  assert.match(appliedCommand.payload.artifact.filename, /^screen-recording-/);
+});
+
+test("画面録画stop失敗後も同じsessionを再試行してpreparedとVideo Artifactを一度だけ確定できる", (t) => {
+  const paths = fixture(t);
+  const ownerId = "523e4567-e89b-42d3-a456-426614174000";
+  const appliedCommands = [];
+  const service = createService(paths, {
+    repository: {
+      get(type, id) {
+        return type === "task" && id === ownerId
+          ? { id: ownerId, deleted_at: null, project_id: null }
+          : null;
+      },
+    },
+    commands: {
+      executeMediaCapture(command) {
+        appliedCommands.push(command);
+        return { status: "applied", commandId: command.commandId, changes: [], events: [] };
+      },
+    },
+  });
+  const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: ownerId });
+  service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(webmBytes("screen-stop-retry")) });
+  const chunkPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "chunk-00000000.part");
+  const realOpen = fs.openSync;
+  let failedOnce = false;
+  fs.openSync = function patchedOpen(candidate, flags, mode) {
+    if (!failedOnce && path.resolve(String(candidate)) === path.resolve(chunkPath) && (Number(flags) & fs.constants.O_RDONLY) === fs.constants.O_RDONLY) {
+      failedOnce = true;
+      throw new Error("synthetic screen finalize failure");
+    }
+    return realOpen.call(fs, candidate, flags, mode);
+  };
+  try {
+    assert.throws(() => service.stopRecording(started.sessionId), /synthetic screen finalize failure/);
+  } finally {
+    fs.openSync = realOpen;
+  }
+
+  const interrupted = service.listPreparedVideo().filter((entry) => entry.sessionId === started.sessionId);
+  assert.equal(interrupted.length, 1);
+  assert.equal(interrupted[0].canRecoverRecording, true);
+  const prepared = service.stopRecording(started.sessionId);
+  assert.equal(prepared.sessionId, started.sessionId);
+  assert.equal(prepared.status, "ready");
+  assert.equal(service.listPreparedVideo().filter((entry) => entry.sessionId === started.sessionId).length, 1);
+  const committed = service.commitVideo({ sessionId: started.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  assert.equal(committed.publicResult.status, "applied");
+  assert.equal(appliedCommands.length, 1);
+  assert.equal(appliedCommands[0].name, "CommitVideoArtifact");
+});
+
+test("zero-byte画面録画はstop不能でも破棄でき、cancel失敗時は同じsessionを保持する", (t) => {
+  const paths = fixture(t);
+  const ownerId = "523e4567-e89b-42d3-a456-426614174000";
+  const service = createService(paths, {
+    repository: {
+      get(type, id) {
+        return type === "task" && id === ownerId
+          ? { id: ownerId, deleted_at: null, project_id: null }
+          : null;
+      },
+    },
+  });
+  const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType: "task", sourceId: ownerId });
+  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
+  assert.throws(() => service.stopRecording(started.sessionId), /録音データがありません/);
+
+  const realReadDirectory = fs.readdirSync;
+  let failedOnce = false;
+  fs.readdirSync = function patchedReadDirectory(candidate, options) {
+    if (!failedOnce && path.resolve(String(candidate)) === path.resolve(sessionDirectory)) {
+      failedOnce = true;
+      throw new Error("synthetic screen cancel failure");
+    }
+    return realReadDirectory.call(fs, candidate, options);
+  };
+  try {
+    assert.throws(() => service.cancel(started.sessionId), /synthetic screen cancel failure/);
+  } finally {
+    fs.readdirSync = realReadDirectory;
+  }
+  assert.equal(fs.existsSync(path.join(sessionDirectory, "session.json")), true);
+  assert.equal(service.cancel(started.sessionId), true);
+  assert.equal(fs.existsSync(sessionDirectory), false);
+});
+
+test("画面録画ownerはtask/note/report/capture_entryを同じmanaged bindingで検証する", (t) => {
+  const ownerId = "523e4567-e89b-42d3-a456-426614174000";
+  for (const sourceType of ["task", "note", "report", "capture_entry"]) {
+    const paths = fixture(t);
+    const repositoryType = sourceType === "report" ? "note" : sourceType;
+    const service = createService(paths, {
+      repository: {
+        get(type, id) {
+          return type === repositoryType && id === ownerId
+            ? { id: ownerId, deleted_at: null, project_id: null }
+            : null;
+        },
+      },
+    });
+    const started = service.startRecording({ mediaKind: "video", mimeType: "video/webm", sourceType, sourceId: ownerId });
+    assert.equal(started.mediaKind, "video");
+    assert.equal(service.cancel(started.sessionId), true);
+  }
+});
+
 test("stopはchunk path差替えを同じdescriptorのidentity再検証で拒否し未検証bytesを組み立てない", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
-  const started = service.startRecording(null, "audio/webm");
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const original = webmBytes("verified-original");
   service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(original) });
   const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId);
@@ -398,7 +548,7 @@ test("stopはchunk path差替えを同じdescriptorのidentity再検証で拒否
 test("再起動後に同sizeへ変更されたchunkもmanifest hashで拒否する", (t) => {
   const paths = fixture(t);
   const first = createService(paths);
-  const started = first.startRecording(null, "audio/webm");
+  const started = first.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
   const original = webmBytes("original-content");
   first.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(original) });
   const chunkPath = path.join(paths.userDataPath, "media-recovery", "sessions", started.sessionId, "chunk-00000000.part");
