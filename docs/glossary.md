@@ -66,6 +66,10 @@
 | Focus Session | Taskを中心に関連Note / Artifact / Resource、作業中Scratchpad、経過時間を一面へ集める単一active session。終了時にTask状態・Note化・次Task・Activity要約を整理する |
 | 保存待ち動画 | 動画選択後、Artifact確定前のprepared sessionと復旧対象。metadataを確認して「添付する」か「破棄」を選ぶ。0件の通常詳細には説明panelを出さない |
 | Ink Capture | Inbox上部の「手書きで記録」。CaptureEntryを入口の履歴として残し、同時に新しいSketchを開く |
+| 付箋対象 | Top Barの一括展開・収納が対象にするMemoか（`capture_entry.properties_json.presentation = "floating"`）。Inboxのピンと付箋Window左上のピンはこの入切だけを意味し、押しても本文は消えない。正本はDB（#377） |
+| 付箋表示中 | いま実際にデスクトップへ付箋Windowが出ているか。正本はMainのsatellite window registryで、Inboxは購読して「表示中」バッジに出す。収納しても付箋対象は残る（#377） |
+| 常に手前 | 個別の付箋WindowをOS上でalways-on-topにするか。付箋Windowのメニュー内チェック項目で、付箋対象のピンとは別操作。Inboxでは「最前面」バッジで示す（#377） |
+| 付箋色 | 付箋Windowの背景色（yellow / blue / green / pink / purple / neutral）。Memo分類の手掛かりで、意味固定の状態色ではない。許可値以外はyellowへ正規化する（#377） |
 | 期間内に一度 | 日付範囲の意味のひとつ（`range_semantics: once_within_window`）。「8/10〜8/15の間に住民票を取る」のように、期間内のどこかで一回やれば終わるTask。開始日は着手してよい日、終了日は遅くとも終える日。期間中は毎日「今日やること」へ出さず、Todayの「期間内に対応」から拾う |
 | 期間中継続 | 日付範囲のもうひとつの意味（`range_semantics: ongoing`）。「8月中は問い合わせ対応を続ける」のように、期間中ずっとactiveなTask。今日の実施記録（今日取り組んだ）とTask全体の完了（継続を終了）を分ける。終了日が来ただけでは自動完了せず、完了 / 期間を延長 / そのまま継続を選べる |
 | 期間未分類 | #309より前に作った、意味を決めていない日付範囲Task。黙って分類せず、#95の表示規則（終了日当日に今日やることへ出す）をそのまま保つ。編集画面で意味を選ぶと分類される |

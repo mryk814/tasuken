@@ -2,12 +2,15 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import {
   IPC,
+  type MemoStickyColorResult,
   type MemoStickyContent,
   type MemoStickySaveRequest,
   type MemoStickySaveResult,
+  type MemoStickyTargetResult,
   type RendererFlushRequest,
   type WorkspaceChangePayload,
 } from "../shared/ipc/contracts";
+import type { MemoStickyColorRequest, MemoStickyTargetRequest } from "../shared/memoPresentation";
 
 type Unsubscribe = () => void;
 
@@ -17,12 +20,27 @@ contextBridge.exposeInMainWorld("memoStickyApi", {
   save: (request: MemoStickySaveRequest): Promise<MemoStickySaveResult> => ipcRenderer.invoke(IPC.memoStickySave, request),
   copy: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyCopy),
   close: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyClose),
+  setTarget: (request: MemoStickyTargetRequest): Promise<MemoStickyTargetResult> => (
+    ipcRenderer.invoke(IPC.memoStickySetTarget, request)
+  ),
+  setColor: (request: MemoStickyColorRequest): Promise<MemoStickyColorResult> => (
+    ipcRenderer.invoke(IPC.memoStickySetColor, request)
+  ),
   openInMain: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyOpenInMain),
   // 付箋を閉じることとは別の操作。実行するとMemo自体の状態が変わる。
   archive: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyArchive),
   remove: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyDelete),
   isAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyIsAlwaysOnTop),
-  setAlwaysOnTop: (pinned: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickySetAlwaysOnTop, pinned),
+  setAlwaysOnTop: (alwaysOnTop: boolean): Promise<boolean> => (
+    ipcRenderer.invoke(IPC.memoStickySetAlwaysOnTop, { alwaysOnTop })
+  ),
+  onThemeChanged: (callback: (theme: "light" | "dark") => void): Unsubscribe => {
+    const handler = (_event: Electron.IpcRendererEvent, theme: unknown): void => {
+      if (theme === "light" || theme === "dark") callback(theme);
+    };
+    ipcRenderer.on(IPC.memoStickyThemeChanged, handler);
+    return () => { ipcRenderer.removeListener(IPC.memoStickyThemeChanged, handler); };
+  },
   // 本体や他のウィンドウでの変更を受けて、同じMemoの表示を追従させる。
   onWorkspaceChanged: (callback: (change?: WorkspaceChangePayload) => void): Unsubscribe => {
     const handler = (_event: Electron.IpcRendererEvent, change?: WorkspaceChangePayload): void => callback(change);

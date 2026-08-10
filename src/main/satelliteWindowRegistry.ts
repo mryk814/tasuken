@@ -48,6 +48,8 @@ export interface SatelliteWindowSpec {
 export interface SatelliteWindowInfo extends SatelliteWindowKey {
   title: string;
   focused: boolean;
+  visible: boolean;
+  alwaysOnTop: boolean;
 }
 
 export interface SatelliteWindowRegistry {
@@ -311,7 +313,13 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       for (const entry of entries.values()) {
         if (entry.window.isDestroyed()) continue;
         if (kind && entry.key.kind !== kind) continue;
-        result.push({ ...entry.key, title: entry.title, focused: entry.window.isFocused() });
+        result.push({
+          ...entry.key,
+          title: entry.title,
+          focused: entry.window.isFocused(),
+          visible: entry.window.isVisible(),
+          alwaysOnTop: entry.window.isAlwaysOnTop(),
+        });
       }
       return result.sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title, "ja"));
     },

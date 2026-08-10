@@ -1,138 +1,137 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" data-theme="light" data-sticky-color="yellow">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>付箋メモ</title>
     <style>
       * { box-sizing: border-box; }
+      html, body { width: 100%; min-width: 0; height: 100%; overflow: hidden; }
       body {
-        min-height: 100vh;
         margin: 0;
         background: var(--color-surface);
         color: var(--color-text);
         font-family: var(--font-base);
-        font-size: 13px;
+        font-size: var(--text-sm);
       }
       button, textarea { font: inherit; color: inherit; }
       button { cursor: pointer; }
-      button:focus-visible, textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+      button:active { transform: scale(0.98); }
+      button:focus-visible, textarea:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
       .sticky {
-        min-height: 100vh;
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr) auto;
-        background: linear-gradient(180deg, var(--color-accent-subtle-bg-strong) 0%, var(--color-surface) 26%);
+        --sticky-paper-color: var(--color-chart-4);
+        width: 100%; height: 100%; min-width: 0; overflow: hidden;
+        display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+        background: color-mix(in srgb, var(--sticky-paper-color) 14%, var(--color-surface));
       }
+      html[data-sticky-color="blue"] .sticky { --sticky-paper-color: var(--color-chart-2); }
+      html[data-sticky-color="green"] .sticky { --sticky-paper-color: var(--color-chart-3); }
+      html[data-sticky-color="pink"] .sticky { --sticky-paper-color: var(--color-chart-1); }
+      html[data-sticky-color="purple"] .sticky { --sticky-paper-color: var(--color-chart-5); }
+      html[data-sticky-color="neutral"] .sticky { --sticky-paper-color: var(--color-chart-6); }
       header {
-        display: flex;
-        align-items: center;
-        gap: var(--space-1);
-        padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+        min-width: 0; display: flex; align-items: center; gap: var(--space-1);
+        padding: var(--space-1); border-bottom: 1px solid color-mix(in srgb, var(--sticky-paper-color) 28%, var(--color-border-subtle));
         -webkit-app-region: drag;
       }
       header .title {
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--color-text-secondary);
-        font-size: 12px;
-        font-weight: 700;
+        flex: 1 1 auto; min-width: 0; min-height: 1em;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: 700;
       }
-      header button { -webkit-app-region: no-drag; }
+      header button { flex: 0 0 auto; -webkit-app-region: no-drag; }
       .icon-button {
-        width: 26px;
-        height: 26px;
-        display: grid;
-        place-items: center;
-        padding: 0;
-        border: 1px solid transparent;
-        border-radius: var(--radius-sm);
-        background: transparent;
-        color: var(--color-text-secondary);
+        width: 32px; height: 32px; display: grid; place-items: center; padding: 0;
+        border: 1px solid transparent; border-radius: var(--radius-sm);
+        background: transparent; color: var(--color-text-secondary);
+        transition: color var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease);
       }
-      .icon-button:hover { border-color: var(--color-border); background: var(--color-surface-subtle); color: var(--color-accent); }
-      .icon-button.is-active { border-color: var(--color-accent); color: var(--color-accent); }
-      .icon-button.danger:hover { color: var(--color-danger); }
-      .icon-button svg {
-        width: 15px; height: 15px;
-        stroke: currentColor; stroke-width: 2; fill: none;
-        stroke-linecap: round; stroke-linejoin: round;
-      }
+      .icon-button:hover { border-color: var(--color-border); background: var(--color-surface-muted); color: var(--color-accent-strong); }
+      .icon-button.is-active { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
+      .icon-button svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
       textarea {
-        width: 100%;
-        height: 100%;
-        min-height: 0;
-        padding: 0 var(--space-3);
-        border: 0;
-        background: transparent;
-        resize: none;
-        line-height: 1.7;
+        width: 100%; height: 100%; min-width: 0; min-height: 0;
+        padding: var(--space-2) var(--space-3); border: 0; background: transparent; resize: none;
+        line-height: 1.7; overflow-x: hidden; overflow-y: auto;
+        white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
         -webkit-app-region: no-drag;
       }
       footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--space-2);
+        min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
         padding: var(--space-1) var(--space-3) var(--space-2);
-        color: var(--color-text-secondary);
-        font-size: 11px;
-        -webkit-app-region: drag;
+        color: var(--color-text-secondary); font-size: var(--text-xs); -webkit-app-region: drag;
       }
       .menu-anchor { position: relative; display: inline-flex; -webkit-app-region: no-drag; }
       .menu {
-        position: absolute; top: calc(100% + 2px); right: 0; z-index: 10;
-        min-width: 128px; display: grid; gap: 2px; padding: var(--space-1);
+        position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: 10;
+        min-width: 164px; display: grid; gap: var(--space-1); padding: var(--space-1);
         border: 1px solid var(--color-border); border-radius: var(--radius-md);
-        background: var(--color-surface); box-shadow: var(--shadow-lg);
+        background: var(--color-surface); box-shadow: var(--shadow-md);
       }
       .menu[hidden] { display: none; }
       .menu button {
-        min-height: 28px; padding: 0 var(--space-2);
-        border: 0; border-radius: var(--radius-sm);
+        min-height: 32px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm);
         background: transparent; text-align: left; white-space: nowrap;
       }
-      .menu button:hover { background: var(--color-surface-subtle); }
+      .menu button:hover { background: var(--color-surface-muted); }
+      .menu button[aria-checked="true"] { background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); font-weight: 700; }
       .menu button.danger { color: var(--color-danger); }
-      footer .state { font-variant-numeric: tabular-nums; }
+      .palette { min-width: 150px; }
+      .palette button { display: flex; align-items: center; gap: var(--space-2); }
+      .color-swatch { width: 14px; height: 14px; flex: 0 0 auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--swatch); }
+      .palette button[data-color="yellow"] { --swatch: var(--color-chart-4); }
+      .palette button[data-color="blue"] { --swatch: var(--color-chart-2); }
+      .palette button[data-color="green"] { --swatch: var(--color-chart-3); }
+      .palette button[data-color="pink"] { --swatch: var(--color-chart-1); }
+      .palette button[data-color="purple"] { --swatch: var(--color-chart-5); }
+      .palette button[data-color="neutral"] { --swatch: var(--color-chart-6); }
+      footer .state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
       footer .state.is-error { color: var(--color-danger); font-weight: 700; }
-      footer .conflict-action { -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--color-accent); text-decoration: underline; }
-      footer a { -webkit-app-region: no-drag; color: var(--color-accent); }
-      .link-row { -webkit-app-region: no-drag; }
+      footer .conflict-action { flex: 0 0 auto; -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--color-accent-strong); text-decoration: underline; }
+      footer a { -webkit-app-region: no-drag; color: var(--color-accent-strong); }
+      .link-row { flex: 0 0 auto; -webkit-app-region: no-drag; }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
     </style>
   </head>
   <body>
     <div class="sticky">
-      <header>
-        <span class="title" id="title">付箋メモ</span>
-        <button class="icon-button" id="pin" type="button" title="常に手前に表示" aria-label="常に手前に表示" aria-pressed="false">
+      <header aria-label="付箋メモ">
+        <span class="title" id="title"></span>
+        <button class="icon-button" id="target" type="button" title="付箋対象から外す" aria-label="付箋対象から外して収納" aria-pressed="true">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z" /><path d="M12 15v5" /></svg>
         </button>
-        <button class="icon-button" id="copy" type="button" title="全文をコピー" aria-label="全文をコピー">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
-        </button>
-        <button class="icon-button" id="open-main" type="button" title="Taskenで開く" aria-label="Taskenで開く">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6" /><path d="M20 4 10 14" /><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" /></svg>
-        </button>
-        <span class="menu-anchor">
+        <span class="menu-anchor palette-anchor">
+          <button class="icon-button" id="color" type="button" title="付箋の色" aria-label="付箋の色" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.5a1.5 1.5 0 0 0 0-3H12a2 2 0 0 1 0-4h2a7 7 0 0 0-2-11Z" /><circle cx="7.5" cy="10" r="1" /><circle cx="10" cy="6.5" r="1" /><circle cx="15" cy="7.5" r="1" /></svg>
+          </button>
+          <span class="menu palette" id="color-panel" role="menu" aria-label="付箋の色" hidden>
+            <button type="button" role="menuitemradio" data-color="yellow"><span class="color-swatch"></span>イエロー</button>
+            <button type="button" role="menuitemradio" data-color="blue"><span class="color-swatch"></span>ブルー</button>
+            <button type="button" role="menuitemradio" data-color="green"><span class="color-swatch"></span>グリーン</button>
+            <button type="button" role="menuitemradio" data-color="pink"><span class="color-swatch"></span>ピンク</button>
+            <button type="button" role="menuitemradio" data-color="purple"><span class="color-swatch"></span>パープル</button>
+            <button type="button" role="menuitemradio" data-color="neutral"><span class="color-swatch"></span>グレー</button>
+          </span>
+        </span>
+        <span class="menu-anchor action-anchor">
           <button class="icon-button" id="menu" type="button" title="メモの操作" aria-label="メモの操作" aria-haspopup="menu" aria-expanded="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
           </button>
-          <!-- 付箋を閉じることと、Memo自体のアーカイブ・削除を混同させない（#298）。 -->
           <span class="menu" id="menu-panel" role="menu" aria-label="メモの操作" hidden>
+            <button type="button" role="menuitemcheckbox" id="always-on-top" aria-checked="false">常に手前に表示</button>
+            <button type="button" role="menuitem" id="copy">全文をコピー</button>
+            <button type="button" role="menuitem" id="open-main">Taskenで開く</button>
             <button type="button" role="menuitem" id="archive">アーカイブ</button>
             <button type="button" role="menuitem" id="delete" class="danger">メモを削除</button>
           </span>
         </span>
-        <button class="icon-button" id="close" type="button" title="付箋を閉じる（メモは残ります）" aria-label="付箋を閉じる。メモは残ります">
+        <button class="icon-button" id="close" type="button" title="付箋を閉じる（対象設定は残ります）" aria-label="付箋を閉じる。付箋対象の設定は残ります">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
         </button>
       </header>
-      <textarea id="text" aria-label="付箋メモの内容" spellcheck="false" disabled></textarea>
+      <textarea id="text" aria-label="付箋メモの内容" wrap="soft" spellcheck="false" disabled></textarea>
       <footer>
-        <span class="state" id="state">読み込み中</span>
+        <span class="state" id="state" role="status">読み込み中</span>
         <button class="conflict-action" id="overwrite-conflict" type="button" hidden>この入力で保存</button>
         <span class="link-row" id="link-row"></span>
       </footer>
@@ -148,9 +147,14 @@
       const textEl = document.querySelector("#text");
       const stateEl = document.querySelector("#state");
       const linkRow = document.querySelector("#link-row");
-      const pinButton = document.querySelector("#pin");
+      const targetButton = document.querySelector("#target");
+      const colorButton = document.querySelector("#color");
+      const colorPanel = document.querySelector("#color-panel");
+      const menuButton = document.querySelector("#menu");
+      const menuPanel = document.querySelector("#menu-panel");
+      const alwaysOnTopButton = document.querySelector("#always-on-top");
       const overwriteConflictButton = document.querySelector("#overwrite-conflict");
-
+      const STICKY_COLORS = ["yellow", "blue", "green", "pink", "purple", "neutral"];
       const AUTOSAVE_DELAY_MS = 600;
       let saveTimer = null;
       let initialized = false;
@@ -170,17 +174,34 @@
         linkRow.append(anchor);
       }
 
+      function renderMetadata(content) {
+        const explicitTitle = typeof content.title === "string" ? content.title.trim() : "";
+        titleEl.textContent = explicitTitle;
+        titleEl.title = explicitTitle;
+        document.title = explicitTitle || "付箋メモ";
+        document.documentElement.dataset.theme = content.theme === "dark" ? "dark" : "light";
+        const color = STICKY_COLORS.includes(content.color) ? content.color : "yellow";
+        document.documentElement.dataset.stickyColor = color;
+        targetButton.setAttribute("aria-pressed", String(content.target));
+        targetButton.classList.toggle("is-active", content.target);
+        targetButton.title = content.target ? "付箋対象から外す" : "付箋対象にする";
+        targetButton.setAttribute("aria-label", content.target ? "付箋対象から外して収納" : "付箋対象にして表示");
+        for (const button of colorPanel.querySelectorAll("[data-color]")) {
+          button.setAttribute("aria-checked", String(button.dataset.color === color));
+        }
+        renderLink(content.url);
+      }
+
       function renderContent(content, preserveCaret = false) {
         if (!content) {
-          setState("メモが見つかりません", "is-error");
+          setState("メモが見つかりません。Tasken本体で一覧を再読み込みしてください。", "is-error");
           textEl.disabled = true;
           return;
         }
         textEl.disabled = false;
-        titleEl.textContent = content.title || content.text.split(/\r?\n/, 1)[0] || "付箋メモ";
+        renderMetadata(content);
         if (preserveCaret) replaceTextareaValuePreservingSelection(textEl, content.text);
         else textEl.value = content.text;
-        renderLink(content.url);
       }
 
       const coordinator = createMemoStickyAutosaveCoordinator({
@@ -189,14 +210,11 @@
         onStateChange(state) {
           overwriteConflictButton.hidden = !state.conflict;
           const latest = coordinator.getContent();
-          if (latest) {
-            titleEl.textContent = latest.title || latest.text.split(/\r?\n/, 1)[0] || "付箋メモ";
-            renderLink(latest.url);
-          }
+          if (latest) renderMetadata(latest);
           if (state.conflict) {
-            setState("本体側に新しい変更があります。入力内容はこの付箋に残っています", "is-error");
+            setState("本体側に新しい変更があります。この入力で保存するか選んでください。", "is-error");
           } else if (state.error) {
-            setState(`保存できません: ${state.error instanceof Error ? state.error.message : String(state.error)}`, "is-error");
+            setState(`保存できません。${state.error instanceof Error ? state.error.message : String(state.error)} 再試行してください。`, "is-error");
           } else if (state.saving) {
             setState("保存中…");
           } else if (state.dirty) {
@@ -209,11 +227,8 @@
 
       overwriteConflictButton.addEventListener("click", async () => {
         overwriteConflictButton.disabled = true;
-        try {
-          await coordinator.overwriteConflict();
-        } finally {
-          overwriteConflictButton.disabled = false;
-        }
+        try { await coordinator.overwriteConflict(); }
+        finally { overwriteConflictButton.disabled = false; }
       });
 
       function workspaceContent(change) {
@@ -226,6 +241,8 @@
         const match = candidates.find(({ type, entity }) => type === "capture_entry" && entity?.id === current.id);
         if (!match) return null;
         const entity = match.entity;
+        const properties = entity.properties_json && typeof entity.properties_json === "object" ? entity.properties_json : {};
+        const color = STICKY_COLORS.includes(properties.presentation_color) ? properties.presentation_color : "yellow";
         return {
           id: String(entity.id),
           title: typeof entity.title === "string" ? entity.title : "",
@@ -233,16 +250,17 @@
           url: typeof entity.url === "string" ? entity.url : "",
           capturedAt: String(entity.captured_at || ""),
           version: Number(entity.version || 0),
+          target: entity.state !== "archived" && !entity.deleted_at
+            && (properties.presentation === "floating" || properties.sticky === true),
+          color,
+          theme: current.theme,
         };
       }
 
       async function load(source) {
         try {
           const content = await api.load();
-          if (!content) {
-            renderContent(null);
-            return;
-          }
+          if (!content) { renderContent(null); return; }
           if (!initialized) {
             coordinator.initialize(content);
             initialized = true;
@@ -252,18 +270,15 @@
           const decision = coordinator.receiveWorkspaceChange(content, source);
           if (decision === "applied") renderContent(content, true);
         } catch (error) {
-          setState(error instanceof Error ? error.message : String(error), "is-error");
+          setState(`${error instanceof Error ? error.message : String(error)} 画面を再読み込みしてください。`, "is-error");
         }
       }
 
       async function requestSave() {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = null;
-        try {
-          return await coordinator.requestSave();
-        } catch {
-          return false;
-        }
+        try { return await coordinator.requestSave(); }
+        catch { return false; }
       }
 
       textEl.addEventListener("input", () => {
@@ -271,8 +286,6 @@
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => { saveTimer = null; void requestSave(); }, AUTOSAVE_DELAY_MS);
       });
-
-      // blurは保存を始めるだけで、再focus後の入力はrevision付きlatestとして残す。
       window.addEventListener("blur", () => { void requestSave(); });
 
       api.onAppFlushRequested(async ({ requestId }) => {
@@ -282,65 +295,108 @@
         await api.ackAppFlush(requestId, ok);
       });
 
-      document.querySelector("#copy").addEventListener("click", async () => {
-        if (!await coordinator.flush()) return;
-        const copied = await api.copy();
-        setState(copied ? "コピーしました" : "コピーできません", copied ? "" : "is-error");
-      });
-      document.querySelector("#open-main").addEventListener("click", () => { void api.openInMain(); });
-      // Main側のclose handshakeがflush ackを待ち、失敗・競合時は閉じない。
-      document.querySelector("#close").addEventListener("click", () => { void api.close(); });
-      pinButton.addEventListener("click", async () => {
-        const next = pinButton.getAttribute("aria-pressed") !== "true";
-        const applied = await api.setAlwaysOnTop(next);
-        pinButton.setAttribute("aria-pressed", String(applied));
-        pinButton.classList.toggle("is-active", applied);
+      function applyExternalContent(content) {
+        if (!content) return;
+        const decision = coordinator.receiveWorkspaceChange(content);
+        if (decision === "applied") renderContent(content, true);
+        else renderMetadata(coordinator.getContent() || content);
+      }
+
+      targetButton.addEventListener("click", async () => {
+        const content = coordinator.getContent();
+        if (!content || !await coordinator.flush()) {
+          setState("付箋対象を変更できません。保存エラーを解消してから再試行してください。", "is-error");
+          return;
+        }
+        const result = await api.setTarget({ memoId: content.id, target: !content.target });
+        if (result.status === "applied") applyExternalContent(result.content);
+        else setState("付箋対象を変更できません。Tasken本体でメモを確認してください。", "is-error");
       });
 
-      const menuButton = document.querySelector("#menu");
-      const menuPanel = document.querySelector("#menu-panel");
-
-      function setMenuOpen(open) {
+      function setMenuOpen(open, restoreFocus = false) {
         menuPanel.hidden = !open;
         menuButton.setAttribute("aria-expanded", String(open));
+        if (open) setColorOpen(false);
+        if (!open && restoreFocus) menuButton.focus();
+      }
+
+      function setColorOpen(open, restoreFocus = false) {
+        colorPanel.hidden = !open;
+        colorButton.setAttribute("aria-expanded", String(open));
+        if (open) setMenuOpen(false);
+        if (!open && restoreFocus) colorButton.focus();
       }
 
       menuButton.addEventListener("click", () => setMenuOpen(menuPanel.hidden));
+      colorButton.addEventListener("click", () => setColorOpen(colorPanel.hidden));
       document.addEventListener("pointerdown", (event) => {
-        if (!event.target.closest(".menu-anchor")) setMenuOpen(false);
+        if (!event.target.closest(".action-anchor")) setMenuOpen(false);
+        if (!event.target.closest(".palette-anchor")) setColorOpen(false);
       });
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") setMenuOpen(false);
+        if (event.key !== "Escape") return;
+        if (!colorPanel.hidden) setColorOpen(false, true);
+        else if (!menuPanel.hidden) setMenuOpen(false, true);
       });
+
+      colorPanel.addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-color]");
+        if (!button) return;
+        setColorOpen(false);
+        if (!await coordinator.flush()) {
+          setState("色を変更できません。保存エラーを解消してから再試行してください。", "is-error");
+          return;
+        }
+        const result = await api.setColor({ color: button.dataset.color });
+        if (result.status === "applied") applyExternalContent(result.content);
+        else setState("色を変更できません。Tasken本体でメモを確認してください。", "is-error");
+      });
+
+      alwaysOnTopButton.addEventListener("click", async () => {
+        const next = alwaysOnTopButton.getAttribute("aria-checked") !== "true";
+        const applied = await api.setAlwaysOnTop(next);
+        alwaysOnTopButton.setAttribute("aria-checked", String(applied));
+        setMenuOpen(false, true);
+      });
+      document.querySelector("#copy").addEventListener("click", async () => {
+        setMenuOpen(false, true);
+        if (!await coordinator.flush()) return;
+        const copied = await api.copy();
+        setState(copied ? "コピーしました" : "コピーできません。保存状態を確認してください。", copied ? "" : "is-error");
+      });
+      document.querySelector("#open-main").addEventListener("click", () => { setMenuOpen(false); void api.openInMain(); });
+      document.querySelector("#close").addEventListener("click", () => { void api.close(); });
       document.querySelector("#archive").addEventListener("click", async () => {
         setMenuOpen(false);
         if (!await coordinator.flush()) return;
         const done = await api.archive();
-        if (!done) setState("アーカイブできません", "is-error");
+        if (!done) setState("アーカイブできません。保存エラーを解消してから再試行してください。", "is-error");
       });
       document.querySelector("#delete").addEventListener("click", async () => {
         setMenuOpen(false);
-        // 付箋を閉じるのと違い、削除は取り消しの効かない位置にあるので確認する。
-        if (!window.confirm("このメモを削除しますか。付箋を閉じるだけならウィンドウの×を使ってください。")) return;
+        if (!window.confirm("このメモを削除しますか。付箋対象から外すだけならピンを使ってください。")) return;
         const done = await api.remove();
-        if (!done) setState("削除できません", "is-error");
+        if (!done) setState("削除できません。保存エラーを解消してから再試行してください。", "is-error");
       });
 
-      // Escでは閉じない。付箋は開いたまま参照する用途なので、閉じるのは明示操作だけにする。
       api.onWorkspaceChanged((change) => {
         const content = workspaceContent(change);
         if (!content) {
-          // Shared syncなどpayloadなしの変更だけ正本を読み直す。
           if (!change) void load();
           return;
         }
         const decision = coordinator.receiveWorkspaceChange(content, change.memoStickySave);
         if (decision === "applied") renderContent(content, true);
       });
+      api.onThemeChanged((theme) => {
+        document.documentElement.dataset.theme = theme;
+        const current = coordinator.getContent();
+        if (current) current.theme = theme;
+      });
+
       void (async () => {
-        const pinned = await api.isAlwaysOnTop();
-        pinButton.setAttribute("aria-pressed", String(pinned));
-        pinButton.classList.toggle("is-active", pinned);
+        const alwaysOnTop = await api.isAlwaysOnTop();
+        alwaysOnTopButton.setAttribute("aria-checked", String(alwaysOnTop));
         await load();
         textEl.focus();
       })();
