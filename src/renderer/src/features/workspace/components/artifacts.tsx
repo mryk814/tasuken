@@ -14,6 +14,7 @@ import {
   IconPresentation,
   IconVideo,
   IconVolume,
+  IconWorld,
 } from "@tabler/icons-react";
 
 import {
@@ -63,6 +64,7 @@ import { markArtifactOpened, readRecentArtifactIds } from "../lib/artifactRecent
 import { str } from "../lib/format";
 import { ChatRefArtifactLinkDialog } from "./ChatRefArtifactLinkDialog";
 import { ContextMenu, type ContextMenuItem } from "./common";
+import { isWebArtifact } from "../../../../../shared/webArtifact.mjs";
 
 const SPREADSHEET_TYPES = new Set(["xlsx", "xls", "csv", "tsv"]);
 const IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
@@ -83,13 +85,14 @@ function isVideoArtifactSourceType(value: ArtifactSourceType): value is VideoArt
   return value === "task" || value === "note" || value === "report" || value === "capture_entry";
 }
 
-export type ArtifactOpenMode = "external" | "image" | "markdown" | "audio" | "video" | "file";
+export type ArtifactOpenMode = "external" | "image" | "markdown" | "audio" | "video" | "web" | "file";
 
 type ArtifactCategoryInput = string | Pick<Artifact, "file_type" | "media_kind"> | undefined;
 
 export function artifactFileCategory(input?: ArtifactCategoryInput): ArtifactOpenMode {
   if (typeof input === "object" && input?.media_kind === "audio") return "audio";
   if (typeof input === "object" && input?.media_kind === "video") return "video";
+  if (typeof input === "object" && isWebArtifact(input)) return "web";
   const type = (typeof input === "string" ? input : input?.file_type || "").toLowerCase();
   if (IMAGE_TYPES.has(type)) return "image";
   if (MARKDOWN_TYPES.has(type)) return "markdown";
@@ -101,7 +104,8 @@ export function artifactFileCategory(input?: ArtifactCategoryInput): ArtifactOpe
 export function artifactOpenLabel(input?: ArtifactCategoryInput): string {
   const mode = artifactFileCategory(input);
   if (mode === "external") return "外部で開く";
-  if (mode === "image" || mode === "markdown" || mode === "audio" || mode === "video") return "プレビュー";
+  if (mode === "web" && typeof input === "object" && isHttpUrl(artifactOpenTarget(input))) return "外部で開く";
+  if (mode === "image" || mode === "markdown" || mode === "audio" || mode === "video" || mode === "web") return "プレビュー";
   return "開く";
 }
 
@@ -112,6 +116,9 @@ export function artifactOpenHint(input?: ArtifactCategoryInput): string {
   if (mode === "markdown") return "Markdownをアプリ内ビューアで表示します。";
   if (mode === "audio") return "音声をアプリ内プレイヤーで再生します。";
   if (mode === "video") return "動画をアプリ内プレイヤーで再生します。";
+  if (mode === "web") return isHttpUrl(typeof input === "object" ? artifactOpenTarget(input) : "")
+    ? "外部ブラウザでHTMLを開きます。URLの内容はTasken内で実行しません。"
+    : "HTMLを安全なStatic Previewで表示します。必要なときだけ隔離Interactive Previewへ切り替えます。";
   return "関連付けられたアプリで開きます。";
 }
 
@@ -128,7 +135,7 @@ export function artifactTypeBadge(fileType?: string): string {
   return type.slice(0, 8);
 }
 
-export function ArtifactFileIcon({ fileType, mediaKind }: { fileType?: string; mediaKind?: Artifact["media_kind"] }) {
+export function ArtifactFileIcon({ fileType, mediaKind, mimeType, filename }: { fileType?: string; mediaKind?: Artifact["media_kind"]; mimeType?: string; filename?: string }) {
   const type = (fileType || "").toLowerCase();
   const size = 18;
   if (SPREADSHEET_TYPES.has(type)) return <IconFileSpreadsheet size={size} />;
@@ -138,6 +145,7 @@ export function ArtifactFileIcon({ fileType, mediaKind }: { fileType?: string; m
   if (PRESENTATION_TYPES.has(type)) return <IconPresentation size={size} />;
   if (mediaKind === "audio" || (!mediaKind && AUDIO_TYPES.has(type))) return <IconVolume size={size} />;
   if (mediaKind === "video") return <IconVideo size={size} />;
+  if (isWebArtifact({ file_type: type, mime_type: mimeType, filename })) return <IconWorld size={size} />;
   if (ARCHIVE_TYPES.has(type)) return <IconFileZip size={size} />;
   if (TEXT_TYPES.has(type)) return <IconFileText size={size} />;
   return <IconFile size={size} />;
@@ -494,11 +502,12 @@ export async function retargetLinkedArtifact(
 export function canPreviewArtifactInApp(artifact: Artifact): boolean {
   const category = artifactFileCategory(artifact);
   if (artifact.media_kind === "audio" || artifact.media_kind === "video") return true;
-  if (category !== "image" && category !== "markdown") return false;
+  if (category !== "image" && category !== "markdown" && category !== "web") return false;
   const target = artifactOpenTarget(artifact);
   if (!target) return false;
   // URL の Markdown は CORS のためアプリ内では読めない。画像 URL は img 直指定で可。
   if (category === "markdown" && isHttpUrl(target)) return false;
+  if (category === "web" && isHttpUrl(target)) return false;
   return true;
 }
 
@@ -640,7 +649,7 @@ export function ArtifactCard({
   return (
     <li className={`artifact-card ${mode === "linked" ? "is-linked" : "is-managed"}`}>
       <span className="artifact-card-icon" aria-hidden="true">
-        {mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} mediaKind={artifact.media_kind} />}
+        {isWebArtifact(artifact) ? <IconWorld size={18} /> : mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} mediaKind={artifact.media_kind} mimeType={artifact.mime_type} filename={artifact.filename} />}
       </span>
       <div className="artifact-card-main">
         <div className="artifact-card-title-row">

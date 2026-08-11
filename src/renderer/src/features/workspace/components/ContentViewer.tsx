@@ -15,6 +15,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
 import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../../../../shared/mediaArtifact.mjs";
+import { buildWebArtifactDocument, isWebArtifact } from "../../../../../shared/webArtifact.mjs";
+import type { WebArtifactExecutionPolicy } from "../../../../../shared/webArtifact.mjs";
 import { videoAvailabilityMessage } from "../videoArtifactView";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { Artifact, BaseRecord, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
@@ -79,6 +81,14 @@ type LoadState =
       title: string;
       src: string;
       artifact: Artifact;
+    }
+  | {
+      status: "ready";
+      mode: "web";
+      title: string;
+      html: string;
+      artifact: Artifact;
+      executionPolicy: WebArtifactExecutionPolicy;
     };
 
 // conversationモードはファイル実体を持たないため、ファイル系の操作は他モードだけへ絞る。
@@ -160,6 +170,19 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
 
   const category = artifactFileCategory(artifact);
   const title = str(artifact.filename) || str(artifact.title) || "Artifact";
+
+  if (isWebArtifact(artifact)) {
+    const result = await workspaceApi.readWebArtifactPreview(artifact.id);
+    if (!result.ok) return { status: "error", message: result.error, artifact };
+    return {
+      status: "ready",
+      mode: "web",
+      title,
+      html: result.html,
+      artifact,
+      executionPolicy: result.executionPolicy,
+    };
+  }
 
   if (artifact.media_kind === "audio" || artifact.media_kind === "video") {
     const inspection = artifact.media_kind === "video" ? await workspaceApi.inspectMediaArtifact(artifact.id) : { availability: "available" as const };
@@ -254,6 +277,7 @@ export function ContentViewer({
 }) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [zoom, setZoom] = useState(FIT_ZOOM);
+  const [webMode, setWebMode] = useState<WebArtifactExecutionPolicy>("static");
   /** 拡大は一時的な見方なので保存しない。開き直すたびに既定へ戻す（#387）。 */
   const [expanded, setExpanded] = useState(false);
   const expandedRef = useRef(false);
@@ -267,6 +291,7 @@ export function ContentViewer({
     let cancelled = false;
     setLoad({ status: "loading" });
     setZoom(FIT_ZOOM);
+    setWebMode("static");
     setPan({ x: 0, y: 0 });
     void resolveTarget(target, data).then((next) => {
       if (!cancelled) setLoad(next);
@@ -298,6 +323,11 @@ export function ContentViewer({
     if (load.status !== "ready" || load.mode !== "markdown") return "";
     return previewHtml(load.body, load.contentFormat, load.headingOptions);
   }, [load]);
+
+  const webDocument = useMemo(() => {
+    if (load.status !== "ready" || load.mode !== "web") return "";
+    return buildWebArtifactDocument(load.html, webMode);
+  }, [load, webMode]);
 
   function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
     const anchor = (event.target as HTMLElement | null)?.closest?.("a");
@@ -450,7 +480,7 @@ export function ContentViewer({
   const title = load.status === "ready" ? load.title : "プレビュー";
   const isImage = load.status === "ready" && load.mode === "image";
   // 動画・画像・PDFはウィンドウを大きくしなくてもアプリ内で大きく見られるようにする（#387）。
-  const canExpand = load.status === "ready" && (load.mode === "video" || load.mode === "image" || load.mode === "markdown" || load.mode === "conversation");
+  const canExpand = load.status === "ready" && (load.mode === "video" || load.mode === "image" || load.mode === "markdown" || load.mode === "conversation" || load.mode === "web");
   const loadArtifact = loadedArtifact(load);
   const targetArtifact = target.type === "artifact"
     ? (data.artifacts || []).find((entry) => entry.id === target.artifactId)
@@ -516,6 +546,9 @@ export function ContentViewer({
             )}
             {load.status === "ready" && load.mode === "video" && (
               <span className="content-viewer-badge">Video</span>
+            )}
+            {load.status === "ready" && load.mode === "web" && (
+              <span className="content-viewer-badge">Web</span>
             )}
           </div>
           <div className="content-viewer-actions">
@@ -606,6 +639,33 @@ export function ContentViewer({
           </div>
         )}
 
+        {load.status === "ready" && load.mode === "web" && (
+          <div className="content-viewer-web-toolbar" role="toolbar" aria-label="Web Previewの実行モード">
+            <span className="content-viewer-web-mode-label">実行モード</span>
+            <button
+              type="button"
+              className={`secondary-button compact ${webMode === "static" ? "is-active" : ""}`}
+              aria-pressed={webMode === "static"}
+              onClick={() => setWebMode("static")}
+            >
+              Static Preview
+            </button>
+            <button
+              type="button"
+              className={`secondary-button compact ${webMode === "sandboxed_interactive" ? "is-active" : ""}`}
+              aria-pressed={webMode === "sandboxed_interactive"}
+              onClick={() => setWebMode("sandboxed_interactive")}
+            >
+              Interactive Preview
+            </button>
+            {webMode === "sandboxed_interactive" && (
+              <span className="content-viewer-web-safety" role="status">
+                隔離環境で実行中。Taskenデータ・OSファイル・ネットワークにはアクセスできません。
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="content-viewer-body">
           {load.status === "loading" && (
             <div className="content-viewer-state" role="status">読み込み中…</div>
@@ -686,6 +746,18 @@ export function ContentViewer({
                 <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
                 <span>{load.artifact.media_availability === "available" ? "利用可能" : "要確認"}</span>
               </div>
+            </div>
+          )}
+          {load.status === "ready" && load.mode === "web" && (
+            <div className={`content-viewer-web ${webMode === "sandboxed_interactive" ? "is-interactive" : "is-static"}`}>
+              <iframe
+                className="content-viewer-web-frame"
+                title={`${load.title}のWeb Preview`}
+                srcDoc={webDocument}
+                sandbox={webMode === "static" ? "" : "allow-scripts"}
+                allow=""
+                referrerPolicy="no-referrer"
+              />
             </div>
           )}
           {load.status === "ready" && load.mode === "image" && (

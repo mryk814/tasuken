@@ -203,6 +203,8 @@ export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | 
 export type ArtifactStorageMode = "managed" | "linked";
 export type ArtifactLinkType = "url" | "local_path" | "shared_path" | "onedrive" | "sharepoint" | "teams";
 export type ArtifactLinkStatus = "unknown" | "ok" | "broken" | "inaccessible";
+export type WebArtifactKind = "self_contained_html" | "bundle";
+export type WebArtifactExecutionPolicy = "static" | "sandboxed_interactive";
 
 export interface Artifact extends BaseRecord {
   title: string;
@@ -238,6 +240,9 @@ export interface Artifact extends BaseRecord {
   codec?: string | null;
   content_hash?: string | null;
   media_availability?: "available" | "missing" | "changed" | "unsafe_source" | "unsupported_codec";
+  web_kind?: WebArtifactKind | null;
+  web_entrypoint?: string | null;
+  web_execution_policy?: WebArtifactExecutionPolicy | null;
 }
 
 export interface Sketch extends BaseRecord {

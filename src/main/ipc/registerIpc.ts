@@ -269,6 +269,7 @@ export function registerIpc(
   ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
   ipcMain.handle(IPC.artifactFilesImport, (_event, request) => service.importArtifactFiles(request));
   ipcMain.handle(IPC.artifactProposalMaterialize, (_event, request) => service.materializeArtifactProposal(request));
+  ipcMain.handle(IPC.artifactWebPreview, (_event, artifactId) => service.readWebArtifactPreview(requireId(artifactId)));
   ipcMain.handle(IPC.audioCapturePrepare, async (event, request) => {
     try {
       const themeId = requireAudioCaptureThemeId(repository, request);

@@ -9,6 +9,7 @@ import { applyMarkdownDiffHunks, buildMarkdownDiffHunks, diffMarkdownLines } fro
 import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTaskOperations, buildSaveWaitingOperations } from "../domain-model/persistence";
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
 import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
+import { isWebArtifact } from "../../../../../shared/webArtifact.mjs";
 import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../../../../../shared/repositoryContextProposal.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { ActionButton, Button } from "./common";
@@ -423,6 +424,7 @@ export function AiProposalPanel(props: PageProps) {
       const operations = buildCandidateOperations(preview.candidates, (data.repository_contexts || []) as BaseRecord[]);
       for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
         const normalized = validateArtifactProposal(candidate.entry);
+        const isWeb = isWebArtifact({ filename: normalized.fileName, mime_type: normalized.mediaType });
         const result = await workspaceApi.materializeArtifactProposal({
           title: normalized.title,
           fileName: normalized.fileName,
@@ -452,6 +454,9 @@ export function AiProposalPanel(props: PageProps) {
             theme_id: candidate.theme?.id || null,
             description: str(candidate.entry.reason),
             generated_by: null,
+            web_kind: isWeb ? "self_contained_html" : null,
+            web_entrypoint: isWeb ? result.file.filename : null,
+            web_execution_policy: isWeb ? "static" : null,
           },
           options: { source: "ai_proposal" },
         });

@@ -35,6 +35,7 @@ import type {
   AiTestConnectionRequest,
 } from "../ai";
 import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
+import type { WebArtifactExecutionPolicy } from "../webArtifact.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
@@ -79,6 +80,7 @@ export const IPC = {
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
   artifactProposalMaterialize: "artifact:proposal-materialize",
+  artifactWebPreview: "artifact:web-preview",
   audioCapturePrepare: "audio-capture:prepare",
   audioCaptureListPrepared: "audio-capture:list-prepared",
   audioCaptureCommit: "audio-capture:commit",
@@ -499,6 +501,11 @@ export type FilePreviewReadResult =
   | { ok: true; kind: "text"; text: string; mimeType: string; filePath: string }
   | { ok: false; error: string };
 
+/** Web Artifact専用。RendererへOS pathを返さず、Artifact IDで本文だけを読む。 */
+export type WebArtifactPreviewResult =
+  | { ok: true; html: string; mimeType: "text/html"; executionPolicy: WebArtifactExecutionPolicy }
+  | { ok: false; error: string };
+
 export interface ResearchDeskApi {
   workspace: {
     load(): Promise<Workspace>;
@@ -572,6 +579,9 @@ export interface ResearchDeskApi {
     saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
     importArtifactFiles(request: ArtifactFileImportRequest): Promise<ArtifactFileImportResult>;
     materializeArtifactProposal(request: ArtifactProposalMaterializeRequest): Promise<ArtifactProposalMaterializeResult>;
+  };
+  artifacts: {
+    readWebPreview(artifactId: string): Promise<WebArtifactPreviewResult>;
   };
   mediaCapture: {
     prepareAudio(request: AudioCapturePrepareRequest): Promise<AudioCapturePrepareResult>;

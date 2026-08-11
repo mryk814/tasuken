@@ -201,6 +201,9 @@ export const workspaceApi = {
   materializeArtifactProposal(request: import("../../../shared/attachments").ArtifactProposalMaterializeRequest) {
     return desktopApi().attachments.materializeArtifactProposal(request);
   },
+  readWebArtifactPreview(artifactId: string) {
+    return desktopApi().artifacts.readWebPreview(artifactId);
+  },
   prepareAudioCapture(themeId?: string | null) {
     return desktopApi().mediaCapture.prepareAudio({ themeId });
   },
