@@ -11,7 +11,7 @@ import {
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { MediaRecordingStarted, VideoArtifactSourceType, VideoImportPrepared } from "../../../../../shared/mediaCapture";
-import type { ScreenRecordingAudioMode, ScreenRecordingEnvironment, ScreenRecordingSourceProjection } from "../../../../../shared/screenRecording.mjs";
+import type { ScreenRecordingAudioMode, ScreenRecordingEnvironment, ScreenRecordingRegionSelection, ScreenRecordingSourceProjection } from "../../../../../shared/screenRecording.mjs";
 import { SCREEN_RECORDING_BITRATES, screenRecordingContainerOf } from "../../../../../shared/screenRecording.mjs";
 import { formatArtifactFileSize } from "./artifacts";
 import { Button } from "./common";
@@ -66,6 +66,8 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
   const [elapsedMs, setElapsedMs] = useState(0);
   const [recordedBytes, setRecordedBytes] = useState(0);
   const [transitioning, setTransitioning] = useState(false);
+  const [regionSelecting, setRegionSelecting] = useState(false);
+  const [regionSelection, setRegionSelection] = useState<ScreenRecordingRegionSelection | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamsRef = useRef<MediaStream[]>([]);
@@ -80,6 +82,7 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
   const discardingRef = useRef(false);
   const transitionRef = useRef<Promise<void>>(Promise.resolve());
   const stopNowRef = useRef<(showToast?: boolean) => Promise<VideoImportPrepared | null>>(async () => null);
+  const cropCleanupRef = useRef<(() => void) | null>(null);
 
   const selectedSource = useMemo(() => sources.find((source) => source.sourceToken === sourceToken) || null, [sourceToken, sources]);
   const active = Boolean(startRef.current || sessionRef.current);
@@ -108,11 +111,71 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
   }), []);
 
   function releaseStreams() {
+    cropCleanupRef.current?.();
+    cropCleanupRef.current = null;
     for (const stream of streamsRef.current) {
       for (const track of stream.getTracks()) track.stop();
     }
     streamsRef.current = [];
     recorderRef.current = null;
+  }
+
+  async function createCroppedVideoStream(displayStream: MediaStream, region: ScreenRecordingRegionSelection): Promise<MediaStream> {
+    const sourceTrack = displayStream.getVideoTracks()[0];
+    if (!sourceTrack) throw new Error("範囲録画の映像trackがありません。");
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = new MediaStream([sourceTrack]);
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("範囲録画の映像サイズを確認できません。"));
+    });
+    await video.play();
+    const scaleX = video.videoWidth / region.frameSizePx.width;
+    const scaleY = video.videoHeight / region.frameSizePx.height;
+    if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
+      throw new Error("画面の拡大率が変わりました。範囲を選び直してください。");
+    }
+    const sourceX = Math.floor(region.cropPx.x * scaleX);
+    const sourceY = Math.floor(region.cropPx.y * scaleY);
+    const sourceWidth = Math.ceil(region.cropPx.width * scaleX);
+    const sourceHeight = Math.ceil(region.cropPx.height * scaleY);
+    if (sourceX < 0 || sourceY < 0 || sourceX + sourceWidth > video.videoWidth || sourceY + sourceHeight > video.videoHeight) {
+      throw new Error("画面の拡大率が変わりました。範囲を選び直してください。");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("範囲録画の描画面を作成できません。");
+    let frameId = 0;
+    const draw = () => {
+      context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+      frameId = window.requestAnimationFrame(draw);
+    };
+    draw();
+    const stream = canvas.captureStream(30);
+    cropCleanupRef.current = () => {
+      window.cancelAnimationFrame(frameId);
+      video.pause();
+      video.srcObject = null;
+    };
+    return stream;
+  }
+
+  async function selectRegion() {
+    if (!selectedSource || selectedSource.kind !== "screen" || regionSelecting) return;
+    setRegionSelecting(true);
+    setError("");
+    try {
+      const selected = await workspaceApi.selectScreenRecordingRegion(selectedSource.sourceToken);
+      if (selected) setRegionSelection(selected);
+    } catch (caught) {
+      setError(screenRecordingErrorMessage(caught));
+    } finally {
+      setRegionSelecting(false);
+    }
   }
 
   function queueBlob(blob: Blob) {
@@ -201,7 +264,7 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
       if (audioMode === "system" && !environment.systemAudio) {
         throw new Error(environment.systemAudioReason || "この環境ではシステム音声を録音できません。");
       }
-      await workspaceApi.armScreenRecording({ sourceToken: selectedSource.sourceToken, audioMode, includePointer });
+      await workspaceApi.armScreenRecording({ sourceToken: selectedSource.sourceToken, audioMode, includePointer, ...(regionSelection ? { region: regionSelection } : {}) });
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         audio: audioMode === "system",
         video: { cursor: includePointer ? "always" : "never" } as MediaTrackConstraints,
@@ -213,7 +276,9 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
         acquiredStreams.push(microphone);
         audioTracks = microphone.getAudioTracks();
       }
-      const combined = new MediaStream([...displayStream.getVideoTracks(), ...audioTracks]);
+      const videoStream = regionSelection ? await createCroppedVideoStream(displayStream, regionSelection) : displayStream;
+      if (videoStream !== displayStream) acquiredStreams.push(videoStream);
+      const combined = new MediaStream([...videoStream.getVideoTracks(), ...audioTracks]);
       acquiredStreams.push(combined);
       const mimeType = environment.mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
       if (!mimeType) throw new Error("WebM画面録画形式を利用できなくなりました。アプリを再起動してください。");
@@ -464,7 +529,7 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
                     aria-checked={source.sourceToken === sourceToken}
                     className={source.sourceToken === sourceToken ? "is-selected" : ""}
                     key={source.sourceToken}
-                    onClick={() => setSourceToken(source.sourceToken)}
+                    onClick={() => { setSourceToken(source.sourceToken); setRegionSelection(null); }}
                   >
                     <img src={source.thumbnailDataUrl} alt="" />
                     <span>{source.label}</span>
@@ -481,6 +546,14 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
                 <label className="screen-recorder-check"><input type="checkbox" checked={includePointer} onChange={(event) => setIncludePointer(event.target.checked)} />Pointer</label>
                 <small>{environment ? `空き ${formatArtifactFileSize(environment.availableRecordingBytes)} · 上限 ${formatArtifactFileSize(environment.maxRecordingBytes)}` : ""}</small>
               </div>
+              {selectedSource?.kind === "screen" && (
+                <div className="inline-actions screen-recorder-region-setting">
+                  <Button variant="secondary" compact disabled={transitioning || regionSelecting} onClick={() => { void selectRegion(); }}>
+                    {regionSelecting ? "範囲を選択中…" : regionSelection ? "範囲を選び直す" : "範囲を選択"}
+                  </Button>
+                  {regionSelection && <><small>{regionSelection.rectDip.width} × {regionSelection.rectDip.height} DIP</small><button type="button" className="text-button compact" onClick={() => setRegionSelection(null)}>画面全体へ戻す</button></>}
+                </div>
+              )}
               {environment && !environment.systemAudio && <small>{environment.systemAudioReason}</small>}
               <div className="inline-actions">
                 <Button variant="secondary" compact disabled={transitioning} onClick={() => { void openPicker(); }}><IconRefresh size={15} />更新</Button>

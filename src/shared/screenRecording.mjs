@@ -156,17 +156,37 @@ export function validateScreenRecordingSourceProjection(value) {
 }
 
 export function parseScreenRecordingArmRequest(value) {
-  const input = requireExactObject(value, ["sourceToken", "audioMode", "includePointer"], "画面録画arm request");
+  const input = requireExactObject(value, ["sourceToken", "audioMode", "includePointer", "region"], "画面録画arm request");
   if (!SCREEN_RECORDING_AUDIO_MODES.includes(input.audioMode)) {
     throw new Error("画面録画のaudio modeが不正です。");
   }
   if (typeof input.includePointer !== "boolean") {
     throw new Error("画面録画のpointer設定が不正です。");
   }
+  let region = null;
+  if (input.region !== undefined && input.region !== null) {
+    const value = requireExactObject(input.region, ["rectDip", "cropPx", "frameSizePx"], "画面録画region");
+    const normalizeRect = (candidate, label, allowOffset, allowNegativeOffset = false) => {
+      const rect = requireExactObject(candidate, allowOffset ? ["x", "y", "width", "height"] : ["width", "height"], label);
+      const width = requireSafeInteger(rect.width, `${label} width`, 1);
+      const height = requireSafeInteger(rect.height, `${label} height`, 1);
+      return allowOffset
+        ? { x: requireSafeInteger(rect.x, `${label} x`, allowNegativeOffset ? -1_000_000 : 0), y: requireSafeInteger(rect.y, `${label} y`, allowNegativeOffset ? -1_000_000 : 0), width, height }
+        : { width, height };
+    };
+    const rectDip = normalizeRect(value.rectDip, "画面録画region DIP", true, true);
+    if (rectDip.width < 64 || rectDip.height < 64) throw new Error("録画範囲は64×64以上で選択してください。");
+    region = Object.freeze({
+      rectDip,
+      cropPx: normalizeRect(value.cropPx, "画面録画region pixel", true),
+      frameSizePx: normalizeRect(value.frameSizePx, "画面録画frame", false),
+    });
+  }
   return Object.freeze({
     sourceToken: requireUuid(input.sourceToken, "画面録画source token"),
     audioMode: input.audioMode,
     includePointer: input.includePointer,
+    ...(region ? { region } : {}),
   });
 }
 

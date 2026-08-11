@@ -39,7 +39,7 @@ import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
-import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared } from "../mediaCapture";
+import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared, VideoTrimExportRequest, VideoTrimExportResult, VideoTrimSourceRevision } from "../mediaCapture";
 import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest, BatchTranscriptionHistoryResult, BatchTranscriptionPreviewResult, BatchTranscriptionRunRequest, BatchTranscriptionRunResult } from "../batchTranscriptionIpc";
 import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
 
@@ -91,6 +91,8 @@ export const IPC = {
   screenRecordingCapabilities: "screen-recording:capabilities",
   screenRecordingListSources: "screen-recording:list-sources",
   screenRecordingArm: "screen-recording:arm",
+  screenRecordingSelectRegion: "screen-recording:select-region",
+  screenRecordingRegionResult: "screen-recording:region-result",
   recordingIndicatorState: "recording-indicator:state",
   recordingIndicatorRequestState: "recording-indicator:request-state",
   recordingIndicatorCommand: "recording-indicator:command",
@@ -101,6 +103,8 @@ export const IPC = {
   videoImportCancel: "video-import:cancel",
   mediaArtifactOpenExternal: "media-artifact:open-external",
   mediaArtifactInspect: "media-artifact:inspect",
+  videoTrimSource: "video-trim:source",
+  videoTrimExport: "video-trim:export",
   batchTranscriptionPreview: "batch-transcription:preview",
   batchTranscriptionHistory: "batch-transcription:history",
   batchTranscriptionRun: "batch-transcription:run",
@@ -585,6 +589,8 @@ export interface ResearchDeskApi {
     cancelVideo(request: AudioCaptureCancelRequest): Promise<boolean>;
     openArtifactExternal(request: MediaArtifactOpenRequest): Promise<{ ok: boolean; error?: string }>;
     inspectArtifact(request: MediaArtifactOpenRequest): Promise<MediaArtifactInspection>;
+    getVideoTrimSource(request: MediaArtifactOpenRequest): Promise<VideoTrimSourceRevision>;
+    exportVideoTrim(request: VideoTrimExportRequest): Promise<VideoTrimExportResult>;
   };
   batchTranscription: {
     preview(request: BatchTranscriptionArtifactRequest): Promise<BatchTranscriptionPreviewResult>;
@@ -596,6 +602,7 @@ export interface ResearchDeskApi {
     capabilities(): Promise<ScreenRecordingEnvironment>;
     listSources(): Promise<readonly Readonly<ScreenRecordingSourceProjection>[]>;
     arm(request: ScreenRecordingArmRequest): Promise<ArmedScreenRecordingProjection>;
+    selectRegion(request: { sourceToken: string }): Promise<import("../screenRecording.mjs").ScreenRecordingRegionSelection | null>;
     applyIndicator(state: RecordingIndicatorState | null): Promise<boolean>;
     onIndicatorCommand(callback: (command: RecordingIndicatorCommand) => void): () => void;
   };

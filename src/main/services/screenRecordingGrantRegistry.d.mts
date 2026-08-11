@@ -3,6 +3,7 @@ import type {
   ScreenRecordingAudioMode,
   ScreenRecordingSourceKind,
   ScreenRecordingSourceProjection,
+  ScreenRecordingRegionSelection,
 } from "../../shared/screenRecording.mjs";
 
 export interface InternalScreenRecordingSource {
@@ -10,6 +11,7 @@ export interface InternalScreenRecordingSource {
   kind: ScreenRecordingSourceKind;
   label: string;
   thumbnailDataUrl: string;
+  displayId?: string | null;
 }
 
 export interface ScreenRecordingRequestContext {
@@ -27,6 +29,7 @@ export interface ArmedScreenRecording {
   audioMode: ScreenRecordingAudioMode;
   includePointer: boolean;
   expiresAt: string;
+  region?: ScreenRecordingRegionSelection;
 }
 
 export interface ConsumedScreenRecordingGrant {
@@ -36,12 +39,15 @@ export interface ConsumedScreenRecordingGrant {
   includePointer: boolean;
   displayAudio: "loopback" | null;
   microphoneRequired: boolean;
+  region?: ScreenRecordingRegionSelection;
 }
 
 export class ScreenRecordingGrantRegistry {
   constructor(options: { idFactory: () => string; getCapabilities: () => { microphone: boolean; systemAudio: boolean }; nowMs?: () => number; platform?: NodeJS.Platform });
   issueSources(sources: InternalScreenRecordingSource[], context: ScreenRecordingRequestContext): readonly Readonly<ScreenRecordingSourceProjection>[];
   arm(request: ScreenRecordingArmRequest, context: ScreenRecordingRequestContext): Readonly<ArmedScreenRecording>;
+  resolveRegionSource(sourceToken: unknown, context: ScreenRecordingRequestContext): Readonly<{ displayId: string; sourceToken: string }>;
+  bindRegionSelection(sourceToken: unknown, region: ScreenRecordingRegionSelection, context: ScreenRecordingRequestContext): Readonly<ScreenRecordingRegionSelection>;
   consumeDisplayRequest(request: {
     senderWebContentsId: number;
     frameTreeNodeId: number;

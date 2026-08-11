@@ -54,6 +54,32 @@ test("arm request is exact and rejects Electron source identifiers", () => {
   assert.throws(() => parseScreenRecordingArmRequest({ sourceToken: TOKEN, audioMode: "both", includePointer: true }));
 });
 
+test("region arm keeps only bounded DIP and pixel crop metadata", () => {
+  const region = {
+    rectDip: { x: -1200, y: 80, width: 640, height: 360 },
+    cropPx: { x: 100, y: 125, width: 800, height: 450 },
+    frameSizePx: { width: 2400, height: 1350 },
+  };
+  assert.deepEqual(parseScreenRecordingArmRequest({
+    sourceToken: TOKEN,
+    audioMode: "off",
+    includePointer: false,
+    region,
+  }).region, region);
+  assert.throws(() => parseScreenRecordingArmRequest({
+    sourceToken: TOKEN,
+    audioMode: "off",
+    includePointer: false,
+    region: { ...region, rectDip: { ...region.rectDip, width: 63 } },
+  }), /64/);
+  assert.throws(() => parseScreenRecordingArmRequest({
+    sourceToken: TOKEN,
+    audioMode: "off",
+    includePointer: false,
+    region: { ...region, rawDisplayId: "screen:0:0" },
+  }));
+});
+
 test("capabilities expose Windows loopback only and select an explicit supported recorder MIME", () => {
   assert.deepEqual(buildScreenRecordingCapabilities({
     platform: "win32",

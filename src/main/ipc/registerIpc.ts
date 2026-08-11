@@ -25,6 +25,8 @@ import {
   parseMediaRecordingStartRequest,
   parseVideoImportCommitRequest,
   parseVideoImportPrepareRequest,
+  parseVideoTrimExportRequest,
+  parseVideoTrimSourceRequest,
 } from "../../shared/mediaCapture";
 import { projectCommandReceiptForRenderer, projectEntityForRenderer, projectSnapshotInspectForRenderer, projectWorkspaceForRenderer } from "../rendererMediaProjection";
 import type { CommandReceipt } from "../../shared/applicationCommand";
@@ -434,6 +436,30 @@ export function registerIpc(
   ipcMain.handle(IPC.mediaArtifactInspect, (_event, request) => {
     const { artifactId } = parseMediaArtifactOpenRequest(request);
     return mediaCapture.inspectArtifactMedia(artifactId);
+  });
+  ipcMain.handle(IPC.screenRecordingSelectRegion, async (event, request) => {
+    try {
+      return await screenRecording.selectRegion(request, screenRecordingRequestContext(event));
+    } catch (error) {
+      logMain("error", "screen-recording:select-region", "録画範囲を選択できません", error);
+      throw projectScreenRecordingIpcError(error);
+    }
+  });
+  ipcMain.handle(IPC.videoTrimSource, (_event, request) => {
+    try {
+      return mediaCapture.getVideoTrimSource(parseVideoTrimSourceRequest(request).artifactId);
+    } catch (error) {
+      throw projectMediaCaptureIpcError("prepare", error);
+    }
+  });
+  ipcMain.handle(IPC.videoTrimExport, async (event, request) => {
+    try {
+      const result = await mediaCapture.exportTrimmedVideo(parseVideoTrimExportRequest(request));
+      notifyCommandApplied(result.receipt, event.sender.id, { senderReceivesAll: true });
+      return result.publicResult;
+    } catch (error) {
+      throw projectMediaCaptureIpcError("commit", error);
+    }
   });
   ipcMain.handle(IPC.batchTranscriptionPreview, (_event, request) => {
     try {

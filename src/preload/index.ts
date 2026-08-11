@@ -104,6 +104,8 @@ const api: ResearchDeskApi = {
     cancelVideo: (request) => ipcRenderer.invoke(IPC.videoImportCancel, request),
     openArtifactExternal: (request) => ipcRenderer.invoke(IPC.mediaArtifactOpenExternal, request),
     inspectArtifact: (request) => ipcRenderer.invoke(IPC.mediaArtifactInspect, request),
+    getVideoTrimSource: (request) => ipcRenderer.invoke(IPC.videoTrimSource, request),
+    exportVideoTrim: (request) => ipcRenderer.invoke(IPC.videoTrimExport, request),
   },
   batchTranscription: {
     preview: (request) => ipcRenderer.invoke(IPC.batchTranscriptionPreview, request),
@@ -115,6 +117,7 @@ const api: ResearchDeskApi = {
     capabilities: () => ipcRenderer.invoke(IPC.screenRecordingCapabilities),
     listSources: () => ipcRenderer.invoke(IPC.screenRecordingListSources),
     arm: (request) => ipcRenderer.invoke(IPC.screenRecordingArm, request),
+    selectRegion: (request) => ipcRenderer.invoke(IPC.screenRecordingSelectRegion, request),
     applyIndicator: (state) => ipcRenderer.invoke(IPC.recordingIndicatorApply, state),
     onIndicatorCommand: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, command: Parameters<typeof callback>[0]): void => callback(command);

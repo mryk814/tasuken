@@ -244,6 +244,9 @@ export const workspaceApi = {
   armScreenRecording(request: import("../../../shared/screenRecording.mjs").ScreenRecordingArmRequest) {
     return desktopApi().screenRecording.arm(request);
   },
+  selectScreenRecordingRegion(sourceToken: string) {
+    return desktopApi().screenRecording.selectRegion({ sourceToken });
+  },
   prepareVideoImport(request: import("../../../shared/mediaCapture").VideoImportPrepareRequest) {
     return desktopApi().mediaCapture.prepareVideo(request);
   },
@@ -261,6 +264,12 @@ export const workspaceApi = {
   },
   inspectMediaArtifact(artifactId: string) {
     return desktopApi().mediaCapture.inspectArtifact({ artifactId });
+  },
+  getVideoTrimSource(artifactId: string) {
+    return desktopApi().mediaCapture.getVideoTrimSource({ artifactId });
+  },
+  exportVideoTrim(request: import("../../../shared/mediaCapture").VideoTrimExportRequest) {
+    return desktopApi().mediaCapture.exportVideoTrim(request);
   },
   previewBatchTranscription(artifactId: string) {
     return desktopApi().batchTranscription.preview({ artifactId });

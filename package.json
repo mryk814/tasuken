@@ -75,6 +75,9 @@
       }
     ],
     "asar": true,
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/ffmpeg.exe"
+    ],
     "win": {
       "icon": "resources/icon.ico",
       "target": [
@@ -104,6 +107,7 @@
     "@tabler/icons-react": "^3.44.0",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.11.1",
+    "ffmpeg-static": "^5.2.0",
     "katex": "^0.17.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm-strikethrough": "^2.0.0",
