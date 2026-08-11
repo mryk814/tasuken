@@ -751,6 +751,7 @@ export function ContentViewer({
           {load.status === "ready" && load.mode === "web" && (
             <div className={`content-viewer-web ${webMode === "sandboxed_interactive" ? "is-interactive" : "is-static"}`}>
               <iframe
+                key={`${load.artifact.id}:${webMode}`}
                 className="content-viewer-web-frame"
                 title={`${load.title}のWeb Preview`}
                 src={webPreviewUrl}

@@ -154,6 +154,7 @@ test("ContentViewerはStaticを既定にし、Interactiveだけallow-scriptsへ�
   assert.match(viewer, /Static Preview/);
   assert.match(viewer, /Interactive Preview/);
   assert.match(viewer, /sandbox=\{webMode === "static" \? "" : "allow-scripts"\}/);
+  assert.match(viewer, /key=\{`\$\{load\.artifact\.id\}:\$\{webMode\}`\}/);
   assert.match(viewer, /src=\{webPreviewUrl\}/);
   assert.doesNotMatch(viewer, /srcDoc=/);
   assert.match(viewer, /allow=""/);
