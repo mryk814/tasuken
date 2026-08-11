@@ -413,6 +413,44 @@ test("CommitAudioCapture is a Main-owned typed command and persists the Capture-
   }), /managed owner/);
 });
 
+test("CommitTrimmedVideoArtifact atomically saves a derived Artifact and its lineage", () => {
+  const repo = repository();
+  repo.records.set("task:trim-task", { __type: "task", id: "trim-task", title: "Demo", state: "todo", project_id: "theme-personal-default", version: 1 });
+  const source = {
+    __type: "artifact", id: "source-video", title: "Source", filename: "source.mp4", file_type: "mp4",
+    mime_type: "video/mp4", file_size: 100, stored_path: "C:/Tasken/source.mp4", original_path: null,
+    target: null, storage_mode: "managed", copied_at: "2026-08-09T00:00:00.000Z", link_type: null,
+    link_status: null, last_checked_at: null, source_type: "task", source_id: "trim-task",
+    theme_id: "theme-personal-default", media_kind: "video", capture_method: "screen_recording",
+    duration_ms: 2000, width_px: 320, height_px: 180, container: "mp4",
+    content_hash: `sha256:${"a".repeat(64)}`, media_availability: "available", ai_visibility: [], version: 1,
+  };
+  repo.records.set("artifact:source-video", source);
+  const artifact = {
+    ...source,
+    id: "trimmed-video",
+    title: "Source trimmed",
+    filename: "source-trimmed.mp4",
+    stored_path: "C:/Tasken/source-trimmed.mp4",
+    duration_ms: 1000,
+    content_hash: `sha256:${"b".repeat(64)}`,
+  };
+  delete artifact.__type;
+  delete artifact.version;
+  const reference = {
+    id: "trim-lineage", source_type: "artifact", source_id: artifact.id,
+    target_type: "artifact", target_id: source.id, relation_type: "derived_from", note: "trim 500ms-1500ms",
+  };
+  const command = { ...envelope("CommitTrimmedVideoArtifact", { artifact, reference }, "trim-command"), source: "main_ui" };
+  const service = new ApplicationCommandService(repo);
+  assert.throws(() => service.execute(command), /media session/);
+  const receipt = service.executeMediaCapture(command);
+  assert.equal(receipt.status, "applied");
+  assert.deepEqual(receipt.changes.map(({ type }) => type), ["artifact", "reference"]);
+  assert.equal(repo.get("reference", "trim-lineage").target_id, "source-video");
+  assert.equal(repo.get("change_event", receipt.events[0]).metadata.derived_from_artifact_id, "source-video");
+});
+
 test("Command source attribution is preserved for every renderer entry", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);

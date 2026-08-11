@@ -55,6 +55,7 @@ function normalizeInternalSource(value) {
     kind,
     label,
     thumbnailDataUrl: source.thumbnailDataUrl,
+    displayId: kind === "screen" && source.displayId ? requireInternalSourceId(source.displayId) : null,
   };
 }
 
@@ -126,6 +127,9 @@ export class ScreenRecordingGrantRegistry {
     if (source.senderWebContentsId !== senderWebContentsId || source.frameTreeNodeId !== frameTreeNodeId || source.securityOrigin !== securityOrigin) {
       throw new Error("画面録画の要求元が一致しません。");
     }
+    if (request.region && JSON.stringify(request.region) !== JSON.stringify(source.selectedRegion)) {
+      throw new Error("録画範囲がMainで選択した内容と一致しません。範囲を選び直してください。");
+    }
     const audioMode = requireAudioMode(request.audioMode);
     const capabilities = requireRecord(this.getCapabilities(), "画面録画capability");
     if (typeof capabilities.microphone !== "boolean" || typeof capabilities.systemAudio !== "boolean") {
@@ -149,6 +153,7 @@ export class ScreenRecordingGrantRegistry {
       consumed: false,
       audioMode,
       includePointer: request.includePointer,
+      region: request.region || null,
     });
     this.activeTokens.set(source.sourceToken, { senderWebContentsId, expiresAtMs: armExpiresAtMs });
     return Object.freeze({
@@ -158,7 +163,39 @@ export class ScreenRecordingGrantRegistry {
       audioMode,
       includePointer: request.includePointer,
       expiresAt: new Date(armExpiresAtMs).toISOString(),
+      ...(request.region ? { region: request.region } : {}),
     });
+  }
+
+  resolveRegionSource(sourceTokenValue, contextValue) {
+    const sourceToken = requireInternalSourceId(sourceTokenValue);
+    const context = requireRecord(contextValue, "画面録画region context");
+    const senderWebContentsId = requireSafeInteger(context.senderWebContentsId, "画面録画sender ID", 1);
+    const frameTreeNodeId = requireSafeInteger(context.frameTreeNodeId, "画面録画frame ID", 1);
+    const securityOrigin = normalizeScreenRecordingSecurityOrigin(context.securityOrigin);
+    const now = requireSafeInteger(this.nowMs(), "画面録画時刻");
+    this.prune(now);
+    const source = this.sources.get(sourceToken);
+    if (!source || source.expiresAtMs < now) throw new Error("画面録画の選択期限が切れました。もう一度選択してください。");
+    if (source.kind !== "screen" || !source.displayId) throw new Error("範囲録画は画面を選択したときだけ利用できます。");
+    if (source.senderWebContentsId !== senderWebContentsId || source.frameTreeNodeId !== frameTreeNodeId || source.securityOrigin !== securityOrigin) {
+      throw new Error("画面録画の要求元が一致しません。");
+    }
+    return Object.freeze({ displayId: source.displayId, sourceToken: source.sourceToken });
+  }
+
+  bindRegionSelection(sourceTokenValue, regionValue, contextValue) {
+    const resolved = this.resolveRegionSource(sourceTokenValue, contextValue);
+    const parsed = parseScreenRecordingArmRequest({
+      sourceToken: resolved.sourceToken,
+      audioMode: "off",
+      includePointer: false,
+      region: regionValue,
+    });
+    const source = this.sources.get(resolved.sourceToken);
+    if (!source || !parsed.region) throw new Error("録画範囲を保存できませんでした。もう一度選択してください。");
+    source.selectedRegion = parsed.region;
+    return parsed.region;
   }
 
   consumeDisplayRequest(requestValue) {
@@ -194,6 +231,7 @@ export class ScreenRecordingGrantRegistry {
       kind: armed.kind,
       label: armed.label,
       includePointer: armed.includePointer,
+      ...(armed.region ? { region: armed.region } : {}),
       displayAudio: authorization.displayAudio,
       microphoneRequired: authorization.microphoneRequired,
     });

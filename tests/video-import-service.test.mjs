@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Buffer } from "node:buffer";
+import { spawnSync } from "node:child_process";
 
 import { build } from "esbuild";
 
@@ -20,11 +21,14 @@ async function importBundled(relativePath) {
 }
 
 const { MediaCaptureService } = await importBundled("src/main/services/mediaCaptureService.ts");
+const { createTrimPlan } = await importBundled("src/shared/screenRecordingEdit.mjs");
 
 const IDS = [
   "00000000-0000-4000-8000-000000000101",
   "00000000-0000-4000-8000-000000000102",
   "00000000-0000-4000-8000-000000000103",
+  "00000000-0000-4000-8000-000000000104",
+  "00000000-0000-4000-8000-000000000105",
 ];
 
 function fixture(t) {
@@ -87,6 +91,58 @@ test("managed video stages exact bytes and commits one strict ID-owned Artifact 
   assert.equal(command.payload.artifact.width_px, 640);
   assert.deepEqual(fs.readFileSync(command.payload.artifact.stored_path), paths.bytes);
   assert.equal(media.listPreparedVideo().length, 0);
+});
+
+test("trim export keeps the original bytes and commits a separate derived Artifact", async (t) => {
+  const paths = fixture(t);
+  const ffmpegPath = path.resolve("node_modules", "ffmpeg-static", "ffmpeg.exe");
+  const generated = spawnSync(ffmpegPath, [
+    "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+    "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=2",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", paths.sourcePath,
+  ], { windowsHide: true });
+  assert.equal(generated.status, 0, generated.stderr?.toString("utf8"));
+  const originalBytes = fs.readFileSync(paths.sourcePath);
+  const records = new Map([["task:task-1", { id: "task-1", state: "todo", project_id: null }]]);
+  let index = 0;
+  const calls = [];
+  const media = new MediaCaptureService({
+    userDataPath: paths.userDataPath,
+    repository: { get(type, id) { return records.get(`${type}:${id}`) || null; } },
+    commands: {
+      executeMediaCapture(command) {
+        calls.push(command);
+        if (command.payload.artifact) records.set(`artifact:${command.payload.artifact.id}`, { ...command.payload.artifact, version: 1 });
+        if (command.payload.reference) records.set(`reference:${command.payload.reference.id}`, { ...command.payload.reference, version: 1 });
+        return { status: "applied", commandId: command.commandId, changes: [], events: [] };
+      },
+    },
+    resolveManagedDirectory: () => ({ kind: "ok", directory: paths.managedDirectory }),
+    idFactory: () => IDS[index++],
+    now: () => "2026-08-09T00:00:00.000Z",
+    ffmpegPath,
+  });
+  const prepared = media.prepareVideoFile(paths.sourcePath, request);
+  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: 2000, widthPx: 320, heightPx: 180 });
+  const source = media.getVideoTrimSource(committed.publicResult.artifactId);
+  const originalArtifact = records.get(`artifact:${source.artifactId}`);
+  const result = await media.exportTrimmedVideo({
+    operationId: "00000000-0000-4000-8000-000000000201",
+    destinationArtifactId: "00000000-0000-4000-8000-000000000202",
+    trimPlan: createTrimPlan({ source, startMs: 500, endMs: 1500 }),
+  });
+  assert.equal(result.publicResult.sourceArtifactId, source.artifactId);
+  assert.deepEqual(fs.readFileSync(originalArtifact.stored_path), originalBytes);
+  const command = calls.at(-1);
+  assert.equal(command.name, "CommitTrimmedVideoArtifact");
+  assert.equal(command.payload.artifact.id, "00000000-0000-4000-8000-000000000202");
+  assert.equal(command.payload.artifact.duration_ms, 1000);
+  assert.equal(command.payload.artifact.mime_type, "video/mp4");
+  assert.notEqual(command.payload.artifact.stored_path, originalArtifact.stored_path);
+  assert.equal(fs.existsSync(command.payload.artifact.stored_path), true);
+  assert.equal(command.payload.reference.source_id, command.payload.artifact.id);
+  assert.equal(command.payload.reference.target_id, source.artifactId);
+  assert.equal(command.payload.reference.relation_type, "derived_from");
 });
 
 test("video theme authority is derived from the saved owner before bytes are staged", (t) => {

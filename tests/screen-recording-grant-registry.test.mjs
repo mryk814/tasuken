@@ -27,6 +27,7 @@ function fixture({ platform = "win32", capabilities = { microphone: true, system
 function sources() {
   return [{
     internalSourceId: "screen:123:0",
+    displayId: "123",
     kind: "screen",
     label: "Main screen",
     thumbnailDataUrl: THUMBNAIL,
@@ -82,6 +83,25 @@ test("arm is sender, origin and expiry bound, and a source token is one-shot", (
   const [expiring] = registry.issueSources(sources().slice(0, 1), context());
   setNow(301_001);
   assert.throws(() => registry.arm({ sourceToken: expiring.sourceToken, audioMode: "off", includePointer: true }, context()), /期限/);
+});
+
+test("region arm accepts only the exact Main-bound selection", () => {
+  const { registry } = fixture();
+  const [source] = registry.issueSources(sources().slice(0, 1), context());
+  const region = {
+    rectDip: { x: 10, y: 20, width: 640, height: 360 },
+    cropPx: { x: 15, y: 30, width: 960, height: 540 },
+    frameSizePx: { width: 1920, height: 1080 },
+  };
+  registry.bindRegionSelection(source.sourceToken, region, context());
+  assert.throws(() => registry.arm({
+    sourceToken: source.sourceToken,
+    audioMode: "off",
+    includePointer: false,
+    region: { ...region, cropPx: { ...region.cropPx, width: 1000 } },
+  }, context()), /Main/);
+  const armed = registry.arm({ sourceToken: source.sourceToken, audioMode: "off", includePointer: false, region }, context());
+  assert.deepEqual(armed.region, region);
 });
 
 test("armは自分の窓を持ち、対象選びに時間をかけても直後のgetDisplayMediaを弾かない", () => {

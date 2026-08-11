@@ -1,12 +1,15 @@
 import type { DesktopCapturerSource } from "electron";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import {
   SCREEN_RECORDING_LIMITS,
   SCREEN_RECORDING_MIME_CANDIDATES,
   type ScreenRecordingArmRequest,
   type ScreenRecordingSourceProjection,
+  type ScreenRecordingRegionSelection,
 } from "../../shared/screenRecording.mjs";
+import { IPC } from "../../shared/ipc/contracts";
 import {
   ScreenRecordingGrantRegistry,
   type ScreenRecordingRequestContext,
@@ -42,6 +45,7 @@ export interface ResolvedScreenRecordingGrant {
   includePointer: boolean;
   displayAudio: "loopback" | null;
   microphoneRequired: boolean;
+  region?: ScreenRecordingRegionSelection;
 }
 
 type DesktopSourceProvider = (types: Array<"screen" | "window">) => Promise<DesktopCapturerSource[]>;
@@ -50,6 +54,7 @@ export class ScreenRecordingService {
   private readonly registry: ScreenRecordingGrantRegistry;
   private readonly platform: NodeJS.Platform;
   private readonly getSources: DesktopSourceProvider;
+  private regionSelectionActive = false;
 
   constructor(options: {
     idFactory?: () => string;
@@ -100,6 +105,114 @@ export class ScreenRecordingService {
     return this.registry.arm(request, context);
   }
 
+  async selectRegion(request: unknown, context: ScreenRecordingRequestContext): Promise<ScreenRecordingRegionSelection | null> {
+    const { BrowserWindow, ipcMain, screen } = await import("electron");
+    if (this.regionSelectionActive) throw new Error("録画範囲の選択が既に開いています。先に完了してください。");
+    if (!request || typeof request !== "object" || Array.isArray(request) || Object.keys(request).some((key) => key !== "sourceToken")) {
+      throw new Error("録画範囲の選択requestが不正です。");
+    }
+    const sourceToken = (request as { sourceToken?: unknown }).sourceToken;
+    const resolved = this.registry.resolveRegionSource(sourceToken, context);
+    const display = screen.getAllDisplays().find((candidate) => String(candidate.id) === resolved.displayId);
+    if (!display) throw new Error("選択した画面の表示情報を確認できません。録画対象を更新してください。");
+    if (display.rotation !== 0) throw new Error("回転した画面では範囲録画を利用できません。画面全体を選択してください。");
+    const bounds = display.bounds;
+    const selector = new BrowserWindow({
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      show: false,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      fullscreenable: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+        preload: path.join(__dirname, "../preload/regionSelector.mjs"),
+      },
+    });
+    selector.setContentProtection(true);
+    selector.setAlwaysOnTop(true, "screen-saver");
+    this.regionSelectionActive = true;
+    try {
+      const result = await new Promise<{ cancelled: boolean; start?: { x: number; y: number }; end?: { x: number; y: number } }>((resolve, reject) => {
+        let settled = false;
+        const finish = (value: { cancelled: boolean; start?: { x: number; y: number }; end?: { x: number; y: number } }) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          ipcMain.removeListener(IPC.screenRecordingRegionResult, onResult);
+          resolve(value);
+        };
+        const onResult = (event: Electron.IpcMainEvent, value: unknown) => {
+          if (event.sender.id !== selector.webContents.id) return;
+          if (!value || typeof value !== "object" || Array.isArray(value)) return finish({ cancelled: true });
+          const input = value as Record<string, unknown>;
+          if (input.cancelled === true) return finish({ cancelled: true });
+          const normalizePoint = (candidate: unknown) => {
+            if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+            const { x, y } = candidate as Record<string, unknown>;
+            if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) return null;
+            return { x: Number(x), y: Number(y) };
+          };
+          const start = normalizePoint(input.start);
+          const end = normalizePoint(input.end);
+          finish(start && end ? { cancelled: false, start, end } : { cancelled: true });
+        };
+        const timer = setTimeout(() => finish({ cancelled: true }), 120_000);
+        ipcMain.on(IPC.screenRecordingRegionResult, onResult);
+        selector.once("closed", () => finish({ cancelled: true }));
+        const target = process.env.ELECTRON_RENDERER_URL
+          ? `${process.env.ELECTRON_RENDERER_URL}/region-selector.html`
+          : path.join(__dirname, "../renderer/region-selector.html");
+        const loading = process.env.ELECTRON_RENDERER_URL ? selector.loadURL(target) : selector.loadFile(target);
+        loading.then(
+          () => { if (!selector.isDestroyed()) selector.show(); },
+          (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            ipcMain.removeListener(IPC.screenRecordingRegionResult, onResult);
+            reject(error);
+          },
+        );
+      });
+      if (result.cancelled || !result.start || !result.end) return null;
+      const left = Math.min(result.start.x, result.end.x);
+      const top = Math.min(result.start.y, result.end.y);
+      const right = Math.max(result.start.x, result.end.x);
+      const bottom = Math.max(result.start.y, result.end.y);
+      const width = right - left;
+      const height = bottom - top;
+      if (width < 64 || height < 64) throw new Error("録画範囲は64×64以上で選択してください。");
+      if (left < 0 || top < 0 || right > bounds.width || bottom > bounds.height) throw new Error("録画範囲を1つの画面内に収めてください。");
+      const frameSizePx = {
+        width: Math.round(bounds.width * display.scaleFactor),
+        height: Math.round(bounds.height * display.scaleFactor),
+      };
+      const cropPx = {
+        x: Math.floor(left * display.scaleFactor),
+        y: Math.floor(top * display.scaleFactor),
+        width: Math.ceil(right * display.scaleFactor) - Math.floor(left * display.scaleFactor),
+        height: Math.ceil(bottom * display.scaleFactor) - Math.floor(top * display.scaleFactor),
+      };
+      return this.registry.bindRegionSelection(sourceToken, Object.freeze({
+        rectDip: { x: bounds.x + left, y: bounds.y + top, width, height },
+        cropPx,
+        frameSizePx,
+      }), context);
+    } finally {
+      this.regionSelectionActive = false;
+      if (!selector.isDestroyed()) selector.close();
+    }
+  }
+
   async consumePermissionRequest(request: ScreenRecordingPermissionRequest): Promise<ResolvedScreenRecordingGrant> {
     const grant = this.registry.consumeDisplayRequest(request);
     const sources = await this.getSources(["screen", "window"]);
@@ -110,6 +223,7 @@ export class ScreenRecordingService {
       includePointer: grant.includePointer,
       displayAudio: grant.displayAudio,
       microphoneRequired: grant.microphoneRequired,
+      ...(grant.region ? { region: grant.region } : {}),
     });
   }
 
@@ -136,6 +250,7 @@ export class ScreenRecordingService {
     }
     return {
       internalSourceId: source.id,
+      displayId: kind === "screen" ? (source.display_id || null) : null,
       kind,
       label: source.name,
       thumbnailDataUrl,

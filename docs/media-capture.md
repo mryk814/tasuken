@@ -3,8 +3,8 @@
 Issue #367 では、既存音声を Inbox の Voice Capture と managed Artifact へ取り込む。
 Issue #371 では、Inboxからmicrophoneを明示録音し、bounded chunkをMain-owned sessionへ順次保存して同じVoice Capture確定経路へ接続する。
 Issue #368 の Video Phase 0 では、既存動画を managed / linked Video Artifact として Task / Note / Capture / 実行中Focusから取り込む。
-Issue #373 では、Windowsの画面またはwindowをInboxから明示録画し、同じbounded recording sessionとVideo Artifact確定経路へ接続する。
-rectangle選択・trim/chapter/clip export・文字起こし・AI要約・codec変換はこの段階に含めない。
+Issue #373 では、Windowsの画面またはwindowをStudioから明示録画し、同じbounded recording sessionとVideo Artifact確定経路へ接続する。
+Issue #374 では、画面上のrectangle選択と、保存前Previewでの非破壊trim・派生Video Artifact書き出しを接続する。chapter、文字起こし、AI要約は後続scopeとする。
 
 ## 正本と確定順序
 
@@ -16,7 +16,7 @@ owner関係はContext Graphへ`derived_from`として投影し、同じ関係を
 DB失敗時は原音とmanifestを保持し、次回起動で同じcommand receiptを再実行する。
 prepare後・commit前に終了したsessionは自動確定せず、Inboxの「保存待ち音声」でpreview・保存・破棄を選べる。
 microphone録音は`recording / recording_paused`を同じmanifestへ保存し、stop時にchunkを検証・結合して`prepared`へ移す。app終了・device切断・Renderer障害で未停止のsessionは自動commitせず、「保存待ち音声」から復旧または破棄する。
-画面録画もsession manifestの`capture_method=screen_recording`で同じ状態遷移と上限を使い、自動commitしない。停止後はInboxの「保存待ち画面録画」でpreviewしてから既存`CommitVideoArtifact`へ明示保存し、確定したVideo Artifactにもtyped `capture_method=screen_recording`を残す。既存fileのimport Videoはこのfieldを持たず、両者を正本Entityから区別する。
+画面録画もsession manifestの`capture_method=screen_recording`で同じ状態遷移と上限を使い、自動commitしない。停止後はStudioの「保存待ち」でpreviewしてから`CommitVideoArtifact`へ明示保存し、確定したVideo Artifactにもtyped `capture_method=screen_recording`を残す。trim時も原本はこの経路で先に確定し、同梱ffmpegが別MP4を生成した後、`CommitTrimmedVideoArtifact`が派生Artifactと原本への`derived_from` Referenceを同じtransactionで確定する。既存fileのimport Videoは`capture_method`を持たず、両者を正本Entityから区別する。
 動画も選択直後には確定せず、各owner詳細の「保存待ち動画」でmetadataを確認してから「添付する」または「破棄」を選ぶ。
 
 ## Renderer境界
@@ -32,6 +32,8 @@ symlink/junction、hash不一致、検証後のpath差替えでは未検証bytes
 録音中のRendererはMediaRecorderの各BlobをMainが返す`maxChunkBytes`以下へ分割し、sequence付きArrayBufferとして逐次IPC送信する。未送信Blobは8 chunk相当のbyte上限を超えてqueueせず、録音済み部分のstop・復旧へ移る。開始処理はpromise gateで一度だけ実行し、Main session作成後にMediaRecorderの生成・開始が失敗した場合はそのsessionを破棄する。Mainはaudio/video共通で1 chunk 1 MiB、1 session 512 MiB、active duration 4時間、16,000 chunkを上限とし、sequence重複・欠落・size/duration/manifest超過をfile書込み前に拒否する。stop前のfinal Blob append時刻をdurableなactive duration cutoffとし、Renderer crash / reload後の無通信時間は録音時間へ加算しない。全録音Blob、absolute path、raw mediaをRenderer state・response・通知・ログへ保持しない。選択中のaudio device IDはRenderer内だけに留め、Mainへ送らない。
 
 画面/windowの列挙・選択・許可はMain authorityで行う。Rendererへは短命`sourceToken`、bounded label/thumbnail、kind、期限だけを返し、Electron/OSのsource IDやdisplay IDを渡さない。tokenはsender WebContents、Main frame tree node、originへ結び、30秒、一回限りとする。Main-frame navigation/reload・sender破棄で即時無効化し、permission handlerでuser gesture、video/audio要求、capability、source存続を再検証してから消費する。system audioはWindows loopback capabilityがある場合だけ、microphoneは別の`getUserMedia` streamとして取得し、非対応・capability driftはfail-closedにする。
+
+範囲録画は選択したscreenにだけcontent-protected overlayを出し、1つのdisplay内・64×64 DIP以上を要求する。Mainは現在のdisplay bounds / scale factorからDIP矩形を外向きにpixelへ丸め、Rendererは取得したdisplay trackをcanvas streamへcropする。overlayは選択完了後に閉じてからarmし、録画中ドックも`setContentProtection(true)`で録画対象から除外する。
 
 ## #352 / #368 との共有境界
 
@@ -122,8 +124,21 @@ session manifest、recovery root、availability、ID-based protocol、Range配�
 | 画面録画の最長 | 40分 | 想定30分に余裕を持たせた停止点 |
 | マイク録音の最長 | 4時間 | 音声は容量が小さく、長時間録音を巻き添えにしない |
 
-保存形式は画面録画がMP4（H.264/AAC）。WebMは保存効率で勝るが、PowerPoint等での扱いが悪く「録ったものを他所で使う」導線が切れるため、既定を持ち出しやすさへ振っている。`MediaRecorder.isTypeSupported` がMP4を返さない環境ではWebMへfallbackする。録画後の再エンコードは行わない。
+保存形式は画面録画がMP4（H.264/AAC）。WebMは保存効率で勝るが、PowerPoint等での扱いが悪く「録ったものを他所で使う」導線が切れるため、既定を持ち出しやすさへ振っている。`MediaRecorder.isTypeSupported` がMP4を返さない環境ではWebMへfallbackする。通常保存では再エンコードせず、trim版の明示書き出しだけ同梱ffmpegでMP4（H.264/AAC）へ変換する。
 
 マイク録音はWebM/Opusのまま。m4a（AAC）へ寄せる案はあるが、Batch transcriptionのprovider側が受け付けるMIMEを確認してから判断する。
 
-ffmpegは同梱しない。**導入条件**: trim・chapter・clip export（#374）を実装するとき、または録画後の形式変換が必須になったとき。それまでは録画時のビットレート指定で足りる。
+ffmpeg-staticは#374のtrim書き出し条件が成立したため同梱する。実行ファイルはasar外へ展開し、Mainだけがabsolute path・検証済み原本・bounded trim範囲を渡す。Rendererへffmpeg pathや原本pathを公開しない。
+
+## #374 Acceptance 対応表
+
+| Issue原文 | 実装・証拠 |
+|---|---|
+| 画面・window・範囲を区別して選べる | screen/window pickerに「範囲を選択」を統合し、範囲はcontent-protected overlayのdragで取得する。全画面へ戻す導線も同じ面に置く |
+| 64×64、display境界、125%/150%、複数monitor | Mainのdisplay bounds/scale factorを正本に、単一display・64 DIP以上・外向きpixel丸めを検証する。pure contract testで125%/150%とdisplay境界を固定する |
+| selectorとdockを録画へ写さない | selectorと録画中dockのBrowserWindowへ`setContentProtection(true)`を設定し、selectorはarm前に閉じる |
+| Mic/System/Off、Pointer、pause/resume/stop | 既存のMain-owned one-shot grant、Windows loopback、別microphone stream、録画中dockを範囲録画でも共用する |
+| 停止直後にpreview/seekできる | Studioの保存待ちでnative video controlsを表示し、trim slider変更時は対応時刻へ即seekする |
+| 開始/終了を微調整・resetし、原本を変更しない | 0.1秒刻みのslider/buttonとresetを持ち、原本Artifactを先に確定する。trim処理は原本pathへ書かない |
+| trim版を別Artifactへ保存する | ffmpeg出力をexclusive publishし、別UUIDのmanaged Video Artifactと`derived_from` Referenceを同じApplication Command transactionで保存する |
+| full/typecheck/build/packaged Windows | 最終gateの実行結果をIssue/PRへ記録する。物理trim testは2秒の実MP4を生成し、原本bytes不変と別file/Artifact/Referenceを確認する |

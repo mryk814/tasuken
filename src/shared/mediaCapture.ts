@@ -126,6 +126,34 @@ export interface VideoImportCommitResult {
   sourceId: string;
 }
 
+export interface VideoTrimSourceRevision {
+  artifactId: string;
+  artifactVersion: number;
+  contentHash: string;
+  durationMs: number;
+  widthPx: number;
+  heightPx: number;
+}
+
+export interface VideoTrimExportRequest {
+  operationId: string;
+  destinationArtifactId: string;
+  trimPlan: {
+    schemaVersion: 1;
+    kind: "non_destructive_trim";
+    source: VideoTrimSourceRevision;
+    startMs: number;
+    endMs: number;
+  };
+}
+
+export interface VideoTrimExportResult {
+  status: "applied" | "no_change";
+  commandId: string;
+  artifactId: string;
+  sourceArtifactId: string;
+}
+
 export interface MediaArtifactOpenRequest {
   artifactId: string;
 }
@@ -306,6 +334,16 @@ export function parseVideoImportCommitRequest(value: unknown): VideoImportCommit
 export function parseMediaArtifactOpenRequest(value: unknown): MediaArtifactOpenRequest {
   const input = requireExactObject(value, ["artifactId"], "Media外部open");
   return { artifactId: requireUuid(input.artifactId, "Media Artifact ID") };
+}
+
+export function parseVideoTrimSourceRequest(value: unknown): MediaArtifactOpenRequest {
+  return parseMediaArtifactOpenRequest(value);
+}
+
+export function parseVideoTrimExportRequest(value: unknown): VideoTrimExportRequest {
+  const input = requireExactObject(value, ["operationId", "destinationArtifactId", "trimPlan"], "動画trim export");
+  // 詳細なrevision・範囲検証はscreenRecordingEditの共有契約をMainでも再実行する。
+  return input as unknown as VideoTrimExportRequest;
 }
 
 /** Main内部だけで扱う。Rendererへは返さない。 */

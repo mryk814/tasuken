@@ -27,6 +27,13 @@ export interface ScreenRecordingArmRequest {
   sourceToken: string;
   audioMode: ScreenRecordingAudioMode;
   includePointer: boolean;
+  region?: ScreenRecordingRegionSelection | null;
+}
+
+export interface ScreenRecordingRegionSelection {
+  rectDip: { x: number; y: number; width: number; height: number };
+  cropPx: { x: number; y: number; width: number; height: number };
+  frameSizePx: { width: number; height: number };
 }
 
 export interface ScreenRecordingCapabilities {
@@ -55,6 +62,7 @@ export interface ArmedScreenRecordingProjection {
   audioMode: ScreenRecordingAudioMode;
   includePointer: boolean;
   expiresAt: string;
+  region?: ScreenRecordingRegionSelection;
 }
 
 export interface ScreenRecordingGrantContext {

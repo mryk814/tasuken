@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 
 import { parseCommandEnvelope, type CommandEnvelope, type CommandReceipt } from "../../shared/applicationCommand";
 import type {
@@ -17,6 +18,9 @@ import type {
   VideoImportCommitRequest,
   VideoImportPrepared,
   VideoStorageMode,
+  VideoTrimExportRequest,
+  VideoTrimExportResult,
+  VideoTrimSourceRevision,
 } from "../../shared/mediaCapture";
 import { MEDIA_RECORDING_EXTENSIONS, MICROPHONE_RECORDING_MIME_TYPES, SCREEN_RECORDING_MIME_TYPES } from "../../shared/mediaCapture";
 import { audioMimeTypeOf, mediaExtensionOf, videoMimeTypeOf } from "../../shared/mediaArtifact.mjs";
@@ -25,6 +29,10 @@ import { resolveUniqueArtifactFileName, safeArtifactFileName } from "./artifactS
 import type { Entity } from "../../shared/types/workspace";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 import { buildThemeFolderManifest, THEME_FOLDER_MANIFEST, themeFolderManifestMatches } from "../../shared/storageResolver.mjs";
+import {
+  createMainOwnedCurrentVideoSource,
+  createTrimExportPlan,
+} from "../../shared/screenRecordingEdit.mjs";
 
 const MANIFEST_SCHEMA = "tasken-media-session/v1";
 const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -114,6 +122,7 @@ export interface MediaCaptureServiceOptions {
   idFactory?: () => string;
   now?: () => string;
   openPath?: (filePath: string) => Promise<string>;
+  ffmpegPath?: string | null;
 }
 
 function assertSessionId(value: unknown): string {
@@ -146,6 +155,29 @@ function hashFile(filePath: string): string {
     fs.closeSync(descriptor);
   }
   return `sha256:${hash.digest("hex")}`;
+}
+
+function resolveBundledFfmpegPath(): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe"),
+    ...(typeof process.resourcesPath === "string"
+      ? [path.resolve(process.resourcesPath, "app.asar.unpacked", "node_modules", "ffmpeg-static", "ffmpeg.exe")]
+      : []),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+function runFfmpeg(executable: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => { stderr = `${stderr}${chunk.toString("utf8")}`.slice(-8_000); });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpegが終了コード${String(code)}で失敗しました。${stderr ? ` ${stderr.slice(-500)}` : ""}`));
+    });
+  });
 }
 
 function hashFileDescriptor(descriptor: number): string {
@@ -787,6 +819,7 @@ export class MediaCaptureService {
   private readonly externalOpenRoot: string;
   private readonly idFactory: () => string;
   private readonly now: () => string;
+  private readonly ffmpegPath: string | null;
   private readonly verificationCache = new Map<string, { dev: string; ino: string; size: number; mtimeMs: number; ctimeMs: number; contentHash: string }>();
 
   constructor(private readonly options: MediaCaptureServiceOptions) {
@@ -794,6 +827,7 @@ export class MediaCaptureService {
     this.externalOpenRoot = path.resolve(options.userDataPath, "media-external-open");
     this.idFactory = options.idFactory || randomUUID;
     this.now = options.now || (() => new Date().toISOString());
+    this.ffmpegPath = options.ffmpegPath === undefined ? resolveBundledFfmpegPath() : options.ffmpegPath;
     ensureSafeDirectory(this.recoveryRoot, "Media recovery保存先");
     const externalRoot = ensureSafeDirectory(this.externalOpenRoot, "Media external-open snapshot保存先");
     let removed = 0;
@@ -1574,6 +1608,145 @@ export class MediaCaptureService {
     if (resolution.availability !== "available") return { availability: resolution.availability };
     fs.closeSync(resolution.fileDescriptor);
     return { availability: "available", mimeType: resolution.mimeType, fileSize: resolution.fileSize };
+  }
+
+  getVideoTrimSource(artifactIdValue: unknown): VideoTrimSourceRevision {
+    if (typeof artifactIdValue !== "string" || !SESSION_ID_PATTERN.test(artifactIdValue)) {
+      throw new Error("trimする動画Artifact IDが不正です。");
+    }
+    const artifact = this.options.repository.get("artifact", artifactIdValue);
+    if (
+      !artifact
+      || artifact.media_kind !== "video"
+      || typeof artifact.version !== "number"
+      || typeof artifact.content_hash !== "string"
+      || typeof artifact.duration_ms !== "number"
+      || typeof artifact.width_px !== "number"
+      || typeof artifact.height_px !== "number"
+    ) {
+      throw new Error("trimする動画のrevisionを確認できません。");
+    }
+    const resolution = this.resolveArtifactBytes(artifactIdValue, artifact);
+    if (resolution.availability !== "available") throw new Error("trimする元動画が見つからないか変更されています。");
+    fs.closeSync(resolution.fileDescriptor);
+    return createMainOwnedCurrentVideoSource({
+      artifactId: artifact.id,
+      artifactVersion: artifact.version,
+      contentHash: artifact.content_hash,
+      durationMs: artifact.duration_ms,
+      widthPx: artifact.width_px,
+      heightPx: artifact.height_px,
+    });
+  }
+
+  async exportTrimmedVideo(request: VideoTrimExportRequest): Promise<{ publicResult: VideoTrimExportResult; receipt: CommandReceipt }> {
+    if (!this.ffmpegPath || !path.isAbsolute(this.ffmpegPath) || !fs.existsSync(this.ffmpegPath)) {
+      throw new Error("動画trimエンジンを利用できません。Taskenを再インストールしてください。");
+    }
+    const current = createMainOwnedCurrentVideoSource(this.getVideoTrimSource(request.trimPlan?.source?.artifactId));
+    const plan = createTrimExportPlan(request, current);
+    const sourceArtifact = this.options.repository.get("artifact", plan.source.artifactId);
+    if (!sourceArtifact || sourceArtifact.storage_mode !== "managed" || typeof sourceArtifact.stored_path !== "string") {
+      throw new Error("trimはTasken管理下の動画でのみ利用できます。");
+    }
+    const sourceResolution = this.resolveArtifactBytes(sourceArtifact.id, sourceArtifact);
+    if (sourceResolution.availability !== "available") throw new Error("trimする元動画が見つからないか変更されています。");
+    fs.closeSync(sourceResolution.fileDescriptor);
+
+    const location = this.options.resolveManagedDirectory(typeof sourceArtifact.theme_id === "string" ? sourceArtifact.theme_id : null);
+    if (location.kind === "needs_directory") throw new Error("Artifact保存先が未設定です。Settingsで保存先を選択してください。");
+    const managedRoot = ensureSafeDirectory(location.directory, "managed Media保存先");
+    const sourcePath = path.resolve(sourceArtifact.stored_path);
+    assertWithin(managedRoot.real, sourcePath, "trim source video");
+    const preferredName = `${baseNameWithoutExtension(String(sourceArtifact.filename || "screen-recording"))}-trimmed.mp4`;
+    const filename = resolveUniqueArtifactFileName(preferredName, (candidate: string) => fs.existsSync(path.join(managedRoot.real, candidate)));
+    const finalPath = path.resolve(managedRoot.real, filename);
+    assertWithin(managedRoot.real, finalPath, "trimmed video");
+    const temporaryPath = path.resolve(this.recoveryRoot, `trim-${plan.operationId}.mp4`);
+    assertWithin(this.recoveryRoot, temporaryPath, "trim temporary video");
+    if (fs.existsSync(temporaryPath)) throw new Error("同じtrim処理が進行中です。完了を待ってください。");
+
+    const durationMs = plan.trim.endMs - plan.trim.startMs;
+    try {
+      await runFfmpeg(this.ffmpegPath, [
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
+        "-i", sourcePath,
+        "-ss", (plan.trim.startMs / 1000).toFixed(3),
+        "-t", (durationMs / 1000).toFixed(3),
+        "-map", "0:v:0", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-movflags", "+faststart",
+        temporaryPath,
+      ]);
+      const stat = fs.lstatSync(temporaryPath);
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.size <= 0) throw new Error("trim動画が生成されませんでした。");
+      const contentHash = hashFile(temporaryPath);
+      publishVerifiedStageExclusive(temporaryPath, finalPath, stat.size, contentHash);
+      const timestamp = this.now();
+      const artifact: Entity = {
+        id: plan.destination.artifactId,
+        title: baseNameWithoutExtension(filename),
+        filename,
+        file_type: "mp4",
+        mime_type: "video/mp4",
+        file_size: stat.size,
+        stored_path: finalPath,
+        original_path: null,
+        target: null,
+        storage_mode: "managed",
+        copied_at: timestamp,
+        link_type: null,
+        link_status: null,
+        last_checked_at: null,
+        source_type: sourceArtifact.source_type,
+        source_id: sourceArtifact.source_id,
+        theme_id: sourceArtifact.theme_id || null,
+        media_kind: "video",
+        capture_method: "screen_recording",
+        duration_ms: durationMs,
+        width_px: sourceArtifact.width_px,
+        height_px: sourceArtifact.height_px,
+        container: "mp4",
+        content_hash: contentHash,
+        media_availability: "available",
+        ai_visibility: Array.isArray(sourceArtifact.ai_visibility) ? sourceArtifact.ai_visibility : [],
+      };
+      const reference: Entity = {
+        id: this.idFactory(),
+        source_type: "artifact",
+        source_id: artifact.id,
+        target_type: "artifact",
+        target_id: sourceArtifact.id,
+        relation_type: "derived_from",
+        note: `trim ${plan.trim.startMs}ms-${plan.trim.endMs}ms`,
+      };
+      const command: CommandEnvelope = {
+        commandId: this.idFactory(),
+        name: "CommitTrimmedVideoArtifact",
+        payload: { artifact, reference },
+        actor: { kind: "user" },
+        source: "main_ui",
+        sessionId: plan.operationId,
+        issuedAt: timestamp,
+      };
+      try {
+        const receipt = this.options.commands.executeMediaCapture(command);
+        return {
+          publicResult: {
+            status: receipt.status === "no_change" ? "no_change" : "applied",
+            commandId: command.commandId,
+            artifactId: artifact.id,
+            sourceArtifactId: sourceArtifact.id,
+          },
+          receipt,
+        };
+      } catch (error) {
+        fs.rmSync(finalPath, { force: true });
+        throw error;
+      }
+    } finally {
+      fs.rmSync(temporaryPath, { force: true });
+    }
   }
 
   private beginFinalize(sessionDirectory: string, manifest: AudioSessionManifest, durationMs: number): AudioSessionManifest {

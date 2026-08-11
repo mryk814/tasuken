@@ -21,6 +21,7 @@ export const applicationCommandNames = [
   "ReturnTaskWork",
   "CommitAudioCapture",
   "CommitVideoArtifact",
+  "CommitTrimmedVideoArtifact",
 ] as const;
 export type ApplicationCommandName = (typeof applicationCommandNames)[number];
 
@@ -132,6 +133,11 @@ export interface CommitVideoArtifactCommandPayload {
   artifact: Entity;
 }
 
+export interface CommitTrimmedVideoArtifactCommandPayload {
+  artifact: Entity;
+  reference: Entity;
+}
+
 export type ApplicationCommandPayload =
   | CreateTaskCommandPayload
   | CreateTaskFromCaptureCommandPayload
@@ -145,7 +151,8 @@ export type ApplicationCommandPayload =
   | AppendWorkReceiptCommandPayload
   | TaskWorkReviewCommandPayload
   | CommitAudioCaptureCommandPayload
-  | CommitVideoArtifactCommandPayload;
+  | CommitVideoArtifactCommandPayload
+  | CommitTrimmedVideoArtifactCommandPayload;
 
 export interface CommandEnvelope<TPayload extends ApplicationCommandPayload = ApplicationCommandPayload> {
   commandId: string;
@@ -334,6 +341,14 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     const artifact = value.payload.artifact;
     if (!isRecord(artifact) || typeof artifact.id !== "string" || !artifact.id.trim()) {
       throw new ApplicationCommandError("INVALID_PAYLOAD", "CommitVideoArtifactのartifact payloadが不正です。");
+    }
+  }
+  if (name === "CommitTrimmedVideoArtifact") {
+    for (const field of ["artifact", "reference"] as const) {
+      const entity = value.payload[field];
+      if (!isRecord(entity) || typeof entity.id !== "string" || !entity.id.trim()) {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", `CommitTrimmedVideoArtifactの${field} payloadが不正です。`);
+      }
     }
   }
   if ((name === "CompleteTask" || name === "ReopenTask") && value.payload.task !== undefined

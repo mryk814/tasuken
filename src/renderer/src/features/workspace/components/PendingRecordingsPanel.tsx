@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { ToastTone } from "../../../stores/uiStore";
@@ -6,6 +6,7 @@ import { Button } from "./common";
 import { formatArtifactFileSize } from "./artifacts";
 import type { ScreenRecordingOwnerOption } from "./ScreenRecorderPanel";
 import type { AudioCapturePrepared, VideoImportPrepared } from "../../../../../shared/mediaCapture";
+import { createTrimPlan } from "../../../../../shared/screenRecordingEdit.mjs";
 
 /**
  * 音声と画面録画の「保存待ち」を1つの表にまとめる（#383）。
@@ -24,6 +25,14 @@ type PendingKind = "audio" | "video";
 interface PendingRow {
   kind: PendingKind;
   entry: AudioCapturePrepared | VideoImportPrepared;
+}
+
+interface VideoEditState {
+  durationMs: number;
+  widthPx: number;
+  heightPx: number;
+  startMs: number;
+  endMs: number;
 }
 
 const KIND_LABELS: Record<PendingKind, string> = {
@@ -101,12 +110,73 @@ function readVideoMetadata(mediaUrl: string): Promise<{ durationMs: number; widt
   });
 }
 
+function formatTrimTime(valueMs: number): string {
+  const seconds = Math.max(0, valueMs) / 1000;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${(seconds % 60).toFixed(1).padStart(4, "0")}`;
+}
+
+function PendingVideoPreview({ entry, edit, onEdit }: {
+  entry: VideoImportPrepared;
+  edit?: VideoEditState;
+  onEdit: (value: VideoEditState) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const updateBoundary = (field: "startMs" | "endMs", value: number) => {
+    if (!edit) return;
+    const next = field === "startMs"
+      ? { ...edit, startMs: Math.min(Math.max(0, value), edit.endMs - 100) }
+      : { ...edit, endMs: Math.max(edit.startMs + 100, Math.min(edit.durationMs, value)) };
+    onEdit(next);
+    if (videoRef.current) videoRef.current.currentTime = next[field] / 1000;
+  };
+  return (
+    <div className="screen-recording-trim-preview">
+      <video
+        ref={videoRef}
+        controls
+        preload="metadata"
+        src={entry.mediaUrl}
+        aria-label={`${entry.filename}の保存前プレビュー`}
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget;
+          const durationMs = Math.round(video.duration * 1000);
+          if (!Number.isSafeInteger(durationMs) || durationMs <= 0 || !video.videoWidth || !video.videoHeight) return;
+          onEdit({
+            durationMs,
+            widthPx: video.videoWidth,
+            heightPx: video.videoHeight,
+            startMs: edit ? Math.min(edit.startMs, durationMs - 100) : 0,
+            endMs: edit ? Math.min(edit.endMs, durationMs) : durationMs,
+          });
+        }}
+      />
+      {edit && (
+        <div className="screen-recording-trim" aria-label="trim範囲">
+          <div className="screen-recording-trim-range">
+            <label><span>開始 {formatTrimTime(edit.startMs)}</span><input type="range" min={0} max={Math.max(100, edit.durationMs - 100)} step={100} value={edit.startMs} onChange={(event) => updateBoundary("startMs", Number(event.target.value))} /></label>
+            <label><span>終了 {formatTrimTime(edit.endMs)}</span><input type="range" min={100} max={edit.durationMs} step={100} value={edit.endMs} onChange={(event) => updateBoundary("endMs", Number(event.target.value))} /></label>
+          </div>
+          <div className="inline-actions">
+            <button type="button" className="text-button compact" onClick={() => updateBoundary("startMs", edit.startMs - 100)}>開始 −0.1s</button>
+            <button type="button" className="text-button compact" onClick={() => updateBoundary("startMs", edit.startMs + 100)}>開始 +0.1s</button>
+            <button type="button" className="text-button compact" onClick={() => updateBoundary("endMs", edit.endMs - 100)}>終了 −0.1s</button>
+            <button type="button" className="text-button compact" onClick={() => updateBoundary("endMs", edit.endMs + 100)}>終了 +0.1s</button>
+            <button type="button" className="text-button compact" onClick={() => onEdit({ ...edit, startMs: 0, endMs: edit.durationMs })}>リセット</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PendingRecordingsPanel({ owners, refreshToken, setToast }: PendingRecordingsPanelProps) {
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [busySessionId, setBusySessionId] = useState<string | null>(null);
   /** 画面録画の紐づけ先。未選択はInbox（CaptureEntry）行き。 */
   const [ownerKeys, setOwnerKeys] = useState<Record<string, string>>({});
+  const [videoEdits, setVideoEdits] = useState<Record<string, VideoEditState>>({});
 
   const refresh = useCallback(async () => {
     setLoadState("loading");
@@ -141,27 +211,52 @@ export function PendingRecordingsPanel({ owners, refreshToken, setToast }: Pendi
       return;
     }
     setBusySessionId(entry.sessionId);
+    let originalSaved = false;
     try {
       if (row.kind === "audio") {
         const durationMs = entry.durationMs ?? await audioDurationMs(entry.mediaUrl);
         await workspaceApi.commitAudioCapture({ sessionId: entry.sessionId, durationMs });
         setToast(`音声「${entry.filename}」をInboxへ保存しました。`, "success");
       } else {
-        const metadata = await readVideoMetadata(entry.mediaUrl);
+        const existingEdit = videoEdits[entry.sessionId];
+        let metadata: VideoEditState;
+        if (existingEdit) {
+          metadata = existingEdit;
+        } else {
+          const loaded = await readVideoMetadata(entry.mediaUrl);
+          metadata = { ...loaded, startMs: 0, endMs: loaded.durationMs };
+        }
         const owner = owners.find((candidate) => candidate.key === (ownerKeys[entry.sessionId] || "")) || null;
-        await workspaceApi.commitVideoImport({
+        const committed = await workspaceApi.commitVideoImport({
           sessionId: entry.sessionId,
-          ...metadata,
+          durationMs: metadata.durationMs,
+          widthPx: metadata.widthPx,
+          heightPx: metadata.heightPx,
           sourceType: owner ? owner.sourceType : null,
           sourceId: owner ? owner.sourceId : null,
         });
-        setToast(owner
-          ? `画面録画「${entry.filename}」を${owner.label}へ保存しました。`
-          : `画面録画「${entry.filename}」をInboxへ保存しました。`, "success");
+        originalSaved = true;
+        const trimmed = metadata.startMs > 0 || metadata.endMs < metadata.durationMs;
+        if (trimmed) {
+          const source = await workspaceApi.getVideoTrimSource(committed.artifactId);
+          await workspaceApi.exportVideoTrim({
+            operationId: crypto.randomUUID(),
+            destinationArtifactId: crypto.randomUUID(),
+            trimPlan: createTrimPlan({ source, startMs: metadata.startMs, endMs: metadata.endMs }),
+          });
+        }
+        setToast(trimmed
+          ? `画面録画「${entry.filename}」の原本とtrim版を保存しました。`
+          : owner
+            ? `画面録画「${entry.filename}」を${owner.label}へ保存しました。`
+            : `画面録画「${entry.filename}」をInboxへ保存しました。`, "success");
       }
       drop(entry.sessionId);
     } catch (error) {
-      setToast(`保存できませんでした。${error instanceof Error ? error.message : String(error)} 保存待ちから再試行できます。`, "danger");
+      if (originalSaved) drop(entry.sessionId);
+      setToast(originalSaved
+        ? `原本は保存しましたが、trim版を書き出せませんでした。${error instanceof Error ? error.message : String(error)}`
+        : `保存できませんでした。${error instanceof Error ? error.message : String(error)} 保存待ちから再試行できます。`, "danger");
     } finally {
       setBusySessionId(null);
     }
@@ -247,7 +342,11 @@ export function PendingRecordingsPanel({ owners, refreshToken, setToast }: Pendi
               <audio controls preload="metadata" src={entry.mediaUrl} aria-label={`${entry.filename}の保存前プレビュー`} />
             )}
             {entry.status === "ready" && row.kind === "video" && (
-              <video controls preload="metadata" src={entry.mediaUrl} aria-label={`${entry.filename}の保存前プレビュー`} />
+              <PendingVideoPreview
+                entry={entry as VideoImportPrepared}
+                edit={videoEdits[entry.sessionId]}
+                onEdit={(value) => setVideoEdits((current) => ({ ...current, [entry.sessionId]: value }))}
+              />
             )}
             {entry.status !== "ready" && <div className="inbox-audio-recovery-warning" role="status">要確認</div>}
             <div>
@@ -280,7 +379,7 @@ export function PendingRecordingsPanel({ owners, refreshToken, setToast }: Pendi
               )}
               {entry.canCommit && (
                 <Button variant="primary" compact disabled={busy} onClick={() => { void commit(row); }}>
-                  {busy ? "処理中…" : "保存"}
+                  {busy ? "処理中…" : row.kind === "video" && videoEdits[entry.sessionId] && (videoEdits[entry.sessionId].startMs > 0 || videoEdits[entry.sessionId].endMs < videoEdits[entry.sessionId].durationMs) ? "原本とtrimを保存" : "保存"}
                 </Button>
               )}
               {entry.canRetry && (
