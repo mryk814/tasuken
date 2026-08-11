@@ -3,6 +3,7 @@ import {
   displayNameFromTarget,
   inferArtifactLinkType,
 } from "../../../../../shared/artifactLinks.mjs";
+import { isWebArtifact } from "../../../../../shared/webArtifact.mjs";
 import type {
   Artifact,
   ArtifactLinkStatus,
@@ -20,31 +21,37 @@ export function buildManagedArtifactOperations(
   themeId?: string | null,
 ): SaveOperation[] {
   const now = new Date().toISOString();
-  return files.map((file) => ({
-    action: "save",
-    type: "artifact",
-    entity: {
-      id: uuid(),
-      title: file.filename.replace(/\.[^.]+$/, ""),
-      filename: file.filename,
-      file_type: file.fileType,
-      mime_type: file.mimeType,
-      file_size: file.fileSize,
-      stored_path: file.storedPath,
-      original_path: file.originalPath,
-      storage_mode: "managed",
-      copied_at: file.copiedAt || now,
-      source_type: sourceType,
-      source_id: sourceId,
-      theme_id: themeId || null,
-      description: null,
-      generated_by: null,
-      link_type: null,
-      target: null,
-      link_status: null,
-      last_checked_at: null,
-    },
-  }));
+  return files.map((file) => {
+    const isWeb = isWebArtifact({ filename: file.filename, file_type: file.fileType, mime_type: file.mimeType });
+    return {
+      action: "save",
+      type: "artifact",
+      entity: {
+        id: uuid(),
+        title: file.filename.replace(/\.[^.]+$/, ""),
+        filename: file.filename,
+        file_type: file.fileType,
+        mime_type: file.mimeType,
+        file_size: file.fileSize,
+        stored_path: file.storedPath,
+        original_path: file.originalPath,
+        storage_mode: "managed",
+        copied_at: file.copiedAt || now,
+        source_type: sourceType,
+        source_id: sourceId,
+        theme_id: themeId || null,
+        description: null,
+        generated_by: null,
+        link_type: null,
+        target: null,
+        link_status: null,
+        last_checked_at: null,
+        web_kind: isWeb ? "self_contained_html" : null,
+        web_entrypoint: isWeb ? file.filename : null,
+        web_execution_policy: isWeb ? "sandboxed_interactive" : null,
+      },
+    };
+  });
 }
 
 export function buildLinkedArtifactOperationsFromPaths(
@@ -57,6 +64,7 @@ export function buildLinkedArtifactOperationsFromPaths(
     const target = file.path;
     const filename = file.name || displayNameFromTarget(target, "file");
     const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
+    const isWeb = isWebArtifact({ filename, file_type: artifactFileTypeFromName(filename) });
     return {
       action: "save",
       type: "artifact",
@@ -80,6 +88,9 @@ export function buildLinkedArtifactOperationsFromPaths(
         theme_id: themeId || null,
         description: null,
         generated_by: null,
+        web_kind: isWeb ? "self_contained_html" : null,
+        web_entrypoint: isWeb ? filename : null,
+        web_execution_policy: isWeb ? "sandboxed_interactive" : null,
       },
     };
   });
@@ -94,6 +105,7 @@ export function buildLinkedArtifactOperationFromUrl(
   const target = url.trim();
   const filename = displayNameFromTarget(target, "link");
   const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
+  const isWeb = isWebArtifact({ filename, file_type: artifactFileTypeFromName(filename) });
   return {
     action: "save",
     type: "artifact",
@@ -115,6 +127,9 @@ export function buildLinkedArtifactOperationFromUrl(
       theme_id: themeId || null,
       description: null,
       generated_by: null,
+      web_kind: isWeb ? "self_contained_html" : null,
+      web_entrypoint: isWeb ? filename : null,
+      web_execution_policy: isWeb ? "sandboxed_interactive" : null,
     },
   };
 }

@@ -88,6 +88,9 @@ const api: ResearchDeskApi = {
     importArtifactFiles: (request) => ipcRenderer.invoke(IPC.artifactFilesImport, request),
     materializeArtifactProposal: (request) => ipcRenderer.invoke(IPC.artifactProposalMaterialize, request),
   },
+  artifacts: {
+    readWebPreview: (artifactId) => ipcRenderer.invoke(IPC.artifactWebPreview, artifactId),
+  },
   mediaCapture: {
     prepareAudio: (request) => ipcRenderer.invoke(IPC.audioCapturePrepare, request),
     listPreparedAudio: () => ipcRenderer.invoke(IPC.audioCaptureListPrepared),

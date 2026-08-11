@@ -17,7 +17,7 @@
 | Sketch | `SketchLibraryPage.tsx` / `SketchPage.tsx` | 「手書き」「キャンバス」「GoodNotesみたいなやつ」。SidebarのKnowledge配下に独立した棚と専用編集面を持つ。編集可能なペン軌跡・図形・文字・画像を正本として持ち、Note / Markdown / PNG / SVG / AI向けコピーへ派生させる |
 | Knowledge | `KnowledgePage.tsx` | 「ナレッジ」。既存Knowledge / Relationの閲覧・棚卸し・Data Health確認を行うExperimental / Diagnostic画面。通常のKnowledge作成導線は持たず、Context Graph / Backlink / Provenance / Data Healthは共有projectionとして独立する |
 | Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」「チャット参照」（旧見出し）。Sidebarとページ見出しはどちらも Chat Refs。外部AIチャットのURL整理。詳細の「この会話から生まれたもの」でTask / Note / Artifact / 続きConversationを最大2段階辿り、Task / Noteを作ると`derived_from`を自動記録する |
-| Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown等の実ファイル一覧。追加はChat/Task/Note/Theme詳細から。NoteのMarkdown/PDF書き出しはChat Refを主な出所、元Noteを追跡情報として持てる。Artifact一覧の「来歴」から元Note / Conversationまで逆向きに辿れる |
+| Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown・Web Artifact（HTML）等の実ファイル一覧。Web Artifactは隔離Interactive Previewで表示し、Taskenデータ・OSファイル・ネットワークへアクセスさせない。追加はChat/Task/Note/Theme詳細から。NoteのMarkdown/PDF書き出しはChat Refを主な出所、元Noteを追跡情報として持てる。Artifact一覧の「来歴」から元Note / Conversationまで逆向きに辿れる |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
 | AI Inbox | `ImportExportPage.tsx` | 「AI Import」「AI連携」（旧称）。外部AIから届いたProposalを検証→プレビュー→採用する安全な取り込み導線 |
 | Note AI | `NoteAiDrawer.tsx` | Noteを見ながら右ドロワーで会話する編集支援。外部AIへ送るContextを明示確認し、返答をPending Proposalへ保存してから差分hunk単位で採用する |

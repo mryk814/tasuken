@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
 import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../../../../shared/mediaArtifact.mjs";
+import { isWebArtifact, webArtifactPreviewUrl } from "../../../../../shared/webArtifact.mjs";
 import { videoAvailabilityMessage } from "../videoArtifactView";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { Artifact, BaseRecord, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
@@ -78,6 +79,13 @@ type LoadState =
       mode: "audio" | "video";
       title: string;
       src: string;
+      artifact: Artifact;
+    }
+  | {
+      status: "ready";
+      mode: "web";
+      title: string;
+      previewUrl: string;
       artifact: Artifact;
     };
 
@@ -160,6 +168,18 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
 
   const category = artifactFileCategory(artifact);
   const title = str(artifact.filename) || str(artifact.title) || "Artifact";
+
+  if (isWebArtifact(artifact)) {
+    const result = await workspaceApi.readWebArtifactPreview(artifact.id);
+    if (!result.ok) return { status: "error", message: result.error, artifact };
+    return {
+      status: "ready",
+      mode: "web",
+      title,
+      previewUrl: result.url,
+      artifact,
+    };
+  }
 
   if (artifact.media_kind === "audio" || artifact.media_kind === "video") {
     const inspection = artifact.media_kind === "video" ? await workspaceApi.inspectMediaArtifact(artifact.id) : { availability: "available" as const };
@@ -297,6 +317,11 @@ export function ContentViewer({
   const html = useMemo(() => {
     if (load.status !== "ready" || load.mode !== "markdown") return "";
     return previewHtml(load.body, load.contentFormat, load.headingOptions);
+  }, [load]);
+
+  const webPreviewUrl = useMemo(() => {
+    if (load.status !== "ready" || load.mode !== "web") return "";
+    return load.previewUrl || webArtifactPreviewUrl(load.artifact.id, "sandboxed_interactive");
   }, [load]);
 
   function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
@@ -450,7 +475,7 @@ export function ContentViewer({
   const title = load.status === "ready" ? load.title : "プレビュー";
   const isImage = load.status === "ready" && load.mode === "image";
   // 動画・画像・PDFはウィンドウを大きくしなくてもアプリ内で大きく見られるようにする（#387）。
-  const canExpand = load.status === "ready" && (load.mode === "video" || load.mode === "image" || load.mode === "markdown" || load.mode === "conversation");
+  const canExpand = load.status === "ready" && (load.mode === "video" || load.mode === "image" || load.mode === "markdown" || load.mode === "conversation" || load.mode === "web");
   const loadArtifact = loadedArtifact(load);
   const targetArtifact = target.type === "artifact"
     ? (data.artifacts || []).find((entry) => entry.id === target.artifactId)
@@ -516,6 +541,9 @@ export function ContentViewer({
             )}
             {load.status === "ready" && load.mode === "video" && (
               <span className="content-viewer-badge">Video</span>
+            )}
+            {load.status === "ready" && load.mode === "web" && (
+              <span className="content-viewer-badge">Web</span>
             )}
           </div>
           <div className="content-viewer-actions">
@@ -606,6 +634,14 @@ export function ContentViewer({
           </div>
         )}
 
+        {load.status === "ready" && load.mode === "web" && (
+          <div className="content-viewer-web-toolbar" role="status">
+            <span className="content-viewer-web-safety">
+              隔離環境で実行中。Taskenデータ・OSファイル・ネットワークにはアクセスできません。
+            </span>
+          </div>
+        )}
+
         <div className="content-viewer-body">
           {load.status === "loading" && (
             <div className="content-viewer-state" role="status">読み込み中…</div>
@@ -686,6 +722,19 @@ export function ContentViewer({
                 <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
                 <span>{load.artifact.media_availability === "available" ? "利用可能" : "要確認"}</span>
               </div>
+            </div>
+          )}
+          {load.status === "ready" && load.mode === "web" && (
+            <div className="content-viewer-web is-interactive">
+              <iframe
+                key={load.artifact.id}
+                className="content-viewer-web-frame"
+                title={`${load.title}のWeb Preview`}
+                src={webPreviewUrl}
+                sandbox="allow-scripts"
+                allow=""
+                referrerPolicy="no-referrer"
+              />
             </div>
           )}
           {load.status === "ready" && load.mode === "image" && (

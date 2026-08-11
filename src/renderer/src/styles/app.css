@@ -3326,6 +3326,33 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   background: var(--color-accent-bg);
   color: var(--color-accent-strong);
 }
+.content-viewer-web-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-subtle);
+}
+.content-viewer-web-toolbar .secondary-button.is-active {
+  border-color: var(--color-accent-bd);
+  background: var(--color-accent-bg);
+  color: var(--color-accent-strong);
+}
+.content-viewer-web-mode-label {
+  margin-right: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+.content-viewer-web-safety {
+  flex: 1 1 260px;
+  min-width: 180px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
 .content-viewer-zoom-label {
   margin-left: var(--space-2);
   color: var(--color-text-secondary);
@@ -3383,6 +3410,22 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .content-viewer-image-stage.is-scaled img {
   max-width: none;
   max-height: none;
+}
+.content-viewer-web {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  padding: var(--space-3);
+  background: var(--color-surface-muted);
+}
+.content-viewer-web-frame {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
 }
 .content-viewer-state {
   margin: auto;
@@ -3447,6 +3490,16 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   height: 100%;
   max-height: none;
   object-fit: contain;
+}
+
+.content-viewer-overlay.is-expanded .content-viewer-web {
+  padding: 0;
+}
+
+.content-viewer-overlay.is-expanded .content-viewer-web-frame {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
 }
 
 .content-viewer-video {

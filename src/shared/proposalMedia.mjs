@@ -28,19 +28,20 @@ export function validateArtifactProposal(entry) {
   const mediaType = typeof entry.media_type === "string" ? entry.media_type.trim().toLowerCase() : "";
   const content = typeof entry.content === "string" ? entry.content : "";
   if (!title || title.length > 200) throw new Error("Artifact titleは1〜200文字にしてください。");
-  if (!/^[^<>:\"/\\|?*\x00-\x1f]{1,180}\.(?:svg|md|txt|json)$/i.test(fileName)) {
-    throw new Error("file_nameはパスを含まないsvg、md、txt、json名にしてください。");
+  if (!/^[^<>:\"/\\|?*\x00-\x1f]{1,180}\.(?:svg|md|txt|json|html|htm)$/i.test(fileName)) {
+    throw new Error("file_nameはパスを含まないsvg、md、txt、json、html名にしてください。");
   }
-  if (!["image/svg+xml", "text/markdown", "text/plain", "application/json"].includes(mediaType)) {
+  if (!["image/svg+xml", "text/markdown", "text/plain", "application/json", "text/html"].includes(mediaType)) {
     throw new Error("未対応のArtifact media_typeです。");
   }
   const expectedExtension = {
-    "image/svg+xml": ".svg",
-    "text/markdown": ".md",
-    "text/plain": ".txt",
-    "application/json": ".json",
+    "image/svg+xml": [".svg"],
+    "text/markdown": [".md"],
+    "text/plain": [".txt"],
+    "application/json": [".json"],
+    "text/html": [".html", ".htm"],
   }[mediaType];
-  if (!fileName.toLowerCase().endsWith(expectedExtension)) {
+  if (!expectedExtension.some((extension) => fileName.toLowerCase().endsWith(extension))) {
     throw new Error("file_nameの拡張子とmedia_typeが一致しません。");
   }
   if (!content || content.length > MAX_ARTIFACT_CHARS) throw new Error("Artifact contentは1〜100万文字にしてください。");
