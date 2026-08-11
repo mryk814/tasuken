@@ -39,6 +39,7 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { ConversationPreview } from "./ConversationPreview";
 import { ConversationContextPanel } from "./ConversationContextPanel";
 import { BatchTranscriptionPanel } from "./BatchTranscriptionPanel";
+import { VideoTrimEditor } from "./VideoTrimEditor";
 import { parseConversation } from "../lib/conversationParser";
 
 export type { ContentViewerTarget };
@@ -704,11 +705,11 @@ export function ContentViewer({
           )}
           {load.status === "ready" && load.mode === "video" && (
             <div className="content-viewer-video">
-              <video
-                controls
-                preload="metadata"
+              <VideoTrimEditor
+                artifact={load.artifact}
                 src={load.src}
-                aria-label={`${load.title}の動画プレーヤー`}
+                editable={load.artifact.storage_mode !== "linked"}
+                setToast={setToast}
                 onError={() => setLoad({
                   status: "error",
                   message: "この動画を内蔵decoderで再生できませんでした。ファイルの変更・削除を確認するか、外部アプリで開いてください。",

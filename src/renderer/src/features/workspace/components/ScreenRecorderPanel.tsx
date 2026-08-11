@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
-  IconDeviceDesktop,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -10,22 +9,20 @@ import {
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { MediaRecordingStarted, VideoArtifactSourceType, VideoImportPrepared } from "../../../../../shared/mediaCapture";
+import type { MediaRecordingStarted, VideoImportPrepared } from "../../../../../shared/mediaCapture";
 import type { ScreenRecordingAudioMode, ScreenRecordingEnvironment, ScreenRecordingRegionSelection, ScreenRecordingSourceProjection } from "../../../../../shared/screenRecording.mjs";
 import { SCREEN_RECORDING_BITRATES, screenRecordingContainerOf } from "../../../../../shared/screenRecording.mjs";
 import { formatArtifactFileSize } from "./artifacts";
 import { Button } from "./common";
 import { trackPendingMediaRecordingFlush } from "../lib/mediaRecordingFlushRegistry";
+import { readVideoMetadata } from "../lib/videoMetadata";
 
 const MAX_PENDING_RECORDING_CHUNKS = 8;
 
 type ScreenRecorderState = "idle" | "loading" | "ready" | "starting" | "recording" | "paused" | "stopping" | "error";
 
-export interface ScreenRecordingOwnerOption {
-  key: string;
-  label: string;
-  sourceType: VideoArtifactSourceType;
-  sourceId: string;
+export interface ScreenRecorderPanelHandle {
+  openRecorder: () => void;
 }
 
 interface ScreenRecorderPanelProps {
@@ -55,7 +52,7 @@ function formatElapsed(milliseconds: number): string {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPreparedChanged, setToast }: ScreenRecorderPanelProps) {
+export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenRecorderPanelProps>(function ScreenRecorderPanel({ disabled = false, onActiveChange, onPreparedChanged, setToast }, ref) {
   const [state, setState] = useState<ScreenRecorderState>("idle");
   const [error, setError] = useState("");
   const [sources, setSources] = useState<readonly Readonly<ScreenRecordingSourceProjection>[]>([]);
@@ -88,7 +85,7 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
   const active = Boolean(startRef.current || sessionRef.current);
 
   useEffect(() => {
-    onActiveChange?.(active);
+    onActiveChange?.(active || (state !== "idle" && state !== "error"));
   }, [active, onActiveChange, state]);
 
   // 録画中は本体を開かなくても状態が分かるよう、録画に写り込まないインジケータへ流す（#383）。
@@ -240,6 +237,12 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
       setError(screenRecordingErrorMessage(caught));
     }
   }
+
+  useImperativeHandle(ref, () => ({
+    openRecorder: () => {
+      if (!disabled && !active && !transitioning && (state === "idle" || state === "error")) void openPicker();
+    },
+  }));
 
   function beginRecording(): Promise<void> {
     if (startRef.current) return startRef.current;
@@ -424,17 +427,39 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
       const stopped = await workspaceApi.stopMediaRecording(session.sessionId);
       if (!("storageMode" in stopped)) throw new Error("画面録画sessionの種別が一致しません。");
       const preparedVideo = stopped as VideoImportPrepared;
-      onPreparedChanged?.();
       sessionRef.current = null;
       releaseStreams();
       setState("idle");
-      if (showToast) setToast("画面録画を停止しました。Preview後に明示保存してください。", "info");
+      setError("");
+      if (showToast) await commitStoppedVideo(preparedVideo);
+      onPreparedChanged?.();
       return preparedVideo;
     } catch (caught) {
       releaseStreams();
       setState("error");
       setError(`画面録画を停止できませんでした。${caught instanceof Error ? caught.message : String(caught)} 同じ録画sessionの停止を再試行してください。`);
       return null;
+    }
+  }
+
+  async function commitStoppedVideo(preparedVideo: VideoImportPrepared): Promise<void> {
+    if (!preparedVideo.canCommit || preparedVideo.status !== "ready" || !preparedVideo.mediaUrl) {
+      setToast("画面録画を自動保存できませんでした。保存待ちから内容を確認してください。", "warning");
+      return;
+    }
+    try {
+      const metadata = await readVideoMetadata(preparedVideo.mediaUrl);
+      await workspaceApi.commitVideoImport({
+        sessionId: preparedVideo.sessionId,
+        durationMs: metadata.durationMs,
+        widthPx: metadata.widthPx,
+        heightPx: metadata.heightPx,
+        sourceType: null,
+        sourceId: null,
+      });
+      setToast(`画面録画「${preparedVideo.filename}」を収録物へ保存しました。`, "success");
+    } catch (caught) {
+      setToast(`画面録画を自動保存できませんでした。${caught instanceof Error ? caught.message : String(caught)} 保存待ちから再試行できます。`, "warning");
     }
   }
   stopNowRef.current = stopRecording;
@@ -501,23 +526,14 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
     return () => window.clearInterval(timer);
   }, [state]);
 
+  if (state === "idle") return null;
+
   return (
     <section className="panel studio-recorder" aria-label="画面録画">
       <div className="section-heading">
         <h2>画面録画</h2>
-        <div className="inline-actions">
-          <Button
-            variant="primary"
-            compact
-            onClick={() => { void openPicker(); }}
-            disabled={disabled || active || transitioning || (state !== "idle" && state !== "error")}
-          >
-            <IconDeviceDesktop size={15} />{state === "loading" ? "確認中…" : "画面を録画"}
-          </Button>
-        </div>
       </div>
-      {state !== "idle" && (
-        <div className={`studio-recorder-body inbox-screen-recorder ${state === "error" ? "is-error" : ""}`} aria-live="polite">
+      <div className={`studio-recorder-body inbox-screen-recorder ${state === "error" ? "is-error" : ""}`} aria-live="polite">
           {(state === "loading" || state === "starting") && <span>{state === "loading" ? "録画対象を確認しています…" : "録画を開始しています…"}</span>}
           {state === "ready" && (
             <>
@@ -582,8 +598,7 @@ export function ScreenRecorderPanel({ disabled = false, onActiveChange, onPrepar
             </>}
             {!sessionRef.current && <Button variant="secondary" compact disabled={transitioning} onClick={() => { void openPicker(); }}>再試行</Button>}
           </div></>}
-        </div>
-      )}
+      </div>
     </section>
   );
-}
+});

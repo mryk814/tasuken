@@ -1,10 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { IconDeviceDesktop, IconMicrophone, IconVolume } from "@tabler/icons-react";
 
-import { isActiveFocusSession } from "../../../../../shared/focusSession.mjs";
-import { quickCaptureTitle } from "../../../../../shared/quickCapture.mjs";
-import { PageHeader } from "../components/common";
-import { ScreenRecorderPanel, type ScreenRecordingOwnerOption } from "../components/ScreenRecorderPanel";
-import { VoiceRecorderPanel } from "../components/VoiceRecorderPanel";
+import { Button, PageHeader } from "../components/common";
+import { ScreenRecorderPanel, type ScreenRecorderPanelHandle } from "../components/ScreenRecorderPanel";
+import { VoiceRecorderPanel, type VoiceRecorderPanelHandle } from "../components/VoiceRecorderPanel";
 import { PendingRecordingsPanel } from "../components/PendingRecordingsPanel";
 import { RecordingsPanel } from "../components/RecordingsPanel";
 import { buildRecordingView } from "../domain-model/selectors";
@@ -19,6 +18,8 @@ export function StudioPage({ data, domain: v2, openContentViewer, removeEntity, 
   // 音声と画面録画のsessionは同時に持たせない。どちらかが動いている間は他方を止める。
   const [voiceActive, setVoiceActive] = useState(false);
   const [screenRecordingActive, setScreenRecordingActive] = useState(false);
+  const voiceRecorderRef = useRef<VoiceRecorderPanelHandle | null>(null);
+  const screenRecorderRef = useRef<ScreenRecorderPanelHandle | null>(null);
   // 録音・録画側の保存待ちが変わったら共有の表を読み直す。
   const [preparedToken, setPreparedToken] = useState(0);
   const bumpPrepared = useCallback(() => setPreparedToken((current) => current + 1), []);
@@ -26,30 +27,28 @@ export function StudioPage({ data, domain: v2, openContentViewer, removeEntity, 
   // 収録物はCaptureEntry / Artifactの投影として並べる。独自コピーは持たない。
   const recordings = useMemo(() => buildRecordingView(v2).entries, [v2]);
 
-  const screenRecordingOwners = useMemo<ScreenRecordingOwnerOption[]>(() => {
-    const activeFocus = v2.notes
-      .filter(isActiveFocusSession)
-      .map((note) => ({ key: `note:${note.id}`, label: `Focus · ${note.title || "実行中"}`, sourceType: "note" as const, sourceId: note.id }));
-    const captures = v2.capture_entries
-      .slice(0, 40)
-      .map((entry) => ({ key: `capture_entry:${entry.id}`, label: `Capture · ${entry.title || quickCaptureTitle(entry.text)}`, sourceType: "capture_entry" as const, sourceId: entry.id }));
-    const tasks = v2.tasks
-      .filter((task) => task.state !== "done" && task.state !== "cancelled")
-      .slice(0, 60)
-      .map((task) => ({ key: `task:${task.id}`, label: `Task · ${task.title}`, sourceType: "task" as const, sourceId: task.id }));
-    return [...activeFocus, ...captures, ...tasks];
-  }, [v2.capture_entries, v2.notes, v2.tasks]);
-
   return (
     <div className="page studio-page">
-      <PageHeader route="studio" />
+      <PageHeader route="studio">
+        <Button variant="secondary" compact onClick={() => voiceRecorderRef.current?.importAudio()}>
+          <IconVolume size={15} />音声を取り込む
+        </Button>
+        <Button variant="primary" compact disabled={screenRecordingActive || voiceActive} onClick={() => voiceRecorderRef.current?.openMicrophone()}>
+          <IconMicrophone size={15} />マイクで録音
+        </Button>
+        <Button variant="secondary" compact disabled={voiceActive || screenRecordingActive} onClick={() => screenRecorderRef.current?.openRecorder()}>
+          <IconDeviceDesktop size={15} />画面を録画
+        </Button>
+      </PageHeader>
       <VoiceRecorderPanel
+        ref={voiceRecorderRef}
         disabled={screenRecordingActive}
         onActiveChange={setVoiceActive}
         onPreparedChanged={bumpPrepared}
         setToast={setToast}
       />
       <ScreenRecorderPanel
+        ref={screenRecorderRef}
         disabled={voiceActive}
         onActiveChange={setScreenRecordingActive}
         onPreparedChanged={bumpPrepared}
@@ -57,7 +56,6 @@ export function StudioPage({ data, domain: v2, openContentViewer, removeEntity, 
       />
       {/* 音声と画面録画は同じ経路を通るので、保存待ちは1つの表にまとめる（#383）。 */}
       <PendingRecordingsPanel
-        owners={screenRecordingOwners}
         refreshToken={preparedToken}
         setToast={setToast}
       />

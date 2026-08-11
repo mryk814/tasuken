@@ -6,10 +6,11 @@
   <title>録画範囲を選択</title>
   <style>
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; cursor: crosshair; user-select: none; }
-    body { background: rgb(20 18 18 / 42%); font-family: "Nunito", "Yu Gothic UI", sans-serif; }
-    #hint { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); padding: 8px 12px; border-radius: 7px; background: #fbf8f6; color: #3d3532; font-size: 13px; box-shadow: 0 2px 12px rgb(0 0 0 / 18%); }
-    #selection { position: fixed; display: none; border: 2px solid #8a2f3b; background: rgb(255 255 255 / 10%); box-shadow: 0 0 0 99999px rgb(20 18 18 / 35%); }
-    #size { position: absolute; right: 0; bottom: -28px; padding: 3px 6px; border-radius: 4px; background: #fbf8f6; color: #3d3532; font: 12px ui-monospace, monospace; }
+    /* 共通tokenのbody背景が後から注入されても、実デスクトップを透かす。 */
+    body { background: transparent !important; font-family: "Nunito", "Yu Gothic UI", sans-serif; }
+    #hint { position: fixed; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%); padding: 8px 12px; border-radius: 7px; background: #fbf8f6; color: #3d3532; font-size: 13px; box-shadow: 0 2px 12px rgb(0 0 0 / 18%); }
+    #selection { position: fixed; z-index: 1; display: none; border: 2px solid #8a2f3b; outline: 1px solid rgb(255 255 255 / 90%); outline-offset: 1px; background: rgb(255 255 255 / 4%); box-shadow: 0 0 0 99999px rgb(20 18 18 / 42%); }
+    #size { position: absolute; z-index: 2; right: 0; bottom: -28px; padding: 3px 6px; border-radius: 4px; background: #fbf8f6; color: #3d3532; font: 12px ui-monospace, monospace; }
   </style>
 </head>
 <body>

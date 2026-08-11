@@ -13,6 +13,7 @@ const screenRecorder = readFileSync("src/renderer/src/features/workspace/compone
 const voiceRecorder = readFileSync("src/renderer/src/features/workspace/components/VoiceRecorderPanel.tsx", "utf8");
 const studio = readFileSync("src/renderer/src/features/workspace/pages/StudioPage.tsx", "utf8");
 const pendingRecordings = readFileSync("src/renderer/src/features/workspace/components/PendingRecordingsPanel.tsx", "utf8");
+const regionSelector = readFileSync("src/renderer/region-selector.html", "utf8");
 const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const mainIndex = readFileSync("src/main/index.ts", "utf8");
 
@@ -20,8 +21,8 @@ test("InboxはMemoだけを主操作にし、音声の入口はStudioへ移す�
   assert.match(inbox, /<Button variant="primary" onClick=\{addMemo\}><IconPlus size=\{16\} \/>Memo<\/Button>/);
   // 録音・画面録画はInboxに要らない機能なので、入口ごと持たない。
   assert.doesNotMatch(inbox, /音声を取り込む|マイクで録音|ScreenRecorderPanel/);
-  assert.match(voiceRecorder, /<IconVolume size=\{15\} \/>音声を取り込む/);
-  assert.match(voiceRecorder, /captureAudioFile\(\)/);
+  assert.match(studio, /<IconVolume size=\{15\} \/>音声を取り込む/);
+  assert.match(voiceRecorder, /importAudio: \(\) =>/);
   // Studioは音声と画面録画を同じ面に並べ、同時録画させない。
   assert.match(studio, /<VoiceRecorderPanel[\s\S]*?disabled=\{screenRecordingActive\}/);
   assert.match(studio, /<ScreenRecorderPanel[\s\S]*?disabled=\{voiceActive\}/);
@@ -29,7 +30,8 @@ test("InboxはMemoだけを主操作にし、音声の入口はStudioへ移す�
 
 test("Inbox microphone recorder keeps bounded chunks, device choice and compact control states", () => {
   assert.match(voiceRecorder, /"idle" \| "permission" \| "ready" \| "recording" \| "paused" \| "stopping" \| "error"/);
-  assert.match(voiceRecorder, /<IconMicrophone size=\{15\} \/>\{recorderState === "permission" \? "確認中…" : "マイクで録音"\}/);
+  assert.match(studio, /<IconMicrophone size=\{15\} \/>マイクで録音/);
+  assert.match(voiceRecorder, /<IconMicrophone size=\{15\} \/>\{recorderStarting \? "開始中…" : "録音を開始"\}/);
   assert.match(voiceRecorder, /navigator\.mediaDevices\.enumerateDevices\(\)/);
   assert.match(voiceRecorder, /deviceId: \{ exact: selectedAudioDeviceId \}/);
   assert.match(voiceRecorder, /blob\.slice\(offset, Math\.min\(blob\.size, offset \+ session\.maxChunkBytes\)\)/);
@@ -66,6 +68,12 @@ test("Inbox microphone recorder keeps bounded chunks, device choice and compact 
   assert.match(voiceRecorder, /recorderState === "paused" && \(\s*\n\s*<Button[\s\S]*?resumeMicrophoneRecording\(\)/);
   assert.match(voiceRecorder, /<button type="button" className="text-button compact"[\s\S]*?discardActiveRecording\(\)/);
   assert.doesNotMatch(voiceRecorder, /new Blob\(.*record/i);
+});
+
+test("範囲選択overlayは共通body背景に負けず、選択中の画面を透かして表示する（#374）", () => {
+  assert.match(regionSelector, /body \{ background: transparent !important;/);
+  assert.match(regionSelector, /#selection \{[^\n]*outline: 1px solid/);
+  assert.match(regionSelector, /#selection \{[^\n]*box-shadow: 0 0 0 99999px/);
 });
 
 test("画面録画のpause→即stop等は単一transition queueで直列化する", () => {
@@ -142,21 +150,32 @@ test("permission denial, missing device and disconnect retain reason plus next a
   assert.match(pendingRecordings, /収録を復旧/);
 });
 
-test("保存待ちは音声と画面録画を1つの表に統合し、4状態と行操作を持つ（#383）", () => {
+test("保存待ちは音声と画面録画を1つの復旧表に統合し、必要時だけ表示する（#383）", () => {
   assert.match(pendingRecordings, /loadState === "loading"/);
   assert.match(pendingRecordings, /role="status">保存待ちを確認しています/);
   assert.match(pendingRecordings, /loadState === "error"/);
   assert.match(pendingRecordings, /role="alert"/);
-  assert.match(pendingRecordings, /loadState === "ready" && rows\.length === 0/);
-  assert.match(pendingRecordings, /role="status">保存待ちはありません/);
+  assert.match(pendingRecordings, /if \(loadState === "ready" && rows\.length === 0\) return null/);
+  assert.doesNotMatch(pendingRecordings, /保存待ちはありません/);
   assert.match(pendingRecordings, /aria-label=\{`\$\{entry\.filename\}の保存前プレビュー`\}/);
   // 種別を列として持ち、音声と動画で表を割らない。
   assert.match(pendingRecordings, /KIND_LABELS: Record<PendingKind, string> = \{[\s\S]*?audio: "音声",[\s\S]*?video: "画面録画",/);
   assert.match(pendingRecordings, /row\.kind === "audio"[\s\S]*?commitAudioCapture/);
-  assert.match(pendingRecordings, /commitVideoImport\(\{[\s\S]*?sourceType: owner \? owner\.sourceType : null/);
+  assert.match(pendingRecordings, /row\.kind === "video"[\s\S]*?<video controls/);
+  assert.match(pendingRecordings, /videoOwner\(video\)/);
+  assert.doesNotMatch(pendingRecordings, /createTrimPlan|screen-recording-trim|紐づけ先|ownerKeys|videoEdits/);
   // 録る面は保存待ちの一覧を持たない。導線を二重にしない。
   assert.doesNotMatch(voiceRecorder, /保存待ち音声はありません/);
   assert.doesNotMatch(screenRecorder, /保存待ち画面録画を確認しています/);
+});
+
+test("画面録画は通常停止で収録物へ自動保存し、失敗時だけ保存待ちへ残す（#374）", () => {
+  assert.match(screenRecorder, /const preparedVideo = stopped as VideoImportPrepared/);
+  assert.match(screenRecorder, /if \(showToast\) await commitStoppedVideo\(preparedVideo\)/);
+  assert.match(screenRecorder, /async function commitStoppedVideo[\s\S]*?readVideoMetadata\(preparedVideo\.mediaUrl\)[\s\S]*?commitVideoImport\([\s\S]*?sourceType: null,[\s\S]*?sourceId: null/);
+  assert.match(screenRecorder, /自動保存できませんでした。[\s\S]*?保存待ちから再試行できます/);
+  assert.doesNotMatch(screenRecorder, /Preview後に明示保存/);
+  assert.doesNotMatch(studio, /screenRecordingOwners|ScreenRecordingOwnerOption/);
 });
 
 test("saved audio uses one metadata-rich button in untriaged and processed Inbox rows", () => {
@@ -183,9 +202,13 @@ test("ContentViewer audio exposes loading, error and successful playback metadat
 test("Studioの録音と画面録画は同じ形の面で、開始操作を見出しの右に揃える（#383）", () => {
   // 「画面を録画」が面の中央に落ちていたのを、マイク録音と同じ位置づけへ揃える。
   assert.match(screenRecorder, /<section className="panel studio-recorder" aria-label="画面録画">/);
-  assert.match(screenRecorder, /<div className="section-heading">[\s\S]*?<h2>画面録画<\/h2>[\s\S]*?画面を録画/);
+  assert.match(studio, /<IconDeviceDesktop size=\{15\} \/>画面を録画/);
   assert.match(voiceRecorder, /<section className="panel studio-recorder" aria-label="音声">/);
-  assert.match(voiceRecorder, /<div className="section-heading">[\s\S]*?<h2>音声<\/h2>[\s\S]*?マイクで録音/);
+  assert.match(studio, /<IconMicrophone size=\{15\} \/>マイクで録音/);
+  assert.match(voiceRecorder, /if \(recorderState === "idle"\) return null/);
+  assert.match(screenRecorder, /if \(state === "idle"\) return null/);
+  assert.doesNotMatch(voiceRecorder, /<div className="section-heading">[\s\S]*?音声を取り込む/);
+  assert.doesNotMatch(screenRecorder, /<div className="section-heading">[\s\S]*?画面を録画/);
   // 面の中に面を入れない。保存待ちは見出しレベルを下げた同一面の中に置く。
   assert.doesNotMatch(screenRecorder, /<section className="panel inbox-screen-recovery"/);
   assert.doesNotMatch(voiceRecorder, /<section className="panel inbox-audio-recovery"/);
