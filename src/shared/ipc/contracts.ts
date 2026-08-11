@@ -503,7 +503,7 @@ export type FilePreviewReadResult =
 
 /** Web Artifact専用。RendererへOS pathを返さず、Artifact IDで本文だけを読む。 */
 export type WebArtifactPreviewResult =
-  | { ok: true; html: string; mimeType: "text/html"; executionPolicy: WebArtifactExecutionPolicy }
+  | { ok: true; url: string; mimeType: "text/html"; executionPolicy: WebArtifactExecutionPolicy }
   | { ok: false; error: string };
 
 export interface ResearchDeskApi {

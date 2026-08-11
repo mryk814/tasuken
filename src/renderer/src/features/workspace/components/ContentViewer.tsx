@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
 import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../../../../shared/mediaArtifact.mjs";
-import { buildWebArtifactDocument, isWebArtifact } from "../../../../../shared/webArtifact.mjs";
+import { isWebArtifact, webArtifactPreviewUrl } from "../../../../../shared/webArtifact.mjs";
 import type { WebArtifactExecutionPolicy } from "../../../../../shared/webArtifact.mjs";
 import { videoAvailabilityMessage } from "../videoArtifactView";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -86,7 +86,7 @@ type LoadState =
       status: "ready";
       mode: "web";
       title: string;
-      html: string;
+      previewUrl: string;
       artifact: Artifact;
       executionPolicy: WebArtifactExecutionPolicy;
     };
@@ -178,7 +178,7 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
       status: "ready",
       mode: "web",
       title,
-      html: result.html,
+      previewUrl: result.url,
       artifact,
       executionPolicy: result.executionPolicy,
     };
@@ -324,9 +324,9 @@ export function ContentViewer({
     return previewHtml(load.body, load.contentFormat, load.headingOptions);
   }, [load]);
 
-  const webDocument = useMemo(() => {
+  const webPreviewUrl = useMemo(() => {
     if (load.status !== "ready" || load.mode !== "web") return "";
-    return buildWebArtifactDocument(load.html, webMode);
+    return webMode === "static" ? load.previewUrl : webArtifactPreviewUrl(load.artifact.id, webMode);
   }, [load, webMode]);
 
   function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
@@ -753,7 +753,7 @@ export function ContentViewer({
               <iframe
                 className="content-viewer-web-frame"
                 title={`${load.title}のWeb Preview`}
-                srcDoc={webDocument}
+                src={webPreviewUrl}
                 sandbox={webMode === "static" ? "" : "allow-scripts"}
                 allow=""
                 referrerPolicy="no-referrer"

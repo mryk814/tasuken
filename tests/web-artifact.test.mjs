@@ -13,6 +13,7 @@ import {
   buildWebArtifactDocument,
   isWebArtifact,
   webArtifactCsp,
+  webArtifactPreviewUrl,
 } from "../src/shared/webArtifact.mjs";
 
 async function importWorkspaceService() {
@@ -45,6 +46,8 @@ const { WorkspaceService } = await importWorkspaceService();
 const contracts = readFileSync("src/shared/ipc/contracts.ts", "utf8");
 const preload = readFileSync("src/preload/index.ts", "utf8");
 const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
+const webArtifactProtocol = readFileSync("src/main/webArtifactProtocol.ts", "utf8");
+const rendererIndex = readFileSync("src/renderer/index.html", "utf8");
 const workspaceService = readFileSync("src/main/services/workspaceService.ts", "utf8");
 const workspaceApi = readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
 const viewer = readFileSync("src/renderer/src/features/workspace/components/ContentViewer.tsx", "utf8");
@@ -78,6 +81,10 @@ test("Interactive Previewはinline JSだけを明示操作後にsandboxへ渡す
   assert.match(webArtifactCsp("sandboxed_interactive"), /object-src 'none'/);
 });
 
+test("Electron親CSP下でもPreviewは専用protocolのID URLとして独立して動かせる", () => {
+  assert.equal(webArtifactPreviewUrl("web-1", "sandboxed_interactive"), "tasken-web://preview/web-1?policy=sandboxed_interactive");
+});
+
 test("AI Artifact Proposalはself-contained HTMLを保存候補として受け付ける", () => {
   assert.deepEqual(validateArtifactProposal({
     title: "Dashboard",
@@ -97,16 +104,19 @@ test("Web PreviewはArtifact ID-onlyのMain/Preload/Renderer経路へ接続さ�
   assert.match(contracts, /WebArtifactPreviewResult/);
   assert.match(contracts, /readWebPreview\(artifactId: string\)/);
   assert.match(preload, /readWebPreview:\s*\(artifactId\)\s*=>\s*ipcRenderer\.invoke\(IPC\.artifactWebPreview, artifactId\)/);
-  assert.match(registerIpc, /IPC\.artifactWebPreview[\s\S]*service\.readWebArtifactPreview\(requireId\(artifactId\)\)/);
-  const serviceBlock = workspaceService.slice(workspaceService.indexOf("readWebArtifactPreview("), workspaceService.indexOf("async chooseDirectory", workspaceService.indexOf("readWebArtifactPreview(")));
+  assert.match(registerIpc, /IPC\.artifactWebPreview[\s\S]*service\.getWebArtifactPreview\(requireId\(artifactId\)\)/);
+  assert.match(webArtifactProtocol, /registerWebArtifactProtocol/);
+  assert.match(webArtifactProtocol, /readWebArtifactPreviewDocument/);
+  assert.match(webArtifactProtocol, /content-security-policy/);
+  assert.match(rendererIndex, /frame-src 'self' tasken-web:/);
+  const serviceBlock = workspaceService.slice(workspaceService.indexOf("private resolveWebArtifact("), workspaceService.indexOf("async chooseDirectory", workspaceService.indexOf("private resolveWebArtifact(")));
   assert.match(serviceBlock, /repository\.get\("artifact"/);
   assert.match(serviceBlock, /isWebArtifact\(artifact\)/);
-  assert.doesNotMatch(serviceBlock, /filePath\s*:/);
   assert.doesNotMatch(serviceBlock, /stored_path\s*:/);
   assert.match(workspaceApi, /readWebArtifactPreview\(artifactId: string\)/);
 });
 
-test("WorkspaceServiceはArtifact IDからHTML本文だけを返し、外部URLをアプリ内Previewしない", () => {
+test("WorkspaceServiceはArtifact IDから専用protocol URLを返し、MainだけがHTML本文を読む", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "tasken-web-artifact-preview-"));
   const htmlPath = path.join(root, "index.html");
   const html = "<!doctype html><html><body><h1>safe</h1></body></html>";
@@ -124,13 +134,15 @@ test("WorkspaceServiceはArtifact IDからHTML本文だけを返し、外部URL�
     get: (type, id) => type === "artifact" && id === artifact.id ? artifact : null,
   };
   const service = new WorkspaceService(repository, root, () => "2026-08-11T00:00:00.000Z");
-  const result = service.readWebArtifactPreview("web-1");
-  assert.deepEqual(result, { ok: true, html, mimeType: "text/html", executionPolicy: "static" });
+  const result = service.getWebArtifactPreview("web-1");
+  assert.deepEqual(result, { ok: true, url: "tasken-web://preview/web-1?policy=static", mimeType: "text/html", executionPolicy: "static" });
+  const document = service.readWebArtifactPreviewDocument("web-1", "sandboxed_interactive");
+  assert.deepEqual(document, { ok: true, html, executionPolicy: "sandboxed_interactive" });
   assert.equal(Object.hasOwn(result, "filePath"), false);
   assert.equal(Object.hasOwn(result, "stored_path"), false);
 
   repository.get = () => ({ ...artifact, storage_mode: "linked", target: "https://example.com/index.html", stored_path: "" });
-  const external = service.readWebArtifactPreview("web-1");
+  const external = service.getWebArtifactPreview("web-1");
   assert.equal(external.ok, false);
   assert.match(external.error, /ブラウザで開いてください/);
   fs.rmSync(root, { recursive: true, force: true });
@@ -142,6 +154,8 @@ test("ContentViewerはStaticを既定にし、Interactiveだけallow-scriptsへ�
   assert.match(viewer, /Static Preview/);
   assert.match(viewer, /Interactive Preview/);
   assert.match(viewer, /sandbox=\{webMode === "static" \? "" : "allow-scripts"\}/);
+  assert.match(viewer, /src=\{webPreviewUrl\}/);
+  assert.doesNotMatch(viewer, /srcDoc=/);
   assert.match(viewer, /allow=""/);
   assert.match(viewer, /referrerPolicy="no-referrer"/);
   assert.match(viewer, /Taskenデータ・OSファイル・ネットワークにはアクセスできません/);

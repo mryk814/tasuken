@@ -109,11 +109,16 @@ export function webArtifactCsp(policy = "static") {
     `script-src ${scriptPolicy}`,
     "style-src 'unsafe-inline'",
     "worker-src 'none'",
-    "navigate-to 'none'",
   ].join("; ");
 }
 
 export function buildWebArtifactDocument(value, policy = "static") {
   const normalizedPolicy = normalizeWebArtifactExecutionPolicy(policy);
   return insertCsp(sanitizeWebArtifactHtml(value, normalizedPolicy), normalizedPolicy);
+}
+
+export function webArtifactPreviewUrl(artifactId, policy = "static") {
+  const normalizedId = typeof artifactId === "string" ? artifactId.trim() : "";
+  const normalizedPolicy = normalizeWebArtifactExecutionPolicy(policy);
+  return `tasken-web://preview/${encodeURIComponent(normalizedId)}?policy=${normalizedPolicy}`;
 }

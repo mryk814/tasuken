@@ -5,10 +5,10 @@ HTML成果物はNote本文へ埋め込まず、既存Artifactの`Web Artifact`�
 ## Preview契約
 
 - `.html` / `.htm` または `mime_type=text/html` をWeb Artifactと判定する。
-- MainはRendererからArtifact IDだけを受け取り、managedまたはlinked local fileのHTML本文だけを返す。OS pathはこのIPCの結果へ含めない。外部URLはアプリ内Previewを行わず、ブラウザで開く。
+- MainはRendererからArtifact IDだけを受け取り、managedまたはlinked local fileの存在と専用`tasken-web://` Preview URLを返す。HTML本文はMainのprotocol handlerだけが読み、OS pathはRendererへ返さない。外部URLはアプリ内Previewを行わず、ブラウザで開く。
 - Static Previewを既定とする。`sandbox=""`、CSP、script/event handler除去によりJavaScript、form、popup、navigation、networkを実行しない。
 - Interactive Previewは利用者が明示的に切り替えた場合だけ`sandbox="allow-scripts"`で表示する。preload、Node/Electron API、filesystem APIを注入せず、opaque originとCSPでnetwork・popup・permissionを閉じる。
-- Preview用HTMLはMainで`BrowserWindow.loadFile`等へ渡さず、専用iframeの`srcDoc`へだけ渡す。
+- Preview用HTMLはMainで`BrowserWindow.loadFile`等へ渡さず、専用protocolのiframeへだけ返す。Electron親画面のCSPとPreview側のCSPを混ぜないため、`srcDoc`や`data:` URLは使わない。
 
 ## 確認用サンプル
 

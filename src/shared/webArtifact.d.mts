@@ -8,3 +8,4 @@ export function normalizeWebArtifactExecutionPolicy(value: unknown): WebArtifact
 export function sanitizeWebArtifactHtml(value: string, policy?: WebArtifactExecutionPolicy): string;
 export function webArtifactCsp(policy?: WebArtifactExecutionPolicy): string;
 export function buildWebArtifactDocument(value: string, policy?: WebArtifactExecutionPolicy): string;
+export function webArtifactPreviewUrl(artifactId: string, policy?: WebArtifactExecutionPolicy): string;

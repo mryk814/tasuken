@@ -90,7 +90,7 @@ import {
 import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { artifactOpenTarget } from "../../shared/artifactLinks.mjs";
-import { isWebArtifact, normalizeWebArtifactExecutionPolicy } from "../../shared/webArtifact.mjs";
+import { isWebArtifact, normalizeWebArtifactExecutionPolicy, webArtifactPreviewUrl } from "../../shared/webArtifact.mjs";
 import { validateSnapshotMediaWorkspace } from "./snapshotMediaValidation";
 import { logMain } from "../log";
 
@@ -2287,12 +2287,7 @@ export class WorkspaceService {
     }
   }
 
-  /**
-   * Web Artifact専用の本文読み取り。
-   * RendererからOS pathを受け取らず、Artifact IDの正本からローカルHTMLだけを返す。
-   * 実行はRendererのsandbox iframeが担当し、MainはHTMLをBrowserWindowへloadしない。
-   */
-  readWebArtifactPreview(artifactIdValue: unknown): WebArtifactPreviewResult {
+  private resolveWebArtifact(artifactIdValue: unknown): { ok: true; artifact: Record<string, unknown>; filePath: string } | { ok: false; error: string } {
     if (typeof artifactIdValue !== "string" || !artifactIdValue.trim()) {
       return { ok: false, error: "Web ArtifactのIDがありません。画面を再読み込みしてください。" };
     }
@@ -2321,16 +2316,37 @@ export class WorkspaceService {
       return { ok: false, error: "Web Artifactのファイルが見つからないか、安全に確認できません。" };
     }
 
+    return { ok: true, artifact, filePath };
+  }
+
+  getWebArtifactPreview(artifactIdValue: unknown): WebArtifactPreviewResult {
+    const resolved = this.resolveWebArtifact(artifactIdValue);
+    if (!resolved.ok) return resolved;
+    const executionPolicy = normalizeWebArtifactExecutionPolicy(resolved.artifact.web_execution_policy);
+    return {
+      ok: true,
+      url: webArtifactPreviewUrl(String(resolved.artifact.id), executionPolicy),
+      mimeType: "text/html",
+      executionPolicy,
+    };
+  }
+
+  readWebArtifactPreviewDocument(artifactIdValue: unknown, policyValue: unknown = "static"):
+    | { ok: true; html: string; executionPolicy: "static" | "sandboxed_interactive" }
+    | { ok: false; error: string } {
+    const resolved = this.resolveWebArtifact(artifactIdValue);
+    if (!resolved.ok) return resolved;
+    const executionPolicy = normalizeWebArtifactExecutionPolicy(policyValue);
+
     try {
-      const stat = fs.statSync(filePath);
+      const stat = fs.statSync(resolved.filePath);
       if (stat.size > PREVIEW_TEXT_MAX_BYTES) {
         return { ok: false, error: "HTMLが大きすぎるためPreviewできません。外部ブラウザで開いてください。" };
       }
       return {
         ok: true,
-        html: fs.readFileSync(filePath, "utf8"),
-        mimeType: "text/html",
-        executionPolicy: normalizeWebArtifactExecutionPolicy(artifact.web_execution_policy),
+        html: fs.readFileSync(resolved.filePath, "utf8"),
+        executionPolicy,
       };
     } catch {
       return { ok: false, error: "Web Artifactを読み込めませんでした。ファイルの変更・削除を確認してください。" };

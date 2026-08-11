@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { registerIpc } from "./ipc/registerIpc";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
 import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
+import { registerWebArtifactProtocol, registerWebArtifactScheme } from "./webArtifactProtocol";
 import { getAppIconPath, migrateLegacyUserDataIfNeeded } from "./platformPaths";
 import {
   createQuickCaptureController,
@@ -90,6 +91,7 @@ const pendingAppFlushes = new Map<string, {
 }>();
 registerAttachmentScheme();
 registerMediaScheme();
+registerWebArtifactScheme();
 
 function requestRendererFlush(window: BrowserWindow, noteId?: string): Promise<boolean> {
   if (window.isDestroyed() || window.webContents.isDestroyed()) return Promise.resolve(true);
@@ -2320,6 +2322,7 @@ async function startDesktopApp(): Promise<void> {
   }
   const applicationCommands = new ApplicationCommandService(workspaceRepository);
   const workspaceService = new WorkspaceService(workspaceRepository, app.getPath("userData"));
+  registerWebArtifactProtocol(workspaceService);
   const mediaCapture = new MediaCaptureService({
     userDataPath: app.getPath("userData"),
     repository: workspaceRepository,
