@@ -18,8 +18,8 @@
   <body>
     <main class="card">
       <h1>Web Artifact Preview Demo</h1>
-      <p>Staticでは下のJavaScript操作が無効、Interactiveで明示するとカウンターとCanvasが動きます。</p>
-      <p>外部リンク・form・popupは、どちらのモードでもアプリ外へ出ないことを確認できます。</p>
+      <p>隔離Preview内でカウンターとCanvasが動きます。</p>
+      <p>外部リンク・form・popupもアプリ外へ出ないことを確認できます。</p>
 
       <button id="increment" type="button">カウントアップ</button>
       <button id="popup" type="button">Popupを試す</button>
@@ -53,7 +53,7 @@
         context.fillRect(24, 136 - value * 8, 64, value * 8);
         context.fillStyle = "#30252a";
         context.font = "16px system-ui";
-        context.fillText("Canvas works only in Interactive Preview", 112, 92);
+        context.fillText("Canvas works in isolated Preview", 112, 92);
       }
 
       draw();

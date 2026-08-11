@@ -48,7 +48,7 @@ export function buildManagedArtifactOperations(
         last_checked_at: null,
         web_kind: isWeb ? "self_contained_html" : null,
         web_entrypoint: isWeb ? file.filename : null,
-        web_execution_policy: isWeb ? "static" : null,
+        web_execution_policy: isWeb ? "sandboxed_interactive" : null,
       },
     };
   });
@@ -90,7 +90,7 @@ export function buildLinkedArtifactOperationsFromPaths(
         generated_by: null,
         web_kind: isWeb ? "self_contained_html" : null,
         web_entrypoint: isWeb ? filename : null,
-        web_execution_policy: isWeb ? "static" : null,
+        web_execution_policy: isWeb ? "sandboxed_interactive" : null,
       },
     };
   });
@@ -129,7 +129,7 @@ export function buildLinkedArtifactOperationFromUrl(
       generated_by: null,
       web_kind: isWeb ? "self_contained_html" : null,
       web_entrypoint: isWeb ? filename : null,
-      web_execution_policy: isWeb ? "static" : null,
+      web_execution_policy: isWeb ? "sandboxed_interactive" : null,
     },
   };
 }

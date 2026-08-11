@@ -71,10 +71,10 @@ export function isWebArtifact(input) {
 }
 
 export function normalizeWebArtifactExecutionPolicy(value) {
-  return value === "sandboxed_interactive" ? "sandboxed_interactive" : "static";
+  return value === "static" ? "static" : "sandboxed_interactive";
 }
 
-export function sanitizeWebArtifactHtml(value, policy = "static") {
+export function sanitizeWebArtifactHtml(value, policy = "sandboxed_interactive") {
   if (typeof value !== "string") throw new Error("Web ArtifactのHTMLが不正です。");
   const normalizedPolicy = normalizeWebArtifactExecutionPolicy(policy);
   let markup = value;
@@ -91,7 +91,7 @@ export function sanitizeWebArtifactHtml(value, policy = "static") {
   return rewriteUnsafeUrlAttributes(markup);
 }
 
-export function webArtifactCsp(policy = "static") {
+export function webArtifactCsp(policy = "sandboxed_interactive") {
   const scriptPolicy = normalizeWebArtifactExecutionPolicy(policy) === "sandboxed_interactive"
     ? "'unsafe-inline'"
     : "'none'";
@@ -112,12 +112,12 @@ export function webArtifactCsp(policy = "static") {
   ].join("; ");
 }
 
-export function buildWebArtifactDocument(value, policy = "static") {
+export function buildWebArtifactDocument(value, policy = "sandboxed_interactive") {
   const normalizedPolicy = normalizeWebArtifactExecutionPolicy(policy);
   return insertCsp(sanitizeWebArtifactHtml(value, normalizedPolicy), normalizedPolicy);
 }
 
-export function webArtifactPreviewUrl(artifactId, policy = "static") {
+export function webArtifactPreviewUrl(artifactId, policy = "sandboxed_interactive") {
   const normalizedId = typeof artifactId === "string" ? artifactId.trim() : "";
   const normalizedPolicy = normalizeWebArtifactExecutionPolicy(policy);
   return `tasken-web://preview/${encodeURIComponent(normalizedId)}?policy=${normalizedPolicy}`;

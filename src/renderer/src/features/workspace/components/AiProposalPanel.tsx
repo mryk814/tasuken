@@ -456,7 +456,7 @@ export function AiProposalPanel(props: PageProps) {
             generated_by: null,
             web_kind: isWeb ? "self_contained_html" : null,
             web_entrypoint: isWeb ? result.file.filename : null,
-            web_execution_policy: isWeb ? "static" : null,
+            web_execution_policy: isWeb ? "sandboxed_interactive" : null,
           },
           options: { source: "ai_proposal" },
         });

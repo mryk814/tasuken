@@ -2322,7 +2322,7 @@ export class WorkspaceService {
   getWebArtifactPreview(artifactIdValue: unknown): WebArtifactPreviewResult {
     const resolved = this.resolveWebArtifact(artifactIdValue);
     if (!resolved.ok) return resolved;
-    const executionPolicy = normalizeWebArtifactExecutionPolicy(resolved.artifact.web_execution_policy);
+    const executionPolicy = "sandboxed_interactive" as const;
     return {
       ok: true,
       url: webArtifactPreviewUrl(String(resolved.artifact.id), executionPolicy),
@@ -2331,7 +2331,7 @@ export class WorkspaceService {
     };
   }
 
-  readWebArtifactPreviewDocument(artifactIdValue: unknown, policyValue: unknown = "static"):
+  readWebArtifactPreviewDocument(artifactIdValue: unknown, policyValue: unknown = "sandboxed_interactive"):
     | { ok: true; html: string; executionPolicy: "static" | "sandboxed_interactive" }
     | { ok: false; error: string } {
     const resolved = this.resolveWebArtifact(artifactIdValue);

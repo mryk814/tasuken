@@ -61,7 +61,7 @@ test("Web Artifactは拡張子またはtext/html MIMEで識別する", () => {
   assert.equal(isWebArtifact({ filename: "report.md", mime_type: "text/markdown" }), false);
 });
 
-test("Static Previewはscript/event/network/navigationの実行経路を除去する", () => {
+test("旧Static policyは既存Artifact互換用にscript/event/network/navigationの実行経路を除去する", () => {
   const document = buildWebArtifactDocument(`<!doctype html><html><head><style>.x{background:url(https://example.com/x)}</style></head><body>
     <button onclick="alert('x')">確認</button><img src="https://example.com/pixel.png">
     <a href="https://example.com">外部</a><script>window.__executed = true</script>
@@ -72,8 +72,8 @@ test("Static Previewはscript/event/network/navigationの実行経路を除去�
   assert.match(document, /form-action 'none'/);
 });
 
-test("Interactive Previewはinline JSだけを明示操作後にsandboxへ渡す", () => {
-  const document = buildWebArtifactDocument("<button onclick=\"window.clicked = true\">x</button><script>window.ready = true</script>", "sandboxed_interactive");
+test("隔離Previewはinline JSをsandboxへ渡し、networkとOS境界を閉じる", () => {
+  const document = buildWebArtifactDocument("<button onclick=\"window.clicked = true\">x</button><script>window.ready = true</script>");
   assert.match(document, /window\.ready/);
   assert.match(document, /window\.clicked/);
   assert.match(document, /script-src 'unsafe-inline'/);
@@ -82,7 +82,7 @@ test("Interactive Previewはinline JSだけを明示操作後にsandboxへ渡す
 });
 
 test("Electron親CSP下でもPreviewは専用protocolのID URLとして独立して動かせる", () => {
-  assert.equal(webArtifactPreviewUrl("web-1", "sandboxed_interactive"), "tasken-web://preview/web-1?policy=sandboxed_interactive");
+  assert.equal(webArtifactPreviewUrl("web-1"), "tasken-web://preview/web-1?policy=sandboxed_interactive");
 });
 
 test("AI Artifact Proposalはself-contained HTMLを保存候補として受け付ける", () => {
@@ -135,8 +135,8 @@ test("WorkspaceServiceはArtifact IDから専用protocol URLを返し、Mainだ�
   };
   const service = new WorkspaceService(repository, root, () => "2026-08-11T00:00:00.000Z");
   const result = service.getWebArtifactPreview("web-1");
-  assert.deepEqual(result, { ok: true, url: "tasken-web://preview/web-1?policy=static", mimeType: "text/html", executionPolicy: "static" });
-  const document = service.readWebArtifactPreviewDocument("web-1", "sandboxed_interactive");
+  assert.deepEqual(result, { ok: true, url: "tasken-web://preview/web-1?policy=sandboxed_interactive", mimeType: "text/html", executionPolicy: "sandboxed_interactive" });
+  const document = service.readWebArtifactPreviewDocument("web-1");
   assert.deepEqual(document, { ok: true, html, executionPolicy: "sandboxed_interactive" });
   assert.equal(Object.hasOwn(result, "filePath"), false);
   assert.equal(Object.hasOwn(result, "stored_path"), false);
@@ -148,13 +148,11 @@ test("WorkspaceServiceはArtifact IDから専用protocol URLを返し、Mainだ�
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("ContentViewerはStaticを既定にし、Interactiveだけallow-scriptsへ切り替える", () => {
+test("ContentViewerは隔離Interactive Previewを常時表示する", () => {
   assert.match(viewer, /readWebArtifactPreview\(artifact\.id\)/);
-  assert.match(viewer, /setWebMode\("static"\)/);
-  assert.match(viewer, /Static Preview/);
-  assert.match(viewer, /Interactive Preview/);
-  assert.match(viewer, /sandbox=\{webMode === "static" \? "" : "allow-scripts"\}/);
-  assert.match(viewer, /key=\{`\$\{load\.artifact\.id\}:\$\{webMode\}`\}/);
+  assert.doesNotMatch(viewer, /Static Preview|Interactive Preview|webMode/);
+  assert.match(viewer, /sandbox="allow-scripts"/);
+  assert.match(viewer, /key=\{load\.artifact\.id\}/);
   assert.match(viewer, /src=\{webPreviewUrl\}/);
   assert.doesNotMatch(viewer, /srcDoc=/);
   assert.match(viewer, /allow=""/);
@@ -163,4 +161,5 @@ test("ContentViewerはStaticを既定にし、Interactiveだけallow-scriptsへ�
   assert.match(artifacts, /isWebArtifact/);
   assert.match(artifacts, /category === "web"/);
   assert.match(artifactEntities, /web_kind: isWeb \? "self_contained_html"/);
+  assert.match(artifactEntities, /web_execution_policy: isWeb \? "sandboxed_interactive"/);
 });

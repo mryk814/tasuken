@@ -118,7 +118,7 @@ export function artifactOpenHint(input?: ArtifactCategoryInput): string {
   if (mode === "video") return "動画をアプリ内プレイヤーで再生します。";
   if (mode === "web") return isHttpUrl(typeof input === "object" ? artifactOpenTarget(input) : "")
     ? "外部ブラウザでHTMLを開きます。URLの内容はTasken内で実行しません。"
-    : "HTMLを安全なStatic Previewで表示します。必要なときだけ隔離Interactive Previewへ切り替えます。";
+    : "HTMLを隔離Previewで表示します。Taskenデータ・OSファイル・ネットワークにはアクセスしません。";
   return "関連付けられたアプリで開きます。";
 }
 

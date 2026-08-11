@@ -16,7 +16,6 @@ import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLin
 import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../../../../shared/mediaArtifact.mjs";
 import { isWebArtifact, webArtifactPreviewUrl } from "../../../../../shared/webArtifact.mjs";
-import type { WebArtifactExecutionPolicy } from "../../../../../shared/webArtifact.mjs";
 import { videoAvailabilityMessage } from "../videoArtifactView";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { Artifact, BaseRecord, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
@@ -88,7 +87,6 @@ type LoadState =
       title: string;
       previewUrl: string;
       artifact: Artifact;
-      executionPolicy: WebArtifactExecutionPolicy;
     };
 
 // conversationモードはファイル実体を持たないため、ファイル系の操作は他モードだけへ絞る。
@@ -180,7 +178,6 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
       title,
       previewUrl: result.url,
       artifact,
-      executionPolicy: result.executionPolicy,
     };
   }
 
@@ -277,7 +274,6 @@ export function ContentViewer({
 }) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [zoom, setZoom] = useState(FIT_ZOOM);
-  const [webMode, setWebMode] = useState<WebArtifactExecutionPolicy>("static");
   /** 拡大は一時的な見方なので保存しない。開き直すたびに既定へ戻す（#387）。 */
   const [expanded, setExpanded] = useState(false);
   const expandedRef = useRef(false);
@@ -291,7 +287,6 @@ export function ContentViewer({
     let cancelled = false;
     setLoad({ status: "loading" });
     setZoom(FIT_ZOOM);
-    setWebMode("static");
     setPan({ x: 0, y: 0 });
     void resolveTarget(target, data).then((next) => {
       if (!cancelled) setLoad(next);
@@ -326,8 +321,8 @@ export function ContentViewer({
 
   const webPreviewUrl = useMemo(() => {
     if (load.status !== "ready" || load.mode !== "web") return "";
-    return webMode === "static" ? load.previewUrl : webArtifactPreviewUrl(load.artifact.id, webMode);
-  }, [load, webMode]);
+    return load.previewUrl || webArtifactPreviewUrl(load.artifact.id, "sandboxed_interactive");
+  }, [load]);
 
   function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
     const anchor = (event.target as HTMLElement | null)?.closest?.("a");
@@ -640,29 +635,10 @@ export function ContentViewer({
         )}
 
         {load.status === "ready" && load.mode === "web" && (
-          <div className="content-viewer-web-toolbar" role="toolbar" aria-label="Web Previewの実行モード">
-            <span className="content-viewer-web-mode-label">実行モード</span>
-            <button
-              type="button"
-              className={`secondary-button compact ${webMode === "static" ? "is-active" : ""}`}
-              aria-pressed={webMode === "static"}
-              onClick={() => setWebMode("static")}
-            >
-              Static Preview
-            </button>
-            <button
-              type="button"
-              className={`secondary-button compact ${webMode === "sandboxed_interactive" ? "is-active" : ""}`}
-              aria-pressed={webMode === "sandboxed_interactive"}
-              onClick={() => setWebMode("sandboxed_interactive")}
-            >
-              Interactive Preview
-            </button>
-            {webMode === "sandboxed_interactive" && (
-              <span className="content-viewer-web-safety" role="status">
-                隔離環境で実行中。Taskenデータ・OSファイル・ネットワークにはアクセスできません。
-              </span>
-            )}
+          <div className="content-viewer-web-toolbar" role="status">
+            <span className="content-viewer-web-safety">
+              隔離環境で実行中。Taskenデータ・OSファイル・ネットワークにはアクセスできません。
+            </span>
           </div>
         )}
 
@@ -749,13 +725,13 @@ export function ContentViewer({
             </div>
           )}
           {load.status === "ready" && load.mode === "web" && (
-            <div className={`content-viewer-web ${webMode === "sandboxed_interactive" ? "is-interactive" : "is-static"}`}>
+            <div className="content-viewer-web is-interactive">
               <iframe
-                key={`${load.artifact.id}:${webMode}`}
+                key={load.artifact.id}
                 className="content-viewer-web-frame"
                 title={`${load.title}のWeb Preview`}
                 src={webPreviewUrl}
-                sandbox={webMode === "static" ? "" : "allow-scripts"}
+                sandbox="allow-scripts"
                 allow=""
                 referrerPolicy="no-referrer"
               />
