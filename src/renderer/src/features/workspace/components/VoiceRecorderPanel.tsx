@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { IconMicrophone, IconPlayerPause, IconPlayerPlay, IconPlayerStop, IconVolume } from "@tabler/icons-react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { IconMicrophone, IconPlayerPause, IconPlayerPlay, IconPlayerStop } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { useUiStore, type ToastTone } from "../../../stores/uiStore";
@@ -22,6 +22,11 @@ interface VoiceRecorderPanelProps {
   /** 保存待ちの内容が変わったことを共有パネルへ知らせる（#383）。 */
   onPreparedChanged?: () => void;
   setToast: (message: string, tone?: ToastTone) => void;
+}
+
+export interface VoiceRecorderPanelHandle {
+  importAudio: () => void;
+  openMicrophone: () => void;
 }
 
 function microphoneErrorMessage(error: unknown): string {
@@ -70,7 +75,7 @@ function audioDurationMs(mediaUrl: string): Promise<number> {
   });
 }
 
-export function VoiceRecorderPanel({ disabled = false, onActiveChange, onPreparedChanged, setToast }: VoiceRecorderPanelProps) {
+export const VoiceRecorderPanel = forwardRef<VoiceRecorderPanelHandle, VoiceRecorderPanelProps>(function VoiceRecorderPanel({ disabled = false, onActiveChange, onPreparedChanged, setToast }, ref) {
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const inboxRecorderRequested = useUiStore((state) => state.inboxRecorderRequested);
   const consumeInboxRecorderRequest = useUiStore((state) => state.consumeInboxRecorderRequest);
@@ -445,26 +450,23 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, onPrepare
     }
   }
 
+  useImperativeHandle(ref, () => ({
+    importAudio: () => {
+      if (audioBusySessionId === null) void captureAudioFile();
+    },
+    openMicrophone: () => {
+      if (!disabled && (recorderState === "idle" || recorderState === "error")) void prepareMicrophone();
+    },
+  }));
+
+  if (recorderState === "idle") return null;
+
   return (
     <section className="panel studio-recorder" aria-label="音声">
       <div className="section-heading">
         <h2>音声</h2>
-        <div className="inline-actions">
-          <Button variant="secondary" compact onClick={() => { void captureAudioFile(); }} disabled={audioBusySessionId !== null}>
-            <IconVolume size={15} />音声を取り込む
-          </Button>
-          <Button
-            variant="primary"
-            compact
-            onClick={() => { void prepareMicrophone(); }}
-            disabled={disabled || (recorderState !== "idle" && recorderState !== "error")}
-          >
-            <IconMicrophone size={15} />{recorderState === "permission" ? "確認中…" : "マイクで録音"}
-          </Button>
-        </div>
       </div>
-      {recorderState !== "idle" && (
-        <div className={`studio-recorder-body ${recorderState === "error" ? "is-error" : ""}`} aria-live="polite">
+      <div className={`studio-recorder-body ${recorderState === "error" ? "is-error" : ""}`} aria-live="polite">
           {recorderState === "permission" && <span>マイクの利用可否を確認しています…</span>}
           {recorderState === "ready" && (
             <>
@@ -515,8 +517,7 @@ export function VoiceRecorderPanel({ disabled = false, onActiveChange, onPrepare
               </div>
             </>
           )}
-        </div>
-      )}
+      </div>
     </section>
   );
-}
+});

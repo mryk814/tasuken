@@ -4,7 +4,7 @@ Issue #367 では、既存音声を Inbox の Voice Capture と managed Artifact
 Issue #371 では、Inboxからmicrophoneを明示録音し、bounded chunkをMain-owned sessionへ順次保存して同じVoice Capture確定経路へ接続する。
 Issue #368 の Video Phase 0 では、既存動画を managed / linked Video Artifact として Task / Note / Capture / 実行中Focusから取り込む。
 Issue #373 では、Windowsの画面またはwindowをStudioから明示録画し、同じbounded recording sessionとVideo Artifact確定経路へ接続する。
-Issue #374 では、画面上のrectangle選択と、保存前Previewでの非破壊trim・派生Video Artifact書き出しを接続する。chapter、文字起こし、AI要約は後続scopeとする。
+Issue #374 では、画面上のrectangle選択と、収録物のContent Viewerで行う非破壊trim・派生Video Artifact書き出しを接続する。chapter、文字起こし、AI要約は後続scopeとする。
 
 ## 正本と確定順序
 
@@ -16,7 +16,7 @@ owner関係はContext Graphへ`derived_from`として投影し、同じ関係を
 DB失敗時は原音とmanifestを保持し、次回起動で同じcommand receiptを再実行する。
 prepare後・commit前に終了したsessionは自動確定せず、Inboxの「保存待ち音声」でpreview・保存・破棄を選べる。
 microphone録音は`recording / recording_paused`を同じmanifestへ保存し、stop時にchunkを検証・結合して`prepared`へ移す。app終了・device切断・Renderer障害で未停止のsessionは自動commitせず、「保存待ち音声」から復旧または破棄する。
-画面録画もsession manifestの`capture_method=screen_recording`で同じ状態遷移と上限を使い、自動commitしない。停止後はStudioの「保存待ち」でpreviewしてから`CommitVideoArtifact`へ明示保存し、確定したVideo Artifactにもtyped `capture_method=screen_recording`を残す。trim時も原本はこの経路で先に確定し、同梱ffmpegが別MP4を生成した後、`CommitTrimmedVideoArtifact`が派生Artifactと原本への`derived_from` Referenceを同じtransactionで確定する。既存fileのimport Videoは`capture_method`を持たず、両者を正本Entityから区別する。
+画面録画もsession manifestの`capture_method=screen_recording`で同じ状態遷移と上限を使う。通常停止ではownerを選ばずCaptureEntryへ原本Video Artifactを自動commitし、Studioの「収録物」へ出す。app終了・録画エラー・commit失敗だけが「保存待ち」に残り、そこから復旧または破棄する。収録物のContent Viewerでtrim範囲を決め、同梱ffmpegが別MP4を生成した後、`CommitTrimmedVideoArtifact`が派生Artifactと原本への`derived_from` Referenceを同じtransactionで確定する。既存fileのimport Videoは`capture_method`を持たず、両者を正本Entityから区別する。
 動画も選択直後には確定せず、各owner詳細の「保存待ち動画」でmetadataを確認してから「添付する」または「破棄」を選ぶ。
 
 ## Renderer境界
@@ -99,15 +99,15 @@ session manifest、recovery root、availability、ID-based protocol、Range配�
 | source許可をRendererへ委ねない | list→arm→display permissionをsender/Main frame/origin/user gesture/TTL/one-shotで結び、permission時にcapabilityと同じraw sourceの存続を再列挙する |
 | pointerとaudio modeを選べる | Pointer on/off、Audio Off/Mic/Systemをpickerに置く。SystemはWindows loopbackのみ、Micはdisplay audioと混ぜず別streamから明示取得する |
 | bounded録画とrace-free controls | #371と同じ1 MiB/512 MiB/4時間/16,000 chunk、8 chunk queueを使い、pause/resume/stop/discardを単一transition queueで直列化する |
-| preview後だけVideo Artifactへ保存する | stopは`prepared`までで、保存待ち画面録画のnative video preview後にだけ既存`CommitVideoArtifact`を実行する。破棄は正式Entityを作らない |
-| app/route終了とcrashから復旧できる | global app flushとroute cleanupを合成してstopを待ち、未停止sessionは自動commitせず「録画を復旧」または「破棄」を選べる |
+| 停止後にVideo Artifactへ保存する | 通常stopはownerを選ばずCaptureEntryへ原本を自動commitし、収録物へ表示する。Content Viewerでのtrimは原本を変更せず、破棄は正式Entityを作らない |
+| app/route終了とcrashから復旧できる | global app flushとroute cleanupを合成してstopを待ち、未停止・commit失敗sessionだけを保存待ちから「録画を復旧」または「破棄」できる |
 | path/raw source/mediaを漏らさない | public envelopeはtoken/session/artifact IDとbounded metadataだけ。raw source ID、path、receipt内部path、全Blobをprojection/logへ出さない |
 | Windows packaged実証 | packaged版で実source list→arm→`getDisplayMedia`→MediaRecorder→pause/requestData/append flush/Main pause→Main resume/recorder resume→prepared metadata→commit→canplay/seek/Range→同一userData再起動を通す。#368のimport VideoとはArtifact ID・結果field・restart検証を分離し、両経路を必須にする。実行結果は最終gateで記録する |
 
 ## 復旧状態
 
-- `prepared`: preview・保存・破棄を利用者が選ぶ。missing/changedでもstrict manifestでpreparedを証明できる場合だけ破棄できる。
-- `recording` / `recording_paused`: Main-owned chunk session。通常stopで`prepared`へ進み、再起動後は自動commitせず復旧または破棄を選ぶ。
+- `prepared`: 通常stopでは自動commitされる。commit失敗・中断から復旧した場合だけ、preview・保存・破棄を利用者が選ぶ。missing/changedでもstrict manifestでpreparedを証明できる場合だけ破棄できる。
+- `recording` / `recording_paused`: Main-owned chunk session。通常stopで原本を収録物へ自動commitし、再起動後や失敗時は保存待ちから復旧または破棄を選ぶ。
 - `finalizing` / `finalized`: managed rootが戻れば同一起動中も明示再試行できる。DB適用有無が曖昧なため破棄しない。
 - `manifest_invalid`: path非露出の診断行として表示するが、stateを証明できないため自動確定・破棄をしない。
 - `committed`:一覧へ出さず、Artifact IDから通常の再生経路へ解決する。
@@ -138,7 +138,7 @@ ffmpeg-staticは#374のtrim書き出し条件が成立したため同梱する�
 | 64×64、display境界、125%/150%、複数monitor | Mainのdisplay bounds/scale factorを正本に、単一display・64 DIP以上・外向きpixel丸めを検証する。pure contract testで125%/150%とdisplay境界を固定する |
 | selectorとdockを録画へ写さない | selectorと録画中dockのBrowserWindowへ`setContentProtection(true)`を設定し、selectorはarm前に閉じる |
 | Mic/System/Off、Pointer、pause/resume/stop | 既存のMain-owned one-shot grant、Windows loopback、別microphone stream、録画中dockを範囲録画でも共用する |
-| 停止直後にpreview/seekできる | Studioの保存待ちでnative video controlsを表示し、trim slider変更時は対応時刻へ即seekする |
-| 開始/終了を微調整・resetし、原本を変更しない | 0.1秒刻みのslider/buttonとresetを持ち、原本Artifactを先に確定する。trim処理は原本pathへ書かない |
+| 停止直後にpreview/seekできる | 通常停止で収録物へ自動確定し、Studioの収録物から開くContent Viewerでnative video controlsとseekを使える。保存失敗・中断時だけ保存待ちで確認する |
+| 開始/終了を微調整・resetし、原本を変更しない | 同じtimeline上の開始・終了handleとresetを持ち、±秒数buttonは置かない。trim中は選択範囲だけをシーク・ループ再生し、原本Artifactを先に確定し、trim処理は原本pathへ書かない |
 | trim版を別Artifactへ保存する | ffmpeg出力をexclusive publishし、別UUIDのmanaged Video Artifactと`derived_from` Referenceを同じApplication Command transactionで保存する |
 | full/typecheck/build/packaged Windows | 最終gateの実行結果をIssue/PRへ記録する。物理trim testは2秒の実MP4を生成し、原本bytes不変と別file/Artifact/Referenceを確認する |
