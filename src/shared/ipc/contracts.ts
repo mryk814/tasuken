@@ -117,6 +117,12 @@ export const IPC = {
   appTitleBarTheme: "app:titlebar-theme",
   appFlushRequested: "app:flush-requested",
   appFlushAck: "app:flush-ack",
+  taskenRootToggle: "tasken-root:toggle",
+  taskenRootHide: "tasken-root:hide",
+  taskenRootShown: "tasken-root:shown",
+  taskenRootOpen: "tasken-root:open",
+  taskenRootShortcutGet: "tasken-root:shortcut-get",
+  taskenRootShortcutSet: "tasken-root:shortcut-set",
   mcpBridgeInfo: "mcp:bridge-info",
   todayMiniShow: "today-mini:show",
   todayMiniToggleWindow: "today-mini:toggle-window",
@@ -210,6 +216,7 @@ export const IPC = {
   workspaceOpenMemo: "workspace:open-memo",
   workspaceNavigate: "workspace:navigate",
   workspaceOpenTaskDetail: "workspace:open-task-detail",
+  workspaceOpenRootTarget: "workspace:open-root-target",
 } as const;
 
 export interface WorkspaceChangePayload {
@@ -219,6 +226,18 @@ export interface WorkspaceChangePayload {
   canonical_root_status?: CanonicalRootStatusMap;
   /** 付箋autosaveのresponseより先に届く自己通知をrequestへ束縛する。 */
   memoStickySave?: MemoStickySaveSource;
+}
+
+export interface RootOpenRequest {
+  kind: "command" | "task" | "note" | "theme" | "resource" | "artifact";
+  id: string;
+  action?: "open" | "edit" | "focus";
+}
+
+export interface RootShortcutState {
+  shortcut: string;
+  registered: boolean;
+  error?: string;
 }
 
 export interface RendererFlushRequest {
@@ -624,6 +643,12 @@ export interface ResearchDeskApi {
     onAppFlushRequested(callback: (request: RendererFlushRequest) => void): () => void;
     ackAppFlush(requestId: string, ok: boolean): Promise<boolean>;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
+    toggleTaskenRoot(): Promise<boolean>;
+    hideTaskenRoot(): Promise<boolean>;
+    openTaskenRootTarget(request: RootOpenRequest): Promise<boolean>;
+    getTaskenRootShortcut(): Promise<RootShortcutState>;
+    setTaskenRootShortcut(shortcut: string): Promise<RootShortcutState>;
+    onTaskenRootShown(callback: () => void): () => void;
     showTodayMiniWindow(): Promise<boolean>;
     toggleTodayMiniWindow(): Promise<boolean>;
     /** A=付箋表示対象をdesired stateで保存し、B=window表示をMainで調停する（#377）。 */
@@ -647,6 +672,7 @@ export interface ResearchDeskApi {
     onNavigate(callback: (route: string) => void): () => void;
   onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
+    onOpenTaskenRootTarget(callback: (request: RootOpenRequest) => void): () => void;
   };
   entities: {
     list(type: EntityType, includeDeleted?: boolean): Promise<Entity[]>;

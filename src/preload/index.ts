@@ -144,6 +144,16 @@ const api: ResearchDeskApi = {
     },
     ackAppFlush: (requestId, ok) => ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok }),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
+    toggleTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootToggle),
+    hideTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootHide),
+    openTaskenRootTarget: (request) => ipcRenderer.invoke(IPC.taskenRootOpen, request),
+    getTaskenRootShortcut: () => ipcRenderer.invoke(IPC.taskenRootShortcutGet),
+    setTaskenRootShortcut: (shortcut) => ipcRenderer.invoke(IPC.taskenRootShortcutSet, shortcut),
+    onTaskenRootShown: (callback): Unsubscribe => {
+      const handler = (): void => callback();
+      ipcRenderer.on(IPC.taskenRootShown, handler);
+      return () => { ipcRenderer.removeListener(IPC.taskenRootShown, handler); };
+    },
     showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
     toggleTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniToggleWindow),
     setMemoStickyTarget: (request) => ipcRenderer.invoke(IPC.memoStickySetTarget, request),
@@ -213,6 +223,11 @@ const api: ResearchDeskApi = {
       };
       ipcRenderer.on(IPC.workspaceOpenTaskDetail, handler);
       return () => { ipcRenderer.removeListener(IPC.workspaceOpenTaskDetail, handler); };
+    },
+    onOpenTaskenRootTarget: (callback): Unsubscribe => {
+      const handler = (_event: Electron.IpcRendererEvent, request: Parameters<typeof callback>[0]): void => callback(request);
+      ipcRenderer.on(IPC.workspaceOpenRootTarget, handler);
+      return () => { ipcRenderer.removeListener(IPC.workspaceOpenRootTarget, handler); };
     },
   },
   entities: {

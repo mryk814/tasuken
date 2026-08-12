@@ -10,6 +10,8 @@ import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
+import { DEFAULT_ROOT_SHORTCUT, DIRECT_SHORTCUT_DEFINITIONS } from "../../../../../shared/taskenRoot";
+import type { RootShortcutState } from "../../../../../shared/ipc/contracts";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -108,6 +110,9 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [aiVisibilityDefault, setAiVisibilityDefault] = useState<AiAudience[]>([...DEFAULT_AI_VISIBILITY]);
   const [aiVisibilityBusy, setAiVisibilityBusy] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(() => settingsSectionFromHash(window.location.hash));
+  const [rootShortcut, setRootShortcut] = useState(DEFAULT_ROOT_SHORTCUT);
+  const [rootShortcutState, setRootShortcutState] = useState<RootShortcutState | null>(null);
+  const [rootShortcutBusy, setRootShortcutBusy] = useState(false);
 
   useEffect(() => {
     const onHash = () => setActiveSection(settingsSectionFromHash(window.location.hash));
@@ -131,6 +136,30 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         // 取得できないときは契約の既定を表示し、変更操作時に改めてエラーを出す。
       });
   }, []);
+
+  useEffect(() => {
+    workspaceApi.getTaskenRootShortcut()
+      .then((state) => { setRootShortcut(state.shortcut); setRootShortcutState(state); })
+      .catch(() => setRootShortcutState({ shortcut: DEFAULT_ROOT_SHORTCUT, registered: false, error: "現在の登録状態を確認できません。" }));
+  }, []);
+
+  async function saveRootShortcut() {
+    setRootShortcutBusy(true);
+    try {
+      const state = await workspaceApi.setTaskenRootShortcut(rootShortcut);
+      setRootShortcutState(state);
+      if (state.registered) {
+        setRootShortcut(state.shortcut);
+        setToast("Tasken Rootのショートカットを変更しました。", "success");
+      } else {
+        setToast(`ショートカットを登録できませんでした。${state.error || "別の組み合わせを指定してください。"}`, "danger");
+      }
+    } catch (error) {
+      setToast(`ショートカットを変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setRootShortcutBusy(false);
+    }
+  }
 
   async function updateAiVisibilityDefault(audience: AiAudience, allowed: boolean) {
     const next = allowed
@@ -689,6 +718,32 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                   <p className="field-help">Themeにgroupが設定されていません。</p>
                 );
               })()}
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "general"}>
+              <div className="settings-section-heading">
+                <h2>Tasken Root</h2>
+                <IntegrationStatus
+                  label={rootShortcutState?.registered ? "利用可能" : rootShortcutState ? "競合" : "確認中"}
+                  tone={rootShortcutState?.registered ? "normal" : rootShortcutState ? "attention" : "loading"}
+                />
+              </div>
+              <p className="field-help">Taskenが前面にないときも、仕事とActionを横断検索します。</p>
+              <label>Global shortcut
+                <input value={rootShortcut} onChange={(event) => setRootShortcut(event.target.value)} spellCheck={false} />
+              </label>
+              {rootShortcutState?.error ? <p className="field-help">{rootShortcutState.error}</p> : null}
+              <Button variant="secondary" disabled={rootShortcutBusy || !rootShortcut.trim()} onClick={() => void saveRootShortcut()}>ショートカットを保存</Button>
+              <details className="settings-detail">
+                <summary>Direct shortcutとの役割</summary>
+                <div className="settings-detail-body">
+                  <p className="field-help">RootはEntityを探して操作する共通入口です。毎日繰り返す記録だけはDirect shortcutを維持します。</p>
+                  <dl className="settings-meta-list">
+                    {DIRECT_SHORTCUT_DEFINITIONS.map((definition) => (
+                      <div key={definition.id}><dt>{definition.label}</dt><dd className="mono-value">{definition.accelerator}</dd></div>
+                    ))}
+                  </dl>
+                </div>
+              </details>
             </section>
             <section className="panel settings-form" hidden={activeSection !== "appearance"}>
               <h2>表示</h2>

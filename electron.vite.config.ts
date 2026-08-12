@@ -51,6 +51,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
+          root: resolve(__dirname, "src/renderer/root.html"),
           capture: resolve(__dirname, "src/renderer/capture.html"),
           todayMini: resolve(__dirname, "src/renderer/today-mini.html"),
           recordingIndicator: resolve(__dirname, "src/renderer/recording-indicator.html"),

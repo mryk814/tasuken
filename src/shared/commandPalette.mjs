@@ -30,3 +30,21 @@ export function filterCommandEntries(entries, query) {
     .sort((left, right) => right.score - left.score || left.entry.label.localeCompare(right.entry.label, "ja"))
     .map((candidate) => candidate.entry);
 }
+
+export function rankCommandEntries(entries, query, usage = {}) {
+  const needle = normalizeCommandQuery(query);
+  return entries
+    .map((entry) => {
+      const match = commandMatchScore(entry, query);
+      const usageKey = entry.usageKey || entry.id;
+      const record = usage && typeof usage[usageKey] === "object" ? usage[usageKey] : null;
+      const count = Number(record?.count || 0);
+      const lastUsedAt = Date.parse(String(record?.lastUsedAt || ""));
+      const ageHours = Number.isFinite(lastUsedAt) ? Math.max(0, (Date.now() - lastUsedAt) / 3_600_000) : Infinity;
+      const usageBoost = Math.min(12, Math.log2(count + 1) * 3) + (ageHours < 24 ? 5 : ageHours < 168 ? 2 : 0);
+      return { entry, score: match > 0 ? match + usageBoost : 0 };
+    })
+    .filter((candidate) => candidate.score > 0 || !needle)
+    .sort((left, right) => right.score - left.score || left.entry.label.localeCompare(right.entry.label, "ja"))
+    .map((candidate) => candidate.entry);
+}
