@@ -1,0 +1,219 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.tasken-root {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.tasken-root-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 58px;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  -webkit-app-region: drag;
+}
+
+.tasken-root-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--text-lg);
+  -webkit-app-region: no-drag;
+}
+
+.tasken-root-search kbd,
+.tasken-root-footer kbd,
+.tasken-root-entry-action kbd,
+.tasken-root-action-list kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.tasken-root-results {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2);
+  content-visibility: auto;
+}
+
+.tasken-root-results > button,
+.tasken-root-action-list > button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasken-root-results > button {
+  min-height: 54px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.tasken-root-results > button:hover,
+.tasken-root-results > button.is-selected,
+.tasken-root-action-list > button:hover:not(:disabled) {
+  background: var(--color-accent-subtle-bg);
+}
+
+.tasken-root-results > button:active,
+.tasken-root-action-list > button:active:not(:disabled) {
+  background: var(--color-accent-subtle-bg-strong);
+}
+
+.tasken-root-results > button:focus-visible,
+.tasken-root-action-list > button:focus-visible,
+.tasken-root-state button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.tasken-root-entry-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  color: var(--color-accent);
+}
+
+.tasken-root-entry-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tasken-root-entry-copy strong,
+.tasken-root-entry-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasken-root-entry-copy small,
+.tasken-root-entry-action,
+.tasken-root-footer,
+.tasken-root-actions-heading small,
+.tasken-root-action-list small {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.tasken-root-entry-action {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tasken-root-results > button.is-selected .tasken-root-entry-action {
+  display: flex;
+}
+
+.tasken-root-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.tasken-root-state {
+  padding: var(--space-5);
+  color: var(--color-text-muted);
+}
+
+.tasken-root-state.is-error {
+  color: var(--color-danger);
+}
+
+.tasken-root-state button {
+  margin-left: var(--space-3);
+}
+
+.tasken-root-actions {
+  position: absolute;
+  inset: 0 0 0 40%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+}
+
+.tasken-root-actions-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tasken-root-actions-heading h2 {
+  margin: 2px 0 0;
+  font-size: var(--text-base);
+}
+
+.tasken-root-actions-heading button {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+}
+
+.tasken-root-action-list {
+  overflow: auto;
+  padding: var(--space-2);
+}
+
+.tasken-root-action-list > button {
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.tasken-root-action-list > button > span {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.tasken-root-action-list > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}

@@ -35,10 +35,12 @@ import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import { configureMainLog, logMain } from "./log";
 import { createRecordingIndicatorController } from "./recordingIndicatorController";
+import { createTaskenRootController, type TaskenRootController } from "./taskenRootController";
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
-import { IPC, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
+import { IPC, type RootOpenRequest, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
+import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
@@ -75,6 +77,7 @@ let reminderController: ReminderController | null = null;
 let satelliteWindows: SatelliteWindowRegistry | null = null;
 let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
+let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let mcpProposalInboxService: McpProposalInboxService | null = null;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
@@ -201,6 +204,7 @@ function applyApplicationMenu(): void {
  * 切り離しウィンドウ（#290 / #298）は registry へ問い合わせる。
  */
 function isAuxiliaryWindow(win: BrowserWindow): boolean {
+  if (win === taskenRootController?.getWindow()) return true;
   if (win === quickCaptureController?.getWindow()) return true;
   if (win === todayMiniController?.getWindow()) return true;
   return satelliteWindows?.has(win) === true;
@@ -2454,6 +2458,20 @@ async function startDesktopApp(): Promise<void> {
     isAppQuitApproved: () => appQuitApproved,
   });
   noteWindowController.registerIpc();
+  taskenRootController = createTaskenRootController({
+    getPreference: (key) => workspaceRepository.getPreference(key),
+    setPreference: (key, value) => { workspaceRepository.setPreference(key, value); },
+    getAppIconPath,
+    showMainTarget: (request: RootOpenRequest) => {
+      const mainWindow = showMainWindow();
+      const send = () => {
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceOpenRootTarget, request);
+      };
+      if (readyMainWindows.has(mainWindow)) send();
+      else mainWindow.webContents.once("did-finish-load", send);
+    },
+  });
+  taskenRootController.registerIpc();
   quickCaptureController = createQuickCaptureController({
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
@@ -2502,11 +2520,17 @@ async function startDesktopApp(): Promise<void> {
     sharedFolderSyncService.start();
     trayController.setup();
     reminderController.start();
-    globalShortcut.register("CmdOrCtrl+Shift+N", () => quickCaptureController?.show("inbox"));
-    globalShortcut.register("CmdOrCtrl+Shift+M", () => quickCaptureController?.show("today-task"));
-    globalShortcut.register("CmdOrCtrl+Shift+D", () => quickCaptureController?.show("due-task"));
-    globalShortcut.register("CmdOrCtrl+Shift+,", () => quickCaptureController?.show("done-task"));
-    globalShortcut.register("CmdOrCtrl+Shift+.", () => quickCaptureController?.show("micro-memo"));
+    const directHandlers: Record<(typeof DIRECT_SHORTCUT_DEFINITIONS)[number]["id"], () => void> = {
+      "quick-capture": () => quickCaptureController?.show("inbox"),
+      "today-task": () => quickCaptureController?.show("today-task"),
+      "due-task": () => quickCaptureController?.show("due-task"),
+      "done-task": () => quickCaptureController?.show("done-task"),
+      "micro-memo": () => quickCaptureController?.show("micro-memo"),
+    };
+    for (const definition of DIRECT_SHORTCUT_DEFINITIONS) {
+      globalShortcut.register(definition.accelerator, directHandlers[definition.id]);
+    }
+    taskenRootController.registerShortcut();
   }
 
   app.on("activate", () => {
@@ -2558,5 +2582,6 @@ app.on("before-quit", (event) => {
 
 app.on("will-quit", () => {
     reminderController?.stop();
+    taskenRootController?.destroy();
     globalShortcut.unregisterAll();
 });

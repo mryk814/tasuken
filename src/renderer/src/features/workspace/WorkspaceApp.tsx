@@ -632,6 +632,63 @@ export function WorkspaceApp() {
     });
   }, [fullDomain, loadState, setRoute, setToast]);
 
+  useEffect(() => {
+    if (!window.api?.app?.onOpenTaskenRootTarget || detachedNoteId || loadState !== "success") return undefined;
+    return window.api.app.onOpenTaskenRootTarget((request) => {
+      if (request.kind === "command") {
+        if (request.id === "create:capture") {
+          openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString() } });
+          return;
+        }
+        if (request.id.startsWith("navigate:")) navigate(request.id.slice("navigate:".length));
+        return;
+      }
+      if (request.kind === "task") {
+        const task = fullDomain.tasks.find((entry) => entry.id === request.id);
+        if (!task) {
+          setToast("Taskを開けませんでした。画面を更新してもう一度試してください。", "danger");
+          return;
+        }
+        if (request.action === "focus") {
+          startFocusSession(task.id);
+          return;
+        }
+        const schedule = fullDomain.schedules.find((entry) => entry.owner_type === "task" && entry.owner_id === task.id);
+        location.hash = "todo";
+        setRoute("todo");
+        openDrawer({ type: "task", mode: request.action === "edit" ? "edit" : undefined, entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+        return;
+      }
+      if (request.kind === "note") {
+        const note = fullDomain.notes.find((entry) => entry.id === request.id);
+        if (!note) {
+          setToast("Noteを開けませんでした。画面を更新してもう一度試してください。", "danger");
+          return;
+        }
+        location.hash = "notes";
+        setRoute("notes");
+        window.dispatchEvent(new CustomEvent("tasken:select-note", { detail: note.id }));
+        return;
+      }
+      if (request.kind === "theme") {
+        const theme = allThemes.find((entry) => entry.id === request.id);
+        if (!theme) return;
+        setActiveThemeId(theme.id);
+        navigate("theme");
+        return;
+      }
+      if (request.kind === "resource") {
+        const resource = fullDomain.resources.find((entry) => entry.id === request.id);
+        if (resource) openDrawer({ type: "resource", entity: resource as unknown as Record<string, unknown> });
+        return;
+      }
+      if (request.kind === "artifact") {
+        const artifact = (fullData.artifacts || []).find((entry) => entry.id === request.id);
+        if (artifact) openContentViewer({ type: "artifact", artifactId: artifact.id });
+      }
+    });
+  }, [allThemes, detachedNoteId, fullData.artifacts, fullDomain, loadState, setActiveThemeId, setRoute, setToast]);
+
   // 切り離しウィンドウから本体へ表示を渡す（#290 / #298）。本体側だけが受ける。
   useEffect(() => {
     if (detachedNoteId || loadState !== "success") return undefined;
