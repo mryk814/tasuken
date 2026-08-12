@@ -95,7 +95,8 @@ test("managed video stages exact bytes and commits one strict ID-owned Artifact 
 
 test("trim export keeps the original bytes and commits a separate derived Artifact", async (t) => {
   const paths = fixture(t);
-  const ffmpegPath = path.resolve("node_modules", "ffmpeg-static", "ffmpeg.exe");
+  const ffmpegExecutable = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+  const ffmpegPath = path.resolve("node_modules", "ffmpeg-static", ffmpegExecutable);
   const generated = spawnSync(ffmpegPath, [
     "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
     "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=2",

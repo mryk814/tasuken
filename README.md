@@ -6,10 +6,19 @@
 
 ## 起動
 
-```powershell
+```bash
 npm install
 npm run dev
 ```
+
+WSL（Ubuntu）でElectronのtest / smokeを実行する場合は、初回だけLinux共有ライブラリを入れます。
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libnspr4 libnss3 libasound2t64 xvfb
+```
+
+Ubuntu 22.04などで`libasound2t64`が見つからない場合は、代わりに`libasound2`を指定してください（`xvfb`はそのまま付けます）。
 
 `npm run dev`はelectron-viteでMain / Preload / Rendererを起動し、Renderer HMRを有効にします。
 ブラウザ単体での起動と`localStorage`保存には対応していません。
@@ -18,36 +27,43 @@ Taskenは同じユーザーデータを使う二重起動を防ぎます。イ�
 
 ## ビルド
 
-```powershell
+```bash
 npm run typecheck
 npm run build
 ```
 
-Electron内の入力・保存・再読み込みを自動確認:
+WSLでの開発検証は、次の品質ゲートを使います。
 
-```powershell
+```bash
+npm ci
+npm run ci
+```
+
+Electron内の入力・保存・再読み込みを自動確認（Electron依存導入済みのWSL / Windows）:
+
+```bash
 npm run smoke:desktop
 ```
 
 データ検証、transaction、Snapshot往復を自動確認:
 
-```powershell
+```bash
 npm run smoke:model
 ```
 
 狭幅・表示倍率ごとのレイアウト崩れを自動確認（本体の主要画面 / Note別ウィンドウ）:
 
-```powershell
+```bash
 npm run audit:responsive
 ```
 
-```powershell
+```bash
 npm run audit:note-window
 ```
 
 Read-only MCP Serverを起動:
 
-```powershell
+```bash
 npm --silent run mcp
 ```
 
@@ -56,9 +72,8 @@ MCPクライアント設定では、stdoutにnpmのログを混ぜないため`-
 通常はElectronの`userData`配下にある`research-desk.sqlite`を読みます。
 別DBを使う場合は`TASKEN_DB_PATH`を指定してください。
 
-```powershell
-$env:TASKEN_DB_PATH="C:\path\to\research-desk.sqlite"
-npm run mcp
+```bash
+TASKEN_DB_PATH="/path/to/research-desk.sqlite" npm run mcp
 ```
 
 MCPの検索・文脈取得toolは読み取り専用です。Note本文の全文は`include_raw_body: true`を明示した場合だけ返します。Task / Note / Knowledge / Sketch / Artifactのwrite toolはSQLiteへ直接書かず、TaskenのPending Proposalへ送ります。
@@ -69,22 +84,21 @@ Task作業は`start_task_work` → `append_work_receipt` → `report_task_done`�
 
 Windowsインストーラーとportable版を作成:
 
-```powershell
+```bash
 npm run package
 ```
 
 生成先:
 
-- `release/Tasken-Setup-0.1.0-x64.exe`
-- `release/Tasken-Portable-0.1.0-x64.exe`
+- `release/Tasken-Setup-X.Y.Z-x64.exe`
+- `release/Tasken-Portable-X.Y.Z-x64.exe`
 
 GitHub Release用の検証とpackageをまとめて実行:
 
-```powershell
+```bash
 npm run release:check
 ```
 
-配布版は`vX.Y.Z`タグをpushするとGitHub Actionsで作成されます。
 詳しい手順は [`release.md`](./docs/release.md) を参照してください。
 
 インストール版とportable版はいずれもElectronの`userData`配下に
