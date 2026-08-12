@@ -1,0 +1,70 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "既存の vX.Y.Z タグを再実行する場合に指定"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag and create Windows artifacts
+        run: npm run release:check
+
+      - name: Verify release files
+        run: npm run release:verify-artifacts
+
+      - name: Write SHA-256 checksums
+        run: npm run release:checksum
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $assets = @(
+            "release/Tasken-Setup-$version-x64.exe",
+            "release/Tasken-Portable-$version-x64.exe",
+            "release/SHA256SUMS.txt"
+          )
+
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            gh release create $env:RELEASE_TAG @assets --verify-tag --title "Tasken $env:RELEASE_TAG" --generate-notes
+          }

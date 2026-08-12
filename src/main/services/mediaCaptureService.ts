@@ -158,10 +158,11 @@ function hashFile(filePath: string): string {
 }
 
 function resolveBundledFfmpegPath(): string | null {
+  const executableName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
   const candidates = [
-    path.resolve(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe"),
+    path.resolve(process.cwd(), "node_modules", "ffmpeg-static", executableName),
     ...(typeof process.resourcesPath === "string"
-      ? [path.resolve(process.resourcesPath, "app.asar.unpacked", "node_modules", "ffmpeg-static", "ffmpeg.exe")]
+      ? [path.resolve(process.resourcesPath, "app.asar.unpacked", "node_modules", "ffmpeg-static", executableName)]
       : []),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;

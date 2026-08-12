@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -79,12 +79,41 @@ function electronExecutable(cwd = process.cwd()) {
   }
 }
 
+function smokeLaunchSpec(cwd = process.cwd()) {
+  const executable = electronExecutable(cwd);
+  if (process.platform !== "linux" || process.env.DISPLAY) {
+    return { command: executable, prefixArgs: [] };
+  }
+
+  const xvfb = spawnSync("sh", ["-c", "command -v xvfb-run"], { encoding: "utf8" });
+  if (xvfb.status !== 0) {
+    throw new Error("WSL/LinuxでElectronスモークを実行するには xvfb が必要です。README.mdの依存パッケージをインストールしてください。");
+  }
+  return {
+    command: "xvfb-run",
+    prefixArgs: ["--auto-servernum", "--server-args=-screen 0 1280x1024x24", executable],
+  };
+}
+
+function spawnSmokeProcess(launch, args, options) {
+  return spawn(launch.command, [...launch.prefixArgs, ...args], options);
+}
+
 export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), executablePath = "", packaged = false } = {}) {
   const paths = createSmokePaths(tempRoot);
   mkdirSync(paths.userDataDir, { recursive: true });
   console.log(JSON.stringify({ smokeRunId: paths.runId, userDataDir: paths.userDataDir, resultPath: paths.resultPath }));
-  const executable = executablePath ? path.resolve(executablePath) : electronExecutable(cwd);
-  const child = spawn(executable, buildElectronSmokeArgs(paths, { packaged }), {
+  let launch;
+  try {
+    launch = executablePath
+      ? { command: path.resolve(executablePath), prefixArgs: [] }
+      : smokeLaunchSpec(cwd);
+  } catch (error) {
+    console.error(`Electron smoke could not start: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+    return { paths, child: null };
+  }
+  const child = spawnSmokeProcess(launch, buildElectronSmokeArgs(paths, { packaged }), {
     cwd,
     env: process.env,
     stdio: "inherit",
@@ -106,7 +135,7 @@ export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), 
       process.exitCode = 1;
       return;
     }
-    const restarted = spawn(executable, buildElectronSmokeArgs(paths, {
+    const restarted = spawnSmokeProcess(launch, buildElectronSmokeArgs(paths, {
       packaged,
       restartArtifactId: restartArtifactIds.audioArtifactId,
       restartMicrophoneArtifactId: restartArtifactIds.microphoneArtifactId,
