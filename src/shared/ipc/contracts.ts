@@ -160,6 +160,9 @@ export const IPC = {
   snapshotExport: "snapshot:export",
   snapshotInspect: "snapshot:inspect",
   snapshotApply: "snapshot:apply",
+  automaticSnapshotStatus: "automatic-snapshot:status",
+  automaticSnapshotConfigure: "automatic-snapshot:configure",
+  automaticSnapshotRun: "automatic-snapshot:run",
   sharedSyncStatus: "shared-sync:status",
   sharedSyncConfigure: "shared-sync:configure",
   sharedSyncDisable: "shared-sync:disable",
@@ -514,6 +517,21 @@ export interface SharedSyncStatus {
   lastMarkdownImagesReceived: number;
 }
 
+export interface AutomaticSnapshotBackupConfig {
+  enabled: boolean;
+  directory: string;
+  generations: number;
+}
+
+export interface AutomaticSnapshotBackupStatus extends AutomaticSnapshotBackupConfig {
+  lastAttemptAt: string;
+  lastSuccessAt: string;
+  latestFilePath: string;
+  backupCount: number;
+  lastError: string;
+  skippedReason: string;
+}
+
 /** アプリ内ビューア用のローカルファイル読み取り結果。 */
 export type FilePreviewReadResult =
   | { ok: true; kind: "image"; dataUrl: string; mimeType: string; filePath: string }
@@ -696,6 +714,9 @@ export interface ResearchDeskApi {
     inspectFile(): Promise<SnapshotInspectResult>;
     // decisionsは「change.key -> action」の対応表。配列ではなくオブジェクトで渡す。
     applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
+    automaticStatus(): Promise<AutomaticSnapshotBackupStatus>;
+    configureAutomatic(config: AutomaticSnapshotBackupConfig): Promise<AutomaticSnapshotBackupStatus>;
+    runAutomatic(): Promise<AutomaticSnapshotBackupStatus>;
   };
   sharedSync: {
     status(): Promise<SharedSyncStatus>;

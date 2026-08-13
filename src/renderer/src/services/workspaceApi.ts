@@ -376,6 +376,15 @@ export const workspaceApi = {
   applySnapshot(token: string, decisions: Record<string, string>) {
     return desktopApi().snapshots.applyImport(token, decisions);
   },
+  automaticSnapshotStatus() {
+    return desktopApi().snapshots.automaticStatus();
+  },
+  configureAutomaticSnapshot(config: Parameters<Window["api"]["snapshots"]["configureAutomatic"]>[0]) {
+    return desktopApi().snapshots.configureAutomatic(config);
+  },
+  runAutomaticSnapshot() {
+    return desktopApi().snapshots.runAutomatic();
+  },
   sharedSyncStatus() {
     return desktopApi().sharedSync.status();
   },

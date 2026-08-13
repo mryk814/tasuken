@@ -3,6 +3,7 @@ import { BrowserWindow, dialog, ipcMain } from "electron";
 import { IPC } from "../../shared/ipc/contracts";
 import { entityTypes, type Entity, type EntityType } from "../../shared/types/workspace";
 import type { WorkspaceService } from "../services/workspaceService";
+import type { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
@@ -43,7 +44,11 @@ import {
   normalizeViewPreferenceEnvelope,
   getViewPreferenceDefinition,
 } from "../../shared/viewPreferenceRegistry.mjs";
-import type { ViewPreferenceEnvelope, ViewPreferenceChange } from "../../shared/ipc/contracts";
+import type {
+  AutomaticSnapshotBackupConfig,
+  ViewPreferenceEnvelope,
+  ViewPreferenceChange,
+} from "../../shared/ipc/contracts";
 
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -80,6 +85,24 @@ function requireText(value: unknown, label: string): string {
     throw new Error(`${label}の形式が不正です。画面を再読み込みして、もう一度試してください。`);
   }
   return value;
+}
+
+function requireAutomaticSnapshotConfig(value: unknown): AutomaticSnapshotBackupConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("自動バックアップの設定形式が不正です。画面を再読み込みして、もう一度試してください。");
+  }
+  const input = value as Record<string, unknown>;
+  if (typeof input.enabled !== "boolean" || typeof input.directory !== "string") {
+    throw new Error("自動バックアップの設定値が不正です。設定を選び直してください。");
+  }
+  if (!Number.isInteger(input.generations) || Number(input.generations) < 1 || Number(input.generations) > 20) {
+    throw new Error("バックアップの世代数は1〜20で指定してください。");
+  }
+  return {
+    enabled: input.enabled,
+    directory: input.directory,
+    generations: Number(input.generations),
+  };
 }
 
 /** RendererからMainの内部時刻や未知のrepository optionを注入させない。 */
@@ -159,6 +182,7 @@ function screenRecordingRequestContext(event: Electron.IpcMainInvokeEvent) {
 export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
+  automaticSnapshotBackup: AutomaticSnapshotBackupService,
   sharedSync: SharedFolderSyncService,
   aiProvider: AiProviderService,
   calendar: CalendarService,
@@ -591,6 +615,15 @@ export function registerIpc(
   ipcMain.handle(IPC.snapshotInspect, async () => projectSnapshotInspectForRenderer(await service.inspectSnapshot()));
   ipcMain.handle(IPC.snapshotApply, (_event, token, decisions) =>
     projectWorkspaceForRenderer(service.applySnapshot(requireId(token), decisions && typeof decisions === "object" && !Array.isArray(decisions) ? (decisions as Record<string, string>) : {})));
+  ipcMain.handle(IPC.automaticSnapshotStatus, () => automaticSnapshotBackup.status());
+  ipcMain.handle(IPC.automaticSnapshotConfigure, (_event, config) => {
+    const normalized = requireAutomaticSnapshotConfig(config);
+    repository.setPreference("automaticSnapshotBackupEnabled", normalized.enabled);
+    repository.setPreference("automaticSnapshotBackupDirectory", normalized.directory);
+    repository.setPreference("automaticSnapshotBackupGenerations", normalized.generations);
+    return automaticSnapshotBackup.configure(normalized);
+  });
+  ipcMain.handle(IPC.automaticSnapshotRun, () => automaticSnapshotBackup.run("manual"));
   ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
   ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>
     sharedSync.configure(requireText(directory, "同期フォルダ")));

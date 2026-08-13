@@ -181,12 +181,22 @@ export function TaskenRootApp() {
   const entries = useMemo(() => [...COMMANDS, ...(workspace ? entityEntries(workspace) : [])], [workspace]);
   const matches = useMemo(() => rankCommandEntries(entries, query, usage) as RootEntry[], [entries, query, usage]);
   const selected = matches[selectedIndex] || matches[0];
+  const selectedOptionId = selected ? `tasken-root-option-${selected.kind}-${selected.id}` : undefined;
   const actions = useMemo(() => selected ? rootActionsForTarget(selected) : [], [selected]);
 
   useEffect(() => {
     setSelectedIndex(0);
     setPanelOpen(false);
   }, [query]);
+
+  useEffect(() => {
+    setSelectedIndex((current) => Math.max(0, Math.min(current, matches.length - 1)));
+  }, [matches.length]);
+
+  useEffect(() => {
+    if (!selectedOptionId || panelOpen) return;
+    document.getElementById(selectedOptionId)?.scrollIntoView({ block: "nearest" });
+  }, [panelOpen, selectedOptionId]);
 
   async function recordUsage(entry: RootEntry, actionId: string) {
     const key = `${entry.usageKey}:${actionId}`;
@@ -249,6 +259,7 @@ export function TaskenRootApp() {
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Escape") {
       event.preventDefault();
       if (panelOpen) setPanelOpen(false);
@@ -277,21 +288,35 @@ export function TaskenRootApp() {
     <main className="tasken-root" onKeyDown={onKeyDown}>
       <header className="tasken-root-search">
         <IconSearch size={20} aria-hidden="true" />
-        <input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Taskenを検索" aria-label="Taskenを検索" autoFocus />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Taskenを検索"
+          aria-label="Taskenを検索"
+          role="combobox"
+          aria-expanded="true"
+          aria-autocomplete="list"
+          aria-controls="tasken-root-results"
+          aria-activedescendant={selectedOptionId}
+          autoFocus
+        />
         <kbd>Esc</kbd>
       </header>
       {status.state === "loading" ? <div className="tasken-root-state">読み込んでいます…</div> : null}
       {status.state === "error" ? <div className="tasken-root-state is-error" role="alert">{status.message}<button type="button" onClick={() => void load()}>再試行</button></div> : null}
       {status.state === "success" && matches.length === 0 ? <div className="tasken-root-state">一致する項目がありません。検索語を変えてください。</div> : null}
-      <div className="tasken-root-results" role="listbox" aria-label="検索結果">
+      <div id="tasken-root-results" className="tasken-root-results" role="listbox" aria-label="検索結果">
         {matches.map((entry, index) => {
           const EntryIcon = entryIcon(entry.kind);
           return (
             <button
               type="button"
               key={`${entry.kind}:${entry.id}`}
+              id={`tasken-root-option-${entry.kind}-${entry.id}`}
               className={index === selectedIndex ? "is-selected" : ""}
               role="option"
+              tabIndex={-1}
               aria-selected={index === selectedIndex}
               onMouseEnter={() => setSelectedIndex(index)}
               onClick={() => { setSelectedIndex(index); const primary = rootPrimaryAction(entry); if (primary) void executeAction(entry, primary); }}

@@ -101,8 +101,8 @@ input {
 .tasken-root-results > button:focus-visible,
 .tasken-root-action-list > button:focus-visible,
 .tasken-root-state button:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .tasken-root-entry-icon {

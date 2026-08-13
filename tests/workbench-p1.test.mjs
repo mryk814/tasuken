@@ -53,9 +53,10 @@ test("P1 UIは固定registry、最近履歴、Theme導線、Repository保存へ�
   const themePage = fs.readFileSync(new URL("../src/renderer/src/features/workspace/pages/ThemePage.tsx", import.meta.url), "utf8");
 
   assert.match(app, /Ctrl\+Shift\+K|event\.shiftKey/);
-  assert.match(app, /domain\.tasks\.map/);
-  assert.match(app, /domain\.notes\.map/);
-  assert.match(app, /themes\.map/);
+  assert.match(app, /buildRecallPaletteEntries/);
+  assert.match(app, /data: fullData/);
+  assert.match(app, /domain: fullDomain/);
+  assert.match(app, /themes: allThemes/);
   assert.match(palette, /tasken:command-palette:recent:v1/);
   assert.match(palette, /ArrowDown/);
   assert.match(palette, /ArrowUp/);

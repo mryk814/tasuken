@@ -11,6 +11,7 @@
 - Tasukenが正本データを所有するローカルファーストアプリ
 - SQLite Repositoryを唯一の書き込み経路とする
 - Snapshot / Import / Exportの往復性を保つ
+- 通常起動時の自動Snapshotを既定で有効にし、Settingsから保存先・世代数・最新結果を確認できるようにする
 - Sketchはレンダリング画像ではなく編集可能なオブジェクト文書を正本とする。画像・Markdown・AI向けデータは派生物
 
 ## 利用者と配布

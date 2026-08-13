@@ -27,6 +27,8 @@ import { AiProviderService } from "./services/aiProviderService";
 import { BatchTranscriptionService } from "./services/batchTranscriptionService.mjs";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
+import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
+import { createSnapshot, readSnapshot } from "./services/snapshotService.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { ApplicationCommandService } from "./services/applicationCommandService";
@@ -2326,6 +2328,16 @@ async function startDesktopApp(): Promise<void> {
   }
   const applicationCommands = new ApplicationCommandService(workspaceRepository);
   const workspaceService = new WorkspaceService(workspaceRepository, app.getPath("userData"));
+  const automaticSnapshotBackup = new AutomaticSnapshotBackupService({
+    repository: workspaceRepository,
+    defaultDirectory: path.join(app.getPath("userData"), "Backups"),
+    enabled: workspaceRepository.getPreference("automaticSnapshotBackupEnabled") !== false,
+    directory: String(workspaceRepository.getPreference("automaticSnapshotBackupDirectory") || ""),
+    generations: Number(workspaceRepository.getPreference("automaticSnapshotBackupGenerations")),
+    writeSnapshot: (workspace, filePath) => createSnapshot(workspace).writeZip(filePath),
+    verifySnapshot: (filePath) => readSnapshot(filePath).workspace,
+    log: (level, message, error) => logMain(level, "automatic-snapshot", message, error),
+  });
   registerWebArtifactProtocol(workspaceService);
   const mediaCapture = new MediaCaptureService({
     userDataPath: app.getPath("userData"),
@@ -2401,6 +2413,7 @@ async function startDesktopApp(): Promise<void> {
   registerIpc(
     workspaceRepository,
     workspaceService,
+    automaticSnapshotBackup,
     sharedFolderSyncService,
     aiProvider,
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
@@ -2517,6 +2530,7 @@ async function startDesktopApp(): Promise<void> {
   createWindow();
 
   if (!isSmokeTest) {
+    automaticSnapshotBackup.run("startup");
     sharedFolderSyncService.start();
     trayController.setup();
     reminderController.start();

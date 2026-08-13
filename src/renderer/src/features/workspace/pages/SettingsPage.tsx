@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { AppUpdateCheckResult, McpBridgeInfo, SharedSyncStatus } from "../../../../../shared/ipc/contracts";
+import type {
+  AppUpdateCheckResult,
+  AutomaticSnapshotBackupStatus,
+  McpBridgeInfo,
+  RootShortcutState,
+  SharedSyncStatus,
+} from "../../../../../shared/ipc/contracts";
 import type { AiAdapterKind, AiApiSurface, AiAuthKind, AiCapability, AiFeatureAvailability, AiModelLifecycle, AiProviderConfig } from "../../../../../shared/ai";
 import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
@@ -11,7 +17,6 @@ import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
 import { DEFAULT_ROOT_SHORTCUT, DIRECT_SHORTCUT_DEFINITIONS } from "../../../../../shared/taskenRoot";
-import type { RootShortcutState } from "../../../../../shared/ipc/contracts";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -70,6 +75,10 @@ function settingsHash(section: SettingsSectionId): string {
   return section === "general" ? "settings" : `settings/${section}`;
 }
 
+function backupTime(value: string): string {
+  return value ? new Date(value).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" }) : "未実行";
+}
+
 export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGroups, setActiveGroups, allThemes, setSnapshotPreview, snapshotPreview, setToast }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -113,6 +122,14 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [rootShortcut, setRootShortcut] = useState(DEFAULT_ROOT_SHORTCUT);
   const [rootShortcutState, setRootShortcutState] = useState<RootShortcutState | null>(null);
   const [rootShortcutBusy, setRootShortcutBusy] = useState(false);
+  const [automaticBackupStatus, setAutomaticBackupStatus] = useState<AutomaticSnapshotBackupStatus | null>(null);
+  const [automaticBackupEnabled, setAutomaticBackupEnabled] = useState(true);
+  const [automaticBackupDirectory, setAutomaticBackupDirectory] = useState("");
+  const [automaticBackupGenerations, setAutomaticBackupGenerations] = useState(5);
+  const [automaticBackupBusy, setAutomaticBackupBusy] = useState(false);
+  const [automaticBackupState, setAutomaticBackupState] = useState<"loading" | "error" | "success">("loading");
+  const [automaticBackupError, setAutomaticBackupError] = useState("");
+  const [automaticBackupReloadToken, setAutomaticBackupReloadToken] = useState(0);
 
   useEffect(() => {
     const onHash = () => setActiveSection(settingsSectionFromHash(window.location.hash));
@@ -142,6 +159,30 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
       .then((state) => { setRootShortcut(state.shortcut); setRootShortcutState(state); })
       .catch(() => setRootShortcutState({ shortcut: DEFAULT_ROOT_SHORTCUT, registered: false, error: "現在の登録状態を確認できません。" }));
   }, []);
+
+  useEffect(() => {
+    setAutomaticBackupState("loading");
+    setAutomaticBackupError("");
+    workspaceApi.automaticSnapshotStatus()
+      .then((status) => {
+        acceptAutomaticBackupStatus(status);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setAutomaticBackupState("error");
+        setAutomaticBackupError(`自動バックアップの状態を確認できませんでした。${message}`);
+        setToast(`自動バックアップの状態を確認できませんでした。${message}`, "danger");
+      });
+  }, [automaticBackupReloadToken, setToast]);
+
+  function acceptAutomaticBackupStatus(status: AutomaticSnapshotBackupStatus) {
+    setAutomaticBackupStatus(status);
+    setAutomaticBackupEnabled(status.enabled);
+    setAutomaticBackupDirectory(status.directory);
+    setAutomaticBackupGenerations(status.generations);
+    setAutomaticBackupState("success");
+    setAutomaticBackupError("");
+  }
 
   async function saveRootShortcut() {
     setRootShortcutBusy(true);
@@ -350,6 +391,62 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
     } finally {
       setBusy(false);
     }
+  }
+
+  async function chooseAutomaticBackupDirectory() {
+    try {
+      const result = await workspaceApi.chooseDirectory("自動バックアップの保存先を選択");
+      if (!result.canceled && result.path) setAutomaticBackupDirectory(result.path);
+    } catch (error) {
+      setToast(`保存先を選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function saveAutomaticBackupSettings(showSuccess = true) {
+    const status = await workspaceApi.configureAutomaticSnapshot({
+      enabled: automaticBackupEnabled,
+      directory: automaticBackupDirectory,
+      generations: automaticBackupGenerations,
+    });
+    acceptAutomaticBackupStatus(status);
+    if (showSuccess) setToast("自動バックアップの設定を保存しました。", "success");
+    return status;
+  }
+
+  async function saveAutomaticBackup() {
+    setAutomaticBackupBusy(true);
+    try {
+      await saveAutomaticBackupSettings();
+    } catch (error) {
+      setToast(`自動バックアップの設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setAutomaticBackupBusy(false);
+    }
+  }
+
+  async function runAutomaticBackup() {
+    setAutomaticBackupBusy(true);
+    try {
+      await saveAutomaticBackupSettings(false);
+      const status = await workspaceApi.runAutomaticSnapshot();
+      acceptAutomaticBackupStatus(status);
+      if (status.lastError) {
+        setToast(`バックアップを作成できませんでした。${status.lastError}`, "danger");
+      } else if (status.skippedReason) {
+        setToast(status.skippedReason, "info");
+      } else {
+        setToast("バックアップを作成しました。", "success");
+      }
+    } catch (error) {
+      setToast(`バックアップを作成できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setAutomaticBackupBusy(false);
+    }
+  }
+
+  async function openAutomaticBackupDirectory() {
+    const result = await workspaceApi.openPath(automaticBackupDirectory);
+    if (!result.ok) setToast(`バックアップ先を開けませんでした。${result.error || "保存先を確認してください。"}`, "danger");
   }
 
   async function inspectSnapshot() {
@@ -638,6 +735,19 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
       ? { label: `要確認 · ${mcpInfo.pendingFileCount}件`, tone: "attention" as const }
       : { label: "正常", tone: "normal" as const }
       : { label: "確認中", tone: "loading" as const };
+  const automaticBackupSummary = automaticBackupState === "loading"
+    ? { label: "確認中", tone: "loading" as const }
+    : automaticBackupState === "error"
+      ? { label: "取得失敗", tone: "error" as const }
+      : automaticBackupStatus?.lastError
+    ? { label: "エラー", tone: "error" as const }
+    : automaticBackupStatus && !automaticBackupStatus.enabled
+      ? { label: "停止中", tone: "neutral" as const }
+      : automaticBackupStatus?.lastSuccessAt
+        ? { label: `${automaticBackupStatus.backupCount}世代`, tone: "normal" as const }
+        : automaticBackupStatus
+          ? { label: "準備完了", tone: "normal" as const }
+          : { label: "準備中", tone: "loading" as const };
   const activeSectionDefinition = SETTINGS_SECTIONS.find((entry) => entry.id === activeSection) || SETTINGS_SECTIONS[0];
   const selectedAiProvider = aiConfig?.providers.find((provider) => provider.id === aiProviderId);
   const selectedAiModel = aiConfig?.models.find((model) => model.id === aiModelProfileId);
@@ -674,6 +784,10 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           <button type="button" className="settings-summary-item" onClick={() => selectSection("ai-mcp")}>
             <span>MCP Bridge</span>
             <strong><IntegrationStatus label={mcpSummary.label} tone={mcpSummary.tone} /></strong>
+          </button>
+          <button type="button" className="settings-summary-item" onClick={() => selectSection("advanced")}>
+            <span>Backups</span>
+            <strong><IntegrationStatus label={automaticBackupSummary.label} tone={automaticBackupSummary.tone} /></strong>
           </button>
         </div>
       </section>
@@ -754,11 +868,46 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                 </select>
               </label>
             </section>
+            <section className="panel settings-form automatic-backup-panel" hidden={activeSection !== "advanced"}>
+              <div className="settings-section-heading">
+                <h2>自動バックアップ</h2>
+                <IntegrationStatus label={automaticBackupSummary.label} tone={automaticBackupSummary.tone} />
+              </div>
+              <p className="field-help">起動時にSnapshotを作り、古いものから自動で入れ替えます。空の作業台は保存しません。</p>
+              <label className="toggle">自動で作成
+                <input type="checkbox" checked={automaticBackupEnabled} disabled={automaticBackupBusy} onChange={(event) => setAutomaticBackupEnabled(event.target.checked)} />
+              </label>
+              <label>保存先
+                <input value={automaticBackupDirectory} readOnly placeholder="Taskenデータ内の Backups" title={automaticBackupDirectory} />
+              </label>
+              <label>保持する世代数
+                <input type="number" min="1" max="20" value={automaticBackupGenerations} disabled={automaticBackupBusy} onChange={(event) => setAutomaticBackupGenerations(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} />
+              </label>
+              <dl className="settings-meta-list">
+                <div><dt>最終成功</dt><dd>{backupTime(automaticBackupStatus?.lastSuccessAt || "")}</dd></div>
+                <div><dt>保存済み</dt><dd>{automaticBackupStatus ? `${automaticBackupStatus.backupCount}世代` : "確認中"}</dd></div>
+              </dl>
+              {automaticBackupError ? (
+                <div className="form-error">
+                  <span>{automaticBackupError} 保存先を確認して、もう一度読み込んでください。</span>
+                  <button type="button" className="text-button" onClick={() => setAutomaticBackupReloadToken((value) => value + 1)}>もう一度確認</button>
+                </div>
+              ) : null}
+              {automaticBackupStatus?.lastError ? <p className="form-error">{automaticBackupStatus.lastError}</p> : null}
+              <div className="settings-action-row">
+                <Button variant="secondary" disabled={automaticBackupBusy} onClick={chooseAutomaticBackupDirectory}>保存先を選ぶ</Button>
+                <Button variant="secondary" disabled={automaticBackupBusy || !automaticBackupDirectory} onClick={saveAutomaticBackup}>{automaticBackupBusy ? "処理中" : "設定を保存"}</Button>
+                <Button variant="secondary" disabled={automaticBackupBusy || !automaticBackupDirectory} onClick={runAutomaticBackup}>今すぐ作成</Button>
+                {automaticBackupDirectory ? <button type="button" className="text-button" onClick={openAutomaticBackupDirectory}>フォルダを開く</button> : null}
+              </div>
+            </section>
             <section className="panel settings-form" hidden={activeSection !== "advanced"}>
-              <h2>バックアップ</h2>
-              <p className="field-help">端末間の移行や復元にはZIP形式のSnapshotを使います。</p>
-              <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</Button>
-              <Button variant="secondary" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</Button>
+              <h2>手動の移行・復元</h2>
+              <p className="field-help">別端末への移行や任意時点への復元にはZIP形式のSnapshotを使います。</p>
+              <div className="settings-action-row">
+                <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>バックアップを書き出す</Button>
+                <Button variant="secondary" disabled={busy} onClick={inspectSnapshot}>バックアップを読み込む</Button>
+              </div>
             </section>
             <section className="panel settings-form sync-settings-panel" hidden={activeSection !== "storage"}>
               <div className="settings-section-heading">

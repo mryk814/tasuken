@@ -85,6 +85,30 @@ test("activity log export directory preference round-trips", () => {
   assert.equal(repo.setPreference("activityLogLastAutoExportDate", "28/07/2026"), "");
 });
 
+test("Tasken Root and automatic Snapshot preferences round-trip with bounded values", () => {
+  const repo = fakePreferenceRepository();
+  const shortcut = "CommandOrControl+Alt+Space";
+  const usedAt = "2026-08-13T01:02:03.000Z";
+
+  assert.equal(repo.getPreference("taskenRoot.globalShortcut"), "");
+  assert.equal(repo.setPreference("taskenRoot.globalShortcut", shortcut), shortcut);
+  assert.equal(repo.getPreference("taskenRoot.globalShortcut"), shortcut);
+  assert.deepEqual(repo.setPreference("taskenRoot.usage.v1", {
+    "task:one": { count: 4.8, lastUsedAt: usedAt },
+    invalid: { count: -1, lastUsedAt: "not-a-date" },
+  }), { "task:one": { count: 4, lastUsedAt: usedAt } });
+  assert.deepEqual(repo.getPreference("taskenRoot.usage.v1"), { "task:one": { count: 4, lastUsedAt: usedAt } });
+
+  assert.equal(repo.getPreference("automaticSnapshotBackupEnabled"), true);
+  assert.equal(repo.setPreference("automaticSnapshotBackupEnabled", false), false);
+  assert.equal(repo.getPreference("automaticSnapshotBackupEnabled"), false);
+  assert.equal(repo.setPreference("automaticSnapshotBackupDirectory", " C:\\Tasken Backups "), "C:\\Tasken Backups");
+  assert.equal(repo.getPreference("automaticSnapshotBackupDirectory"), "C:\\Tasken Backups");
+  assert.equal(repo.setPreference("automaticSnapshotBackupGenerations", 99), 20);
+  assert.equal(repo.getPreference("automaticSnapshotBackupGenerations"), 20);
+  assert.equal(repo.setPreference("automaticSnapshotBackupGenerations", 0), 1);
+});
+
 test("link URL validation allows web and mailto but rejects file", () => {
   // Notes はタイトルだけで下書き作成でき、本文は中央エリアで後から書く。
   assert.doesNotThrow(() => validateEntity("note", { id: "note-draft", title: "下書き", body_markdown: "" }));

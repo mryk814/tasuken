@@ -61,7 +61,7 @@
 | Today別Window | Top BarのToday buttonで表示／収納する、今日のTask用の細幅実行面。Task追加は題名＋compact Theme picker＋明示的な追加buttonで行い、Window位置・サイズと直前のTheme選択を表示中は維持する |
 | 整理済み | InboxでTask / Note / Markdown / Resource / Artifactへ整理した履歴とアーカイブ。整理先を再び開ける |
 | 選択範囲から切り出す | NotesのEditで選んだMarkdownを、元本文を変更せずTaskまたはNoteとして作成する。作成先から元Note・見出し・引用を辿れる |
-| Command Palette | `Ctrl+Shift+K`またはタイトルバーから開く共通操作入口。コマンドとTask / Note / Theme / Resource / Artifactを横断検索する |
+| Recall Palette（画面表示: Command Palette） | 入力欄外の`Ctrl+K`、入力中の`Ctrl+Shift+K`、またはタイトルバーから開く共通の検索・操作入口。Task / Plan・Milestone / Note本文 / Waiting / Inbox記録 / Knowledge / Chat Ref / Theme / Resource / Artifactを既存画面へ再接続する |
 | Context Pack | Theme内で明示選択したTask / Note / Resource / Artifactと依頼文を、AIへ渡すMarkdown Snapshotとしてコピー・保存する |
 | 旧AI Draft | 既存`properties_json.draft_workspace`をNote AIの会話履歴として読み取る互換データ。独立した画面・保存経路は持たない |
 | Daily Scratchpad | 日付ごとに一枚だけ作る分類前の作業メモ。TodayまたはCommand Paletteから開き、通常Noteとして自動保存する。Activity Logへ全文を自動転記しない |

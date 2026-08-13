@@ -102,8 +102,10 @@ npm run release:check
 詳しい手順は [`release.md`](./docs/release.md) を参照してください。
 
 インストール版とportable版はいずれもElectronの`userData`配下に
-`research-desk.sqlite`を保存します。端末間移行やバックアップにはSettingsの
-Workspace Snapshotを使用してください。
+`research-desk.sqlite`を保存します。通常起動時にはSettingsで指定した保存先へ
+Workspace Snapshotを自動作成し、既定5世代をローテーション保持します。
+保存先・有効/無効・世代数はSettingsの「詳細」で変更でき、同じ場所から今すぐ作成できます。
+端末間移行や任意の時点を残す場合は、手動のWorkspace Snapshot書き出しを使用してください。
 
 複数端末で継続利用する場合は、主端末のSettingsで「端末間同期」の共有フォルダを設定し、
 空のTaskenを起動した別端末で同じフォルダを選びます。
@@ -117,7 +119,7 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 - Timeline: テーマ横断の長期ガントとマイルストーン一覧
 - Themes / Notes（URL・コメントを含む）/ Waiting
 - AI Import / Export: JSON / YAMLの取り込み、Note内OpenAI編集、Proposal差分確認、JSON / YAML / Markdownの書き出し
-- Workspace Snapshot: ZIPによるバックアップ、差分プレビュー、競合選択付きImport
+- Workspace Snapshot: 復元検証付きの起動時自動世代バックアップ、手動ZIP書き出し、差分プレビュー、競合選択付きImport
 - Theme Status / Plan Revision / 情報源管理 / Settings
 - Knowledge / Context Graph / MCP: 既存Knowledge・Relationの診断、read-only context、Preview必須のSafe Write Proposal。Context GraphとAI ContextはKnowledge画面の手動整理に依存しない
 
@@ -129,7 +131,7 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 4. `Timeline` で長期予定を調整します。バー移動・リサイズ、依存線、計画進捗と実進捗の差分を示すイナズマ線を利用できます。
 5. 会議・実験・AI壁打ちは `Notes`、成果物は `Links`、外部待ちは `Waiting` に残します。
 6. 週次レビューやAIへの相談時は `AI Import / Export` で範囲と形式を選んでコピーします。
-7. 定期的に `Settings` から Workspace Snapshot を書き出してバックアップします。
+7. `Settings` の「詳細」で自動バックアップの保存先と最新結果を確認します。節目では手動Snapshotも書き出します。
 
 詳細な実装状況は [`PLAN.md`](./docs/PLAN.md) を参照してください。
 Knowledge ModelとAI/MCP連携の次期方針は [`knowledge-mcp-policy.md`](./docs/knowledge-mcp-policy.md) を参照してください。

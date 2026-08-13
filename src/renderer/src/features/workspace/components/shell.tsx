@@ -435,7 +435,8 @@ export function ShortcutDialog({ close }: { close: () => void }) {
           <dt><kbd>Space</kbd>+ドラッグ</dt><dd>Sketchを一時的に移動</dd>
           <dt><kbd>Ctrl</kbd>+ホイール</dt><dd>カーソル位置を基準にSketchを拡大縮小</dd>
           <dt><kbd>Shift</kbd>+ホイール</dt><dd>Sketchを横スクロール</dd>
-          <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>検索へ移動</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>全体検索を開く</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></dt><dd>入力中に全体検索を開く</dd>
           <dt><kbd>Alt</kbd>+<kbd>F</kbd></dt><dd>実行中のFocus Sessionを開く</dd>
           <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる（Focusは終了しない）</dd>
         </dl>

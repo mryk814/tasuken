@@ -6,15 +6,37 @@ export function normalizeCommandQuery(value) {
     .trim();
 }
 
+export function prepareCommandEntries(entries) {
+  return entries.map((entry) => ({
+    ...entry,
+    searchIndex: {
+      label: normalizeCommandQuery(entry.label),
+      haystack: normalizeCommandQuery([
+        entry.label,
+        entry.category,
+        entry.context,
+        entry.searchText,
+        ...(entry.keywords || []),
+      ].join(" ")),
+    },
+  }));
+}
+
 export function commandMatchScore(entry, query) {
   const needle = normalizeCommandQuery(query);
   if (!needle) return 1;
-  const label = normalizeCommandQuery(entry.label);
-  const haystack = normalizeCommandQuery([
-    entry.label,
-    entry.category,
-    ...(entry.keywords || []),
-  ].join(" "));
+  const label = typeof entry.searchIndex?.label === "string"
+    ? entry.searchIndex.label
+    : normalizeCommandQuery(entry.label);
+  const haystack = typeof entry.searchIndex?.haystack === "string"
+    ? entry.searchIndex.haystack
+    : normalizeCommandQuery([
+      entry.label,
+      entry.category,
+      entry.context,
+      entry.searchText,
+      ...(entry.keywords || []),
+    ].join(" "));
   if (label === needle) return 120;
   if (label.startsWith(needle)) return 100 - Math.min(40, label.length - needle.length);
   if (label.includes(needle)) return 70 - Math.min(30, label.indexOf(needle));

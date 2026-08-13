@@ -42,7 +42,11 @@ import { ContextPane } from "./components/contextPane";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 import { currentWindowMode } from "./lib/windowMode";
 import { isPersonalDefaultTheme, sortThemesWithDefaultFirst } from "../../../../shared/personalTheme.mjs";
-import { CommandPalette, type CommandPaletteEntry } from "./components/CommandPalette";
+import {
+  CommandPalette,
+  type CommandPaletteEntry,
+  type CommandPaletteExecutionContext,
+} from "./components/CommandPalette";
 import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
 import { FocusSessionDialog } from "./components/FocusSessionDialog";
@@ -54,6 +58,7 @@ import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
 import { flushPendingMediaRecordingFlushes } from "./lib/mediaRecordingFlushRegistry";
 import { projectWorkspaceData } from "./lib/workspaceProjection";
 import { buildDerivedFromDocumentCompanion, stripLineageDraftMetadata } from "./lib/lineageOperations";
+import { buildRecallPaletteEntries, type RecallPaletteTarget } from "./lib/recallPaletteEntries";
 const TASK_REFERENCE_TYPE: EntityType = "reference";
 
 function errorMessage(error: unknown): string {
@@ -118,7 +123,7 @@ export function WorkspaceApp() {
   const compactDrawerClosing = useRef(false);
   const drawerFormRef = useRef<HTMLFormElement | null>(null);
   const drawerFormInitialSignature = useRef("");
-  const drawerAutosaving = useRef(false);
+  const drawerAutosavePromise = useRef<Promise<boolean> | null>(null);
   const noteAutoSaveTimer = useRef<number | null>(null);
   const noteAutoSaveTriggerRef = useRef<() => void>(() => {});
   const updateCheckStarted = useRef(false);
@@ -310,10 +315,6 @@ export function WorkspaceApp() {
         event.preventDefault();
         openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } });
       }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        (document.querySelector("[data-search]") as HTMLElement | null)?.focus();
-      }
       // 実行中のFocus Sessionをどの画面からでも開く（#316）。Alt+N（クイック記録）と同系列。
       if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "f") {
         const taskId = activeFocusTaskIdRef.current;
@@ -497,16 +498,17 @@ export function WorkspaceApp() {
   async function autoSaveNoteDrawerForm(): Promise<void> {
     const form = drawerFormRef.current;
     if (!form || !drawer || drawer.type !== "note" || !drawer.entity?.id) return;
-    if (drawerAutosaving.current || !isDrawerFormDirty()) return;
+    if (drawerAutosavePromise.current || !isDrawerFormDirty()) return;
     const values = new FormData(form);
     if (!formText(values, "title")) return;
+    const saving = saveFormElement(form, { closeAfterSave: false, quiet: true });
+    drawerAutosavePromise.current = saving;
     try {
-      drawerAutosaving.current = true;
-      await saveFormElement(form, { closeAfterSave: false, quiet: true });
+      await saving;
     } catch {
       // 失敗時はsaveEntity側で既にエラートーストを出しているため、ここでは自動保存を諦めるだけでよい。
     } finally {
-      drawerAutosaving.current = false;
+      if (drawerAutosavePromise.current === saving) drawerAutosavePromise.current = null;
     }
   }
 
@@ -526,17 +528,26 @@ export function WorkspaceApp() {
 
   async function saveDirtyDrawerForm(): Promise<boolean> {
     const form = drawerFormRef.current;
-    if (!form || !drawer || !isDrawerFormDirty() || drawerAutosaving.current) return true;
+    if (!form || !drawer) return true;
     if (noteAutoSaveTimer.current) { window.clearTimeout(noteAutoSaveTimer.current); noteAutoSaveTimer.current = null; }
+    const pending = drawerAutosavePromise.current;
+    if (pending) {
+      try {
+        if (!(await pending)) return false;
+      } catch {
+        return false;
+      }
+    }
+    if (!isDrawerFormDirty()) return true;
+    const saving = saveFormElement(form, { closeAfterSave: false });
+    drawerAutosavePromise.current = saving;
     try {
-      drawerAutosaving.current = true;
-      const saved = await saveFormElement(form, { closeAfterSave: false });
-      if (saved) drawerFormInitialSignature.current = formSignature(form);
+      const saved = await saving;
       return saved;
     } catch {
       return false;
     } finally {
-      drawerAutosaving.current = false;
+      if (drawerAutosavePromise.current === saving) drawerAutosavePromise.current = null;
     }
   }
 
@@ -612,8 +623,16 @@ export function WorkspaceApp() {
     void (async () => {
       if (!(await saveDirtyDrawerForm())) return;
       drawerGeneration.current += 1;
-      setDrawer(next);
-      if (!next) requestAnimationFrame(() => drawerTrigger.current?.focus?.());
+      setDrawer((current) => next && current?.dataScope === "full" && !next.dataScope
+        ? { ...next, dataScope: "full" }
+        : next);
+      if (!next) {
+        requestAnimationFrame(() => {
+          const trigger = drawerTrigger.current;
+          if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+          else document.querySelector<HTMLElement>(".main-area")?.focus({ preventScroll: true });
+        });
+      }
     })();
   }
 
@@ -1096,11 +1115,14 @@ export function WorkspaceApp() {
 
   async function saveFormElement(form: HTMLFormElement, options: { closeAfterSave?: boolean; quiet?: boolean } = {}): Promise<boolean> {
     const closeAfterSave = options.closeAfterSave ?? true;
+    const submittedSignature = formSignature(form);
     const finishSave = (saved?: Entity) => {
-      drawerFormInitialSignature.current = formSignature(form);
+      if (drawerFormRef.current === form) drawerFormInitialSignature.current = submittedSignature;
       if (closeAfterSave) { closeDrawer(); return; }
       // 開いたままの自動保存: 保存後の値でdrawer.entityを更新し、フォーム内の保存状態表示を実データと一致させる。
-      if (saved) setDrawer((current) => (current ? { ...current, entity: saved as unknown as Record<string, unknown> } : current));
+      if (saved) setDrawer((current) => (current && drawerFormRef.current === form
+        ? { ...current, entity: saved as unknown as Record<string, unknown> }
+        : current));
     };
     const values = new FormData(form);
     const type = form.dataset.entityType as DrawerEntityType | undefined;
@@ -1369,6 +1391,76 @@ export function WorkspaceApp() {
       setToast(`付箋を切り替えられませんでした。${errorMessage(error)}`, "danger");
     });
   };
+  const recallPaletteEntries = useMemo(() => buildRecallPaletteEntries({
+    data: fullData,
+    domain: fullDomain,
+    themes: allThemes,
+  }), [allThemes, fullData, fullDomain]);
+
+  async function openRecallTarget(target: RecallPaletteTarget, trigger: HTMLElement | null) {
+    if (!(await saveDirtyDrawerForm())) {
+      throw new Error("開いている編集内容を保存してから、もう一度試してください。");
+    }
+    drawerGeneration.current += 1;
+    if (target.kind === "theme") {
+      const recalledTheme = allThemes.find((theme) => theme.id === target.entityId);
+      if (!recalledTheme) throw new Error("Themeが見つかりません。画面を更新して、もう一度試してください。");
+      const recalledGroup = recalledTheme.group || "";
+      if (activeGroups.length > 0 && !activeGroups.includes(recalledGroup)) {
+        setActiveGroups([...activeGroups, recalledGroup]);
+      }
+      setDrawer(null);
+      setActiveThemeId(recalledTheme.id);
+      location.hash = target.route;
+      setRoute(target.route);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(".main-area")?.focus({ preventScroll: true }));
+      return;
+    }
+    if (target.kind === "artifact") {
+      setDrawer(null);
+      location.hash = target.route;
+      setRoute(target.route);
+      openContentViewer({ type: "artifact", artifactId: target.entityId });
+      return;
+    }
+    const collection = target.entityType === "capture_entry"
+      ? fullDomain.capture_entries
+      : target.entityType === "waiting"
+        ? fullDomain.waitings
+        : target.entityType === "knowledge_node"
+          ? fullDomain.knowledge_nodes
+          : target.entityType === "resource"
+            ? fullDomain.resources
+            : target.entityType === "note"
+              ? fullDomain.notes
+              : target.entityType === "plan_node"
+                ? fullDomain.plan_nodes
+            : target.entityType === "task"
+              ? fullDomain.tasks
+              : [];
+    const entity = collection.find((entry) => entry.id === target.entityId);
+    if (!entity) {
+      throw new Error("検索結果を開けませんでした。画面を更新して、もう一度試してください。");
+    }
+    location.hash = target.route;
+    setRoute(target.route);
+    const projection = target.entityType === "task" || target.entityType === "waiting" || target.entityType === "plan_node"
+      ? {
+        ...entity,
+        _schedule: fullDomain.schedules.find((schedule) => schedule.owner_type === target.entityType && schedule.owner_id === entity.id),
+      }
+      : entity;
+    drawerTrigger.current = trigger;
+    setDrawer({
+      type: target.entityType,
+      mode: target.mode,
+      entity: projection as Record<string, unknown>,
+      dataScope: "full",
+    });
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".drawer input, .drawer textarea, .drawer button")?.focus({ preventScroll: true });
+    });
+  }
   const commandPaletteEntries: CommandPaletteEntry[] = [
     ...(activeFocusSession ? [{
       id: "focus:resume",
@@ -1476,18 +1568,14 @@ export function WorkspaceApp() {
       { id: "notes:selection-note", label: "選択範囲からNoteを作る", keywords: ["選択", "切り出し", "note", "抽出"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-note") },
       { id: "notes:selection-ai", label: "選択範囲をAIで編集", keywords: ["選択", "AI", "書き換え"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-ai") },
     ] : []),
-    ...domain.tasks.map((task) => ({
-      id: `task:${task.id}`,
-      label: task.title,
-      keywords: ["task", "タスク", themes.find((theme) => theme.id === task.project_id)?.name || ""],
-      category: "Tasks" as const,
-      execute: () => openDrawer({
-        type: "task",
-        entity: {
-          ...task,
-          _schedule: domain.schedules.find((schedule) => schedule.owner_type === "task" && schedule.owner_id === task.id),
-        } as Record<string, unknown>,
-      }),
+    ...recallPaletteEntries.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      keywords: entry.keywords,
+      searchText: entry.searchText,
+      context: entry.context,
+      category: entry.category,
+      execute: (context?: CommandPaletteExecutionContext) => openRecallTarget(entry.target, context?.trigger ?? null),
     })),
     ...domain.tasks
       .filter((task) => task.state !== "done" && task.state !== "cancelled")
@@ -1498,37 +1586,6 @@ export function WorkspaceApp() {
         category: "Commands" as const,
         execute: () => startFocusSession(task.id),
       })),
-    ...domain.notes.map((note) => ({
-      id: `note:${note.id}`,
-      label: note.title,
-      keywords: ["note", "markdown", "文書", themes.find((theme) => theme.id === note.project_id)?.name || ""],
-      category: "Notes / Documents" as const,
-      execute: () => openDrawer({ type: "note", entity: note as unknown as Record<string, unknown> }),
-    })),
-    ...themes.map((theme) => ({
-      id: `theme:${theme.id}`,
-      label: theme.name,
-      keywords: ["theme", "テーマ", str(theme.code), str(theme.description)],
-      category: "Themes" as const,
-      execute: () => {
-        setActiveThemeId(theme.id);
-        navigate("theme");
-      },
-    })),
-    ...domain.resources.map((resource) => ({
-      id: `resource:${resource.id}`,
-      label: resource.title,
-      keywords: ["resource", "資料", str(resource.url), str(resource.description)],
-      category: "Resources / Artifacts" as const,
-      execute: () => openDrawer({ type: "resource", entity: resource as unknown as Record<string, unknown> }),
-    })),
-    ...(data.artifacts || []).map((artifact) => ({
-      id: `artifact:${artifact.id}`,
-      label: str(artifact.title || artifact.file_name || "Artifact"),
-      keywords: ["artifact", "ファイル", str(artifact.file_path || artifact.url)],
-      category: "Resources / Artifacts" as const,
-      execute: () => openContentViewer({ type: "artifact", artifactId: artifact.id }),
-    })),
   ];
 
   const titleBarLauncher: TitleBarLauncherData = {
@@ -1617,7 +1674,7 @@ export function WorkspaceApp() {
               openActiveFocus={activeFocusTask ? () => setFocusTaskId(activeFocusTask.id) : undefined}
             />
           )}
-          <main className="main-area">
+          <main className="main-area" tabIndex={-1}>
             <WorkspacePageRouter
               route={route}
               common={common}
@@ -1631,7 +1688,7 @@ export function WorkspaceApp() {
           {drawer ? (
             <EntityDrawer
               drawer={drawer}
-              data={data}
+              data={drawer.dataScope === "full" ? fullData : data}
               close={closeDrawer}
               saveForm={saveForm}
               registerEditForm={registerEditForm}

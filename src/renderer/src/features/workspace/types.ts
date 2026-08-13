@@ -313,6 +313,7 @@ export interface DrawerConfig {
   mode?: "edit" | "view";
   entity: DrawerEntity;
   commandSource?: import("../../../../shared/applicationCommand").ApplicationCommandSource;
+  dataScope?: "full";
 }
 
 export interface SnapshotChange {

@@ -250,6 +250,9 @@ const api: ResearchDeskApi = {
     exportFile: () => ipcRenderer.invoke(IPC.snapshotExport),
     inspectFile: () => ipcRenderer.invoke(IPC.snapshotInspect),
     applyImport: (token, decisions) => ipcRenderer.invoke(IPC.snapshotApply, token, decisions),
+    automaticStatus: () => ipcRenderer.invoke(IPC.automaticSnapshotStatus),
+    configureAutomatic: (config) => ipcRenderer.invoke(IPC.automaticSnapshotConfigure, config),
+    runAutomatic: () => ipcRenderer.invoke(IPC.automaticSnapshotRun),
   },
   sharedSync: {
     status: () => ipcRenderer.invoke(IPC.sharedSyncStatus),

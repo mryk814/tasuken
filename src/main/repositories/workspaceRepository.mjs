@@ -68,6 +68,23 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeTaskenRootUsage(value) {
+  if (!isPlainObject(value)) return {};
+  return Object.fromEntries(Object.entries(value).slice(0, 500).flatMap(([key, record]) => {
+    if (!key || key.length > 240 || !isPlainObject(record)) return [];
+    const count = Number(record.count);
+    const lastUsedAt = typeof record.lastUsedAt === "string" ? record.lastUsedAt : "";
+    if (!Number.isFinite(count) || count < 0 || !lastUsedAt || Number.isNaN(Date.parse(lastUsedAt))) return [];
+    return [[key, { count: Math.min(1_000_000, Math.floor(count)), lastUsedAt }]];
+  }));
+}
+
+function automaticSnapshotGenerations(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.max(1, Math.min(20, Math.round(parsed)));
+}
+
 export class WorkspaceDatabase {
   constructor(filePath) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -356,6 +373,20 @@ export class WorkspaceDatabase {
     if (key === "sharedSyncEnabled") return this.ensureMeta("shared_sync_enabled", "false") === "true";
     if (key === "sharedSyncLastAt") return this.ensureMeta("shared_sync_last_at", "");
     if (key === "sharedSyncLastError") return this.ensureMeta("shared_sync_last_error", "");
+    if (key === "taskenRoot.globalShortcut") return this.ensureMeta("tasken_root_global_shortcut", "");
+    if (key === "taskenRoot.usage.v1") {
+      const raw = this.ensureMeta("tasken_root_usage_v1", "{}");
+      try {
+        return normalizeTaskenRootUsage(JSON.parse(raw));
+      } catch {
+        return {};
+      }
+    }
+    if (key === "automaticSnapshotBackupEnabled") return this.ensureMeta("automatic_snapshot_backup_enabled", "true") === "true";
+    if (key === "automaticSnapshotBackupDirectory") return this.ensureMeta("automatic_snapshot_backup_directory", "");
+    if (key === "automaticSnapshotBackupGenerations") {
+      return automaticSnapshotGenerations(this.ensureMeta("automatic_snapshot_backup_generations", "5"));
+    }
     // AI公開範囲のworkspace既定（#294）。Entity・Themeが未設定のときだけ使う。
     if (key === "aiVisibilityDefault") {
       const raw = this.ensureMeta("ai_visibility_default", JSON.stringify(DEFAULT_AI_VISIBILITY));
@@ -443,6 +474,46 @@ export class WorkspaceDatabase {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `).run(metaKey, text);
       return text;
+    }
+    if (key === "taskenRoot.globalShortcut") {
+      const shortcut = typeof value === "string" ? value.trim().slice(0, 160) : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('tasken_root_global_shortcut', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(shortcut);
+      return shortcut;
+    }
+    if (key === "taskenRoot.usage.v1") {
+      const usage = normalizeTaskenRootUsage(value);
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('tasken_root_usage_v1', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(JSON.stringify(usage));
+      return usage;
+    }
+    if (key === "automaticSnapshotBackupEnabled") {
+      const enabled = Boolean(value);
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('automatic_snapshot_backup_enabled', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(enabled ? "true" : "false");
+      return enabled;
+    }
+    if (key === "automaticSnapshotBackupDirectory") {
+      const directory = typeof value === "string" ? value.trim() : "";
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('automatic_snapshot_backup_directory', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(directory);
+      return directory;
+    }
+    if (key === "automaticSnapshotBackupGenerations") {
+      const generations = automaticSnapshotGenerations(value);
+      this.db.prepare(`
+        INSERT INTO workspace_meta(key, value) VALUES('automatic_snapshot_backup_generations', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(String(generations));
+      return generations;
     }
     if (key === "aiVisibilityDefault") {
       const audiences = normalizeAiVisibility(value) || [];

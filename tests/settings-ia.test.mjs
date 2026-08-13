@@ -17,12 +17,26 @@ test("Settings uses purpose-based categories and a current-state summary", () =>
   assert.match(settings, /Calendar/);
   assert.match(settings, /AI Provider/);
   assert.match(settings, /MCP Bridge/);
+  assert.match(settings, /Backups/);
   assert.match(settings, /IntegrationStatus/);
   assert.match(common, /export function IntegrationStatus/);
   assert.match(common, /IntegrationStatusTone = "normal" \| "neutral"/);
   assert.match(common, /tone === "neutral"[\s\S]*?IconCircle/);
   assert.match(settings, /label: "未接続", tone: "neutral"/);
   assert.match(settings, /label: "未設定", tone: "neutral"/);
+});
+
+test("Settings exposes automatic generational backups and keeps manual recovery available", () => {
+  assert.match(settings, /自動バックアップ/);
+  assert.match(settings, /automaticSnapshotStatus/);
+  assert.match(settings, /configureAutomaticSnapshot/);
+  assert.match(settings, /runAutomaticSnapshot/);
+  assert.match(settings, /min="1" max="20"/);
+  assert.match(settings, /今すぐ作成/);
+  assert.match(settings, /手動の移行・復元/);
+  assert.match(settings, /バックアップを書き出す/);
+  assert.match(settings, /バックアップを読み込む/);
+  assert.match(styles, /@container page \(max-width: 960px\)[\s\S]*?\.settings-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 });
 
 test("Settings deep links normalize to Settings and preserve category history", () => {

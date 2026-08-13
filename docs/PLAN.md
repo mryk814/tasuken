@@ -17,6 +17,8 @@
 - 日程未確定、仮予定、確定予定、粗い日程表現
 - Plan Revisionと任意の変更理由
 - Workspace Snapshot ZIP v2のExport、論理削除情報、Plan Revision、差分プレビュー、競合選択、Import
+- 通常起動時のWorkspace Snapshot自動作成、設定可能な保存先、既定5世代のローテーション保持
+- Recall PaletteによるTask / Plan・Milestone / Note本文 / Waiting / Inbox記録 / Knowledge / Chat Ref / Theme / Resource / Artifactの横断検索
 - Saved View、Milestone Map、Theme Status Update、SourceRecord
 - Custom Field定義・値、ItemRelation、ItemDependency、LogEntry
 - AI Importプレビュー（Item / Note / Link）、範囲指定付きAI向けMarkdown / YAML / JSON Export

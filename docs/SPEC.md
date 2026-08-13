@@ -465,9 +465,11 @@ notes:
 
 ### Command Palette
 
-`Ctrl+Shift+K`を共通入口とし、固定registryのコマンドとTask / Note / Theme / Resource / Artifactを横断検索する。
+入力欄外の`Ctrl+K`と、入力中でも使える`Ctrl+Shift+K`を共通入口とし、固定registryのコマンドと
+Task / Plan・Milestone / Note本文 / Waiting / Inbox記録 / Knowledge / Chat Ref / Theme / Resource / Artifactを横断検索する。
 作成・移動は既存Drawerとroute、Notesの保存・Preview・整形・PDF・保存先操作は既存処理へ委譲し、画面ごとの重複経路を作らない。
 最近実行した項目を端末内に保持し、`Esc`で閉じた場合は元のfocusへ戻す。
+空入力ではRecentとCommandだけを表示する。初期実装は読み込み済みWorkspaceのメモリ検索とし、件数と応答時間の計測後に必要ならFTS5へ移行する。
 
 ### Theme Context Pack
 
@@ -832,6 +834,12 @@ SQLiteなどのDBファイルそのものをクラウド同期フォルダに直
 ## 12.3 Snapshot Export
 
 Workspace Snapshotは、アプリ内データ全体をバックアップ・移行・AI参照しやすい形式で出力する機能である。
+
+通常起動時には同じSnapshot形式の自動バックアップを作成する。既定は有効・5世代保持とし、
+Settingsで保存先、有効/無効、世代数（1〜20）を変更できる。作成途中は一時ファイルへ書き、
+完成後に置き換える。自動バックアップの失敗は正式データを変更せず、アプリの起動も止めない。
+一時ファイルはmanifest・checksum・Entity件数を復元確認してから正式名へ置き換え、確認に失敗した回では既存世代を削除しない。
+保存対象がまだないWorkspaceでは作成を省略する。手動Exportは端末移行と任意時点の保存経路として維持する。
 
 出力形式はzipファイルを基本とし、内部にJSON、Markdown、必要に応じてYAMLを含める。
 

@@ -1,23 +1,32 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { IconCommand, IconSearch } from "@tabler/icons-react";
 
-import { filterCommandEntries } from "../../../../../shared/commandPalette.mjs";
+import { filterCommandEntries, prepareCommandEntries } from "../../../../../shared/commandPalette.mjs";
 
 export type CommandPaletteCategory =
   | "Commands"
   | "Tasks"
+  | "Plans / Milestones"
   | "Notes / Documents"
+  | "Waiting / Inbox"
+  | "Knowledge / Chat"
   | "Themes"
   | "Resources / Artifacts";
+
+export interface CommandPaletteExecutionContext {
+  trigger: HTMLElement | null;
+}
 
 export interface CommandPaletteEntry {
   id: string;
   label: string;
   keywords: string[];
   category: CommandPaletteCategory;
+  context?: string;
+  searchText?: string;
   shortcut?: string;
   disabledReason?: string;
-  execute: () => void | Promise<void>;
+  execute: (context?: CommandPaletteExecutionContext) => void | Promise<void>;
 }
 
 const RECENT_KEY = "tasken:command-palette:recent:v1";
@@ -36,6 +45,10 @@ function saveRecent(ids: string[]) {
   localStorage.setItem(RECENT_KEY, JSON.stringify(ids.slice(0, RECENT_LIMIT)));
 }
 
+function optionId(entryId: string): string {
+  return `command-palette-option-${entryId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
 export function CommandPalette({
   open,
   entries,
@@ -51,10 +64,16 @@ export function CommandPalette({
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const deferredQuery = useDeferredValue(query);
+  const resultsPending = query !== deferredQuery;
+  const preparedEntries = useMemo(
+    () => prepareCommandEntries(entries) as CommandPaletteEntry[],
+    [entries],
+  );
 
   const groups = useMemo<Array<{ label: string; entries: CommandPaletteEntry[] }>>(() => {
-    const matches = filterCommandEntries(entries, query) as CommandPaletteEntry[];
-    if (query.trim()) {
+    if (deferredQuery.trim()) {
+      const matches = filterCommandEntries(preparedEntries, deferredQuery) as CommandPaletteEntry[];
       const categories = [...new Set(matches.map((entry) => entry.category))];
       return categories.map((category) => ({
         label: category,
@@ -65,7 +84,7 @@ export function CommandPalette({
       .map((id) => entries.find((entry) => entry.id === id))
       .filter((entry): entry is CommandPaletteEntry => Boolean(entry));
     const recentSet = new Set(recent.map((entry) => entry.id));
-    const remaining = matches.filter((entry) => !recentSet.has(entry.id));
+    const remaining = preparedEntries.filter((entry) => entry.category === "Commands" && !recentSet.has(entry.id));
     const categories = [...new Set(remaining.map((entry) => entry.category))];
     return [
       ...(recent.length ? [{ label: "Recent", entries: recent }] : []),
@@ -74,8 +93,13 @@ export function CommandPalette({
         entries: remaining.filter((entry) => entry.category === category),
       })),
     ];
-  }, [entries, query, recentIds]);
+  }, [deferredQuery, entries, preparedEntries, recentIds]);
   const flatEntries = groups.flatMap((group) => group.entries);
+  const entryIndexes = useMemo(
+    () => new Map(flatEntries.map((entry, index) => [entry.id, index])),
+    [flatEntries],
+  );
+  const selectedOptionId = flatEntries[selectedIndex] ? optionId(flatEntries[selectedIndex].id) : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -91,6 +115,11 @@ export function CommandPalette({
     setSelectedIndex(Math.max(0, flatEntries.length - 1));
   }, [flatEntries.length, open, selectedIndex]);
 
+  useEffect(() => {
+    if (!open || !selectedOptionId) return;
+    document.getElementById(selectedOptionId)?.scrollIntoView({ block: "nearest" });
+  }, [open, selectedOptionId]);
+
   function closePalette(restoreFocus: boolean) {
     close();
     if (restoreFocus) {
@@ -99,9 +128,9 @@ export function CommandPalette({
   }
 
   async function run(entry: CommandPaletteEntry) {
-    if (entry.disabledReason) return;
+    if (resultsPending || entry.disabledReason) return;
     try {
-      await entry.execute();
+      await entry.execute({ trigger: previousFocusRef.current });
       const nextRecent = [entry.id, ...recentIds.filter((id) => id !== entry.id)].slice(0, RECENT_LIMIT);
       setRecentIds(nextRecent);
       saveRecent(nextRecent);
@@ -122,13 +151,18 @@ export function CommandPalette({
         aria-modal="true"
         aria-label="Command Palette"
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
           if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
             event.preventDefault();
             event.stopPropagation();
             closePalette(true);
           } else if (event.key === "Escape") {
             event.preventDefault();
+            event.stopPropagation();
             closePalette(true);
+          } else if (event.key === "Tab") {
+            event.preventDefault();
+            inputRef.current?.focus();
           } else if (event.key === "ArrowDown" && flatEntries.length) {
             event.preventDefault();
             setSelectedIndex((current) => (current + 1) % flatEntries.length);
@@ -151,36 +185,45 @@ export function CommandPalette({
               setSelectedIndex(0);
               setError("");
             }}
-            placeholder="コマンド、Task、Note、Themeを検索"
-            aria-label="コマンドを検索"
+            placeholder="Task、Plan、Note、Waiting、記録、Knowledgeを検索"
+            aria-label="Tasken全体を検索"
+            role="combobox"
+            aria-expanded="true"
+            aria-autocomplete="list"
             aria-controls="command-palette-results"
+            aria-activedescendant={selectedOptionId}
           />
           <kbd>Esc</kbd>
         </div>
         {error && <p className="command-palette-error" role="alert">{error}</p>}
-        <div className="command-palette-results" id="command-palette-results" role="listbox">
+        <p className="command-palette-result-status" role="status" aria-live="polite">
+          {resultsPending ? "検索中…" : query.trim() ? `${flatEntries.length}件` : "最近使った項目とコマンド"}
+        </p>
+        <div className="command-palette-results" id="command-palette-results" role="listbox" aria-busy={resultsPending}>
           {groups.map((group) => (
             <section key={group.label} className="command-palette-group">
               <h3>{group.label}</h3>
               {group.entries.map((entry) => {
-                const index = flatEntries.indexOf(entry);
+                const index = entryIndexes.get(entry.id) ?? 0;
                 const selected = index === selectedIndex;
                 return (
                   <button
                     key={entry.id}
+                    id={optionId(entry.id)}
                     type="button"
                     role="option"
+                    tabIndex={-1}
                     aria-selected={selected}
                     className={selected ? "is-selected" : ""}
-                    disabled={Boolean(entry.disabledReason)}
-                    title={entry.disabledReason}
+                    disabled={resultsPending || Boolean(entry.disabledReason)}
+                    title={resultsPending ? "検索結果を更新しています。" : entry.disabledReason}
                     onPointerMove={() => setSelectedIndex(index)}
                     onClick={() => void run(entry)}
                   >
                     <IconCommand size={16} aria-hidden="true" />
                     <span>
                       <strong>{entry.label}</strong>
-                      {entry.disabledReason && <small>{entry.disabledReason}</small>}
+                      {entry.context ? <small>{entry.context}</small> : entry.disabledReason ? <small>{entry.disabledReason}</small> : null}
                     </span>
                     {entry.shortcut && <kbd>{entry.shortcut}</kbd>}
                   </button>
