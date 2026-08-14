@@ -14,6 +14,7 @@ import { collectionKeyForEntityType, entityTypes } from "../../shared/entityRegi
 import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../shared/contextGraph.mjs";
 import { projectActivityJson, projectActivityMarkdown, queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
+import { resolveTaskenDatabasePath } from "../../shared/taskenPaths.mjs";
 import {
   findTasksForRepository,
   findThemesForRepository,
@@ -256,14 +257,13 @@ function publicThemeGraphEntity(type, record, budget, relation, includeRawBody =
   return null;
 }
 
-export function defaultTaskenDbPath(env = process.env) {
-  if (env.TASKEN_DB_PATH) return path.resolve(env.TASKEN_DB_PATH);
-  const appData = env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
-  const candidates = [
-    path.join(appData, "Tasken", "research-desk.sqlite"),
-    path.join(appData, "Research Desk", "research-desk.sqlite"),
-  ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+export function defaultTaskenDbPath(env = process.env, { platform = process.platform, home = os.homedir() } = {}) {
+  const current = resolveTaskenDatabasePath({ env, platform, home });
+  if (fs.existsSync(current) || env.TASKEN_DB_PATH || platform !== "win32") return current;
+
+  // Windowsでは旧アプリ名の保存先を、既存ファイルがある場合だけ読み取る。
+  const legacy = path.join(env.APPDATA || path.join(home, "AppData", "Roaming"), "Research Desk", "research-desk.sqlite");
+  return fs.existsSync(legacy) ? legacy : current;
 }
 
 export class ReadOnlyTaskenContext {

@@ -5,14 +5,26 @@
 開発中の具体例確認には、材料インフォマティクス研究者「佐伯 遥」が2026年6月から利用している想定のWorkspaceを使う。
 主研究はTa置換LLZO固体電解質の組成・焼成条件探索、副研究は再生Al-Mg-Si合金の熱処理最適化である。
 
-データは `%APPDATA%\\tasken\\research-desk.sqlite` に保存され、通常のTaskenと同じSQLite Repositoryを通して読み書きされる。
-投入時には既存WorkspaceのSnapshotとSQLite本体を `%APPDATA%\\tasken\\development-data-backups` へ退避する。
+データは通常のTaskenと同じSQLite Repositoryへ投入する。保存先はElectronの`userData`に合わせて解決される。
+
+- Windows: `%APPDATA%\\tasken\\research-desk.sqlite`
+- WSL/Linux: `$XDG_CONFIG_HOME/tasken/research-desk.sqlite`（通常は`~/.config/tasken/research-desk.sqlite`）
+
+投入時には既存WorkspaceのSnapshotとSQLite本体を、DBと同じフォルダの`development-data-backups`へ退避する。
+WSLではWindows側の`APPDATA`が環境変数へ引き継がれていても、Linux版Electronの保存先を使う。
 
 ## 再作成
 
 ```powershell
 npm.cmd run workspace:materials-demo
 ```
+
+```bash
+# WSL / Linux
+node --run workspace:materials-demo
+```
+
+WSLの`npm`がWindows側へ解決されてUNCパスエラーになる環境では、Node 22以降の`node --run`を使う。
 
 実行すると、現在のローカルWorkspaceを退避してから、決定的なIDを持つデモWorkspaceへ完全に置き換える。
 何度実行しても同じ人物・研究テーマ・Entity間の関係が再現される。
@@ -25,6 +37,11 @@ npm.cmd run workspace:materials-demo
 npm.cmd run workspace:materials-demo:today
 ```
 
+```bash
+# WSL / Linux
+node --run workspace:materials-demo:today
+```
+
 既存のTask、Note、操作中に追加したデータは残る。
 更新前にはSnapshotを `development-data-backups` へ保存する。
 同じ日に再実行しても日付単位のEntity IDは同じになり、データ件数は増えない。
@@ -33,6 +50,10 @@ npm.cmd run workspace:materials-demo:today
 
 ```powershell
 npm.cmd run workspace:materials-demo:today -- --date 2026-09-15
+```
+
+```bash
+node --run workspace:materials-demo:today -- --date 2026-09-15
 ```
 
 ## 状況変化を追加する
@@ -44,6 +65,13 @@ npm.cmd run workspace:materials-demo:add -- --scenario experiment
 npm.cmd run workspace:materials-demo:add -- --scenario model
 npm.cmd run workspace:materials-demo:add -- --scenario report
 npm.cmd run workspace:materials-demo:add -- --scenario waiting
+```
+
+```bash
+node --run workspace:materials-demo:add -- --scenario experiment
+node --run workspace:materials-demo:add -- --scenario model
+node --run workspace:materials-demo:add -- --scenario report
+node --run workspace:materials-demo:add -- --scenario waiting
 ```
 
 | scenario | 追加される具体例 |
@@ -59,11 +87,11 @@ npm.cmd run workspace:materials-demo:add -- --scenario waiting
 
 実データを触らず検証だけ行う場合は、任意の一時DBを指定する。
 
-```powershell
-$env:ELECTRON_RUN_AS_NODE = "1"
-.\\node_modules\\.bin\\electron.cmd scripts/seed-materials-informatics-workspace.mjs --target "$env:TEMP\\tasken-mi-check.sqlite"
-Remove-Item Env:ELECTRON_RUN_AS_NODE
+```bash
+node scripts/run-electron-node.mjs scripts/seed-materials-informatics-workspace.mjs --target "${TMPDIR:-/tmp}/tasken-mi-check.sqlite"
 ```
+
+`TASKEN_DB_PATH`または`TASKEN_USER_DATA_DIR`を指定すると、`--apply-local`の保存先も明示的に上書きできる。
 
 ## 見てほしい具体例
 

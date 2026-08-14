@@ -1,17 +1,13 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import { createSnapshot } from "../src/main/services/snapshotService.mjs";
+import { resolveTaskenDatabasePath } from "../src/shared/taskenPaths.mjs";
 
-const localDatabasePath = path.join(
-  process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"),
-  "tasken",
-  "research-desk.sqlite",
-);
+const localDatabasePath = resolveTaskenDatabasePath();
 
 const ids = {
   theme: {

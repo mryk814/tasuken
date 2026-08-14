@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,11 +6,12 @@ import { createSnapshot } from "../src/main/services/snapshotService.mjs";
 import { WorkspaceDatabase, workspaceEntityTypes } from "../src/main/repositories/workspaceRepository.mjs";
 import { collectionKeyForEntityType } from "../src/shared/entityRegistry.mjs";
 import { buildPersonalDefaultTheme } from "../src/shared/personalTheme.mjs";
+import { resolveTaskenDatabasePath } from "../src/shared/taskenPaths.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.dirname(scriptDirectory);
 const fixtureRoot = path.join(repositoryRoot, "fixtures", "materials-informatics");
-const localDatabasePath = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "tasken", "research-desk.sqlite");
+const localDatabasePath = resolveTaskenDatabasePath();
 
 function id(group, number) {
   const prefixes = {
@@ -466,6 +466,11 @@ function seed(targetPath) {
   return { targetPath, managedDirectory, snapshotPath, backup, counts, total: Object.values(counts).reduce((sum, count) => sum + count, 0) };
 }
 
-const options = parseArguments(process.argv.slice(2));
-const result = seed(options.target);
-console.log(JSON.stringify(result, null, 2));
+export { parseArguments, seed };
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+if (isMain) {
+  const options = parseArguments(process.argv.slice(2));
+  const result = seed(options.target);
+  console.log(JSON.stringify(result, null, 2));
+}
