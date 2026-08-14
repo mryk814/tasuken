@@ -54,9 +54,18 @@ export function evaluateDesktopEnvironment(snapshot, { requireWsl = false } = {}
     const npmLooksWindows = isWindowsPath(snapshot.npmPath);
     const npmMismatch = (snapshot.platform === "linux" && npmLooksWindows)
       || (snapshot.platform === "win32" && !npmLooksWindows && snapshot.npmPath.startsWith("/"));
-    checks.push(npmMismatch
-      ? check("error", "npm-platform-mismatch", "Nodeとnpmが異なるOSのものです。", `npm=${snapshot.npmPath}`)
-      : check("ok", "npm-platform", "NodeとnpmのOSが一致しています。", snapshot.npmPath));
+    if (npmMismatch && snapshot.npmInvocationActive === false) {
+      checks.push(check(
+        "warning",
+        "npm-platform-mismatch",
+        "PATH上のnpmは別OS向けですが、Nodeから直接起動しているため使用しません。",
+        `npm=${snapshot.npmPath}`,
+      ));
+    } else {
+      checks.push(npmMismatch
+        ? check("error", "npm-platform-mismatch", "Nodeとnpmが異なるOSのものです。", `npm=${snapshot.npmPath}`)
+        : check("ok", "npm-platform", "NodeとnpmのOSが一致しています。", snapshot.npmPath));
+    }
   }
 
   if (!snapshot.electronPath) {
@@ -251,6 +260,7 @@ export async function collectDesktopSnapshot(environment = process.env) {
     nodeVersion: process.version,
     nodeExecPath: process.execPath,
     npmPath: environment.npm_execpath || firstNpmOnPath(process.platform, environment.PATH),
+    npmInvocationActive: Boolean(environment.npm_execpath),
     electronPath,
     electronPlatform: detectExecutablePlatform(electronBytes),
     isWsl,

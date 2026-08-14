@@ -60,6 +60,15 @@ test("desktop doctor rejects mixed Linux Node and Windows npm", () => {
   assert.equal(checks.find((entry) => entry.code === "npm-platform-mismatch")?.status, "error");
 });
 
+test("desktop doctor allows node --run when only PATH contains Windows npm", () => {
+  const checks = evaluateDesktopEnvironment(healthyWslSnapshot({
+    npmPath: "/mnt/c/Program Files/nodejs/npm",
+    npmInvocationActive: false,
+  }));
+  assert.equal(checks.find((entry) => entry.code === "npm-platform-mismatch")?.status, "warning");
+  assert.equal(checks.some((entry) => entry.status === "error"), false);
+});
+
 test("desktop doctor rejects a platform-mismatched Electron binary and duplicate process", () => {
   const checks = evaluateDesktopEnvironment(healthyWslSnapshot({
     electronPath: "/workspace/node_modules/electron/dist/electron.exe",
