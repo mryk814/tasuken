@@ -7,8 +7,9 @@
 
 データは通常のTaskenと同じSQLite Repositoryへ投入する。保存先はElectronの`userData`に合わせて解決される。
 
-- Windows: `%APPDATA%\\tasken\\research-desk.sqlite`
+- Windows通常起動: `%APPDATA%\\tasken\\research-desk.sqlite`
 - WSL/Linux: `$XDG_CONFIG_HOME/tasken/research-desk.sqlite`（通常は`~/.config/tasken/research-desk.sqlite`）
+- 専用Windows runtime clone: `%LOCALAPPDATA%\\TaskenDevRuntime\\user-data\\research-desk.sqlite`
 
 投入時には既存WorkspaceのSnapshotとSQLite本体を、DBと同じフォルダの`development-data-backups`へ退避する。
 WSLではWindows側の`APPDATA`が環境変数へ引き継がれていても、Linux版Electronの保存先を使う。

@@ -133,8 +133,8 @@
   --gap-base:                10px;
 
   /* ---- Typography ---- */
-  --font-base: "Nunito", "Hiragino Maru Gothic ProN", "Quicksand", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Consolas, monospace; /* 数値・コード・表の桁揃え */
+  --font-base: "Nunito Variable", "Noto Sans JP Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace; /* 数値・コード・表の桁揃え */
 
   --text-xs:                 11px; /* キャプション・タグ */
   --text-sm:                 13px; /* 補足・表セル */

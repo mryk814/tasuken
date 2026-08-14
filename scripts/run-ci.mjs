@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 
 const isWindows = process.platform === "win32";
 const npmCommand = isWindows ? "npm.cmd" : "npm";
+const npmCli = process.env.npm_execpath || "";
 const steps = [
   // testもsmokeもElectronのABIで動くので、rebuildは最初の一回だけでよい。
   ["Electron ABI rebuild", "rebuild:electron", []],
@@ -17,8 +18,12 @@ const steps = [
 
 for (const [label, script, scriptArgs] of steps) {
   console.log("\n=== " + label + " :: npm run " + script + " ===");
-  const command = isWindows ? (process.env.ComSpec || "cmd.exe") : npmCommand;
-  const args = isWindows ? ["/d", "/s", "/c", npmCommand, "run", script, "--", ...scriptArgs] : ["run", script, "--", ...scriptArgs];
+  const command = npmCli ? process.execPath : isWindows ? (process.env.ComSpec || "cmd.exe") : npmCommand;
+  const args = npmCli
+    ? [npmCli, "run", script, "--", ...scriptArgs]
+    : isWindows
+      ? ["/d", "/s", "/c", npmCommand, "run", script, "--", ...scriptArgs]
+      : ["run", script, "--", ...scriptArgs];
   const result = spawnSync(command, args, { stdio: "inherit", shell: false });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);

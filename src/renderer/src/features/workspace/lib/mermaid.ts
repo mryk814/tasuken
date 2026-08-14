@@ -5,6 +5,7 @@ let mermaidSequence = 0;
 let mermaidModulePromise: Promise<typeof import("mermaid")> | null = null;
 let mermaidRenderQueue: Promise<unknown> = Promise.resolve();
 let lastEditorInputAt = 0;
+const MERMAID_SCREEN_FONT_FAMILY = "Nunito Variable, Noto Sans JP Variable, sans-serif";
 
 function loadMermaid() {
   mermaidModulePromise ||= import("mermaid").then((module) => {
@@ -12,7 +13,7 @@ function loadMermaid() {
       startOnLoad: false,
       securityLevel: "strict",
       theme: "base",
-      fontFamily: "Nunito, Yu Gothic UI, Yu Gothic, sans-serif",
+      fontFamily: MERMAID_SCREEN_FONT_FAMILY,
       sequence: {
         // 下端の参加者ミラーは短い図でもライフラインと余白を大きくするため表示しない。
         mirrorActors: false,

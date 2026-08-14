@@ -1532,8 +1532,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   background: var(--markdown-paper);
   color: var(--markdown-paper-text);
   caret-color: var(--color-accent);
-  /* 通常行高。日本語メトリクスの安定したフォントを先に */
-  font-family: "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo", "Segoe UI", var(--font-base);
+  /* 通常行高。同梱フォントでOS間の日本語メトリクスを揃える。 */
+  font-family: var(--font-base);
   font-size: var(--text-sm);
   line-height: var(--lh-base);
   transform: none;
@@ -2605,7 +2605,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   user-select: none;
 }
 .note-editor-footnotes {
-  font-family: "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo", "Segoe UI", var(--font-base);
+  font-family: var(--font-base);
   font-size: var(--text-base);
   line-height: 1.72;
 }

@@ -812,7 +812,7 @@ export function drawSketchObject(
     }
     context.stroke();
   } else if (object.type === "text") {
-    context.font = `${object.font_size}px "Nunito", "Yu Gothic UI", sans-serif`;
+    context.font = `${object.font_size}px 'Nunito Variable', 'Noto Sans JP Variable', sans-serif`;
     context.textBaseline = "alphabetic";
     object.text.split("\n").forEach((line, index) => context.fillText(line, object.x, object.y + index * object.font_size * 1.3));
   } else {
@@ -875,7 +875,7 @@ export function sketchPageToSvg(page: SketchPage): string {
       const lines = object.text.split("\n").map((line, index) => (
         `<tspan x="${object.x}" dy="${index === 0 ? 0 : object.font_size * 1.3}">${escapeXml(line)}</tspan>`
       )).join("");
-      return `<text x="${object.x}" y="${object.y}" fill="${escapeXml(object.color)}" font-family="Nunito, Yu Gothic UI, sans-serif" font-size="${object.font_size}">${lines}</text>`;
+      return `<text x="${object.x}" y="${object.y}" fill="${escapeXml(object.color)}" font-family="'Nunito Variable', 'Noto Sans JP Variable', sans-serif" font-size="${object.font_size}">${lines}</text>`;
     }
     return `<image href="${escapeXml(object.data_url)}" x="${object.x}" y="${object.y}" width="${object.w}" height="${object.h}"/>`;
   }).join("");

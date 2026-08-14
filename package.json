@@ -8,10 +8,13 @@
   "main": "out/main/index.js",
   "scripts": {
     "postinstall": "patch-package && electron-builder install-app-deps",
-    "dev": "electron-vite dev",
+    "dev": "node scripts/run-desktop-dev.mjs",
+    "dev:wsl": "node scripts/run-desktop-dev.mjs --require-wsl",
+    "dev:windows-runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-runtime.ps1",
+    "doctor:desktop": "node scripts/desktop-dev-doctor.mjs",
     "test": "node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/*.test.mjs",
-    "test:full": "npm test",
-    "test:unit-contract": "node scripts/run-electron-node.mjs --test tests/audit-tools.test.mjs tests/entity-registry-theme.test.mjs tests/electron-smoke-runner.test.mjs tests/personal-default-theme.test.mjs tests/theme-picker-ui.test.mjs tests/semantic-registry.test.mjs tests/semantic-actions.test.mjs tests/storage-resolver.test.mjs",
+    "test:full": "node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/*.test.mjs",
+    "test:unit-contract": "node scripts/run-electron-node.mjs --test tests/audit-tools.test.mjs tests/bundled-fonts.test.mjs tests/desktop-dev-doctor.test.mjs tests/entity-registry-theme.test.mjs tests/electron-smoke-runner.test.mjs tests/personal-default-theme.test.mjs tests/theme-picker-ui.test.mjs tests/semantic-registry.test.mjs tests/semantic-actions.test.mjs tests/storage-resolver.test.mjs",
     "test:behavior": "node scripts/run-electron-node.mjs --test tests/application-command.test.mjs tests/note-draft-identity.test.mjs tests/canonical-markdown.test.mjs tests/canonical-markdown-workspace.test.mjs tests/note-draft-flush-registry.test.mjs tests/note-draft-save-queue.test.mjs tests/document-publish.test.mjs tests/satellite-window-state.test.mjs tests/workspace-domain.test.mjs",
     "typecheck": "tsc -b",
     "build": "electron-vite build",
@@ -74,6 +77,18 @@
       {
         "from": "mcp-dist",
         "to": "mcp"
+      },
+      {
+        "from": "node_modules/@fontsource-variable/nunito/LICENSE",
+        "to": "licenses/Nunito-OFL-1.1.txt"
+      },
+      {
+        "from": "node_modules/@fontsource-variable/noto-sans-jp/LICENSE",
+        "to": "licenses/Noto-Sans-JP-OFL-1.1.txt"
+      },
+      {
+        "from": "node_modules/@fontsource-variable/jetbrains-mono/LICENSE",
+        "to": "licenses/JetBrains-Mono-OFL-1.1.txt"
       }
     ],
     "asar": true,
@@ -104,6 +119,9 @@
   },
   "dependencies": {
     "@codemirror/view": "^6.43.4",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/noto-sans-jp": "^5.3.0",
+    "@fontsource-variable/nunito": "^5.3.0",
     "@mdxeditor/editor": "^4.0.4",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@tabler/icons-react": "^3.44.0",
