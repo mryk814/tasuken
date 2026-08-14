@@ -24,6 +24,7 @@ const isoDateFields = [
   "due_date",
   "date",
   "value_date",
+  "today_date",
   "start_date",
   "end_date",
 ];

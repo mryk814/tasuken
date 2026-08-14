@@ -8,7 +8,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCopy,
-  IconExternalLink,
+  IconCornerDownRight,
   IconFileImport,
   IconFoldDown,
   IconFoldUp,
@@ -42,7 +42,6 @@ import {
   chatThreadMetaLabels,
   clearChatGroupResources,
   filterChatResourcesByArchive,
-  formatChatResourceDate,
   groupChatResources,
   isChatArchived,
   isChatReference,
@@ -90,9 +89,18 @@ function themeTitle(themes: Theme[], id?: string | null): string {
   return themes.find((theme) => theme.id === id)?.name || "未設定";
 }
 
-/** 一覧に出す時刻（#322）。取り込み時刻があればそれ、無ければ更新時刻。 */
-function chatRefTimeValue(resource: Resource): string {
-  return str(resource.captured_at) || str((resource as { updated_at?: string }).updated_at);
+function chatThreadDepth(resource: Resource, resourceById: ReadonlyMap<string, Resource>): number {
+  let depth = 0;
+  let parentId = str(resource.parent_resource_id);
+  const visited = new Set([resource.id]);
+  while (parentId && depth < 3 && !visited.has(parentId)) {
+    const parent = resourceById.get(parentId);
+    if (!parent) break;
+    visited.add(parentId);
+    depth += 1;
+    parentId = str(parent.parent_resource_id);
+  }
+  return depth;
 }
 
 function ChatServiceIcon({ service }: { service: ChatServiceType }) {
@@ -123,7 +131,6 @@ export function ChatRefsPage({
   ), [domain.resources, optimisticSortOrders]);
   const latestChatResourcesRef = useRef(chatResources);
   latestChatResourcesRef.current = chatResources;
-  const themeNameOf = (resource: Resource) => themeTitle(themes, str(resource.project_id) || null);
   const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || PERSONAL_DEFAULT_THEME_ID);
   const [query, setQuery] = useState("");
   const [prefs, setPrefs] = usePreference("chatRefs.preferences");
@@ -645,7 +652,7 @@ export function ChatRefsPage({
 
         <div className="panel chat-ref-column link-column">
           <div className="section-heading">
-            <h2>{isArchiveView ? "Archive" : "チャットリンク"}</h2>
+            <h2>{isArchiveView ? "Archive" : "会話"}</h2>
             <span>{visibleResources.length}件</span>
           </div>
           <div className="chat-link-list">
@@ -776,10 +783,12 @@ export function ChatRefsPage({
                   const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
                   const parent = resourceById.get(str(r.parent_resource_id));
                   const childCount = childrenByParentId.get(r.id)?.length || 0;
+                  const threadDepth = chatThreadDepth(r, resourceById);
                   const threadLabels = chatThreadMetaLabels({ parentTitle: parent ? str(parent.title || parent.url) : "", childCount });
                   return (
                     <div
-                      className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""} ${archived ? "is-archived" : ""}`}
+                      className={`chat-link-row ${threadDepth > 0 ? "is-thread-child" : ""} ${childCount > 0 ? "has-thread-children" : ""} ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""} ${archived ? "is-archived" : ""}`}
+                      data-thread-depth={threadDepth || undefined}
                       key={r.id}
                       role="button"
                       tabIndex={0}
@@ -803,6 +812,11 @@ export function ChatRefsPage({
                         clearDragState();
                       } : undefined}
                     >
+                      {threadDepth > 0 && (
+                        <span className="chat-thread-branch" aria-hidden="true">
+                          <IconCornerDownRight size={15} />
+                        </span>
+                      )}
                       {sortOrder === "manual" && !isArchiveView && (
                         <span
                           className={`chat-row-drag-handle ${canDrag ? "" : "is-disabled"}`}
@@ -836,17 +850,13 @@ export function ChatRefsPage({
                       <span className={`chat-service-chip chat-service-${service}`} title={CHAT_SERVICE_LABELS[service]} aria-label={CHAT_SERVICE_LABELS[service]}>
                         <ChatServiceIcon service={service} />
                       </span>
-                      {/*
-                        一覧で短く分かるのは provider / title / Theme / ログ有無 / 時刻 / URL有無（#322）。
-                        URL文字列そのものは長いので出さず、開くのはactionへ寄せる。
-                      */}
+                      {/* 一覧では会話の入口と派生関係だけを見せ、URL・内部時刻は隠す。 */}
                       <span className="chat-link-title">
                         {r.title || "無題"}
-                        <span className="chat-link-meta">
-                          <span>{themeNameOf(r)}</span>
+                        {(archived || threadLabels.length > 0) && <span className="chat-link-meta">
                           {archived && <small className="chat-thread-meta">Archive</small>}
                           {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
-                        </span>
+                        </span>}
                       </span>
                       {parent && (
                         <button
@@ -876,7 +886,7 @@ export function ChatRefsPage({
                       )}
                       {isConversationMarkdown(String(r.body_markdown || "")) && (
                         <button
-                          className="row-action-button"
+                          className="row-action-button chat-conversation-action"
                           onClick={(event) => {
                             event.stopPropagation();
                             openContentViewer({ type: "chat_log", resourceId: String(r.id) });
@@ -886,19 +896,6 @@ export function ChatRefsPage({
                         >
                           <IconMessage size={15} />
                         </button>
-                      )}
-                      {Boolean(r.url) && (
-                        <a
-                          className="row-action-button chat-link-open"
-                          href={r.url || ""}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={stopRowClick}
-                          aria-label={`${r.title || "リンク"}を開く`}
-                          title="開く"
-                        >
-                          <IconExternalLink size={16} />
-                        </a>
                       )}
                       {archived ? (
                         <button
@@ -925,8 +922,6 @@ export function ChatRefsPage({
                           <IconArchive size={15} />
                         </button>
                       )}
-                      {/* 取り込み / 更新の時刻。読み上げと並べ替えのため time で持つ（#322）。 */}
-                      <time className="chat-link-date" dateTime={chatRefTimeValue(r)}>{formatChatResourceDate(r)}</time>
                     </div>
                   );
                 })}
@@ -941,22 +936,6 @@ export function ChatRefsPage({
         </div>
       </section>
 
-      {!isArchiveView && inboxResources.length > 0 && (
-        <section className="panel chat-inbox-strip">
-          <div className="section-heading">
-            <h2>未整理チャット</h2>
-            <span>{inboxResources.length}件</span>
-          </div>
-          <div>
-            {inboxResources.slice(0, 6).map((r) => (
-              <button key={r.id} onClick={() => openDrawer({ type: "resource", mode: "edit", entity: r as unknown as Record<string, unknown> })}>
-                <strong>{r.title}</strong>
-                <span>{themeTitle(themes, r.project_id)}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
       {importDialogOpen && (
         <ConversationImportDialog

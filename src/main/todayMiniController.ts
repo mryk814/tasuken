@@ -19,6 +19,10 @@ const SCREEN_MARGIN = 16;
 const PINNED_WIDTH = 360;
 const PINNED_HEIGHT = 560;
 
+function themeMode(value: unknown): "light" | "dark" {
+  return value === "dark" ? "dark" : "light";
+}
+
 interface TodayMiniControllerOptions {
   repository: InstanceType<typeof WorkspaceDatabase>;
   satelliteWindows: SatelliteWindowRegistry;
@@ -88,7 +92,11 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     options.satelliteWindows.focus(windowKey);
     win.setAlwaysOnTop(true);
     const refresh = () => {
-      if (!win.isDestroyed()) win.webContents.send(IPC.todayMiniRefresh);
+      if (win.isDestroyed()) return;
+      const mode = themeMode(options.repository.getPreference("themeMode"));
+      win.setBackgroundColor(mode === "dark" ? "#191412" : "#ECE2DF");
+      win.webContents.send(IPC.todayMiniTheme, mode);
+      win.webContents.send(IPC.todayMiniRefresh);
     };
     if (win.webContents.isLoading()) win.webContents.once("did-finish-load", refresh);
     else refresh();
@@ -174,6 +182,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
           title: trimmed,
           state: "todo",
           priority: "normal",
+          today_date: today,
           project_id: themeRef.id,
           source: "today-mini",
         },

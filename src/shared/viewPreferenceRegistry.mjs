@@ -170,6 +170,7 @@ function normalizeToolPresets(value) {
 
 const definitions = [
   { id: "shell.sidebarCollapsed", surfaceId: "shell", scope: "workspace", scopeKey: "", sortKey: "none", direction: "none", schemaVersion: 1, defaultValue: false, legacyKeys: ["tasken:shell:sidebar-collapsed:v1", "tasuken-research-desk:shell:sidebar-collapsed:v1"], normalize: (value) => bool(value, false) },
+  { id: "shell.sidebarWidth", surfaceId: "shell", scope: "workspace", scopeKey: "", sortKey: "none", direction: "none", schemaVersion: 1, defaultValue: 220, legacyKeys: [], normalize: (value) => Math.max(180, Math.min(360, finite(value, 220))) },
   { id: "shell.zoomFactor", surfaceId: "shell", scope: "workspace", scopeKey: "", sortKey: "none", direction: "none", schemaVersion: 1, defaultValue: 1, legacyKeys: ["tasken:shell:zoom-factor:v1", "tasuken-research-desk:shell:zoom-factor:v1"], normalize: (value) => Math.max(0.7, Math.min(1.5, finite(value, 1))) },
   { id: "notes.preferences", surfaceId: "notes", scope: "workspace", scopeKey: "", sortKey: "sortOrder", direction: "sortOrder", schemaVersion: 2, defaultValue: NOTES_DEFAULT, legacyKeys: ["tasken:notes:prefs:v1", "tasuken-research-desk:notes:prefs:v1"], normalize: normalizeNotes, migrate: (value) => normalizeNotes(value) },
   { id: "chatRefs.preferences", surfaceId: "chat-refs", scope: "workspace", scopeKey: "", sortKey: "sortOrder", direction: "sortOrder", schemaVersion: 1, defaultValue: CHAT_REFS_DEFAULT, legacyKeys: ["tasken:chat-refs:prefs:v1", "tasuken-research-desk:chat-refs:prefs:v1"], normalize: normalizeChatRefs },

@@ -24,11 +24,13 @@ import {
   selectionTitleCandidate,
   type SelectionExtractionKind,
 } from "../lib/selectionExtraction";
+import { previewHtml } from "../lib/markdown";
 import { buildSaveNoteOperations, buildSaveTaskOperations } from "../domain-model/persistence";
 import type { Artifact, BaseRecord, OpenContentViewer, OpenDrawer, SaveEntities, SaveEntity, WorkspaceData } from "../types";
 import type { RemoveEntity } from "../types";
 import type { Note, Reference, Resource, Task, WorkspaceDomain } from "../domain-model/types";
 import { ArtifactSection } from "./artifacts";
+import { MarkdownPreview } from "./MarkdownPreview";
 
 type FocusTarget = { type: "scratchpad" } | { type: "note"; id: string };
 type SaveState = "saved" | "dirty" | "saving" | "error";
@@ -112,6 +114,7 @@ export function FocusSessionDialog({
   const [target, setTarget] = useState<FocusTarget>({ type: "scratchpad" });
   const [scratchpad, setScratchpad] = useState("");
   const [documentBody, setDocumentBody] = useState("");
+  const [markdownMode, setMarkdownMode] = useState<"edit" | "preview">("edit");
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [now, setNow] = useState(Date.now());
   const [endOpen, setEndOpen] = useState(false);
@@ -435,11 +438,11 @@ export function FocusSessionDialog({
             />}
             <section>
               <span>Related</span>
-              <button className={target.type === "scratchpad" ? "is-active" : ""} onClick={() => setTarget({ type: "scratchpad" })}>
+              <button className={target.type === "scratchpad" ? "is-active" : ""} onClick={() => { setTarget({ type: "scratchpad" }); setMarkdownMode("edit"); }}>
                 <IconBook size={15} />Session Scratchpad
               </button>
               {related.notes.map((note) => (
-                <button key={note.id} className={target.type === "note" && target.id === note.id ? "is-active" : ""} onClick={() => setTarget({ type: "note", id: note.id })}>
+                <button key={note.id} className={target.type === "note" && target.id === note.id ? "is-active" : ""} onClick={() => { setTarget({ type: "note", id: note.id }); setMarkdownMode("edit"); }}>
                   <IconFileText size={15} />{text(note.title) || "無題"}
                 </button>
               ))}
@@ -467,29 +470,53 @@ export function FocusSessionDialog({
                 <div className="focus-session-toolbar">
                   <strong>Session Scratchpad</strong>
                   <div>
-                    <button className="secondary-button compact" onClick={() => void extractScratchpad("task")}>選択をTaskへ</button>
-                    <button className="secondary-button compact" onClick={() => void extractScratchpad("note")}>選択をNoteへ</button>
+                    <div className="segmented" aria-label="Session Scratchpadの表示">
+                      <button type="button" className={markdownMode === "edit" ? "is-active" : ""} onClick={() => setMarkdownMode("edit")}>Edit</button>
+                      <button type="button" className={markdownMode === "preview" ? "is-active" : ""} onClick={() => setMarkdownMode("preview")}>Preview</button>
+                    </div>
+                    <button className="secondary-button compact" disabled={markdownMode !== "edit"} onClick={() => void extractScratchpad("task")}>選択をTaskへ</button>
+                    <button className="secondary-button compact" disabled={markdownMode !== "edit"} onClick={() => void extractScratchpad("note")}>選択をNoteへ</button>
                   </div>
                 </div>
-                <textarea
-                  ref={scratchpadRef}
-                  value={scratchpad}
-                  onChange={(event) => updateScratchpad(event.target.value)}
-                  placeholder="作業中の判断、途中結果、次に試すこと。終了時にNoteとして残せます。"
-                  aria-label="Session Scratchpad本文"
-                />
+                {markdownMode === "preview" ? (
+                  <MarkdownPreview
+                    className="focus-session-markdown-preview markdown-preview"
+                    html={previewHtml(scratchpad || "_まだ何も書いていません_", "markdown")}
+                  />
+                ) : (
+                  <textarea
+                    ref={scratchpadRef}
+                    value={scratchpad}
+                    onChange={(event) => updateScratchpad(event.target.value)}
+                    placeholder="作業中の判断、途中結果、次に試すこと。終了時にNoteとして残せます。Markdownで書けます。"
+                    aria-label="Session Scratchpad本文"
+                  />
+                )}
               </>
             ) : selectedNote ? (
               <>
                 <div className="focus-session-toolbar">
                   <strong>{text(selectedNote.title) || "無題"}</strong>
-                  <span>Markdown / 自動保存</span>
+                  <div>
+                    <div className="segmented" aria-label="Note本文の表示">
+                      <button type="button" className={markdownMode === "edit" ? "is-active" : ""} onClick={() => setMarkdownMode("edit")}>Edit</button>
+                      <button type="button" className={markdownMode === "preview" ? "is-active" : ""} onClick={() => setMarkdownMode("preview")}>Preview</button>
+                    </div>
+                    <span>自動保存</span>
+                  </div>
                 </div>
-                <textarea
-                  value={documentBody}
-                  onChange={(event) => updateDocument(event.target.value)}
-                  aria-label={`${text(selectedNote.title)}のMarkdown本文`}
-                />
+                {markdownMode === "preview" ? (
+                  <MarkdownPreview
+                    className="focus-session-markdown-preview markdown-preview"
+                    html={previewHtml(documentBody || "_本文はまだありません_", "markdown")}
+                  />
+                ) : (
+                  <textarea
+                    value={documentBody}
+                    onChange={(event) => updateDocument(event.target.value)}
+                    aria-label={`${text(selectedNote.title)}のMarkdown本文`}
+                  />
+                )}
               </>
             ) : (
               <p>文書が見つかりません。</p>

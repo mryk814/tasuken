@@ -1966,6 +1966,30 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   /**
    * 派生出力（#331）。Note正本の`保存`と語彙を分け、出力先を選ぶ操作と混同させない。
    */
+  const headingNumberMenuItems: ToolbarMenuItem[] = showDocumentPublish ? [
+    {
+      kind: "toggle",
+      id: "heading-numbers",
+      label: "Edit・Preview・PDFに通し番号を付ける",
+      hint: "本文は書き換えません。Markdownファイル出力には含めません。",
+      checked: headingNumbersEnabled,
+      onToggle: (checked) => updateHeadingNumberSettings({ heading_numbers: checked }),
+    },
+    ...(headingNumbersEnabled ? HEADING_NUMBER_LEVELS.map((level): ToolbarMenuItem => ({
+      kind: "toggle",
+      id: `heading-level-${level}`,
+      label: HEADING_NUMBER_LEVEL_LABELS[level],
+      checked: headingNumberLevels.includes(level),
+      onToggle: (checked) => updateHeadingNumberSettings({
+        heading_number_levels: normalizeHeadingNumberLevels(
+          checked
+            ? [...headingNumberLevels, level]
+            : headingNumberLevels.filter((current) => current !== level),
+        ),
+      }),
+    })) : []),
+  ] : [];
+
   const outputMenuItems: ToolbarMenuItem[] = showDocumentPublish ? [
     { kind: "group", id: "group-export", label: "書き出し" },
     {
@@ -1994,28 +2018,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       disabled: markdownExporting,
       onSelect: () => void exportSelectedMarkdown(true),
     } as ToolbarMenuItem] : []),
-    { kind: "group", id: "group-heading", label: "見出し番号" },
-    {
-      kind: "toggle",
-      id: "heading-numbers",
-      label: "Edit・Preview・PDFに通し番号を付ける",
-      hint: "本文は書き換えません。Markdownファイル出力には含めません。",
-      checked: headingNumbersEnabled,
-      onToggle: (checked) => updateHeadingNumberSettings({ heading_numbers: checked }),
-    },
-    ...(headingNumbersEnabled ? HEADING_NUMBER_LEVELS.map((level): ToolbarMenuItem => ({
-      kind: "toggle",
-      id: `heading-level-${level}`,
-      label: HEADING_NUMBER_LEVEL_LABELS[level],
-      checked: headingNumberLevels.includes(level),
-      onToggle: (checked) => updateHeadingNumberSettings({
-        heading_number_levels: normalizeHeadingNumberLevels(
-          checked
-            ? [...headingNumberLevels, level]
-            : headingNumberLevels.filter((current) => current !== level),
-        ),
-      }),
-    })) : []),
   ] : [
     {
       id: "export-unavailable",
@@ -2325,18 +2327,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   >
                     {markdownDiffHunks.length ? `変更 ${markdownDiffHunks.length}か所` : "変更を確認"}
                   </Button>
-                  {!detachedNoteId && (
-                    <Button
-                      variant="secondary"
-                      compact
-                      aria-pressed={documentFocus}
-                      onClick={toggleDocumentFocus}
-                      title={documentFocus ? "元の表示へ戻す（Esc）" : "一覧と補助行を畳んで本文を縦いっぱいに広げます"}
-                    >
-                      {documentFocus ? "表示を戻す" : "本文を広げる"}
-                    </Button>
-                  )}
                   {/* 派生出力は正本保存と語彙を分ける（#331）。`保存`とは呼ばない。 */}
+                  {showDocumentPublish && (
+                    <ToolbarMenu label="見出し番号" title="見出し番号の設定" items={headingNumberMenuItems} />
+                  )}
                   <ToolbarMenu label="出力" title="書き出しと保存先" items={outputMenuItems} />
                 </div>
               </div>

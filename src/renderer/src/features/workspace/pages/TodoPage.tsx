@@ -212,19 +212,11 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
   }
 
   async function toggleToday(task: Task, schedule: Schedule | undefined) {
-    const isToday = schedule?.start_date === today || schedule?.end_date === today;
-    if (!schedule) {
-      const newSchedule: Schedule = {
-        id: crypto.randomUUID(),
-        owner_type: "task",
-        owner_id: task.id,
-        end_date: today,
-        date_kind: "deadline",
-        confidence: "fixed",
-        granularity: "day",
-      };
-      await saveEntities(buildSaveScheduleOperations(newSchedule), "今日の予定に追加しました。");
-    } else if (isToday) {
+    if (task.today_date === today) {
+      await saveEntities(buildSaveTaskOperations({ ...task, today_date: null }), "今日の予定から外しました。");
+    } else if (!schedule) {
+      await saveEntities(buildSaveTaskOperations({ ...task, today_date: today }), "今日の予定に追加しました。");
+    } else if (schedule.start_date === today || schedule.end_date === today) {
       const next: Schedule = {
         ...schedule,
         start_date: schedule.start_date === today ? null : schedule.start_date,
@@ -232,7 +224,7 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
       };
       await saveEntities(buildSaveScheduleOperations(next), "今日の予定から外しました。");
     } else {
-      await saveEntities(buildSaveScheduleOperations({ ...schedule, end_date: today }), "今日の予定に追加しました。");
+      await saveEntities(buildSaveTaskOperations({ ...task, today_date: today }), "今日の予定に追加しました。");
     }
   }
 

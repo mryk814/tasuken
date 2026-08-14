@@ -18,4 +18,9 @@ contextBridge.exposeInMainWorld("todayMiniApi", {
     ipcRenderer.on(IPC.todayMiniRefresh, handler);
     return () => { ipcRenderer.removeListener(IPC.todayMiniRefresh, handler); };
   },
+  onThemeChange: (callback: (mode: "light" | "dark") => void): Unsubscribe => {
+    const handler = (_event: Electron.IpcRendererEvent, mode: "light" | "dark"): void => callback(mode);
+    ipcRenderer.on(IPC.todayMiniTheme, handler);
+    return () => { ipcRenderer.removeListener(IPC.todayMiniTheme, handler); };
+  },
 });

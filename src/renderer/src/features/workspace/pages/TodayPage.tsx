@@ -33,11 +33,9 @@ import {
   PLAN_NODE_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   TASK_STATE_LABELS,
-  UNSPECIFIED_RANGE_LABEL,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
 import { buildExecutionWindowTaskView, buildOngoingPeriodTaskView, buildTodayView } from "../domain-model/selectors";
-import type { ExecutionWindowUrgency } from "../domain-model/scheduleSemantics";
 import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
@@ -47,9 +45,6 @@ import {
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { CaptureEntry, PlanNode, Schedule, Task, Waiting, WorkspaceDomain } from "../domain-model/types";
 import type { ExecutionWindowTaskRow, OngoingPeriodTaskRow, TodayEntry } from "../domain-model/viewModels";
-
-// 終了予定日を過ぎた継続Taskを延ばす既定日数。無確認の自動完了を避けるための逃げ道（#309）。
-const EXTEND_ONGOING_PERIOD_DAYS = 7;
 
 type DomainRow =
   | { type: "task"; task: Task; schedule?: Schedule }
@@ -81,6 +76,56 @@ type StructuredActivityEvent = {
   theme_ref?: { kind?: "theme" | "none"; id?: string | null };
   canonical_refs?: Array<Record<string, unknown>>;
 };
+
+const ACTIVITY_EVENT_KIND_LABELS: Record<string, string> = {
+  task_completed: "完了",
+  task_reopened: "再開",
+  task_work_recorded: "作業を記録",
+  task_ai_reported: "作業報告",
+  task_ai_accepted: "作業を受領",
+  task_ai_returned: "作業を差し戻し",
+  waiting_received: "待ちを受領",
+  waiting_updated: "待ちを更新",
+  plan_node_created: "計画を追加",
+  plan_node_updated: "計画を更新",
+  note_created: "Noteを作成",
+  note_updated: "Noteを更新",
+  report_created: "レポートを作成",
+  report_updated: "レポートを更新",
+  prompt_created: "依頼文を作成",
+  prompt_updated: "依頼文を更新",
+  resource_added: "資料を追加",
+  resource_updated: "資料を更新",
+  artifact_added: "成果物を追加",
+  artifact_updated: "成果物を更新",
+  knowledge_created: "Knowledgeを追加",
+  knowledge_updated: "Knowledgeを更新",
+  sketch_created: "Sketchを作成",
+  sketch_updated: "Sketchを更新",
+  reference_created: "関連付けを追加",
+  reference_updated: "関連付けを更新",
+  capture_formalized: "メモを整理",
+  entity_deleted: "削除",
+  status_updated: "現在地を更新",
+};
+
+function activityEventKindLabel(kind: string): string {
+  return ACTIVITY_EVENT_KIND_LABELS[kind] || "活動";
+}
+
+function activityRecordTitle(entity: unknown): string {
+  if (!entity || typeof entity !== "object") return "";
+  const record = entity as Record<string, unknown>;
+  return String(record.title || record.name || "").trim();
+}
+
+function activityEventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity: unknown): string {
+  const currentTitle = activityRecordTitle(entity);
+  if (currentTitle) return currentTitle;
+  const summary = String(event.summary || "").trim().replace(/^[a-z_]+:\s*/i, "");
+  if (summary && (!ref.id || !summary.includes(ref.id))) return summary;
+  return "履歴の項目";
+}
 
 function scheduleDate(schedule?: Schedule): string {
   return String(schedule?.end_date || schedule?.start_date || "");
@@ -239,7 +284,9 @@ function TodayRows({
         const themeIndex = themes.findIndex((entry) => entry.id === row.projectId);
         const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
         const chipColor = theme ? `var(--color-${themeColor(theme, themeIndex)})` : "var(--color-border-strong)";
-        const isToday = row.date?.slice(0, 10) === today;
+        const isToday = row.v2?.type === "task"
+          ? row.v2.task.today_date === today
+          : row.date?.slice(0, 10) === today;
         const done = row.status === "done" || row.status === "cancelled" || row.status === "received";
         const rawUrgency = dateUrgency(row.date, today, done);
         const urgency = rawUrgency === "due-today" && !markDueToday ? null : rawUrgency;
@@ -357,14 +404,6 @@ function themeChipStyle(themes: PageProps["themes"], projectId?: string | null) 
   return { theme, style: { "--chip-color": chipColor } as React.CSSProperties };
 }
 
-const EXECUTION_WINDOW_URGENCY_LABELS: Record<ExecutionWindowUrgency, string> = {
-  before_start: "開始前",
-  in_window: "期間内",
-  due_soon: "まもなく期限",
-  due_today: "今日まで",
-  overdue: "期限超過",
-};
-
 /**
  * 期間内に一度やるTask（#309）。
  * 期間に入っただけでは「今日やること」へ出さず、ここから拾う。
@@ -406,11 +445,9 @@ function ExecutionWindowTaskRows({
               aria-label={`${row.task.title}を完了`}
               onClick={(event) => { event.stopPropagation(); onComplete(row); }}
             />
-            {/* 色だけに頼らず、切迫度をラベルでも示す。 */}
-            <span className="range-semantics-badge">{EXECUTION_WINDOW_URGENCY_LABELS[row.urgency]}</span>
             <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
               <strong>{row.task.title}</strong>
-              <span>{theme?.name || "個人業務"} / 期間内に一度 / {remaining}</span>
+              <span>{theme?.name || "個人業務"} / {remaining}</span>
             </button>
             <time>{scheduleRangeLabel(row.schedule)}</time>
             <span className="today-postpone-actions">
@@ -432,7 +469,7 @@ function ExecutionWindowTaskRows({
 
 /**
  * 継続中Task（#309）。
- * 一回のcheckboxでTask全体を完了させない。今日の実施記録と、継続そのものの終了を分ける。
+ * 今日の実施記録と、継続そのものの完了を分ける。完了操作は他のTaskと同じcheckboxを使う。
  */
 function OngoingPeriodTaskRows({
   rows,
@@ -441,7 +478,6 @@ function OngoingPeriodTaskRows({
   onRecordToday,
   onPlanToday,
   onFinishPeriod,
-  onExtendPeriod,
 }: {
   rows: OngoingPeriodTaskRow[];
   themes: PageProps["themes"];
@@ -449,7 +485,6 @@ function OngoingPeriodTaskRows({
   onRecordToday: (row: OngoingPeriodTaskRow) => void;
   onPlanToday: (row: OngoingPeriodTaskRow) => void;
   onFinishPeriod: (row: OngoingPeriodTaskRow) => void;
-  onExtendPeriod: (row: OngoingPeriodTaskRow) => void;
 }) {
   if (!rows.length) return <EmptyState title="継続中のタスクはありません" />;
   return (
@@ -464,8 +499,12 @@ function OngoingPeriodTaskRows({
             onClick={() => onOpenDetail(row)}
           >
             <span className="todo-theme-bar" />
+            <button
+              className="todo-check-circle"
+              aria-label={`${row.task.title}を完了`}
+              onClick={(event) => { event.stopPropagation(); onFinishPeriod(row); }}
+            />
             <span className="period-progress-badge">{row.dayIndex}/{row.totalDays}</span>
-            <span className="range-semantics-badge">{row.unspecified ? UNSPECIFIED_RANGE_LABEL : "継続中"}</span>
             <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
               <strong>{row.task.title}</strong>
               <span>
@@ -476,9 +515,14 @@ function OngoingPeriodTaskRows({
             {/* 終了日が来ただけでは自動完了しない。完了・延長・そのまま継続を選べるようにする。 */}
             <span className="period-row-actions" onClick={(event) => event.stopPropagation()}>
               <Button variant="secondary" compact onClick={() => onRecordToday(row)}>今日取り組んだ</Button>
-              <Button variant="secondary" compact onClick={() => onPlanToday(row)}>今日やる</Button>
-              {row.pastEnd && <Button variant="secondary" compact onClick={() => onExtendPeriod(row)}>期間を延長</Button>}
-              <Button variant="secondary" compact onClick={() => onFinishPeriod(row)}>継続を終了</Button>
+              <button
+                className="postpone-button period-action-button"
+                onClick={() => onPlanToday(row)}
+                title="今日やることへ追加"
+                aria-label={`${row.task.title}を今日やることへ追加`}
+              >
+                <IconCalendarPlus size={14} />
+              </button>
             </span>
           </div>
         );
@@ -579,7 +623,7 @@ function CalendarEventMeta({ event }: { event: CalendarEvent }) {
   );
 }
 
-function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }) {
+function TodayCalendarSection() {
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarResult, setCalendarResult] = useState<CalendarEventsResult | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
@@ -613,32 +657,8 @@ function TodayCalendarSection({ navigate }: { navigate: (page: string) => void }
       .catch(() => setCalendarStatus(buildDisconnectedCalendarStatus()));
   }, [fetchEvents]);
 
-  if (!calendarStatus) {
-    return (
-      <section className="panel today-calendar-section">
-        <div className="section-heading">
-          <h2><IconCalendar size={16} /> 今日の予定</h2>
-        </div>
-        <p className="today-calendar-loading">カレンダーの接続状態を確認中…</p>
-      </section>
-    );
-  }
-
-  if (!calendarStatus.connected) {
-    return (
-      <section className="panel today-calendar-section">
-        <div className="section-heading">
-          <h2><IconCalendar size={16} /> 今日の予定</h2>
-        </div>
-        <div className="today-calendar-empty">
-          <p>外部カレンダーが未接続です。</p>
-          <Button variant="secondary" compact onClick={() => navigate("settings")}>
-            Settingsで接続
-          </Button>
-        </div>
-      </section>
-    );
-  }
+  // 未接続時はTodayの主導線へ混ぜず、Settingsの連携設定だけを入口にする。
+  if (!calendarStatus || !calendarStatus.connected) return null;
 
   const events = calendarResult?.events || [];
   const allDayEvents = events.filter((e) => e.isAllDay);
@@ -723,7 +743,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   const [activityThemeFilter, setActivityThemeFilter] = useState("all");
   const [activityTypeFilter, setActivityTypeFilter] = useState("");
   const [activityRootStatus, setActivityRootStatus] = useState(data.canonical_root_status || {});
-  const [openingActivityCanonicalId, setOpeningActivityCanonicalId] = useState("");
+  const [activityExpanded, setActivityExpanded] = useState(true);
   const [exportingActivity, setExportingActivity] = useState(false);
   const today = todayIso();
   const soon = addDays(today, 14);
@@ -829,9 +849,17 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
 
   async function handleToggleToday(row: TodayRow) {
     if (row.v2 && row.v2.type !== "capture") {
+      if (row.v2.type === "task") {
+        const isToday = row.v2.task.today_date === today;
+        await saveEntities(
+          buildSaveTaskOperations({ ...row.v2.task, today_date: isToday ? null : today }),
+          isToday ? "今日の予定から外しました。" : "今日の予定に追加しました。",
+        );
+        return;
+      }
       const schedule = row.v2.schedule;
-      const ownerType: Schedule["owner_type"] = row.v2.type === "task" ? "task" : row.v2.type === "waiting" ? "waiting" : "plan_node";
-      const ownerId = row.v2.type === "task" ? row.v2.task.id : row.v2.type === "waiting" ? row.v2.waiting.id : row.v2.planNode.id;
+      const ownerType: Schedule["owner_type"] = row.v2.type === "waiting" ? "waiting" : "plan_node";
+      const ownerId = row.v2.type === "waiting" ? row.v2.waiting.id : row.v2.planNode.id;
       const isToday = schedule?.start_date === today || schedule?.end_date === today;
 
       if (!schedule) {
@@ -926,15 +954,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     await saveEntities(buildCompleteTaskOperations(row.task, row.schedule), "継続を終了しました。", "today_window");
   }
 
-  /** 終了予定日を過ぎた継続Taskを、完了させずに延ばす（#309）。 */
-  async function handleExtendOngoingPeriod(row: OngoingPeriodTaskRow) {
-    const nextEnd = addDays(today, EXTEND_ONGOING_PERIOD_DAYS);
-    await saveEntities(
-      buildSaveScheduleOperations({ ...row.schedule, end_date: nextEnd }),
-      `継続期間を${formatDate(nextEnd)}まで延長しました。`,
-    );
-  }
-
   async function handleCompleteExecutionWindow(row: ExecutionWindowTaskRow) {
     if (row.task.state !== "done") playCompleteSound();
     const message = row.task.repeat_rule ? "完了しました。次のタスクを作成しました。" : "完了しました。";
@@ -944,7 +963,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   /** 期間内に一度やるTaskを、今日やることへ明示的に持ち上げる（#309）。 */
   async function handleMoveExecutionWindowToday(row: ExecutionWindowTaskRow) {
     await saveEntities(
-      buildSaveScheduleOperations({ ...row.schedule, start_date: today, end_date: today, date_kind: "point", range_semantics: null }),
+      buildSaveTaskOperations({ ...row.task, today_date: today }),
       "今日やることへ移しました。",
     );
   }
@@ -988,28 +1007,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   }
 
   async function handleMoveCandidateTaskToday(row: DailyPlanningRow) {
-    const schedule = row.schedule;
-    const keepsFutureDeadline = Boolean(schedule?.end_date && schedule.end_date > today);
-    const nextSchedule: Schedule = schedule
-      ? {
-          ...schedule,
-          start_date: keepsFutureDeadline || (schedule.start_date && schedule.start_date > today) ? today : schedule.start_date,
-          end_date: keepsFutureDeadline ? schedule.end_date : today,
-          date_kind: keepsFutureDeadline || (schedule.start_date && schedule.start_date < today) ? "range" : "deadline",
-          confidence: schedule.confidence || "fixed",
-          granularity: schedule.granularity || "day",
-        }
-      : {
-          id: crypto.randomUUID(),
-          owner_type: "task",
-          owner_id: row.task.id,
-          end_date: today,
-          date_kind: "deadline",
-          confidence: "fixed",
-          granularity: "day",
-        };
-    const task: Task = { ...row.task, planning_shelf: null };
-    await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(nextSchedule)], "今日やることへ移しました。", "today_window");
+    const task: Task = { ...row.task, planning_shelf: null, today_date: today };
+    await saveEntities(buildSaveTaskOperations(task), "今日やることへ移しました。", "today_window");
   }
 
   async function addTask() {
@@ -1022,6 +1021,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
       title,
       state: "todo",
       priority: "normal",
+      today_date: today,
       created_at: new Date().toISOString(),
     };
     const schedule: Schedule = {
@@ -1087,7 +1087,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     { label: "現在地", rows: activityEntries.updates.map((entry) => entry.summary || entry.next_actions || entry.risks || "更新") },
     { label: "Capture", rows: activityEntries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
-  const structuredActivityEvents = activityEntries.events as StructuredActivityEvent[];
+  const structuredActivityEvents = (activityEntries.events as StructuredActivityEvent[])
+    .filter((event) => event.event_kind !== "schedule_updated");
   const activityEventKinds = [...new Set(structuredActivityEvents.map((event) => String(event.event_kind || ""))).values()]
     .filter(Boolean)
     .sort();
@@ -1099,19 +1100,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   const activityCount = structuredActivityEvents.length
     ? visibleActivityEvents.length
     : activityGroups.reduce((sum, group) => sum + group.rows.length, 0);
-
-  async function openActivityCanonical(ref: Record<string, unknown>, eventId: string) {
-    setOpeningActivityCanonicalId(eventId);
-    try {
-      const result = await workspaceApi.openActivityCanonicalRef(ref);
-      if (result.ok) setToast("Canonical文書を開きました。", "success");
-      else setToast(result.error || "Canonical文書を開けませんでした。", "danger");
-    } catch (error) {
-      setToast(`Canonical文書を開けませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
-    } finally {
-      setOpeningActivityCanonicalId("");
-    }
-  }
 
   async function chooseActivityDirectory() {
     try {
@@ -1235,8 +1223,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
         </section>
       )}
 
-      <TodayCalendarSection navigate={navigate} />
-
       <section className="panel today-focus-panel">
         <div className="section-heading">
           <h2>今日やること</h2>
@@ -1266,6 +1252,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
         </div>
       </section>
 
+      {/* 接続済みの場合だけ、今日やることの補助情報として候補棚の下に置く。 */}
+      <TodayCalendarSection />
+
       {/* 日付範囲の意味で扱いを分ける（#309）。期間に入っただけで毎日督促しない。 */}
       <section className="panel today-focus-panel">
         <div className="section-heading">
@@ -1293,72 +1282,79 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           onRecordToday={handleRecordOngoingWork}
           onPlanToday={handleCreateTodayTask}
           onFinishPeriod={handleFinishOngoingPeriod}
-          onExtendPeriod={handleExtendOngoingPeriod}
         />
       </section>
 
-      <div className="today-grid">
-        <section className="panel">
-          <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
-          <TodayRows rows={milestones.slice(0, 8)} themes={themes} empty="近いマイルストーンはありません" today={today} {...rowHandlers} />
-        </section>
-        <section className="panel today-waiting-panel">
-          <div className="section-heading">
-            <h2>
-              待ち
-              {overdueWaitingCount > 0 && (
-                <span className="today-waiting-overdue-count" title="期限切れの待ち">{overdueWaitingCount}</span>
-              )}
-            </h2>
-            <button
-              className="text-button compact"
-              onClick={() => openDrawer({ type: "waiting", mode: "edit", entity: {} })}
-            >
-              追加
-            </button>
-          </div>
-          <WaitingListRows
-            rows={openWaitings.slice(0, 8)}
-            themes={themes}
-            today={today}
-            empty="待ちはありません"
-            onOpenDetail={handleOpenDetail}
-          />
-        </section>
-      </div>
+      <div className="today-lower-grid">
+        <div className="today-lower-stack">
+          <section className="panel">
+            <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
+            <TodayRows rows={milestones.slice(0, 8)} themes={themes} empty="近いマイルストーンはありません" today={today} {...rowHandlers} />
+          </section>
+          <section className="panel today-waiting-panel">
+            <div className="section-heading">
+              <h2>
+                待ち
+                {overdueWaitingCount > 0 && (
+                  <span className="today-waiting-overdue-count" title="期限切れの待ち">{overdueWaitingCount}</span>
+                )}
+              </h2>
+              <Button
+                variant="primary"
+                compact
+                onClick={() => openDrawer({ type: "waiting", mode: "edit", entity: {} })}
+              >
+                追加
+              </Button>
+            </div>
+            <WaitingListRows
+              rows={openWaitings.slice(0, 8)}
+              themes={themes}
+              today={today}
+              empty="待ちはありません"
+              onOpenDetail={handleOpenDetail}
+            />
+          </section>
+        </div>
 
-      <section id="daily-activity" className="panel activity-log-strip">
+        <section id="daily-activity" className="panel activity-log-strip">
         <div className="section-heading">
           <h2>Activity <span className="activity-count">{activityCount}</span></h2>
           <div className="inline-actions">
-            <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity対象日" />
-            {structuredActivityEvents.length > 0 && (
+            {activityExpanded && (
               <>
-                <ThemePickerSelect
-                  themes={themes}
-                  value={activityThemeFilter}
-                  onChange={setActivityThemeFilter}
-                  allowAll
-                  allowNone
-                  allLabel="All Themes"
-                  ariaLabel="Activity Theme filter"
-                />
-                <select value={activityTypeFilter} onChange={(event) => setActivityTypeFilter(event.target.value)} aria-label="Activity event type filter">
-                  <option value="">All Types</option>
-                  {activityEventKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
-                </select>
+                <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} aria-label="Activity対象日" />
+                {structuredActivityEvents.length > 0 && (
+                  <>
+                    <ThemePickerSelect
+                      themes={themes}
+                      value={activityThemeFilter}
+                      onChange={setActivityThemeFilter}
+                      allowAll
+                      allowNone
+                      allLabel="すべてのTheme"
+                      ariaLabel="Activity Theme filter"
+                    />
+                    <select value={activityTypeFilter} onChange={(event) => setActivityTypeFilter(event.target.value)} aria-label="Activity event type filter">
+                      <option value="">すべての種類</option>
+                      {activityEventKinds.map((kind) => <option key={kind} value={kind}>{activityEventKindLabel(kind)}</option>)}
+                    </select>
+                  </>
+                )}
+                <Button variant="secondary" compact onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。", "success"))}>コピー</Button>
+                <Button variant="secondary" compact onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</Button>
               </>
             )}
-            <Button variant="secondary" compact onClick={() => workspaceApi.copyText(buildCurrentActivityLog(activityDate)).then(() => setToast("Activity Logをコピーしました。", "success"))}>コピー</Button>
-            <Button variant="secondary" compact onClick={() => exportActivityLog(!activityDirectory)} disabled={exportingActivity}>出力</Button>
+            <Button variant="secondary" compact onClick={() => setActivityExpanded((expanded) => !expanded)} aria-expanded={activityExpanded}>
+              {activityExpanded ? "閉じる" : "開く"}
+            </Button>
           </div>
         </div>
-        {structuredActivityEvents.length ? (
+        {activityExpanded && (structuredActivityEvents.length ? (
           visibleActivityEvents.length ? (
             <ul className="activity-event-list" aria-label="Activity events">
               {visibleActivityEvents.slice(0, 30).map((event) => {
                 const ref = event.entity_ref || {};
-                const title = String(event.entity_title || event.summary || `${ref.type}:${ref.id}`);
                 const records = ref.type === "task" ? v2.tasks
                   : ref.type === "waiting" ? v2.waitings
                     : ref.type === "note" ? v2.notes
@@ -1368,43 +1364,27 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
                             : ref.type === "sketch" ? v2.sketches : [];
                 const entity = records.find((record) => record.id === ref.id);
                 const entityOpenable = Boolean(entity);
-                const canonicalRef = Array.isArray(event.canonical_refs)
-                  ? event.canonical_refs[0] as Record<string, unknown> | undefined
-                  : undefined;
-                const canonicalBroken = Boolean(canonicalRef && canonicalRef.status !== "ok");
+                const title = activityEventTitle(event, ref, entity);
                 return (
                   <li key={String(event.id)} className="activity-event-row">
                     <time dateTime={String(event.occurred_at)}>{String(event.local_time || "--:--")}</time>
-                    <span className="activity-event-kind">{String(event.event_kind)}</span>
-                    {entityOpenable ? (
-                      <button
-                        type="button"
-                        className="text-button compact activity-event-title"
-                        onClick={() => {
-                          openDrawer({ type: ref.type as "task" | "waiting" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch", mode: "view", entity: entity as unknown as Record<string, unknown> });
-                        }}
-                      >
-                        {title}
-                      </button>
-                    ) : (
-                      <span className="activity-event-title" title="現在のEntityがないため、履歴のみ表示しています。">{title}</span>
-                    )}
-                    <code>{String(ref.type)}:{String(ref.id)}</code>
-                    {canonicalRef ? (
-                      <>
-                        <span className="activity-event-canonical">{String(canonicalRef.relative_path || canonicalRef.web_url || "canonical")}{canonicalRef.local_status === "broken" ? "（local参照切れ・webを使用）" : ""}</span>
+                    <span className="activity-event-main">
+                      <span className="activity-event-kind">{activityEventKindLabel(String(event.event_kind || ""))}</span>
+                      {entityOpenable ? (
                         <button
                           type="button"
-                          className="text-button compact activity-event-open"
-                          disabled={canonicalBroken || openingActivityCanonicalId === String(event.id)}
-                          title={canonicalBroken ? "保存Rootが解決できないため開けません。" : "Canonical文書を開く"}
-                          onClick={() => void openActivityCanonical(canonicalRef, String(event.id))}
+                          className="text-button activity-event-title"
+                          onClick={() => {
+                            openDrawer({ type: ref.type as "task" | "waiting" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch", mode: "view", entity: entity as unknown as Record<string, unknown> });
+                          }}
                         >
-                          {canonicalBroken ? "参照切れ" : openingActivityCanonicalId === String(event.id) ? "開いています…" : "開く"}
+                          {title}
                         </button>
-                      </>
-                    ) : <span className="activity-event-canonical">Canonicalなし</span>}
-                    {!entityOpenable && <span className="activity-event-state">履歴のみ</span>}
+                      ) : (
+                        <span className="activity-event-title" title="現在のEntityがないため、履歴のみ表示しています。">{title}</span>
+                      )}
+                      {!entityOpenable && <span className="activity-event-state">履歴のみ</span>}
+                    </span>
                   </li>
                 );
               })}
@@ -1425,8 +1405,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           </div>
         ) : (
           <EmptyState title="タスクの完了やNoteの更新が自動でここにまとまります" />
-        )}
-        <div className="activity-auto-export">
+        ))}
+        {activityExpanded && <div className="activity-auto-export">
           <label>
             <span>毎日自動出力</span>
             <input
@@ -1444,8 +1424,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
             出力先を選択
           </Button>
           <small>アプリ停止中の未出力分は、次回起動時に日ごとに補完します。</small>
-        </div>
-      </section>
+        </div>}
+        </section>
+      </div>
     </div>
   );
 }

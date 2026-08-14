@@ -127,6 +127,7 @@ export const IPC = {
   todayMiniShow: "today-mini:show",
   todayMiniToggleWindow: "today-mini:toggle-window",
   todayMiniRefresh: "today-mini:refresh",
+  todayMiniTheme: "today-mini:theme",
   todayMiniPinTopRight: "today-mini:pin-top-right",
   todayMiniHide: "today-mini:hide",
   todayMiniList: "today-mini:list",

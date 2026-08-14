@@ -152,6 +152,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
               state: isDoneTask ? "done" : "todo",
               priority: "normal",
+              today_date: mode === "today-task" ? today : null,
               completed_at: isDoneTask ? now : null,
               reminder_at: parsedDue?.kind === "single" && parsedDue.time ? `${parsedDue.date}T${parsedDue.time}` : null,
               created_at: now,

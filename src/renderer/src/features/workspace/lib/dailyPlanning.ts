@@ -34,7 +34,7 @@ function isOngoingPeriodThisWeek(schedule: Schedule | undefined, today: string, 
 }
 
 export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: string): DailyPlanningCandidates {
-  const openRows = rows.filter((row) => isOpenTask(row.task));
+  const openRows = rows.filter((row) => isOpenTask(row.task) && row.task.today_date !== today);
   const weekEnd = addDays(today, 7);
   return {
     overdue: openRows

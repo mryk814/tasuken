@@ -312,7 +312,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
   }
 
   return (
-    <div className="page">
+    <div className="page theme-page">
       <PageHeader title={theme.name} subtitle={theme.description}>
         {theme.code && <span className="theme-code">{theme.code}</span>}
         <Button variant="ai" onClick={() => openContextPack(theme.id)}><AI_ICON size={16} />AI向けContext</Button>
@@ -489,7 +489,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
       </div>
 
       {/* タイトルだけでは思い出せないので、本文の書き出しを見せる。 */}
-      <section className="panel">
+      <section className="panel theme-recent-notes">
         <div className="section-heading">
           <h2>最近のNote</h2>
           <span>{recentNotes.length}件</span>
@@ -518,7 +518,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel theme-artifacts">
         <ArtifactSection
           sourceType="theme"
           sourceId={theme.id}
@@ -536,7 +536,7 @@ export function ThemePage({ data, domain: v2, activeTheme, notes, openDrawer, op
         />
       </section>
 
-      <div className="dashboard-grid">
+      <div className="dashboard-grid theme-overview-grid">
         <section className="panel">
           <div className="section-heading"><h2>現在地</h2><span>{latest ? formatDate(latest.date) : "未記録"}</span></div>
           {latest ? (

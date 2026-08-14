@@ -7,6 +7,42 @@ import { Button } from "./common";
 
 const DEFAULT_STEP_MS = 100;
 const MIN_TRIM_GAP_MS = 100;
+const TRIM_SELECTION_STORAGE_PREFIX = "tasken:video-trim:";
+
+interface TrimSelection {
+  startMs: number;
+  endMs: number;
+}
+
+function trimSelectionStorageKey(artifactId: string): string {
+  return `${TRIM_SELECTION_STORAGE_PREFIX}${artifactId}`;
+}
+
+function readTrimSelection(artifactId: string): TrimSelection | null {
+  if (!artifactId) return null;
+  try {
+    const raw = localStorage.getItem(trimSelectionStorageKey(artifactId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const startMs = Number(parsed.startMs);
+    const endMs = Number(parsed.endMs);
+    if (!Number.isSafeInteger(startMs) || !Number.isSafeInteger(endMs)) return null;
+    return { startMs, endMs };
+  } catch {
+    // 壊れた一時UI設定は無視して、動画全体を初期範囲にする。
+    return null;
+  }
+}
+
+function resolveTrimSelection(artifactId: string, durationMs: number): TrimSelection {
+  const duration = Math.max(0, durationMs);
+  const saved = readTrimSelection(artifactId);
+  if (!saved || duration <= 0) return { startMs: 0, endMs: duration };
+  const gap = Math.min(MIN_TRIM_GAP_MS, Math.max(1, duration));
+  const startMs = Math.min(Math.max(0, saved.startMs), Math.max(0, duration - gap));
+  const endMs = Math.max(startMs + gap, Math.min(duration, saved.endMs));
+  return { startMs, endMs };
+}
 
 function formatTrimTime(valueMs: number): string {
   const totalSeconds = Math.max(0, valueMs) / 1000;
@@ -38,10 +74,13 @@ export function VideoTrimEditor({
   onError: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const initialSelection = resolveTrimSelection(artifact.id, initialDurationMs(artifact));
+  const artifactSelectionKey = `${artifact.id}:${initialDurationMs(artifact)}`;
   const [durationMs, setDurationMs] = useState(() => initialDurationMs(artifact));
   const [currentMs, setCurrentMs] = useState(0);
-  const [startMs, setStartMs] = useState(0);
-  const [endMs, setEndMs] = useState(() => initialDurationMs(artifact));
+  const [startMs, setStartMs] = useState(() => initialSelection.startMs);
+  const [endMs, setEndMs] = useState(() => initialSelection.endMs);
+  const [selectionReadyKey, setSelectionReadyKey] = useState(artifactSelectionKey);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const playbackSelectionRef = useRef({
     durationMs: initialDurationMs(artifact),
@@ -51,12 +90,23 @@ export function VideoTrimEditor({
 
   useEffect(() => {
     const nextDuration = initialDurationMs(artifact);
+    const nextSelection = resolveTrimSelection(artifact.id, nextDuration);
     setDurationMs(nextDuration);
     setCurrentMs(0);
-    setStartMs(0);
-    setEndMs(nextDuration);
+    setStartMs(nextSelection.startMs);
+    setEndMs(nextSelection.endMs);
     setSaveState("idle");
-  }, [artifact.id, artifact.duration_ms]);
+    setSelectionReadyKey(artifactSelectionKey);
+  }, [artifact.id, artifact.duration_ms, artifactSelectionKey]);
+
+  useEffect(() => {
+    if (selectionReadyKey !== artifactSelectionKey || !artifact.id || durationMs <= 0) return;
+    try {
+      localStorage.setItem(trimSelectionStorageKey(artifact.id), JSON.stringify({ startMs, endMs }));
+    } catch {
+      // トリム位置の記憶に失敗しても、動画の再生・書き出し自体は継続する。
+    }
+  }, [artifact.id, artifactSelectionKey, durationMs, endMs, selectionReadyKey, startMs]);
 
   const trimGapMs = Math.min(MIN_TRIM_GAP_MS, Math.max(1, durationMs));
   const stepMs = durationMs > 0 && durationMs < DEFAULT_STEP_MS ? 1 : DEFAULT_STEP_MS;
@@ -145,9 +195,10 @@ export function VideoTrimEditor({
   function handleLoadedMetadata(event: SyntheticEvent<HTMLVideoElement>) {
     const nextDuration = Math.round(event.currentTarget.duration * 1000);
     if (!Number.isSafeInteger(nextDuration) || nextDuration <= 0) return;
+    const nextSelection = resolveTrimSelection(artifact.id, nextDuration);
     setDurationMs(nextDuration);
-    setStartMs((current) => Math.min(current, Math.max(0, nextDuration - Math.min(MIN_TRIM_GAP_MS, nextDuration))));
-    setEndMs((current) => Math.min(nextDuration, current > 0 ? Math.max(current, Math.min(MIN_TRIM_GAP_MS, nextDuration)) : nextDuration));
+    setStartMs(nextSelection.startMs);
+    setEndMs(nextSelection.endMs);
   }
 
   function resetTrim() {

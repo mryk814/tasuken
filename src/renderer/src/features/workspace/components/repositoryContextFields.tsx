@@ -222,21 +222,28 @@ export function TaskRepositoryContextFields({
     return next;
   });
   const choosePrimary = (id: string) => { if (!selectedIds.includes(id)) setSelectedIds((current) => [...current, id]); setPrimaryId(id); };
+  const modeLabel = REPOSITORY_CONTEXT_MODE_LABELS[mode as keyof typeof REPOSITORY_CONTEXT_MODE_LABELS]
+    || REPOSITORY_CONTEXT_MODE_LABELS.inherit;
   return (
-    <section className="drawer-subsection repository-context-section">
-      <div className="section-heading"><h2>RepositoryContext</h2><span className="field-help">Theme継承が既定です。</span></div>
-      <Field label="Taskへの関連付け">
-        <select name="repository_context_mode" value={Object.prototype.hasOwnProperty.call(REPOSITORY_CONTEXT_MODE_LABELS, mode) ? mode : "inherit"} onChange={(event) => setMode(event.target.value)}>
-          {Object.entries(REPOSITORY_CONTEXT_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-      </Field>
-      {mode !== "inherit" && <ContextOptions contexts={contexts} selectedIds={selectedIds} onToggle={toggle} />}
-      {mode !== "inherit" && missingIds.map((id) => <p className="field-help" key={id}>参照 {id} は利用できません（削除済み・Archive・未登録の可能性）。</p>)}
-      {mode !== "inherit" && selectedIds.length > 0 && <PrimaryContextSelect contexts={contexts} value={primaryId} onChange={choosePrimary} />}
-      <div className="form-grid">
-        <Field label="Subdirectory"><input name="repository_subdirectory" defaultValue={String(entity.repository_subdirectory || "")} placeholder="apps/web" /></Field>
-        <Field label="Branch hint"><input name="repository_branch_hint" defaultValue={String(entity.repository_branch_hint || "")} placeholder="feature/example" /></Field>
+    <details className="drawer-subsection repository-context-section drawer-disclosure">
+      <summary>
+        <span className="drawer-disclosure-title">開発用コンテキスト</span>
+        <span className="drawer-disclosure-meta">{modeLabel}</span>
+      </summary>
+      <div className="drawer-disclosure-body">
+        <Field label="Taskへの関連付け">
+          <select name="repository_context_mode" value={Object.prototype.hasOwnProperty.call(REPOSITORY_CONTEXT_MODE_LABELS, mode) ? mode : "inherit"} onChange={(event) => setMode(event.target.value)}>
+            {Object.entries(REPOSITORY_CONTEXT_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+        {mode !== "inherit" && <ContextOptions contexts={contexts} selectedIds={selectedIds} onToggle={toggle} />}
+        {mode !== "inherit" && missingIds.map((id) => <p className="field-help" key={id}>参照 {id} は利用できません（削除済み・Archive・未登録の可能性）。</p>)}
+        {mode !== "inherit" && selectedIds.length > 0 && <PrimaryContextSelect contexts={contexts} value={primaryId} onChange={choosePrimary} />}
+        <div className="form-grid">
+          <Field label="Subdirectory"><input name="repository_subdirectory" defaultValue={String(entity.repository_subdirectory || "")} placeholder="apps/web" /></Field>
+          <Field label="Branch hint"><input name="repository_branch_hint" defaultValue={String(entity.repository_branch_hint || "")} placeholder="feature/example" /></Field>
+        </div>
       </div>
-    </section>
+    </details>
   );
 }

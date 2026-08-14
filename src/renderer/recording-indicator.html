@@ -15,14 +15,39 @@
         background: transparent;
       }
       body {
+        position: relative;
+        -webkit-app-region: no-drag;
+      }
+      .indicator-surface {
+        position: absolute;
+        inset: 0;
         display: flex;
         align-items: center;
         gap: var(--space-3);
         padding: var(--space-2) var(--space-3);
         border: 1px solid var(--color-border);
-        border-radius: var(--radius-md);
+        border-radius: 0 0 var(--radius-md) var(--radius-md);
         background: var(--color-surface);
         -webkit-app-region: drag;
+        transition: transform 180ms ease;
+      }
+      body.is-retracted .indicator-surface {
+        transform: translateY(calc(-100% + 12px));
+      }
+      body.is-retracted:hover .indicator-surface,
+      body.is-retracted:focus-within .indicator-surface {
+        transform: translateY(0);
+      }
+      .indicator-surface::after {
+        position: absolute;
+        right: 50%;
+        bottom: 3px;
+        width: 32px;
+        height: 3px;
+        border-radius: var(--radius-pill);
+        background: var(--color-accent);
+        content: "";
+        transform: translateX(50%);
       }
       button { -webkit-app-region: no-drag; }
       .state {
@@ -74,14 +99,16 @@
     </style>
   </head>
   <body>
-    <span class="state" id="state">準備中</span>
-    <span class="target" id="target"></span>
-    <strong class="elapsed" id="elapsed">00:00</strong>
-    <span class="actions">
-      <button type="button" id="pause">一時停止</button>
-      <button type="button" id="stop" class="primary">停止</button>
-      <button type="button" id="discard" class="danger">破棄</button>
-    </span>
+    <div class="indicator-surface">
+      <span class="state" id="state">準備中</span>
+      <span class="target" id="target"></span>
+      <strong class="elapsed" id="elapsed">00:00</strong>
+      <span class="actions">
+        <button type="button" id="pause">一時停止</button>
+        <button type="button" id="stop" class="primary">停止</button>
+        <button type="button" id="discard" class="danger">破棄</button>
+      </span>
+    </div>
     <script type="module">
       const stateEl = document.querySelector("#state");
       const targetEl = document.querySelector("#target");
@@ -90,6 +117,8 @@
       const stopButton = document.querySelector("#stop");
       const discardButton = document.querySelector("#discard");
       const api = window.recordingIndicatorApi;
+      let lastKind = "";
+      let retractTimer = 0;
 
       const STATE_LABELS = {
         recording: "録画中",
@@ -113,6 +142,14 @@
         pauseButton.disabled = kind === "stopping";
         stopButton.disabled = kind === "stopping";
         discardButton.disabled = kind === "stopping";
+        if (kind !== lastKind) {
+          window.clearTimeout(retractTimer);
+          document.body.classList.remove("is-retracted");
+          if (kind === "recording") {
+            retractTimer = window.setTimeout(() => document.body.classList.add("is-retracted"), 1200);
+          }
+          lastKind = kind;
+        }
       }
 
       pauseButton.addEventListener("click", () => { void api.command(pauseButton.textContent === "再開" ? "resume" : "pause"); });

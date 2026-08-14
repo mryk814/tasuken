@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, screen } from "electron";
 import path from "node:path";
 
 import { IPC, type RecordingIndicatorCommand, type RecordingIndicatorState } from "../shared/ipc/contracts";
@@ -36,6 +36,8 @@ export function createRecordingIndicatorController(
   let current: RecordingIndicatorState | null = null;
 
   function ensureWindow(): BrowserWindow {
+    const existing = options.satelliteWindows.get(windowKey);
+    if (existing && !existing.isDestroyed()) return existing;
     const win = options.satelliteWindows.open(windowKey, {
       title: "録画中",
       width: 460,
@@ -48,6 +50,16 @@ export function createRecordingIndicatorController(
       frame: false,
       skipTaskbar: true,
     });
+    const main = options.getMainWindow();
+    const display = main && !main.isDestroyed()
+      ? screen.getDisplayMatching(main.getBounds())
+      : screen.getPrimaryDisplay();
+    const bounds = win.getBounds();
+    win.setPosition(
+      Math.round(display.workArea.x + (display.workArea.width - bounds.width) / 2),
+      display.workArea.y,
+      false,
+    );
     // これが本題。Windows 10 2004+ のWDA_EXCLUDEFROMCAPTUREで、
     // インジケータ自身が録画結果へ写り込まないようにする（#383）。
     win.setContentProtection(true);

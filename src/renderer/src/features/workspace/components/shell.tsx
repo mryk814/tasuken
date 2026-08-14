@@ -323,7 +323,7 @@ export function Sidebar({
   const todayCount = domain.tasks.filter((t) => {
     if (t.state === "done" || t.state === "cancelled") return false;
     const s = schedulesByOwner.get(`task:${t.id}`);
-    return s && (s.start_date === today || s.end_date === today || (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today));
+    return t.today_date === today || (s && (s.start_date === today || s.end_date === today || (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today)));
   }).length;
   const overdueTasks = domain.tasks.filter((t) => {
     if (t.state === "done" || t.state === "cancelled") return false;

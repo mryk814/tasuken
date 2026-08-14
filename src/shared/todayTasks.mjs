@@ -33,6 +33,11 @@ export function selectTodayTasks(tasks, schedules, date, options = TODAY_TASK_PO
     if (["cancelled"].includes(String(task.state))) continue;
     if (!includeCompleted && String(task.state) === "done") continue;
     const schedule = byOwner.get(String(task.id));
+    const explicitlyToday = String(task.today_date || "") === date;
+    if (explicitlyToday) {
+      rows.push({ task, schedule, bucket: "today" });
+      continue;
+    }
     if (!schedule) continue;
     const kind = getScheduleKind(schedule);
     const overdue = isScheduleOverdueOn(schedule, date);
@@ -44,11 +49,11 @@ export function selectTodayTasks(tasks, schedules, date, options = TODAY_TASK_PO
     else if (ongoing && includeOngoing) rows.push({ task, schedule, bucket: "ongoing" });
     else if (executionWindow && includeExecutionWindow) rows.push({ task, schedule, bucket: "execution_window" });
   }
-  const bucketOrder = { overdue: 0, due: 1, ongoing: 2, execution_window: 3 };
+  const bucketOrder = { today: 0, overdue: 1, due: 2, ongoing: 3, execution_window: 4 };
   return rows.sort((a, b) => Number(a.task.state === "done") - Number(b.task.state === "done")
     || bucketOrder[a.bucket] - bucketOrder[b.bucket]
     || Number(b.task.priority === "high") - Number(a.task.priority === "high")
-    || String(a.schedule.end_date || a.schedule.start_date || "9999-12-31").localeCompare(String(b.schedule.end_date || b.schedule.start_date || "9999-12-31"))
+    || String(a.schedule?.end_date || a.schedule?.start_date || a.task.today_date || "9999-12-31").localeCompare(String(b.schedule?.end_date || b.schedule?.start_date || b.task.today_date || "9999-12-31"))
     || String(a.task.title || "").localeCompare(String(b.task.title || ""), "ja")
     || String(a.task.id).localeCompare(String(b.task.id)));
 }

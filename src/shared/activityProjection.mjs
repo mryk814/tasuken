@@ -39,7 +39,6 @@ const DEFAULT_ACTIVITY_KINDS = new Set([
   "reference_updated",
   "capture_formalized",
   "entity_deleted",
-  "schedule_updated",
   "status_updated",
 ]);
 
@@ -177,6 +176,8 @@ function deduplicate(events) {
 }
 
 function eventAllowedByDefault(event) {
+  // 日程変更は内部状態の同期ログであり、振り返り用のActivityには含めない。
+  if (event.event_kind === "schedule_updated") return false;
   if (event.metadata?.include_in_activity === false) return false;
   if (event.metadata?.include_in_activity === true) return true;
   if (!DEFAULT_ACTIVITY_KINDS.has(event.event_kind)) return false;

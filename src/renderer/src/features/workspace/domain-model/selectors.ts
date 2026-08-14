@@ -64,6 +64,7 @@ function todayEntryDate(entry: TodayEntry): string {
     case "capture":
       return entry.captureEntry.captured_at;
     case "task":
+      return entry.task.today_date || dateValue(entry.schedule);
     case "waiting":
     case "milestone":
       return dateValue(entry.schedule);
@@ -130,7 +131,8 @@ export function buildMicroMemoView(domain: WorkspaceDomain): MicroMemoView {
 export function buildTodayTaskShortlist(domain: WorkspaceDomain, date = todayString()): Task[] {
   const schedules = schedulesByOwner(domain);
   return domain.tasks
-    .filter((task) => task.state !== "cancelled" && scheduleHasExplicitDate(schedules.get(scheduleKey("task", task.id)), date));
+    .filter((task) => task.state !== "cancelled"
+      && (task.today_date === date || scheduleHasExplicitDate(schedules.get(scheduleKey("task", task.id)), date)));
 }
 
 export function buildWaitingView(domain: WorkspaceDomain): WaitingView {
@@ -204,6 +206,7 @@ export function buildExecutionWindowTaskView(domain: WorkspaceDomain, date = tod
     .filter((row): row is { task: typeof row.task; schedule: Schedule & { start_date: string; end_date: string } } => (
       isActiveTask(row.task.state)
       && getScheduleKind(row.schedule) === "execution_window"
+      && row.task.today_date !== date
       // 開始日前はTodayへ出さない。超過は見逃さないよう残す。
       && String(row.schedule?.start_date) <= date
     ))

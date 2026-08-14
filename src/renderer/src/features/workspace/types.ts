@@ -352,6 +352,7 @@ export type RemoveEntity = (type: EntityType, entity: DrawerEntity) => Promise<v
 export type ExecuteCommand = (envelope: CommandEnvelope) => Promise<CommandReceipt>;
 
 export type OpenDrawer = (config: DrawerConfig) => void;
+export type OpenSketchEditor = (entity: DrawerEntity) => void;
 
 /** Notes以外から本文・画像を読むためのモーダルビューア対象（#130）。 */
 export type ContentViewerTarget =
@@ -381,6 +382,7 @@ export interface PageProps {
    */
   detachedNoteId?: string;
   openDrawer: OpenDrawer;
+  openSketchEditor: OpenSketchEditor;
   openContentViewer: OpenContentViewer;
   openContextPack: OpenContextPack;
   openDailyScratchpad: OpenDailyScratchpad;

@@ -10,6 +10,7 @@ interface TodayMiniApi {
   hide(): Promise<boolean>;
   refresh(): Promise<TodayMiniTask[]>;
   onRefresh(callback: () => void): () => void;
+  onThemeChange(callback: (mode: "light" | "dark") => void): () => void;
 }
 
 declare global {

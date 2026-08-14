@@ -1,5 +1,6 @@
 export type PreferenceId =
   | "shell.sidebarCollapsed"
+  | "shell.sidebarWidth"
   | "shell.zoomFactor"
   | "notes.preferences"
   | "chatRefs.preferences"
@@ -78,6 +79,7 @@ export interface SketchToolPresetsPreferenceValue {
 
 export type PreferenceValueMap = {
   "shell.sidebarCollapsed": boolean;
+  "shell.sidebarWidth": number;
   "shell.zoomFactor": number;
   "notes.preferences": NotesPreferenceValue;
   "chatRefs.preferences": ChatRefsPreferenceValue;

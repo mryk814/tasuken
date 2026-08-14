@@ -7,7 +7,7 @@
     <title>今日やること</title>
     <style>
       * { box-sizing: border-box; }
-      body {
+      body.today-mini-window {
         min-width: 300px;
         max-width: 100%;
         min-height: 100vh;
@@ -331,7 +331,7 @@
       }
     </style>
   </head>
-  <body>
+  <body class="today-mini-window">
     <div class="app-shell">
       <header class="mini-hero">
         <div>
@@ -361,6 +361,7 @@
       </form>
     </div>
     <script type="module">
+      import "../../design-standard/tokens.css";
       import { createThemePicker } from "../shared/themePickerDom";
 
       const content = document.querySelector("#content");
@@ -374,6 +375,12 @@
       const addTaskSubmit = document.querySelector("#add-task-submit");
       const addTaskThemePicker = createThemePicker({ label: "TaskのTheme", variant: "compact-popover" });
       document.querySelector("#add-task-theme-picker").append(addTaskThemePicker.element);
+
+      function applyTheme(mode) {
+        document.documentElement.dataset.theme = mode === "dark" ? "dark" : "light";
+      }
+
+      window.todayMiniApi.onThemeChange(applyTheme);
 
       // 日付は起動時に固定せず、日付をまたいでも表示が古くならないよう都度更新する。
       const dateFormat = new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" });

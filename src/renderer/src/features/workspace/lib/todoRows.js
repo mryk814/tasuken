@@ -3,7 +3,7 @@ export function scheduledDate(schedule) {
 }
 
 export function isTodayRow(row, today) {
-  return row.schedule?.start_date === today || row.schedule?.end_date === today;
+  return row.task?.today_date === today || row.schedule?.start_date === today || row.schedule?.end_date === today;
 }
 
 export function compareTodoRows(today) {

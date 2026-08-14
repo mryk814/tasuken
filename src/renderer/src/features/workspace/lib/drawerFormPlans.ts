@@ -138,6 +138,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       work_reported_at: (base.work_reported_at as string | null) ?? null,
       work_review_note: (base.work_review_note as string | null) ?? null,
       priority: values.has("priority_flag") ? "high" : "normal",
+      today_date: (base.today_date as string | null) ?? null,
       planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
       reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
       description: formText(values, "description") || null,
@@ -375,6 +376,10 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
         || new Date().toISOString().slice(0, 10),
       state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
+      properties_json: {
+        ...((base.properties_json as Record<string, unknown>) || {}),
+        ...(!base.id && base.kind === "micro_memo" ? { presentation: "floating" } : {}),
+      },
       ...aiMetadataFromForm(values, base, hasField),
     };
     return {

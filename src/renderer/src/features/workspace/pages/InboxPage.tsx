@@ -10,7 +10,6 @@ import {
   IconFile,
   IconFlag,
   IconFlagFilled,
-  IconInbox,
   IconPaperclip,
   IconPencil,
   IconPlus,
@@ -37,7 +36,6 @@ import {
   buildSaveResourceOperations,
   buildSaveNoteOperations,
   buildTriageCaptureEntryOperations,
-  buildSendMicroMemoToInboxOperations,
   buildChangeEventOperation,
 } from "../domain-model/persistence";
 import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
@@ -329,6 +327,24 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
   }
 
+  function copyAllMicroMemos() {
+    const body = allMicroMemoRows.map((memo) => {
+      const title = memo.title?.trim();
+      const text = memo.text?.trim();
+      const indentedText = text ? text.replace(/\n/g, "\n  ") : "";
+      return title
+        ? `- ${title}${indentedText ? `\n  ${indentedText}` : ""}`
+        : (indentedText ? `- ${indentedText}` : "");
+    }).filter(Boolean).join("\n");
+    if (!body) {
+      setToast("コピーできる付箋メモがありません。", "info");
+      return;
+    }
+    workspaceApi.copyText(body)
+      .then(() => setToast(`${allMicroMemoRows.length}件の付箋メモをコピーしました。`, "success"))
+      .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger"));
+  }
+
   async function toggleMicroMemoTarget(memo: CaptureEntry) {
     const target = !stickyTargetIds.includes(memo.id);
     const result = await workspaceApi.setMemoStickyTarget(memo.id, target);
@@ -345,11 +361,6 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     if (result.status === "flush_failed") {
       setToast("付箋を収納できませんでした。付箋側の保存エラーを解消してください。", "danger");
     }
-  }
-
-  async function sendMicroMemoToInbox(memo: CaptureEntry) {
-    await saveEntities(buildSendMicroMemoToInboxOperations(memo), "Inboxへ送りました。Inboxで整理できます。");
-    setLane("untriaged");
   }
 
   async function organize(row: InboxRow) {
@@ -1006,6 +1017,9 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
           <span>{microMemoRows.length}件</span>
           <div className="inline-actions">
             <span className="sticky-open-count">対象 {stickyTargetIds.length} · 表示中 {openStickyIds.length}</span>
+            <button className="text-button compact" onClick={copyAllMicroMemos} disabled={!allMicroMemoRows.length} type="button">
+              <IconCopy size={14} />まとめてコピー
+            </button>
             <button className="text-button compact" onClick={() => void toggleMicroMemoStickies()}>
               {allTargetStickiesVisible ? "対象を収納" : "対象を表示"}
             </button>
@@ -1015,36 +1029,34 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
           <div className="micro-memo-grid">
             {microMemoRows.map((memo) => {
               const targeted = stickyTargetIds.includes(memo.id);
-              const visible = openStickyIds.includes(memo.id);
               const alwaysOnTop = alwaysOnTopStickyIds.includes(memo.id);
               return (
               <article
-                className={`micro-memo-card ${targeted ? "is-targeted" : ""} ${visible ? "is-visible" : ""}`}
+                className={`micro-memo-card ${targeted ? "is-targeted" : ""}`}
                 data-sticky-color={memoStickyColorOf(memo as unknown as Entity)}
                 key={memo.id}
               >
-                <div className="micro-memo-card-meta">
-                  <time dateTime={memo.captured_at} title={`記録日 ${memo.captured_at}`}>記録 {formatDate(memo.captured_at)}</time>
-                  {targeted && <span className="micro-memo-target-badge">付箋対象</span>}
-                  {visible && <span className="micro-memo-visible-badge">表示中</span>}
-                  {alwaysOnTop && <span className="micro-memo-top-badge">最前面</span>}
+                <div className="micro-memo-card-header">
+                  <div className="micro-memo-card-meta">
+                    <time dateTime={memo.captured_at} title={`記録日 ${memo.captured_at}`}>記録 {formatDate(memo.captured_at)}</time>
+                    {alwaysOnTop && <span className="micro-memo-top-badge">最前面</span>}
+                  </div>
+                  <button
+                    className={`micro-memo-pin-button ${targeted ? "is-active" : ""}`}
+                    onClick={() => void toggleMicroMemoTarget(memo)}
+                    aria-label={targeted ? "付箋対象から外して収納" : "付箋対象にして表示"}
+                    aria-pressed={targeted}
+                    title={targeted ? "付箋対象から外す" : "付箋対象にする"}
+                    type="button"
+                  ><IconPin size={16} /></button>
                 </div>
                 {memo.title ? <>
                   <strong>{memo.title}</strong>
                   <p>{memo.text}</p>
                 </> : <p>{memo.text}</p>}
                 <div className="micro-memo-actions">
-                  {/* 付箋化は同じMemoの表示状態でしかない。複製も別Entityも作らない（#298）。 */}
-                  <button
-                    className={`row-action-button ${targeted ? "is-active" : ""}`}
-                    onClick={() => void toggleMicroMemoTarget(memo)}
-                    aria-label={targeted ? "付箋対象から外して収納" : "付箋対象にして表示"}
-                    aria-pressed={targeted}
-                    title={targeted ? "付箋対象から外す" : "付箋対象にする"}
-                  ><IconPin size={15} /></button>
                   <button className="row-action-button" onClick={() => copyMicroMemo(memo)} aria-label="付箋メモをコピー" title="コピー"><IconCopy size={15} /></button>
                   <button className="row-action-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })} aria-label="付箋メモを編集" title="編集"><IconPencil size={15} /></button>
-                  <button className="row-action-button" onClick={() => void sendMicroMemoToInbox(memo)} aria-label="付箋メモをInboxへ送る" title="Inboxへ送る"><IconInbox size={15} /></button>
                   {/* アーカイブと削除は別の操作として並べる（#298）。 */}
                   <button className="row-action-button" onClick={() => void archiveEntry(memo)} aria-label="付箋メモをアーカイブ" title="アーカイブ"><IconArchive size={15} /></button>
                   <button className="row-action-button danger" onClick={() => removeEntity("capture_entry", memo as unknown as Record<string, unknown>)} aria-label="付箋メモを削除" title="削除"><IconTrash size={15} /></button>

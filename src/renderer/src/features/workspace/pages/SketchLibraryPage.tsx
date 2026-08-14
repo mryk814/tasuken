@@ -72,7 +72,7 @@ export function SketchLibraryPage({
   themes,
   activeTheme,
   navigate,
-  openDrawer,
+  openSketchEditor,
   saveEntity,
   setToast,
 }: PageProps) {
@@ -145,9 +145,8 @@ export function SketchLibraryPage({
   }
 
   function openSketch(sketch: Sketch) {
-    // 行を選んだら編集canvasへ直行する。詳細drawerを経由しない（#320）。
-    localStorage.setItem(ACTIVE_SKETCH_KEY, sketch.id);
-    navigate("sketch-editor");
+    // 一覧からはキャンバスと編集ドロワーを同時に開く。詳細を一段挟まない。
+    openSketchEditor(sketch as unknown as Record<string, unknown>);
   }
 
   return (
@@ -224,7 +223,7 @@ export function SketchLibraryPage({
                 <button
                   className="sketch-library-main"
                   onClick={() => openSketch(sketch)}
-                  aria-label={`${sketch.title}を開く`}
+                  aria-label={`${sketch.title}の詳細を開く`}
                 >
                   <SketchPreview
                     page={sketchCanvasMode(sketch.document) === "infinite"

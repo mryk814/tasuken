@@ -15,7 +15,6 @@ import {
   TASK_STATE_LABELS,
   TASK_REQUESTER_LABELS,
   TASK_INTENDED_EXECUTOR_LABELS,
-  TASK_WORK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
@@ -155,24 +154,6 @@ export function TaskFields({
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
       <TaskRepositoryContextFields entity={entity} data={data} />
       <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
-      <section className="drawer-subsection">
-        <div className="section-heading"><h2>依頼と実行</h2><span className="field-help">本文とは別に、担当と作業状態を記録します。</span></div>
-        <div className="form-grid">
-          <Field label="依頼者">
-            <select name="requester" defaultValue={str(entity.requester) || "self"}>
-              {Object.entries(TASK_REQUESTER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </Field>
-          <Field label="実行主体">
-            <select name="intended_executor" value={intendedExecutor} onChange={(event) => setIntendedExecutor(event.target.value)}>
-              {Object.entries(TASK_INTENDED_EXECUTOR_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </Field>
-        </div>
-        <Field label="実行主体の表示名"><input name="executor_identity" defaultValue={str(entity.executor_identity)} placeholder="例: Codex / 山田" /></Field>
-        <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
-        <div className="field-help">作業状態: {TASK_WORK_STATE_LABELS[preservedWorkState as keyof typeof TASK_WORK_STATE_LABELS] || preservedWorkState}</div>
-      </section>
       <Field label="状態">
         <select name="state" defaultValue={str(entity.state) || "todo"}>
           {Object.entries(TASK_STATE_LABELS).map(([value, label]) => (
@@ -333,6 +314,23 @@ export function TaskFields({
             </div>
           ))}
         </div>
+      </section>
+      <section className="drawer-subsection">
+        <div className="section-heading"><h2>担当</h2><span className="field-help">依頼者と担当を指定します。</span></div>
+        <div className="form-grid">
+          <Field label="依頼者">
+            <select name="requester" defaultValue={str(entity.requester) || "self"}>
+              {Object.entries(TASK_REQUESTER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="担当">
+            <select name="intended_executor" value={intendedExecutor} onChange={(event) => setIntendedExecutor(event.target.value)}>
+              {Object.entries(TASK_INTENDED_EXECUTOR_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="担当者名"><input name="executor_identity" defaultValue={str(entity.executor_identity)} placeholder="例: Codex / 山田" /></Field>
+        <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
       </section>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
     </>

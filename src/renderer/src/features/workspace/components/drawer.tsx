@@ -65,8 +65,6 @@ import { ChatGroupPicker, ThemeColorPicker, ThemeGroupPicker, ThemeStorageRootFi
 import { ThemeRepositoryContextFields } from "./repositoryContextFields";
 import {
   TASK_STATE_LABELS,
-  TASK_REQUESTER_LABELS,
-  TASK_INTENDED_EXECUTOR_LABELS,
   TASK_WORK_STATE_LABELS,
   EXTERNAL_REFERENCE_KIND_LABELS,
   WAITING_STATE_LABELS,
@@ -202,6 +200,12 @@ function TaskWorkSection({
   const expectedVersion = Number((task as unknown as Record<string, unknown>).version || 0);
   const executorKind = task.intended_executor === "ai_agent" ? "ai_agent" : task.intended_executor === "human" ? "human" : "self";
   const executorLabel = task.executor_identity || (executorKind === "ai_agent" ? "AI agent" : executorKind === "human" ? "人" : "自分");
+  const hasWorkHistory = sortedReceipts.length > 0;
+  const hasDelegatedWork = task.requester !== "self"
+    || task.intended_executor !== "self"
+    || workState !== "not_delegated"
+    || hasWorkHistory;
+  const [workOpen, setWorkOpen] = useState(hasWorkHistory || workState !== "not_delegated");
   const run = async (name: CommandEnvelope["name"], payload: CommandEnvelope["payload"], message: string) => {
     if (!executeCommand || busy) return;
     setBusy(true);
@@ -254,14 +258,15 @@ function TaskWorkSection({
       },
     }, "Work Receiptを追加しました。人間の確認待ちです。");
   };
-  if (!executeCommand) return null;
+  if (!executeCommand || !hasDelegatedWork) return null;
   return (
-    <section className="drawer-subsection" aria-labelledby="task-work-heading">
-      <div className="section-heading"><h3 id="task-work-heading">依頼と作業報告</h3><StatusBadge value={workState} label={TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState} /></div>
-      <dl>
-        <dt>依頼者</dt><dd>{TASK_REQUESTER_LABELS[task.requester || "unknown"]}</dd>
-        <dt>実行主体</dt><dd>{TASK_INTENDED_EXECUTOR_LABELS[task.intended_executor || "self"]}{task.executor_identity ? ` · ${task.executor_identity}` : ""}</dd>
-      </dl>
+    <details className="drawer-subsection drawer-disclosure task-work-disclosure" open={workOpen} onToggle={(event) => setWorkOpen(event.currentTarget.open)}>
+      <summary aria-labelledby="task-work-heading">
+        <span className="drawer-disclosure-title" id="task-work-heading">作業履歴</span>
+        <span className="drawer-disclosure-meta">担当: {executorLabel}</span>
+        <StatusBadge value={workState} label={TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState} />
+      </summary>
+      <div className="drawer-disclosure-body">
       {sortedReceipts.length > 0 ? (
         <div className="task-learning-list" aria-label="Work Receipt一覧">
           {sortedReceipts.map((receipt) => (
@@ -284,7 +289,7 @@ function TaskWorkSection({
             </article>
           ))}
         </div>
-      ) : <p className="field-help">作業の開始後、本文を上書きせずにWork Receiptとして報告できます。</p>}
+      ) : <p className="field-help">まだ作業報告はありません。</p>}
       {!["done", "cancelled"].includes(task.state) && !["accepted", "reported_done", "needs_human_review", "in_progress"].includes(workState) && (
         <button className="secondary-button" type="button" disabled={busy} onClick={() => void run("StartTaskWork", { taskId: task.id, executorKind, executorIdentity: task.executor_identity || null }, "作業を開始しました。")}>作業を開始する</button>
       )}
@@ -305,7 +310,8 @@ function TaskWorkSection({
           <button className="secondary-button" type="button" disabled={busy || !reviewNote.trim()} onClick={() => void run("ReturnTaskWork", { taskId: task.id, reviewNote }, "Work Receiptを差し戻しました。")}>差し戻す</button>
         </div>
       )}
-    </section>
+      </div>
+    </details>
   );
 }
 
@@ -352,6 +358,10 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         title="Sketch詳細"
         close={close}
         onEdit={() => close({ type: "sketch", mode: "edit", entity })}
+        onOpenCanvas={navigate ? () => {
+          localStorage.setItem("tasken:sketch:active-id", sketch.id);
+          navigate("sketch-editor");
+        } : undefined}
       >
         <div className="badge-row">
           <StatusBadge
@@ -619,6 +629,13 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             {/* 完了時のひとことは本文と分けて保存する（#308）。 */}
             {completionNote && (<><dt>完了時のひとこと</dt><dd>{completionNote}</dd></>)}
           </dl>
+          <TaskWorkSection task={task} receipts={(data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]} executeCommand={executeCommand} setToast={setToast} />
+          <details className="drawer-subsection drawer-disclosure task-related-disclosure">
+            <summary>
+              <span className="drawer-disclosure-title">関連情報</span>
+              <span className="drawer-disclosure-meta">系譜・AI・学び・成果物</span>
+            </summary>
+            <div className="drawer-disclosure-body">
           <DerivedSourceReference
             data={data}
             entityType="task"
@@ -636,7 +653,6 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             data={data}
             openDrawer={(next) => close(next)}
           />
-          <TaskWorkSection task={task} receipts={(data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]} executeCommand={executeCommand} setToast={setToast} />
           <section className="task-learning-section">
             <div className="section-heading">
               <h3>気づき・学び</h3>
@@ -667,6 +683,8 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
             setToast={setToast}
           />
           <AiContextSummary type="task" entity={entity} themes={data.themes} workspaceDefault={workspaceAiVisibility(data)} />
+            </div>
+          </details>
           <div className="drawer-actions">
             <button className="primary-button" onClick={() => startFocusSession?.(task.id)}><IconClock size={16} />集中して作業する</button>
             <button className="secondary-button" onClick={() => close({ type: "task", mode: "edit", entity: { ...entity, _schedule: schedule } })}><IconPencil size={16} />編集する</button>
@@ -1297,12 +1315,14 @@ function DetailDrawer({
   close,
   onEdit,
   onDelete,
+  onOpenCanvas,
   children,
 }: {
   title: string;
   close: CloseDrawer;
   onEdit: () => void;
   onDelete?: () => void;
+  onOpenCanvas?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -1311,6 +1331,7 @@ function DetailDrawer({
       <div className="drawer-content">
         {children}
         <div className="drawer-actions">
+          {onOpenCanvas && <button className="secondary-button" onClick={onOpenCanvas}><IconArrowsMaximize size={16} />キャンバスを開く</button>}
           <button className="primary-button" onClick={onEdit}><IconPencil size={16} />編集する</button>
           {onDelete && <button className="danger-button" onClick={onDelete}><IconTrash size={16} />削除する</button>}
         </div>

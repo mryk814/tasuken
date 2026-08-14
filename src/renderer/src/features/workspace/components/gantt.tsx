@@ -19,10 +19,10 @@ function isInProgressStatus(status?: string): boolean {
 }
 
 type DragMode = "move" | "start" | "end";
-const BASE_ROW_HEIGHT = 44;
-const LANE_STEP = 26;
-const LANE_TOP = 11;
-const LANE_BAR_HEIGHT = 22;
+const BASE_ROW_HEIGHT = 48;
+const LANE_STEP = 30;
+const LANE_TOP = 12;
+const LANE_BAR_HEIGHT = 24;
 
 export interface ConnectingState {
   sourceId: string;

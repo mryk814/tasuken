@@ -236,6 +236,12 @@ export function registerIpc(
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
     const normalizedKey = requireId(key);
     const saved = repository.setPreference(normalizedKey, value);
+    if (normalizedKey === "themeMode") {
+      const mode = value === "dark" ? "dark" : "light";
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(IPC.todayMiniTheme, mode);
+      }
+    }
     if (normalizedKey === "artifactDirectory") {
       // Root changes are workspace projection changes, not entity changes.
       // Refreshing here updates canonical_root_status in the live renderer.

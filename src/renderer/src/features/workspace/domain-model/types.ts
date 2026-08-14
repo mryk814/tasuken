@@ -38,6 +38,7 @@ export interface CaptureEntry extends AiMetadata {
   media_status?: "preparing" | "ready" | "failed" | null;
   transcription_status?: "not_requested" | "queued" | "processing" | "completed" | "failed" | null;
   url?: string | null;
+  properties_json?: Record<string, unknown>;
   project_id?: string | null;
   captured_at: string;
   state: CaptureEntryState;
@@ -128,6 +129,8 @@ export interface Task extends AiMetadata {
   work_reported_at?: string | null;
   work_review_note?: string | null;
   priority: "normal" | "high";
+  /** ユーザーが今日やると選んだ日。Scheduleの期限とは別に保持する。 */
+  today_date?: string | null;
   planning_shelf?: TaskShelf | null;
   planned_start_time?: string | null;
   planned_duration_minutes?: number | null;

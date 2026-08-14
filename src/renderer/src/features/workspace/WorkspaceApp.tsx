@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import { workspaceApi } from "../../services/workspaceApi";
 import { actionDefinition, TOAST_ACTIONS } from "../../pages/semanticActions";
@@ -13,6 +13,7 @@ import type {
   DocumentSaveReferenceCompanion,
   DocumentSaveSnapshot,
   DrawerConfig,
+  DrawerEntity,
   DrawerEntityType,
   Entity,
   EntityType,
@@ -115,6 +116,7 @@ export function WorkspaceApp() {
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const closeContextPack = useCallback(() => setContextPackThemeId(null), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePreference("shell.sidebarCollapsed");
+  const [sidebarWidth, setSidebarWidth] = usePreference("shell.sidebarWidth");
   const [zoomFactor, setZoomFactor] = usePreference("shell.zoomFactor");
   const [compactDrawerLayout, setCompactDrawerLayout] = useState(() => window.matchMedia("(max-width: 1680px)").matches);
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
@@ -131,6 +133,65 @@ export function WorkspaceApp() {
   const activeFocusTaskIdRef = useRef<string>("");
   const activityAutoExportRunning = useRef(false);
   const activityAutoExportFailedTarget = useRef("");
+  const appShellRef = useRef<HTMLDivElement | null>(null);
+  const [sidebarResizeDraft, setSidebarResizeDraft] = useState<number | null>(null);
+  const sidebarResizeDraftRef = useRef<number | null>(null);
+  const sidebarResizeLastWidthRef = useRef(sidebarWidth);
+  const sidebarResizeCollapsedRef = useRef(false);
+  sidebarResizeDraftRef.current = sidebarResizeDraft;
+  const effectiveSidebarWidth = sidebarResizeDraft ?? sidebarWidth;
+
+  const handleSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sidebarCollapsed) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    sidebarResizeLastWidthRef.current = sidebarWidth;
+    sidebarResizeCollapsedRef.current = false;
+    const collapseThreshold = 110;
+    const onMove = (moveEvent: PointerEvent) => {
+      const shellRect = appShellRef.current?.getBoundingClientRect();
+      const rawWidth = moveEvent.clientX - (shellRect?.left ?? 0);
+      if (rawWidth <= collapseThreshold) {
+        sidebarResizeCollapsedRef.current = true;
+        setSidebarCollapsed(true);
+        sidebarResizeDraftRef.current = null;
+        setSidebarResizeDraft(null);
+        return;
+      }
+      sidebarResizeCollapsedRef.current = false;
+      setSidebarCollapsed(false);
+      const nextWidth = Math.max(180, Math.min(360, rawWidth));
+      sidebarResizeLastWidthRef.current = nextWidth;
+      sidebarResizeDraftRef.current = nextWidth;
+      setSidebarResizeDraft(nextWidth);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      if (!sidebarResizeCollapsedRef.current) {
+        setSidebarWidth(sidebarResizeLastWidthRef.current);
+        setSidebarCollapsed(false);
+      }
+      sidebarResizeDraftRef.current = null;
+      setSidebarResizeDraft(null);
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  }, [setSidebarCollapsed, setSidebarWidth, sidebarCollapsed, sidebarWidth]);
+
+  const handleSidebarResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (sidebarCollapsed) return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const delta = event.key === "ArrowLeft" ? -20 : 20;
+    const nextWidth = sidebarWidth + delta;
+    if (nextWidth <= 110) {
+      setSidebarCollapsed(true);
+      return;
+    }
+    setSidebarCollapsed(false);
+    setSidebarWidth(Math.max(180, Math.min(360, nextWidth)));
+  }, [setSidebarCollapsed, setSidebarWidth, sidebarCollapsed, sidebarWidth]);
 
   async function loadWorkspace() {
     try {
@@ -564,7 +625,7 @@ export function WorkspaceApp() {
   }
 
   useEffect(() => {
-    if (!drawer || !compactDrawerLayout || contentViewer) return undefined;
+    if (!drawer || !compactDrawerLayout || contentViewer || route === "sketch-editor") return undefined;
     const generation = drawerGeneration.current;
     const isProtectedSurface = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return true;
@@ -589,7 +650,7 @@ export function WorkspaceApp() {
     };
     // saveDirtyDrawerFormは現在開いているフォームを参照するため、drawerの世代変更時だけ購読し直す。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawer, compactDrawerLayout, contentViewer]);
+  }, [drawer, compactDrawerLayout, contentViewer, route]);
 
   function navigate(next: string) {
     void (async () => {
@@ -608,6 +669,18 @@ export function WorkspaceApp() {
       drawerTrigger.current = document.activeElement as HTMLElement | null;
       drawerGeneration.current += 1;
       setDrawer(config);
+    })();
+  }
+
+  function openSketchEditor(entity: DrawerEntity) {
+    void (async () => {
+      if (!(await saveDirtyDrawerForm())) return;
+      localStorage.setItem("tasken:sketch:active-id", String(entity.id || ""));
+      drawerTrigger.current = document.activeElement as HTMLElement | null;
+      drawerGeneration.current += 1;
+      location.hash = "sketch-editor";
+      setRoute("sketch-editor");
+      setDrawer({ type: "sketch", mode: "edit", entity });
     })();
   }
 
@@ -1635,6 +1708,7 @@ export function WorkspaceApp() {
     navigate,
     detachedNoteId,
     openDrawer,
+    openSketchEditor,
     openContentViewer,
     openContextPack: setContextPackThemeId,
     openDailyScratchpad: (date?: string) => setScratchpadDate(date || todayIso()),
@@ -1654,7 +1728,11 @@ export function WorkspaceApp() {
       {titleBar}
       <div className="app-content-viewport">
         {/* 切り離しウィンドウはSidebarとContext Paneを出さず、文書編集へ集中させる（#290）。 */}
-        <div className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch-editor" ? "is-canvas-route" : ""} ${detachedNoteId ? "is-detached-window" : ""}`}>
+        <div
+          className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch-editor" ? "is-canvas-route" : ""} ${detachedNoteId ? "is-detached-window" : ""}`}
+          ref={appShellRef}
+          style={{ "--sidebar-width": `${effectiveSidebarWidth}px` } as CSSProperties}
+        >
           {!detachedNoteId && (
             <Sidebar
               route={route === "sketch-editor" ? "sketch" : route}
@@ -1672,6 +1750,20 @@ export function WorkspaceApp() {
                   || str(activeFocusSession.created_at),
               } : null}
               openActiveFocus={activeFocusTask ? () => setFocusTaskId(activeFocusTask.id) : undefined}
+            />
+          )}
+          {!detachedNoteId && !sidebarCollapsed && (
+            <div
+              className="sidebar-resize-handle"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="サイドバーの幅"
+              aria-valuemin={180}
+              aria-valuemax={360}
+              aria-valuenow={Math.round(effectiveSidebarWidth)}
+              tabIndex={0}
+              onPointerDown={handleSidebarResize}
+              onKeyDown={handleSidebarResizeKeyDown}
             />
           )}
           <main className="main-area" tabIndex={-1}>
