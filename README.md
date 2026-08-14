@@ -7,8 +7,16 @@
 ## 起動
 
 ```bash
-npm install
+npm ci
+npm run doctor:desktop
 npm run dev
+```
+
+`npm run dev`はdesktop doctorを通過した場合だけElectronを起動します。
+WSLの日常UI確認は次を使います。
+
+```bash
+npm run dev:wsl
 ```
 
 WSL（Ubuntu）でElectronのtest / smokeを実行する場合は、初回だけLinux共有ライブラリを入れます。
@@ -24,6 +32,10 @@ Ubuntu 22.04などで`libasound2t64`が見つからない場合は、代わり�
 ブラウザ単体での起動と`localStorage`保存には対応していません。
 Taskenは同じユーザーデータを使う二重起動を防ぎます。インストール版はウィンドウを閉じても
 トレイに常駐するため、`npm run dev`の前にトレイメニューからTaskenを終了してください。
+
+コード正本、WSLg、Windows runtime clone、GitHub Actionsの分担は
+[`docs/development-environment.md`](./docs/development-environment.md)を参照してください。
+doctorがWSLgの0×0 monitorやNode/npmのOS混在を検出した場合、Electronプロセスを残さず停止します。
 
 ## ビルド
 

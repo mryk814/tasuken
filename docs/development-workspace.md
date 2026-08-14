@@ -5,8 +5,9 @@
 開発中の具体例確認には、材料インフォマティクス研究者「佐伯 遥」が2026年6月から利用している想定のWorkspaceを使う。
 主研究はTa置換LLZO固体電解質の組成・焼成条件探索、副研究は再生Al-Mg-Si合金の熱処理最適化である。
 
-データは `%APPDATA%\\tasken\\research-desk.sqlite` に保存され、通常のTaskenと同じSQLite Repositoryを通して読み書きされる。
-投入時には既存WorkspaceのSnapshotとSQLite本体を `%APPDATA%\\tasken\\development-data-backups` へ退避する。
+データはElectronの`userData`配下にある`research-desk.sqlite`へ保存され、通常のTaskenと同じSQLite Repositoryを通して読み書きされる。
+通常のWindows起動では`%APPDATA%\\tasken`、専用Windows runtime cloneでは`%LOCALAPPDATA%\\TaskenDevRuntime\\user-data`を使う。
+投入時には既存WorkspaceのSnapshotとSQLite本体を、同じ`userData`配下の`development-data-backups`へ退避する。
 
 ## 再作成
 

@@ -1,7 +1,9 @@
 # Quality gates
 
-日常の検証はWSLで完結させ、Windows配布物の作成とWindows上の最終確認はGitHub Actionsへ分担する。
+コードと自動検証の正本はWSLに置き、対話的UIはWSLg、Windows固有操作はcommit済みSHAの専用Windows runtime cloneで確認する。
+Windows配布物の作成とpackaged smokeはGitHub Actionsへ分担する。
 WSLでは `npm run ci` を通し、タグをpushしたときは `Windows release` workflowの成功を配布条件とする。
+環境の役割と起動方法は [`development-environment.md`](./development-environment.md) を正本とする。
 
 ## 正本は npm run ci
 
