@@ -8,7 +8,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCopy,
-  IconCornerDownRight,
+  IconArrowUpLeft,
   IconFileImport,
   IconFoldDown,
   IconFoldUp,
@@ -39,9 +39,11 @@ import {
   archiveChatResources,
   chatGroupCollapsePreferenceKey,
   chatGroupNameExists,
+  chatThreadVisualDepth,
   chatThreadMetaLabels,
   clearChatGroupResources,
   filterChatResourcesByArchive,
+  formatChatResourceDate,
   groupChatResources,
   isChatArchived,
   isChatReference,
@@ -87,20 +89,6 @@ function isAdopted(r: Resource): boolean {
 
 function themeTitle(themes: Theme[], id?: string | null): string {
   return themes.find((theme) => theme.id === id)?.name || "未設定";
-}
-
-function chatThreadDepth(resource: Resource, resourceById: ReadonlyMap<string, Resource>): number {
-  let depth = 0;
-  let parentId = str(resource.parent_resource_id);
-  const visited = new Set([resource.id]);
-  while (parentId && depth < 3 && !visited.has(parentId)) {
-    const parent = resourceById.get(parentId);
-    if (!parent) break;
-    visited.add(parentId);
-    depth += 1;
-    parentId = str(parent.parent_resource_id);
-  }
-  return depth;
 }
 
 function ChatServiceIcon({ service }: { service: ChatServiceType }) {
@@ -783,11 +771,12 @@ export function ChatRefsPage({
                   const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
                   const parent = resourceById.get(str(r.parent_resource_id));
                   const childCount = childrenByParentId.get(r.id)?.length || 0;
-                  const threadDepth = chatThreadDepth(r, resourceById);
+                  const threadDepth = chatThreadVisualDepth(r, group.resources);
                   const threadLabels = chatThreadMetaLabels({ parentTitle: parent ? str(parent.title || parent.url) : "", childCount });
+                  const chatDate = formatChatResourceDate(r);
                   return (
                     <div
-                      className={`chat-link-row ${threadDepth > 0 ? "is-thread-child" : ""} ${childCount > 0 ? "has-thread-children" : ""} ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""} ${archived ? "is-archived" : ""}`}
+                      className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""} ${archived ? "is-archived" : ""}`}
                       data-thread-depth={threadDepth || undefined}
                       key={r.id}
                       role="button"
@@ -812,9 +801,9 @@ export function ChatRefsPage({
                         clearDragState();
                       } : undefined}
                     >
-                      {threadDepth > 0 && (
+                      {childCount > 0 && (
                         <span className="chat-thread-branch" aria-hidden="true">
-                          <IconCornerDownRight size={15} />
+                          <IconArrowUpLeft size={15} />
                         </span>
                       )}
                       {sortOrder === "manual" && !isArchiveView && (
@@ -858,19 +847,9 @@ export function ChatRefsPage({
                           {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
                         </span>}
                       </span>
-                      {parent && (
-                        <button
-                          className="row-action-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openChatResource(parent);
-                          }}
-                          aria-label={`${r.title || "チャットリンク"}の元チャットを開く`}
-                          title="元チャットを開く"
-                        >
-                          <IconChevronRight size={15} />
-                        </button>
-                      )}
+                      {chatDate !== "—" && <time className="chat-link-date" dateTime={chatDate.replaceAll("/", "-").replace(" ", "T")}>
+                        {chatDate}
+                      </time>}
                       {!archived && (
                         <button
                           className="row-action-button"

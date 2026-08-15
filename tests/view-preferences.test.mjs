@@ -39,6 +39,7 @@ test("legacy values migrate into the current schema without losing known fields"
   });
   const timeline = normalizeViewPreference("timeline.preferences", { dayWidth: 3, themeFilter: "theme-a" }, 1);
   assert.deepEqual(timeline.collapsedThemes, []);
+  assert.equal(normalizeViewPreference("timeline.preferences", { dayWidth: 48 }, 2).dayWidth, 48);
 });
 
 test("theme scope slots are isolated and reload from one canonical envelope", () => {

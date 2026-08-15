@@ -19,11 +19,10 @@ export function ChecklistProgressBadge({ items }: { items?: TaskChecklistItem[] 
   return (
     <span
       className={`checklist-progress-badge ${complete ? "is-complete" : ""}`}
-      aria-label={`チェックリスト ${progress.done}/${progress.total} 完了`}
-      title={`チェックリスト ${progress.done}/${progress.total} 完了`}
+      aria-label={`チェックリスト${complete ? "（完了）" : ""}`}
+      title="チェックリスト"
     >
       <IconListCheck size={14} />
-      <span className="num">{progress.done}/{progress.total}</span>
     </span>
   );
 }

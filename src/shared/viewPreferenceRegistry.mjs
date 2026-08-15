@@ -109,7 +109,7 @@ function normalizeChatRefs(value) {
 function normalizeTimeline(value) {
   const raw = plain(value);
   return {
-    dayWidth: Math.max(0.5, Math.min(8, finite(raw.dayWidth, TIMELINE_DEFAULT.dayWidth))),
+    dayWidth: Math.max(0.5, Math.min(80, finite(raw.dayWidth, TIMELINE_DEFAULT.dayWidth))),
     themeFilter: text(raw.themeFilter, TIMELINE_DEFAULT.themeFilter),
     showCompleted: bool(raw.showCompleted, TIMELINE_DEFAULT.showCompleted),
     showDependencies: bool(raw.showDependencies, TIMELINE_DEFAULT.showDependencies),

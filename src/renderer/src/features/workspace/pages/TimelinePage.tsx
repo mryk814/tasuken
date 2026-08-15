@@ -70,20 +70,6 @@ function fiscalRange(today: string, bufferMonths: number) {
   return { start: localDateIso(start), end: localDateIso(end) };
 }
 
-function monthStart(value: string): string {
-  return value ? `${value}-01` : "";
-}
-
-function monthEnd(value: string): string {
-  if (!value) return "";
-  const [year, month] = value.split("-").map(Number);
-  return localDateIso(new Date(year, month, 0));
-}
-
-function monthLabel(value: string): string {
-  return value ? `${value.slice(0, 4)}年${value.slice(5, 7)}月` : "";
-}
-
 function themeLabel(theme: { name?: string } | null | undefined, fallback = "個人業務"): string {
   return theme?.name || fallback;
 }
@@ -286,7 +272,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
     const scroll = scrollRef.current;
     if (scroll) {
       const cx = scroll.clientWidth / 2;
-      pendingScroll.current = { cursorDayOffset: (scroll.scrollLeft + cx) / dayWidth, mouseX: cx };
+      pendingScroll.current = { cursorDayOffset: daysBetween(range.start, today), mouseX: cx };
     }
     updatePrefs({ dayWidth: nextDayWidth });
   }
