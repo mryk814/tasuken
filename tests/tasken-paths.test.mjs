@@ -52,8 +52,11 @@ test("read-only MCPの旧Research Desk fallbackはWindowsだけで使う", async
 
   const env = { APPDATA: appData, XDG_CONFIG_HOME: xdg };
   assert.equal(
-    defaultTaskenDbPath(env, { platform: "linux", home: path.join(root, "home") }),
-    path.join(xdg, "tasken", "research-desk.sqlite"),
+    defaultTaskenDbPath(
+      { ...env, XDG_CONFIG_HOME: "/home/tester/.config" },
+      { platform: "linux", home: "/home/tester" },
+    ),
+    "/home/tester/.config/tasken/research-desk.sqlite",
   );
   assert.equal(
     defaultTaskenDbPath(env, { platform: "win32", home: path.join(root, "home") }),
