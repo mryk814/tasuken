@@ -39,6 +39,6 @@ test("drawing tools use a persistent circular cursor", () => {
 });
 
 test("the Sketch canvas keeps its center column when the detail drawer is open", () => {
-  assert.match(styles, /\.app-shell\.is-canvas-route\.has-drawer \{ grid-template-columns: 220px minmax\(0, 1fr\) 390px; \}/);
-  assert.match(styles, /@media \(max-width: 1680px\)[\s\S]*?\.app-shell\.is-canvas-route\.has-drawer \{ grid-template-columns: 200px minmax\(0, 1fr\); \}/);
+  assert.match(styles, /\.app-shell\.is-canvas-route\.has-drawer \{ grid-template-columns: var\(--sidebar-width, 220px\) minmax\(0, 1fr\) clamp\(390px, 30vw, 460px\); \}/);
+  assert.match(styles, /@media \(max-width: 1680px\)[\s\S]*?\.app-shell\.is-canvas-route\.has-drawer \{ grid-template-columns: var\(--sidebar-width, 200px\) minmax\(0, 1fr\); \}/);
 });

@@ -54,14 +54,15 @@ test("Preload bridges calendar IPC channels", () => {
   assert.match(source, /IPC\.calendarEvents/);
 });
 
-test("TodayPage includes calendar section with 4-state UI", () => {
+test("TodayPage includes the connected calendar section and keeps connection setup in Settings", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   assert.match(source, /today-calendar-section/);
   assert.match(source, /calendarStatus/);
   assert.match(source, /calendarEvents/);
   assert.match(source, /今日の予定はありません/);
   assert.match(source, /予定を取得中/);
-  assert.match(source, /Settingsで接続/);
+  assert.match(source, /if \(!calendarStatus \|\| !calendarStatus\.connected\) return null;/);
+  assert.doesNotMatch(source, /Settingsで接続/);
   assert.match(source, /is-past/);
   assert.match(source, /is-next/);
   assert.match(source, /sensitivity === "normal" \? event\.title : "予定あり"/);
@@ -75,7 +76,6 @@ test("TodayPage includes calendar section with 4-state UI", () => {
   assert.match(calendarMeta[0], /target="_blank"/);
   assert.match(calendarMeta[0], /rel="noreferrer"/);
   assert.doesNotMatch(calendarMeta[0], /preventDefault|openPath/);
-  assert.match(source, /カレンダーの接続状態を確認中/);
   assert.match(source, /aria-label="カレンダーを更新"/);
 });
 

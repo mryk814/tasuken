@@ -4485,12 +4485,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 .micro-memo-card-header { align-items: flex-start !important; }
 .micro-memo-card-meta { min-height: 18px; justify-content: flex-start !important; }
 .micro-memo-card time { color: var(--color-text-secondary); font: var(--text-xs) var(--font-mono); }
-.micro-memo-top-badge {
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs); white-space: nowrap; word-break: keep-all;
-}
-.micro-memo-top-badge { border: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-text-secondary); }
 .micro-memo-pin-button {
   width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto;
   padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm);

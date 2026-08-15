@@ -387,9 +387,8 @@ test("ChatRefsは会話閲覧へ集中し、まとめコピーをmenuへ畳む�
   assert.match(header, /会話ログを取り込む/);
   assert.match(header, /<Button variant="primary"/);
 
-  // 一覧はprovider / title / Theme / 時刻を短く出し、URL文字列は載せない。
+  // 一覧はprovider / title / 時刻を短く出し、URL文字列は載せない。Themeは左列で選択済み。
   assert.match(source, /className="chat-link-meta"/);
-  assert.match(source, /<span>\{themeNameOf\(r\)\}<\/span>/);
-  assert.match(source, /<time className="chat-link-date" dateTime=\{chatRefTimeValue\(r\)\}>/);
+  assert.ok(source.includes('dateTime={chatDate.replaceAll("/", "-").replace(" ", "T")}'));
   assert.equal(/\{r\.url\}<\/span>|>\{url\}</.test(source), false);
 });

@@ -46,7 +46,7 @@ test("Today removes duplicate risk and current-location sections from the main p
 });
 
 test("Today shows a lightweight waiting list beside nearby milestones", () => {
-  assert.match(todayPageSource, /today-grid/);
+  assert.match(todayPageSource, /today-lower-grid/);
   assert.match(todayPageSource, /近いマイルストーン/);
   assert.match(todayPageSource, /WaitingListRows/);
   assert.match(todayPageSource, /today-waiting-row/);
@@ -78,17 +78,11 @@ test("Todayは日付範囲の意味ごとに扱いを分ける（#309）", () =>
   assert.match(todayPageSource, /todo-check-circle/);
   assert.match(todayPageSource, /handleCompleteExecutionWindow/);
 
-  // 継続Taskは、今日の実施記録とTask全体の完了を別操作にする。
-  assert.match(todayPageSource, /今日取り組んだ/);
-  assert.match(todayPageSource, /継続を終了/);
-  assert.match(todayPageSource, /handleRecordOngoingWork/);
+  // 継続Taskは、共通の完了操作と「今日やることへ追加」に揃える。
   assert.match(todayPageSource, /handleFinishOngoingPeriod/);
-  assert.match(todayPageSource, /title: `\$\{row\.task\.title\}：\$\{formatDate\(today\)\}`/);
-  // 終了予定日が来ただけで自動完了させず、延長という逃げ道を出す。
-  assert.match(todayPageSource, /期間を延長/);
-  assert.match(todayPageSource, /handleExtendOngoingPeriod/);
-  // 継続Taskの行に、Task全体を一度で完了させるcheckboxを置かない。
-  assert.doesNotMatch(todayPageSource, /handleTogglePeriodComplete/);
+  assert.match(todayPageSource, /onPlanToday=\{handleCreateTodayTask\}/);
+  assert.doesNotMatch(todayPageSource, /handleRecordOngoingWork/);
+  assert.doesNotMatch(todayPageSource, /handleExtendOngoingPeriod/);
 });
 
 test("Today surfaces generated Activity and configures automatic daily export", () => {

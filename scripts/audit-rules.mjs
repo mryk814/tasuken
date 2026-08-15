@@ -43,10 +43,12 @@ function isApplicationCommandBoundary(file, source) {
 
 function hasTaskPersistenceBypass(file, source) {
   if (isApplicationCommandBoundary(file, source)) return false;
+  const directBatchWrite = callArguments(source, ["saveMany", "saveEntities"])
+    .some((argument) => /\btype\s*:\s*["']task["']/.test(argument));
   return new RegExp(`(?:saveEntity|saveWorkspaceEntity|workspaceApi\\.save|entities\\.save)\\s*\\(\\s*[\"']task[\"']`)
     .test(source)
     || new RegExp(`(?:saveMany|saveEntities)\\s*\\(\\s*\\[[\\s\\S]{0,1400}\\btype\\s*:\\s*[\"']task[\"']`)
-      .test(source)
+      .test(source) && directBatchWrite
     || /(?:repository|transaction|workspaceRepository)\.save\s*\(\s*task\b/.test(source)
     || /(?:workspaceApi|entities|repository)\.remove\s*\(\s*[\"']task[\"']/.test(source);
 }

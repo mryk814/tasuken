@@ -17,6 +17,21 @@ test("consistency scanner promotes raw IPC and direct writes to blocking errors 
   assert.equal(findings.find((finding) => finding.ruleId === "entity-registry-external-mapping")?.severity, "error");
 });
 
+test("consistency scanner only inspects saveEntities task literals inside the call", () => {
+  const builderSource = [
+    "saveEntities(buildSaveTaskOperations(task));",
+    'const row = { type: "task", task };',
+  ].join("\n");
+  assert.equal(scanSource({ file: "src/renderer/src/features/workspace/pages/TodayPage.tsx", source: builderSource, strict: true }).length, 0);
+
+  const directWrite = scanSource({
+    file: "src/renderer/src/features/workspace/pages/TodayPage.tsx",
+    source: 'saveEntities([{ type: "task", entity: task }]);',
+    strict: true,
+  });
+  assert.equal(directWrite.find((finding) => finding.ruleId === "application-command-write")?.severity, "error");
+});
+
 test("consistency scanner keeps a justified legacy satellite boundary report-only", () => {
   const findings = scanSource({
     file: "src/preload/todayMini.ts",

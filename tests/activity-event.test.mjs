@@ -328,12 +328,11 @@ test("workspace root resolver follows artifactDirectory changes without rewritin
   await rm(directory, { recursive: true, force: true });
 });
 
-test("Today Activity uses the safe canonical open boundary and never creates a fake drawer entity", async () => {
+test("Today Activity opens current entities and keeps deleted history as history-only", async () => {
   const source = await readFile("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   assert.match(source, /ThemePickerSelect/);
-  assert.match(source, /openActivityCanonicalRef/);
-  assert.match(source, /disabled=\{canonicalBroken/);
-  assert.match(source, /data\.canonical_root_status/);
+  assert.match(source, /const entityOpenable = Boolean\(entity\)/);
+  assert.match(source, /openDrawer\(\{ type: ref\.type/);
   assert.match(source, /現在のEntityがないため、履歴のみ表示しています/);
   assert.doesNotMatch(source, /\{ id: ref\.id, title \}/);
 });

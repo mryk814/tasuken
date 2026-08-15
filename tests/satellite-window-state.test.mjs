@@ -398,12 +398,9 @@ test("付箋で開いているMemoを本体から区別できる（#298 / #377�
   assert.match(inboxSource, /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/);
   assert.match(registrySource, /options\.onChanged\?\.\(\);/);
 
-  // 色だけに頼らず語でも3状態を区別する。
-  assert.match(inboxSource, /micro-memo-target-badge">付箋対象/);
-  assert.match(inboxSource, /micro-memo-visible-badge">表示中/);
-  assert.match(inboxSource, /micro-memo-top-badge">最前面/);
-  assert.match(cssSource, /\.micro-memo-target-badge,/);
-  assert.match(cssSource, /\.micro-memo-visible-badge \{/);
+  // 一覧は状態バッジを増やさず、pin操作と付箋ウィンドウ側で状態を扱う。
+  assert.doesNotMatch(inboxSource, /micro-memo-(target|visible|top)-badge/);
+  assert.doesNotMatch(cssSource, /\.micro-memo-(target|visible|top)-badge/);
   // pinは付箋対象の入切だけを意味する。前面へ出す・常に手前と混ぜない。
   assert.match(inboxSource, /aria-label=\{targeted \? "付箋対象から外して収納" : "付箋対象にして表示"\}/);
 
