@@ -123,6 +123,7 @@ interface EntityDrawerProps {
   close: CloseDrawer;
   saveForm: SaveForm;
   registerEditForm: RegisterEditForm;
+  isFormDirty: boolean;
   removeEntity: RemoveEntity;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
@@ -315,7 +316,7 @@ function TaskWorkSection({
   );
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, removeEntity, saveEntity, saveEntities, setToast, executeCommand, openContentViewer, startFocusSession, navigate }: EntityDrawerProps) {
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, isFormDirty, removeEntity, saveEntity, saveEntities, setToast, executeCommand, openContentViewer, startFocusSession, navigate }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") {
     return (
@@ -325,6 +326,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         close={close}
         saveForm={saveForm}
         registerEditForm={registerEditForm}
+        isFormDirty={isFormDirty}
         removeEntity={removeEntity}
         saveEntities={saveEntities}
         setToast={setToast}
@@ -821,6 +823,7 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
       close={close}
       saveForm={saveForm}
       registerEditForm={registerEditForm}
+      isFormDirty={isFormDirty}
       removeEntity={removeEntity}
       saveEntities={saveEntities}
       setToast={setToast}
@@ -835,6 +838,7 @@ function EditDrawer({
   close,
   saveForm,
   registerEditForm,
+  isFormDirty,
   removeEntity,
   saveEntities,
   setToast,
@@ -848,6 +852,7 @@ function EditDrawer({
   close: CloseDrawer;
   saveForm: SaveForm;
   registerEditForm: RegisterEditForm;
+  isFormDirty: boolean;
   removeEntity?: RemoveEntity;
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
@@ -875,8 +880,14 @@ function EditDrawer({
   const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;
   const entityId = str(entity.id);
+  const editFormId = "drawer-edit-form";
   const taskFormEntity = type === "task"
-    ? (((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) || entity) as unknown as DrawerConfig["entity"]
+    ? (((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId)
+      ? {
+        ...((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId),
+        ...entity,
+      }
+      : entity) as unknown as DrawerConfig["entity"]
     : entity;
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
   const requestInboxRecorder = useUiStore((state) => state.requestInboxRecorder);
@@ -913,7 +924,7 @@ function EditDrawer({
   return (
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
-      <form ref={registerEditForm} className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${entityId || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
+      <form id={editFormId} ref={registerEditForm} className="drawer-form" data-entity-type={type} onSubmit={saveForm} key={`${type}:${entityId || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}>
         {type === "task" && entityId && (
           <button className="secondary-button" type="button" onClick={() => startFocusSession?.(entityId)}>
             <IconClock size={16} />集中して作業する
@@ -996,7 +1007,6 @@ function EditDrawer({
           themes={data.themes}
           workspaceDefault={workspaceAiVisibilityDefault}
         />
-        <button className="primary-button" type="submit">保存する</button>
       </form>
       {type === "task" && entityId && (
         <TaskWorkSection
@@ -1006,22 +1016,9 @@ function EditDrawer({
           setToast={setToast}
         />
       )}
-      {(artifactSource || (entityId && removeEntity)) && (
-        <div className="drawer-edit-footer">
-          {artifactSource && saveEntities && removeEntity && (
-            <ArtifactSection
-              sourceType={artifactSource.sourceType}
-              sourceId={artifactSource.sourceId}
-              themeId={artifactSource.themeId}
-              artifacts={data.artifacts || []}
-              data={data}
-              openDrawer={(next) => close(next)}
-              openContentViewer={openContentViewer}
-              saveEntities={saveEntities}
-              removeEntity={removeEntity}
-              setToast={setToast}
-            />
-          )}
+      <div className="drawer-edit-footer">
+        <div className="drawer-edit-actions">
+          <button className="primary-button" form={editFormId} type="submit" disabled={!isFormDirty}>保存する</button>
           {entityId && removeEntity && (
             <button
               className="danger-button"
@@ -1032,7 +1029,21 @@ function EditDrawer({
             </button>
           )}
         </div>
-      )}
+        {artifactSource && saveEntities && removeEntity && (
+          <ArtifactSection
+            sourceType={artifactSource.sourceType}
+            sourceId={artifactSource.sourceId}
+            themeId={artifactSource.themeId}
+            artifacts={data.artifacts || []}
+            data={data}
+            openDrawer={(next) => close(next)}
+            openContentViewer={openContentViewer}
+            saveEntities={saveEntities}
+            removeEntity={removeEntity}
+            setToast={setToast}
+          />
+        )}
+      </div>
     </aside>
   );
 }

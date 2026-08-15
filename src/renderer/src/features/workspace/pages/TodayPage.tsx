@@ -27,7 +27,7 @@ import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
-import { ChecklistProgressBadge } from "../components/taskChecklist";
+import { ChecklistProgressBadge, InlineTaskChecklist } from "../components/taskChecklist";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
@@ -262,6 +262,8 @@ function TodayRows({
   onToggleToday,
   onPostpone,
   onOpenDetail,
+  onToggleChecklistItem,
+  onOpenChecklistEditor,
   onAdd,
   /** 今日専用リストでは due-today を付けない（全部今日なのでうるさくなる） */
   markDueToday = true,
@@ -274,6 +276,8 @@ function TodayRows({
   onToggleToday: (row: TodayRow) => void;
   onPostpone: (row: TodayRow, days: number) => void;
   onOpenDetail: (row: TodayRow) => void;
+  onToggleChecklistItem: (row: TodayRow, itemId: string) => void;
+  onOpenChecklistEditor: (row: TodayRow) => void;
   onAdd?: () => void;
   markDueToday?: boolean;
 }) {
@@ -317,15 +321,24 @@ function TodayRows({
               >
                 {isToday ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
               </button>
-              <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
-                <strong>{row.title}</strong>
-                <span>
-                  {theme?.name || "個人業務"} / {row.kindLabel}
-                  {row.v2?.type === "task" && <ChecklistProgressBadge items={row.v2.task.checklist_items} />}
-                </span>
-                {row.v2?.type === "task" && row.v2.task.repeat_rule && <small>{repeatRuleLabel(row.v2.task.repeat_rule)}</small>}
-                {reminder && <small className="row-reminder-meta"><IconClock size={13} />{reminder}</small>}
-              </button>
+              <div className="row-title-main">
+                <button className="today-task-title" onClick={(event) => { event.stopPropagation(); onOpenDetail(row); }}>
+                  <strong>{row.title}</strong>
+                  <span>
+                    {theme?.name || "個人業務"} / {row.kindLabel}
+                    {row.v2?.type === "task" && <ChecklistProgressBadge items={row.v2.task.checklist_items} />}
+                  </span>
+                  {row.v2?.type === "task" && row.v2.task.repeat_rule && <small>{repeatRuleLabel(row.v2.task.repeat_rule)}</small>}
+                  {reminder && <small className="row-reminder-meta"><IconClock size={13} />{reminder}</small>}
+                </button>
+                {row.v2?.type === "task" && (
+                  <InlineTaskChecklist
+                    items={row.v2.task.checklist_items}
+                    onToggle={(itemId) => onToggleChecklistItem(row, itemId)}
+                    onAdd={() => onOpenChecklistEditor(row)}
+                  />
+                )}
+              </div>
             </div>
             <time className={urgency || undefined} dateTime={row.date || undefined}>{formatDate(row.date)}</time>
             <span className="today-postpone-actions">
@@ -357,12 +370,14 @@ function WaitingListRows({
   themes,
   today,
   onOpenDetail,
+  onToggleComplete,
   empty,
 }: {
   rows: TodayRow[];
   themes: PageProps["themes"];
   today: string;
   onOpenDetail: (row: TodayRow) => void;
+  onToggleComplete: (row: TodayRow) => void;
   empty: string;
 }) {
   if (!rows.length) return <EmptyState title={empty} />;
@@ -375,22 +390,25 @@ function WaitingListRows({
         const due = row.date || "";
         const urgency = dateUrgency(due, today);
         return (
-          <button
+          <div
             key={row.id}
-            type="button"
             className={`today-waiting-row${urgency ? ` is-${urgency}` : ""}`}
             style={{ "--chip-color": chipColor } as React.CSSProperties}
-            onClick={() => onOpenDetail(row)}
           >
             <span className="today-waiting-theme-bar" aria-hidden="true" />
-            <span className="today-waiting-main">
+            <button
+              className="todo-check-circle"
+              aria-label={`${row.title}を受領`}
+              onClick={() => onToggleComplete(row)}
+            />
+            <button className="today-waiting-main" onClick={() => onOpenDetail(row)}>
               <strong>{row.title}</strong>
               <span>{row.waitingFor || theme?.name || "相手未設定"}</span>
-            </span>
+            </button>
             <time className={urgency || undefined} dateTime={due || undefined}>
               {due ? formatDate(due) : "期限なし"}
             </time>
-          </button>
+          </div>
         );
       })}
     </div>
@@ -475,14 +493,12 @@ function OngoingPeriodTaskRows({
   rows,
   themes,
   onOpenDetail,
-  onRecordToday,
   onPlanToday,
   onFinishPeriod,
 }: {
   rows: OngoingPeriodTaskRow[];
   themes: PageProps["themes"];
   onOpenDetail: (row: OngoingPeriodTaskRow) => void;
-  onRecordToday: (row: OngoingPeriodTaskRow) => void;
   onPlanToday: (row: OngoingPeriodTaskRow) => void;
   onFinishPeriod: (row: OngoingPeriodTaskRow) => void;
 }) {
@@ -512,9 +528,8 @@ function OngoingPeriodTaskRows({
               </span>
             </button>
             <time>{scheduleRangeLabel(row.schedule)}</time>
-            {/* 終了日が来ただけでは自動完了しない。完了・延長・そのまま継続を選べるようにする。 */}
+            {/* 完了は共通の左端チェック、今日へ追加は共通のカレンダー操作に揃える。 */}
             <span className="period-row-actions" onClick={(event) => event.stopPropagation()}>
-              <Button variant="secondary" compact onClick={() => onRecordToday(row)}>今日取り組んだ</Button>
               <button
                 className="postpone-button period-action-button"
                 onClick={() => onPlanToday(row)}
@@ -559,7 +574,14 @@ function CandidateTaskRows({
               <strong>{row.task.title}</strong>
               <span>{theme?.name || "個人業務"} / {formatDate(row.schedule?.end_date || row.schedule?.start_date) || "予定なし"}</span>
             </button>
-            <Button variant="secondary" compact onClick={() => onMoveToday(row)}>今日へ</Button>
+            <button
+              className="postpone-button period-action-button"
+              onClick={(event) => { event.stopPropagation(); onMoveToday(row); }}
+              title="今日やることへ追加"
+              aria-label={`${row.task.title}を今日やることへ追加`}
+            >
+              <IconCalendarPlus size={14} />
+            </button>
           </div>
         );
       })}
@@ -743,7 +765,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
   const [activityThemeFilter, setActivityThemeFilter] = useState("all");
   const [activityTypeFilter, setActivityTypeFilter] = useState("");
   const [activityRootStatus, setActivityRootStatus] = useState(data.canonical_root_status || {});
-  const [activityExpanded, setActivityExpanded] = useState(true);
+  const [activityExpanded, setActivityExpanded] = useState(false);
   const [exportingActivity, setExportingActivity] = useState(false);
   const today = todayIso();
   const soon = addDays(today, 14);
@@ -829,6 +851,16 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     }
   }
 
+  async function handleToggleChecklistItem(row: TodayRow, itemId: string) {
+    if (row.v2?.type !== "task") return;
+    const nextItems = (row.v2.task.checklist_items || []).map((item) => (
+      item.id === itemId
+        ? { ...item, done: !item.done, completed_at: !item.done ? new Date().toISOString() : null }
+        : item
+    ));
+    await saveEntities(buildSaveTaskOperations({ ...row.v2.task, checklist_items: nextItems }), "チェックリストを更新しました。", "today_window");
+  }
+
   const focusItem: TodayRow | null =
     overdue[0] ||
     todayRows.find((row) => row.priority === "high") ||
@@ -911,43 +943,6 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     await saveEntities([...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)], "今日の作業を作成しました。", "today_window");
   }
 
-  /**
-   * 継続Taskの「今日取り組んだ」（#309）。
-   * 親Taskは継続中のまま、その日の実施だけを完了済みの子Taskとして残す。
-   * 実施記録のある日だけActivityへ出したいので、親Taskを毎日複製しない。
-   */
-  async function handleRecordOngoingWork(row: OngoingPeriodTaskRow) {
-    const taskId = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const task: Task = {
-      id: taskId,
-      project_id: row.task.project_id || null,
-      plan_node_id: row.task.plan_node_id || null,
-      parent_task_id: row.task.id,
-      title: `${row.task.title}：${formatDate(today)}`,
-      state: "done",
-      priority: row.task.priority,
-      completed_at: now,
-      created_at: now,
-    };
-    const schedule: Schedule = {
-      id: crypto.randomUUID(),
-      owner_type: "task",
-      owner_id: taskId,
-      start_date: today,
-      end_date: today,
-      date_kind: "point",
-      confidence: "fixed",
-      granularity: "day",
-    };
-    playCompleteSound();
-    await saveEntities(
-      [...buildSaveTaskOperations(task), ...buildSaveScheduleOperations(schedule)],
-      "今日の実施を記録しました。継続は終了していません。",
-      "today_window",
-    );
-  }
-
   /** 継続そのものを終える操作。今日の実施記録とは別に扱う（#309）。 */
   async function handleFinishOngoingPeriod(row: OngoingPeriodTaskRow) {
     if (row.task.state !== "done") playCompleteSound();
@@ -991,6 +986,25 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
         return;
       }
     }
+  }
+
+  function handleOpenChecklistEditor(row: TodayRow) {
+    if (row.v2?.type !== "task") return;
+    const checklistItems = row.v2.task.checklist_items || [];
+    const focusItemId = crypto.randomUUID();
+    openDrawer({
+      type: "task",
+      mode: "edit",
+      entity: {
+        ...row.v2.task,
+        checklist_items: [
+          ...checklistItems,
+          { id: focusItemId, title: "", done: false, completed_at: null, sort_order: checklistItems.length },
+        ],
+        _focusChecklistItem: focusItemId,
+        _schedule: row.v2.schedule,
+      } as Record<string, unknown>,
+    });
   }
 
   function handleOpenPeriodTask(row: OngoingPeriodTaskRow) {
@@ -1155,6 +1169,8 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     onToggleToday: handleToggleToday,
     onPostpone: handlePostpone,
     onOpenDetail: handleOpenDetail,
+    onToggleChecklistItem: handleToggleChecklistItem,
+    onOpenChecklistEditor: handleOpenChecklistEditor,
   };
 
   return (
@@ -1255,38 +1271,38 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
       {/* 接続済みの場合だけ、今日やることの補助情報として候補棚の下に置く。 */}
       <TodayCalendarSection />
 
-      {/* 日付範囲の意味で扱いを分ける（#309）。期間に入っただけで毎日督促しない。 */}
-      <section className="panel today-focus-panel">
-        <div className="section-heading">
-          <h2>期間内に対応</h2>
-          <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
-        </div>
-        <ExecutionWindowTaskRows
-          rows={executionWindowRows}
-          themes={themes}
-          onOpenDetail={handleOpenExecutionWindowTask}
-          onComplete={handleCompleteExecutionWindow}
-          onMoveToday={handleMoveExecutionWindowToday}
-        />
-      </section>
+      <div className="today-period-grid">
+        {/* 日付範囲の意味で扱いを分ける（#309）。期間に入っただけで毎日督促しない。 */}
+        <section className="panel today-focus-panel">
+          <div className="section-heading">
+            <h2>期間内に対応</h2>
+            <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
+          </div>
+          <ExecutionWindowTaskRows
+            rows={executionWindowRows}
+            themes={themes}
+            onOpenDetail={handleOpenExecutionWindowTask}
+            onComplete={handleCompleteExecutionWindow}
+            onMoveToday={handleMoveExecutionWindowToday}
+          />
+        </section>
 
-      <section className="panel today-focus-panel">
-        <div className="section-heading">
-          <h2>継続中</h2>
-          <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
-        </div>
-        <OngoingPeriodTaskRows
-          rows={periodRows}
-          themes={themes}
-          onOpenDetail={handleOpenPeriodTask}
-          onRecordToday={handleRecordOngoingWork}
-          onPlanToday={handleCreateTodayTask}
-          onFinishPeriod={handleFinishOngoingPeriod}
-        />
-      </section>
+        <section className="panel today-focus-panel">
+          <div className="section-heading">
+            <h2>継続中</h2>
+            <button className="text-button compact" onClick={() => navigate("todo")}>ToDoへ</button>
+          </div>
+          <OngoingPeriodTaskRows
+            rows={periodRows}
+            themes={themes}
+            onOpenDetail={handleOpenPeriodTask}
+            onPlanToday={handleCreateTodayTask}
+            onFinishPeriod={handleFinishOngoingPeriod}
+          />
+        </section>
+      </div>
 
       <div className="today-lower-grid">
-        <div className="today-lower-stack">
           <section className="panel">
             <div className="section-heading"><h2>近いマイルストーン</h2><button className="text-button compact" onClick={() => navigate("timeline")}>Timelineへ</button></div>
             <TodayRows rows={milestones.slice(0, 8)} themes={themes} empty="近いマイルストーンはありません" today={today} {...rowHandlers} />
@@ -1313,11 +1329,12 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
               today={today}
               empty="待ちはありません"
               onOpenDetail={handleOpenDetail}
+              onToggleComplete={handleToggleComplete}
             />
           </section>
-        </div>
+      </div>
 
-        <section id="daily-activity" className="panel activity-log-strip">
+      <section id="daily-activity" className="panel activity-log-strip">
         <div className="section-heading">
           <h2>Activity <span className="activity-count">{activityCount}</span></h2>
           <div className="inline-actions">
@@ -1425,8 +1442,7 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
           </Button>
           <small>アプリ停止中の未出力分は、次回起動時に日ごとに補完します。</small>
         </div>}
-        </section>
-      </div>
+      </section>
     </div>
   );
 }

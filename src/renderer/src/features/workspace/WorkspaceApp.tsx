@@ -125,6 +125,7 @@ export function WorkspaceApp() {
   const compactDrawerClosing = useRef(false);
   const drawerFormRef = useRef<HTMLFormElement | null>(null);
   const drawerFormInitialSignature = useRef("");
+  const [drawerFormDirty, setDrawerFormDirty] = useState(false);
   const drawerAutosavePromise = useRef<Promise<boolean> | null>(null);
   const noteAutoSaveTimer = useRef<number | null>(null);
   const noteAutoSaveTriggerRef = useRef<() => void>(() => {});
@@ -142,11 +143,10 @@ export function WorkspaceApp() {
   const effectiveSidebarWidth = sidebarResizeDraft ?? sidebarWidth;
 
   const handleSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (sidebarCollapsed) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     sidebarResizeLastWidthRef.current = sidebarWidth;
-    sidebarResizeCollapsedRef.current = false;
+    sidebarResizeCollapsedRef.current = sidebarCollapsed;
     const collapseThreshold = 110;
     const onMove = (moveEvent: PointerEvent) => {
       const shellRect = appShellRef.current?.getBoundingClientRect();
@@ -180,8 +180,14 @@ export function WorkspaceApp() {
   }, [setSidebarCollapsed, setSidebarWidth, sidebarCollapsed, sidebarWidth]);
 
   const handleSidebarResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (sidebarCollapsed) return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    if (sidebarCollapsed) {
+      if (event.key !== "ArrowRight") return;
+      event.preventDefault();
+      setSidebarCollapsed(false);
+      setSidebarWidth(Math.max(180, Math.min(360, sidebarWidth)));
+      return;
+    }
     event.preventDefault();
     const delta = event.key === "ArrowLeft" ? -20 : 20;
     const nextWidth = sidebarWidth + delta;
@@ -537,6 +543,7 @@ export function WorkspaceApp() {
   }, [allThemes, fullData, fullDomain, loadState, setToast]);
 
   const handleDrawerFormInput = useCallback(() => {
+    setDrawerFormDirty(true);
     noteAutoSaveTriggerRef.current();
   }, []);
 
@@ -546,6 +553,7 @@ export function WorkspaceApp() {
     if (noteAutoSaveTimer.current) { window.clearTimeout(noteAutoSaveTimer.current); noteAutoSaveTimer.current = null; }
     drawerFormRef.current = form;
     drawerFormInitialSignature.current = form ? formSignature(form) : "";
+    setDrawerFormDirty(false);
     if (form) form.addEventListener("input", handleDrawerFormInput);
   }, [handleDrawerFormInput]);
 
@@ -1190,7 +1198,10 @@ export function WorkspaceApp() {
     const closeAfterSave = options.closeAfterSave ?? true;
     const submittedSignature = formSignature(form);
     const finishSave = (saved?: Entity) => {
-      if (drawerFormRef.current === form) drawerFormInitialSignature.current = submittedSignature;
+      if (drawerFormRef.current === form) {
+        drawerFormInitialSignature.current = submittedSignature;
+        setDrawerFormDirty(false);
+      }
       if (closeAfterSave) { closeDrawer(); return; }
       // 開いたままの自動保存: 保存後の値でdrawer.entityを更新し、フォーム内の保存状態表示を実データと一致させる。
       if (saved) setDrawer((current) => (current && drawerFormRef.current === form
@@ -1752,15 +1763,16 @@ export function WorkspaceApp() {
               openActiveFocus={activeFocusTask ? () => setFocusTaskId(activeFocusTask.id) : undefined}
             />
           )}
-          {!detachedNoteId && !sidebarCollapsed && (
+          {!detachedNoteId && (
             <div
               className="sidebar-resize-handle"
               role="separator"
               aria-orientation="vertical"
               aria-label="サイドバーの幅"
-              aria-valuemin={180}
+              aria-valuemin={64}
               aria-valuemax={360}
-              aria-valuenow={Math.round(effectiveSidebarWidth)}
+              aria-valuenow={sidebarCollapsed ? 64 : Math.round(effectiveSidebarWidth)}
+              aria-valuetext={sidebarCollapsed ? "折りたたみ中。右へドラッグで戻せます" : `${Math.round(effectiveSidebarWidth)}px`}
               tabIndex={0}
               onPointerDown={handleSidebarResize}
               onKeyDown={handleSidebarResizeKeyDown}
@@ -1784,6 +1796,7 @@ export function WorkspaceApp() {
               close={closeDrawer}
               saveForm={saveForm}
               registerEditForm={registerEditForm}
+              isFormDirty={drawerFormDirty}
               removeEntity={removeEntity}
               saveEntity={saveEntity}
               saveEntities={saveEntities}

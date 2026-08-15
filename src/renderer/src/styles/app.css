@@ -139,7 +139,7 @@ button:active { transform: scale(0.98); }
 .sidebar-resize-handle:hover::after, .sidebar-resize-handle:active::after, .sidebar-resize-handle:focus-visible::after { border-color: var(--color-accent-subtle-bd); background: radial-gradient(circle, var(--color-accent-strong) 1.3px, transparent 1.6px) center / 5px 7px repeat-y, var(--color-accent-subtle-bg); }
 .sidebar-resize-handle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; border-radius: var(--radius-sm); }
 .app-shell.is-sidebar-collapsed .sidebar { padding-inline: var(--space-3); }
-.app-shell.is-sidebar-collapsed .sidebar-resize-handle { display: none; }
+.app-shell.is-sidebar-collapsed .sidebar-resize-handle { left: 64px; display: block; }
 .app-shell.is-sidebar-collapsed .nav-label,
 .app-shell.is-sidebar-collapsed .sidebar .count,
 .app-shell.is-sidebar-collapsed .theme-nav-label { display: none; }
@@ -332,8 +332,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .today-calendar-title { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-calendar-location { color: var(--color-text-tertiary); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-focus-panel { margin-bottom: var(--space-2); overflow: hidden; }
-.today-lower-grid { display: grid; grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr); align-items: start; gap: var(--space-2); margin-bottom: var(--space-2); }
-.today-lower-stack { display: grid; gap: var(--space-2); min-width: 0; }
+.today-period-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: var(--space-2); margin-bottom: var(--space-2); }
+.today-period-grid .today-focus-panel { margin-bottom: 0; }
+.today-lower-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: var(--space-2); margin-bottom: var(--space-2); }
 .today-waiting-panel .section-heading h2 { display: inline-flex; align-items: center; gap: var(--space-2); }
 .today-waiting-overdue-count {
   display: inline-flex;
@@ -353,7 +354,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .today-waiting-row {
   min-height: 40px;
   display: grid;
-  grid-template-columns: 4px minmax(0, 1fr) auto;
+  grid-template-columns: 4px 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
@@ -392,6 +393,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
   min-width: 0;
   display: grid;
   gap: 1px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .today-waiting-main strong,
 .today-waiting-main span {
@@ -417,7 +425,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 }
 .today-task-list, .today-update-list { display: grid; }
 .today-task-row { min-height: 40px; display: grid; grid-template-columns: 8px 24px minmax(0, 1fr) 94px 52px; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--pad-card); border-bottom: 1px solid var(--color-border-subtle); background: linear-gradient(90deg, color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%, var(--color-surface) 46%); }
-/* 継続中Task（#309）。checkboxは置かず、今日の実施記録と継続の終了を並べる。 */
+/* 継続中Task（#309）。完了は共通の左端checkboxで行う。 */
 .period-task-row { grid-template-columns: 8px 24px 48px minmax(0, 1fr) 158px auto; }
 /* 期間内に一度やるTask（#309）。一回の完了で終わるのでcheckboxを残す。 */
 .execution-window-row { grid-template-columns: 8px 24px minmax(0, 1fr) 158px 52px; }
@@ -2101,8 +2109,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .drawer { position: sticky; z-index: 10; top: 0; width: 100%; min-width: 0; height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface); border-left: 1px solid var(--color-border); overflow: hidden; }
 .drawer-header { flex: 0 0 auto; min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); }
 .drawer-header button { min-height: 32px; border: 0; background: transparent; color: var(--color-text-secondary); }
-/* 編集項目だけが伸びてスクロール。Artifact / 削除は drawer-edit-footer で下に固定する */
+/* 編集項目だけが伸びてスクロール。保存 / Artifact / 削除は下部に固定する */
 .drawer-form, .drawer-content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3) var(--space-4); overflow-x: hidden; overflow-y: auto; }
+.drawer-edit-footer { flex: 0 0 auto; display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--color-border); background: var(--color-surface); }
+.drawer-edit-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.drawer-edit-actions .primary-button { margin-right: auto; }
 .drawer-form label { display: grid; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--text-sm); }
 .drawer-form textarea { min-height: 92px; resize: vertical; }
 .drawer-form .large-textarea { min-height: 280px; font-family: var(--font-mono); }
@@ -2152,6 +2163,19 @@ input:hover, select:hover, textarea:hover { border-color: var(--color-border-str
 .checklist-progress-badge { display: inline-flex; align-items: center; gap: 3px; width: fit-content; margin-left: var(--space-1); padding: 1px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-text-secondary); background: var(--color-surface-subtle); font-size: var(--text-xs); line-height: 1.4; vertical-align: middle; }
 .checklist-progress-badge.is-complete { color: var(--color-accent); border-color: color-mix(in srgb, var(--color-accent) 38%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 9%, var(--color-surface)); }
 .row-title .checklist-progress-badge { margin-left: var(--space-2); }
+.inline-task-checklist { position: relative; min-width: 0; min-height: 18px; display: flex; align-items: center; gap: var(--space-1); overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.1; }
+.inline-task-checklist-items { min-width: 0; display: flex; align-items: center; gap: var(--space-1); overflow: hidden; }
+.inline-task-checklist-item { min-width: 0; max-width: 180px; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px 0 1px; overflow: hidden; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font: inherit; text-align: left; white-space: nowrap; }
+.inline-task-checklist-item:hover { background: var(--color-surface-muted); color: var(--color-text-primary); }
+.inline-task-checklist-item > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.inline-task-checklist-item.is-done { color: var(--color-text-tertiary); text-decoration: line-through; }
+.inline-task-checklist-check { width: 13px; height: 13px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--color-border-strong); border-radius: var(--radius-pill); color: var(--color-surface); }
+.inline-task-checklist-item.is-done .inline-task-checklist-check { border-color: var(--color-accent); background: var(--color-accent); color: var(--color-surface); }
+.inline-task-checklist-more { flex: 0 0 auto; color: var(--color-text-tertiary); font: var(--text-xs) var(--font-mono); }
+.inline-task-checklist-add { width: 18px; height: 18px; display: inline-grid; place-items: center; flex: 0 0 auto; padding: 0; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-tertiary); }
+.inline-task-checklist-add:hover { border-color: var(--color-accent-subtle-bd); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
+.inline-task-checklist-measure { position: absolute; top: 0; left: -10000px; display: flex; gap: var(--space-1); width: max-content; visibility: hidden; pointer-events: none; }
+.row-title-main { min-width: 0; display: grid; flex: 1 1 auto; align-content: center; gap: 1px; }
 .save-status { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-secondary); }
 .save-status-saving { color: var(--color-accent-strong); }
 .save-status-error { display: inline-flex; align-items: center; gap: var(--space-1); padding: 1px var(--space-2); border: 1px solid var(--color-danger-bd); border-radius: var(--radius-pill); background: var(--color-danger-bg); color: var(--color-danger-strong); font-weight: var(--weight-medium); }
@@ -4325,6 +4349,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   .artifact-card-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .home-metrics { grid-template-columns: repeat(3, 1fr); }
+  .today-period-grid { grid-template-columns: 1fr; }
   .today-lower-grid { grid-template-columns: 1fr; }
   .task-shelf-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inbox-card-main { grid-template-columns: 24px minmax(170px, 220px) minmax(240px, 1fr) 132px 34px 34px; }
@@ -4518,8 +4543,8 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 /* --- Sketch workspace --- */
 .app-shell.is-canvas-route { grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr); }
 .app-shell.is-sidebar-collapsed.is-canvas-route { grid-template-columns: 72px minmax(0, 1fr); }
-.app-shell.is-canvas-route.has-drawer { grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr) 390px; }
-.app-shell.is-sidebar-collapsed.is-canvas-route.has-drawer { grid-template-columns: 72px minmax(0, 1fr) 390px; }
+.app-shell.is-canvas-route.has-drawer { grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr) clamp(390px, 30vw, 460px); }
+.app-shell.is-sidebar-collapsed.is-canvas-route.has-drawer { grid-template-columns: 72px minmax(0, 1fr) clamp(390px, 30vw, 460px); }
 .app-shell.is-canvas-route .main-area { min-width: 0; height: 100%; overflow: hidden; }
 
 .sketch-library-page,

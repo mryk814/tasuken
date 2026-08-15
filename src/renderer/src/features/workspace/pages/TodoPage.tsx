@@ -17,10 +17,9 @@ import {
 } from "../lib/savedTaskViews";
 import { Button, EmptyState, PageHeader, StatusBadge, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
-import { ChecklistProgressBadge } from "../components/taskChecklist";
-import { SCHEDULE_KIND_LABELS, TASK_STATE_LABELS, TASK_WORK_STATE_LABELS } from "../domain-model/labels";
+import { ChecklistProgressBadge, InlineTaskChecklist } from "../components/taskChecklist";
+import { TASK_STATE_LABELS, TASK_WORK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
-import { getScheduleKind } from "../domain-model/scheduleSemantics";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
@@ -88,23 +87,6 @@ function scheduleGroupLabel(row: TodoRow, today: string): string {
   if (date < today) return "予定超過";
   if (date === today) return "今日";
   return "今後";
-}
-
-function rangeSemanticsBadge(row: TodoRow, openTaskDetail: (task: Task, schedule?: Schedule) => void) {
-  const kind = getScheduleKind(row.schedule);
-  if (kind !== "execution_window" && kind !== "ongoing_period" && kind !== "unspecified_range") return null;
-  const label = SCHEDULE_KIND_LABELS[kind];
-  if (kind === "unspecified_range") {
-    return (
-      <button
-        type="button"
-        className="range-semantics-badge range-semantics-badge-button"
-        onClick={(event) => { event.stopPropagation(); openTaskDetail(row.task, row.schedule); }}
-        title="編集して期間の意味を選ぶ"
-      >{label}</button>
-    );
-  }
-  return <span className="range-semantics-badge">{label}</span>;
 }
 
 function groupTodoRows(rows: TodoRow[], groupMode: TodoGroupMode, today: string, themes: PageProps["themes"]): TodoRowGroup[] {
@@ -211,6 +193,15 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
     await saveEntities(buildSaveTaskOperations(nextTask));
   }
 
+  async function toggleChecklistItem(task: Task, itemId: string) {
+    const nextItems = (task.checklist_items || []).map((item) => (
+      item.id === itemId
+        ? { ...item, done: !item.done, completed_at: !item.done ? new Date().toISOString() : null }
+        : item
+    ));
+    await saveEntities(buildSaveTaskOperations({ ...task, checklist_items: nextItems }), "チェックリストを更新しました。");
+  }
+
   async function toggleToday(task: Task, schedule: Schedule | undefined) {
     if (task.today_date === today) {
       await saveEntities(buildSaveTaskOperations({ ...task, today_date: null }), "今日の予定から外しました。");
@@ -246,6 +237,24 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
 
   function openTaskDetail(task: Task, schedule?: Schedule) {
     openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+  }
+
+  function openChecklistEditor(task: Task, schedule?: Schedule) {
+    const checklistItems = task.checklist_items || [];
+    const focusItemId = crypto.randomUUID();
+    openDrawer({
+      type: "task",
+      mode: "edit",
+      entity: {
+        ...task,
+        checklist_items: [
+          ...checklistItems,
+          { id: focusItemId, title: "", done: false, completed_at: null, sort_order: checklistItems.length },
+        ],
+        _focusChecklistItem: focusItemId,
+        _schedule: schedule,
+      } as Record<string, unknown>,
+    });
   }
 
   function renderTodoRow({ task, schedule }: TodoRow) {
@@ -301,12 +310,18 @@ export function TodoPage({ data, domain, themes, route, openDrawer, saveEntities
           >
             <IconCopyPlus size={16} />
           </button>
-          <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
-            <span>{task.title}</span>
-            <ChecklistProgressBadge items={task.checklist_items} />
-            {task.intended_executor === "ai_agent" && <StatusBadge value="info" label={`AI · ${TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState}`} />}
-          </button>
-           {rangeSemanticsBadge({ task, schedule }, openTaskDetail)}
+          <div className="row-title-main">
+            <button className={`row-title ${done ? "is-done" : ""}`} onClick={(event) => { event.stopPropagation(); openTaskDetail(task, schedule); }}>
+              <span>{task.title}</span>
+              <ChecklistProgressBadge items={task.checklist_items} />
+              {task.intended_executor === "ai_agent" && <StatusBadge value="info" label={`AI · ${TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState}`} />}
+            </button>
+            <InlineTaskChecklist
+              items={task.checklist_items}
+              onToggle={(itemId) => toggleChecklistItem(task, itemId)}
+              onAdd={() => openChecklistEditor(task, schedule)}
+            />
+          </div>
           {reminder && <span className="row-reminder-meta"><IconClock size={13} />{reminder}</span>}
         </div>
         <span className="todo-repeat-label">{repeatRuleLabel(task.repeat_rule)}</span>

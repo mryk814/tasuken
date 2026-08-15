@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { DrawerConfig, SaveEntities, WorkspaceData } from "../types";
@@ -74,6 +74,8 @@ export function TaskFields({
     : null;
   const [repeatFrequency, setRepeatFrequency] = useState(str(repeatRule?.frequency));
   const [checklist, setChecklist] = useState(normalizeChecklistItems(entity));
+  const focusChecklistItem = str(entity._focusChecklistItem);
+  const checklistInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [checklistSaveState, setChecklistSaveState] = useState<"idle" | "saving" | "saved" | "error">(
     entity.id ? "saved" : "idle",
   );
@@ -82,6 +84,13 @@ export function TaskFields({
     : [];
   const fallbackMonthDay = dateOnly(schedule?.end_date || schedule?.start_date || todayIso()).slice(-2);
   const canAutoSaveChecklist = Boolean(entity.id && saveEntities);
+  useEffect(() => {
+    if (!focusChecklistItem) return;
+    const input = checklistInputRefs.current[focusChecklistItem];
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [focusChecklistItem, checklist.length]);
   // 日付範囲の意味（#309）。既存の未分類データは編集で触るまで未分類のまま残す。
   const [startDate, setStartDate] = useState(dateOnly(schedule?.start_date));
   const [endDate, setEndDate] = useState(dateOnly(schedule?.end_date));
@@ -150,7 +159,7 @@ export function TaskFields({
   const preservedWorkState = str(entity.work_state) || (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
   return (
     <>
-      <Field label="タイトル"><input name="title" autoFocus defaultValue={str(entity.title)} /></Field>
+      <Field label="タイトル"><input name="title" autoFocus={!focusChecklistItem} defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
       <TaskRepositoryContextFields entity={entity} data={data} />
       <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
@@ -289,6 +298,7 @@ export function TaskFields({
               </label>
               <input
                 name="checklist_title"
+                ref={(input) => { checklistInputRefs.current[item.id] = input; }}
                 value={item.title}
                 onChange={(event) => setChecklist((current) => current.map((entry) => entry.id === item.id
                   ? { ...entry, title: event.target.value }

@@ -640,6 +640,7 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
             const isPlan = timelineItemLevel(item) === "plan";
             const rowHeight = ganttRowHeight(row.laneItems.length ? row.laneItems : [item]);
             const scheduleKind = timelineItemScheduleKind(item);
+            const timelineState = timelineItemState(item, today);
             return (
               <div
                 className={`gantt-table-row level-${timelineItemLevel(item)} ${connecting?.sourceId === item.id ? "is-connect-source" : ""} ${selectedTimelineItemId === item.id ? "is-selected" : ""} ${draggingSortId === item.id ? "is-row-dragging" : ""} ${dropSortTargetId === item.id ? "is-row-drop-target" : ""}`}
@@ -689,12 +690,12 @@ export function TimelinePage({ data, domain: v2, themes, items, openDrawer, save
                         {item.title}
                       </button>
                       {/* 状態は色だけで伝えず、語でも読めるようにする（#312 / #318）。 */}
-                      <StatusBadge
-                        value={timelineItemState(item, today)}
-                        label={TIMELINE_ITEM_STATE_LABELS[timelineItemState(item, today)]}
-                        className={`timeline-state-chip is-state-${timelineItemState(item, today)}`}
-                      />
-                      {(scheduleKind === "execution_window" || scheduleKind === "ongoing_period" || scheduleKind === "unspecified_range") && (
+                      {timelineState !== "ongoing" && <StatusBadge
+                        value={timelineState}
+                        label={TIMELINE_ITEM_STATE_LABELS[timelineState]}
+                        className={`timeline-state-chip is-state-${timelineState}`}
+                      />}
+                      {(scheduleKind === "execution_window" || scheduleKind === "unspecified_range") && (
                         <span className={`timeline-range-chip is-range-${scheduleKind}`}>
                           {SCHEDULE_KIND_LABELS[scheduleKind]}
                         </span>
