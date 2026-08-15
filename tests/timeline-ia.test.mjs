@@ -60,14 +60,15 @@ test("状態を色だけで伝えない（#312 / #318）", () => {
   assert.match(ganttSource, /className="gantt-bar-state-mark"/);
 
   // 一覧側は語で読める。
-  assert.match(timelinePageSource, /className=\{`timeline-state-chip is-state-\$\{timelineItemState\(item, today\)\}`\}/);
-  assert.match(timelinePageSource, /<StatusBadge[\s\S]*timeline-state-chip/);
-  assert.match(timelinePageSource, /TIMELINE_ITEM_STATE_LABELS\[timelineItemState\(item, today\)\]/);
+  assert.match(timelinePageSource, /const timelineState = timelineItemState\(item, today\);/);
+  assert.match(timelinePageSource, /<StatusBadge[\s\S]*className=\{`timeline-state-chip is-state-\$\{timelineState\}`\}/);
+  assert.match(timelinePageSource, /TIMELINE_ITEM_STATE_LABELS\[timelineState\]/);
 
   // 形（不透明度・線種・縞）も併用する。
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-completed \{ opacity: \.62;/);
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-cancelled \{[^}]*border-style: dotted;/);
-  assert.match(stylesSource, /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?repeating-linear-gradient/);
+  assert.match(stylesSource, /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?border-width: 2px;[\s\S]*?background: color-mix/);
+  assert.match(stylesSource, /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?box-shadow: inset 0 -2px 0/);
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-execution_window \{ border-style: dashed;/);
   assert.match(stylesSource, /\.gantt-item-bar\.is-range-execution_window \{ border-style: dashed;/);
   assert.match(stylesSource, /\.gantt-item-bar\.is-range-ongoing_period \{ border-style: solid;/);

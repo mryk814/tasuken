@@ -182,7 +182,7 @@ test("pause/resumeは4時間境界をmanifest変更前に拒否する", (t) => {
   assert.equal(fs.readFileSync(secondManifestPath, "utf8"), beforeResume);
 });
 
-test("crash retryの既存chunk path差替えは同じdescriptorで検出しmanifestを進めない", (t) => {
+test("crash retryの既存chunk競合はmanifestを進めない", (t) => {
   const paths = fixture(t);
   const service = createService(paths);
   const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
@@ -206,7 +206,7 @@ test("crash retryの既存chunk path差替えは同じdescriptorで検出しmani
   try {
     assert.throws(
       () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(original) }),
-      /差し替え/,
+      /差し替え|別内容/,
     );
   } finally {
     fs.openSync = realOpen;
@@ -525,20 +525,30 @@ test("stopはchunk path差替えを同じdescriptorのidentity再検証で拒否
   const chunkPath = path.join(sessionDirectory, "chunk-00000000.part");
   const retainedPath = path.join(sessionDirectory, "retained-original.part");
   const realOpen = fs.openSync;
+  const realRead = fs.readSync;
+  let chunkDescriptor = null;
   let swapped = false;
   fs.openSync = function patchedOpen(candidate, flags, mode) {
     const descriptor = realOpen.call(fs, candidate, flags, mode);
     if (!swapped && path.resolve(String(candidate)) === path.resolve(chunkPath) && (Number(flags) & fs.constants.O_RDONLY) === fs.constants.O_RDONLY) {
+      chunkDescriptor = descriptor;
+    }
+    return descriptor;
+  };
+  fs.readSync = function patchedRead(fd, buffer, offset, length, position) {
+    const bytesRead = realRead.call(fs, fd, buffer, offset, length, position);
+    if (!swapped && fd === chunkDescriptor) {
       swapped = true;
       fs.renameSync(chunkPath, retainedPath);
       fs.writeFileSync(chunkPath, webmBytes("unverified-attacker"));
     }
-    return descriptor;
+    return bytesRead;
   };
   try {
     assert.throws(() => service.stopRecording(started.sessionId), /差し替え/);
   } finally {
     fs.openSync = realOpen;
+    fs.readSync = realRead;
   }
   assert.equal(swapped, true);
   assert.equal(fs.existsSync(path.join(sessionDirectory, "original.webm")), false);

@@ -281,22 +281,122 @@ function manualSortOrder(resource: Resource): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-export function sortChatResources(resources: Resource[], order: ChatRefSortOrder): Resource[] {
-  return [...resources].sort((a, b) => {
+function compareChatResources(a: Resource, b: Resource, order: ChatRefSortOrder): number {
+  if (order === "manual") {
+    const aOrder = manualSortOrder(a);
+    const bOrder = manualSortOrder(b);
+    if (aOrder !== null && bOrder !== null && aOrder !== bOrder) return aOrder - bOrder;
+    if (aOrder !== null && bOrder === null) return -1;
+    if (aOrder === null && bOrder !== null) return 1;
+    const dateFallback = chatResourceDate(b).localeCompare(chatResourceDate(a));
+    if (dateFallback) return dateFallback;
+    return titleValue(a).localeCompare(titleValue(b), "ja-JP");
+  }
+  const dateCompare = chatResourceDate(a).localeCompare(chatResourceDate(b));
+  if (dateCompare) return order === "newest" ? -dateCompare : dateCompare;
+  return titleValue(a).localeCompare(titleValue(b), "ja-JP");
+}
+
+function threadRootId(resource: Resource, resourceById: ReadonlyMap<string, Resource>): string {
+  let currentId = resource.id;
+  let parentId = String(resource.parent_resource_id || "");
+  const visited = new Set([resource.id]);
+  while (parentId && !visited.has(parentId)) {
+    const parent = resourceById.get(parentId);
+    if (!parent) break;
+    visited.add(parentId);
+    currentId = parent.id;
+    parentId = String(parent.parent_resource_id || "");
+  }
+  return currentId;
+}
+
+function threadDepth(resource: Resource, resourceById: ReadonlyMap<string, Resource>): number {
+  let depth = 0;
+  let parentId = String(resource.parent_resource_id || "");
+  const visited = new Set([resource.id]);
+  while (parentId && depth < 3 && !visited.has(parentId)) {
+    const parent = resourceById.get(parentId);
+    if (!parent) break;
+    visited.add(parentId);
+    depth += 1;
+    parentId = String(parent.parent_resource_id || "");
+  }
+  return depth;
+}
+
+function clusterDate(resources: Resource[], order: ChatRefSortOrder): string {
+  const dates = resources.map(chatResourceDate).filter(Boolean);
+  if (!dates.length) return "";
+  return dates.reduce((current, candidate) => {
+    if (!current) return candidate;
+    return order === "oldest"
+      ? (candidate < current ? candidate : current)
+      : (candidate > current ? candidate : current);
+  }, "");
+}
+
+function sortChatResourcesByHierarchy(resources: Resource[], order: ChatRefSortOrder): Resource[] {
+  const resourceById = new Map(resources.map((resource) => [resource.id, resource]));
+  const childrenByParentId = new Map<string, Resource[]>();
+  for (const resource of resources) {
+    const parentId = String(resource.parent_resource_id || "");
+    if (!parentId || parentId === resource.id || !resourceById.has(parentId)) continue;
+    const children = childrenByParentId.get(parentId) || [];
+    children.push(resource);
+    childrenByParentId.set(parentId, children);
+  }
+
+  const rootIds = [...new Set(resources.map((resource) => threadRootId(resource, resourceById)))];
+  const clusters = rootIds.map((rootId) => {
+    const members = resources.filter((resource) => threadRootId(resource, resourceById) === rootId);
+    const ordered: Resource[] = [];
+    const visited = new Set<string>();
+    const visit = (resource: Resource) => {
+      if (visited.has(resource.id)) return;
+      visited.add(resource.id);
+      for (const child of [...(childrenByParentId.get(resource.id) || [])].sort((a, b) => compareChatResources(a, b, order))) {
+        visit(child);
+      }
+      ordered.push(resource);
+    };
+
+    const root = resourceById.get(rootId);
+    if (root) visit(root);
+    for (const member of [...members].sort((a, b) => compareChatResources(a, b, order))) visit(member);
+    return { members, ordered };
+  });
+
+  clusters.sort((a, b) => {
     if (order === "manual") {
-      const aOrder = manualSortOrder(a);
-      const bOrder = manualSortOrder(b);
+      const aOrder = a.members.map(manualSortOrder).filter((value): value is number => value !== null).sort((x, y) => x - y)[0] ?? null;
+      const bOrder = b.members.map(manualSortOrder).filter((value): value is number => value !== null).sort((x, y) => x - y)[0] ?? null;
       if (aOrder !== null && bOrder !== null && aOrder !== bOrder) return aOrder - bOrder;
       if (aOrder !== null && bOrder === null) return -1;
       if (aOrder === null && bOrder !== null) return 1;
-      const dateFallback = chatResourceDate(b).localeCompare(chatResourceDate(a));
-      if (dateFallback) return dateFallback;
-      return titleValue(a).localeCompare(titleValue(b), "ja-JP");
     }
-    const dateCompare = chatResourceDate(a).localeCompare(chatResourceDate(b));
-    if (dateCompare) return order === "newest" ? -dateCompare : dateCompare;
-    return titleValue(a).localeCompare(titleValue(b), "ja-JP");
+    const dateCompare = clusterDate(a.members, order).localeCompare(clusterDate(b.members, order));
+    if (dateCompare) return order === "newest" || order === "manual" ? -dateCompare : dateCompare;
+    return compareChatResources(a.members[0], b.members[0], order);
   });
+
+  return clusters.flatMap((cluster) => cluster.ordered);
+}
+
+export function sortChatResources(resources: Resource[], order: ChatRefSortOrder): Resource[] {
+  return sortChatResourcesByHierarchy(resources, order);
+}
+
+/** 子を左、親を右へ段下げするための表示用深さ。データ上の親子深さは変更しない。 */
+export function chatThreadVisualDepth(resource: Resource, resources: Resource[]): number {
+  const resourceById = new Map(resources.map((item) => [item.id, item]));
+  const rootId = threadRootId(resource, resourceById);
+  let maxDepth = 0;
+  for (const item of resources) {
+    if (threadRootId(item, resourceById) !== rootId) continue;
+    maxDepth = Math.max(maxDepth, threadDepth(item, resourceById));
+  }
+  return Math.min(3, Math.max(0, maxDepth - threadDepth(resource, resourceById)));
 }
 
 export function groupChatResources(

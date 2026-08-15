@@ -31,7 +31,9 @@ test("micro memos are folded into Inbox navigation instead of a separate nav ite
 test("Inbox page has separate untriaged and micro memo lanes", () => {
   assert.match(inboxPageSource, /buildMicroMemoView/);
   assert.match(inboxPageSource, /付箋メモ/);
-  assert.match(inboxPageSource, /Inboxへ送る/);
+  assert.match(inboxPageSource, /lane === "untriaged"/);
+  assert.match(inboxPageSource, /lane === "micro"/);
+  assert.match(inboxPageSource, /micro-memo-grid/);
 });
 
 test("the title bar launcher directly controls satellite windows without a popover", () => {
