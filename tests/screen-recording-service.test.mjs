@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Buffer } from "node:buffer";
@@ -29,6 +30,11 @@ const CONTEXT = {
   detached: false,
   securityOrigin: "file://",
 };
+
+test("Windows source列挙ではthumbnail生成を0x0で無効化する", () => {
+  const sourceText = readFileSync("src/main/services/screenRecordingService.ts", "utf8");
+  assert.match(sourceText, /THUMBNAIL_SIZE = Object\.freeze\(\{ width: 0, height: 0 \}\)/);
+});
 
 function source(id, name, thumbnailDataUrl = PNG) {
   return {

@@ -17,8 +17,9 @@ import {
 } from "./screenRecordingGrantRegistry.mjs";
 
 // Taskenはhardware accelerationを無効化しているため、WGCを起動するsource thumbnailは要求しない。
-// Electron公式契約の幅0で列挙だけを行い、window iconまたはbounded placeholderを投影する。
-const THUMBNAIL_SIZE = Object.freeze({ width: 0, height: 135 });
+// Electron公式契約の0x0でthumbnail生成を止め、window iconまたはbounded placeholderを投影する。
+// 片方の辺だけ0にするとWindows Graphics Captureのsource列挙自体が失敗する。
+const THUMBNAIL_SIZE = Object.freeze({ width: 0, height: 0 });
 const EMPTY_THUMBNAIL_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XK4PPwAAAABJRU5ErkJggg==";
 
 export interface ScreenRecordingEnvironment {
