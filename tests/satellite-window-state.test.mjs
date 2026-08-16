@@ -536,8 +536,10 @@ test("録画中インジケータは録画に写り込まず、操作を本体�
   assert.match(indicator, /transparent: true/);
   assert.match(indicator, /backgroundColor: "#00000000"/);
   assert.match(indicator, /height: value \? 12 : 64/);
-  assert.match(indicatorHtml, /api\.setRetracted\(retracted\)/);
+  assert.match(indicatorHtml, /api\.setRetracted\(nextRetracted\)/);
   assert.match(indicatorHtml, /body\.is-retracted \.indicator-surface > \* \{\s*visibility: hidden;/);
+  assert.match(indicatorHtml, /addEventListener\("pointerenter", revealControls\)/);
+  assert.match(indicatorHtml, /addEventListener\("pointermove", revealControls\)/);
   const regionSelectorHtml = readFileSync("src/renderer/region-selector.html", "utf8");
   assert.match(regionSelectorHtml, /body:not\(\.is-indicator\) \{ background: rgb\(0 0 0 \/ 1%\) !important; \}/);
   assert.match(indicator, /main\.minimize\(\)/);
