@@ -538,6 +538,8 @@ test("録画中インジケータは録画に写り込まず、操作を本体�
   assert.match(indicator, /height: value \? 12 : 64/);
   assert.match(indicatorHtml, /api\.setRetracted\(retracted\)/);
   assert.match(indicatorHtml, /body\.is-retracted \.indicator-surface > \* \{\s*visibility: hidden;/);
+  const regionSelectorHtml = readFileSync("src/renderer/region-selector.html", "utf8");
+  assert.match(regionSelectorHtml, /body:not\(\.is-indicator\) \{ background: rgb\(0 0 0 \/ 1%\) !important; \}/);
   assert.match(indicator, /main\.minimize\(\)/);
   assert.match(indicator, /if \(main\.isMinimized\(\)\) main\.restore\(\)/);
   assert.match(panel, /keepMainWindowVisible: selectedSource\?\.kind === "window" && \/tasken\/i\.test\(selectedSource\.label\)/);

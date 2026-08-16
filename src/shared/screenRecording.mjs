@@ -83,7 +83,9 @@ export function normalizeScreenRecordingSecurityOrigin(value) {
   if (typeof value !== "string" || !value || value.length > 2048) {
     throw new Error("画面録画のoriginが不正です。");
   }
-  if (value === "file://") return value;
+  // Packaged Electronは同じfile originをframe側ではfile://、
+  // display media request側ではfile:///として渡す。
+  if (/^file:\/\/\/?$/.test(value)) return "file://";
   let parsed;
   try {
     parsed = new URL(value);
@@ -109,10 +111,19 @@ export function normalizeScreenRecordingSecurityOrigin(value) {
  */
 export function screenRecordingOriginsMatch(requestOrigin, frameOrigin) {
   if (typeof requestOrigin !== "string" || typeof frameOrigin !== "string" || !requestOrigin || !frameOrigin) return false;
-  const request = requestOrigin === "file://" ? requestOrigin : requestOrigin.replace(/\/+$/, "");
+  let request;
+  try {
+    request = requestOrigin === "null" ? "null" : normalizeScreenRecordingSecurityOrigin(requestOrigin);
+  } catch {
+    return false;
+  }
   // file:のframeはopaque origin（"null"）で届くことがある。
   if (frameOrigin === "file://") return request === "file://" || request === "null";
-  return request === frameOrigin;
+  try {
+    return request === normalizeScreenRecordingSecurityOrigin(frameOrigin);
+  } catch {
+    return false;
+  }
 }
 
 export function sanitizeScreenRecordingSourceLabel(value, kind) {

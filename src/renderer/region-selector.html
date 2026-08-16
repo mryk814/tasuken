@@ -9,8 +9,10 @@
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; cursor: crosshair; user-select: none; }
     body:not(.is-indicator),
     body:not(.is-indicator) * { cursor: crosshair !important; }
-    /* 共通tokenのbody背景が後から注入されても、実デスクトップを透かす。 */
+    /* Windowsは完全透明なpixelをmouse hit-testから外すことがある。
+       1%だけ面を持たせ、画面上のどこからでもdragを開始できる入力面にする。 */
     body { background: transparent !important; font-family: var(--font-base); }
+    body:not(.is-indicator) { background: rgb(0 0 0 / 1%) !important; }
     #hint { position: fixed; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%); padding: 8px 12px; border-radius: 7px; background: #fbf8f6; color: #3d3532; font-size: 13px; box-shadow: 0 2px 12px rgb(0 0 0 / 18%); }
     #selection { position: fixed; z-index: 1; display: none; border: 2px dashed #8a2f3b; outline: 1px solid rgb(255 255 255 / 90%); outline-offset: 1px; background: rgb(255 255 255 / 4%); box-shadow: 0 0 0 99999px rgb(20 18 18 / 42%); }
     body.is-indicator { cursor: default; pointer-events: none; }
