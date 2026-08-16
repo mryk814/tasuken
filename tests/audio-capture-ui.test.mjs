@@ -102,6 +102,8 @@ test("録画中は開始元を最小化し、上端の縮小バーはhoverで操
   assert.match(recordingIndicatorController, /let minimizedMainWindow: BrowserWindow \| null = null/);
   assert.match(recordingIndicator, /body\.is-retracted \.indicator-surface \{[\s\S]*?-webkit-app-region: no-drag/);
   assert.match(recordingIndicator, /addEventListener\("pointer(?:enter|move)", revealControls\)/);
+  assert.match(recordingIndicator, /function revealControls\(\) \{\s*pointerInside = true;\s*window\.clearTimeout\(retractTimer\);\s*if \(!retracted\) return;/);
+  assert.match(recordingIndicator, /window\.setTimeout\(\(\) => \{\s*if \(!pointerInside\) setRetracted\(true\);/);
 });
 
 test("画面録画のpause→即stop等は単一transition queueで直列化する", () => {

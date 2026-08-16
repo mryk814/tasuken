@@ -124,6 +124,7 @@
       let lastKind = "";
       let retractTimer = 0;
       let retracted = false;
+      let pointerInside = false;
 
       function setRetracted(nextRetracted) {
         if (retracted === nextRetracted) return;
@@ -134,7 +135,9 @@
 
       function scheduleRetract(delay = 1200) {
         window.clearTimeout(retractTimer);
-        retractTimer = window.setTimeout(() => setRetracted(true), delay);
+        retractTimer = window.setTimeout(() => {
+          if (!pointerInside) setRetracted(true);
+        }, delay);
       }
 
       const STATE_LABELS = {
@@ -168,8 +171,9 @@
       }
 
       function revealControls() {
-        if (!retracted) return;
+        pointerInside = true;
         window.clearTimeout(retractTimer);
+        if (!retracted) return;
         setRetracted(false);
       }
 
@@ -178,6 +182,7 @@
       document.body.addEventListener("pointerenter", revealControls);
       document.body.addEventListener("pointermove", revealControls);
       document.body.addEventListener("pointerleave", () => {
+        pointerInside = false;
         if (lastKind === "recording") scheduleRetract(500);
       });
 
