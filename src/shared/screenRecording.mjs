@@ -126,6 +126,25 @@ export function sanitizeScreenRecordingSourceLabel(value, kind) {
   return normalized.slice(0, SCREEN_RECORDING_LIMITS.maxLabelChars);
 }
 
+export function parseScreenRecordingRegionSelection(value) {
+  const input = requireExactObject(value, ["rectDip", "cropPx", "frameSizePx"], "画面録画region");
+  const normalizeRect = (candidate, label, allowOffset, allowNegativeOffset = false) => {
+    const rect = requireExactObject(candidate, allowOffset ? ["x", "y", "width", "height"] : ["width", "height"], label);
+    const width = requireSafeInteger(rect.width, `${label} width`, 1);
+    const height = requireSafeInteger(rect.height, `${label} height`, 1);
+    return allowOffset
+      ? { x: requireSafeInteger(rect.x, `${label} x`, allowNegativeOffset ? -1_000_000 : 0), y: requireSafeInteger(rect.y, `${label} y`, allowNegativeOffset ? -1_000_000 : 0), width, height }
+      : { width, height };
+  };
+  const rectDip = normalizeRect(input.rectDip, "画面録画region DIP", true, true);
+  if (rectDip.width < 64 || rectDip.height < 64) throw new Error("録画範囲は64×64以上で選択してください。");
+  return Object.freeze({
+    rectDip,
+    cropPx: normalizeRect(input.cropPx, "画面録画region pixel", true),
+    frameSizePx: normalizeRect(input.frameSizePx, "画面録画frame", false),
+  });
+}
+
 export function validateScreenRecordingSourceProjection(value) {
   const input = requireExactObject(
     value,
@@ -165,22 +184,7 @@ export function parseScreenRecordingArmRequest(value) {
   }
   let region = null;
   if (input.region !== undefined && input.region !== null) {
-    const value = requireExactObject(input.region, ["rectDip", "cropPx", "frameSizePx"], "画面録画region");
-    const normalizeRect = (candidate, label, allowOffset, allowNegativeOffset = false) => {
-      const rect = requireExactObject(candidate, allowOffset ? ["x", "y", "width", "height"] : ["width", "height"], label);
-      const width = requireSafeInteger(rect.width, `${label} width`, 1);
-      const height = requireSafeInteger(rect.height, `${label} height`, 1);
-      return allowOffset
-        ? { x: requireSafeInteger(rect.x, `${label} x`, allowNegativeOffset ? -1_000_000 : 0), y: requireSafeInteger(rect.y, `${label} y`, allowNegativeOffset ? -1_000_000 : 0), width, height }
-        : { width, height };
-    };
-    const rectDip = normalizeRect(value.rectDip, "画面録画region DIP", true, true);
-    if (rectDip.width < 64 || rectDip.height < 64) throw new Error("録画範囲は64×64以上で選択してください。");
-    region = Object.freeze({
-      rectDip,
-      cropPx: normalizeRect(value.cropPx, "画面録画region pixel", true),
-      frameSizePx: normalizeRect(value.frameSizePx, "画面録画frame", false),
-    });
+    region = parseScreenRecordingRegionSelection(input.region);
   }
   return Object.freeze({
     sourceToken: requireUuid(input.sourceToken, "画面録画source token"),

@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   SCREEN_RECORDING_LIMITS,
   SCREEN_RECORDING_MIME_CANDIDATES,
+  parseScreenRecordingRegionSelection,
   type ScreenRecordingArmRequest,
   type ScreenRecordingSourceProjection,
   type ScreenRecordingRegionSelection,
@@ -55,6 +56,8 @@ export class ScreenRecordingService {
   private readonly platform: NodeJS.Platform;
   private readonly getSources: DesktopSourceProvider;
   private regionSelectionActive = false;
+  private regionIndicatorWindow: Electron.BrowserWindow | null = null;
+  private regionIndicatorKey = "";
 
   constructor(options: {
     idFactory?: () => string;
@@ -105,6 +108,72 @@ export class ScreenRecordingService {
     return this.registry.arm(request, context);
   }
 
+  async applyRegionIndicator(value: unknown): Promise<boolean> {
+    const { BrowserWindow, screen } = await import("electron");
+    if (value === null || value === undefined) {
+      this.closeRegionIndicator();
+      return false;
+    }
+    const region = parseScreenRecordingRegionSelection(value);
+    const display = screen.getDisplayNearestPoint({ x: region.rectDip.x, y: region.rectDip.y });
+    if (!display) throw new Error("録画範囲を表示する画面が見つかりません。");
+    const bounds = display.bounds;
+    const left = region.rectDip.x - bounds.x;
+    const top = region.rectDip.y - bounds.y;
+    if (left < 0 || top < 0 || left + region.rectDip.width > bounds.width || top + region.rectDip.height > bounds.height) {
+      throw new Error("録画範囲を表示する画面の情報が変わりました。範囲を選び直してください。");
+    }
+    const key = [String(display.id), left, top, region.rectDip.width, region.rectDip.height].join(":");
+    if (this.regionIndicatorWindow && !this.regionIndicatorWindow.isDestroyed() && this.regionIndicatorKey === key) return true;
+    this.closeRegionIndicator();
+    const indicator = new BrowserWindow({
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      show: false,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      focusable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      fullscreenable: false,
+      hasShadow: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    indicator.setContentProtection(true);
+    indicator.setIgnoreMouseEvents(true);
+    indicator.setAlwaysOnTop(true, "screen-saver");
+    this.regionIndicatorWindow = indicator;
+    this.regionIndicatorKey = key;
+    indicator.once("closed", () => {
+      if (this.regionIndicatorWindow === indicator) {
+        this.regionIndicatorWindow = null;
+        this.regionIndicatorKey = "";
+      }
+    });
+    const query = new URLSearchParams({
+      mode: "indicator",
+      left: String(left),
+      top: String(top),
+      width: String(region.rectDip.width),
+      height: String(region.rectDip.height),
+    });
+    const target = process.env.ELECTRON_RENDERER_URL
+      ? `${process.env.ELECTRON_RENDERER_URL}/region-selector.html?${query.toString()}`
+      : path.join(__dirname, "../renderer/region-selector.html");
+    if (process.env.ELECTRON_RENDERER_URL) await indicator.loadURL(target);
+    else await indicator.loadFile(target, { query: Object.fromEntries(query) });
+    if (!indicator.isDestroyed()) indicator.showInactive();
+    return true;
+  }
+
   async selectRegion(request: unknown, context: ScreenRecordingRequestContext): Promise<ScreenRecordingRegionSelection | null> {
     const { BrowserWindow, ipcMain, screen } = await import("electron");
     if (this.regionSelectionActive) throw new Error("録画範囲の選択が既に開いています。先に完了してください。");
@@ -137,6 +206,7 @@ export class ScreenRecordingService {
         preload: path.join(__dirname, "../preload/regionSelector.mjs"),
       },
     });
+    selector.setBounds(bounds, false);
     selector.setContentProtection(true);
     selector.setAlwaysOnTop(true, "screen-saver");
     this.regionSelectionActive = true;
@@ -173,7 +243,13 @@ export class ScreenRecordingService {
           : path.join(__dirname, "../renderer/region-selector.html");
         const loading = process.env.ELECTRON_RENDERER_URL ? selector.loadURL(target) : selector.loadFile(target);
         loading.then(
-          () => { if (!selector.isDestroyed()) selector.show(); },
+          () => {
+            if (selector.isDestroyed()) return;
+            selector.setIgnoreMouseEvents(false);
+            selector.show();
+            selector.focus();
+            selector.webContents.focus();
+          },
           (error) => {
             if (settled) return;
             settled = true;
@@ -229,6 +305,13 @@ export class ScreenRecordingService {
 
   clearSender(senderWebContentsId: number): void {
     this.registry.clearSender(senderWebContentsId);
+  }
+
+  private closeRegionIndicator(): void {
+    const indicator = this.regionIndicatorWindow;
+    this.regionIndicatorWindow = null;
+    this.regionIndicatorKey = "";
+    if (indicator && !indicator.isDestroyed()) indicator.close();
   }
 
   private sourceKind(source: DesktopCapturerSource): "screen" | "window" {

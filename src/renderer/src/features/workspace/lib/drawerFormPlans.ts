@@ -371,10 +371,19 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       text,
       title: formText(values, "title") || null,
       kind: (base.kind as string | null) ?? null,
+      content_type: (base.content_type as CaptureEntry["content_type"]) ?? null,
+      capture_method: (base.capture_method as CaptureEntry["capture_method"]) ?? null,
+      media_status: (base.media_status as CaptureEntry["media_status"]) ?? null,
+      transcription_status: (base.transcription_status as CaptureEntry["transcription_status"]) ?? null,
+      url: (base.url as string | null) ?? null,
       captured_at: formText(values, "captured_at")
         || (base.captured_at as string)
         || new Date().toISOString().slice(0, 10),
       state: (formText(values, "entry_state") || "untriaged") as CaptureEntry["state"],
+      project_id: (base.project_id as string | null) ?? null,
+      source_record_id: (base.source_record_id as string | null) ?? null,
+      triaged_to_type: (base.triaged_to_type as CaptureEntry["triaged_to_type"]) ?? null,
+      triaged_to_id: (base.triaged_to_id as string | null) ?? null,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,
       properties_json: {
         ...((base.properties_json as Record<string, unknown>) || {}),
@@ -423,7 +432,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       resource_scope: (base.resource_scope as Resource["resource_scope"]) ?? null,
       captured_at: resolveSubmittedChatCapturedAt(
         formText(values, "captured_at"),
-        (base.captured_at as string | null) ?? null,
+        formText(values, "captured_at_timestamp") || ((base.captured_at as string | null) ?? null),
       ),
       chat_group: formText(values, "chat_group") || null,
       parent_resource_id: formText(values, "parent_resource_id") || null,

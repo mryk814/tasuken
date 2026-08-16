@@ -32,11 +32,12 @@
         transition: transform 180ms ease;
       }
       body.is-retracted .indicator-surface {
-        transform: translateY(calc(-100% + 12px));
+        gap: 0;
+        padding: 0;
+        transform: none;
       }
-      body.is-retracted:hover .indicator-surface,
-      body.is-retracted:focus-within .indicator-surface {
-        transform: translateY(0);
+      body.is-retracted .indicator-surface > * {
+        visibility: hidden;
       }
       .indicator-surface::after {
         position: absolute;
@@ -120,6 +121,16 @@
       let lastKind = "";
       let retractTimer = 0;
 
+      function setRetracted(retracted) {
+        document.body.classList.toggle("is-retracted", retracted);
+        void api.setRetracted(retracted);
+      }
+
+      function scheduleRetract(delay = 1200) {
+        window.clearTimeout(retractTimer);
+        retractTimer = window.setTimeout(() => setRetracted(true), delay);
+      }
+
       const STATE_LABELS = {
         recording: "録画中",
         paused: "一時停止",
@@ -144,13 +155,20 @@
         discardButton.disabled = kind === "stopping";
         if (kind !== lastKind) {
           window.clearTimeout(retractTimer);
-          document.body.classList.remove("is-retracted");
-          if (kind === "recording") {
-            retractTimer = window.setTimeout(() => document.body.classList.add("is-retracted"), 1200);
-          }
+          setRetracted(false);
+          if (kind === "recording") scheduleRetract();
           lastKind = kind;
         }
       }
+
+      document.body.addEventListener("mouseenter", () => {
+        if (!document.body.classList.contains("is-retracted")) return;
+        window.clearTimeout(retractTimer);
+        setRetracted(false);
+      });
+      document.body.addEventListener("mouseleave", () => {
+        if (lastKind === "recording") scheduleRetract(500);
+      });
 
       pauseButton.addEventListener("click", () => { void api.command(pauseButton.textContent === "再開" ? "resume" : "pause"); });
       stopButton.addEventListener("click", () => { void api.command("stop"); });

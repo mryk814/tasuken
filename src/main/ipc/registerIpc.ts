@@ -476,6 +476,15 @@ export function registerIpc(
       throw projectScreenRecordingIpcError(error);
     }
   });
+  ipcMain.handle(IPC.screenRecordingRegionIndicatorApply, async (event, request) => {
+    try {
+      screenRecordingRequestContext(event);
+      return await screenRecording.applyRegionIndicator(request);
+    } catch (error) {
+      logMain("error", "screen-recording:region-indicator", "録画範囲の表示を更新できません", error);
+      throw projectScreenRecordingIpcError(error);
+    }
+  });
   ipcMain.handle(IPC.videoTrimSource, (_event, request) => {
     try {
       return mediaCapture.getVideoTrimSource(parseVideoTrimSourceRequest(request).artifactId);

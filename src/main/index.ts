@@ -2537,7 +2537,6 @@ async function startDesktopApp(): Promise<void> {
     const directHandlers: Record<(typeof DIRECT_SHORTCUT_DEFINITIONS)[number]["id"], () => void> = {
       "quick-capture": () => quickCaptureController?.show("inbox"),
       "today-task": () => quickCaptureController?.show("today-task"),
-      "due-task": () => quickCaptureController?.show("due-task"),
       "done-task": () => quickCaptureController?.show("done-task"),
       "micro-memo": () => quickCaptureController?.show("micro-memo"),
     };

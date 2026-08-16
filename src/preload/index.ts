@@ -121,6 +121,7 @@ const api: ResearchDeskApi = {
     listSources: () => ipcRenderer.invoke(IPC.screenRecordingListSources),
     arm: (request) => ipcRenderer.invoke(IPC.screenRecordingArm, request),
     selectRegion: (request) => ipcRenderer.invoke(IPC.screenRecordingSelectRegion, request),
+    applyRegionIndicator: (region) => ipcRenderer.invoke(IPC.screenRecordingRegionIndicatorApply, region),
     applyIndicator: (state) => ipcRenderer.invoke(IPC.recordingIndicatorApply, state),
     onIndicatorCommand: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, command: Parameters<typeof callback>[0]): void => callback(command);

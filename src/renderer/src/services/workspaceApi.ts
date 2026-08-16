@@ -250,6 +250,9 @@ export const workspaceApi = {
   selectScreenRecordingRegion(sourceToken: string) {
     return desktopApi().screenRecording.selectRegion({ sourceToken });
   },
+  applyScreenRecordingRegionIndicator(region: import("../../../shared/screenRecording.mjs").ScreenRecordingRegionSelection | null) {
+    return desktopApi().screenRecording.applyRegionIndicator(region);
+  },
   prepareVideoImport(request: import("../../../shared/mediaCapture").VideoImportPrepareRequest) {
     return desktopApi().mediaCapture.prepareVideo(request);
   },

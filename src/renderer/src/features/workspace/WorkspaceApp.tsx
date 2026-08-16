@@ -71,8 +71,19 @@ function toastIcon(tone: ToastTone) {
   return ToastIcon ? <ToastIcon size={18} /> : null;
 }
 
-function formSignature(form: HTMLFormElement): string {
-  return JSON.stringify(Array.from(new FormData(form).entries()).map(([key, value]) => [key, typeof value === "string" ? value : value.name]));
+type FormSignatureScope = "all" | "checklist" | "non-checklist";
+
+function isChecklistFormField(name: string): boolean {
+  return name === "checklist_id"
+    || name === "checklist_title"
+    || name.startsWith("checklist_done_")
+    || name.startsWith("checklist_completed_at_");
+}
+
+function formSignature(form: HTMLFormElement, scope: FormSignatureScope = "all"): string {
+  return JSON.stringify(Array.from(new FormData(form).entries())
+    .filter(([key]) => scope === "all" || (scope === "checklist" ? isChecklistFormField(key) : !isChecklistFormField(key)))
+    .map(([key, value]) => [key, typeof value === "string" ? value : value.name]));
 }
 
 export function WorkspaceApp() {
@@ -125,6 +136,8 @@ export function WorkspaceApp() {
   const compactDrawerClosing = useRef(false);
   const drawerFormRef = useRef<HTMLFormElement | null>(null);
   const drawerFormInitialSignature = useRef("");
+  const drawerFormInitialChecklistSignature = useRef("");
+  const drawerFormInitialNonChecklistSignature = useRef("");
   const [drawerFormDirty, setDrawerFormDirty] = useState(false);
   const drawerAutosavePromise = useRef<Promise<boolean> | null>(null);
   const noteAutoSaveTimer = useRef<number | null>(null);
@@ -373,6 +386,11 @@ export function WorkspaceApp() {
         else if (drawer) closeDrawer();
         return;
       }
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s" && drawerFormRef.current) {
+        event.preventDefault();
+        void saveDirtyDrawerForm();
+        return;
+      }
       if (inInput) return;
       if (event.key === "?") {
         event.preventDefault();
@@ -542,25 +560,45 @@ export function WorkspaceApp() {
     };
   }, [allThemes, fullData, fullDomain, loadState, setToast]);
 
-  const handleDrawerFormInput = useCallback(() => {
+  const handleDrawerFormInput = useCallback((event: Event) => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement && isChecklistFormField(target.name)) return;
     setDrawerFormDirty(true);
     noteAutoSaveTriggerRef.current();
   }, []);
+  const markDrawerFormDirty = useCallback(() => setDrawerFormDirty(true), []);
 
   const registerEditForm = useCallback((form: HTMLFormElement | null) => {
     const previous = drawerFormRef.current;
     if (previous && previous !== form) previous.removeEventListener("input", handleDrawerFormInput);
     if (noteAutoSaveTimer.current) { window.clearTimeout(noteAutoSaveTimer.current); noteAutoSaveTimer.current = null; }
+    drawerAutosavePromise.current = null;
     drawerFormRef.current = form;
     drawerFormInitialSignature.current = form ? formSignature(form) : "";
+    drawerFormInitialChecklistSignature.current = form ? formSignature(form, "checklist") : "";
+    drawerFormInitialNonChecklistSignature.current = form ? formSignature(form, "non-checklist") : "";
     setDrawerFormDirty(false);
     if (form) form.addEventListener("input", handleDrawerFormInput);
   }, [handleDrawerFormInput]);
 
   function isDrawerFormDirty(): boolean {
     const form = drawerFormRef.current;
-    return Boolean(form && drawer && formSignature(form) !== drawerFormInitialSignature.current);
+    return Boolean(form && drawer && (
+      formSignature(form, "checklist") !== drawerFormInitialChecklistSignature.current
+      || formSignature(form, "non-checklist") !== drawerFormInitialNonChecklistSignature.current
+    ));
   }
+
+  const registerDrawerSave = useCallback((promise: Promise<boolean>) => {
+    drawerAutosavePromise.current = promise;
+  }, []);
+
+  const markChecklistSaved = useCallback(() => {
+    const form = drawerFormRef.current;
+    if (!form || form.dataset.entityType !== "task") return;
+    drawerFormInitialChecklistSignature.current = formSignature(form, "checklist");
+    setDrawerFormDirty(formSignature(form, "non-checklist") !== drawerFormInitialNonChecklistSignature.current);
+  }, []);
 
   // 既存メモのメタ（タイトル・種別など）は入力が止まって1.5秒後に静かに自動保存する。
   // 本文は Notes 中央エリアの正本。新規作成中（entity.id未確定）やタイトルが空の間は対象外。
@@ -633,12 +671,18 @@ export function WorkspaceApp() {
   }
 
   useEffect(() => {
-    if (!drawer || !compactDrawerLayout || contentViewer || route === "sketch-editor") return undefined;
+    const isSketchEditorDrawer = route === "sketch-editor" && drawer?.type === "sketch";
+    if (!drawer || contentViewer || (!compactDrawerLayout && !isSketchEditorDrawer)) return undefined;
     const generation = drawerGeneration.current;
     const isProtectedSurface = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return true;
       return Boolean(target.closest(".drawer, .content-viewer-overlay, .shortcut-overlay, .context-menu"));
     };
+    const isSketchWorkSurface = (target: EventTarget | null) => (
+      isSketchEditorDrawer
+      && target instanceof Element
+      && Boolean(target.closest(".sketch-toolbar, .sketch-page-rail, .sketch-canvas-area, .sketch-bottom-controls"))
+    );
     const isActionTrigger = (target: EventTarget | null) => (
       target instanceof Element && Boolean(target.closest("button, a, [role='button']"))
     );
@@ -650,11 +694,17 @@ export function WorkspaceApp() {
       if (isProtectedSurface(event.target) || isActionTrigger(event.target)) return;
       void dismissCompactDrawer(generation);
     };
+    const onClick = (event: MouseEvent) => {
+      if (isProtectedSurface(event.target) || !isSketchWorkSurface(event.target)) return;
+      void dismissCompactDrawer(generation);
+    };
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("click", onClick);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("focusin", onFocusIn, true);
+      document.removeEventListener("click", onClick);
     };
     // saveDirtyDrawerFormは現在開いているフォームを参照するため、drawerの世代変更時だけ購読し直す。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1169,6 +1219,8 @@ export function WorkspaceApp() {
       lastDeleted.current = { type, id };
       drawerFormRef.current = null;
       drawerFormInitialSignature.current = "";
+      drawerFormInitialChecklistSignature.current = "";
+      drawerFormInitialNonChecklistSignature.current = "";
       drawerGeneration.current += 1;
       setDrawer(null);
       requestAnimationFrame(() => drawerTrigger.current?.focus?.());
@@ -1200,6 +1252,8 @@ export function WorkspaceApp() {
     const finishSave = (saved?: Entity) => {
       if (drawerFormRef.current === form) {
         drawerFormInitialSignature.current = submittedSignature;
+        drawerFormInitialChecklistSignature.current = formSignature(form, "checklist");
+        drawerFormInitialNonChecklistSignature.current = formSignature(form, "non-checklist");
         setDrawerFormDirty(false);
       }
       if (closeAfterSave) { closeDrawer(); return; }
@@ -1800,6 +1854,9 @@ export function WorkspaceApp() {
               removeEntity={removeEntity}
               saveEntity={saveEntity}
               saveEntities={saveEntities}
+              registerChecklistSave={registerDrawerSave}
+              markChecklistSaved={markChecklistSaved}
+              markChecklistDraftChange={markDrawerFormDirty}
               setToast={setToast}
               executeCommand={executeTaskWorkCommand}
               openContentViewer={openContentViewer}

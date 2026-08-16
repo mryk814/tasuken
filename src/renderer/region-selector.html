@@ -7,10 +7,16 @@
   <title>録画範囲を選択</title>
   <style>
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; cursor: crosshair; user-select: none; }
+    body:not(.is-indicator),
+    body:not(.is-indicator) * { cursor: crosshair !important; }
     /* 共通tokenのbody背景が後から注入されても、実デスクトップを透かす。 */
     body { background: transparent !important; font-family: var(--font-base); }
     #hint { position: fixed; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%); padding: 8px 12px; border-radius: 7px; background: #fbf8f6; color: #3d3532; font-size: 13px; box-shadow: 0 2px 12px rgb(0 0 0 / 18%); }
-    #selection { position: fixed; z-index: 1; display: none; border: 2px solid #8a2f3b; outline: 1px solid rgb(255 255 255 / 90%); outline-offset: 1px; background: rgb(255 255 255 / 4%); box-shadow: 0 0 0 99999px rgb(20 18 18 / 42%); }
+    #selection { position: fixed; z-index: 1; display: none; border: 2px dashed #8a2f3b; outline: 1px solid rgb(255 255 255 / 90%); outline-offset: 1px; background: rgb(255 255 255 / 4%); box-shadow: 0 0 0 99999px rgb(20 18 18 / 42%); }
+    body.is-indicator { cursor: default; pointer-events: none; }
+    body.is-indicator #hint,
+    body.is-indicator #size { display: none; }
+    body.is-indicator #selection { border: 3px dotted #ce3b3b; outline: none; background: transparent; box-shadow: none; }
     #size { position: absolute; z-index: 2; right: 0; bottom: -28px; padding: 3px 6px; border-radius: 4px; background: #fbf8f6; color: #3d3532; font: 12px ui-monospace, monospace; }
   </style>
 </head>
@@ -21,6 +27,19 @@
     const api = window.regionSelectorApi;
     const selection = document.getElementById("selection");
     const size = document.getElementById("size");
+    const hint = document.getElementById("hint");
+    const query = new URLSearchParams(location.search);
+    const indicatorMode = query.get("mode") === "indicator";
+    if (indicatorMode) {
+      document.body.classList.add("is-indicator");
+      Object.assign(selection.style, {
+        display: "block",
+        left: `${Number(query.get("left"))}px`,
+        top: `${Number(query.get("top"))}px`,
+        width: `${Number(query.get("width"))}px`,
+        height: `${Number(query.get("height"))}px`,
+      });
+    }
     let start = null;
     const point = (event) => ({ x: Math.round(event.clientX), y: Math.round(event.clientY) });
     const render = (end) => {
@@ -29,11 +48,23 @@
       Object.assign(selection.style, { display: "block", left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
       size.textContent = `${width} × ${height}`;
     };
-    addEventListener("pointerdown", (event) => { if (event.button !== 0) return; start = point(event); render(start); });
-    addEventListener("pointermove", (event) => { if (start) render(point(event)); });
-    addEventListener("pointerup", (event) => { if (!start || event.button !== 0) return; api.complete({ cancelled: false, start, end: point(event) }); start = null; });
-    addEventListener("keydown", (event) => { if (event.key === "Escape") api.complete({ cancelled: true }); });
-    addEventListener("contextmenu", (event) => { event.preventDefault(); api.complete({ cancelled: true }); });
+    if (!indicatorMode) {
+      addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        document.body.setPointerCapture(event.pointerId);
+        start = point(event);
+        render(start);
+      });
+      addEventListener("pointermove", (event) => { if (start) render(point(event)); });
+      addEventListener("pointerup", (event) => {
+        if (!start || event.button !== 0) return;
+        if (document.body.hasPointerCapture(event.pointerId)) document.body.releasePointerCapture(event.pointerId);
+        api.complete({ cancelled: false, start, end: point(event) });
+        start = null;
+      });
+      addEventListener("keydown", (event) => { if (event.key === "Escape") api.complete({ cancelled: true }); });
+      addEventListener("contextmenu", (event) => { event.preventDefault(); api.complete({ cancelled: true }); });
+    }
   </script>
 </body>
 </html>
