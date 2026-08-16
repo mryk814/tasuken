@@ -221,30 +221,28 @@
         themeSelect.value = [...themeSelect.options].some((option) => option.value === current) ? current : "";
       }
 
-      const MODES = new Set(["today-task", "micro-memo", "done-task", "due-task"]);
+      const MODES = new Set(["today-task", "micro-memo", "done-task"]);
 
       function applyMode(nextMode) {
         mode = MODES.has(nextMode) ? nextMode : "inbox";
         const isTodayTask = mode === "today-task";
         const isMicroMemo = mode === "micro-memo";
         const isDoneTask = mode === "done-task";
-        const isDueTask = mode === "due-task";
         const usesTheme = !isMicroMemo;
-        title.textContent = isDoneTask ? "やったことを記録" : isDueTask ? "期限つきタスクを追加" : isTodayTask ? "今日のタスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
-        modePill.textContent = isDoneTask ? "Done Task" : isDueTask ? "Due Task" : isTodayTask ? "Today Task" : isMicroMemo ? "Micro Memo" : "Inbox";
+        title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "タスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
+        modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Task" : isMicroMemo ? "Micro Memo" : "Inbox";
         input.placeholder = isDoneTask
           ? "やったこと｜ひとこと"
-          : isDueTask
-            ? "タスク名｜金曜まで"
-            : isTodayTask ? "今日やるタスク" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
-        hint.textContent = isDoneTask || isDueTask
-          ? "｜ の後ろが" + (isDueTask ? "期限" : "ひとこと") + " / Ctrl+Enter で記録 / Escで閉じる"
+          : isTodayTask ? "タスク名｜金曜まで（期限は省略可）" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
+        hint.textContent = isDoneTask || isTodayTask
+          ? "｜ の後ろが" + (isTodayTask ? "期限" : "ひとこと") + " / Ctrl+Enter で記録 / Escで閉じる"
           : "Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる";
-        submitButton.textContent = isTodayTask ? "今日に追加" : isDoneTask ? "完了で記録" : isDueTask ? "期限つきで追加" : "記録する";
-        feedback.textContent = isDoneTask ? "やったことを記録しました" : isDueTask ? "期限つきタスクを追加しました" : isTodayTask ? "今日のタスクに追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
+        submitButton.textContent = isTodayTask ? "追加" : isDoneTask ? "完了で記録" : "記録する";
+        feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "タスクを追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
         themeRow.classList.toggle("is-visible", usesTheme);
         duePreview.className = "due-preview";
-        duePreview.textContent = "";
+        duePreview.textContent = isTodayTask ? "期限指定なし · 今日" : "";
+        duePreview.classList.toggle("is-visible", isTodayTask);
         selectedRangeSemantics = "";
         rangeChoice.replaceChildren();
         rangeChoice.hidden = true;
@@ -281,13 +279,13 @@
 
       // 期限は解釈結果を保存前に見せる。読めない表現のまま黙って保存させない（#308）。
       async function refreshDuePreview() {
-        if (mode !== "due-task") return;
+        if (mode !== "today-task") return;
         const request = ++previewRequest;
         const result = await window.captureApi.previewDue(input.value);
-        if (mode !== "due-task" || request !== previewRequest) return;
+        if (mode !== "today-task" || request !== previewRequest) return;
         if (result.state === "empty") {
           duePreview.className = "due-preview is-visible";
-          duePreview.textContent = "｜ の後ろに期限を書いてください（例: 金曜まで / 8/15 / 明日17時）";
+          duePreview.textContent = "期限指定なし · 今日";
           rangeChoice.hidden = true;
           return;
         }

@@ -22,7 +22,7 @@ import type {
   WorkspaceData,
 } from "../types";
 import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS, NOTE_TYPE_LABELS, NOTE_TYPE_OPTIONS, THEME_STATUS_LABELS, relatedEntityTitle, uiNoteType } from "../lib/domain";
-import { dateOnly, formatDate, num, str, uuid } from "../lib/format";
+import { dateOnly, formatDate, localDateIso, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
 import { buildKnowledgeLinkContext } from "../lib/knowledgeLinks";
@@ -100,6 +100,11 @@ const isChatReferenceEntity = (entity: Record<string, unknown>) => (
   resolveChatService({ link_type: entity.link_type, url: entity.url }) !== "other" ||
   Boolean(entity.reference_status || entity.chat_group)
 );
+const chatDateInput = (value: unknown): string => {
+  const raw = str(value);
+  if (raw.length > 10 && !Number.isNaN(Date.parse(raw))) return localDateIso(new Date(raw));
+  return dateOnly(raw);
+};
 const PRIMARY_KNOWLEDGE_NODE_TYPES = ["question", "claim", "evidence", "decision"];
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
@@ -127,6 +132,9 @@ interface EntityDrawerProps {
   removeEntity: RemoveEntity;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
+  registerChecklistSave: (promise: Promise<boolean>) => void;
+  markChecklistSaved: () => void;
+  markChecklistDraftChange: () => void;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   executeCommand?: ExecuteCommand;
   openContentViewer?: OpenContentViewer;
@@ -316,7 +324,7 @@ function TaskWorkSection({
   );
 }
 
-export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, isFormDirty, removeEntity, saveEntity, saveEntities, setToast, executeCommand, openContentViewer, startFocusSession, navigate }: EntityDrawerProps) {
+export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, isFormDirty, removeEntity, saveEntity, saveEntities, registerChecklistSave, markChecklistSaved, markChecklistDraftChange, setToast, executeCommand, openContentViewer, startFocusSession, navigate }: EntityDrawerProps) {
   const entity = drawer.entity || {};
   if (drawer.mode === "edit") {
     return (
@@ -329,6 +337,9 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
         isFormDirty={isFormDirty}
         removeEntity={removeEntity}
         saveEntities={saveEntities}
+        registerChecklistSave={registerChecklistSave}
+        markChecklistSaved={markChecklistSaved}
+        markChecklistDraftChange={markChecklistDraftChange}
         setToast={setToast}
         executeCommand={executeCommand}
         openContentViewer={openContentViewer}
@@ -826,6 +837,9 @@ export function EntityDrawer({ drawer, data, close, saveForm, registerEditForm, 
       isFormDirty={isFormDirty}
       removeEntity={removeEntity}
       saveEntities={saveEntities}
+      registerChecklistSave={registerChecklistSave}
+      markChecklistSaved={markChecklistSaved}
+      markChecklistDraftChange={markChecklistDraftChange}
       setToast={setToast}
       openContentViewer={openContentViewer}
       navigate={navigate}
@@ -841,6 +855,9 @@ function EditDrawer({
   isFormDirty,
   removeEntity,
   saveEntities,
+  registerChecklistSave,
+  markChecklistSaved,
+  markChecklistDraftChange,
   setToast,
   executeCommand: _executeCommand,
   openContentViewer,
@@ -855,6 +872,9 @@ function EditDrawer({
   isFormDirty: boolean;
   removeEntity?: RemoveEntity;
   saveEntities?: SaveEntities;
+  registerChecklistSave: (promise: Promise<boolean>) => void;
+  markChecklistSaved: () => void;
+  markChecklistDraftChange: () => void;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   executeCommand?: ExecuteCommand;
   openContentViewer?: OpenContentViewer;
@@ -888,7 +908,10 @@ function EditDrawer({
         ...entity,
       }
       : entity) as unknown as DrawerConfig["entity"]
-    : entity;
+      : entity;
+  const taskChecklistEditorKey = type === "task"
+    ? `${entityId}:${str(entity._focusChecklistItem)}:${JSON.stringify(taskFormEntity.checklist_items || [])}`
+    : "";
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
   const requestInboxRecorder = useUiStore((state) => state.requestInboxRecorder);
   // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。
@@ -960,7 +983,17 @@ function EditDrawer({
         )}
         {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
         {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
-        {type === "task" && <TaskFields entity={taskFormEntity} data={data} saveEntities={saveEntities} />}
+        {type === "task" && (
+          <TaskFields
+            key={taskChecklistEditorKey}
+            entity={taskFormEntity}
+            data={data}
+            saveEntities={saveEntities}
+            onChecklistSavePending={registerChecklistSave}
+            onChecklistSaved={markChecklistSaved}
+            onChecklistDraftChange={markChecklistDraftChange}
+          />
+        )}
         {type === "waiting" && <WaitingFields entity={entity} data={data} />}
         {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
         {type === "capture_entry" && (
@@ -1189,7 +1222,8 @@ function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data
                 {CHAT_REFERENCE_STATUSES.map((value) => <option key={value} value={value}>{CHAT_REFERENCE_STATUS_LABELS[value]}</option>)}
               </select>
             </Field>
-            <Field label="保存日"><input name="captured_at" type="date" defaultValue={dateOnly(entity.captured_at || entity.created_at)} /></Field>
+            <Field label="保存日"><input name="captured_at" type="date" defaultValue={chatDateInput(entity.captured_at || entity.created_at)} /></Field>
+            <input type="hidden" name="captured_at_timestamp" value={str(entity.captured_at)} />
           </div>
         </>
       )}

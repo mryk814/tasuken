@@ -194,13 +194,22 @@ function activeElectronProcesses(root, environment) {
     const script = `Get-CimInstance Win32_Process -Filter \"Name = 'electron.exe'\" | Where-Object { $_.CommandLine -like '*${escapedRoot}*' } | ForEach-Object { $_.ProcessId }`;
     try {
       const output = execFileSync(powershell, ["-NoProfile", "-Command", script], { encoding: "utf8", windowsHide: true, timeout: 3000 });
-      const pids = output.split(/\r?\n/).map((value) => Number(value.trim())).filter(Number.isInteger);
+      const pids = parseProcessIds(output);
       return { pids, error: "" };
     } catch (error) {
       return { pids: [], error: error instanceof Error ? error.message : String(error) };
     }
   }
   return { pids: [], error: "" };
+}
+
+export function parseProcessIds(output) {
+  return String(output || "")
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map(Number)
+    .filter((value) => Number.isInteger(value) && value > 0);
 }
 
 function staleSingletonPid(environment) {

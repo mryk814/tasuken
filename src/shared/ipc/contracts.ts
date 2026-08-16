@@ -42,13 +42,15 @@ import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
 import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared, VideoTrimExportRequest, VideoTrimExportResult, VideoTrimSourceRevision } from "../mediaCapture";
 import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest, BatchTranscriptionHistoryResult, BatchTranscriptionPreviewResult, BatchTranscriptionRunRequest, BatchTranscriptionRunResult } from "../batchTranscriptionIpc";
-import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
+import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingRegionSelection, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
 
 /** 録画中インジケータが表示する状態（#383）。pathやsource IDは載せない。 */
 export interface RecordingIndicatorState {
   state: "recording" | "paused" | "stopping";
   targetLabel: string;
   elapsedMs: number;
+  /** Tasken自身をwindow録画するときだけ、本体を最小化しない。 */
+  keepMainWindowVisible?: boolean;
 }
 
 export type RecordingIndicatorCommand = "pause" | "resume" | "stop" | "discard";
@@ -95,9 +97,11 @@ export const IPC = {
   screenRecordingArm: "screen-recording:arm",
   screenRecordingSelectRegion: "screen-recording:select-region",
   screenRecordingRegionResult: "screen-recording:region-result",
+  screenRecordingRegionIndicatorApply: "screen-recording:region-indicator-apply",
   recordingIndicatorState: "recording-indicator:state",
   recordingIndicatorRequestState: "recording-indicator:request-state",
   recordingIndicatorCommand: "recording-indicator:command",
+  recordingIndicatorSetRetracted: "recording-indicator:set-retracted",
   recordingIndicatorApply: "recording-indicator:apply",
   videoImportPrepare: "video-import:prepare",
   videoImportListPrepared: "video-import:list-prepared",
@@ -651,6 +655,7 @@ export interface ResearchDeskApi {
     listSources(): Promise<readonly Readonly<ScreenRecordingSourceProjection>[]>;
     arm(request: ScreenRecordingArmRequest): Promise<ArmedScreenRecordingProjection>;
     selectRegion(request: { sourceToken: string }): Promise<import("../screenRecording.mjs").ScreenRecordingRegionSelection | null>;
+    applyRegionIndicator(region: ScreenRecordingRegionSelection | null): Promise<boolean>;
     applyIndicator(state: RecordingIndicatorState | null): Promise<boolean>;
     onIndicatorCommand(callback: (command: RecordingIndicatorCommand) => void): () => void;
   };

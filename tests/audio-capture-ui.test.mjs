@@ -12,8 +12,12 @@ const mediaRecorderFlush = readFileSync("src/renderer/src/features/workspace/lib
 const screenRecorder = readFileSync("src/renderer/src/features/workspace/components/ScreenRecorderPanel.tsx", "utf8");
 const voiceRecorder = readFileSync("src/renderer/src/features/workspace/components/VoiceRecorderPanel.tsx", "utf8");
 const studio = readFileSync("src/renderer/src/features/workspace/pages/StudioPage.tsx", "utf8");
+const recordings = readFileSync("src/renderer/src/features/workspace/components/RecordingsPanel.tsx", "utf8");
+const drawerFormPlans = readFileSync("src/renderer/src/features/workspace/lib/drawerFormPlans.ts", "utf8");
 const pendingRecordings = readFileSync("src/renderer/src/features/workspace/components/PendingRecordingsPanel.tsx", "utf8");
 const regionSelector = readFileSync("src/renderer/region-selector.html", "utf8");
+const recordingIndicator = readFileSync("src/renderer/recording-indicator.html", "utf8");
+const recordingIndicatorController = readFileSync("src/main/recordingIndicatorController.ts", "utf8");
 const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const mainIndex = readFileSync("src/main/index.ts", "utf8");
 
@@ -74,6 +78,45 @@ test("範囲選択overlayは共通body背景に負けず、選択中の画面を
   assert.match(regionSelector, /body \{ background: transparent !important;/);
   assert.match(regionSelector, /#selection \{[^\n]*outline: 1px solid/);
   assert.match(regionSelector, /#selection \{[^\n]*box-shadow: 0 0 0 99999px/);
+  assert.match(regionSelector, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(regionSelector, /releasePointerCapture\(event\.pointerId\)/);
+});
+
+test("画面録画は画面全体・範囲・ウィンドウを同じ階層に並べ、入力機器と範囲表示を持つ", () => {
+  assert.match(studio, /<Button variant="primary" compact disabled=\{voiceActive \|\| screenRecordingActive\}[\s\S]*?<IconDeviceDesktop size=\{15\} \/>画面を録画/);
+  assert.match(screenRecorder, /screen-recorder-targets/);
+  assert.match(screenRecorder, /<span>画面全体<\/span>/);
+  assert.match(screenRecorder, /<strong>ウィンドウ<\/strong>/);
+  assert.match(screenRecorder, /<option value="system" disabled=\{!environment\?\.systemAudio\}>システム音声（PCの音）<\/option>/);
+  assert.match(screenRecorder, /audioDevices\.map/);
+  assert.match(screenRecorder, /deviceId: \{ exact: selectedAudioDeviceId \}/);
+  assert.match(screenRecorder, /applyScreenRecordingRegionIndicator\(visible \? regionSelection : null\)/);
+  assert.match(regionSelector, /body\.is-indicator #selection \{ border: 3px dotted #ce3b3b/);
+  assert.match(screenRecorder, /screen-recorder-control-row/);
+  assert.doesNotMatch(screenRecorder, /他の録画アプリを停止/);
+});
+
+test("範囲録画は本体最小化後もcanvas frameを明示送信し、encoder向けに偶数寸法で保存する", () => {
+  assert.match(mainIndex, /backgroundThrottling: false/);
+  assert.match(screenRecorder, /canvas\.width = Math\.max\(2, sourceWidth - \(sourceWidth % 2\)\)/);
+  assert.match(screenRecorder, /canvas\.height = Math\.max\(2, sourceHeight - \(sourceHeight % 2\)\)/);
+  assert.match(screenRecorder, /const stream = canvas\.captureStream\(0\)[\s\S]*?canvasTrack\.requestFrame\(\)[\s\S]*?window\.setInterval\(draw, 1000 \/ 30\)/);
+  assert.doesNotMatch(screenRecorder, /requestAnimationFrame\(draw\)/);
+});
+
+test("録画中は開始元を最小化し、上端の縮小バーはhoverで操作を再表示できる", () => {
+  assert.match(recordingIndicatorController, /BrowserWindow\.fromWebContents\(event\.sender\)/);
+  assert.match(recordingIndicatorController, /minimizeMainWindow\(state, recordingOwnerWindow\)/);
+  assert.match(recordingIndicatorController, /let minimizedMainWindow: BrowserWindow \| null = null/);
+  assert.match(recordingIndicator, /body\.is-retracted \.indicator-surface \{[\s\S]*?-webkit-app-region: no-drag/);
+  assert.match(recordingIndicator, /addEventListener\("pointer(?:enter|move)", revealControls\)/);
+  assert.match(recordingIndicator, /function revealControls\(\) \{\s*pointerInside = true;\s*window\.clearTimeout\(retractTimer\);\s*if \(!retracted\) return;/);
+  assert.match(recordingIndicator, /window\.setTimeout\(\(\) => \{\s*if \(!pointerInside\) setRetracted\(true\);/);
+  assert.match(recordingIndicator, /const PAUSE_ICON = '<svg/);
+  assert.match(recordingIndicator, /const RESUME_ICON = '<svg/);
+  assert.match(recordingIndicator, /id="stop" class="primary" aria-label="停止" title="停止">\s*<svg/);
+  assert.match(recordingIndicator, /id="discard" class="danger" aria-label="破棄" title="破棄">\s*<svg/);
+  assert.doesNotMatch(recordingIndicator, /<button[^>]*>一時停止<\/button>|<button[^>]*>停止<\/button>|<button[^>]*>破棄<\/button>/);
 });
 
 test("画面録画のpause→即stop等は単一transition queueで直列化する", () => {
@@ -214,11 +257,32 @@ test("Studioの録音と画面録画は同じ形の面で、開始操作を見�
   assert.doesNotMatch(voiceRecorder, /<section className="panel inbox-audio-recovery"/);
 });
 
+test("Studioの収録物は小さな媒体サムネイルと行クリック編集を持つ", () => {
+  assert.match(studio, /<RecordingsPanel[\s\S]*?onEdit=/);
+  assert.match(recordings, /className=\{`studio-recording-thumbnail is-/);
+  assert.match(recordings, /tasken-media:\/\/artifact\/\$\{encodeURIComponent\(artifact\.id\)\}/);
+  assert.match(recordings, /<video[\s\S]*?src=\{artifactMediaSource\(artifact\)\}/);
+  assert.match(recordings, /isVideo \? <IconVideo/);
+  assert.match(recordings, /<svg className="studio-recording-waveform"/);
+  assert.match(recordings, /<AudioWaveform seed=\{artifact\?\.id \|\| entry\.id\}/);
+  assert.match(recordings, /role="button"[\s\S]*?onClick=\{\(\) => onEdit\(entry\)\}/);
+  assert.match(recordings, /event\.stopPropagation\(\);[\s\S]*?onOpen\(artifact\)/);
+});
+
+test("収録物の編集保存は音声・動画の媒体属性を保持する", () => {
+  assert.match(drawerFormPlans, /content_type: \(base\.content_type as CaptureEntry\["content_type"\]\)/);
+  assert.match(drawerFormPlans, /capture_method: \(base\.capture_method as CaptureEntry\["capture_method"\]\)/);
+  assert.match(drawerFormPlans, /media_status: \(base\.media_status as CaptureEntry\["media_status"\]\)/);
+  assert.match(drawerFormPlans, /transcription_status: \(base\.transcription_status as CaptureEntry\["transcription_status"\]\)/);
+});
+
 test("Content Viewerはウィンドウを変えずアプリ内で大きく見られる（#387）", () => {
   const contentViewer = readFileSync("src/renderer/src/features/workspace/components/ContentViewer.tsx", "utf8");
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
-  // 動画・画像・文書で拡大へ入れる。音声は面を広げても得がないので出さない。
-  assert.match(contentViewer, /const canExpand = load\.status === "ready" && \(load\.mode === "video"/);
+  // 動画は開いた時点でTasken全体を使う。画像・文書だけ必要に応じて拡大する。
+  assert.match(contentViewer, /const isVideo = load\.status === "ready" && load\.mode === "video"/);
+  assert.match(contentViewer, /isVideo \? "is-video" : "is-markdown"/);
+  assert.doesNotMatch(contentViewer, /const canExpand[^;]*load\.mode === "video"/);
   assert.match(contentViewer, /aria-pressed=\{expanded\}/);
   assert.match(contentViewer, /\{expanded \? "縮小" : "大きく見る"\}/);
   // Escapeは段階的に戻す。拡大中にいきなり閉じない。
@@ -226,8 +290,10 @@ test("Content Viewerはウィンドウを変えずアプリ内で大きく見ら
   // 一時的な見方なので保存しない。
   assert.doesNotMatch(contentViewer, /usePreference\([^)]*expanded/);
   // ウィンドウサイズは変えず、面の中だけで広げる。
-  assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-dialog \{[\s\S]*?height: 100vh;/);
-  assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-video video \{[\s\S]*?object-fit: contain;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \{\s*padding: 0;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \.content-viewer-dialog \{[\s\S]*?height: 100vh;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \.video-trim-editor \{[\s\S]*?width: 100%;[\s\S]*?max-width: none;[\s\S]*?height: 100%;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \.content-viewer-video video \{[\s\S]*?object-fit: contain;/);
 });
 
 test("紐づけ先を選ばない画面録画はThemeの保存先を要求しない（#383）", () => {

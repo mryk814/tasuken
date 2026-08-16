@@ -32,11 +32,15 @@
         transition: transform 180ms ease;
       }
       body.is-retracted .indicator-surface {
-        transform: translateY(calc(-100% + 12px));
+        gap: 0;
+        padding: 0;
+        transform: none;
+        cursor: pointer;
+        /* drag領域ではpointer eventがRendererへ届かない。縮小中だけ操作面へ戻す。 */
+        -webkit-app-region: no-drag;
       }
-      body.is-retracted:hover .indicator-surface,
-      body.is-retracted:focus-within .indicator-surface {
-        transform: translateY(0);
+      body.is-retracted .indicator-surface > * {
+        visibility: hidden;
       }
       .indicator-surface::after {
         position: absolute;
@@ -80,13 +84,25 @@
       }
       .actions { display: inline-flex; gap: var(--space-2); }
       .actions button {
+        display: inline-grid;
+        width: 28px;
         min-height: 26px;
-        padding: 0 var(--space-2);
+        padding: 0;
+        place-items: center;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-sm);
         background: var(--color-surface-subtle);
         color: var(--color-text);
         font-size: var(--text-xs);
+      }
+      .actions button svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2;
       }
       .actions button:hover { background: var(--color-surface-muted); }
       .actions button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -104,9 +120,13 @@
       <span class="target" id="target"></span>
       <strong class="elapsed" id="elapsed">00:00</strong>
       <span class="actions">
-        <button type="button" id="pause">一時停止</button>
-        <button type="button" id="stop" class="primary">停止</button>
-        <button type="button" id="discard" class="danger">破棄</button>
+        <button type="button" id="pause" aria-label="一時停止" title="一時停止"></button>
+        <button type="button" id="stop" class="primary" aria-label="停止" title="停止">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"></path></svg>
+        </button>
+        <button type="button" id="discard" class="danger" aria-label="破棄" title="破棄">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3"></path></svg>
+        </button>
       </span>
     </div>
     <script type="module">
@@ -119,6 +139,24 @@
       const api = window.recordingIndicatorApi;
       let lastKind = "";
       let retractTimer = 0;
+      let retracted = false;
+      let pointerInside = false;
+      const PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>';
+      const RESUME_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 7l-14 7z"></path></svg>';
+
+      function setRetracted(nextRetracted) {
+        if (retracted === nextRetracted) return;
+        retracted = nextRetracted;
+        document.body.classList.toggle("is-retracted", nextRetracted);
+        void api.setRetracted(nextRetracted);
+      }
+
+      function scheduleRetract(delay = 1200) {
+        window.clearTimeout(retractTimer);
+        retractTimer = window.setTimeout(() => {
+          if (!pointerInside) setRetracted(true);
+        }, delay);
+      }
 
       const STATE_LABELS = {
         recording: "録画中",
@@ -138,21 +176,38 @@
         targetEl.textContent = state.targetLabel || "";
         targetEl.title = state.targetLabel || "";
         elapsedEl.textContent = formatElapsed(state.elapsedMs);
-        pauseButton.textContent = kind === "paused" ? "再開" : "一時停止";
+        const pauseLabel = kind === "paused" ? "再開" : "一時停止";
+        pauseButton.innerHTML = kind === "paused" ? RESUME_ICON : PAUSE_ICON;
+        pauseButton.setAttribute("aria-label", pauseLabel);
+        pauseButton.title = pauseLabel;
         pauseButton.disabled = kind === "stopping";
         stopButton.disabled = kind === "stopping";
         discardButton.disabled = kind === "stopping";
         if (kind !== lastKind) {
           window.clearTimeout(retractTimer);
-          document.body.classList.remove("is-retracted");
-          if (kind === "recording") {
-            retractTimer = window.setTimeout(() => document.body.classList.add("is-retracted"), 1200);
-          }
+          setRetracted(false);
+          if (kind === "recording") scheduleRetract();
           lastKind = kind;
         }
       }
 
-      pauseButton.addEventListener("click", () => { void api.command(pauseButton.textContent === "再開" ? "resume" : "pause"); });
+      function revealControls() {
+        pointerInside = true;
+        window.clearTimeout(retractTimer);
+        if (!retracted) return;
+        setRetracted(false);
+      }
+
+      // Windowsの透明・縮小Windowではmouseenterを取りこぼすことがあるため、
+      // pointerenterに加えてpointermoveでも展開する。
+      document.body.addEventListener("pointerenter", revealControls);
+      document.body.addEventListener("pointermove", revealControls);
+      document.body.addEventListener("pointerleave", () => {
+        pointerInside = false;
+        if (lastKind === "recording") scheduleRetract(500);
+      });
+
+      pauseButton.addEventListener("click", () => { void api.command(pauseButton.getAttribute("aria-label") === "再開" ? "resume" : "pause"); });
       stopButton.addEventListener("click", () => { void api.command("stop"); });
       discardButton.addEventListener("click", () => { void api.command("discard"); });
       api.onState(render);

@@ -5,6 +5,12 @@ import test from "node:test";
 const canvas = readFileSync("src/renderer/src/features/workspace/components/SketchCanvas.tsx", "utf8");
 const page = readFileSync("src/renderer/src/features/workspace/pages/SketchPage.tsx", "utf8");
 
+test("Sketchの自動保存は成功トーストを出さず、画面内の保存状態だけを更新する", () => {
+  assert.match(page, /saveEntity\("sketch", \{[\s\S]*?document,[\s\S]*?\}, \{ quiet: true \}\)/);
+  assert.match(page, /setSaveState\("自動保存済み"\)/);
+  assert.match(page, /Sketchを保存できませんでした/);
+});
+
 test("Shape Arrow and Text remain active after creating an object", () => {
   const pointerUp = canvas.match(/function onPointerUp\([\s\S]*?function onPointerCancel/)?.[0] || "";
   const shapeBranch = pointerUp.match(/if \(tool === "shape"\)([\s\S]*?)if \(tool === "arrow"\)/)?.[1] || "";

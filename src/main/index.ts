@@ -2150,6 +2150,9 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // 範囲録画はRendererのcanvasで切り抜く。録画中に本体を最小化しても
+      // frame生成を止めず、MediaRecorderへ映像を渡し続ける。
+      backgroundThrottling: false,
       // TODO: sandbox:true currently prevents window.api/window.researchDesk from being exposed.
       // Keep the verified contextIsolation/nodeIntegration boundary until the preload bridge is migrated.
       sandbox: false,
@@ -2537,7 +2540,6 @@ async function startDesktopApp(): Promise<void> {
     const directHandlers: Record<(typeof DIRECT_SHORTCUT_DEFINITIONS)[number]["id"], () => void> = {
       "quick-capture": () => quickCaptureController?.show("inbox"),
       "today-task": () => quickCaptureController?.show("today-task"),
-      "due-task": () => quickCaptureController?.show("due-task"),
       "done-task": () => quickCaptureController?.show("done-task"),
       "micro-memo": () => quickCaptureController?.show("micro-memo"),
     };

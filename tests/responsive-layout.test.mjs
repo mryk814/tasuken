@@ -58,6 +58,11 @@ test("compact desktop layout protects the main work area", () => {
   assert.match(workspaceSource, /if \(!\(await saveDirtyDrawerForm\(\)\) \|\| generation !== drawerGeneration\.current\) return;/);
 });
 
+test("Ctrl+Sは入力中でも開いているdrawerを保存し、ブラウザ既定動作を止める", () => {
+  assert.match(workspaceSource, /\(event\.ctrlKey \|\| event\.metaKey\)[\s\S]*?event\.key\.toLowerCase\(\) === "s" && drawerFormRef\.current/);
+  assert.match(workspaceSource, /event\.preventDefault\(\);\s*void saveDirtyDrawerForm\(\);/);
+});
+
 test("titlebar content owns one bounded height contract without nested viewport overflow", () => {
   assert.match(cssSource, /\.app-shell \{ position: relative; height: 100%; min-height: 0;/);
   assert.match(cssSource, /\.notes-page \{[^}]*height: 100%; min-height: 0;/);

@@ -6,8 +6,7 @@ export const ROOT_USAGE_PREFERENCE_KEY = "taskenRoot.usage.v1";
 
 export const DIRECT_SHORTCUT_DEFINITIONS = [
   { id: "quick-capture", label: "Quick Capture", accelerator: "CommandOrControl+Shift+N" },
-  { id: "today-task", label: "今日のTaskを記録", accelerator: "CommandOrControl+Shift+M" },
-  { id: "due-task", label: "期限付きTaskを記録", accelerator: "CommandOrControl+Shift+D" },
+  { id: "today-task", label: "Taskを追加", accelerator: "CommandOrControl+Shift+M" },
   { id: "done-task", label: "完了Taskを記録", accelerator: "CommandOrControl+Shift+," },
   { id: "micro-memo", label: "Micro Memoを記録", accelerator: "CommandOrControl+Shift+." },
 ] as const;

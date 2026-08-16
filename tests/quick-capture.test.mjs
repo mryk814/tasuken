@@ -145,17 +145,19 @@ test("期限のラベルは曜日と時刻を添えて確認できる（#308）"
   assert.equal(quickCaptureDueLabel(null), "");
 });
 
-test("Quick Captureはmodeごとに補足を解釈し、期限つきTaskを直接保存する（#308）", () => {
-  // 期限modeはdeadline scheduleで保存し、時刻があればリマインダーにする。
-  assert.match(controllerSource, /date_kind: isRange \? "range" : mode === "due-task" \? "deadline" : "point"/);
+test("通常のTask追加が任意の期限を解釈し、未指定なら今日へ保存する（#308）", () => {
+  assert.match(controllerSource, /const due = mode === "today-task" && extra \? parseSchedule\(extra, today\) : null/);
+  assert.match(controllerSource, /date_kind: isRange \? "range" : parsedDue \? "deadline" : "point"/);
+  assert.match(controllerSource, /today_date: mode === "today-task" && !parsedDue \? today : null/);
   assert.match(controllerSource, /range_semantics: rangeSemantics/);
   assert.match(controllerSource, /reminder_at: parsedDue\?\.kind === "single" && parsedDue\.time/);
   // 読めない期限は例外にして、期限なしのまま保存しない。
   assert.match(controllerSource, /if \(due && !due\.ok\) throw new Error\(due\.message\)/);
   // やったことのひとことは本文と分けて保存する。
   assert.match(controllerSource, /completion_note: isDoneTask && extra \? extra : null/);
-  // 入口ごとにmodeを決めて開く。
-  assert.match(controllerSource, /期限つきタスクを追加/);
+  assert.match(controllerSource, /label: "タスクを追加"/);
+  assert.doesNotMatch(controllerSource, /due-task|期限つきタスクを追加/);
+  assert.match(captureWindowSource, /title\.textContent = isDoneTask \? "やったことを記録" : isTodayTask \? "タスクに追加"/);
   assert.match(captureWindowSource, /previewDue/);
   assert.match(captureWindowSource, /期間中継続/);
   assert.match(captureWindowSource, /selectedRangeSemantics/);

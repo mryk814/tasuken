@@ -525,7 +525,7 @@ test("録画中インジケータは録画に写り込まず、操作を本体�
   assert.match(indicator, /win\.setContentProtection\(true\)/);
   assert.match(indicator, /alwaysOnTop: true/);
   // 表示に要らないものを別Windowへ渡さない。
-  assert.match(indicator, /return \{ state: input\.state, targetLabel, elapsedMs \}/);
+  assert.match(indicator, /keepMainWindowVisible: input\.keepMainWindowVisible === true/);
   assert.doesNotMatch(indicator, /sourceToken|stored_path|sourceId/);
   // 録画本体はRendererが持つので、操作は本体へ転送する。
   assert.match(indicator, /main\.webContents\.send\(IPC\.recordingIndicatorCommand, value\)/);
@@ -533,6 +533,18 @@ test("録画中インジケータは録画に写り込まず、操作を本体�
   // 録画が終わったらnullで畳む。出しっぱなしにしない。
   assert.match(panel, /applyRecordingIndicator\(visible \? \{[\s\S]*?\} : null\)/);
   assert.match(indicator, /if \(!state\) \{\s*\n\s*close\(\);/);
+  assert.match(indicator, /transparent: true/);
+  assert.match(indicator, /backgroundColor: "#00000000"/);
+  assert.match(indicator, /height: value \? 12 : 64/);
+  assert.match(indicatorHtml, /api\.setRetracted\(nextRetracted\)/);
+  assert.match(indicatorHtml, /body\.is-retracted \.indicator-surface > \* \{\s*visibility: hidden;/);
+  assert.match(indicatorHtml, /addEventListener\("pointerenter", revealControls\)/);
+  assert.match(indicatorHtml, /addEventListener\("pointermove", revealControls\)/);
+  const regionSelectorHtml = readFileSync("src/renderer/region-selector.html", "utf8");
+  assert.match(regionSelectorHtml, /body:not\(\.is-indicator\) \{ background: rgb\(0 0 0 \/ 1%\) !important; \}/);
+  assert.match(indicator, /main\.minimize\(\)/);
+  assert.match(indicator, /if \(main\.isMinimized\(\)\) main\.restore\(\)/);
+  assert.match(panel, /keepMainWindowVisible: selectedSource\?\.kind === "window" && \/tasken\/i\.test\(selectedSource\.label\)/);
   // 対象と経過を出す。
   assert.match(indicatorHtml, /id="target"/);
   assert.match(indicatorHtml, /id="elapsed"/);

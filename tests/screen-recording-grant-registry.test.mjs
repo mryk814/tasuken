@@ -248,6 +248,8 @@ test("display requestのoriginは末尾スラッシュ付きでも一致し、de
 
   // packaged版のfile:frameはopaque originで届くことがある。
   assert.equal(screenRecordingOriginsMatch("file://", "file://"), true);
+  assert.equal(screenRecordingOriginsMatch("file:///", "file://"), true);
+  assert.equal(normalizeScreenRecordingSecurityOrigin("file:///"), "file://");
   assert.equal(screenRecordingOriginsMatch("null", "file://"), true);
 
   // 別originは通さない。opaque originをhttp frameへ流用させない。

@@ -17,7 +17,7 @@ import { canonicalThemeId } from "../shared/themeRef.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../shared/applicationCommand";
 import { IPC } from "../shared/ipc/contracts";
 
-export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task" | "due-task";
+export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
 interface QuickCaptureControllerOptions {
   repository: InstanceType<typeof WorkspaceDatabase>;
@@ -121,7 +121,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
     ipcMain.handle(IPC.quickCaptureSave, (event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string, selectedRangeSemantics?: "once_within_window" | "ongoing") => {
       const trimmed = (text || "").trim();
       if (!trimmed) throw new Error("入力が空です。");
-      if (mode === "today-task" || mode === "done-task" || mode === "due-task") {
+      if (mode === "today-task" || mode === "done-task") {
         const taskId = randomUUID();
         const today = localDateString();
         const now = new Date().toISOString();
@@ -129,7 +129,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
         // 「本体｜補足」の補足はmodeごとに意味が違う（#308）。
         const { main, extra } = splitQuickCaptureInput(trimmed);
         if (!main) throw new Error("タスク名を入力してください。");
-        const due = mode === "due-task" ? parseSchedule(extra, today) : null;
+        const due = mode === "today-task" && extra ? parseSchedule(extra, today) : null;
         if (due && !due.ok) throw new Error(due.message);
         const parsedDue = due?.ok ? due : null;
         const isRange = parsedDue?.kind === "range";
@@ -145,14 +145,14 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
             task: {
               id: taskId,
               title: main,
-              // 期限modeの補足は日付として消費するので本文へは残さない。
-              description: mode === "today-task" && extra ? extra : null,
+              // Task追加の補足は期限として消費するので本文へは残さない。
+              description: null,
               // やったことのひとことは本文と混ぜず、完了の記録として分けて保存する。
               completion_note: isDoneTask && extra ? extra : null,
               project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
               state: isDoneTask ? "done" : "todo",
               priority: "normal",
-              today_date: mode === "today-task" ? today : null,
+              today_date: mode === "today-task" && !parsedDue ? today : null,
               completed_at: isDoneTask ? now : null,
               reminder_at: parsedDue?.kind === "single" && parsedDue.time ? `${parsedDue.date}T${parsedDue.time}` : null,
               created_at: now,
@@ -163,7 +163,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
               owner_id: taskId,
               start_date: scheduledDate,
               end_date: scheduledEndDate,
-              date_kind: isRange ? "range" : mode === "due-task" ? "deadline" : "point",
+              date_kind: isRange ? "range" : parsedDue ? "deadline" : "point",
               range_semantics: rangeSemantics,
               confidence: "fixed",
               granularity: "day",
@@ -216,8 +216,7 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
   function menuItems(): Electron.MenuItemConstructorOptions[] {
     return [
       { label: "Inboxへクイック記録", accelerator: "CmdOrCtrl+Shift+N", click: () => show("inbox") },
-      { label: "今日のタスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => show("today-task") },
-      { label: "期限つきタスクを追加", accelerator: "CmdOrCtrl+Shift+D", click: () => show("due-task") },
+      { label: "タスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => show("today-task") },
       { label: "やったことを記録", accelerator: "CmdOrCtrl+Shift+,", click: () => show("done-task") },
       { label: "付箋メモを追加", accelerator: "CmdOrCtrl+Shift+.", click: () => show("micro-memo") },
     ];

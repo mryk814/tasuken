@@ -26,7 +26,7 @@ function normalizeState(value: unknown): RecordingIndicatorState | null {
   if (!Number.isSafeInteger(elapsedMs) || elapsedMs < 0) return null;
   const targetLabel = typeof input.targetLabel === "string" ? input.targetLabel.slice(0, MAX_TARGET_LABEL_CHARS) : "";
   // 表示に要らないものは載せない。source IDやpathをこの窓へ渡さない。
-  return { state: input.state, targetLabel, elapsedMs };
+  return { state: input.state, targetLabel, elapsedMs, keepMainWindowVisible: input.keepMainWindowVisible === true };
 }
 
 export function createRecordingIndicatorController(
@@ -34,8 +34,10 @@ export function createRecordingIndicatorController(
 ): RecordingIndicatorController {
   const windowKey = { kind: "recording" as const, entityId: "screen-recording" };
   let current: RecordingIndicatorState | null = null;
+  let recordingOwnerWindow: BrowserWindow | null = null;
+  let minimizedMainWindow: BrowserWindow | null = null;
 
-  function ensureWindow(): BrowserWindow {
+  function ensureWindow(ownerWindow: BrowserWindow | null): BrowserWindow {
     const existing = options.satelliteWindows.get(windowKey);
     if (existing && !existing.isDestroyed()) return existing;
     const win = options.satelliteWindows.open(windowKey, {
@@ -43,18 +45,23 @@ export function createRecordingIndicatorController(
       width: 460,
       height: 64,
       minWidth: 360,
-      minHeight: 56,
+      minHeight: 12,
       page: "recording-indicator",
       preload: path.join(__dirname, "../preload/recordingIndicator.mjs"),
       alwaysOnTop: true,
       frame: false,
       skipTaskbar: true,
+      transparent: true,
+      hasShadow: false,
+      backgroundColor: "#00000000",
     });
-    const main = options.getMainWindow();
+    const main = ownerWindow && !ownerWindow.isDestroyed() ? ownerWindow : options.getMainWindow();
     const display = main && !main.isDestroyed()
       ? screen.getDisplayMatching(main.getBounds())
       : screen.getPrimaryDisplay();
     const bounds = win.getBounds();
+    win.setMinimumSize(360, 12);
+    win.setSize(Math.max(360, bounds.width), 64, false);
     win.setPosition(
       Math.round(display.workArea.x + (display.workArea.width - bounds.width) / 2),
       display.workArea.y,
@@ -63,8 +70,27 @@ export function createRecordingIndicatorController(
     // これが本題。Windows 10 2004+ のWDA_EXCLUDEFROMCAPTUREで、
     // インジケータ自身が録画結果へ写り込まないようにする（#383）。
     win.setContentProtection(true);
+    win.setBackgroundColor("#00000000");
     win.setAlwaysOnTop(true, "screen-saver");
     return win;
+  }
+
+  function minimizeMainWindow(state: RecordingIndicatorState, ownerWindow: BrowserWindow | null): void {
+    if (state.keepMainWindowVisible || minimizedMainWindow) return;
+    const main = ownerWindow && !ownerWindow.isDestroyed() ? ownerWindow : options.getMainWindow();
+    if (!main || main.isDestroyed() || main.isMinimized()) return;
+    main.minimize();
+    minimizedMainWindow = main;
+    logMain("info", "recording-indicator:minimize", "録画開始元のウィンドウを最小化しました");
+  }
+
+  function restoreMainWindow(): void {
+    const main = minimizedMainWindow;
+    minimizedMainWindow = null;
+    if (!main || main.isDestroyed()) return;
+    if (main.isMinimized()) main.restore();
+    main.show();
+    main.focus();
   }
 
   function push(state: RecordingIndicatorState): void {
@@ -78,28 +104,42 @@ export function createRecordingIndicatorController(
   function close(): void {
     current = null;
     options.satelliteWindows.close(windowKey);
+    restoreMainWindow();
+    recordingOwnerWindow = null;
   }
 
   return {
     registerIpc(): void {
       // 本体から状態を受け取る。録画が終わったらnullが来て窓を畳む。
-      ipcMain.handle(IPC.recordingIndicatorApply, (_event, value: unknown) => {
+      ipcMain.handle(IPC.recordingIndicatorApply, (event, value: unknown) => {
         const state = normalizeState(value);
         if (!state) {
           close();
           return false;
         }
         current = state;
-        ensureWindow();
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (senderWindow && !senderWindow.isDestroyed()) recordingOwnerWindow = senderWindow;
+        ensureWindow(recordingOwnerWindow);
+        minimizeMainWindow(state, recordingOwnerWindow);
         push(state);
         return true;
       });
       ipcMain.handle(IPC.recordingIndicatorRequestState, () => current);
+      ipcMain.handle(IPC.recordingIndicatorSetRetracted, (event, value: unknown) => {
+        const win = options.satelliteWindows.get(windowKey);
+        if (!win || win.isDestroyed() || event.sender.id !== win.webContents.id || typeof value !== "boolean") return false;
+        const bounds = win.getBounds();
+        win.setBounds({ ...bounds, height: value ? 12 : 64 }, false);
+        return true;
+      });
       ipcMain.handle(IPC.recordingIndicatorCommand, (_event, value: unknown) => {
         if (typeof value !== "string" || !INDICATOR_COMMANDS.includes(value as RecordingIndicatorCommand)) {
           throw new Error("録画インジケータの操作が不正です。");
         }
-        const main = options.getMainWindow();
+        const main = recordingOwnerWindow && !recordingOwnerWindow.isDestroyed()
+          ? recordingOwnerWindow
+          : options.getMainWindow();
         if (!main || main.isDestroyed()) {
           logMain("warn", "recording-indicator:command", "本体ウィンドウが無いため転送できない");
           return false;

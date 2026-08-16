@@ -56,6 +56,8 @@ test("Global Rootはsingleton Window・toggle hide・hotkey cleanup契約を持�
   assert.match(controller, /try[\s\S]*globalShortcut\.register[\s\S]*catch/);
   assert.match(main, /taskenRootController\?\.destroy\(\)/);
   assert.ok(main.indexOf("DIRECT_SHORTCUT_DEFINITIONS") < main.lastIndexOf("taskenRootController.registerShortcut()"));
+  assert.equal(rootContract.DIRECT_SHORTCUT_DEFINITIONS.find((entry) => entry.id === "today-task")?.label, "Taskを追加");
+  assert.equal(rootContract.DIRECT_SHORTCUT_DEFINITIONS.some((entry) => entry.id === "due-task"), false);
 });
 
 test("Root mutationはApplication Commandを使い、専用Entity保存経路を持たない", () => {

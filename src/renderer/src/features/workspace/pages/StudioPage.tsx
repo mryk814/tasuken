@@ -14,7 +14,7 @@ import type { PageProps } from "../types";
  * Inboxは「受け取ったものを分類する」場所なので、録るという行為はここへ分ける。
  * 収録物そのものの正本はCaptureEntry / Artifactのままで、この画面は独自コピーを持たない。
  */
-export function StudioPage({ data, domain: v2, openContentViewer, removeEntity, setToast }: PageProps) {
+export function StudioPage({ data, domain: v2, openDrawer, openContentViewer, removeEntity, setToast }: PageProps) {
   // 音声と画面録画のsessionは同時に持たせない。どちらかが動いている間は他方を止める。
   const [voiceActive, setVoiceActive] = useState(false);
   const [screenRecordingActive, setScreenRecordingActive] = useState(false);
@@ -36,7 +36,7 @@ export function StudioPage({ data, domain: v2, openContentViewer, removeEntity, 
         <Button variant="primary" compact disabled={screenRecordingActive || voiceActive} onClick={() => voiceRecorderRef.current?.openMicrophone()}>
           <IconMicrophone size={15} />マイクで録音
         </Button>
-        <Button variant="secondary" compact disabled={voiceActive || screenRecordingActive} onClick={() => screenRecorderRef.current?.openRecorder()}>
+        <Button variant="primary" compact disabled={voiceActive || screenRecordingActive} onClick={() => screenRecorderRef.current?.openRecorder()}>
           <IconDeviceDesktop size={15} />画面を録画
         </Button>
       </PageHeader>
@@ -62,6 +62,7 @@ export function StudioPage({ data, domain: v2, openContentViewer, removeEntity, 
       <RecordingsPanel
         entries={recordings}
         artifacts={data.artifacts}
+        onEdit={(entry) => openDrawer({ type: "capture_entry", mode: "edit", entity: entry as unknown as Record<string, unknown> })}
         onOpen={(artifact) => openContentViewer({ type: "artifact", artifactId: artifact.id })}
         onRemove={(entry) => removeEntity("capture_entry", entry as unknown as Record<string, unknown>)}
       />

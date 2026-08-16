@@ -40,6 +40,8 @@ export interface SatelliteWindowSpec {
   query?: Record<string, string>;
   preload: string;
   backgroundColor?: string;
+  transparent?: boolean;
+  hasShadow?: boolean;
   alwaysOnTop?: boolean;
   frame?: boolean;
   skipTaskbar?: boolean;
@@ -144,7 +146,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       skipTaskbar: spec.skipTaskbar ?? false,
       alwaysOnTop: spec.alwaysOnTop ?? false,
       autoHideMenuBar: true,
-      backgroundColor: spec.backgroundColor ?? "#F4EEEC",
+      transparent: spec.transparent ?? false,
+      hasShadow: spec.hasShadow ?? true,
+      backgroundColor: spec.backgroundColor ?? (spec.transparent ? "#00000000" : "#F4EEEC"),
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,

@@ -83,7 +83,9 @@ export function normalizeScreenRecordingSecurityOrigin(value) {
   if (typeof value !== "string" || !value || value.length > 2048) {
     throw new Error("画面録画のoriginが不正です。");
   }
-  if (value === "file://") return value;
+  // Packaged Electronは同じfile originをframe側ではfile://、
+  // display media request側ではfile:///として渡す。
+  if (/^file:\/\/\/?$/.test(value)) return "file://";
   let parsed;
   try {
     parsed = new URL(value);
@@ -109,10 +111,19 @@ export function normalizeScreenRecordingSecurityOrigin(value) {
  */
 export function screenRecordingOriginsMatch(requestOrigin, frameOrigin) {
   if (typeof requestOrigin !== "string" || typeof frameOrigin !== "string" || !requestOrigin || !frameOrigin) return false;
-  const request = requestOrigin === "file://" ? requestOrigin : requestOrigin.replace(/\/+$/, "");
+  let request;
+  try {
+    request = requestOrigin === "null" ? "null" : normalizeScreenRecordingSecurityOrigin(requestOrigin);
+  } catch {
+    return false;
+  }
   // file:のframeはopaque origin（"null"）で届くことがある。
   if (frameOrigin === "file://") return request === "file://" || request === "null";
-  return request === frameOrigin;
+  try {
+    return request === normalizeScreenRecordingSecurityOrigin(frameOrigin);
+  } catch {
+    return false;
+  }
 }
 
 export function sanitizeScreenRecordingSourceLabel(value, kind) {
@@ -124,6 +135,25 @@ export function sanitizeScreenRecordingSourceLabel(value, kind) {
   const normalized = value.replace(/[\r\n\t]+/g, " ").trim();
   if (!normalized || CONTROL_PATTERN.test(normalized)) return fallback;
   return normalized.slice(0, SCREEN_RECORDING_LIMITS.maxLabelChars);
+}
+
+export function parseScreenRecordingRegionSelection(value) {
+  const input = requireExactObject(value, ["rectDip", "cropPx", "frameSizePx"], "画面録画region");
+  const normalizeRect = (candidate, label, allowOffset, allowNegativeOffset = false) => {
+    const rect = requireExactObject(candidate, allowOffset ? ["x", "y", "width", "height"] : ["width", "height"], label);
+    const width = requireSafeInteger(rect.width, `${label} width`, 1);
+    const height = requireSafeInteger(rect.height, `${label} height`, 1);
+    return allowOffset
+      ? { x: requireSafeInteger(rect.x, `${label} x`, allowNegativeOffset ? -1_000_000 : 0), y: requireSafeInteger(rect.y, `${label} y`, allowNegativeOffset ? -1_000_000 : 0), width, height }
+      : { width, height };
+  };
+  const rectDip = normalizeRect(input.rectDip, "画面録画region DIP", true, true);
+  if (rectDip.width < 64 || rectDip.height < 64) throw new Error("録画範囲は64×64以上で選択してください。");
+  return Object.freeze({
+    rectDip,
+    cropPx: normalizeRect(input.cropPx, "画面録画region pixel", true),
+    frameSizePx: normalizeRect(input.frameSizePx, "画面録画frame", false),
+  });
 }
 
 export function validateScreenRecordingSourceProjection(value) {
@@ -165,22 +195,7 @@ export function parseScreenRecordingArmRequest(value) {
   }
   let region = null;
   if (input.region !== undefined && input.region !== null) {
-    const value = requireExactObject(input.region, ["rectDip", "cropPx", "frameSizePx"], "画面録画region");
-    const normalizeRect = (candidate, label, allowOffset, allowNegativeOffset = false) => {
-      const rect = requireExactObject(candidate, allowOffset ? ["x", "y", "width", "height"] : ["width", "height"], label);
-      const width = requireSafeInteger(rect.width, `${label} width`, 1);
-      const height = requireSafeInteger(rect.height, `${label} height`, 1);
-      return allowOffset
-        ? { x: requireSafeInteger(rect.x, `${label} x`, allowNegativeOffset ? -1_000_000 : 0), y: requireSafeInteger(rect.y, `${label} y`, allowNegativeOffset ? -1_000_000 : 0), width, height }
-        : { width, height };
-    };
-    const rectDip = normalizeRect(value.rectDip, "画面録画region DIP", true, true);
-    if (rectDip.width < 64 || rectDip.height < 64) throw new Error("録画範囲は64×64以上で選択してください。");
-    region = Object.freeze({
-      rectDip,
-      cropPx: normalizeRect(value.cropPx, "画面録画region pixel", true),
-      frameSizePx: normalizeRect(value.frameSizePx, "画面録画frame", false),
-    });
+    region = parseScreenRecordingRegionSelection(input.region);
   }
   return Object.freeze({
     sourceToken: requireUuid(input.sourceToken, "画面録画source token"),

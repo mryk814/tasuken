@@ -177,7 +177,7 @@ export function SketchPage({
       void saveEntity("sketch", {
         ...selected,
         document,
-      }).then(() => {
+      }, { quiet: true }).then(() => {
         setDirty(false);
         setSaveState("自動保存済み");
       }).catch((error) => {

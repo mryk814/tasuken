@@ -39,12 +39,32 @@ function screenRecordingErrorMessage(error: unknown): string {
     return "画面録画が許可されませんでした。録画対象を選び直し、Windowsの画面録画とマイク設定を確認してください。";
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return "録画対象またはマイクが見つかりません。対象を開くかマイクを接続して再試行してください。";
+    return "録画対象または選択した入力機器が見つかりません。対象と音声入力を選び直して再試行してください。";
   }
-  if (name === "NotReadableError" || name === "AbortError") {
-    return "録画対象を読み取れません。他の録画アプリを停止して再試行してください。";
+  if (name === "NotReadableError") {
+    return "画面録画の対象を取得できませんでした。選択した画面またはウィンドウを開いたまま、対象を選び直して再試行してください。";
+  }
+  if (name === "AbortError") {
+    return "画面録画の対象取得が中断されました。画面またはウィンドウを選び直して、もう一度お試しください。";
   }
   return `画面録画を開始できませんでした。${error instanceof Error ? error.message : String(error)} 録画対象を選び直してください。`;
+}
+
+function audioModeOf(selection: string): ScreenRecordingAudioMode {
+  if (selection === "system") return "system";
+  if (selection.startsWith("microphone:")) return "microphone";
+  return "off";
+}
+
+function audioInputErrorMessage(error: unknown): string {
+  const name = error instanceof DOMException ? error.name : "";
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return "マイクへのアクセスが許可されませんでした。Windowsのマイク設定を確認して、入力機器を更新してください。";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "認識できる音声入力機器がありません。マイクを接続してから入力機器を更新してください。";
+  }
+  return `入力機器を確認できませんでした。${error instanceof Error ? error.message : String(error)}`;
 }
 
 function formatElapsed(milliseconds: number): string {
@@ -58,7 +78,8 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
   const [sources, setSources] = useState<readonly Readonly<ScreenRecordingSourceProjection>[]>([]);
   const [environment, setEnvironment] = useState<ScreenRecordingEnvironment | null>(null);
   const [sourceToken, setSourceToken] = useState("");
-  const [audioMode, setAudioMode] = useState<ScreenRecordingAudioMode>("off");
+  const [audioSelection, setAudioSelection] = useState("off");
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [includePointer, setIncludePointer] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [recordedBytes, setRecordedBytes] = useState(0);
@@ -82,6 +103,8 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
   const cropCleanupRef = useRef<(() => void) | null>(null);
 
   const selectedSource = useMemo(() => sources.find((source) => source.sourceToken === sourceToken) || null, [sourceToken, sources]);
+  const audioMode = audioModeOf(audioSelection);
+  const selectedAudioDeviceId = audioSelection.startsWith("microphone:") ? audioSelection.slice("microphone:".length) : "";
   const active = Boolean(startRef.current || sessionRef.current);
 
   useEffect(() => {
@@ -95,8 +118,19 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
       state,
       targetLabel: selectedSource?.label || "",
       elapsedMs: Math.round(elapsedMs),
+      keepMainWindowVisible: selectedSource?.kind === "window" && /tasken/i.test(selectedSource.label),
     } : null).catch(() => undefined);
   }, [elapsedMs, selectedSource, state]);
+
+  // 範囲は録画前にも確認できるよう同じ画面上へ表示し、録画終了・閉じる時に確実に畳む。
+  useEffect(() => {
+    const visible = Boolean(regionSelection) && state !== "idle" && state !== "error";
+    void workspaceApi.applyScreenRecordingRegionIndicator(visible ? regionSelection : null).catch(() => undefined);
+  }, [regionSelection, state]);
+
+  useEffect(() => () => {
+    void workspaceApi.applyScreenRecordingRegionIndicator(null).catch(() => undefined);
+  }, []);
 
   // インジケータの操作はMain経由で届く。録画本体はこの面が持っているため、ここで実行する。
   useEffect(() => workspaceApi.onRecordingIndicatorCommand((command) => {
@@ -142,19 +176,24 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
       throw new Error("画面の拡大率が変わりました。範囲を選び直してください。");
     }
     const canvas = document.createElement("canvas");
-    canvas.width = sourceWidth;
-    canvas.height = sourceHeight;
+    // Windowsの映像encoderが扱えるよう、任意選択された奇数寸法を偶数へ揃える。
+    canvas.width = Math.max(2, sourceWidth - (sourceWidth % 2));
+    canvas.height = Math.max(2, sourceHeight - (sourceHeight % 2));
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("範囲録画の描画面を作成できません。");
-    let frameId = 0;
+    // 自動captureは最小化直前の次frameを取り逃すと0秒のWebMになる。
+    // streamを先に作り、各描画後に明示的にframeを送る。
+    const stream = canvas.captureStream(0);
+    const canvasTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined;
+    if (!canvasTrack) throw new Error("範囲録画の映像trackを作成できません。");
     const draw = () => {
       context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
-      frameId = window.requestAnimationFrame(draw);
+      canvasTrack.requestFrame();
     };
     draw();
-    const stream = canvas.captureStream(30);
+    const frameTimer = window.setInterval(draw, 1000 / 30);
     cropCleanupRef.current = () => {
-      window.cancelAnimationFrame(frameId);
+      window.clearInterval(frameTimer);
       video.pause();
       video.srcObject = null;
     };
@@ -172,6 +211,48 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
       setError(screenRecordingErrorMessage(caught));
     } finally {
       setRegionSelecting(false);
+    }
+  }
+
+  async function refreshAudioDevices(requestPermission = false): Promise<MediaDeviceInfo[]> {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    if (requestPermission) {
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      permissionStream.getTracks().forEach((track) => track.stop());
+    }
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === "audioinput");
+    setAudioDevices(devices);
+    if (audioSelection.startsWith("microphone:") && !devices.some((device) => device.deviceId === selectedAudioDeviceId)) {
+      setAudioSelection("off");
+    }
+    return devices;
+  }
+
+  async function chooseAudioSelection(value: string) {
+    setError("");
+    if (!value.startsWith("microphone:")) {
+      setAudioSelection(value);
+      return;
+    }
+    try {
+      // 権限付与前はdevice.labelが空になるため、選択時にだけマイク権限を確認する。
+      const devices = await refreshAudioDevices(true);
+      if (!devices.some((device) => device.deviceId === value.slice("microphone:".length))) {
+        throw new DOMException("No microphone", "NotFoundError");
+      }
+      setAudioSelection(value);
+    } catch (caught) {
+      setError(audioInputErrorMessage(caught));
+    }
+  }
+
+  async function refreshAudioDevicesFromButton() {
+    setError("");
+    try {
+      const devices = await refreshAudioDevices(true);
+      if (!devices.length) setError("認識できる音声入力機器がありません。マイクを接続してから再試行してください。");
+    } catch (caught) {
+      setError(audioInputErrorMessage(caught));
     }
   }
 
@@ -216,6 +297,7 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
     if (disabled || active) return;
     setState("loading");
     setError("");
+    setRegionSelection(null);
     try {
       if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === "undefined") {
         throw new Error("この環境では画面録画を利用できません。Windows版Taskenを再起動してください。");
@@ -229,8 +311,14 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
       if (!nextSources.length) throw new Error("録画できる画面またはウィンドウがありません。対象を開いて再試行してください。");
       setEnvironment(nextEnvironment);
       setSources(nextSources);
-      setSourceToken(nextSources[0].sourceToken);
-      if (audioMode === "system" && !nextEnvironment.systemAudio) setAudioMode("off");
+      setSourceToken((nextSources.find((source) => source.kind === "screen") || nextSources[0]).sourceToken);
+      if (audioSelection === "system" && !nextEnvironment.systemAudio) setAudioSelection("off");
+      try {
+        await refreshAudioDevices(false);
+      } catch {
+        // 音声なしの画面録画は、入力機器の列挙に失敗しても継続できる。
+        setAudioDevices([]);
+      }
       setState("ready");
     } catch (caught) {
       setState("error");
@@ -275,7 +363,11 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
       acquiredStreams.push(displayStream);
       let audioTracks = displayStream.getAudioTracks();
       if (audioMode === "microphone") {
-        const microphone = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        if (!selectedAudioDeviceId) throw new Error("録音する入力機器を選択してください。");
+        const microphone = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: selectedAudioDeviceId } },
+          video: false,
+        });
         acquiredStreams.push(microphone);
         audioTracks = microphone.getAudioTracks();
       }
@@ -537,45 +629,80 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
           {(state === "loading" || state === "starting") && <span>{state === "loading" ? "録画対象を確認しています…" : "録画を開始しています…"}</span>}
           {state === "ready" && (
             <>
-              <div className="screen-recorder-source-grid" role="radiogroup" aria-label="録画対象">
-                {sources.map((source) => (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={source.sourceToken === sourceToken}
-                    className={source.sourceToken === sourceToken ? "is-selected" : ""}
-                    key={source.sourceToken}
-                    onClick={() => { setSourceToken(source.sourceToken); setRegionSelection(null); }}
-                  >
-                    <img src={source.thumbnailDataUrl} alt="" />
-                    <span>{source.label}</span>
-                    <small>{source.kind === "screen" ? "画面" : "ウィンドウ"}</small>
-                  </button>
-                ))}
-              </div>
-              <div className="screen-recorder-settings">
-                <label><span>音声</span><select value={audioMode} onChange={(event) => setAudioMode(event.target.value as ScreenRecordingAudioMode)}>
-                  <option value="off">Off</option>
-                  <option value="microphone">Mic</option>
-                  <option value="system" disabled={!environment?.systemAudio}>System</option>
-                </select></label>
-                <label className="screen-recorder-check"><input type="checkbox" checked={includePointer} onChange={(event) => setIncludePointer(event.target.checked)} />Pointer</label>
-                <small>{environment ? `空き ${formatArtifactFileSize(environment.availableRecordingBytes)} · 上限 ${formatArtifactFileSize(environment.maxRecordingBytes)}` : ""}</small>
-              </div>
-              {selectedSource?.kind === "screen" && (
-                <div className="inline-actions screen-recorder-region-setting">
-                  <Button variant="secondary" compact disabled={transitioning || regionSelecting} onClick={() => { void selectRegion(); }}>
-                    {regionSelecting ? "範囲を選択中…" : regionSelection ? "範囲を選び直す" : "範囲を選択"}
-                  </Button>
-                  {regionSelection && <><small>{regionSelection.rectDip.width} × {regionSelection.rectDip.height} DIP</small><button type="button" className="text-button compact" onClick={() => setRegionSelection(null)}>画面全体へ戻す</button></>}
+              <div className="screen-recorder-targets">
+                <div className="screen-recorder-target-group">
+                  <strong>画面</strong>
+                  <div className="screen-recorder-source-grid" role="radiogroup" aria-label="画面の録画対象">
+                    {sources.filter((source) => source.kind === "screen").map((source) => (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={source.sourceToken === sourceToken}
+                        className={source.sourceToken === sourceToken ? "is-selected" : ""}
+                        key={source.sourceToken}
+                        onClick={() => { setSourceToken(source.sourceToken); setRegionSelection(null); }}
+                      >
+                        <img src={source.thumbnailDataUrl} alt="" />
+                        <span>画面全体</span>
+                        <small>{source.label}</small>
+                      </button>
+                    ))}
+                    {selectedSource?.kind === "screen" && (
+                      <div className={`screen-recorder-region-card ${regionSelection ? "is-selected" : ""}`}>
+                        <Button variant="secondary" compact disabled={transitioning || regionSelecting} onClick={() => { void selectRegion(); }}>
+                          {regionSelecting ? "範囲を選択中…" : regionSelection ? "範囲を選び直す" : "範囲を選択"}
+                        </Button>
+                        {regionSelection && <><small>{regionSelection.rectDip.width} × {regionSelection.rectDip.height} DIP</small><button type="button" className="text-button compact" onClick={() => setRegionSelection(null)}>画面全体へ戻す</button></>}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-              {environment && !environment.systemAudio && <small>{environment.systemAudioReason}</small>}
-              <div className="inline-actions">
-                <Button variant="secondary" compact disabled={transitioning} onClick={() => { void openPicker(); }}><IconRefresh size={15} />更新</Button>
-                <Button variant="secondary" compact disabled={transitioning} onClick={() => setState("idle")}>閉じる</Button>
-                <Button variant="primary" compact disabled={transitioning || !selectedSource} onClick={() => { void beginRecording(); }}><IconVideo size={15} />録画を開始</Button>
+                {sources.some((source) => source.kind === "window") && (
+                  <div className="screen-recorder-target-group">
+                    <strong>ウィンドウ</strong>
+                    <div className="screen-recorder-source-grid" role="radiogroup" aria-label="ウィンドウの録画対象">
+                      {sources.filter((source) => source.kind === "window").map((source) => (
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={source.sourceToken === sourceToken}
+                          className={source.sourceToken === sourceToken ? "is-selected" : ""}
+                          key={source.sourceToken}
+                          onClick={() => { setSourceToken(source.sourceToken); setRegionSelection(null); }}
+                        >
+                          <img src={source.thumbnailDataUrl} alt="" />
+                          <span>{source.label}</span>
+                          <small>ウィンドウ</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
+              <div className="screen-recorder-control-row">
+                <div className="screen-recorder-settings">
+                  <label><span>音声入力</span><select value={audioSelection} onChange={(event) => { void chooseAudioSelection(event.target.value); }}>
+                    <option value="off">音声なし</option>
+                    <option value="system" disabled={!environment?.systemAudio}>システム音声（PCの音）</option>
+                    {!audioDevices.length && <option value="no-microphone" disabled>入力機器なし</option>}
+                    {audioDevices.map((device, index) => (
+                      <option key={device.deviceId} value={`microphone:${device.deviceId}`}>
+                        {device.label || `マイク ${index + 1}`}
+                      </option>
+                    ))}
+                  </select></label>
+                  <Button variant="secondary" compact disabled={transitioning} onClick={() => { void refreshAudioDevicesFromButton(); }}>入力機器を更新</Button>
+                  <label className="screen-recorder-check"><input type="checkbox" checked={includePointer} onChange={(event) => setIncludePointer(event.target.checked)} />カーソルを録画</label>
+                  <small>{environment ? `空き ${formatArtifactFileSize(environment.availableRecordingBytes)} · 上限 ${formatArtifactFileSize(environment.maxRecordingBytes)}` : ""}</small>
+                </div>
+                <div className="inline-actions">
+                  <Button variant="secondary" compact disabled={transitioning} onClick={() => { void openPicker(); }}><IconRefresh size={15} />更新</Button>
+                  <Button variant="secondary" compact disabled={transitioning} onClick={() => setState("idle")}>閉じる</Button>
+                  <Button variant="primary" compact disabled={transitioning || !selectedSource} onClick={() => { void beginRecording(); }}><IconVideo size={15} />録画を開始</Button>
+                </div>
+              </div>
+              {environment && !environment.systemAudio && <small>{environment.systemAudioReason}</small>}
+              {error && <small className="screen-recorder-inline-error" role="alert">{error}</small>}
             </>
           )}
           {(state === "recording" || state === "paused" || state === "stopping") && (

@@ -62,10 +62,16 @@ export function TaskFields({
   entity,
   data,
   saveEntities,
+  onChecklistSavePending,
+  onChecklistSaved,
+  onChecklistDraftChange,
 }: {
   entity: DrawerConfig["entity"];
   data: WorkspaceData;
   saveEntities?: SaveEntities;
+  onChecklistSavePending?: (promise: Promise<boolean>) => void;
+  onChecklistSaved?: () => void;
+  onChecklistDraftChange?: () => void;
 }) {
   const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
   const taskSections = listTaskSections(data.views || [], str(entity.project_id));
@@ -73,9 +79,13 @@ export function TaskFields({
     ? entity.repeat_rule as Record<string, unknown>
     : null;
   const [repeatFrequency, setRepeatFrequency] = useState(str(repeatRule?.frequency));
-  const [checklist, setChecklist] = useState(normalizeChecklistItems(entity));
-  const focusChecklistItem = str(entity._focusChecklistItem);
+  const initialChecklist = normalizeChecklistItems(entity);
+  const [checklist, setChecklist] = useState(initialChecklist);
+  const checklistRef = useRef(initialChecklist);
+  const [activeChecklistItemId, setActiveChecklistItemId] = useState(() => str(entity._focusChecklistItem));
   const checklistInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const skipNextChecklistBlurRef = useRef<string | null>(null);
+  const checklistSaveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const [checklistSaveState, setChecklistSaveState] = useState<"idle" | "saving" | "saved" | "error">(
     entity.id ? "saved" : "idle",
   );
@@ -84,13 +94,14 @@ export function TaskFields({
     : [];
   const fallbackMonthDay = dateOnly(schedule?.end_date || schedule?.start_date || todayIso()).slice(-2);
   const canAutoSaveChecklist = Boolean(entity.id && saveEntities);
+  const entityId = str(entity.id);
   useEffect(() => {
-    if (!focusChecklistItem) return;
-    const input = checklistInputRefs.current[focusChecklistItem];
+    if (!activeChecklistItemId) return;
+    const input = checklistInputRefs.current[activeChecklistItemId];
     if (!input) return;
     input.focus();
     input.select();
-  }, [focusChecklistItem, checklist.length]);
+  }, [activeChecklistItemId, checklist.length]);
   // 日付範囲の意味（#309）。既存の未分類データは編集で触るまで未分類のまま残す。
   const [startDate, setStartDate] = useState(dateOnly(schedule?.start_date));
   const [endDate, setEndDate] = useState(dateOnly(schedule?.end_date));
@@ -99,54 +110,76 @@ export function TaskFields({
   );
   const isDateRange = Boolean(startDate && endDate && endDate > startDate);
 
-  async function saveChecklist(nextChecklist: ReturnType<typeof normalizeChecklistItems>) {
+  function saveChecklist(nextChecklist: ReturnType<typeof normalizeChecklistItems>): Promise<boolean> {
+    checklistRef.current = nextChecklist;
     setChecklist(nextChecklist);
-    if (!canAutoSaveChecklist) return;
-    const items = nextChecklist
-      .map((item, index) => ({ ...item, title: item.title.trim(), sort_order: index }))
-      .filter((item) => item.title);
-    const task: Task = {
-      id: str(entity.id),
-      title: str(entity.title),
-      project_id: (entity.project_id as string | null) ?? null,
-      section_id: normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)),
-      plan_node_id: (entity.plan_node_id as string | null) ?? null,
-      parent_task_id: (entity.parent_task_id as string | null) ?? null,
-      state: (str(entity.state) || "todo") as Task["state"],
-      requester: (str(entity.requester) || "self") as Task["requester"],
-      intended_executor: (str(entity.intended_executor) || "self") as Task["intended_executor"],
-      executor_identity: (entity.executor_identity as string | null) ?? null,
-      work_state: (str(entity.work_state) || (str(entity.intended_executor) === "ai_agent" ? "ready_for_agent" : "not_delegated")) as Task["work_state"],
-      work_started_at: (entity.work_started_at as string | null) ?? null,
-      work_reported_at: (entity.work_reported_at as string | null) ?? null,
-      work_review_note: (entity.work_review_note as string | null) ?? null,
-      priority: str(entity.priority) === "high" ? "high" : "normal",
-      planning_shelf: normalizeTaskShelf(entity.planning_shelf),
-      reminder_at: normalizeReminderDateTime(entity.reminder_at),
-      description: (entity.description as string | null) ?? null,
-      completion_note: (entity.completion_note as string | null) ?? null,
-      repeat_rule: repeatRule as Task["repeat_rule"],
-      repeat_series_id: (entity.repeat_series_id as string | null) ?? null,
-      repeat_parent_task_id: (entity.repeat_parent_task_id as string | null) ?? null,
-      checklist_items: items,
-      repository_context_mode: (str(entity.repository_context_mode) || "inherit") as Task["repository_context_mode"],
-      repository_context_ids: Array.isArray(entity.repository_context_ids) ? entity.repository_context_ids.map(String) : [],
-      primary_repository_context_id: (entity.primary_repository_context_id as string | null) ?? null,
-      repository_subdirectory: (entity.repository_subdirectory as string | null) ?? null,
-      repository_branch_hint: (entity.repository_branch_hint as string | null) ?? null,
-      repository_context_detachments: Array.isArray(entity.repository_context_detachments)
-        ? entity.repository_context_detachments as Array<Record<string, unknown>>
-        : undefined,
-      legacy_item_id: (entity.legacy_item_id as string | null) ?? null,
-      created_at: str(entity.created_at) || new Date().toISOString(),
-    };
-    try {
-      setChecklistSaveState("saving");
-      await saveEntities?.(buildSaveTaskOperations(task), "チェックリストを保存しました。");
-      setChecklistSaveState("saved");
-    } catch {
-      setChecklistSaveState("error");
-    }
+    if (!canAutoSaveChecklist || !saveEntities) return Promise.resolve(true);
+    const saving = checklistSaveQueueRef.current.then(async () => {
+      const items = nextChecklist
+        .map((item, index) => ({ ...item, title: item.title.trim(), sort_order: index }))
+        .filter((item) => item.title);
+      const task: Task = {
+        id: entityId,
+        title: str(entity.title),
+        project_id: (entity.project_id as string | null) ?? null,
+        section_id: normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)),
+        plan_node_id: (entity.plan_node_id as string | null) ?? null,
+        parent_task_id: (entity.parent_task_id as string | null) ?? null,
+        state: (str(entity.state) || "todo") as Task["state"],
+        requester: (str(entity.requester) || "self") as Task["requester"],
+        intended_executor: (str(entity.intended_executor) || "self") as Task["intended_executor"],
+        executor_identity: (entity.executor_identity as string | null) ?? null,
+        work_state: (str(entity.work_state) || (str(entity.intended_executor) === "ai_agent" ? "ready_for_agent" : "not_delegated")) as Task["work_state"],
+        work_started_at: (entity.work_started_at as string | null) ?? null,
+        work_reported_at: (entity.work_reported_at as string | null) ?? null,
+        work_review_note: (entity.work_review_note as string | null) ?? null,
+        priority: str(entity.priority) === "high" ? "high" : "normal",
+        planning_shelf: normalizeTaskShelf(entity.planning_shelf),
+        reminder_at: normalizeReminderDateTime(entity.reminder_at),
+        description: (entity.description as string | null) ?? null,
+        completion_note: (entity.completion_note as string | null) ?? null,
+        repeat_rule: repeatRule as Task["repeat_rule"],
+        repeat_series_id: (entity.repeat_series_id as string | null) ?? null,
+        repeat_parent_task_id: (entity.repeat_parent_task_id as string | null) ?? null,
+        checklist_items: items,
+        repository_context_mode: (str(entity.repository_context_mode) || "inherit") as Task["repository_context_mode"],
+        repository_context_ids: Array.isArray(entity.repository_context_ids) ? entity.repository_context_ids.map(String) : [],
+        primary_repository_context_id: (entity.primary_repository_context_id as string | null) ?? null,
+        repository_subdirectory: (entity.repository_subdirectory as string | null) ?? null,
+        repository_branch_hint: (entity.repository_branch_hint as string | null) ?? null,
+        repository_context_detachments: Array.isArray(entity.repository_context_detachments)
+          ? entity.repository_context_detachments as Array<Record<string, unknown>>
+          : undefined,
+        legacy_item_id: (entity.legacy_item_id as string | null) ?? null,
+        created_at: str(entity.created_at) || new Date().toISOString(),
+      };
+      try {
+        setChecklistSaveState("saving");
+        await saveEntities(buildSaveTaskOperations(task), "チェックリストを保存しました。");
+        setChecklistSaveState("saved");
+        onChecklistSaved?.();
+        return true;
+      } catch {
+        setChecklistSaveState("error");
+        return false;
+      }
+    });
+    checklistSaveQueueRef.current = saving;
+    onChecklistSavePending?.(saving);
+    return saving;
+  }
+
+  function addChecklistItem() {
+    const id = uuid();
+    const current = checklistRef.current;
+    const next = [
+      ...current,
+      { id, title: "", done: false, completed_at: "", sort_order: current.length },
+    ];
+    checklistRef.current = next;
+    setChecklist(next);
+    setActiveChecklistItemId(id);
+    onChecklistDraftChange?.();
   }
 
   const preservedSectionId = normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
@@ -159,7 +192,7 @@ export function TaskFields({
   const preservedWorkState = str(entity.work_state) || (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
   return (
     <>
-      <Field label="タイトル"><input name="title" autoFocus={!focusChecklistItem} defaultValue={str(entity.title)} /></Field>
+      <Field label="タイトル"><input name="title" autoFocus={!activeChecklistItemId} defaultValue={str(entity.title)} /></Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
       <TaskRepositoryContextFields entity={entity} data={data} />
       <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
@@ -269,10 +302,7 @@ export function TaskFields({
           <button
             className="text-button compact"
             type="button"
-            onClick={() => setChecklist((current) => [
-              ...current,
-              { id: uuid(), title: "", done: false, completed_at: "", sort_order: current.length },
-            ])}
+            onClick={addChecklistItem}
           >
             追加
           </button>
@@ -289,10 +319,11 @@ export function TaskFields({
                   checked={item.done}
                   onChange={(event) => {
                     const done = event.target.checked;
-                    const next = checklist.map((entry) => entry.id === item.id
+                    const next = checklistRef.current.map((entry) => entry.id === item.id
                       ? { ...entry, done, completed_at: done ? new Date().toISOString() : "" }
                       : entry);
                     void saveChecklist(next);
+                    onChecklistDraftChange?.();
                   }}
                 />
               </label>
@@ -300,11 +331,38 @@ export function TaskFields({
                 name="checklist_title"
                 ref={(input) => { checklistInputRefs.current[item.id] = input; }}
                 value={item.title}
-                onChange={(event) => setChecklist((current) => current.map((entry) => entry.id === item.id
-                  ? { ...entry, title: event.target.value }
-                  : entry))}
+                onInput={(event) => {
+                  const next = checklistRef.current.map((entry) => entry.id === item.id
+                    ? { ...entry, title: event.currentTarget.value }
+                    : entry);
+                  checklistRef.current = next;
+                  setChecklist(next);
+                  onChecklistDraftChange?.();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+                  if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !item.title.trim()) return;
+                  event.preventDefault();
+                  skipNextChecklistBlurRef.current = item.id;
+                  const nextId = uuid();
+                  const next = [
+                    ...checklistRef.current.map((entry) => entry.id === item.id
+                      ? { ...entry, title: entry.title.trim() }
+                      : entry),
+                    { id: nextId, title: "", done: false, completed_at: "", sort_order: checklistRef.current.length },
+                  ];
+                  checklistRef.current = next;
+                  setChecklist(next);
+                  setActiveChecklistItemId(nextId);
+                  onChecklistDraftChange?.();
+                  void saveChecklist(next);
+                }}
                 onBlur={() => {
-                  const next = checklist.map((entry) => entry.id === item.id
+                  if (skipNextChecklistBlurRef.current === item.id) {
+                    skipNextChecklistBlurRef.current = null;
+                    return;
+                  }
+                  const next = checklistRef.current.map((entry) => entry.id === item.id
                     ? { ...entry, title: entry.title.trim() }
                     : entry);
                   if (next.some((entry) => entry.id === item.id && entry.title)) void saveChecklist(next);
@@ -315,8 +373,9 @@ export function TaskFields({
                 className="text-button compact"
                 type="button"
                 onClick={() => {
-                  const next = checklist.filter((entry) => entry.id !== item.id);
+                  const next = checklistRef.current.filter((entry) => entry.id !== item.id);
                   void saveChecklist(next);
+                  onChecklistDraftChange?.();
                 }}
               >
                 削除
