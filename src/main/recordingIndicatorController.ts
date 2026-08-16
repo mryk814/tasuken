@@ -34,9 +34,10 @@ export function createRecordingIndicatorController(
 ): RecordingIndicatorController {
   const windowKey = { kind: "recording" as const, entityId: "screen-recording" };
   let current: RecordingIndicatorState | null = null;
-  let minimizedMainWindow = false;
+  let recordingOwnerWindow: BrowserWindow | null = null;
+  let minimizedMainWindow: BrowserWindow | null = null;
 
-  function ensureWindow(): BrowserWindow {
+  function ensureWindow(ownerWindow: BrowserWindow | null): BrowserWindow {
     const existing = options.satelliteWindows.get(windowKey);
     if (existing && !existing.isDestroyed()) return existing;
     const win = options.satelliteWindows.open(windowKey, {
@@ -54,7 +55,7 @@ export function createRecordingIndicatorController(
       hasShadow: false,
       backgroundColor: "#00000000",
     });
-    const main = options.getMainWindow();
+    const main = ownerWindow && !ownerWindow.isDestroyed() ? ownerWindow : options.getMainWindow();
     const display = main && !main.isDestroyed()
       ? screen.getDisplayMatching(main.getBounds())
       : screen.getPrimaryDisplay();
@@ -74,18 +75,18 @@ export function createRecordingIndicatorController(
     return win;
   }
 
-  function minimizeMainWindow(state: RecordingIndicatorState): void {
+  function minimizeMainWindow(state: RecordingIndicatorState, ownerWindow: BrowserWindow | null): void {
     if (state.keepMainWindowVisible || minimizedMainWindow) return;
-    const main = options.getMainWindow();
+    const main = ownerWindow && !ownerWindow.isDestroyed() ? ownerWindow : options.getMainWindow();
     if (!main || main.isDestroyed() || main.isMinimized()) return;
     main.minimize();
-    minimizedMainWindow = true;
+    minimizedMainWindow = main;
+    logMain("info", "recording-indicator:minimize", "録画開始元のウィンドウを最小化しました");
   }
 
   function restoreMainWindow(): void {
-    if (!minimizedMainWindow) return;
-    minimizedMainWindow = false;
-    const main = options.getMainWindow();
+    const main = minimizedMainWindow;
+    minimizedMainWindow = null;
     if (!main || main.isDestroyed()) return;
     if (main.isMinimized()) main.restore();
     main.show();
@@ -104,20 +105,23 @@ export function createRecordingIndicatorController(
     current = null;
     options.satelliteWindows.close(windowKey);
     restoreMainWindow();
+    recordingOwnerWindow = null;
   }
 
   return {
     registerIpc(): void {
       // 本体から状態を受け取る。録画が終わったらnullが来て窓を畳む。
-      ipcMain.handle(IPC.recordingIndicatorApply, (_event, value: unknown) => {
+      ipcMain.handle(IPC.recordingIndicatorApply, (event, value: unknown) => {
         const state = normalizeState(value);
         if (!state) {
           close();
           return false;
         }
         current = state;
-        ensureWindow();
-        minimizeMainWindow(state);
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (senderWindow && !senderWindow.isDestroyed()) recordingOwnerWindow = senderWindow;
+        ensureWindow(recordingOwnerWindow);
+        minimizeMainWindow(state, recordingOwnerWindow);
         push(state);
         return true;
       });
@@ -133,7 +137,9 @@ export function createRecordingIndicatorController(
         if (typeof value !== "string" || !INDICATOR_COMMANDS.includes(value as RecordingIndicatorCommand)) {
           throw new Error("録画インジケータの操作が不正です。");
         }
-        const main = options.getMainWindow();
+        const main = recordingOwnerWindow && !recordingOwnerWindow.isDestroyed()
+          ? recordingOwnerWindow
+          : options.getMainWindow();
         if (!main || main.isDestroyed()) {
           logMain("warn", "recording-indicator:command", "本体ウィンドウが無いため転送できない");
           return false;

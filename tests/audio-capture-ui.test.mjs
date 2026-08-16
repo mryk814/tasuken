@@ -16,6 +16,8 @@ const recordings = readFileSync("src/renderer/src/features/workspace/components/
 const drawerFormPlans = readFileSync("src/renderer/src/features/workspace/lib/drawerFormPlans.ts", "utf8");
 const pendingRecordings = readFileSync("src/renderer/src/features/workspace/components/PendingRecordingsPanel.tsx", "utf8");
 const regionSelector = readFileSync("src/renderer/region-selector.html", "utf8");
+const recordingIndicator = readFileSync("src/renderer/recording-indicator.html", "utf8");
+const recordingIndicatorController = readFileSync("src/main/recordingIndicatorController.ts", "utf8");
 const registerIpc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const mainIndex = readFileSync("src/main/index.ts", "utf8");
 
@@ -92,6 +94,14 @@ test("画面録画は画面全体・範囲・ウィンドウを同じ階層に�
   assert.match(regionSelector, /body\.is-indicator #selection \{ border: 3px dotted #ce3b3b/);
   assert.match(screenRecorder, /screen-recorder-control-row/);
   assert.doesNotMatch(screenRecorder, /他の録画アプリを停止/);
+});
+
+test("録画中は開始元を最小化し、上端の縮小バーはhoverで操作を再表示できる", () => {
+  assert.match(recordingIndicatorController, /BrowserWindow\.fromWebContents\(event\.sender\)/);
+  assert.match(recordingIndicatorController, /minimizeMainWindow\(state, recordingOwnerWindow\)/);
+  assert.match(recordingIndicatorController, /let minimizedMainWindow: BrowserWindow \| null = null/);
+  assert.match(recordingIndicator, /body\.is-retracted \.indicator-surface \{[\s\S]*?-webkit-app-region: no-drag/);
+  assert.match(recordingIndicator, /addEventListener\("pointer(?:enter|move)", revealControls\)/);
 });
 
 test("画面録画のpause→即stop等は単一transition queueで直列化する", () => {

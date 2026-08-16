@@ -36,6 +36,8 @@
         padding: 0;
         transform: none;
         cursor: pointer;
+        /* drag領域ではpointer eventがRendererへ届かない。縮小中だけ操作面へ戻す。 */
+        -webkit-app-region: no-drag;
       }
       body.is-retracted .indicator-surface > * {
         visibility: hidden;
