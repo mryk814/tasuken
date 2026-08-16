@@ -3586,7 +3586,11 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
 }
 
 /* アプリ内で大きく見るモード（#387）。ウィンドウのサイズは変えない。 */
-.content-viewer-overlay.is-expanded .content-viewer-dialog {
+.content-viewer-overlay:is(.is-expanded, .is-video) {
+  padding: 0;
+}
+
+.content-viewer-overlay:is(.is-expanded, .is-video) .content-viewer-dialog {
   width: 100vw;
   height: 100vh;
   max-height: 100vh;
@@ -3594,22 +3598,36 @@ kbd { display: inline-block; min-width: 24px; padding: 2px var(--space-2); borde
   border-width: 0;
 }
 
-.content-viewer-overlay.is-expanded .content-viewer-body {
+.content-viewer-overlay:is(.is-expanded, .is-video) .content-viewer-body {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-.content-viewer-overlay.is-expanded .content-viewer-video {
+.content-viewer-overlay:is(.is-expanded, .is-video) .content-viewer-video {
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
+  padding: var(--space-3);
+  overflow: hidden;
   align-content: center;
 }
 
-.content-viewer-overlay.is-expanded .content-viewer-video video {
+.content-viewer-overlay:is(.is-expanded, .is-video) .video-trim-editor {
+  grid-template-rows: minmax(0, 1fr) auto;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+}
+
+.content-viewer-overlay:is(.is-expanded, .is-video) .content-viewer-video video {
   width: 100%;
   max-width: none;
   height: 100%;
   max-height: none;
   object-fit: contain;
+}
+
+.content-viewer-overlay:is(.is-expanded, .is-video) .video-trim-editor > video {
+  min-height: 0;
 }
 
 .content-viewer-overlay.is-expanded .content-viewer-web {

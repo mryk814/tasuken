@@ -475,8 +475,9 @@ export function ContentViewer({
 
   const title = load.status === "ready" ? load.title : "プレビュー";
   const isImage = load.status === "ready" && load.mode === "image";
-  // 動画・画像・PDFはウィンドウを大きくしなくてもアプリ内で大きく見られるようにする（#387）。
-  const canExpand = load.status === "ready" && (load.mode === "video" || load.mode === "image" || load.mode === "markdown" || load.mode === "conversation" || load.mode === "web");
+  const isVideo = load.status === "ready" && load.mode === "video";
+  // 動画は開いた時点でTasken全体を使う。画像・文書は必要なときだけ拡大する（#387）。
+  const canExpand = load.status === "ready" && (load.mode === "image" || load.mode === "markdown" || load.mode === "conversation" || load.mode === "web");
   const loadArtifact = loadedArtifact(load);
   const targetArtifact = target.type === "artifact"
     ? (data.artifacts || []).find((entry) => entry.id === target.artifactId)
@@ -511,7 +512,7 @@ export function ContentViewer({
 
   return (
     <div
-      className={`content-viewer-overlay ${isImage ? "is-image" : "is-markdown"} ${expanded ? "is-expanded" : ""}`}
+      className={`content-viewer-overlay ${isImage ? "is-image" : isVideo ? "is-video" : "is-markdown"} ${expanded ? "is-expanded" : ""}`}
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();

@@ -271,8 +271,10 @@ test("収録物の編集保存は音声・動画の媒体属性を保持する",
 test("Content Viewerはウィンドウを変えずアプリ内で大きく見られる（#387）", () => {
   const contentViewer = readFileSync("src/renderer/src/features/workspace/components/ContentViewer.tsx", "utf8");
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
-  // 動画・画像・文書で拡大へ入れる。音声は面を広げても得がないので出さない。
-  assert.match(contentViewer, /const canExpand = load\.status === "ready" && \(load\.mode === "video"/);
+  // 動画は開いた時点でTasken全体を使う。画像・文書だけ必要に応じて拡大する。
+  assert.match(contentViewer, /const isVideo = load\.status === "ready" && load\.mode === "video"/);
+  assert.match(contentViewer, /isVideo \? "is-video" : "is-markdown"/);
+  assert.doesNotMatch(contentViewer, /const canExpand[^;]*load\.mode === "video"/);
   assert.match(contentViewer, /aria-pressed=\{expanded\}/);
   assert.match(contentViewer, /\{expanded \? "縮小" : "大きく見る"\}/);
   // Escapeは段階的に戻す。拡大中にいきなり閉じない。
@@ -280,8 +282,10 @@ test("Content Viewerはウィンドウを変えずアプリ内で大きく見ら
   // 一時的な見方なので保存しない。
   assert.doesNotMatch(contentViewer, /usePreference\([^)]*expanded/);
   // ウィンドウサイズは変えず、面の中だけで広げる。
-  assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-dialog \{[\s\S]*?height: 100vh;/);
-  assert.match(css, /\.content-viewer-overlay\.is-expanded \.content-viewer-video video \{[\s\S]*?object-fit: contain;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \{\s*padding: 0;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \.content-viewer-dialog \{[\s\S]*?height: 100vh;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \.video-trim-editor \{[\s\S]*?width: 100%;[\s\S]*?max-width: none;[\s\S]*?height: 100%;/);
+  assert.match(css, /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \.content-viewer-video video \{[\s\S]*?object-fit: contain;/);
 });
 
 test("紐づけ先を選ばない画面録画はThemeの保存先を要求しない（#383）", () => {
