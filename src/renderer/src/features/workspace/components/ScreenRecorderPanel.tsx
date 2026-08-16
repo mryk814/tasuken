@@ -176,19 +176,24 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
       throw new Error("画面の拡大率が変わりました。範囲を選び直してください。");
     }
     const canvas = document.createElement("canvas");
-    canvas.width = sourceWidth;
-    canvas.height = sourceHeight;
+    // Windowsの映像encoderが扱えるよう、任意選択された奇数寸法を偶数へ揃える。
+    canvas.width = Math.max(2, sourceWidth - (sourceWidth % 2));
+    canvas.height = Math.max(2, sourceHeight - (sourceHeight % 2));
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("範囲録画の描画面を作成できません。");
-    let frameId = 0;
+    // 自動captureは最小化直前の次frameを取り逃すと0秒のWebMになる。
+    // streamを先に作り、各描画後に明示的にframeを送る。
+    const stream = canvas.captureStream(0);
+    const canvasTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined;
+    if (!canvasTrack) throw new Error("範囲録画の映像trackを作成できません。");
     const draw = () => {
       context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
-      frameId = window.requestAnimationFrame(draw);
+      canvasTrack.requestFrame();
     };
     draw();
-    const stream = canvas.captureStream(30);
+    const frameTimer = window.setInterval(draw, 1000 / 30);
     cropCleanupRef.current = () => {
-      window.cancelAnimationFrame(frameId);
+      window.clearInterval(frameTimer);
       video.pause();
       video.srcObject = null;
     };

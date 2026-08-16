@@ -2150,6 +2150,9 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // 範囲録画はRendererのcanvasで切り抜く。録画中に本体を最小化しても
+      // frame生成を止めず、MediaRecorderへ映像を渡し続ける。
+      backgroundThrottling: false,
       // TODO: sandbox:true currently prevents window.api/window.researchDesk from being exposed.
       // Keep the verified contextIsolation/nodeIntegration boundary until the preload bridge is migrated.
       sandbox: false,

@@ -96,6 +96,14 @@ test("画面録画は画面全体・範囲・ウィンドウを同じ階層に�
   assert.doesNotMatch(screenRecorder, /他の録画アプリを停止/);
 });
 
+test("範囲録画は本体最小化後もcanvas frameを明示送信し、encoder向けに偶数寸法で保存する", () => {
+  assert.match(mainIndex, /backgroundThrottling: false/);
+  assert.match(screenRecorder, /canvas\.width = Math\.max\(2, sourceWidth - \(sourceWidth % 2\)\)/);
+  assert.match(screenRecorder, /canvas\.height = Math\.max\(2, sourceHeight - \(sourceHeight % 2\)\)/);
+  assert.match(screenRecorder, /const stream = canvas\.captureStream\(0\)[\s\S]*?canvasTrack\.requestFrame\(\)[\s\S]*?window\.setInterval\(draw, 1000 \/ 30\)/);
+  assert.doesNotMatch(screenRecorder, /requestAnimationFrame\(draw\)/);
+});
+
 test("録画中は開始元を最小化し、上端の縮小バーはhoverで操作を再表示できる", () => {
   assert.match(recordingIndicatorController, /BrowserWindow\.fromWebContents\(event\.sender\)/);
   assert.match(recordingIndicatorController, /minimizeMainWindow\(state, recordingOwnerWindow\)/);
