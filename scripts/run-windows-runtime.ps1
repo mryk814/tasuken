@@ -17,7 +17,7 @@ function Invoke-Checked {
   try {
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) {
-      throw "$Command が終了コード $LASTEXITCODE で失敗しました。"
+      throw "$Command failed with exit code $LASTEXITCODE."
     }
   } finally {
     Pop-Location
@@ -25,7 +25,7 @@ function Invoke-Checked {
 }
 
 if ($env:OS -ne "Windows_NT") {
-  throw "Windows runtime laneはWindows PowerShellから実行してください。"
+  throw "Run the Windows runtime lane from Windows PowerShell."
 }
 
 if (-not $Source) {
@@ -41,29 +41,29 @@ $runtimeParent = Split-Path -Parent $Runtime
 
 $sourceSha = (& git -C $Source rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $sourceSha) {
-  throw "SourceのGit commitを確認できません: $Source"
+  throw "Could not resolve the source Git commit: $Source"
 }
 $sourceChanges = @(& git -C $Source status --porcelain=v1)
 if ($LASTEXITCODE -ne 0) {
-  throw "SourceのGit状態を確認できません: $Source"
+  throw "Could not inspect the source Git status: $Source"
 }
 if ($sourceChanges.Count -gt 0) {
-  throw "Windows runtime laneはcommit済みSHAだけを実行します。Sourceの変更をcommitしてから再実行してください。"
+  throw "The Windows runtime lane only runs committed SHAs. Commit source changes and retry."
 }
 
 if (-not (Test-Path $Runtime)) {
   New-Item -ItemType Directory -Force -Path $runtimeParent | Out-Null
   Invoke-Checked -Command "git" -Arguments @("clone", "--no-hardlinks", $Source, $Runtime) -WorkingDirectory $runtimeParent
 } elseif (-not (Test-Path (Join-Path $Runtime ".git"))) {
-  throw "RuntimeにGit cloneではない既存フォルダがあります: $Runtime"
+  throw "The runtime path exists but is not a Git clone: $Runtime"
 }
 
 $runtimeChanges = @(& git -C $Runtime status --porcelain=v1)
 if ($LASTEXITCODE -ne 0) {
-  throw "RuntimeのGit状態を確認できません: $Runtime"
+  throw "Could not inspect the runtime Git status: $Runtime"
 }
 if ($runtimeChanges.Count -gt 0) {
-  throw "Runtimeに未commit変更があります。自動上書きしません: $Runtime"
+  throw "The runtime has uncommitted changes and will not be overwritten: $Runtime"
 }
 
 Invoke-Checked -Command "git" -Arguments @("remote", "set-url", "origin", $Source) -WorkingDirectory $Runtime

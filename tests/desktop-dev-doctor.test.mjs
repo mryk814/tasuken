@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { detectExecutablePlatform, evaluateDesktopEnvironment, parseWestonState } from "../scripts/desktop-dev-doctor.mjs";
+import {
+  detectExecutablePlatform,
+  evaluateDesktopEnvironment,
+  parseProcessIds,
+  parseWestonState,
+} from "../scripts/desktop-dev-doctor.mjs";
 
 function healthyWslSnapshot(overrides = {}) {
   return {
@@ -33,6 +38,11 @@ test("desktop doctor identifies Windows and Linux Electron binaries", () => {
   assert.equal(detectExecutablePlatform(Buffer.from([0x4d, 0x5a, 0x90, 0x00])), "win32");
   assert.equal(detectExecutablePlatform(Buffer.from([0x7f, 0x45, 0x4c, 0x46])), "linux");
   assert.equal(detectExecutablePlatform(Buffer.from([0x00, 0x01, 0x02, 0x03])), "unknown");
+});
+
+test("desktop doctor ignores blank Windows process output", () => {
+  assert.deepEqual(parseProcessIds("\r\n"), []);
+  assert.deepEqual(parseProcessIds("1234\r\n5678\r\n"), [1234, 5678]);
 });
 
 test("desktop doctor reads the latest WSLg monitor state", () => {
