@@ -84,13 +84,25 @@
       }
       .actions { display: inline-flex; gap: var(--space-2); }
       .actions button {
+        display: inline-grid;
+        width: 28px;
         min-height: 26px;
-        padding: 0 var(--space-2);
+        padding: 0;
+        place-items: center;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-sm);
         background: var(--color-surface-subtle);
         color: var(--color-text);
         font-size: var(--text-xs);
+      }
+      .actions button svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2;
       }
       .actions button:hover { background: var(--color-surface-muted); }
       .actions button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -108,9 +120,13 @@
       <span class="target" id="target"></span>
       <strong class="elapsed" id="elapsed">00:00</strong>
       <span class="actions">
-        <button type="button" id="pause">一時停止</button>
-        <button type="button" id="stop" class="primary">停止</button>
-        <button type="button" id="discard" class="danger">破棄</button>
+        <button type="button" id="pause" aria-label="一時停止" title="一時停止"></button>
+        <button type="button" id="stop" class="primary" aria-label="停止" title="停止">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"></path></svg>
+        </button>
+        <button type="button" id="discard" class="danger" aria-label="破棄" title="破棄">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3"></path></svg>
+        </button>
       </span>
     </div>
     <script type="module">
@@ -125,6 +141,8 @@
       let retractTimer = 0;
       let retracted = false;
       let pointerInside = false;
+      const PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>';
+      const RESUME_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 7l-14 7z"></path></svg>';
 
       function setRetracted(nextRetracted) {
         if (retracted === nextRetracted) return;
@@ -158,7 +176,10 @@
         targetEl.textContent = state.targetLabel || "";
         targetEl.title = state.targetLabel || "";
         elapsedEl.textContent = formatElapsed(state.elapsedMs);
-        pauseButton.textContent = kind === "paused" ? "再開" : "一時停止";
+        const pauseLabel = kind === "paused" ? "再開" : "一時停止";
+        pauseButton.innerHTML = kind === "paused" ? RESUME_ICON : PAUSE_ICON;
+        pauseButton.setAttribute("aria-label", pauseLabel);
+        pauseButton.title = pauseLabel;
         pauseButton.disabled = kind === "stopping";
         stopButton.disabled = kind === "stopping";
         discardButton.disabled = kind === "stopping";
@@ -186,7 +207,7 @@
         if (lastKind === "recording") scheduleRetract(500);
       });
 
-      pauseButton.addEventListener("click", () => { void api.command(pauseButton.textContent === "再開" ? "resume" : "pause"); });
+      pauseButton.addEventListener("click", () => { void api.command(pauseButton.getAttribute("aria-label") === "再開" ? "resume" : "pause"); });
       stopButton.addEventListener("click", () => { void api.command("stop"); });
       discardButton.addEventListener("click", () => { void api.command("discard"); });
       api.onState(render);

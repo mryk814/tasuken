@@ -104,6 +104,11 @@ test("録画中は開始元を最小化し、上端の縮小バーはhoverで操
   assert.match(recordingIndicator, /addEventListener\("pointer(?:enter|move)", revealControls\)/);
   assert.match(recordingIndicator, /function revealControls\(\) \{\s*pointerInside = true;\s*window\.clearTimeout\(retractTimer\);\s*if \(!retracted\) return;/);
   assert.match(recordingIndicator, /window\.setTimeout\(\(\) => \{\s*if \(!pointerInside\) setRetracted\(true\);/);
+  assert.match(recordingIndicator, /const PAUSE_ICON = '<svg/);
+  assert.match(recordingIndicator, /const RESUME_ICON = '<svg/);
+  assert.match(recordingIndicator, /id="stop" class="primary" aria-label="停止" title="停止">\s*<svg/);
+  assert.match(recordingIndicator, /id="discard" class="danger" aria-label="破棄" title="破棄">\s*<svg/);
+  assert.doesNotMatch(recordingIndicator, /<button[^>]*>一時停止<\/button>|<button[^>]*>停止<\/button>|<button[^>]*>破棄<\/button>/);
 });
 
 test("画面録画のpause→即stop等は単一transition queueで直列化する", () => {
