@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { analyzeArchitecture, collectImports, normalizePath } from "../scripts/architecture-audit/core.mjs";
+import { analyzeArchitecture, collectExports, collectImports, normalizePath } from "../scripts/architecture-audit/core.mjs";
 
 const fixtureRoot = path.resolve("tests/fixtures/architecture-audit");
 const policy = {
@@ -59,6 +59,16 @@ test("architecture parser covers imports, re-exports, and dynamic imports", () =
     { specifier: "./c", kind: "re-export" },
     { specifier: "./d", kind: "dynamic-import" },
   ]);
+});
+
+test("architecture parser inventories named and default exports", () => {
+  const exports = collectExports("fixture.ts", [
+    "export const taskSchema = {};",
+    "export type Task = {};",
+    'export { parseTask } from "./parse";',
+    "export default function createTask() {}",
+  ].join("\n"));
+  assert.deepEqual(exports, ["Task", "createTask", "default", "parseTask", "taskSchema"]);
 });
 
 test("valid public feature import stays clear while deep and runtime imports are reported", () => {
@@ -119,6 +129,15 @@ test("production audit is report-only, deterministic, and has no unbaselined can
     assert.equal(report.mode, "report-only");
     assert.equal(report.summary.newFindings, 0);
     assert.equal(report.summary.newCompatibilityConsumers, 0);
+    assert.equal(report.summary.unclassifiedSharedFiles, 0);
+    const ownershipByFile = new Map(report.sharedOwnership.map((entry) => [entry.file, entry]));
+    assert.equal(ownershipByFile.get("src/shared/applicationCommand.ts")?.classification, "compatibility");
+    assert.equal(ownershipByFile.get("src/shared/types/workspace.ts")?.classification, "compatibility");
+    assert.equal(ownershipByFile.get("src/shared/kernel/public.ts")?.classification, "kernel");
+    assert.equal(ownershipByFile.get("src/shared/contracts/task/public.ts")?.classification, "feature-contract");
+    assert.equal(report.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.source.startsWith("src/shared/kernel/")), false);
+    assert.equal(report.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.source.startsWith("src/shared/contracts/task/")), false);
+    assert.doesNotThrow(() => JSON.parse(readFileSync(path.join(output, "shared-ownership.json"), "utf8")));
     assert.match(readFileSync(path.join(output, "report.md"), "utf8"), /Rollout: report-only/);
   } finally {
     rmSync(output, { recursive: true, force: true });

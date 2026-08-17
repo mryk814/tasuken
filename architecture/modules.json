@@ -16,24 +16,58 @@
     "tsconfig.web.json"
   ],
   "allowedEdges": {
-    "shared.ipc": ["shared"],
-    "shared": [],
-    "main.bootstrap": ["main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.ipc"],
-    "main.transport": ["main.application", "main.platform", "shared", "shared.ipc"],
-    "main.application": ["shared", "shared.ipc"],
-    "main.infrastructure": ["shared", "shared.ipc"],
-    "main.mcp": ["shared", "shared.ipc"],
-    "main.platform": ["main.application", "main.infrastructure", "shared", "shared.ipc"],
-    "preload": ["shared", "shared.ipc"],
-    "renderer.bootstrap.main": ["renderer.app", "renderer.workspace", "shared", "shared.ipc"],
-    "renderer.bootstrap.root": ["renderer.app", "renderer.tasken-root", "shared", "shared.ipc"],
-    "renderer.workspace": ["renderer.app", "renderer.services", "shared", "shared.ipc"],
-    "renderer.memo-sticky": ["shared", "shared.ipc"],
-    "renderer.tasken-root": ["shared", "shared.ipc"],
-    "renderer.services": ["shared", "shared.ipc"],
-    "renderer.app": ["renderer.services", "renderer.workspace", "renderer.memo-sticky", "renderer.tasken-root", "shared", "shared.ipc"]
+    "shared.kernel": [],
+    "shared.contracts.task": ["shared.kernel"],
+    "shared.compatibility": ["shared.kernel", "shared.contracts.task"],
+    "shared.ipc": ["shared", "shared.kernel", "shared.contracts.task"],
+    "shared": ["shared.kernel", "shared.contracts.task", "shared.compatibility"],
+    "main.bootstrap": ["main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.transport": ["main.application", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.application": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.infrastructure": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.mcp": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.platform": ["main.application", "main.infrastructure", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "preload": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "renderer.bootstrap.main": ["renderer.app", "renderer.workspace", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "renderer.bootstrap.root": ["renderer.app", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "renderer.workspace": ["renderer.app", "renderer.services", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "renderer.memo-sticky": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "renderer.tasken-root": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "renderer.services": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "renderer.app": ["renderer.services", "renderer.workspace", "renderer.memo-sticky", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"]
   },
   "modules": [
+    {
+      "id": "shared.kernel",
+      "root": "src/shared/kernel",
+      "kind": "shared-kernel",
+      "status": "report-only",
+      "publicEntrypoints": [
+        "src/shared/kernel/public.ts"
+      ],
+      "enforcePublicApi": true,
+      "owner": "platform-architecture"
+    },
+    {
+      "id": "shared.contracts.task",
+      "root": "src/shared/contracts/task",
+      "kind": "shared-contract",
+      "status": "report-only",
+      "publicEntrypoints": [
+        "src/shared/contracts/task/public.ts"
+      ],
+      "enforcePublicApi": true,
+      "owner": "task"
+    },
+    {
+      "id": "shared.compatibility",
+      "root": "src/shared/compatibility",
+      "kind": "shared-compatibility",
+      "status": "inventory",
+      "publicEntrypoints": [],
+      "enforcePublicApi": true,
+      "owner": "platform-architecture"
+    },
     {
       "id": "shared.ipc",
       "root": "src/shared/ipc",

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "issue": 407,
+  "rules": [
+    {
+      "id": "kernel",
+      "classification": "kernel",
+      "root": "src/shared/kernel",
+      "owner": "platform-architecture",
+      "migrationTarget": "src/shared/kernel/public.ts"
+    },
+    {
+      "id": "task-contract",
+      "classification": "feature-contract",
+      "root": "src/shared/contracts/task",
+      "owner": "task",
+      "migrationTarget": "src/shared/contracts/task/public.ts"
+    },
+    {
+      "id": "transport-platform",
+      "classification": "platform",
+      "root": "src/shared/ipc",
+      "owner": "desktop-transport",
+      "migrationTarget": "feature capability composition in #405"
+    },
+    {
+      "id": "flat-platform",
+      "classification": "platform",
+      "owner": "platform-architecture",
+      "files": [
+        "src/shared/ai.ts",
+        "src/shared/attachments.ts",
+        "src/shared/batchTranscriptionIpc.ts",
+        "src/shared/calendar.ts",
+        "src/shared/fileExport.ts",
+        "src/shared/mediaCapture.ts",
+        "src/shared/memoPresentation.ts",
+        "src/shared/mermaidPowerPoint.ts",
+        "src/shared/sketchExport.ts",
+        "src/shared/slideTimelineExport.ts",
+        "src/shared/taskenPaths.mjs",
+        "src/shared/taskenRoot.ts",
+        "src/shared/themePickerDom.ts",
+        "src/shared/todayMiniPresentation.ts"
+      ],
+      "migrationTarget": "Main, Renderer, or feature transport adapter"
+    },
+    {
+      "id": "legacy-aggregate-contracts",
+      "classification": "compatibility",
+      "owner": "platform-architecture",
+      "files": [
+        "src/shared/applicationCommand.ts",
+        "src/shared/types/workspace.ts"
+      ],
+      "migrationTarget": "feature contracts and explicit compatibility adapters",
+      "removalCondition": "#404, #405, and #406 have moved Task consumers and the remaining feature owners are inventoried"
+    },
+    {
+      "id": "existing-flat-pure-policy",
+      "classification": "pure-domain",
+      "root": "src/shared",
+      "owner": "owning-feature-to-be-recorded",
+      "migrationTarget": "src/shared/domain/<feature> or the owning runtime when each boundary is migrated"
+    }
+  ]
+}

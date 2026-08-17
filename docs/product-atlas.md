@@ -176,6 +176,11 @@ Today / ToDo / Timeline / Theme Overview / Today Mini
 
 すべてTask・Scheduleの異なる見方。Taskの状態・日付・Theme判定を独自実装しない。
 
+Taskのtransport正本は `src/shared/contracts/task/public.ts` とする。ここが
+Command / Query / Event / Error / read modelのversioned schemaを所有し、各Projectionは
+独自のTask contractを作らない。SQLite row、Main domain、Renderer view/form stateは
+別の役割として保ち、#404/#405/#406でこの正本へ順にadapter接続する。
+
 ### Document cluster
 
 ```text

@@ -8,6 +8,9 @@ fail CI yet.
 
 - `modules.json`: module roots, public entrypoints, reviewed dependency edges,
   rollout status, capability registrars, and composition roots.
+- `shared-ownership.json`: every `src/shared` file's classification, owner,
+  migration target, and removal condition. Kernel and feature contracts expose
+  only their declared `public.ts` entrypoints.
 - `compatibility-baseline.json`: exact consumer paths for frozen compatibility
   surfaces. Counts alone are not used because moving a consumer must not hide
   new debt.
@@ -33,8 +36,10 @@ npm run audit:architecture -- --rule renderer.cross_feature_deep_import
 ```
 
 Reports are written under `artifacts/architecture/` and uploaded by Windows CI.
-The JSON dependency and module outputs are intended for reuse by Product Atlas
-(#386).
+The JSON dependency, module, and shared-ownership outputs are intended for
+reuse by Product Atlas (#386). The shared-ownership artifact also records
+exported symbols, consumers, runtime dependencies, validation presence, and
+legacy `.mjs` / `.d.mts` declaration pairs.
 
 Production source, tests, and their script dependencies are scanned. Audit fixtures are excluded only by the
 exact `fixtureRoots` entries in `modules.json`; the test tree is never blanket
