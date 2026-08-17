@@ -1,0 +1,30 @@
+import type { WorkspaceTaskPersistence } from "./ports/taskRepository.ts";
+import { SqliteTaskRepository } from "./infrastructure/sqliteTaskRepository.ts";
+import { TaskCommandHandler, type TaskCommandRuntime } from "./application/taskCommandHandler.ts";
+import { TaskQueryHandler } from "./application/taskQueryHandler.ts";
+
+export { normalizeTaskAssignment } from "./domain/taskAssignment.ts";
+
+export type { TaskCommandRuntime } from "./application/taskCommandHandler.ts";
+export type { TaskEntityAccess, TaskRepository, WorkspaceTaskPersistence } from "./ports/taskRepository.ts";
+
+export {
+  assertHumanAcceptBeforeTaskCompletion,
+  assertTaskThemeExists,
+  currentTaskWorkState,
+  normalizeCanonicalTask,
+  normalizeTaskForSave,
+  taskChangeType,
+  taskFromPayload,
+  taskIdFromPayload,
+  taskReferenceOperations,
+  validateTaskScheduleWrite,
+} from "./application/taskPolicy.ts";
+
+export function createTaskModule(persistence: WorkspaceTaskPersistence, runtime: TaskCommandRuntime) {
+  const repository = new SqliteTaskRepository(persistence);
+  return {
+    commands: new TaskCommandHandler(repository, runtime),
+    queries: new TaskQueryHandler(repository),
+  };
+}

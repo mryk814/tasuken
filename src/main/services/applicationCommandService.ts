@@ -2,9 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
-import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
+import { entityDefinition } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
-import { normalizeTaskAssignment } from "../repositories/domain.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
 import type { CanonicalNoteAiCompanion, Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
@@ -17,6 +16,20 @@ import {
   type ExpectedVersion,
 } from "../../shared/applicationCommand";
 import { applicationCommandSources } from "../../shared/applicationCommand";
+import {
+  assertHumanAcceptBeforeTaskCompletion as assertHumanAcceptBeforeCompletion,
+  assertTaskThemeExists as assertThemeExists,
+  createTaskModule,
+  currentTaskWorkState as currentWorkState,
+  normalizeCanonicalTask,
+  normalizeTaskForSave,
+  taskChangeType as changeType,
+  taskFromPayload as asTask,
+  taskIdFromPayload as asTaskId,
+  taskReferenceOperations as referencesForTask,
+  validateTaskScheduleWrite,
+  type TaskCommandRuntime,
+} from "../modules/task/public.ts";
 
 interface Repository {
   list(type: EntityType, includeDeleted?: boolean): Entity[];
@@ -33,7 +46,6 @@ const referenceDefinition = entityDefinition("reference");
 const workReceiptDefinition = entityDefinition("work_receipt");
 const captureDefinition = entityDefinition("capture_entry");
 const artifactDefinition = entityDefinition("artifact");
-const taskWorkStates = new Set(["not_delegated", "ready_for_agent", "in_progress", "reported_done", "needs_human_review", "accepted", "blocked", "failed"]);
 const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
 const aiAgentCommands = new Set<ApplicationCommandName>([
   "StartTaskWork",
@@ -44,17 +56,6 @@ const aiAgentCommands = new Set<ApplicationCommandName>([
   "AcceptTaskWork",
   "ReturnTaskWork",
 ]);
-
-function currentWorkState(task: Entity): string {
-  if (typeof task.work_state === "string" && taskWorkStates.has(task.work_state)) return task.work_state;
-  return task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated";
-}
-
-function assertHumanAcceptBeforeCompletion(task: Entity): void {
-  if (task.intended_executor === "ai_agent" && currentWorkState(task) !== "accepted") {
-    throw new ApplicationCommandError("INVALID_TRANSITION", "AIの報告だけではTaskを完了できません。人間がWork Receiptを確認してから完了してください。", { id: task.id });
-  }
-}
 
 function workExecutorLabel(task: Entity, receipt?: Entity): string {
   return String(receipt?.executor_label || task.executor_identity || (task.intended_executor === "ai_agent" ? "AI agent" : "Task executor"));
@@ -230,47 +231,24 @@ function assertHumanReviewActor(command: CommandEnvelope, action: string): void 
   }
 }
 
-function asTask(payload: unknown): Entity {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task payloadが不正です。");
-  }
-  const task = (payload as { task?: unknown }).task;
-  if (!task || typeof task !== "object" || Array.isArray(task)) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task recordが不正です。");
-  }
-  taskDefinition.parseCreate(task);
-  if (typeof (task as Entity).id !== "string" || !(task as Entity).id.trim()) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task IDがありません。");
-  }
-  const title = (task as Record<string, unknown>).title;
-  if (typeof title !== "string" || !title.trim()) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", "Taskタイトルがありません。");
-  }
-  return task as Entity;
-}
-
-function asTaskId(payload: unknown): string {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task command payloadが不正です。");
-  }
-  const taskId = (payload as { taskId?: unknown }).taskId;
-  if (typeof taskId !== "string" || !taskId.trim()) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task IDがありません。");
-  }
-  return taskId;
-}
-
 function expectedVersionFor(envelope: CommandEnvelope, type: EntityType, id: string): ExpectedVersion | undefined {
   return envelope.expectedVersions?.find((expected) => expected.type === type && expected.id === id);
 }
 
-function changeType(before: Entity | null, after: Entity, command: ApplicationCommandName): "created" | "updated" | "completed" {
-  if (!before) return "created";
-  if (before.state !== "done" && after.state === "done") return "completed";
-  // Reopen and an edit of an already completed task are ordinary updates.  A
-  // completed task must never receive another completed event just because its
-  // title/checklist was edited.
-  return "updated";
+function normalizeCanonicalEntity(type: EntityType, entity: Entity, fallbackThemeId?: string): Entity {
+  return type === "task" ? normalizeCanonicalTask(entity, fallbackThemeId) : entity;
+}
+
+function validateScheduleWrite(repository: Repository, command: CommandEnvelope, schedule: Entity | null | undefined, taskId: string, isCreate: boolean): Entity | null {
+  return validateTaskScheduleWrite(
+    repository,
+    command,
+    schedule,
+    taskId,
+    isCreate,
+    (type, id) => Boolean(expectedVersionFor(command, type, id)),
+    (type, id, current) => assertExpectedVersion(repository, command, type, id, current),
+  );
 }
 
 function commandEvent(
@@ -475,17 +453,6 @@ function readIdempotent(repository: Repository, command: CommandEnvelope): Comma
   return receipt;
 }
 
-function assertThemeExists(repository: Repository, task: Entity): void {
-  const themeId = task.project_id;
-  if (typeof themeId !== "string" || !themeId.trim()) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", "Taskのcanonical Theme IDがありません。");
-  }
-  const exists = repository.list("theme").some((theme) => theme.id === themeId);
-  if (!exists) {
-    throw new ApplicationCommandError("INVALID_PAYLOAD", `Themeが存在しません: ${themeId}`, { themeId });
-  }
-}
-
 function persistReceipt(repository: Repository, command: CommandEnvelope, operations: SaveOperation[], eventIds: string[], changeTypes: EntityType[]): CommandReceipt {
   const saved = repository.saveMany(operations);
   const changes = saved
@@ -541,69 +508,6 @@ function assertExpectedVersion(repository: Repository, envelope: CommandEnvelope
   }
 }
 
-function validateScheduleWrite(repository: Repository, command: CommandEnvelope, schedule: Entity | null | undefined, taskId: string, isCreate: boolean): Entity | null {
-  if (!schedule) return null;
-  if (schedule.owner_type !== "task" || schedule.owner_id !== taskId) {
-    throw new ApplicationCommandError("CONFLICT", "Scheduleのownerを別Taskへ変更できません。", { id: schedule.id });
-  }
-  const existing = repository.get("schedule", schedule.id, true);
-  if (existing) {
-    if (isCreate) throw new ApplicationCommandError("CONFLICT", "CreateTaskで既存Schedule IDを再利用できません。", { id: schedule.id });
-    if (existing.owner_type !== "task" || existing.owner_id !== taskId) {
-      throw new ApplicationCommandError("CONFLICT", "Scheduleのownerを別Taskへ変更できません。", { id: schedule.id });
-    }
-    if (!expectedVersionFor(command, "schedule", schedule.id)) {
-      throw new ApplicationCommandError("CONFLICT", "既存Scheduleの更新にはexpected versionが必要です。", { type: "schedule", id: schedule.id });
-    }
-    assertExpectedVersion(repository, command, "schedule", schedule.id, existing);
-  }
-  return { ...schedule, owner_type: "task", owner_id: taskId };
-}
-
-function referencesForTask(repository: Repository, command: CommandEnvelope, taskId: string): SaveOperation[] {
-  const references = (command.payload as { references?: Entity[] }).references || [];
-  return references.map((reference) => {
-    referenceDefinition.parseCreate(reference);
-    if (!referenceTargetEntityTypes.includes(reference.source_type as never)
-      || !referenceTargetEntityTypes.includes(reference.target_type as never)
-      || !referenceRelationTypes.includes(reference.relation_type as never)) {
-      throw new ApplicationCommandError("INVALID_PAYLOAD", "Referenceのsource/target typeまたはrelationが不正です。", { id: reference.id });
-    }
-    if (reference.source_id !== taskId && reference.target_id !== taskId) {
-      throw new ApplicationCommandError("INVALID_PAYLOAD", "Task Commandのreferenceは対象Taskを参照する必要があります。", { id: reference.id });
-    }
-    if (repository.get("reference", reference.id, true)) {
-      throw new ApplicationCommandError("CONFLICT", "既存Reference IDをCommandで再利用できません。", { id: reference.id });
-    }
-    for (const [side, type, id] of [
-      ["source", reference.source_type, reference.source_id],
-      ["target", reference.target_type, reference.target_id],
-    ] as const) {
-      const referenceType = type as EntityType;
-      const referenceId = String(id);
-      if (referenceType === "task" && referenceId === taskId) continue;
-      const active = repository.get(referenceType, referenceId);
-      if (!active) {
-        const deleted = repository.get(referenceType, referenceId, true);
-        throw new ApplicationCommandError("NOT_FOUND", deleted
-          ? `Referenceの${side} entityが削除済みです。`
-          : `Referenceの${side} entityが存在しません。`, { type: referenceType, id: referenceId, side });
-      }
-    }
-    return { action: "save", type: "reference", entity: reference };
-  });
-}
-
-function normalizeCanonicalEntity(type: EntityType, entity: Entity, fallbackThemeId?: string): Entity {
-  if (type !== "task") return entity;
-  const next: Entity = {
-    ...entity,
-    project_id: canonicalThemeId(entity.project_id ?? entity.theme_id ?? fallbackThemeId, { defaultPersonal: true }),
-  };
-  delete next.theme_id;
-  return next;
-}
-
 function normalizeCanonicalNote(entity: Entity, fallbackThemeId?: string): Entity {
   const next: Entity = {
     ...entity,
@@ -611,6 +515,18 @@ function normalizeCanonicalNote(entity: Entity, fallbackThemeId?: string): Entit
   };
   delete next.theme_id;
   return next;
+}
+
+function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
+  return {
+    hasExpectedVersion: (command, type, id) => Boolean(expectedVersionFor(command, type, id)),
+    assertExpectedVersion: (command, type, id, current) => assertExpectedVersion(repository, command, type, id, current),
+    createEvent: (command, entityType, entityId, kind, before, after) => commandEvent(command, entityType, entityId, kind, before, after),
+    annotateEvent,
+    persist: (command, operations, eventIds, changeTypes) => persistReceipt(repository, command, operations, eventIds, changeTypes),
+    persistNoChange: (command, taskId, current) => persistNoChange(repository, command, taskId, current),
+    now,
+  };
 }
 
 export class ApplicationCommandService {
@@ -745,6 +661,9 @@ export class ApplicationCommandService {
       );
     }
 
+    const taskModule = createTaskModule(this.repository, taskCommandRuntime(this.repository));
+    if (taskModule.commands.handles(command.name)) return taskModule.commands.execute(command);
+
     if (command.name === "CreateTaskFromCapture") {
       return this.createTaskFromCapture(command);
     }
@@ -767,13 +686,7 @@ export class ApplicationCommandService {
     if (command.name === "ReportTaskBlocked") return this.appendWorkReceipt(command, "blocked");
     if (command.name === "AcceptTaskWork") return this.acceptTaskWork(command);
     if (command.name === "ReturnTaskWork") return this.returnTaskWork(command);
-    if (command.name === "DeleteTask") {
-      return this.deleteTask(command);
-    }
-    if (command.name === "CreateTask" || command.name === "UpdateTask") {
-      return this.saveTask(command, command.name === "CreateTask");
-    }
-    return this.transitionTask(command, command.name === "CompleteTask");
+    throw new ApplicationCommandError("INVALID_ENVELOPE", `Command handlerが登録されていません: ${command.name}`);
   }
 
   private commitAudioCapture(command: CommandEnvelope): CommandReceipt {
@@ -1170,24 +1083,6 @@ export class ApplicationCommandService {
     ], [event.id], ["task"]);
   }
 
-  private deleteTask(command: CommandEnvelope): CommandReceipt {
-    const taskId = asTaskId(command.payload);
-    const current = this.repository.get("task", taskId);
-    if (!current) throw new ApplicationCommandError("NOT_FOUND", "削除対象のTaskがありません。", { id: taskId });
-    if (!expectedVersionFor(command, "task", taskId)) {
-      throw new ApplicationCommandError("CONFLICT", "DeleteTaskにはexpected versionが必要です。", { type: "task", id: taskId });
-    }
-    assertExpectedVersion(this.repository, command, "task", taskId, current);
-    const deleted = this.repository.remove("task", taskId);
-    if (!deleted) throw new ApplicationCommandError("NOT_FOUND", "削除対象のTaskがありません。", { id: taskId });
-    const receipt = receiptFor(command, "applied");
-    return {
-      ...receipt,
-      deleted: [{ type: "task", id: taskId }],
-      changes: [{ type: "task", entity: deleted }],
-    };
-  }
-
   private completeTaskWithLearning(command: CommandEnvelope): CommandReceipt {
     const payload = command.payload as {
       task: Entity;
@@ -1465,7 +1360,7 @@ export class ApplicationCommandService {
         }
       }
       if (type === "task") {
-        const task = normalizeTaskAssignment(normalizeCanonicalEntity(type, candidateEntity), before || undefined);
+        const task = normalizeTaskForSave(normalizeCanonicalEntity(type, candidateEntity), before || undefined);
         if (task.work_state === "accepted" && (!before || currentWorkState(before) !== "accepted")) {
           throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの受入れはAcceptTaskWorkを使用してください。", { id: task.id });
         }
@@ -1496,147 +1391,6 @@ export class ApplicationCommandService {
     operations.push({ action: "save", type: "change_event", entity: proposalEvent });
     eventIds.push(proposalEvent.id);
     return persistReceipt(this.repository, command, operations, eventIds, [...new Set([...payload.candidates.map((candidate) => candidate.type), "ai_proposal"])] as EntityType[]);
-  }
-
-  private saveTask(command: CommandEnvelope, isCreate: boolean): CommandReceipt {
-    const inputTask = asTask(command.payload);
-    const taskId = inputTask.id;
-    const current = this.repository.get("task", taskId, true);
-    if (isCreate && current) {
-      throw new ApplicationCommandError("CONFLICT", "同じTask IDが既に存在します。", { type: "task", id: taskId });
-    }
-    if (!isCreate && !current) throw new ApplicationCommandError("NOT_FOUND", "更新対象のTaskがありません。", { id: taskId });
-    assertExpectedVersion(this.repository, command, "task", taskId, current);
-
-    const task: Entity = normalizeTaskAssignment({
-      ...inputTask,
-      project_id: canonicalThemeId(inputTask.project_id, { defaultPersonal: true }),
-    }, current || undefined);
-    if (task.state === "done") assertHumanAcceptBeforeCompletion(task);
-    if (!isCreate && !expectedVersionFor(command, "task", taskId)) {
-      throw new ApplicationCommandError("CONFLICT", "UpdateTaskにはexpected versionが必要です。", { type: "task", id: taskId });
-    }
-    taskDefinition.parseUpdate(task);
-    assertThemeExists(this.repository, task);
-    if (!isCreate && current && current.state !== task.state && (current.state === "done" || task.state === "done")) {
-      throw new ApplicationCommandError("INVALID_TRANSITION", "完了状態の変更はCompleteTask/ReopenTaskを使用してください。");
-    }
-    if (!isCreate && current && Object.prototype.hasOwnProperty.call(inputTask, "work_state") && currentWorkState(current) !== currentWorkState(task)) {
-      const setupTransition = (currentWorkState(current) === "not_delegated" && currentWorkState(task) === "ready_for_agent")
-        || (currentWorkState(current) === "ready_for_agent" && currentWorkState(task) === "not_delegated");
-      if (!setupTransition) throw new ApplicationCommandError("INVALID_TRANSITION", "Work stateの変更はStart/Report/Accept/Return Commandを使用してください。", { id: taskId });
-    }
-
-    const schedule = validateScheduleWrite(this.repository, command, (command.payload as { schedule?: Entity | null }).schedule, taskId, isCreate);
-    const operations: SaveOperation[] = [{ action: "save", type: "task", entity: task }];
-    if (schedule) {
-      operations.push({
-        action: "save",
-        type: "schedule",
-        entity: schedule,
-      });
-    }
-    const event = commandEvent(command, "task", taskId, changeType(current, task, command.name), current, task);
-    event.command_source = command.source;
-    event.actor_kind = command.actor.kind;
-    event.actor_id = command.actor.id || null;
-    event.command_fingerprint = commandFingerprint(command);
-    operations.push({ action: "save", type: "change_event", entity: event });
-    const previousSchedule = schedule ? this.repository.get("schedule", schedule.id, true) : null;
-    const scheduleEvent = schedule
-      ? commandEvent(command, "schedule", taskId, "rescheduled", previousSchedule, schedule)
-      : null;
-    if (scheduleEvent) {
-      scheduleEvent.command_source = command.source;
-      scheduleEvent.actor_kind = command.actor.kind;
-      scheduleEvent.actor_id = command.actor.id || null;
-      scheduleEvent.command_fingerprint = commandFingerprint(command);
-    }
-    if (scheduleEvent) operations.push({ action: "save", type: "change_event", entity: scheduleEvent });
-    operations.push(...referencesForTask(this.repository, command, taskId));
-
-    return persistReceipt(
-      this.repository,
-      command,
-      operations,
-      [event.id, ...(scheduleEvent ? [scheduleEvent.id] : [])],
-      operations.map((operation) => operation.type).filter((type) => type !== "change_event"),
-    );
-  }
-
-  private transitionTask(command: CommandEnvelope, completing: boolean): CommandReceipt {
-    const taskId = asTaskId(command.payload);
-    const current = this.repository.get("task", taskId);
-    if (!current) throw new ApplicationCommandError("NOT_FOUND", "対象Taskがありません。", { id: taskId });
-    if (!expectedVersionFor(command, "task", taskId)) {
-      throw new ApplicationCommandError("CONFLICT", `${command.name}にはexpected versionが必要です。`, { type: "task", id: taskId });
-    }
-    assertExpectedVersion(this.repository, command, "task", taskId, current);
-    if (current.state === "cancelled") {
-      throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みTaskはこのCommandで変更できません。", { id: taskId });
-    }
-    if (completing) assertHumanAcceptBeforeCompletion(current);
-    const requestedTask = (command.payload as { task?: Entity }).task;
-    if (requestedTask) {
-      asTask({ task: requestedTask });
-      taskDefinition.parseUpdate(requestedTask);
-    }
-    const alreadyInTarget = completing ? current.state === "done" : current.state !== "done";
-    if (alreadyInTarget) {
-      if (requestedTask || (command.payload as { references?: Entity[] }).references?.length) {
-        return this.saveTask(command, false);
-      }
-      return persistNoChange(this.repository, command, taskId, current);
-    }
-    const next: Entity = completing
-      ? {
-        ...current,
-        ...(requestedTask || {}),
-        id: taskId,
-        project_id: canonicalThemeId(requestedTask?.project_id ?? current.project_id, { defaultPersonal: true }),
-        state: "done",
-        completed_at: now(),
-        completion_note: (command.payload as { completionNote?: string | null }).completionNote ?? current.completion_note ?? null,
-      }
-      : {
-        ...current,
-        ...(requestedTask || {}),
-        id: taskId,
-        project_id: canonicalThemeId(requestedTask?.project_id ?? current.project_id, { defaultPersonal: true }),
-        state: "todo",
-        completed_at: null,
-      };
-    taskDefinition.parseUpdate(next);
-    assertThemeExists(this.repository, next);
-    const event = commandEvent(command, "task", taskId, completing ? "completed" : "updated", current, next);
-    event.command_source = command.source;
-    event.actor_kind = command.actor.kind;
-    event.actor_id = command.actor.id || null;
-    event.command_fingerprint = commandFingerprint(command);
-    const normalizedSchedule = validateScheduleWrite(this.repository, command, (command.payload as { schedule?: Entity | null }).schedule, taskId, false);
-    const scheduleEvent = normalizedSchedule
-      ? commandEvent(command, "schedule", taskId, "rescheduled", this.repository.get("schedule", normalizedSchedule.id, true), normalizedSchedule)
-      : null;
-    if (scheduleEvent) {
-      scheduleEvent.command_source = command.source;
-      scheduleEvent.actor_kind = command.actor.kind;
-      scheduleEvent.actor_id = command.actor.id || null;
-      scheduleEvent.command_fingerprint = commandFingerprint(command);
-    }
-    const operations: SaveOperation[] = [
-      { action: "save", type: "task", entity: next },
-      ...(normalizedSchedule ? [{ action: "save" as const, type: "schedule" as const, entity: normalizedSchedule }] : []),
-      { action: "save", type: "change_event", entity: event },
-      ...(scheduleEvent ? [{ action: "save" as const, type: "change_event" as const, entity: scheduleEvent }] : []),
-    ];
-    operations.push(...referencesForTask(this.repository, command, taskId));
-    return persistReceipt(
-      this.repository,
-      command,
-      operations,
-      [event.id, ...(scheduleEvent ? [scheduleEvent.id] : [])],
-      operations.map((operation) => operation.type).filter((type) => type !== "change_event"),
-    );
   }
 
   private createTaskFromCapture(command: CommandEnvelope): CommandReceipt {

@@ -1,4 +1,4 @@
-import { entityTypes, type Entity, type EntityType } from "./types/workspace";
+import { entityTypes, type Entity, type EntityType } from "./types/workspace.ts";
 import { normalizeExternalReferences } from "./externalReference.mjs";
 import type { ExternalReference } from "./externalReference.mjs";
 

@@ -11,6 +11,7 @@ import {
   entityTypes,
   requiredFieldsForEntityType,
 } from "../../shared/entityRegistry.mjs";
+import { normalizeTaskAssignment as normalizeTaskAssignmentInModule } from "../modules/task/public.ts";
 
 export const workspaceEntityTypes = entityTypes;
 
@@ -59,7 +60,6 @@ const taskRequesters = new Set(["self", "human", "ai_agent", "external", "unknow
 const taskIntendedExecutors = new Set(["self", "human", "ai_agent", "unassigned"]);
 const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
 const taskWorkStates = new Set(["not_delegated", "ready_for_agent", "in_progress", "reported_done", "needs_human_review", "accepted", "blocked", "failed"]);
-const taskAssignmentInFlightStates = new Set(["in_progress", "reported_done", "needs_human_review"]);
 const taskRepeatFrequencies = new Set(["daily", "weekly", "monthly"]);
 const taskRepeatNextFromValues = new Set(["scheduled", "completed"]);
 const waitingStates = new Set(["waiting", "received", "cancelled"]);
@@ -490,25 +490,7 @@ export function validateEntity(type, input) {
  * @returns {T}
  */
 export function normalizeTaskAssignment(input, previous = null) {
-  const normalized = { ...input };
-  if (!Object.prototype.hasOwnProperty.call(normalized, "intended_executor")) return normalized;
-  if (!taskIntendedExecutors.has(normalized.intended_executor)) return normalized;
-
-  const changed = !previous || previous.intended_executor !== normalized.intended_executor;
-  if (!changed) return normalized;
-
-  const previousWorkState = previous?.work_state
-    || (previous?.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
-  if (previous && taskAssignmentInFlightStates.has(previousWorkState)) {
-    throw new Error("作業中または確認中のTaskは、先にWork Receiptを受け入れるか差し戻してから再割当してください。");
-  }
-
-  const assignedToAi = normalized.intended_executor === "ai_agent";
-  normalized.work_state = assignedToAi ? "ready_for_agent" : "not_delegated";
-  normalized.work_started_at = null;
-  normalized.work_reported_at = null;
-  normalized.work_review_note = null;
-  return normalized;
+  return normalizeTaskAssignmentInModule(input, previous);
 }
 
 export function normalizeEntity(type, input) {

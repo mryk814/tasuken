@@ -14,7 +14,7 @@
     "doctor:desktop": "node scripts/desktop-dev-doctor.mjs",
     "test": "node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/*.test.mjs",
     "test:full": "node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/*.test.mjs",
-    "test:unit-contract": "node scripts/run-electron-node.mjs --test tests/architecture-audit.test.mjs tests/audit-tools.test.mjs tests/bundled-fonts.test.mjs tests/desktop-dev-doctor.test.mjs tests/entity-registry-theme.test.mjs tests/electron-smoke-runner.test.mjs tests/personal-default-theme.test.mjs tests/theme-picker-ui.test.mjs tests/semantic-registry.test.mjs tests/semantic-actions.test.mjs tests/storage-resolver.test.mjs tests/task-contract.test.mjs",
+    "test:unit-contract": "node scripts/run-electron-node.mjs --test tests/architecture-audit.test.mjs tests/audit-tools.test.mjs tests/bundled-fonts.test.mjs tests/desktop-dev-doctor.test.mjs tests/entity-registry-theme.test.mjs tests/electron-smoke-runner.test.mjs tests/personal-default-theme.test.mjs tests/theme-picker-ui.test.mjs tests/semantic-registry.test.mjs tests/semantic-actions.test.mjs tests/storage-resolver.test.mjs tests/task-contract.test.mjs tests/task-main-module.test.mjs",
     "test:behavior": "node scripts/run-electron-node.mjs --test tests/application-command.test.mjs tests/note-draft-identity.test.mjs tests/canonical-markdown.test.mjs tests/canonical-markdown-workspace.test.mjs tests/note-draft-flush-registry.test.mjs tests/note-draft-save-queue.test.mjs tests/document-publish.test.mjs tests/satellite-window-state.test.mjs tests/workspace-domain.test.mjs",
     "typecheck": "tsc -b",
     "build": "electron-vite build",

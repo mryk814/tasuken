@@ -23,8 +23,9 @@
     "shared": ["shared.kernel", "shared.contracts.task", "shared.compatibility"],
     "main.bootstrap": ["main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.transport": ["main.application", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "main.application": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "main.infrastructure": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.application": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.task": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.mcp": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.platform": ["main.application", "main.infrastructure", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "preload": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
@@ -110,6 +111,17 @@
       "status": "report-only",
       "publicEntrypoints": [],
       "owner": "main-architecture"
+    },
+    {
+      "id": "main.task",
+      "root": "src/main/modules/task",
+      "kind": "main-feature",
+      "status": "report-only",
+      "publicEntrypoints": [
+        "src/main/modules/task/public.ts"
+      ],
+      "enforcePublicApi": true,
+      "owner": "task"
     },
     {
       "id": "main.infrastructure",
