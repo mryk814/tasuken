@@ -76,6 +76,7 @@ writeFileSync(path.join(outputRoot, "module-map.json"), JSON.stringify({ schemaV
 writeFileSync(path.join(outputRoot, "dependencies.json"), JSON.stringify({ schemaVersion: report.schemaVersion, dependencies: report.dependencies }, null, 2) + "\n");
 writeFileSync(path.join(outputRoot, "compatibility-debt.json"), JSON.stringify({ schemaVersion: report.schemaVersion, compatibility: report.compatibility }, null, 2) + "\n");
 writeFileSync(path.join(outputRoot, "capability-surfaces.json"), JSON.stringify({ schemaVersion: report.schemaVersion, capabilitySurfaces: report.capabilitySurfaces }, null, 2) + "\n");
+writeFileSync(path.join(outputRoot, "shared-ownership.json"), JSON.stringify({ schemaVersion: report.schemaVersion, sharedOwnership: report.sharedOwnership }, null, 2) + "\n");
 writeFileSync(path.join(outputRoot, "report.json"), JSON.stringify(report, null, 2) + "\n");
 writeFileSync(path.join(outputRoot, "report.md"), markdownReport(report));
 
@@ -84,5 +85,6 @@ else {
   console.log(`Architecture audit: REPORT-ONLY (${report.summary.findings} findings; ${report.summary.newFindings} new candidates)`);
   console.log(`Compatibility consumers: ${report.summary.compatibilityConsumers}; new candidates: ${report.summary.newCompatibilityConsumers}`);
   console.log(`Preload capabilities: ${report.capabilitySurfaces.reduce((total, entry) => total + entry.propertyCount, 0)}; new candidates: ${report.summary.newCapabilities}`);
+  console.log(`Shared ownership: ${report.summary.sharedFiles} files; ${report.summary.unclassifiedSharedFiles} unclassified`);
   console.log(`Report: ${normalizePath(path.join(outputDirectory, "report.md"))}`);
 }

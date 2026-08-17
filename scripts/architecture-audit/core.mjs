@@ -61,6 +61,47 @@ export function collectImports(file, source) {
   return imports;
 }
 
+function bindingNames(name, names = []) {
+  if (ts.isIdentifier(name)) names.push(name.text);
+  else if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) bindingNames(element.name, names);
+    }
+  }
+  return names;
+}
+
+export function collectExports(file, source) {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKind(file));
+  const exports = [];
+  const exported = (node) => node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+  for (const node of sourceFile.statements) {
+    if (ts.isExportDeclaration(node)) {
+      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+        exports.push(...node.exportClause.elements.map((element) => element.name.text));
+      } else if (node.exportClause && ts.isNamespaceExport(node.exportClause)) {
+        exports.push(node.exportClause.name.text);
+      } else {
+        exports.push(`*:${node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier) ? node.moduleSpecifier.text : "local"}`);
+      }
+      continue;
+    }
+    if (ts.isExportAssignment(node)) {
+      exports.push("default");
+      continue;
+    }
+    if (!exported(node)) continue;
+    if (ts.isVariableStatement(node)) {
+      for (const declaration of node.declarationList.declarations) exports.push(...bindingNames(declaration.name));
+    } else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node)
+      || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) && node.name) {
+      exports.push(node.name.text);
+    }
+    if (node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) exports.push("default");
+  }
+  return [...new Set(exports)].sort();
+}
+
 function loadTsconfigAliases(root, tsconfigPaths) {
   const aliases = [];
   for (const configPath of tsconfigPaths || []) {
@@ -134,7 +175,7 @@ function finding(ruleId, source, line, target, reason, alternative) {
 function inspectImport(edge, sourceModule, targetModule, policy) {
   const findings = [];
   const rendererSource = edge.source.startsWith("src/renderer/");
-  const sharedSource = sourceModule?.kind === "shared-contract";
+  const sharedSource = sourceModule?.kind === "shared-contract" || sourceModule?.kind === "shared-kernel";
   if (rendererSource && (edge.target.startsWith("src/main/") || edge.target.startsWith("src/preload/")
       || matchesExternal(edge.target, ["electron", "node:fs", "node:path", "better-sqlite3"]))) {
     findings.push(finding(
@@ -436,6 +477,44 @@ function compareCompatibility(current, baseline) {
   });
 }
 
+function sharedOwnershipRule(file, policy) {
+  const rules = policy.rules || [];
+  const exact = rules.find((rule) => (rule.files || []).map(normalizePath).includes(file));
+  if (exact) return exact;
+  const rooted = rules
+    .filter((rule) => rule.root)
+    .map((rule) => ({ ...rule, normalizedRoot: normalizePath(rule.root) }))
+    .filter((rule) => file === rule.normalizedRoot || file.startsWith(rule.normalizedRoot + "/"))
+    .sort((left, right) => right.normalizedRoot.length - left.normalizedRoot.length)[0];
+  if (rooted) return rooted;
+  return rules.find((rule) => rule.fallback === true) || null;
+}
+
+function sharedOwnershipInventory(files, contents, edges, pairs, policy) {
+  const pairImplementations = new Set(pairs.map((pair) => pair.implementation));
+  const pairDeclarations = new Set(pairs.map((pair) => pair.declaration));
+  return files
+    .filter((file) => file.startsWith("src/shared/"))
+    .map((file) => {
+      const rule = sharedOwnershipRule(file, policy);
+      const source = contents.get(file) || "";
+      return {
+        file,
+        classification: rule?.classification || "unclassified",
+        owner: rule?.owner || null,
+        public: collectExports(file, source).length > 0,
+        exportedSymbols: collectExports(file, source),
+        consumers: [...new Set(edges.filter((edge) => edge.target === file).map((edge) => edge.source))].sort(),
+        runtimeDependencies: [...new Set(edges.filter((edge) => edge.source === file).map((edge) => edge.target))].sort(),
+        runtimeValidation: /(?:safeParse|\.parse\s*\(|\bz\.(?:object|union|enum|literal)\s*\()/.test(source),
+        declarationPair: pairImplementations.has(file) || pairDeclarations.has(file),
+        migrationTarget: rule?.migrationTarget || null,
+        removalCondition: rule?.removalCondition || null,
+      };
+    })
+    .sort((left, right) => left.file.localeCompare(right.file));
+}
+
 function validateGeneratedSources(root, files, generatedPolicy) {
   const findings = [];
   const inventory = (generatedPolicy.entries || []).map((entry) => ({ ...entry, path: normalizePath(entry.path) }));
@@ -500,7 +579,7 @@ function applySuppression(findingEntry, suppressions, today) {
   return { ...findingEntry, suppressed: validDebt && !expired, suppression: { ...matching, validDebt: Boolean(validDebt), expired } };
 }
 
-export function analyzeArchitecture({ root, policy, compatibilityBaseline, violationBaseline, compositionBaseline, capabilityBaseline = { surfaces: [] }, generatedPolicy, suppressions, today = new Date().toISOString().slice(0, 10) }) {
+export function analyzeArchitecture({ root, policy, compatibilityBaseline, violationBaseline, compositionBaseline, capabilityBaseline = { surfaces: [] }, generatedPolicy, sharedOwnershipPolicy = { rules: [] }, suppressions, today = new Date().toISOString().slice(0, 10) }) {
   const sourceRoots = policy.sourceRoots || ["src"];
   const fixtureRoots = (policy.fixtureRoots || []).map(normalizePath);
   const files = [...new Set(sourceRoots.flatMap((sourceRoot) => filesUnder(root, sourceRoot)))]
@@ -538,6 +617,17 @@ export function analyzeArchitecture({ root, policy, compatibilityBaseline, viola
   const pairs = pairedDeclarations(files);
   for (const pair of pairs) {
     findings.push(finding("contract.parallel_mjs_declaration", pair.implementation, 1, pair.declaration, "Runtime .mjs and hand-maintained .d.mts declarations form a parallel type boundary.", "Move the public contract to checked TypeScript or register the pair as compatibility debt until migration."));
+  }
+  const sharedOwnership = sharedOwnershipInventory(files, contents, edges, pairs, sharedOwnershipPolicy);
+  for (const entry of sharedOwnership.filter((item) => item.classification === "unclassified")) {
+    findings.push(finding(
+      "shared.unclassified_export_owner",
+      entry.file,
+      1,
+      "architecture/shared-ownership.json",
+      "Shared source has no Kernel, Feature Contract, Pure Domain, Platform, or Compatibility owner.",
+      "Classify the exact file or a reviewed root in architecture/shared-ownership.json.",
+    ));
   }
   const generated = validateGeneratedSources(root, files, generatedPolicy);
   findings.push(...generated.findings);
@@ -627,6 +717,7 @@ export function analyzeArchitecture({ root, policy, compatibilityBaseline, viola
     compatibility,
     compositionRoots,
     capabilitySurfaces: capabilities,
+    sharedOwnership,
     generatedSources: generated.inventory,
     findings: uniqueFindings,
     summary: {
@@ -640,6 +731,9 @@ export function analyzeArchitecture({ root, policy, compatibilityBaseline, viola
       compatibilityConsumers: compatibility.reduce((total, entry) => total + entry.currentPaths.length, 0),
       newCompatibilityConsumers: compatibility.reduce((total, entry) => total + entry.added.length, 0),
       newCapabilities: capabilities.reduce((total, entry) => total + entry.added.length, 0),
+      sharedFiles: sharedOwnership.length,
+      sharedExportedSymbols: sharedOwnership.reduce((total, entry) => total + entry.exportedSymbols.length, 0),
+      unclassifiedSharedFiles: sharedOwnership.filter((entry) => entry.classification === "unclassified").length,
     },
   };
 }
@@ -652,6 +746,7 @@ export function loadArchitectureConfig(root) {
     compositionBaseline: readJson(root, "architecture/composition-baseline.json"),
     capabilityBaseline: readJson(root, "architecture/capability-baseline.json"),
     generatedPolicy: readJson(root, "architecture/generated-sources.json"),
+    sharedOwnershipPolicy: readJson(root, "architecture/shared-ownership.json"),
     suppressions: readJson(root, "architecture/suppressions.json"),
   };
 }
@@ -691,6 +786,7 @@ export function markdownReport(report) {
     `- Findings: ${report.summary.findings} (${report.summary.newFindings} new candidates, ${report.summary.baselineFindings} baseline)`,
     `- Compatibility consumers: ${report.summary.compatibilityConsumers} (${report.summary.newCompatibilityConsumers} new candidates)`,
     `- Preload capabilities: ${report.capabilitySurfaces.reduce((total, entry) => total + entry.propertyCount, 0)} (${report.summary.newCapabilities} new candidates)`,
+    `- Shared ownership: ${report.summary.sharedFiles} files / ${report.summary.sharedExportedSymbols} exported symbols (${report.summary.unclassifiedSharedFiles} unclassified files)`,
     "",
     "## Modules",
     "",
@@ -715,6 +811,15 @@ export function markdownReport(report) {
     "| File | Global | Properties | Added | Removed |",
     "|---|---|---:|---:|---:|",
     ...report.capabilitySurfaces.map((entry) => `| ${entry.file} | ${entry.global} | ${entry.propertyCount} | ${entry.added.length} | ${entry.removed.length} |`),
+    "",
+    "## Shared ownership",
+    "",
+    "| Classification | Files | Exported symbols |",
+    "|---|---:|---:|",
+    ...[...new Set(report.sharedOwnership.map((entry) => entry.classification))].sort().map((classification) => {
+      const entries = report.sharedOwnership.filter((entry) => entry.classification === classification);
+      return `| ${classification} | ${entries.length} | ${entries.reduce((total, entry) => total + entry.exportedSymbols.length, 0)} |`;
+    }),
     "",
     "## Findings",
     "",
