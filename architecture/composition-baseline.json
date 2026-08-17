@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "issue": 408,
+  "roots": [
+    {
+      "file": "src/main/index.ts",
+      "lines": 2603,
+      "imports": 41,
+      "moduleDependencies": 7
+    },
+    {
+      "file": "src/main/ipc/registerIpc.ts",
+      "lines": 662,
+      "imports": 25,
+      "moduleDependencies": 4
+    },
+    {
+      "file": "src/preload/index.ts",
+      "lines": 283,
+      "imports": 2,
+      "moduleDependencies": 1
+    },
+    {
+      "file": "src/renderer/src/main.tsx",
+      "lines": 15,
+      "imports": 6,
+      "moduleDependencies": 2
+    },
+    {
+      "file": "src/renderer/src/root.tsx",
+      "lines": 11,
+      "imports": 4,
+      "moduleDependencies": 1
+    },
+    {
+      "file": "src/renderer/src/App.tsx",
+      "lines": 9,
+      "imports": 1,
+      "moduleDependencies": 1
+    },
+    {
+      "file": "src/renderer/src/features/workspace/WorkspaceApp.tsx",
+      "lines": 1949,
+      "imports": 39,
+      "moduleDependencies": 4
+    },
+    {
+      "file": "src/renderer/src/services/workspaceApi.ts",
+      "lines": 436,
+      "imports": 10,
+      "moduleDependencies": 3
+    },
+    {
+      "file": "src/shared/ipc/contracts.ts",
+      "lines": 802,
+      "imports": 18,
+      "moduleDependencies": 1
+    }
+  ]
+}

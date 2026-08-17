@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "issue": 408,
+  "entries": [
+    {
+      "path": "src/renderer/src/features/workspace/lib/katexDocumentCss.ts",
+      "kind": "generated",
+      "source": "katex/dist/katex.min.css and bundled KaTeX fonts",
+      "version": "katex@0.17.0",
+      "regenerationCommand": "node scripts/generate-katex-document-css.mjs",
+      "owner": "notes-rendering"
+    }
+  ]
+}

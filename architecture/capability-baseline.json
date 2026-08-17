@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "issue": 408,
+  "surfaces": [
+    {
+      "file": "src/preload/capture.ts",
+      "global": "captureApi",
+      "properties": [
+        "hide",
+        "onShow",
+        "onThemeChange",
+        "onThemes",
+        "previewDue",
+        "save"
+      ]
+    },
+    {
+      "file": "src/preload/index.ts",
+      "global": "api",
+      "properties": [
+        "activity",
+        "ai",
+        "aiContext",
+        "app",
+        "artifacts",
+        "attachments",
+        "batchTranscription",
+        "calendar",
+        "clipboard",
+        "commands",
+        "conversationContext",
+        "dataHealth",
+        "dialogs",
+        "documents",
+        "entities",
+        "exports",
+        "files",
+        "mediaCapture",
+        "preferences",
+        "screenRecording",
+        "sharedSync",
+        "snapshots",
+        "themeAiPack",
+        "workspace"
+      ]
+    },
+    {
+      "file": "src/preload/index.ts",
+      "global": "researchDesk",
+      "properties": [
+        "activity",
+        "ai",
+        "aiContext",
+        "app",
+        "artifacts",
+        "attachments",
+        "batchTranscription",
+        "calendar",
+        "clipboard",
+        "commands",
+        "conversationContext",
+        "dataHealth",
+        "dialogs",
+        "documents",
+        "entities",
+        "exports",
+        "files",
+        "mediaCapture",
+        "preferences",
+        "screenRecording",
+        "sharedSync",
+        "snapshots",
+        "themeAiPack",
+        "workspace"
+      ]
+    },
+    {
+      "file": "src/preload/memoSticky.ts",
+      "global": "memoStickyApi",
+      "properties": [
+        "ackAppFlush",
+        "archive",
+        "close",
+        "copy",
+        "isAlwaysOnTop",
+        "load",
+        "onAppFlushRequested",
+        "onThemeChanged",
+        "onWorkspaceChanged",
+        "openInMain",
+        "remove",
+        "save",
+        "setAlwaysOnTop",
+        "setColor",
+        "setTarget"
+      ]
+    },
+    {
+      "file": "src/preload/recordingIndicator.ts",
+      "global": "recordingIndicatorApi",
+      "properties": [
+        "command",
+        "onState",
+        "requestState",
+        "setRetracted"
+      ]
+    },
+    {
+      "file": "src/preload/regionSelector.ts",
+      "global": "regionSelectorApi",
+      "properties": [
+        "complete"
+      ]
+    },
+    {
+      "file": "src/preload/todayMini.ts",
+      "global": "todayMiniApi",
+      "properties": [
+        "addTask",
+        "hide",
+        "list",
+        "listThemes",
+        "onRefresh",
+        "onThemeChange",
+        "openTask",
+        "pinTopRight",
+        "refresh",
+        "toggle"
+      ]
+    }
+  ]
+}

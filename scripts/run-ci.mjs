@@ -11,6 +11,7 @@ const steps = [
   ["Behavior and data-safety tests", "test:behavior", []],
   ["Full test suite", "test:full", []],
   ["Strict consistency audit", "audit:consistency", ["--strict", "--format=json"]],
+  ["Architecture inventory (report-only)", "audit:architecture", []],
   ["Script inventory audit", "audit:scripts", []],
   ["Renderer and main build", "build", []],
   ["Focused Electron smoke", "smoke:desktop:focused", []],
