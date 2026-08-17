@@ -323,7 +323,7 @@ function lineCount(source) {
   return source.endsWith("\n") ? lines.length - 1 : lines.length;
 }
 
-function scanTextRules(file, source, policy) {
+export function scanTextRules(file, source, policy) {
   const findings = [];
   const lines = source.split(/\r?\n/);
   const addMatches = (ruleId, pattern, reason, alternative, allowedPaths = []) => {
@@ -349,6 +349,14 @@ function scanTextRules(file, source, policy) {
       "IPC is registered outside a declared transport registrar.",
       "Register the capability through a manifest-declared feature registrar.",
       policy.capabilities?.ipcRegistrarPaths || [],
+    );
+  }
+  if (file === "src/main/services/applicationCommandService.ts") {
+    addMatches(
+      "main.task_legacy_logic",
+      /private\s+(?:saveTask|transitionTask|deleteTask)\s*\(|command\.name\s*===\s*["'](?:CreateTask|UpdateTask|DeleteTask|CompleteTask|ReopenTask)["']/,
+      "A migrated core Task command is implemented or dispatched directly in the legacy ApplicationCommandService.",
+      "Delegate through src/main/modules/task/public.ts; keep only transaction, idempotency, receipt, and event coordination here.",
     );
   }
   if (/src\/shared\/(?:kernel|contracts)\//.test(file)) {

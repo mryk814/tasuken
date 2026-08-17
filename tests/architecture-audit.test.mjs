@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { analyzeArchitecture, collectExports, collectImports, normalizePath } from "../scripts/architecture-audit/core.mjs";
+import { analyzeArchitecture, collectExports, collectImports, normalizePath, scanTextRules } from "../scripts/architecture-audit/core.mjs";
 
 const fixtureRoot = path.resolve("tests/fixtures/architecture-audit");
 const policy = {
@@ -96,6 +96,15 @@ test("Windows separators normalize to stable repository paths", () => {
   assert.equal(normalizePath("src\\renderer\\features\\tasks\\valid.ts"), "src/renderer/features/tasks/valid.ts");
 });
 
+test("migrated Task commands cannot return to the legacy central service", () => {
+  const findings = scanTextRules(
+    "src/main/services/applicationCommandService.ts",
+    'class Legacy {\nprivate saveTask() {}\nexecute(command) { return command.name === "CreateTask"; }\n}',
+    {},
+  );
+  assert.equal(findings.filter((entry) => entry.ruleId === "main.task_legacy_logic").length, 2);
+});
+
 test("suppression requires tracked debt and expires deterministically", () => {
   const source = "src/renderer/features/tasks/invalid.ts";
   const target = "src/renderer/features/notes/internal.ts";
@@ -130,6 +139,8 @@ test("production audit is report-only, deterministic, and has no unbaselined can
     assert.equal(report.summary.newFindings, 0);
     assert.equal(report.summary.newCompatibilityConsumers, 0);
     assert.equal(report.summary.unclassifiedSharedFiles, 0);
+    assert.equal(report.modules.find((entry) => entry.id === "main.task")?.publicEntrypoints[0], "src/main/modules/task/public.ts");
+    assert.equal(report.findings.some((entry) => entry.ruleId === "main.task_legacy_logic"), false);
     const ownershipByFile = new Map(report.sharedOwnership.map((entry) => [entry.file, entry]));
     assert.equal(ownershipByFile.get("src/shared/applicationCommand.ts")?.classification, "compatibility");
     assert.equal(ownershipByFile.get("src/shared/types/workspace.ts")?.classification, "compatibility");

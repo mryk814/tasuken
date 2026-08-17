@@ -181,6 +181,10 @@ Command / Query / Event / Error / read modelのversioned schemaを所有し、�
 独自のTask contractを作らない。SQLite row、Main domain、Renderer view/form stateは
 別の役割として保ち、#404/#405/#406でこの正本へ順にadapter接続する。
 
+Main側のTask command/query ownerは `src/main/modules/task/public.ts` とする。既存Desktop
+Application Commandはこのmoduleへdelegateし、transport別adapterは#405、Renderer
+Projectionの移行は#406で接続する。
+
 ### Document cluster
 
 ```text
