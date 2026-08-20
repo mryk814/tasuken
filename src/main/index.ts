@@ -1,6 +1,8 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, safeStorage, session as electronSession, shell, webContents } from "electron";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
@@ -42,18 +44,26 @@ import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type RootOpenRequest, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
+
 const isSmokeTest = process.argv.includes("--smoke-test");
-const commandLineValue = (name: string) => process.argv.find((argument) => argument.startsWith(`${name}=`))?.slice(name.length + 1);
-const requestedUserDataPath = commandLineValue("--user-data-dir");
-const smokeRunId = commandLineValue("--smoke-run-id")?.replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
-const smokeResultPath = path.resolve(commandLineValue("--smoke-result-path") || path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-result.json`));
+const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
+const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
+const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
+const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
+const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
+const smokeResultPath = path.resolve(smokeResultArgument?.slice("--smoke-result-path=".length) || path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`));
 const isSmokeRestartCheck = process.argv.includes("--smoke-restart-check");
 const isPackagedSmokeRequired = process.argv.includes("--smoke-require-packaged");
-const smokeMediaArtifactId = commandLineValue("--smoke-media-artifact-id") || "";
-const smokeMicrophoneArtifactId = commandLineValue("--smoke-microphone-artifact-id") || "";
-const smokeImportedVideoArtifactId = commandLineValue("--smoke-imported-video-artifact-id") || "";
-const smokeScreenRecordingArtifactId = commandLineValue("--smoke-screen-recording-artifact-id") || "";
-const smokeVideoOwnerId = commandLineValue("--smoke-video-owner-id") || "";
+const smokeMediaArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-media-artifact-id="));
+const smokeMediaArtifactId = smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
+const smokeMicrophoneArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-microphone-artifact-id="));
+const smokeMicrophoneArtifactId = smokeMicrophoneArtifactArgument?.slice("--smoke-microphone-artifact-id=".length) || "";
+const smokeImportedVideoArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-imported-video-artifact-id="));
+const smokeImportedVideoArtifactId = smokeImportedVideoArtifactArgument?.slice("--smoke-imported-video-artifact-id=".length) || "";
+const smokeScreenRecordingArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-screen-recording-artifact-id="));
+const smokeScreenRecordingArtifactId = smokeScreenRecordingArtifactArgument?.slice("--smoke-screen-recording-artifact-id=".length) || "";
+const smokeVideoOwnerArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-owner-id="));
+const smokeVideoOwnerId = smokeVideoOwnerArgument?.slice("--smoke-video-owner-id=".length) || "";
 const smokeScreenRecordingPausedResumed = process.argv.includes("--smoke-screen-recording-paused-resumed");
 if (isSmokeTest && !isSmokeRestartCheck) {
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
@@ -92,7 +102,7 @@ registerWebArtifactScheme();
 
 function requestRendererFlush(window: BrowserWindow, noteId?: string): Promise<boolean> {
   if (window.isDestroyed() || window.webContents.isDestroyed()) return Promise.resolve(true);
-  const requestId = crypto.randomUUID();
+  const requestId = randomUUID();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       const pending = pendingAppFlushes.get(requestId);
@@ -488,7 +498,7 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
   const markdownTitle = `Markdown動作確認 ${Date.now()}`;
   const footnoteTitle = `脚注動作確認 ${Date.now()}`;
   const smokeTaskTitle = `Todayミニ動作確認 ${Date.now()}`;
-  const smokeTaskId = crypto.randomUUID();
+  const smokeTaskId = randomUUID();
   const smokeThemeId = `smoke-theme-${Date.now()}`;
   const todayMiniThemeMatrix = Array.from({ length: 20 }, (_, index) => ({
     id: `today-mini-theme-${Date.now()}-${index}`,
@@ -1010,7 +1020,7 @@ flowchart LR
   if (!workspaceRepository || !memoStickyController || !satelliteWindows) {
     throw new Error("sticky memo smoke boundary is unavailable");
   }
-  const stickySmokeId = crypto.randomUUID();
+  const stickySmokeId = randomUUID();
   workspaceRepository.save("capture_entry", {
     id: stickySmokeId,
     title: "Sticky smoke",
@@ -2378,7 +2388,7 @@ async function startDesktopApp(): Promise<void> {
     } : { resolve: () => aiProvider.resolveBatchTranscriptionProvider() },
     confirmationSecret: workspaceRepository.ensureMeta(
       "batch_transcription_confirmation_secret",
-      `${crypto.randomUUID()}${crypto.randomUUID()}`,
+      `${randomUUID()}${randomUUID()}`,
     ),
     resolveVisibility: (artifact: Entity | null) => {
       const themeId = typeof artifact?.theme_id === "string" ? artifact.theme_id : null;

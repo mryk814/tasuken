@@ -136,16 +136,21 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 3);
-    assert.equal(report.summary.suppressedFindings, 3);
+    assert.equal(report.summary.newFindings, 4);
+    assert.equal(report.summary.suppressedFindings, 4);
+    assert.equal(report.summary.blockingFindings, 0);
+    const newFindings = report.findings.filter((entry) => !entry.baseline);
+    assert.equal(newFindings.length, 4);
+    assert.equal(newFindings.every((entry) => entry.suppressed && entry.suppression?.issue), true);
     assert.deepEqual(
       report.findings
         .filter((entry) => entry.ruleId === "composition.baseline_increase")
-        .map((entry) => [entry.source, entry.suppressed]),
+        .map((entry) => [entry.source, entry.suppressed, entry.suppression?.issue]),
       [
-        ["src/main/ipc/registerIpc.ts", true],
-        ["src/preload/index.ts", true],
-        ["src/shared/ipc/contracts.ts", true],
+        ["src/main/index.ts", true, 412],
+        ["src/main/ipc/registerIpc.ts", true, 405],
+        ["src/preload/index.ts", true, 405],
+        ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
     assert.equal(report.summary.newCompatibilityConsumers, 0);
