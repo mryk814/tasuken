@@ -136,3 +136,12 @@ export {
   type RepositoryLookupRequest,
   type ResolveRepositoryContextResponse,
 } from "./agentWorkspaceQueries.ts";
+
+export {
+  getTaskContextRequestSchema,
+  getTaskContextResponseSchema,
+  taskContextIncludeSchema,
+  taskContextWorkspaceSchema,
+  type GetTaskContextRequest,
+  type GetTaskContextResponse,
+} from "./taskContextQuery.ts";

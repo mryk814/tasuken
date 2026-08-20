@@ -25,6 +25,8 @@ async function importBundled(relativePath) {
 }
 
 const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
+const { TaskenCoreHost } = await importBundled("src/main/infrastructure/http/taskenCoreHost.ts");
+const { createTaskenCore } = await importBundled("src/main/infrastructure/sqlite/public.ts");
 
 const FIXED_AT = "2026-08-09T04:00:00.000Z";
 const TASK_ID = "task-ai-collaboration-e2e";
@@ -141,7 +143,7 @@ function createLegacyFixture() {
   return { root, dbPath, database, service: new ApplicationCommandService(database) };
 }
 
-async function connectMcp(dbPath, inboxPath) {
+async function connectMcp(dbPath, inboxPath, userDataPath = path.dirname(dbPath)) {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["scripts/mcp-server.mjs"],
@@ -149,6 +151,7 @@ async function connectMcp(dbPath, inboxPath) {
       ...process.env,
       TASKEN_DB_PATH: dbPath,
       TASKEN_MCP_INBOX_PATH: inboxPath,
+      TASKEN_USER_DATA_DIR: userDataPath,
     },
     stderr: "pipe",
   });
@@ -299,7 +302,9 @@ function withoutRuntimeProvenance(contract) {
 
 async function runProviderScenario(provider) {
   const fixture = createLegacyFixture();
-  let client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"));
+  let host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
+  await host.start();
+  let client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
   try {
     const assigned = fixture.database.get("task", TASK_ID);
     const context = await callTaskWork(client, "tasken.get_task_context", {
@@ -460,10 +465,13 @@ async function runProviderScenario(provider) {
     assert.equal(fixture.database.get("task", TASK_ID).state, "done");
 
     await client.close();
+    await host.stop();
     fixture.database.db.close();
     fixture.database = new WorkspaceDatabase(fixture.dbPath);
     fixture.service = new ApplicationCommandService(fixture.database);
-    client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"));
+    host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
+    await host.start();
+    client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
     const finalContext = await callTaskWork(client, "tasken.get_task_context", { task_id: TASK_ID });
     assert.equal(finalContext.task.state, "done");
     assert.equal(finalContext.related.work_receipts.length, 2);
@@ -473,6 +481,7 @@ async function runProviderScenario(provider) {
     return semanticContract(fixture.database, finalContext);
   } finally {
     await client.close().catch(() => {});
+    await host.stop().catch(() => {});
     fixture.database.db.close();
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }

@@ -178,6 +178,7 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
       "resolve_repository_context",
       "find_tasks_for_repository",
       "get_task_assignment",
+      "get_task_context",
     ]);
     const cases = [
       ["tasken.resolve_repository_context", "toolResolveRepositoryContext", "resolveRepositoryContext", {

@@ -6,6 +6,7 @@ import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
+  TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
@@ -118,6 +119,10 @@ export class TaskenCoreClient {
 
   async getTaskAssignment(request = {}) {
     return this.query("get-task-assignment", TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY, request);
+  }
+
+  async getTaskContext(request = {}) {
+    return this.query("get-task-context", TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY, request);
   }
 
   async query(path, capability, request) {

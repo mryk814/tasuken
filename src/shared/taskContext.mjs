@@ -285,12 +285,24 @@ export function publicArtifactMetadata(artifact, budget, relation = null) {
   }, budget);
 }
 
+/** Remove credentials and machine-local locators from free-form Work Receipt text. */
+export function safeReceiptText(value) {
+  let result = text(value);
+  result = result.replace(/https?:\/\/[^\s<>'"`]+/gi, (url) => safeExternalUrl(url) || "[redacted-url]");
+  result = result.replace(/(?:[A-Za-z]:[\\/]|\\\\)[^\s,;)'"`]+/g, "[redacted-local-path]");
+  result = result.replace(/(^|[\s('"=])\/(?:[^/\s]+\/)+[^\s,;)'"`]*/g, "$1[redacted-local-path]");
+  result = result.replace(/\b(token|secret|api[_-]?key|password|authorization)\s*[:=]\s*([^\s,;]+)/gi, "$1=[redacted]");
+  result = result.replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{12,}/gi, "Bearer [redacted]");
+  return result;
+}
+
 export function publicReceiptForContext(receipt, budget) {
-  const list = (value) => Array.isArray(value) ? value.slice(0, 100).map((entry) => budget.take(entry, 1_000)).filter(Boolean) : [];
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
+  const list = (value) => Array.isArray(value) ? value.slice(0, 100).map((entry) => takeSafe(entry, 1_000)).filter(Boolean) : [];
   const rawProvenance = receipt.provenance && typeof receipt.provenance === "object" ? receipt.provenance : {};
   const provenance = {};
   for (const field of ["reported_via", "proposal_id", "imported_by", "caller", "source_session", "idempotency_key", "proposal_created_at"]) {
-    const value = budget.take(rawProvenance[field], 500);
+    const value = takeSafe(rawProvenance[field], 500);
     if (value) provenance[field] = value;
   }
   const rawRepositoryContext = receipt.repository_context && typeof receipt.repository_context === "object" ? receipt.repository_context : {};
@@ -309,10 +321,10 @@ export function publicReceiptForContext(receipt, budget) {
     ...commonFields(receipt),
     task_id: receipt.task_id,
     executor_kind: receipt.executor_kind,
-    executor_label: budget.take(receipt.executor_label, 200),
+    executor_label: takeSafe(receipt.executor_label, 200),
     started_at: receipt.started_at || null,
     reported_at: receipt.reported_at || null,
-    summary: budget.take(receipt.summary, 10_000),
+    summary: takeSafe(receipt.summary, 10_000),
     completed_items: list(receipt.completed_items),
     changed_or_created_items: list(receipt.changed_or_created_items),
     verification: list(receipt.verification),
@@ -321,12 +333,12 @@ export function publicReceiptForContext(receipt, budget) {
       ? receipt.external_references.slice(0, 100).map((entry) => ({
         kind: text(entry?.kind) || "other",
         provider: text(entry?.provider) || "unknown",
-        display_label: budget.take(entry?.display_label, 500),
+        display_label: takeSafe(entry?.display_label, 500),
         url: safeExternalUrl(entry?.url),
-        external_id: budget.take(entry?.external_id, 200) || null,
+        external_id: takeSafe(entry?.external_id, 200) || null,
       }))
       : [],
-    source_session: receipt.source_session || null,
+    source_session: takeSafe(receipt.source_session, 500) || null,
     provenance,
     ...(Object.keys(repositoryContext).length ? { repository_context: repositoryContext } : {}),
     ...(Object.keys(runtimeMetadata).length ? { runtime_metadata: runtimeMetadata } : {}),

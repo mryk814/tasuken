@@ -139,7 +139,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetTaskContext(args)));
+  }, async (args) => toolResult(await coreClient.getTaskContext(args)));
 
   server.registerTool("tasken.get_note", {
     description: "Read one AI-visible Note body by stable ID with a text limit.",

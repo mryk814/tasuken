@@ -40,12 +40,12 @@ import {
   taskContextLimits,
   TaskContextTextBudget,
   workspaceIdentityProvided,
-} from "./taskContext.mjs";
+} from "../../shared/taskContext.mjs";
 import {
   buildContextSelection,
   contextSelectionEntry,
   contextSelectionExclusions,
-} from "./contextSelection.mjs";
+} from "../../shared/contextSelection.mjs";
 
 const nativeRequire = createRequire(import.meta.url);
 let Database;
@@ -805,6 +805,7 @@ export class ReadOnlyTaskenContext {
         && includedKeys.has(entityKey(path.to.type, path.to.id))
         && path.edge_ids.every((edgeId) => retainedEdgeIds.has(String(edgeId)))),
     };
+    if (contextGraph.policy === undefined) delete contextGraph.policy;
     contextGraph.estimated_tokens = Math.ceil(JSON.stringify({
       nodes: contextGraph.nodes,
       edges: contextGraph.edges,
