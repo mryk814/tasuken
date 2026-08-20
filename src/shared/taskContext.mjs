@@ -288,9 +288,31 @@ export function publicArtifactMetadata(artifact, budget, relation = null) {
 const HTTP_URL = /https?:\/\/[^\s<>\]})'"`]+/gi;
 const DANGEROUS_URL = /\b(?:file|ftp|ftps|sftp|ssh|path):(?:\/\/)?[^\s<>\]})'"`]*/gi;
 const WINDOWS_LOCAL_PATH = /(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s,;)\]}> '"`]*/g;
-const UNIX_LOCAL_PATH = /(^|[^A-Za-z0-9/:]|:(?!\/\/))\/(?:[^/\s]+\/)+[^\s,;)\]}> '"`]*/g;
-const KEY_VALUE_CREDENTIAL = /\b(authorization|password|pwd|token|secret|api[_-]?key)\s*[:=]\s*(?:(?:Basic|Bearer)\s+)?[^\s,;)\]}>]+/gi;
+const UNIX_LOCAL_PATH = /(^|[^A-Za-z0-9/:]|:(?!\/\/))\/(?!\/)[^\s,;)\]}> '"`]*/g;
+const CREDENTIAL_LABEL = "(?:authorization(?:[_-]?token)?|client[_-]?secret|access[_-]?token|refresh[_-]?token|private[_-]?key|credentials?|cookie|password|passwd|pwd|token|secret|api[_-]?key)";
+const KEY_VALUE_CREDENTIAL = new RegExp(`(^|[^A-Za-z0-9])(${CREDENTIAL_LABEL})\\s*[:=]\\s*(?:(?:Basic|Bearer)\\s+)?(?:"[^"\\r\\n]*"|'[^'\\r\\n]*'|[^\\s,;)\\]}>]+)`, "gi");
 const STANDALONE_CREDENTIAL = /\b(Basic|Bearer)\s+[^\s,;)\]}>]+/gi;
+const CREDENTIAL_FIELD_NAMES = new Set([
+  "authorization",
+  "authorizationtoken",
+  "clientsecret",
+  "accesstoken",
+  "refreshtoken",
+  "privatekey",
+  "credential",
+  "credentials",
+  "cookie",
+  "password",
+  "passwd",
+  "pwd",
+  "token",
+  "secret",
+  "apikey",
+]);
+
+function credentialFieldName(value) {
+  return CREDENTIAL_FIELD_NAMES.has(text(value).replace(/[_-]/g, "").toLowerCase());
+}
 
 /** Remove URL credentials, unsupported URL-like locators, local paths, and authentication material. */
 export function safeReceiptText(value) {
@@ -299,9 +321,20 @@ export function safeReceiptText(value) {
   result = result.replace(DANGEROUS_URL, "[redacted-url]");
   result = result.replace(WINDOWS_LOCAL_PATH, "$1[redacted-local-path]");
   result = result.replace(UNIX_LOCAL_PATH, "$1[redacted-local-path]");
-  result = result.replace(KEY_VALUE_CREDENTIAL, "$1=[redacted]");
+  result = result.replace(KEY_VALUE_CREDENTIAL, "$1$2=[redacted]");
   result = result.replace(STANDALONE_CREDENTIAL, "$1 [redacted]");
   return result;
+}
+
+/** Recursively sanitize JSON-like projections, including credential-named fields and object keys. */
+export function safeReceiptValue(value) {
+  if (typeof value === "string") return safeReceiptText(value);
+  if (Array.isArray(value)) return value.map(safeReceiptValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([rawKey, entry]) => {
+    const key = safeReceiptText(rawKey);
+    return [key, credentialFieldName(rawKey) ? "[redacted]" : safeReceiptValue(entry)];
+  }));
 }
 
 export function publicReceiptForContext(receipt, budget) {

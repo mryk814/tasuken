@@ -5,6 +5,7 @@ export { TaskContextQueryService } from "./services/taskContextQueryService.ts";
 export { ItemQueryService } from "./services/itemQueryService.ts";
 export { ContentDetailQueryService } from "./services/contentDetailQueryService.ts";
 export { ActivityEntriesQueryService } from "./services/activityEntriesQueryService.ts";
+export { ThemeContextQueryService } from "./services/themeContextQueryService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
@@ -25,3 +26,4 @@ export type {
   ActivityEntriesSnapshot,
   ActivityEntriesWorkspace,
 } from "./ports/activityEntriesReadPort.ts";
+export type { ThemeContextReadPort, ThemeContextRecord, ThemeContextWorkspace } from "./ports/themeContextReadPort.ts";

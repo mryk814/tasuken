@@ -1,4 +1,5 @@
 import {
+  findThemesForRepository,
   findTasksForRepository,
   publicRepositoryContext,
   resolveRepositoryContext,
@@ -6,12 +7,18 @@ import {
 } from "../../../shared/repositoryContext.mjs";
 import { projectEntityForAi, summarizeAiExclusions } from "../../../shared/aiMetadata.mjs";
 import {
+  findThemesForRepositoryResponseSchema,
   findTasksForRepositoryResponseSchema,
+  getRepositoryContextRequestSchema,
+  getRepositoryContextResponseSchema,
   getTaskAssignmentRequestSchema,
   getTaskAssignmentResponseSchema,
   repositoryLookupRequestSchema,
   resolveRepositoryContextResponseSchema,
+  type FindThemesForRepositoryResponse,
   type FindTasksForRepositoryResponse,
+  type GetRepositoryContextRequest,
+  type GetRepositoryContextResponse,
   type GetTaskAssignmentRequest,
   type GetTaskAssignmentResponse,
   type RepositoryLookupRequest,
@@ -19,6 +26,7 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
+import { publicTaskForContext, publicThemeForContext, safeReceiptValue, TaskContextTextBudget } from "../../../shared/taskContext.mjs";
 
 interface TaskRepositoryResolution {
   mode: unknown;
@@ -48,14 +56,22 @@ function currentFromRequest(request: RepositoryLookupRequest) {
 }
 
 function publicMatch(match: Record<string, any>) {
-  return {
+  return safeReceiptValue({
     ...match,
     selected: publicRepositoryContext(match.selected),
     candidates: (match.candidates || []).map((candidate: Record<string, unknown>) => ({
       ...candidate,
       context: publicRepositoryContext(candidate.context as Record<string, unknown>),
     })),
-  };
+  });
+}
+
+function publicTheme(theme: Record<string, any>) {
+  return safeReceiptValue(publicThemeForContext(theme, new TaskContextTextBudget(50_000)));
+}
+
+function publicTask(task: Record<string, any>) {
+  return safeReceiptValue(publicTaskForContext(task, new TaskContextTextBudget(50_000)));
 }
 
 export class AgentWorkspaceQueryService {
@@ -75,12 +91,36 @@ export class AgentWorkspaceQueryService {
       this.readPort.workspaceAiVisibilityDefault(),
     );
     const workspaceDefault = this.readPort.workspaceAiVisibilityDefault();
-    const projectedThemes = themes.filter((theme) => projectEntityForAi("theme", theme, {
-      audience: "coding_agent",
-      theme,
-      workspaceDefault,
-    }).included);
+    const projectedThemes: Record<string, any>[] = themes.flatMap((theme) => {
+      const projected = projectEntityForAi("theme", theme, {
+        audience: "coding_agent",
+        theme,
+        workspaceDefault,
+      });
+      return projected.included ? [{ ...theme, ai: projected.header }] : [];
+    });
     return { tasks, themes, visibilityThemes, projectedThemes };
+  }
+
+  findThemesForRepository(input: RepositoryLookupRequest = {}): FindThemesForRepositoryResponse {
+    const request = repositoryLookupRequestSchema.parse(input);
+    const { projectedThemes } = this.projected(Boolean(request.include_archived));
+    const contexts = this.visibleRepositoryContexts(Boolean(request.include_archived));
+    const result = findThemesForRepository({
+      current: currentFromRequest(request),
+      contexts,
+      themes: projectedThemes,
+    });
+    const matchedContextIds = new Set<string>(((result.matched_context_ids || []) as unknown[]).map(String));
+    return findThemesForRepositoryResponseSchema.parse({
+      ...publicMatch(result),
+      themes: ((result.themes || []) as Record<string, any>[]).map(publicTheme),
+      repository_contexts: contexts
+        .filter((context) => matchedContextIds.has(String(context.id)))
+        .map((context) => safeReceiptValue(publicRepositoryContext(context))),
+      read_only: true,
+      ai_audience: "coding_agent",
+    });
   }
 
   private visibleRepositoryContexts(includeArchived: boolean) {
@@ -130,6 +170,38 @@ export class AgentWorkspaceQueryService {
       read_only: true,
       ai_audience: "coding_agent",
       ...summarizeAiExclusions(tasks.exclusions),
+    });
+  }
+
+  getRepositoryContext(input: GetRepositoryContextRequest): GetRepositoryContextResponse {
+    const request = getRepositoryContextRequestSchema.parse(input);
+    const id = request.repository_context_id;
+    const includeArchived = Boolean(request.include_archived);
+    const contexts = this.visibleRepositoryContexts(includeArchived);
+    const context = contexts.find((candidate) => String(candidate.id) === id);
+    if (!context) {
+      return getRepositoryContextResponseSchema.parse({
+        repository_context: null,
+        repository_context_id: id,
+        excluded_reasons: ["repository_context_not_visible"],
+        read_only: true,
+        ai_audience: "coding_agent",
+      });
+    }
+    const { tasks, projectedThemes, visibilityThemes } = this.projected(includeArchived);
+    const themes = projectedThemes.filter((theme) => (theme.repository_context_ids || []).map(String).includes(id));
+    const themesById = new Map(visibilityThemes.map((theme) => [String(theme.id), theme]));
+    const matchingTasks = tasks.records.filter((task) => {
+      const theme = themesById.get(String(task.project_id || task.theme_id || ""));
+      return taskRepositoryResolution({ task, theme, contexts }).contextIds.includes(id);
+    });
+    return getRepositoryContextResponseSchema.parse({
+      repository_context: safeReceiptValue(publicRepositoryContext(context)),
+      themes: themes.map(publicTheme),
+      tasks: matchingTasks.map(publicTask),
+      repository_context_id: id,
+      read_only: true,
+      ai_audience: "coding_agent",
     });
   }
 

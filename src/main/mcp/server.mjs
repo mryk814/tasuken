@@ -217,7 +217,7 @@ export function createTaskenMcpServer(options = {}) {
     description: "Find AI-visible Themes associated with a current repository workspace.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolFindThemesForRepository(args)));
+  }, withCoreClient((args) => coreClient.findThemesForRepository(args)));
 
   server.registerTool("tasken.find_tasks_for_repository", {
     description: "Find AI-visible Tasks associated with a current repository workspace, respecting Task subdirectories.",
@@ -232,7 +232,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetRepositoryContext(args)));
+  }, withCoreClient((args) => coreClient.getRepositoryContext(args)));
 
   server.registerTool("tasken.get_theme_context", {
     description: "Return themes, open work, recent notes, knowledge, and health.",
@@ -248,7 +248,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetThemeContext(args)));
+  }, withCoreClient((args) => coreClient.getThemeContext(args)));
 
   server.registerTool("tasken.get_recent_notes", {
     description: "Return recent notes. Full Markdown requires include_raw_body=true.",

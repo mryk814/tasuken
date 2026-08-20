@@ -125,17 +125,30 @@ export {
 } from "./agentReadyTasks.ts";
 
 export {
+  findThemesForRepositoryResponseSchema,
   findTasksForRepositoryResponseSchema,
+  getRepositoryContextRequestSchema,
+  getRepositoryContextResponseSchema,
   getTaskAssignmentRequestSchema,
   getTaskAssignmentResponseSchema,
   repositoryLookupRequestSchema,
   resolveRepositoryContextResponseSchema,
+  type FindThemesForRepositoryResponse,
   type FindTasksForRepositoryResponse,
+  type GetRepositoryContextRequest,
+  type GetRepositoryContextResponse,
   type GetTaskAssignmentRequest,
   type GetTaskAssignmentResponse,
   type RepositoryLookupRequest,
   type ResolveRepositoryContextResponse,
 } from "./agentWorkspaceQueries.ts";
+
+export {
+  getThemeContextRequestSchema,
+  getThemeContextResponseSchema,
+  type GetThemeContextRequest,
+  type GetThemeContextResponse,
+} from "./themeContextQuery.ts";
 
 export {
   getTaskContextRequestSchema,
@@ -164,6 +177,7 @@ export {
 
 export {
   contentDetailReadErrorSchema,
+  aiHeaderSchema,
   getArtifactMetadataRequestSchema,
   getArtifactMetadataResponseSchema,
   getConversationRequestSchema,

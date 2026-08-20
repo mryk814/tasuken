@@ -5,6 +5,7 @@ import {
   ItemQueryService,
   ListAgentReadyTasksService,
   TaskContextQueryService,
+  ThemeContextQueryService,
 } from "../../core/public.ts";
 import {
   WorkspaceAgentReadyTaskReadAdapter,
@@ -30,6 +31,10 @@ import {
   WorkspaceActivityEntriesReadAdapter,
   type ActivityEntriesWorkspacePersistence,
 } from "./workspaceActivityEntriesReadAdapter.ts";
+import {
+  WorkspaceThemeContextReadAdapter,
+  type ThemeContextWorkspacePersistence,
+} from "./workspaceThemeContextReadAdapter.ts";
 
 export { WorkspaceAgentReadyTaskReadAdapter, type AgentReadyTaskWorkspacePersistence };
 export { WorkspaceAgentWorkspaceReadAdapter, type AgentWorkspacePersistence };
@@ -37,13 +42,15 @@ export { WorkspaceTaskContextReadAdapter, type TaskContextWorkspacePersistence }
 export { WorkspaceItemQueryReadAdapter, type ItemQueryWorkspacePersistence };
 export { WorkspaceContentDetailReadAdapter, type ContentDetailWorkspacePersistence };
 export { WorkspaceActivityEntriesReadAdapter, type ActivityEntriesWorkspacePersistence };
+export { WorkspaceThemeContextReadAdapter, type ThemeContextWorkspacePersistence };
 
 export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence
   & AgentWorkspacePersistence
   & TaskContextWorkspacePersistence
   & ItemQueryWorkspacePersistence
   & ContentDetailWorkspacePersistence
-  & ActivityEntriesWorkspacePersistence;
+  & ActivityEntriesWorkspacePersistence
+  & ThemeContextWorkspacePersistence;
 
 export function createTaskenCore(persistence: TaskenCorePersistence) {
   const agentWorkspace = new AgentWorkspaceQueryService(new WorkspaceAgentWorkspaceReadAdapter(persistence));
@@ -53,6 +60,8 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     listAgentReadyTasks: new ListAgentReadyTasksService(new WorkspaceAgentReadyTaskReadAdapter(persistence)),
     resolveRepositoryContext: { execute: agentWorkspace.resolveRepositoryContext.bind(agentWorkspace) },
     findTasksForRepository: { execute: agentWorkspace.findTasksForRepository.bind(agentWorkspace) },
+    findThemesForRepository: { execute: agentWorkspace.findThemesForRepository.bind(agentWorkspace) },
+    getRepositoryContext: { execute: agentWorkspace.getRepositoryContext.bind(agentWorkspace) },
     getTaskAssignment: { execute: agentWorkspace.getTaskAssignment.bind(agentWorkspace) },
     getTaskContext: new TaskContextQueryService(new WorkspaceTaskContextReadAdapter(persistence)),
     searchItems: { execute: itemQueries.searchItems.bind(itemQueries) },
@@ -61,5 +70,6 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     getConversation: { execute: contentDetails.getConversation.bind(contentDetails) },
     getArtifactMetadata: { execute: contentDetails.getArtifactMetadata.bind(contentDetails) },
     getActivityEntries: new ActivityEntriesQueryService(new WorkspaceActivityEntriesReadAdapter(persistence)),
+    getThemeContext: new ThemeContextQueryService(new WorkspaceThemeContextReadAdapter(persistence)),
   };
 }
