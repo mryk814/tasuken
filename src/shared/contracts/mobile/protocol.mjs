@@ -13,5 +13,5 @@ export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
 export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   health: "/v1/health",
   today: "/v1/today",
-  taskCommands: "/v1/commands/tasks",
+  commands: "/v1/commands",
 });

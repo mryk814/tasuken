@@ -53,14 +53,24 @@ export class TaskCommandHandler {
     const inputTask = taskFromPayload(command.payload);
     const taskId = inputTask.id;
     const current = this.repository.get("task", taskId, true);
-    if (isCreate && current) throw new ApplicationCommandError("CONFLICT", "同じTask IDが既に存在します。", { type: "task", id: taskId });
+    if (isCreate && current) {
+      throw new ApplicationCommandError("CONFLICT", "同じTask IDが既に存在します。", {
+        type: "task",
+        id: taskId,
+        conflictReason: "entity_already_exists",
+      });
+    }
     if (!isCreate && !current) throw new ApplicationCommandError("NOT_FOUND", "更新対象のTaskがありません。", { id: taskId });
     this.runtime.assertExpectedVersion(command, "task", taskId, current);
 
     const task = normalizeTaskForSave(inputTask, current || undefined);
     if (task.state === "done") assertHumanAcceptBeforeTaskCompletion(task);
     if (!isCreate && !this.runtime.hasExpectedVersion(command, "task", taskId)) {
-      throw new ApplicationCommandError("CONFLICT", "UpdateTaskにはexpected versionが必要です。", { type: "task", id: taskId });
+      throw new ApplicationCommandError("CONFLICT", "UpdateTaskにはexpected versionが必要です。", {
+        type: "task",
+        id: taskId,
+        conflictReason: "version_conflict",
+      });
     }
     taskDefinition.parseUpdate(task);
     assertTaskThemeExists(this.repository, task);
@@ -105,7 +115,11 @@ export class TaskCommandHandler {
     const current = this.repository.get("task", taskId);
     if (!current) throw new ApplicationCommandError("NOT_FOUND", "対象Taskがありません。", { id: taskId });
     if (!this.runtime.hasExpectedVersion(command, "task", taskId)) {
-      throw new ApplicationCommandError("CONFLICT", `${command.name}にはexpected versionが必要です。`, { type: "task", id: taskId });
+      throw new ApplicationCommandError("CONFLICT", `${command.name}にはexpected versionが必要です。`, {
+        type: "task",
+        id: taskId,
+        conflictReason: "version_conflict",
+      });
     }
     this.runtime.assertExpectedVersion(command, "task", taskId, current);
     if (current.state === "cancelled") throw new ApplicationCommandError("INVALID_TRANSITION", "キャンセル済みTaskはこのCommandで変更できません。", { id: taskId });
@@ -154,7 +168,11 @@ export class TaskCommandHandler {
     const current = this.repository.get("task", taskId);
     if (!current) throw new ApplicationCommandError("NOT_FOUND", "削除対象のTaskがありません。", { id: taskId });
     if (!this.runtime.hasExpectedVersion(command, "task", taskId)) {
-      throw new ApplicationCommandError("CONFLICT", "DeleteTaskにはexpected versionが必要です。", { type: "task", id: taskId });
+      throw new ApplicationCommandError("CONFLICT", "DeleteTaskにはexpected versionが必要です。", {
+        type: "task",
+        id: taskId,
+        conflictReason: "version_conflict",
+      });
     }
     this.runtime.assertExpectedVersion(command, "task", taskId, current);
     const deleted = this.repository.removeTask(taskId);

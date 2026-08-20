@@ -10,7 +10,7 @@ const bundled = await build({
     contents: `
       export { ApplicationCommandService } from "./src/main/services/applicationCommandService.ts";
       export { TaskCapabilityService } from "./src/main/modules/task/public.ts";
-      export { MobileGatewayAdapter, MobileGatewayClient, MobileGatewayClientError } from "./src/main/gateway/mobile/public.ts";
+      export { MobileGatewayAdapter, MobileGatewayClient, MobileGatewayClientError, MobileGatewayCoreUnavailableError } from "./src/main/gateway/mobile/public.ts";
       export * from "./src/shared/contracts/mobile/public.ts";
     `,
     resolveDir: process.cwd(),
@@ -28,6 +28,7 @@ const {
   MobileGatewayAdapter,
   MobileGatewayClient,
   MobileGatewayClientError,
+  MobileGatewayCoreUnavailableError,
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
   TaskCapabilityService,
@@ -96,8 +97,7 @@ class MemoryRepository {
   }
 }
 
-function capability() {
-  const repository = new MemoryRepository();
+function capability(repository = new MemoryRepository()) {
   const application = new ApplicationCommandService(repository);
   const service = new TaskCapabilityService(repository, (command) => application.execute(command));
   return { repository, service };
@@ -112,13 +112,25 @@ function core(service, overrides = {}) {
   };
 }
 
-function gateway(service, overrides = {}) {
+function gateway(service, overrides = {}, options = {}) {
   return new MobileGatewayAdapter({
     core: core(service, overrides),
     state: {
       current: () => ({ serverId: "desktop-home", serverRevision: 42, generatedAt: now }),
     },
+    ...options,
   });
+}
+
+function todayQuery(overrides = {}) {
+  return {
+    apiVersion: "1",
+    schemaVersion: "1",
+    requestId: "request-today",
+    date: "2026-08-21",
+    limit: "20",
+    ...overrides,
+  };
 }
 
 function createRequest(overrides = {}) {
@@ -148,6 +160,11 @@ function createRequest(overrides = {}) {
 }
 
 test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, versions, and ambiguous idempotency", () => {
+  assert.deepEqual(TASKEN_MOBILE_ENDPOINTS, {
+    health: "/v1/health",
+    today: "/v1/today",
+    commands: "/v1/commands",
+  });
   const valid = createRequest();
   assert.equal(mobileCreateTaskRequestSchema.safeParse(valid).success, true);
   for (const invalid of [
@@ -191,31 +208,61 @@ test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret fr
       },
     },
   });
-  const adapter = gateway(service);
+  let coreQuery;
+  const adapter = gateway(service, {
+    executeTaskQuery: (input) => {
+      coreQuery = input;
+      return service.executeQuery(input);
+    },
+  });
   const response = await adapter.handle({
-    method: "POST",
+    method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.today,
     principal,
-    body: { apiVersion: 1, schemaVersion: 1, requestId: "request-today", date: "2026-08-21", limit: 20 },
+    query: todayQuery(),
   });
   assert.equal(response.status, 200);
+  assert.deepEqual(coreQuery, {
+    schemaVersion: 1,
+    query_id: "request-today",
+    name: "ListTodayTasks",
+    parameters: { date: "2026-08-21", limit: 20 },
+  });
   assert.deepEqual(Object.keys(response.body.data.items[0]).sort(), ["id", "state", "themeId", "title", "updatedAt", "workState"]);
   assert.doesNotMatch(JSON.stringify(response.body), /C:\/private|secret|token\.txt|repository_subdirectory|ai_source_refs/);
 
   const forbidden = await adapter.handle({
-    method: "POST",
+    method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.today,
     principal: { ...principal, scopes: ["mobile:task-write"] },
-    body: { apiVersion: 1, schemaVersion: 1, requestId: "request-today", date: "2026-08-21" },
+    query: todayQuery(),
   });
   assert.equal(forbidden.status, 403);
   const agent = await adapter.handle({
-    method: "POST",
+    method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.today,
     principal: { kind: "agent", deviceId: "agent", scopes: ["mobile:read"] },
-    body: {},
+    query: todayQuery(),
   });
   assert.equal(agent.status, 401);
+
+  const bodyBearingGet = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery(),
+    body: {},
+  });
+  assert.equal(bodyBearingGet.status, 400);
+  assert.equal(bodyBearingGet.body.error.code, "validation_failed");
+
+  const unknownQuery = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery({ unexpected: "field" }),
+  });
+  assert.equal(unknownQuery.body.error.code, "validation_failed");
 });
 
 test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and uses durable Core replay", async () => {
@@ -223,7 +270,7 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   const mobileAdapter = gateway(mobileCapability.service);
   const first = await mobileAdapter.handle({
     method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.taskCommands,
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
     principal,
     body: createRequest(),
   });
@@ -236,18 +283,20 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   assert.equal(event.actor_id, principal.deviceId);
   assert.equal(event.command_source, "mobile");
 
-  const replay = await mobileAdapter.handle({
+  const restarted = capability(mobileCapability.repository);
+  const restartedAdapter = gateway(restarted.service);
+  const replay = await restartedAdapter.handle({
     method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.taskCommands,
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
     principal,
     body: createRequest(),
   });
   assert.equal(replay.status, 200);
   assert.equal(mobileCapability.repository.list("change_event").length, 1);
 
-  const conflict = await mobileAdapter.handle({
+  const conflict = await restartedAdapter.handle({
     method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.taskCommands,
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
     principal,
     body: createRequest({ command: { ...createRequest().command, task: { ...createRequest().command.task, title: "Changed" } } }),
   });
@@ -265,7 +314,7 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
     issued_at: now,
     payload: {
       task: {
-        id: "task-desktop-create",
+        id: "task-mobile-create",
         title: "Mobile Task",
         project_id: "theme-personal-default",
         state: "todo",
@@ -280,6 +329,103 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   assert.equal(desktop.value.status, first.body.data.status);
   assert.equal(desktop.value.event.name, "TaskCreated");
   assert.equal(desktopCapability.repository.list("change_event").length, 1);
+
+  const mobileTask = mobileCapability.repository.get("task", "task-mobile-create", true);
+  const desktopTask = desktopCapability.repository.get("task", "task-mobile-create", true);
+  const canonicalTask = (task) => ({
+    id: task.id,
+    title: task.title,
+    project_id: task.project_id,
+    state: task.state,
+    priority: task.priority,
+    requester: task.requester,
+    intended_executor: task.intended_executor,
+    today_date: task.today_date,
+    version: task.version,
+  });
+  assert.deepEqual(canonicalTask(mobileTask), canonicalTask(desktopTask));
+
+  const mobileEvent = mobileCapability.repository.list("change_event")[0];
+  const desktopEvent = desktopCapability.repository.list("change_event")[0];
+  assert.deepEqual(
+    {
+      entity_type: mobileEvent.entity_type,
+      entity_id: mobileEvent.entity_id,
+      change_type: mobileEvent.change_type,
+      command_name: mobileEvent.command_name,
+      after: canonicalTask(JSON.parse(mobileEvent.after_json)),
+      attribution: { actor_kind: mobileEvent.actor_kind, actor_id: "normalized", command_source: "normalized" },
+    },
+    {
+      entity_type: desktopEvent.entity_type,
+      entity_id: desktopEvent.entity_id,
+      change_type: desktopEvent.change_type,
+      command_name: desktopEvent.command_name,
+      after: canonicalTask(JSON.parse(desktopEvent.after_json)),
+      attribution: { actor_kind: desktopEvent.actor_kind, actor_id: "normalized", command_source: "normalized" },
+    },
+  );
+  assert.deepEqual(
+    { actor_id: mobileEvent.actor_id, command_source: mobileEvent.command_source },
+    { actor_id: principal.deviceId, command_source: "mobile" },
+  );
+  assert.deepEqual(
+    { actor_id: desktopEvent.actor_id, command_source: desktopEvent.command_source },
+    { actor_id: "desktop-user", command_source: "main_ui" },
+  );
+
+  const stale = desktopCapability.service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-desktop-stale",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: {
+      task_id: "task-mobile-create",
+      expected_version: 999,
+      changes: { title: "Stale update" },
+    },
+  });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.error.code, "CONFLICT");
+  assert.equal(stale.error.conflict_reason, "version_conflict");
+
+  const desktopDuplicate = desktopCapability.service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-desktop-duplicate",
+    name: "CreateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: {
+      task: {
+        id: "task-mobile-create",
+        title: "Duplicate",
+        project_id: "theme-personal-default",
+        state: "todo",
+        priority: "normal",
+        requester: "self",
+        intended_executor: "self",
+      },
+    },
+  });
+  assert.equal(desktopDuplicate.ok, false);
+  assert.equal(desktopDuplicate.error.code, "CONFLICT");
+  assert.equal(desktopDuplicate.error.conflict_reason, "entity_already_exists");
+
+  const existingEntity = await restartedAdapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest({
+      requestId: "request-existing-entity",
+      commandId: "command-existing-entity",
+      idempotencyKey: "command-existing-entity",
+    }),
+  });
+  assert.equal(existingEntity.status, 409);
+  assert.equal(existingEntity.body.error.code, "entity_conflict");
 });
 
 test("Phase 4A fails closed on Core version/capability and client uses separate HTTPS bearer", async () => {
@@ -293,6 +439,46 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   const missingResponse = await missing.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.health, principal });
   assert.equal(missingResponse.body.error.code, "capability_unavailable");
 
+  let coreStatusCalls = 0;
+  const forbiddenBeforeCore = gateway(service, {
+    status: async () => {
+      coreStatusCalls += 1;
+      throw new Error("must not be reached");
+    },
+  });
+  const forbidden = await forbiddenBeforeCore.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    query: todayQuery(),
+    principal: { ...principal, scopes: [] },
+  });
+  assert.equal(forbidden.body.error.code, "forbidden");
+  assert.equal(coreStatusCalls, 0);
+
+  const warnings = [];
+  const unexpected = gateway(service, { status: async () => { throw new Error("secret body token"); } }, {
+    logger: { warn: (event) => warnings.push(event) },
+  });
+  const unexpectedResponse = await unexpected.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.health,
+    principal,
+  });
+  assert.equal(unexpectedResponse.status, 500);
+  assert.equal(unexpectedResponse.body.error.code, "internal_error");
+  assert.equal(unexpectedResponse.body.error.retryable, false);
+  assert.deepEqual(warnings, [{ id: "unknown", location: "MobileGatewayAdapter.handle" }]);
+  assert.doesNotMatch(JSON.stringify(warnings), /secret|token/);
+
+  const unavailable = gateway(service, {
+    status: async () => { throw new MobileGatewayCoreUnavailableError(); },
+  }, { logger: { warn: (event) => warnings.push(event) } });
+  const unavailableResponse = await unavailable.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.health, principal });
+  assert.equal(unavailableResponse.status, 503);
+  assert.equal(unavailableResponse.body.error.code, "upstream_unavailable");
+  assert.equal(unavailableResponse.body.error.retryable, true);
+  assert.equal(warnings.length, 1);
+
   const accessToken = "mobile-token-that-is-distinct-from-core-token";
   const adapter = gateway(service);
   const seen = [];
@@ -300,12 +486,13 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     baseUrl: "https://desktop.tailnet.ts.net",
     accessToken,
     fetch: async (url, init) => {
-      seen.push({ url, authorization: init.headers.authorization });
+      seen.push({ url, method: init.method, body: init.body, authorization: init.headers.authorization });
       const authorized = init.headers.authorization === `Bearer ${accessToken}`;
       const result = await adapter.handle({
         method: init.method,
         path: new URL(url).pathname,
         principal: authorized ? principal : null,
+        query: Object.fromEntries(new URL(url).searchParams),
         ...(init.body ? { body: JSON.parse(init.body) } : {}),
       });
       const body = JSON.stringify(result.body);
@@ -321,6 +508,18 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     command: { ...createRequest().command, task: { ...createRequest().command.task, id: "task-client-create" } },
   }));
   assert.equal(created.data.status, "applied");
+  const today = await client.listToday({
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: "request-client-today",
+    date: "2026-08-21",
+    limit: 20,
+  });
+  assert.equal(today.data.items.some((item) => item.id === "task-client-create"), true);
+  const todayCall = seen.find((entry) => entry.url.includes("/v1/today?"));
+  assert.ok(todayCall);
+  assert.equal(todayCall.method, "GET");
+  assert.equal(todayCall.body, undefined);
   assert.equal(seen.every((entry) => entry.url.startsWith("https://desktop.tailnet.ts.net/v1/")), true);
   assert.equal(seen.every((entry) => entry.authorization === `Bearer ${accessToken}`), true);
   assert.throws(() => new MobileGatewayClient({ baseUrl: "http://127.0.0.1:1234", accessToken }), /private HTTPS/);
@@ -353,6 +552,30 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
     }),
   });
   await assert.rejects(oversized.health(), (error) => error.code === "response_too_large");
+
+  let pulls = 0;
+  let cancelled = false;
+  const unbounded = new MobileGatewayClient({
+    baseUrl: "https://desktop.tailnet.ts.net",
+    accessToken,
+    maxResponseBytes: 32,
+    fetch: async () => new Response(new ReadableStream({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new Uint8Array(20));
+        if (pulls === 10) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }, { highWaterMark: 0 }), {
+      status: 200,
+      headers: { "x-tasken-mobile-api-version": "1" },
+    }),
+  });
+  await assert.rejects(unbounded.health(), (error) => error.code === "response_too_large");
+  assert.equal(cancelled, true);
+  assert.ok(pulls < 10);
 
   const timeout = new MobileGatewayClient({
     baseUrl: "https://desktop.tailnet.ts.net",

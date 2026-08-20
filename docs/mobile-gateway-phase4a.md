@@ -18,11 +18,12 @@ Issue #398の最初の縦断sliceとして、Android実装や外向きserverよ�
 | Method / path | Scope | Core委譲 | 公開内容 |
 |---|---|---|---|
 | `GET /v1/health` | `mobile:read` | Core version/capability handshake | Mobile API metadataと利用可能capability |
-| `POST /v1/today` | `mobile:read` | `ListTodayTasks` query | Task ID、title、Theme ID、state、work state、updatedAtだけ |
-| `POST /v1/commands/tasks` | `mobile:task-write` | `CreateTask` command | command statusと同じMobile Task summaryだけ |
+| `GET /v1/today?date=...&limit=...&requestId=...&apiVersion=1&schemaVersion=1` | `mobile:read` | `ListTodayTasks` query | Task ID、title、Theme ID、state、work state、updatedAtだけ |
+| `POST /v1/commands` | `mobile:task-write` | `CreateTask` command | command statusと同じMobile Task summaryだけ |
 
 Gateway adapterは認証を行わず、pairing/auth層が検証した`MobilePrincipal`だけを受け取る。
-pure clientはHTTPS、Mobile専用bearer、timeout、256 KiB response上限、version/capability handshakeを担当する。
+`GET` endpointはbodyを受け取らず、Todayの`date`、`limit`、`requestId`、contract versionはqueryだけからCore queryへ写像する。
+pure clientはHTTPS、Mobile専用bearer、timeout、256 KiB response上限、version/capability handshakeを担当し、上限超過時はresponse streamを直ちにcancelする。
 
 ## Issue #398 ACチェックリスト
 

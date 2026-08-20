@@ -45,6 +45,8 @@ export const mobileErrorCodeSchema = z.enum([
   "method_not_allowed",
   "version_mismatch",
   "idempotency_conflict",
+  "entity_conflict",
+  "version_conflict",
   "capability_unavailable",
   "upstream_unavailable",
   "response_too_large",

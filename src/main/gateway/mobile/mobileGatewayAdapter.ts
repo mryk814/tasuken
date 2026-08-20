@@ -22,6 +22,7 @@ import {
 } from "../../../shared/contracts/core/public.mjs";
 import {
   type TaskCommandResponse,
+  type TaskError,
   type TaskQueryResponse,
   type TaskReadModel,
 } from "../../../shared/contracts/task/public.ts";
@@ -37,6 +38,7 @@ export interface MobilePrincipal {
 export interface MobileGatewayRequest {
   method: "GET" | "POST";
   path: string;
+  query?: Readonly<Record<string, string | undefined>>;
   body?: unknown;
   principal: MobilePrincipal | null;
 }
@@ -57,9 +59,21 @@ export interface MobileGatewayStatePort {
   current(): { serverId: string; serverRevision: number; generatedAt: string };
 }
 
+export interface MobileGatewayLoggerPort {
+  warn(event: { id: string; location: "MobileGatewayAdapter.handle" }): void;
+}
+
+export class MobileGatewayCoreUnavailableError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Tasken Core is unavailable", options);
+    this.name = "MobileGatewayCoreUnavailableError";
+  }
+}
+
 export interface MobileGatewayOptions {
   core: MobileGatewayCorePort;
   state: MobileGatewayStatePort;
+  logger?: MobileGatewayLoggerPort;
 }
 
 function projectTask(task: TaskReadModel) {
@@ -80,6 +94,8 @@ function statusFor(code: MobileErrorCode) {
   if (code === "method_not_allowed") return 405;
   if (code === "version_mismatch") return 409;
   if (code === "idempotency_conflict") return 409;
+  if (code === "entity_conflict") return 409;
+  if (code === "version_conflict") return 409;
   if (code === "capability_unavailable") return 409;
   if (code === "upstream_unavailable") return 503;
   if (code === "response_too_large") return 502;
@@ -96,6 +112,8 @@ function safeMessage(code: MobileErrorCode) {
     method_not_allowed: "このmethodは利用できません。",
     version_mismatch: "Tasken Coreとのversionが一致しません。Desktopを更新してください。",
     idempotency_conflict: "同じcommandIdが異なる内容で使用されています。",
+    entity_conflict: "同じTask IDが既に存在します。新しいIDで再試行してください。",
+    version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
     capability_unavailable: "必要なTasken Core capabilityを利用できません。",
     upstream_unavailable: "Tasken Coreを利用できません。Desktopの状態を確認してください。",
     response_too_large: "応答が上限を超えました。取得件数を減らしてください。",
@@ -112,24 +130,46 @@ export class MobileGatewayAdapter {
   }
 
   async handle(request: MobileGatewayRequest): Promise<MobileGatewayResponse> {
-    const meta = this.meta(false);
+    let meta: MobileResponseMeta | undefined;
+    let diagnosticId = "unknown";
     try {
+      meta = this.meta(false);
       if (!request.principal || request.principal.kind !== "mobile_device") {
         return this.error(meta, "unauthorized");
       }
-      const expectedMethod = request.path === TASKEN_MOBILE_ENDPOINTS.health ? "GET" : "POST";
       const knownPath = Object.values(TASKEN_MOBILE_ENDPOINTS).includes(request.path as never);
       if (!knownPath) return this.error(meta, "not_found");
+      const expectedMethod = request.path === TASKEN_MOBILE_ENDPOINTS.commands ? "POST" : "GET";
       if (request.method !== expectedMethod) return this.error(meta, "method_not_allowed");
+      if (request.method === "GET" && request.body !== undefined) return this.error(meta, "validation_failed");
+
+      const requiredScope: MobileScope = request.path === TASKEN_MOBILE_ENDPOINTS.commands
+        ? "mobile:task-write"
+        : "mobile:read";
+      if (!request.principal.scopes.includes(requiredScope)) return this.error(meta, "forbidden");
+
+      const today = request.path === TASKEN_MOBILE_ENDPOINTS.today
+        ? this.parseTodayQuery(request.query)
+        : null;
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.today && !today) return this.error(meta, "validation_failed");
+      if (today) diagnosticId = today.requestId;
+      if (request.path !== TASKEN_MOBILE_ENDPOINTS.today && Object.keys(request.query || {}).length > 0) {
+        return this.error(meta, "validation_failed");
+      }
 
       const coreStatus = await this.options.core.status();
+      if (
+        !coreStatus
+        || typeof coreStatus.apiVersion !== "string"
+        || !Array.isArray(coreStatus.capabilities)
+        || coreStatus.capabilities.some((capability) => typeof capability !== "string")
+      ) throw new Error("Invalid Tasken Core status");
       if (coreStatus.apiVersion !== TASKEN_CORE_API_VERSION) return this.error(meta, "version_mismatch");
       if (REQUIRED_CORE_CAPABILITIES.some((capability) => !coreStatus.capabilities.includes(capability))) {
         return this.error(meta, "capability_unavailable");
       }
 
       if (request.path === TASKEN_MOBILE_ENDPOINTS.health) {
-        if (!request.principal.scopes.includes("mobile:read")) return this.error(meta, "forbidden");
         return this.success(mobileHealthResponseSchema.parse({
           ok: true,
           meta,
@@ -137,17 +177,14 @@ export class MobileGatewayAdapter {
         }));
       }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.today) {
-        if (!request.principal.scopes.includes("mobile:read")) return this.error(meta, "forbidden");
-        const parsed = mobileTodayRequestSchema.safeParse(request.body);
-        if (!parsed.success) return this.error(meta, "validation_failed");
         const result = await this.options.core.executeTaskQuery({
           schemaVersion: 1,
-          query_id: parsed.data.requestId,
+          query_id: today!.requestId,
           name: "ListTodayTasks",
-          parameters: { date: parsed.data.date, limit: parsed.data.limit },
+          parameters: { date: today!.date, limit: today!.limit },
         });
-        if (!result.ok) return this.taskError(meta, result.error.code);
-        if (result.value.name !== "ListTodayTasks") return this.error(meta, "upstream_unavailable");
+        if (!result.ok) return this.taskError(meta, result.error);
+        if (result.value.name !== "ListTodayTasks") throw new Error("Unexpected Task query outcome");
         return this.success(mobileTodayResponseSchema.parse({
           ok: true,
           meta,
@@ -159,11 +196,11 @@ export class MobileGatewayAdapter {
         }));
       }
 
-      if (!request.principal.scopes.includes("mobile:task-write")) return this.error(meta, "forbidden");
       const parsed = mobileCreateTaskRequestSchema.safeParse(request.body);
       if (!parsed.success || parsed.data.clientDeviceId !== request.principal.deviceId) {
         return this.error(meta, "validation_failed");
       }
+      diagnosticId = parsed.data.requestId;
       const candidate = parsed.data.command.task;
       const result = await this.options.core.executeTaskCommand({
         schemaVersion: 1,
@@ -185,8 +222,8 @@ export class MobileGatewayAdapter {
           },
         },
       });
-      if (!result.ok) return this.taskError(meta, result.error.code);
-      if (result.value.name !== "CreateTask" || !result.value.task) return this.error(meta, "upstream_unavailable");
+      if (!result.ok) return this.taskError(meta, result.error);
+      if (result.value.name !== "CreateTask" || !result.value.task) throw new Error("Unexpected Task command outcome");
       return this.success(mobileCreateTaskResponseSchema.parse({
         ok: true,
         meta,
@@ -196,8 +233,38 @@ export class MobileGatewayAdapter {
           task: projectTask(result.value.task),
         },
       }));
+    } catch (error) {
+      const responseMeta = meta || this.fallbackMeta();
+      if (error instanceof MobileGatewayCoreUnavailableError) {
+        return this.error(responseMeta, "upstream_unavailable", true);
+      }
+      this.warnUnexpected(diagnosticId);
+      return this.error(responseMeta, "internal_error");
+    }
+  }
+
+  private parseTodayQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    const keys = Object.keys(values);
+    if (keys.some((key) => !["apiVersion", "schemaVersion", "requestId", "date", "limit"].includes(key))) return null;
+    const apiVersion = Number(values.apiVersion);
+    const schemaVersion = Number(values.schemaVersion);
+    const limit = values.limit === undefined ? undefined : Number(values.limit);
+    const parsed = mobileTodayRequestSchema.safeParse({
+      apiVersion,
+      schemaVersion,
+      requestId: values.requestId,
+      date: values.date,
+      ...(limit === undefined ? {} : { limit }),
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
+  private warnUnexpected(id: string): void {
+    try {
+      this.options.logger?.warn({ id, location: "MobileGatewayAdapter.handle" });
     } catch {
-      return this.error(meta, "upstream_unavailable", true);
+      // Logging must never replace the sanitized protocol error returned to the caller.
     }
   }
 
@@ -217,6 +284,17 @@ export class MobileGatewayAdapter {
     });
   }
 
+  private fallbackMeta(): MobileResponseMeta {
+    return mobileResponseMetaSchema.parse({
+      apiVersion: TASKEN_MOBILE_API_VERSION,
+      schemaVersion: TASKEN_MOBILE_SCHEMA_VERSION,
+      serverId: "unavailable",
+      serverRevision: 0,
+      generatedAt: new Date().toISOString(),
+      truncated: false,
+    });
+  }
+
   private success(body: unknown): MobileGatewayResponse {
     return { status: 200, headers: this.headers(), body };
   }
@@ -230,13 +308,18 @@ export class MobileGatewayAdapter {
     return { status: statusFor(code), headers: this.headers(), body };
   }
 
-  private taskError(meta: MobileResponseMeta, code: string) {
-    if (code === "CONFLICT") return this.error(meta, "idempotency_conflict");
-    if (code === "NOT_FOUND") return this.error(meta, "not_found");
-    if (code === "FORBIDDEN") return this.error(meta, "forbidden");
-    if (code === "UNAVAILABLE") return this.error(meta, "upstream_unavailable", true);
-    if (code.startsWith("INVALID") || code.startsWith("UNSUPPORTED")) return this.error(meta, "validation_failed");
-    return this.error(meta, "internal_error");
+  private taskError(meta: MobileResponseMeta, error: TaskError) {
+    if (error.code === "CONFLICT") {
+      if (error.conflict_reason === "command_fingerprint_mismatch") return this.error(meta, "idempotency_conflict");
+      if (error.conflict_reason === "entity_already_exists") return this.error(meta, "entity_conflict");
+      if (error.conflict_reason === "version_conflict") return this.error(meta, "version_conflict");
+      throw new Error("Unclassified Task conflict");
+    }
+    if (error.code === "NOT_FOUND") return this.error(meta, "not_found");
+    if (error.code === "FORBIDDEN") return this.error(meta, "forbidden");
+    if (error.code === "UNAVAILABLE") return this.error(meta, "upstream_unavailable", true);
+    if (error.code.startsWith("INVALID") || error.code.startsWith("UNSUPPORTED")) return this.error(meta, "validation_failed");
+    throw new Error("Unexpected Task error");
   }
 
   private headers() {

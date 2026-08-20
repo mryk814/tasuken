@@ -1,6 +1,8 @@
 export {
   MobileGatewayAdapter,
+  MobileGatewayCoreUnavailableError,
   type MobileGatewayCorePort,
+  type MobileGatewayLoggerPort,
   type MobileGatewayOptions,
   type MobileGatewayRequest,
   type MobileGatewayResponse,

@@ -1,6 +1,8 @@
 export {
   type TaskError,
   type TaskErrorCode,
+  type TaskConflictReason,
+  taskConflictReasonSchema,
   taskErrorCodeSchema,
   taskErrorSchema,
 } from "./errors.ts";

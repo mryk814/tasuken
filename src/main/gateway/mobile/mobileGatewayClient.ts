@@ -38,6 +38,8 @@ function safeClientMessage(code: string) {
   if (code === "forbidden") return "端末に必要なscopeがありません。Desktop設定を確認してください。";
   if (code === "version_mismatch") return "Mobile API versionが一致しません。アプリを更新してください。";
   if (code === "idempotency_conflict") return "同じcommandIdが異なる内容で使用されています。新しいcommandIdで再送してください。";
+  if (code === "entity_conflict") return "同じTask IDが既に存在します。新しいIDで再試行してください。";
+  if (code === "version_conflict") return "Taskが更新されています。再読み込みして再試行してください。";
   if (code === "capability_unavailable") return "必要なMobile API capabilityを利用できません。";
   if (code === "response_too_large") return "Mobile API responseが上限を超えました。";
   return "Mobile Gatewayへ接続できません。DesktopとTailscaleを確認してください。";
@@ -75,15 +77,22 @@ export class MobileGatewayClient {
   }
 
   async listToday(input: MobileTodayRequest) {
-    mobileTodayRequestSchema.parse(input);
+    const parsed = mobileTodayRequestSchema.parse(input);
     await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.todayRead);
-    return mobileTodayResponseSchema.parse(await this.request("POST", TASKEN_MOBILE_ENDPOINTS.today, input));
+    const query = new URLSearchParams({
+      apiVersion: String(parsed.apiVersion),
+      schemaVersion: String(parsed.schemaVersion),
+      requestId: parsed.requestId,
+      date: parsed.date,
+      limit: String(parsed.limit),
+    });
+    return mobileTodayResponseSchema.parse(await this.request("GET", `${TASKEN_MOBILE_ENDPOINTS.today}?${query}`));
   }
 
   async createTask(input: MobileCreateTaskRequest) {
     mobileCreateTaskRequestSchema.parse(input);
     await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.taskCreate);
-    return mobileCreateTaskResponseSchema.parse(await this.request("POST", TASKEN_MOBILE_ENDPOINTS.taskCommands, input));
+    return mobileCreateTaskResponseSchema.parse(await this.request("POST", TASKEN_MOBILE_ENDPOINTS.commands, input));
   }
 
   private async requireCapability(capability: MobileCapability) {
@@ -107,14 +116,7 @@ export class MobileGatewayClient {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: controller.signal,
       });
-      const declaredLength = Number(response.headers.get("content-length") || "0");
-      if (declaredLength > this.maxResponseBytes) {
-        throw new MobileGatewayClientError("response_too_large", safeClientMessage("response_too_large"));
-      }
-      const text = await response.text();
-      if (new TextEncoder().encode(text).byteLength > this.maxResponseBytes) {
-        throw new MobileGatewayClientError("response_too_large", safeClientMessage("response_too_large"));
-      }
+      const text = await this.readBounded(response);
       let payload: unknown;
       try {
         payload = JSON.parse(text);
@@ -136,5 +138,38 @@ export class MobileGatewayClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async readBounded(response: Response): Promise<string> {
+    if (!response.body) throw new MobileGatewayClientError("invalid_response", "Mobile Gateway responseが不正です。");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      const declaredLength = Number(response.headers.get("content-length") || "0");
+      if (Number.isFinite(declaredLength) && declaredLength > this.maxResponseBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new MobileGatewayClientError("response_too_large", safeClientMessage("response_too_large"));
+      }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > this.maxResponseBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new MobileGatewayClientError("response_too_large", safeClientMessage("response_too_large"));
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
   }
 }
