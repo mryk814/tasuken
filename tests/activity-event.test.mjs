@@ -270,6 +270,11 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
       executor_label: "Codex",
       provenance: { reported_via: "mcp", source_session: "session-safe" },
       capture_context: {
+        safe_key: "Safe value",
+        token: "KEY_SECRET",
+        "token=KEY_SECRET": "ordinary",
+        "C:\\Users\\KEY_PATH\\x": "ordinary",
+        "nested/path": "ordinary",
         values: [
           "https://user:pass@example.com/context?q=secret#fragment",
           "ftp://example.com/private",
@@ -284,6 +289,20 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
       token: "secret",
     },
   });
+  event.actor = {
+    kind: "agent",
+    id: "token=secret",
+    display_name: "Ordinary but not public",
+    token: "KEY_SECRET",
+    "C:\\Users\\ACTOR_KEY\\x": "ordinary",
+  };
+  event.origin = {
+    kind: "mcp",
+    command_id: "command-safe",
+    session_id: "Basic private",
+    token: "KEY_SECRET",
+    "nested/path": "ordinary",
+  };
   const result = queryActivityEvents({
     events: [event],
     workspace: { tasks: [{ id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] }] },
@@ -307,10 +326,14 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   assert.equal(projected.metadata.executor_label, "Codex");
   assert.deepEqual(projected.metadata.provenance, { reported_via: "mcp", source_session: "session-safe" });
   assert.equal(projected.metadata.capture_context.values.at(-1), "ordinary");
+  assert.equal(projected.metadata.capture_context.safe_key, "Safe value");
+  assert.equal("token" in projected.metadata.capture_context, false);
+  assert.deepEqual(projected.actor, { kind: "agent" });
+  assert.deepEqual(projected.origin, { kind: "mcp", command_id: "command-safe" });
   assert.equal("local_path" in projected.metadata, false);
   assert.equal("token" in projected.metadata, false);
   const serialized = JSON.stringify(projected);
-  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret"]) {
+  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret", "KEY_SECRET", "KEY_PATH", "ACTOR_KEY", "nested/path", "display_name"]) {
     assert.equal(serialized.includes(secret), false, secret);
   }
 });

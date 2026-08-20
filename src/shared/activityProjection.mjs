@@ -77,6 +77,10 @@ const PUBLIC_METADATA_KEYS = new Set([
   "note_ai_command_marker",
 ]);
 const REDACTED_MARKER = /\[redacted(?:-url|-local-path)?\]/i;
+const PUBLIC_JSON_KEY = /^[A-Za-z0-9_.-]{1,100}$/;
+const PRIVATE_JSON_KEY = /(?:^|[_.-])(?:authorization|password|pwd|token|secret|api[_-]?key|path)(?:$|[_.-])/i;
+const ACTOR_FIELDS = ["kind", "id"];
+const ORIGIN_FIELDS = ["kind", "command_id", "command_name", "session_id"];
 
 function text(value) {
   return value == null ? "" : String(value).trim();
@@ -91,6 +95,10 @@ function publicIdentifier(value) {
   return safe && !REDACTED_MARKER.test(safe) ? safe : null;
 }
 
+function publicJsonKey(value) {
+  return PUBLIC_JSON_KEY.test(value) && !PRIVATE_JSON_KEY.test(value);
+}
+
 function publicJsonValue(value, seen = new WeakSet()) {
   if (typeof value === "string") return safeReceiptText(value);
   if (value === null || typeof value === "boolean") return value;
@@ -103,16 +111,21 @@ function publicJsonValue(value, seen = new WeakSet()) {
     seen.delete(value);
     return result;
   }
-  const result = Object.fromEntries(Object.entries(value).map(([keyName, entry]) => [
-    keyName,
-    publicJsonValue(entry, seen),
-  ]));
+  const result = Object.fromEntries(Object.entries(value)
+    .filter(([keyName]) => publicJsonKey(keyName))
+    .map(([keyName, entry]) => [keyName, publicJsonValue(entry, seen)]));
   seen.delete(value);
   return result;
 }
 
-function publicRecord(value) {
-  return publicJsonValue(value && typeof value === "object" && !Array.isArray(value) ? value : {});
+function publicStringRecord(value, fields) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const result = {};
+  for (const field of fields) {
+    const safe = publicIdentifier(source[field]);
+    if (safe) result[field] = safe;
+  }
+  return result;
 }
 
 function publicMetadata(value) {
@@ -359,8 +372,8 @@ function projectOne(event, context) {
     theme_ref: themeIdForPublic
       ? { kind: "theme", id: themeIdForPublic }
       : { kind: "none", id: null },
-    actor: publicRecord(event.actor),
-    origin: publicRecord(event.origin),
+    actor: publicStringRecord(event.actor, ACTOR_FIELDS),
+    origin: publicStringRecord(event.origin, ORIGIN_FIELDS),
     summary: publicText(event.summary),
     changed_fields: [...(event.changed_fields || [])].map(publicIdentifier).filter(Boolean),
     canonical_refs: publicCanonicalRefs(event.canonical_refs, roots),

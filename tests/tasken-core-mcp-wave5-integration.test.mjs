@@ -76,6 +76,10 @@ function fixture() {
       ...(index === 100 ? {
         capture_context: {
           nested: ["https://user:pass@example.com/context?q=secret#fragment", "C:\\private\\capture.wav", "ordinary"],
+          safe_key: "Safe value",
+          token: "KEY_SECRET",
+          "token=KEY_SECRET": "ordinary",
+          "C:\\Users\\KEY_PATH\\x": "ordinary",
         },
         token: "must-not-cross",
       } : {}),
@@ -86,6 +90,9 @@ function fixture() {
       { type: "artifact", id: "token=secret" },
     ] : [],
     relation_refs: index === 100 ? [{ type: "note", id: "Bearer private", relation: "context" }] : [],
+    actor: index === 100 ? { kind: "agent", id: "token=secret" } : undefined,
+    origin: index === 100 ? { kind: "mcp", command_id: "command-safe", session_id: "Bearer private" } : undefined,
+    source: index === 100 ? "ai" : "manual",
   }));
   return { themes: [theme], tasks: [task], notes: [note], resources: [conversation], artifacts: [artifact], change_events: events };
 }
@@ -172,7 +179,10 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, HTTP, and MCP
     assert.equal(activity.events[0].relation_refs.some((ref) => ref.id?.includes("redacted")), false);
     assert.equal("token" in activity.events[0].metadata, false);
     assert.equal(activity.events[0].metadata.capture_context.nested.at(-1), "ordinary");
-    assert.doesNotMatch(JSON.stringify(activity.events[0]), /user:pass|q=secret|fragment|C:\\\\private|Bearer private|token=secret|must-not-cross/);
+    assert.equal(activity.events[0].metadata.capture_context.safe_key, "Safe value");
+    assert.deepEqual(activity.events[0].actor, { kind: "agent" });
+    assert.deepEqual(activity.events[0].origin, { kind: "mcp", command_id: "command-safe" });
+    assert.doesNotMatch(JSON.stringify(activity.events[0]), /user:pass|q=secret|fragment|C:\\\\private|Bearer private|token=secret|must-not-cross|KEY_SECRET|KEY_PATH/);
 
     const missing = await mcpCall(client, "tasken.get_note", { note_id: "missing" });
     assert.equal(missing.isError, undefined);
