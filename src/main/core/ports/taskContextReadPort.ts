@@ -17,5 +17,7 @@ export interface TaskContextWorkspace extends Record<string, any> {
 /** The adapter returns the bounded query's source snapshot from the one WorkspaceDatabase owner. */
 export interface TaskContextReadPort {
   loadTaskContextWorkspace(includeArchived: boolean): TaskContextWorkspace;
+  /** Visibility inheritance must retain archived Theme references for active children. */
+  loadTaskContextVisibilityThemes(): TaskContextRecord[];
   workspaceAiVisibilityDefault(): AiAudience[];
 }

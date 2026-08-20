@@ -107,10 +107,15 @@ function fixture() {
     updated_at: now,
   };
   return {
-    themes: [theme, { id: "theme-hidden", name: "Hidden", state: "active", default_ai_visibility: ["m365"], updated_at: now }],
+    themes: [
+      theme,
+      { id: "theme-hidden", name: "Hidden", state: "active", default_ai_visibility: ["m365"], updated_at: now },
+      { id: "theme-archived-private", name: "Archived private", state: "active", default_ai_visibility: ["m365"], deleted_at: now, updated_at: now },
+    ],
     tasks: [
       task,
       { ...task, id: "task-hidden", title: "Hidden", project_id: "theme-hidden" },
+      { ...task, id: "task-active-under-archived-private-theme", title: "Active under archived private Theme", project_id: "theme-archived-private" },
       { ...task, id: "task-archived", title: "Archived", deleted_at: now },
     ],
     notes,
@@ -204,11 +209,16 @@ test("MCP Wave 3 get_task_context is exact across legacy, in-process, HTTP, and 
       { task_id: "task-visible", max_items_per_type: 3, max_text_length: 4_000, workspace: { remote_url: "git@github.com:mryk814/tasuken.git", cwd: "/private/tasuken" } },
       { task_id: "task-visible", include: ["repository"], max_text_length: 5_000 },
       { task_id: "task-hidden" },
+      { task_id: "task-active-under-archived-private-theme" },
       { task_id: "task-archived" },
       { task_id: "task-archived", include_archived: true, max_items_per_type: 1 },
       { task_id: "missing" },
     ]) {
       const expected = legacy.toolGetTaskContext(request);
+      if (request.task_id === "task-active-under-archived-private-theme") {
+        assert.equal(expected.error.code, "not_found");
+        assert.equal(expected.excluded_count, 1);
+      }
       assert.deepEqual(core.getTaskContext.execute(request), expected);
       assert.deepEqual(await client.getTaskContext(request), expected);
       const mcp = await callMcp(client, "tasken.get_task_context", request);

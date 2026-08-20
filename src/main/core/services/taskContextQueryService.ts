@@ -86,11 +86,12 @@ export class TaskContextQueryService {
   execute(args: GetTaskContextRequest): GetTaskContextResponse {
     const includeArchived = Boolean(args.include_archived);
     const workspace = this.port.loadTaskContextWorkspace(includeArchived);
+    const visibilityThemes = this.port.loadTaskContextVisibilityThemes();
     const workspaceDefault = this.port.workspaceAiVisibilityDefault();
     const records = (type: string) => sortUpdated([
       ...((workspace[collectionKeyForEntityType(type as EntityType)] || []) as TaskContextRecord[]),
     ]);
-    const themesById = new Map(records("theme").map((theme) => [String(theme.id), theme]));
+    const themesById = new Map(visibilityThemes.map((theme) => [String(theme.id), theme]));
     const themeById = (themeId: unknown) => themeId ? themesById.get(String(themeId)) || null : null;
     const filterForAi = (type: string, candidates: TaskContextRecord[]) => {
       const included: TaskContextRecord[] = [];

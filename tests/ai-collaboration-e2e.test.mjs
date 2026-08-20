@@ -481,6 +481,7 @@ async function runProviderScenario(provider) {
     return semanticContract(fixture.database, finalContext);
   } finally {
     await client.close().catch(() => {});
+    // A failed scenario may already have stopped or partially started the host; cleanup must not hide the original assertion.
     await host.stop().catch(() => {});
     fixture.database.db.close();
     fs.rmSync(fixture.root, { recursive: true, force: true });
