@@ -27,7 +27,7 @@ import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
-import { ChecklistProgressBadge, InlineTaskChecklist } from "../components/taskChecklist";
+import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
   PLAN_NODE_STATE_LABELS,
