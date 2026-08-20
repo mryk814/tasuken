@@ -60,7 +60,7 @@ import {
 } from "./drawerEntityFields";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { DrawerHeader, Field, StatusBadge, ThemePickerSelect, ThemeSelect, type CloseDrawer } from "./common";
-import { ChecklistProgressBadge } from "./taskChecklist";
+import { ChecklistProgressBadge } from "../../task/public";
 import { ChatGroupPicker, ThemeColorPicker, ThemeGroupPicker, ThemeStorageRootField } from "./drawerPickers";
 import { ThemeRepositoryContextFields } from "./repositoryContextFields";
 import {

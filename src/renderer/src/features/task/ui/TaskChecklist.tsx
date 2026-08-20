@@ -1,18 +1,9 @@
 import { IconCheck, IconListCheck, IconPlus } from "@tabler/icons-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import type { TaskChecklistItem } from "../domain-model/types";
+import { checklistProgress, type TaskChecklistItemView } from "../model/checklistProgress";
 
-export function checklistProgress(items?: TaskChecklistItem[] | null): { done: number; total: number } | null {
-  const valid = (items || []).filter((item) => item.title.trim());
-  if (!valid.length) return null;
-  return {
-    done: valid.filter((item) => item.done).length,
-    total: valid.length,
-  };
-}
-
-export function ChecklistProgressBadge({ items }: { items?: TaskChecklistItem[] | null }) {
+export function ChecklistProgressBadge({ items }: { items?: TaskChecklistItemView[] | null }) {
   const progress = checklistProgress(items);
   if (!progress) return null;
   const complete = progress.done === progress.total;
@@ -32,7 +23,7 @@ export function InlineTaskChecklist({
   onToggle,
   onAdd,
 }: {
-  items?: TaskChecklistItem[] | null;
+  items?: TaskChecklistItemView[] | null;
   onToggle: (itemId: string) => void;
   onAdd: () => void;
 }) {

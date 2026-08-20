@@ -17,7 +17,7 @@ import {
 } from "../lib/savedTaskViews";
 import { Button, EmptyState, PageHeader, StatusBadge, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
-import { ChecklistProgressBadge, InlineTaskChecklist } from "../components/taskChecklist";
+import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
 import { TASK_STATE_LABELS, TASK_WORK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
