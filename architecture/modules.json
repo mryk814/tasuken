@@ -19,6 +19,7 @@
     "shared.kernel": [],
     "shared.contracts.task": ["shared.kernel"],
     "shared.contracts.core": [],
+    "shared.contracts.mobile": ["shared.kernel", "shared.contracts.task"],
     "shared.compatibility": ["shared.kernel", "shared.contracts.task"],
     "shared.ipc": ["shared", "shared.kernel", "shared.contracts.task", "shared.compatibility"],
     "shared": ["shared.kernel", "shared.contracts.task", "shared.compatibility"],
@@ -29,7 +30,8 @@
     "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.task": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.mcp": ["shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
-    "main.platform": ["main.application", "main.core", "main.infrastructure", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
+    "main.mobile": ["shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task"],
+    "main.platform": ["main.application", "main.core", "main.infrastructure", "main.mobile", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
     "preload": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.main": ["renderer.app", "renderer.workspace", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.root": ["renderer.app", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
@@ -73,6 +75,18 @@
       ],
       "enforcePublicApi": true,
       "owner": "core"
+    },
+    {
+      "id": "shared.contracts.mobile",
+      "root": "src/shared/contracts/mobile",
+      "kind": "shared-contract",
+      "status": "enforced",
+      "publicEntrypoints": [
+        "src/shared/contracts/mobile/public.ts",
+        "src/shared/contracts/mobile/public.mjs"
+      ],
+      "enforcePublicApi": true,
+      "owner": "mobile-gateway"
     },
     {
       "id": "shared.compatibility",
@@ -149,6 +163,17 @@
       ],
       "enforcePublicApi": true,
       "owner": "core"
+    },
+    {
+      "id": "main.mobile",
+      "root": "src/main/gateway/mobile",
+      "kind": "main-transport",
+      "status": "enforced",
+      "publicEntrypoints": [
+        "src/main/gateway/mobile/public.ts"
+      ],
+      "enforcePublicApi": true,
+      "owner": "mobile-gateway"
     },
     {
       "id": "main.infrastructure",

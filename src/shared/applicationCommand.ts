@@ -32,8 +32,9 @@ export type ApplicationCommandSource =
   | "inbox"
   | "command_palette"
   | "tasken_root"
+  | "mobile"
   | "mcp";
-export const applicationCommandSources = ["main_ui", "today_window", "quick_capture", "inbox", "command_palette", "tasken_root", "mcp"] as const;
+export const applicationCommandSources = ["main_ui", "today_window", "quick_capture", "inbox", "command_palette", "tasken_root", "mobile", "mcp"] as const;
 
 export interface CommandActor {
   kind: "user" | "system" | "ai_agent";

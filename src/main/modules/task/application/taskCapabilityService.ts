@@ -9,6 +9,7 @@ import {
   type TaskCommand,
   type TaskCommandOutcome,
   type TaskCommandResponse,
+  type TaskConflictReason,
   type TaskError,
   type TaskEvent,
   type TaskQuery,
@@ -30,7 +31,7 @@ export type ExecuteApplicationCommand = (command: CommandEnvelope) => CommandRec
 
 const sourceMap: Record<TaskCommand["source"], ApplicationCommandSource> = {
   desktop: "main_ui",
-  mobile: "inbox",
+  mobile: "mobile",
   http: "inbox",
   mcp: "mcp",
   system: "inbox",
@@ -40,8 +41,33 @@ function applicationSource(command: TaskCommand): ApplicationCommandSource {
   return command.source === "desktop" && command.entrypoint ? command.entrypoint : sourceMap[command.source];
 }
 
-function taskError(code: TaskError["code"], message: string, details?: Record<string, unknown>): TaskError {
-  return { code, message, issues: [], retryable: false, ...(details ? { details } : {}) };
+function taskError(
+  code: TaskError["code"],
+  message: string,
+  details?: Record<string, unknown>,
+  conflictReason?: TaskConflictReason,
+): TaskError {
+  return {
+    code,
+    message,
+    issues: [],
+    retryable: false,
+    ...(conflictReason ? { conflict_reason: conflictReason } : {}),
+    ...(details ? { details } : {}),
+  };
+}
+
+function structuredConflictReason(error: ApplicationCommandError): TaskConflictReason | undefined {
+  const reason = error.details?.conflictReason;
+  if (
+    reason === "command_fingerprint_mismatch"
+    || reason === "entity_already_exists"
+    || reason === "version_conflict"
+    || reason === "other_conflict"
+  ) return reason;
+  if (error.code === "COMMAND_ID_REUSED") return "command_fingerprint_mismatch";
+  if (error.code !== "CONFLICT") return undefined;
+  return "other_conflict";
 }
 
 function projectTask(entity: Entity): TaskReadModel {
@@ -129,7 +155,7 @@ function mappedApplicationError(error: unknown): TaskError {
       : error.code === "COMMAND_ID_REUSED"
         ? "CONFLICT"
         : "INVALID_COMMAND";
-    return taskError(code, error.message, error.details);
+    return taskError(code, error.message, error.details, structuredConflictReason(error));
   }
   return taskError("INTERNAL_ERROR", "Task処理を完了できませんでした。再読み込みして再試行してください。");
 }
@@ -153,7 +179,9 @@ export class TaskCapabilityService {
       const current = this.queries.getTask(taskId, true);
       if (command.name === "UpdateTask" && !current) return { ok: false, error: taskError("NOT_FOUND", "更新対象のTaskがありません。") };
       const receipt = this.executeApplicationCommand(applicationEnvelope(command, current));
-      if (receipt.status === "conflict") return { ok: false, error: taskError("CONFLICT", "Taskが更新されています。再読み込みしてください。") };
+      if (receipt.status === "conflict") {
+        return { ok: false, error: taskError("CONFLICT", "Taskが更新されています。再読み込みしてください。", undefined, "version_conflict") };
+      }
       const changed = receipt.changes.find((change) => change.type === "task")?.entity
         || this.queries.getTask(taskId, true);
       if (!changed) return { ok: false, error: taskError("NOT_FOUND", "Taskが見つかりません。") };

@@ -205,6 +205,10 @@ Core unavailable時は診断可能なerrorを返し、DB direct readへ戻さな
 local MCP transportのtoken、bind、exposure policyはMobileへ流用しない。
 Task mutationは#405のApplication Commandへ到達させ、Mobile専用のTask ruleを作らない。
 
+Phase 4Aでは、外向きserverを起動する前に`shared/contracts/mobile`、pure client、provider注入Gateway adapterを固定する。
+Mobile deviceのCreateTaskは認証済みdevice identityからactor/sourceを生成してTask capabilityへ委譲し、agent writeは既存Proposal review経路を維持する。
+具体的な完了・未達境界は`docs/mobile-gateway-phase4a.md`を正本とする。
+
 ## 撤去条件
 
 ### #405の互換境界

@@ -432,7 +432,10 @@ function readIdempotent(repository: Repository, command: CommandEnvelope): Comma
   const existing = repository.list("change_event", true).find((event) => event.command_id === command.commandId);
   if (!existing) return null;
   if (existing.command_name !== command.name || existing.command_fingerprint !== commandFingerprint(command)) {
-    throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdを別のCommandで再利用できません。", { commandId: command.commandId });
+    throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdを別のCommandで再利用できません。", {
+      commandId: command.commandId,
+      conflictReason: "command_fingerprint_mismatch",
+    });
   }
   if (typeof existing.receipt_json !== "string") {
     const recovered = recoverNoteAiReceipt(repository, command, existing);
@@ -440,7 +443,10 @@ function readIdempotent(repository: Repository, command: CommandEnvelope): Comma
       Object.defineProperty(recovered, "replayed", { value: true, enumerable: false });
       return recovered;
     }
-    throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態を復元できません。", { commandId: command.commandId });
+    throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態を復元できません。", {
+      commandId: command.commandId,
+      conflictReason: "other_conflict",
+    });
   }
   const storedReceipt = JSON.parse(existing.receipt_json) as CommandReceipt;
   const receipt = storedReceipt.status === "applied"
@@ -503,7 +509,7 @@ function assertExpectedVersion(repository: Repository, envelope: CommandEnvelope
   const actual = Number(current?.version || 0);
   if (actual !== expected.version) {
     throw new ApplicationCommandError("CONFLICT", "保存対象が更新済みです。画面を再読み込みしてから再試行してください。", {
-      type, id, expected: expected.version, actual,
+      type, id, expected: expected.version, actual, conflictReason: "version_conflict",
     });
   }
 }

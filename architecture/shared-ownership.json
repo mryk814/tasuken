@@ -24,6 +24,13 @@
       "migrationTarget": "src/shared/contracts/core/public.mjs"
     },
     {
+      "id": "mobile-contract",
+      "classification": "feature-contract",
+      "root": "src/shared/contracts/mobile",
+      "owner": "mobile-gateway",
+      "migrationTarget": "src/shared/contracts/mobile/public.ts"
+    },
+    {
       "id": "transport-platform",
       "classification": "platform",
       "root": "src/shared/ipc",
