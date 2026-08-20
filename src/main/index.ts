@@ -2567,7 +2567,9 @@ if (!hasSingleInstanceLock) {
     if (app.isReady()) showMainWindow();
   });
   void startDesktopApp().catch(async (error: unknown) => {
-    await taskenCoreRuntime?.stop().catch(() => undefined);
+    await taskenCoreRuntime?.stop().catch((stopError: unknown) => {
+      logMain("warn", "tasken-core", "起動失敗後にloopback hostを停止できませんでした", stopError);
+    });
     taskenCoreRuntime = null;
     console.error("Tasken failed to start.", error);
     recordSmoke("startup-failed", { error: String(error) });
