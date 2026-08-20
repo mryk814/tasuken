@@ -148,6 +148,7 @@ export {
 
 export {
   itemLocatorSchema,
+  itemQueryResultMetaSchema,
   listOpenItemsRequestSchema,
   listOpenItemsResponseSchema,
   nextToolSchema,

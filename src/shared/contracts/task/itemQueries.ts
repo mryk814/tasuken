@@ -45,6 +45,13 @@ export const nextToolSchema = z.object({
   description: z.string(),
 }).strict();
 
+export const itemQueryResultMetaSchema = z.object({
+  contract_version: z.literal(1),
+  returned_count: z.number().int().nonnegative(),
+  matched_visible_count: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+}).strict();
+
 const itemQueryResponseShape = {
   items: z.array(publicItemSchema),
   limit: z.number().int().min(1).max(100),
@@ -57,6 +64,7 @@ const itemQueryResponseShape = {
     count: z.number().int().positive(),
   }).strict()),
   next_tools: z.array(nextToolSchema).max(4),
+  result_meta: itemQueryResultMetaSchema,
 };
 
 export const searchItemsResponseSchema = z.object(itemQueryResponseShape).strict();

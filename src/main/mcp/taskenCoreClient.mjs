@@ -13,6 +13,7 @@ import {
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
+  taskenCorePublicError,
 } from "../../shared/contracts/core/public.mjs";
 
 export const TASKEN_CORE_CLIENT_TIMEOUT_MS = 5_000;
@@ -24,15 +25,18 @@ export class TaskenCoreClientError extends Error {
     this.code = code;
     this.status = options.status;
     this.details = options.details;
+    const guidance = taskenCorePublicError(code, message, options);
+    this.retryable = guidance.retryable;
+    this.next_action = guidance.next_action;
   }
 
   toPublicError() {
-    return {
-      code: this.code,
-      message: this.message,
-      ...(this.status === undefined ? {} : { status: this.status }),
-      ...(this.details === undefined ? {} : { details: this.details }),
-    };
+    return taskenCorePublicError(this.code, this.message, {
+      status: this.status,
+      details: this.details,
+      retryable: this.retryable,
+      next_action: this.next_action,
+    });
   }
 }
 
@@ -175,6 +179,8 @@ export class TaskenCoreClient {
           throw new TaskenCoreClientError(publicError.code, publicError.message, {
             status: response.status,
             details: publicError.details,
+            retryable: publicError.retryable,
+            next_action: publicError.next_action,
           });
         }
         if (response.status === 401) throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。", { status: 401 });

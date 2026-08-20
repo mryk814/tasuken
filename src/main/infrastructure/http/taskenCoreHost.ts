@@ -37,6 +37,7 @@ import {
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
+  taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -83,6 +84,10 @@ function json(response: ServerResponse, status: number, body: unknown) {
   response.end(encoded);
 }
 
+function errorResponse(code: string, message: string, extra: Record<string, unknown> = {}) {
+  return { error: taskenCorePublicError(code, message, extra) };
+}
+
 class RequestValidationError extends Error {
   readonly issues: unknown[];
 
@@ -109,11 +114,8 @@ function publicRequestError(error: unknown) {
   if (error instanceof RequestValidationError) {
     return {
       status: 400,
-      body: {
-        error: {
-          code: "VALIDATION_FAILED",
-          message: "requestがschemaに適合しません。",
-          details: {
+      body: errorResponse("VALIDATION_FAILED", "requestがschemaに適合しません。", {
+        details: {
             issues: error.issues.map((issue) => {
               const value = issue as { path?: unknown; code?: unknown };
               return {
@@ -124,18 +126,17 @@ function publicRequestError(error: unknown) {
               };
             }),
           },
-        },
-      },
+      }),
     };
   }
   const message = error instanceof Error ? error.message : "";
   if (message === "BODY_TOO_LARGE") {
-    return { status: 413, body: { error: { code: message, message: "request bodyが大きすぎます。" } } };
+    return { status: 413, body: errorResponse(message, "request bodyが大きすぎます。") };
   }
   if (message === "INVALID_JSON") {
-    return { status: 400, body: { error: { code: message, message: "JSONが不正です。" } } };
+    return { status: 400, body: errorResponse(message, "JSONが不正です。") };
   }
-  return { status: 500, body: { error: { code: "INTERNAL_ERROR", message: "Tasken Core queryの処理に失敗しました。" } } };
+  return { status: 500, body: errorResponse("INTERNAL_ERROR", "Tasken Core queryの処理に失敗しました。") };
 }
 
 function bearerMatches(header: string | undefined, token: string) {
@@ -257,7 +258,7 @@ export class TaskenCoreHost {
   private async handle(request: IncomingMessage, response: ServerResponse) {
     try {
       if (!bearerMatches(request.headers.authorization, this.token)) {
-        json(response, 401, { error: { code: "UNAUTHORIZED", message: "認証できません。" } });
+        json(response, 401, errorResponse("UNAUTHORIZED", "認証できません。"));
         return;
       }
       const queryPaths = new Set([
@@ -273,7 +274,7 @@ export class TaskenCoreHost {
       if (knownPaths.has(request.url || "")
         && request.method !== (queryPaths.has(request.url || "") ? "POST" : "GET")) {
         response.setHeader("allow", queryPaths.has(request.url || "") ? "POST" : "GET");
-        json(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "methodが許可されていません。" } });
+        json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
         return;
       }
       if (request.method === "GET" && request.url === "/health") {
@@ -290,7 +291,7 @@ export class TaskenCoreHost {
       }
       if (request.method === "POST" && queryPaths.has(request.url || "")) {
         if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
-          json(response, 415, { error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "application/jsonを指定してください。" } });
+          json(response, 415, errorResponse("UNSUPPORTED_MEDIA_TYPE", "application/jsonを指定してください。"));
           return;
         }
         const body = parseQueryRequest(request.url || "", await requestBody(request));
@@ -311,7 +312,7 @@ export class TaskenCoreHost {
         }
         return;
       }
-      json(response, 404, { error: { code: "NOT_FOUND", message: "endpointがありません。" } });
+      json(response, 404, errorResponse("NOT_FOUND", "endpointがありません。"));
     } catch (error) {
       const mapped = publicRequestError(error);
       if (mapped.status === 413) {

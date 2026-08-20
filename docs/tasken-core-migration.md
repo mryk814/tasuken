@@ -143,8 +143,9 @@ Wave 2は、既存`list_agent_ready_tasks`と合わせて「repositoryから対�
 Wave 3は`get_task_context`だけをquery-specific snapshot portへ移し、legacyのGraph、provenance、Activity、Work Receipt、repository match、text budgetをexact parityで維持した。
 Work Receiptの自由文は共通projectionでURL credential/query/hash、absolute local path、credential assignmentを除去し、通常の説明文は保持する。
 Wave 4は`search_items`と`list_open_items`をquery-specific snapshot portへ移し、mixed entity merge、legacy ID重複排除、Schedule、状態変換、検索・日付順、archived semanticsを維持した。
-各結果には正本entityの`locator`とresponse-level `next_tools`を追加し、Coding AgentがTask contextへ迷わず進めるようにした。
+各結果には正本entityの`locator`、response-level `next_tools`、`result_meta`（contract version、返却数、AI公開後の一致数、切り詰め有無）を追加し、Coding Agentが結果の完全性を判断してTask contextへ迷わず進めるようにした。
 またloopback HTTPのvalidation errorをcode/message/detailsの構造で返し、Core clientとMCP tool resultへstack、local path、tokenを出さずlosslessに伝播する。
+public errorにはcode別の`retryable`と`next_action`を必ず付け、Core停止・version/capability不一致・validation・認証失敗の復旧操作をAI Agentが機械的に選べるようにした。
 
 #### Wave 2.1 / Phase 3 gaps
 

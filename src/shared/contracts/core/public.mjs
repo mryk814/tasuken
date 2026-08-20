@@ -12,3 +12,5 @@ export {
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "./protocol.mjs";
+
+export { taskenCoreErrorGuidance, taskenCorePublicError } from "./errors.mjs";

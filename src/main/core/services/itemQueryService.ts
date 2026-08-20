@@ -167,14 +167,22 @@ export class ItemQueryService {
       .filter((item) => queryMatches(item, request.query))
       .filter((item) => !request.theme_id || item.theme_id === request.theme_id);
     const filtered = this.projection.project(candidates, snapshot);
+    const limit = request.limit ?? DEFAULT_LIMIT;
+    const items = filtered.records.slice(0, limit);
     return searchItemsResponseSchema.parse({
-      items: filtered.records.slice(0, request.limit ?? DEFAULT_LIMIT),
-      limit: request.limit ?? DEFAULT_LIMIT,
+      items,
+      limit,
       ai_audience: "coding_agent",
       read_only: true,
       excluded_count: filtered.excluded_count,
       excluded_reasons: filtered.excluded_reasons,
       next_tools: SEARCH_NEXT_TOOLS,
+      result_meta: {
+        contract_version: 1,
+        returned_count: items.length,
+        matched_visible_count: filtered.records.length,
+        truncated: filtered.records.length > items.length,
+      },
     });
   }
 
@@ -186,14 +194,22 @@ export class ItemQueryService {
       .filter((item) => !request.theme_id || item.theme_id === request.theme_id)
       .sort((left, right) => (itemDate(left) || "9999-12-31").localeCompare(itemDate(right) || "9999-12-31"));
     const filtered = this.projection.project(candidates, snapshot);
+    const limit = request.limit ?? DEFAULT_LIMIT;
+    const items = filtered.records.slice(0, limit);
     return listOpenItemsResponseSchema.parse({
-      items: filtered.records.slice(0, request.limit ?? DEFAULT_LIMIT),
-      limit: request.limit ?? DEFAULT_LIMIT,
+      items,
+      limit,
       ai_audience: "coding_agent",
       read_only: true,
       excluded_count: filtered.excluded_count,
       excluded_reasons: filtered.excluded_reasons,
       next_tools: OPEN_NEXT_TOOLS,
+      result_meta: {
+        contract_version: 1,
+        returned_count: items.length,
+        matched_visible_count: filtered.records.length,
+        truncated: filtered.records.length > items.length,
+      },
     });
   }
 }
