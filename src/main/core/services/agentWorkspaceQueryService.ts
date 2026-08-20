@@ -26,6 +26,7 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
+import { publicTaskForContext, publicThemeForContext, safeReceiptText, TaskContextTextBudget } from "../../../shared/taskContext.mjs";
 
 interface TaskRepositoryResolution {
   mode: unknown;
@@ -63,6 +64,21 @@ function publicMatch(match: Record<string, any>) {
       context: publicRepositoryContext(candidate.context as Record<string, unknown>),
     })),
   };
+}
+
+function sanitizeProjected(value: any): any {
+  if (typeof value === "string") return safeReceiptText(value);
+  if (Array.isArray(value)) return value.map(sanitizeProjected);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeProjected(entry)]));
+}
+
+function publicTheme(theme: Record<string, any>) {
+  return sanitizeProjected(publicThemeForContext(theme, new TaskContextTextBudget(50_000)));
+}
+
+function publicTask(task: Record<string, any>) {
+  return sanitizeProjected(publicTaskForContext(task, new TaskContextTextBudget(50_000)));
 }
 
 export class AgentWorkspaceQueryService {
@@ -105,7 +121,7 @@ export class AgentWorkspaceQueryService {
     const matchedContextIds = new Set<string>(((result.matched_context_ids || []) as unknown[]).map(String));
     return findThemesForRepositoryResponseSchema.parse({
       ...publicMatch(result),
-      themes: result.themes,
+      themes: ((result.themes || []) as Record<string, any>[]).map(publicTheme),
       repository_contexts: contexts
         .filter((context) => matchedContextIds.has(String(context.id)))
         .map(publicRepositoryContext),
@@ -188,8 +204,8 @@ export class AgentWorkspaceQueryService {
     });
     return getRepositoryContextResponseSchema.parse({
       repository_context: publicRepositoryContext(context),
-      themes,
-      tasks: matchingTasks,
+      themes: themes.map(publicTheme),
+      tasks: matchingTasks.map(publicTask),
       repository_context_id: id,
       read_only: true,
       ai_audience: "coding_agent",

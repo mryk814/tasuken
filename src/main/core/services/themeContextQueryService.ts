@@ -7,6 +7,7 @@ import {
   publicNoteSummary,
   publicThemeForContext,
   relationForNode,
+  safeReceiptText,
   TaskContextTextBudget,
 } from "../../../shared/taskContext.mjs";
 import {
@@ -55,6 +56,13 @@ function graphPayloadTokens(shape: Record<string, any>) {
 
 function structuredReadError(code: string, message: string, details: Record<string, unknown> = {}) {
   return { error: { code, message, ...details }, read_only: true as const };
+}
+
+function sanitizeProjected(value: any): any {
+  if (typeof value === "string") return safeReceiptText(value);
+  if (Array.isArray(value)) return value.map(sanitizeProjected);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeProjected(entry)]));
 }
 
 function publicThemeGraphEntity(
@@ -199,7 +207,15 @@ export class ThemeContextQueryService {
       });
     }
 
-    const graph = projectContextGraph(workspace);
+    // Build the graph only from AI-visible records. In particular, a private
+    // Reference must not create an edge merely because both endpoints are public.
+    const visibleWorkspace = { ...workspace };
+    for (const entityType of entityTypes) {
+      visibleWorkspace[collectionKeyForEntityType(entityType)] = records(entityType)
+        .map((record) => access.records.get(entityKey(entityType, record.id)))
+        .filter(Boolean);
+    }
+    const graph = projectContextGraph(visibleWorkspace);
     const subgraph = getContextSubgraph(graph, { type: seedType, id: themeId }, {
       maxHops: args.max_hops ?? 2,
       maxNodes: args.max_nodes ?? Math.min(100, limit),
@@ -209,7 +225,9 @@ export class ThemeContextQueryService {
       nodeFilter: (node: Record<string, any>) => access.allowed.has(entityKey(node.ref.type, node.ref.id)),
       nodeExclusion: (node: Record<string, any>) => access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
     });
-    const relationGraph = contextGraphMcpShape(subgraph);
+    const rawRelationGraph = contextGraphMcpShape(subgraph);
+    rawRelationGraph.edges = rawRelationGraph.edges.map(({ metadata: _metadata, ...edge }: Record<string, any>) => edge);
+    const relationGraph = sanitizeProjected(rawRelationGraph);
     const budget = new TaskContextTextBudget(textLimit);
     const selected: { type: string; output: Record<string, any> }[] = [];
     const selectionExclusions = [...relationGraph.excluded_nodes];
@@ -222,7 +240,8 @@ export class ThemeContextQueryService {
         continue;
       }
       const relation = relationForNode(relationGraph, node.type, node.id);
-      const output = publicThemeGraphEntity(node.type, record, budget, relation, Boolean(args.include_raw_body));
+      const rawOutput = publicThemeGraphEntity(node.type, record, budget, relation, Boolean(args.include_raw_body));
+      const output = rawOutput ? sanitizeProjected(rawOutput) : null;
       if (output) selected.push({
         type: node.type,
         output: {

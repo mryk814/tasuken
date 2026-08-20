@@ -177,6 +177,7 @@ export {
 
 export {
   contentDetailReadErrorSchema,
+  aiHeaderSchema,
   getArtifactMetadataRequestSchema,
   getArtifactMetadataResponseSchema,
   getConversationRequestSchema,

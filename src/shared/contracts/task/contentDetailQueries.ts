@@ -40,7 +40,7 @@ const sourceRefSchema = z.object({
   relative_path: z.string().optional(),
 }).strict();
 
-const aiHeaderSchema = z.object({
+export const aiHeaderSchema = z.object({
   id: z.string(),
   type: z.string(),
   title: z.string(),

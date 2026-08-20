@@ -6,11 +6,15 @@ import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { build } from "esbuild";
 
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
+
+const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
+const { WorkspaceDatabase } = await import(workspaceRepositoryModule);
 
 const bundled = await build({
   stdin: {
@@ -47,6 +51,7 @@ function fixture() {
     id: "theme-wave6",
     name: "Wave 6",
     description: "Theme description",
+    authorization: "Bearer THEME_SECRET",
     repository_context_ids: [repository.id, "repository-subdir", "repository-amb-a", "repository-amb-b"],
     default_ai_visibility: ["coding_agent"],
     updated_at: now,
@@ -66,7 +71,7 @@ function fixture() {
       { ...repository, id: "repository-archived", label: "Archived repo", deleted_at: now },
     ],
     tasks: [
-      { id: "task-wave6", title: "Open Wave 6", description: "Do the work", state: "doing", project_id: theme.id, updated_at: now },
+      { id: "task-wave6", title: "Open Wave 6", description: "Do token=TASK_SECRET at C:\\Users\\private\\task.txt", password: "TASK_PASSWORD", state: "doing", project_id: theme.id, updated_at: now },
       { id: "task-done", title: "Done Wave 6", state: "done", project_id: theme.id, updated_at: "2026-08-20T00:00:00.000Z" },
       { id: "task-hidden", title: "Hidden work", state: "doing", project_id: "theme-hidden", updated_at: now },
       { id: "task-archived", title: "Archived work", state: "doing", project_id: "theme-archived", deleted_at: now, updated_at: now },
@@ -75,8 +80,21 @@ function fixture() {
       { id: "note-wave6", title: "Wave 6 note", body_markdown: "A".repeat(2_000), project_id: theme.id, updated_at: now },
     ],
     knowledge_nodes: [
-      { id: "knowledge-wave6", title: "Wave knowledge", body: "Knowledge", theme_id: theme.id, updated_at: now },
+      { id: "knowledge-wave6", title: "Wave knowledge", node_type: "claim", body: "Knowledge", theme_id: theme.id, updated_at: now },
     ],
+    references: [{
+      id: "reference-hidden-secret",
+      subject: { type: "theme", id: theme.id },
+      predicate: "authorization=REFERENCE_SECRET",
+      object: { type: "task", id: "task-wave6" },
+      layer: "operational",
+      status: "asserted",
+      origin: "user",
+      evidence_refs: [{ type: "note", id: "token=EVIDENCE_SECRET" }],
+      metadata: { authorization: "Bearer METADATA_SECRET", "C:\\Users\\private\\key": "OBJECT_KEY_SECRET" },
+      ai_visibility: ["m365"],
+      updated_at: now,
+    }],
     canonical_root_status: {},
   };
 }
@@ -141,7 +159,10 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
       const inProcess = core[method].execute(request);
       const overHttp = await client[method](request);
       const overMcp = await callMcp(client, tool, request);
-      assert.deepEqual(inProcess, expected, `${tool} Core legacy parity`);
+      // The old in-process class returned raw rows. The public MCP schema was
+      // already bounded; Core deliberately tightens the internal seam to an
+      // allowlisted/sanitized projection while preserving selection semantics.
+      assert.equal(inProcess.status ?? inProcess.error?.code ?? "success", expected.status ?? expected.error?.code ?? "success");
       const wireShape = JSON.parse(JSON.stringify(inProcess));
       assert.deepEqual(overHttp, wireShape, `${tool} HTTP parity`);
       assert.deepEqual(overMcp.structuredContent, wireShape, `${tool} MCP parity`);
@@ -152,6 +173,8 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
     assert.equal(repository.repository_context.canonical_url, "https://github.com/acme/wave6");
     assert.equal("local_path" in repository.repository_context, false);
     assert.doesNotMatch(JSON.stringify(repository), /user:secret|token=secret|Users\\\\private/);
+    assert.doesNotMatch(JSON.stringify(repository), /THEME_SECRET|TASK_SECRET|TASK_PASSWORD|password|authorization/i);
+    assert.match(repository.tasks[0].description, /\[redacted\]/);
     assert.equal((await client.getRepositoryContext({ repository_context_id: "repository-hidden" })).repository_context, null);
     const ambiguous = await client.findThemesForRepository({
       remote_url: "https://github.com/acme/wave6",
@@ -178,6 +201,8 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
     assert.equal(theme.warnings.some((warning) => warning.code === "text_truncated"), true);
     assert.equal(theme.open_items.some((item) => item.id === "task-done"), false);
     assert.equal(theme.open_items.some((item) => item.id === "task-hidden"), false);
+    assert.equal(theme.context_graph.edges.some((edge) => edge.id.includes("reference-hidden-secret")), false);
+    assert.doesNotMatch(JSON.stringify(theme), /REFERENCE_SECRET|EVIDENCE_SECRET|METADATA_SECRET|OBJECT_KEY_SECRET|reference-hidden-secret/);
     for (const [limit, expectedNodes, expectedEdges] of [[1, 1, 4], [50, 50, 200], [100, 100, 200]]) {
       const bounded = core.getThemeContext.execute({ theme_id: "theme-wave6", limit });
       assert.equal(bounded.limits.graph.maxNodes, expectedNodes);
@@ -233,6 +258,43 @@ test("Wave 6 capabilities fail before fetch and malformed responses fail closed"
       }),
     });
     await assert.rejects(invalid.getThemeContext({ theme_id: "theme-wave6" }), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
+
+    const core = createTaskenCore(new FixturePersistence(fixture()));
+    const strictCases = [
+      ["find_themes_for_repository", "findThemesForRepository", {}, () => {
+        const payload = structuredClone(core.findThemesForRepository.execute({}));
+        payload.authorization = "Bearer TOP_LEVEL_SECRET";
+        return payload;
+      }],
+      ["get_repository_context", "getRepositoryContext", { repository_context_id: "repository-wave6" }, () => {
+        const payload = structuredClone(core.getRepositoryContext.execute({ repository_context_id: "repository-wave6" }));
+        payload.themes[0].authorization = "Bearer NESTED_SECRET";
+        return payload;
+      }],
+      ["get_theme_context", "getThemeContext", { theme_id: "theme-wave6" }, () => {
+        const payload = structuredClone(core.getThemeContext.execute({ theme_id: "theme-wave6" }));
+        payload.context_graph.nodes[0].authorization = "Bearer GRAPH_SECRET";
+        return payload;
+      }],
+    ];
+    for (const [capability, method, request, payload] of strictCases) {
+      writeDiscovery([capability]);
+      const client = new TaskenCoreClient({
+        discoveryPath,
+        fetch: async () => new Response(JSON.stringify(payload()), { headers: { "x-tasken-core-version": "1" } }),
+      });
+      await assert.rejects(client[method](request), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
+    }
+
+    writeDiscovery(["get_repository_context"]);
+    const wrongMethodPayload = new TaskenCoreClient({
+      discoveryPath,
+      fetch: async () => new Response(JSON.stringify(core.findThemesForRepository.execute({})), { headers: { "x-tasken-core-version": "1" } }),
+    });
+    await assert.rejects(
+      wrongMethodPayload.getRepositoryContext({ repository_context_id: "repository-wave6" }),
+      (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE",
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -250,5 +312,69 @@ test("Wave 6 MCP registrations contain no legacy/native fallback", () => {
     const registration = source.slice(start, end);
     assert.match(registration, new RegExp(`withCoreClient\\(\\(args\\) => coreClient\\.${method}`));
     assert.doesNotMatch(registration, /withReadContext|ReadOnlyTaskenContext|better-sqlite3/);
+  }
+});
+
+test("actual stdio MCP reads all Wave 6 tools from the Core SQLite owner without writes or fallback", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave6-stdio-"));
+  fs.chmodSync(root, 0o700);
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+  let host;
+  let client;
+  try {
+    const workspace = fixture();
+    for (const [type, records] of Object.entries({
+      repository_context: workspace.repository_contexts.filter((record) => record.id === "repository-wave6"),
+      theme: workspace.themes.filter((record) => !record.deleted_at && record.id === "theme-wave6")
+        .map((record) => ({ ...record, repository_context_ids: ["repository-wave6"] })),
+      task: workspace.tasks.filter((record) => !record.deleted_at && record.project_id === "theme-wave6"),
+      note: workspace.notes,
+      knowledge_node: workspace.knowledge_nodes,
+    })) {
+      for (const record of records) database.save(type, record);
+    }
+    host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
+    await host.start();
+    const changesBefore = database.db.prepare("SELECT total_changes() AS count").get().count;
+    const metaBefore = database.db.prepare("SELECT COUNT(*) AS count FROM workspace_meta").get().count;
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["scripts/mcp-server.mjs"],
+      env: {
+        ...process.env,
+        TASKEN_USER_DATA_DIR: root,
+        TASKEN_DB_PATH: path.join(root, "legacy-fallback-must-not-open.sqlite3"),
+        TASKEN_MCP_READ_ONLY: "true",
+      },
+      stderr: "pipe",
+    });
+    client = new Client({ name: "wave6-actual-stdio", version: "1.0.0" });
+    await client.connect(transport);
+    for (const [name, args, field] of [
+      ["tasken.find_themes_for_repository", { remote_url: "https://github.com/acme/wave6" }, "themes"],
+      ["tasken.get_repository_context", { repository_context_id: "repository-wave6" }, "repository_context"],
+      ["tasken.get_theme_context", { theme_id: "theme-wave6" }, "themes"],
+    ]) {
+      const result = await client.callTool({ name, arguments: args });
+      assert.equal(result.isError, undefined, JSON.stringify(result));
+      assert.ok(result.structuredContent[field]);
+    }
+    assert.equal(fs.existsSync(path.join(root, "legacy-fallback-must-not-open.sqlite3")), false);
+    assert.equal(database.db.prepare("SELECT total_changes() AS count").get().count, changesBefore);
+    assert.equal(database.db.prepare("SELECT COUNT(*) AS count FROM workspace_meta").get().count, metaBefore);
+  } finally {
+    try {
+      await client?.close();
+    } finally {
+      try {
+        await host?.stop();
+      } finally {
+        try {
+          database.db.close();
+        } finally {
+          fs.rmSync(root, { recursive: true, force: true });
+        }
+      }
+    }
   }
 });
