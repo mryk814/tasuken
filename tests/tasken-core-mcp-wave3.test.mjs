@@ -313,6 +313,9 @@ test("Work Receipt sanitizer preserves ordinary colon text and consumes complete
     ["ftp://user:pass@example.com/private", "[redacted-url]"],
     ["path:/home/private/x", "[redacted-url]"],
     ["<C:\\Users\\private\\x>", "<[redacted-local-path]>"],
+    ["x|/home/private/x", "x|[redacted-local-path]"],
+    ["label:/home/private/x", "label:[redacted-local-path]"],
+    ["https://host/path", "https://host/path"],
     ["Bearer x", "Bearer [redacted]"],
     ["Basic c2VjcmV0", "Basic [redacted]"],
   ];

@@ -288,7 +288,7 @@ export function publicArtifactMetadata(artifact, budget, relation = null) {
 const HTTP_URL = /https?:\/\/[^\s<>\]})'"`]+/gi;
 const DANGEROUS_URL = /\b(?:file|ftp|ftps|sftp|ssh|path):(?:\/\/)?[^\s<>\]})'"`]*/gi;
 const WINDOWS_LOCAL_PATH = /(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s,;)\]}> '"`]*/g;
-const UNIX_LOCAL_PATH = /(^|[\s(<\[{'"=,;])\/(?:[^/\s]+\/)+[^\s,;)\]}> '"`]*/g;
+const UNIX_LOCAL_PATH = /(^|[^A-Za-z0-9/:]|:(?!\/\/))\/(?:[^/\s]+\/)+[^\s,;)\]}> '"`]*/g;
 const KEY_VALUE_CREDENTIAL = /\b(authorization|password|pwd|token|secret|api[_-]?key)\s*[:=]\s*(?:(?:Basic|Bearer)\s+)?[^\s,;)\]}>]+/gi;
 const STANDALONE_CREDENTIAL = /\b(Basic|Bearer)\s+[^\s,;)\]}>]+/gi;
 
