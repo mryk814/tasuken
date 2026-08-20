@@ -12,19 +12,19 @@ The future contract consumer may be placed under `android-app/app/src/main` afte
 
 ## Toolchain choice
 
-The versions below are the versions already used by the repository's Android projects and available in the local Windows SDK/Gradle caches on 2026-08-21:
+The versions below are already used by other local Android workspaces and available in the local Windows SDK/Gradle caches on 2026-08-21:
 
 | Component | Version | Reason |
 | --- | --- | --- |
 | Gradle | 9.6.1 | Existing wrapper distribution and executable wrapper in the local cache |
-| Android Gradle Plugin | 9.3.1 | Latest cached AGP used by the current `ashiato` Android project |
-| Kotlin Compose plugin | 2.3.20 | Latest cached Kotlin plugin used by the current `ashiato` project |
+| Android Gradle Plugin | 9.3.1 | Latest cached AGP used by the current local `ashiato` workspace |
+| Kotlin Compose plugin | 2.3.20 | Latest cached Kotlin plugin used by the current local `ashiato` workspace |
 | compileSdk / targetSdk | 36 | Stable installed local SDK platform `android-36`; avoids the locally installed API 37 preview |
 | minSdk | 26 | Covers the intended modern foldable/devices without adding legacy compatibility code |
 | Compose BOM | 2026.06.01 | Latest cached BOM used by the current `ashiato` project |
-| Activity Compose | 1.13.0 | Latest cached version used by the current Android projects |
+| Activity Compose | 1.13.0 | Latest cached version used by other local Android workspaces |
 
-Java/Kotlin compilation is pinned to Java 17, matching the Android Gradle Plugin 9.x development baseline. AGP 9.3.1 + Gradle 9.6.1 is the pair already used by the repository's current `ashiato` Android project and was used to validate this scaffold. The Windows Android Studio JBR and Android SDK remain environment prerequisites; they are not committed to this repository.
+Java/Kotlin compilation is pinned to Java 17, matching the Android Gradle Plugin 9.x development baseline. AGP 9.3.1 + Gradle 9.6.1 is the pair already used by the current local `ashiato` workspace and was used to validate this scaffold. The Windows Android Studio JBR and Android SDK remain environment prerequisites; they are not committed to this repository.
 
 ## Validation boundary
 
