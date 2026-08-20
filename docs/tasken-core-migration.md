@@ -191,6 +191,10 @@ Phase 0のtestは、候補判定、Theme filter、論理削除、AI visibility�
 Phase 1では同じfixtureをCore application serviceへ適用し、legacy結果とのdeep equalityを要求する。
 Phase 2ではin-process Core、loopback transport、MCP toolのtransport固有metadataを除いた結果を比較する。
 
+Wave 4では`tests/tasken-core-mcp-wave4-characterization.test.mjs`で、移行前の`search_items`と`list_open_items`を固定する。
+Task・Waiting・Plan Node・legacy Itemの統合、`legacy_item_id`重複排除、Schedule投影、状態変換、検索対象4フィールド、open判定、日付順、Theme/論理削除、AI visibility先行、limit（1/20/100/101）を対象にする。
+このfixtureは移行前のinput/outputの基準であり、将来の`locator`や`result_meta`などの契約拡張は含めない。
+
 ## Migration phases
 
 ### Phase 0: Inventory and characterization
