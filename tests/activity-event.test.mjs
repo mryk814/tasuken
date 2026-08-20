@@ -272,6 +272,21 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
       capture_context: {
         safe_key: "Safe value",
         token: "KEY_SECRET",
+        accessToken: "CAMEL_TOKEN_SECRET",
+        access_token: "SNAKE_TOKEN_SECRET",
+        "access-token": "KEBAB_TOKEN_SECRET",
+        accesstoken: "JOINED_TOKEN_SECRET",
+        clientSecret: "CAMEL_CLIENT_SECRET",
+        client_secret: "SNAKE_CLIENT_SECRET",
+        authToken: "CAMEL_AUTH_TOKEN",
+        authorization: "AUTHORIZATION_SECRET",
+        credential: "CREDENTIAL_SECRET",
+        apiKey: "API_KEY_SECRET",
+        privateKey: "PRIVATE_KEY_SECRET",
+        localPath: "CAMEL_LOCAL_PATH",
+        absolute_path: "SNAKE_ABSOLUTE_PATH",
+        filePath: "CAMEL_FILE_PATH",
+        diagnosticPath: "C:\\private\\diagnostic.log",
         "token=KEY_SECRET": "ordinary",
         "C:\\Users\\KEY_PATH\\x": "ordinary",
         "nested/path": "ordinary",
@@ -328,12 +343,13 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   assert.equal(projected.metadata.capture_context.values.at(-1), "ordinary");
   assert.equal(projected.metadata.capture_context.safe_key, "Safe value");
   assert.equal("token" in projected.metadata.capture_context, false);
+  assert.equal(projected.metadata.capture_context.diagnosticPath, "[redacted-local-path]");
   assert.deepEqual(projected.actor, { kind: "agent" });
   assert.deepEqual(projected.origin, { kind: "mcp", command_id: "command-safe" });
   assert.equal("local_path" in projected.metadata, false);
   assert.equal("token" in projected.metadata, false);
   const serialized = JSON.stringify(projected);
-  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret", "KEY_SECRET", "KEY_PATH", "ACTOR_KEY", "nested/path", "display_name"]) {
+  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret", "TOKEN_SECRET", "CLIENT_SECRET", "AUTHORIZATION_SECRET", "CREDENTIAL_SECRET", "API_KEY_SECRET", "PRIVATE_KEY_SECRET", "LOCAL_PATH", "ABSOLUTE_PATH", "FILE_PATH", "KEY_SECRET", "KEY_PATH", "ACTOR_KEY", "nested/path", "display_name"]) {
     assert.equal(serialized.includes(secret), false, secret);
   }
 });

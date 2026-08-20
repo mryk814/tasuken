@@ -78,7 +78,7 @@ const PUBLIC_METADATA_KEYS = new Set([
 ]);
 const REDACTED_MARKER = /\[redacted(?:-url|-local-path)?\]/i;
 const PUBLIC_JSON_KEY = /^[A-Za-z0-9_.-]{1,100}$/;
-const PRIVATE_JSON_KEY = /(?:^|[_.-])(?:authorization|password|pwd|token|secret|api[_-]?key|path)(?:$|[_.-])/i;
+const PRIVATE_JSON_KEY = /token|secret|password|authorization|credential|apikey|privatekey|localpath|absolutepath|filepath/;
 const ACTOR_FIELDS = ["kind", "id"];
 const ORIGIN_FIELDS = ["kind", "command_id", "command_name", "session_id"];
 
@@ -96,7 +96,8 @@ function publicIdentifier(value) {
 }
 
 function publicJsonKey(value) {
-  return PUBLIC_JSON_KEY.test(value) && !PRIVATE_JSON_KEY.test(value);
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return PUBLIC_JSON_KEY.test(value) && !PRIVATE_JSON_KEY.test(normalized);
 }
 
 function publicJsonValue(value, seen = new WeakSet()) {
