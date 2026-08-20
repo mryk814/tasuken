@@ -148,6 +148,7 @@ export class MobileGatewayClient {
     try {
       const declaredLength = Number(response.headers.get("content-length") || "0");
       if (Number.isFinite(declaredLength) && declaredLength > this.maxResponseBytes) {
+        // The size violation is authoritative; a transport-level cancel failure must not replace it.
         await reader.cancel().catch(() => undefined);
         throw new MobileGatewayClientError("response_too_large", safeClientMessage("response_too_large"));
       }
@@ -156,6 +157,7 @@ export class MobileGatewayClient {
         if (done) break;
         size += value.byteLength;
         if (size > this.maxResponseBytes) {
+          // The size violation is authoritative; a transport-level cancel failure must not replace it.
           await reader.cancel().catch(() => undefined);
           throw new MobileGatewayClientError("response_too_large", safeClientMessage("response_too_large"));
         }

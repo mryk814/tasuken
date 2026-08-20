@@ -445,7 +445,7 @@ function readIdempotent(repository: Repository, command: CommandEnvelope): Comma
     }
     throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態を復元できません。", {
       commandId: command.commandId,
-      conflictReason: "command_fingerprint_mismatch",
+      conflictReason: "other_conflict",
     });
   }
   const storedReceipt = JSON.parse(existing.receipt_json) as CommandReceipt;

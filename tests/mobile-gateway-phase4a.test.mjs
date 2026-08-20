@@ -426,6 +426,60 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   });
   assert.equal(existingEntity.status, 409);
   assert.equal(existingEntity.body.error.code, "entity_conflict");
+
+  const broken = capability();
+  const brokenAdapter = gateway(broken.service);
+  const brokenRequest = createRequest({
+    requestId: "request-broken-receipt",
+    commandId: "command-broken-receipt",
+    idempotencyKey: "command-broken-receipt",
+    command: {
+      ...createRequest().command,
+      task: { ...createRequest().command.task, id: "task-broken-receipt" },
+    },
+  });
+  const brokenFirst = await brokenAdapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: brokenRequest,
+  });
+  assert.equal(brokenFirst.status, 200);
+  const brokenEvent = broken.repository.list("change_event")[0];
+  delete brokenEvent.receipt_json;
+  const brokenRestart = capability(broken.repository);
+  const brokenCoreReplay = brokenRestart.service.executeCommand({
+    schemaVersion: 1,
+    command_id: brokenRequest.commandId,
+    name: "CreateTask",
+    actor: { kind: "user", id: principal.deviceId },
+    source: "mobile",
+    issued_at: brokenRequest.issuedAt,
+    payload: {
+      task: {
+        id: brokenRequest.command.task.id,
+        title: brokenRequest.command.task.title,
+        project_id: brokenRequest.command.task.projectId,
+        state: brokenRequest.command.task.state,
+        priority: brokenRequest.command.task.priority,
+        requester: brokenRequest.command.task.requester,
+        intended_executor: brokenRequest.command.task.intendedExecutor,
+        today_date: brokenRequest.command.task.todayDate,
+      },
+    },
+  });
+  assert.equal(brokenCoreReplay.ok, false);
+  assert.equal(brokenCoreReplay.error.code, "CONFLICT");
+  assert.equal(brokenCoreReplay.error.conflict_reason, "other_conflict");
+  const brokenMobileReplay = await gateway(brokenRestart.service).handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: brokenRequest,
+  });
+  assert.equal(brokenMobileReplay.status, 500);
+  assert.equal(brokenMobileReplay.body.error.code, "internal_error");
+  assert.equal(brokenMobileReplay.body.error.retryable, false);
 });
 
 test("Phase 4A fails closed on Core version/capability and client uses separate HTTPS bearer", async () => {
@@ -438,6 +492,18 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   const missing = gateway(service, { status: async () => ({ apiVersion: "1", capabilities: ["task.query"] }) });
   const missingResponse = await missing.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.health, principal });
   assert.equal(missingResponse.body.error.code, "capability_unavailable");
+
+  const writeOnlyPrincipal = { ...principal, scopes: ["mobile:task-write"] };
+  const writeOnlyHealth = await gateway(service).handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.health,
+    principal: writeOnlyPrincipal,
+  });
+  assert.equal(writeOnlyHealth.status, 200);
+  assert.deepEqual(writeOnlyHealth.body.data.capabilities, [
+    TASKEN_MOBILE_CAPABILITIES.health,
+    TASKEN_MOBILE_CAPABILITIES.taskCreate,
+  ]);
 
   let coreStatusCalls = 0;
   const forbiddenBeforeCore = gateway(service, {
@@ -522,6 +588,31 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.equal(todayCall.body, undefined);
   assert.equal(seen.every((entry) => entry.url.startsWith("https://desktop.tailnet.ts.net/v1/")), true);
   assert.equal(seen.every((entry) => entry.authorization === `Bearer ${accessToken}`), true);
+
+  const writeOnlyClient = new MobileGatewayClient({
+    baseUrl: "https://desktop.tailnet.ts.net",
+    accessToken,
+    fetch: async (url, init) => {
+      const result = await adapter.handle({
+        method: init.method,
+        path: new URL(url).pathname,
+        principal: writeOnlyPrincipal,
+        query: Object.fromEntries(new URL(url).searchParams),
+        ...(init.body ? { body: JSON.parse(init.body) } : {}),
+      });
+      return new Response(JSON.stringify(result.body), { status: result.status, headers: result.headers });
+    },
+  });
+  const writeOnlyCreated = await writeOnlyClient.createTask(createRequest({
+    requestId: "request-write-only-create",
+    commandId: "command-write-only-create",
+    idempotencyKey: "command-write-only-create",
+    command: {
+      ...createRequest().command,
+      task: { ...createRequest().command.task, id: "task-write-only-create" },
+    },
+  }));
+  assert.equal(writeOnlyCreated.data.status, "applied");
   assert.throws(() => new MobileGatewayClient({ baseUrl: "http://127.0.0.1:1234", accessToken }), /private HTTPS/);
 });
 

@@ -143,10 +143,14 @@ export class MobileGatewayAdapter {
       if (request.method !== expectedMethod) return this.error(meta, "method_not_allowed");
       if (request.method === "GET" && request.body !== undefined) return this.error(meta, "validation_failed");
 
-      const requiredScope: MobileScope = request.path === TASKEN_MOBILE_ENDPOINTS.commands
-        ? "mobile:task-write"
-        : "mobile:read";
-      if (!request.principal.scopes.includes(requiredScope)) return this.error(meta, "forbidden");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.today
+        && !request.principal.scopes.includes("mobile:read")
+      ) return this.error(meta, "forbidden");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.commands
+        && !request.principal.scopes.includes("mobile:task-write")
+      ) return this.error(meta, "forbidden");
 
       const today = request.path === TASKEN_MOBILE_ENDPOINTS.today
         ? this.parseTodayQuery(request.query)

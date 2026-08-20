@@ -58,8 +58,6 @@ function taskError(
 }
 
 function structuredConflictReason(error: ApplicationCommandError): TaskConflictReason | undefined {
-  if (error.code === "COMMAND_ID_REUSED") return "command_fingerprint_mismatch";
-  if (error.code !== "CONFLICT") return undefined;
   const reason = error.details?.conflictReason;
   if (
     reason === "command_fingerprint_mismatch"
@@ -67,6 +65,8 @@ function structuredConflictReason(error: ApplicationCommandError): TaskConflictR
     || reason === "version_conflict"
     || reason === "other_conflict"
   ) return reason;
+  if (error.code === "COMMAND_ID_REUSED") return "command_fingerprint_mismatch";
+  if (error.code !== "CONFLICT") return undefined;
   return "other_conflict";
 }
 
