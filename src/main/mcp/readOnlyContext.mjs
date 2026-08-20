@@ -938,13 +938,29 @@ export class ReadOnlyTaskenContext {
     const filtered = task ? this.filterForAi("task", [task]) : { records: [], exclusions: [] };
     if (!filtered.records.length) return { ...structuredReadError("not_found", "Taskが見つかりません。IDまたはAI公開範囲を確認してください。", { task_id: taskId }), ai_audience: this.audience };
     const limit = clampLimit(args.limit, 50);
-    const activity = this.toolGetActivity({ entity_type: "task", entity_id: taskId, limit: 100, include_archived: Boolean(args.include_archived), format: "json" });
-    const events = [...(activity.events || [])].sort((left, right) => String(right.occurred_at).localeCompare(String(left.occurred_at)) || String(right.id).localeCompare(String(left.id)));
+    const activity = this.toolGetActivity({
+      entity_type: "task",
+      entity_id: taskId,
+      limit,
+      include_archived: Boolean(args.include_archived),
+      format: "json",
+      sort_direction: "desc",
+      include_match_metadata: true,
+    });
+    const events = activity.events || [];
+    const matchedVisible = Number(activity.matched_count || 0);
+    const truncated = Boolean(activity.truncated);
     return {
       task_id: taskId,
-      events: events.slice(0, limit),
+      events,
       limit,
-      truncated: events.length > limit,
+      truncated,
+      result_meta: {
+        contract_version: 1,
+        returned_count: events.length,
+        matched_visible_count: matchedVisible,
+        truncated,
+      },
       read_only: true,
       ai_audience: this.audience,
     };
@@ -1373,6 +1389,8 @@ export class ReadOnlyTaskenContext {
       workspaceDefault: this.workspaceVisibilityDefault(),
       roots: workspace.canonical_root_status,
       limit: args.limit,
+      sort_direction: args.sort_direction,
+      include_match_metadata: Boolean(args.include_match_metadata),
     });
     const format = args.format === "markdown" ? "markdown" : "json";
     return {

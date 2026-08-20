@@ -10,7 +10,6 @@ import type { ActivityEntriesReadPort } from "../ports/activityEntriesReadPort.t
 
 const AUDIENCE = "coding_agent";
 const DEFAULT_LIMIT = 50;
-const PROJECTION_LIMIT = 500;
 
 function text(value: unknown) {
   return value == null ? "" : String(value);
@@ -61,15 +60,14 @@ export class ActivityEntriesQueryService {
       audience: AUDIENCE,
       workspaceDefault: snapshot.workspaceAiVisibilityDefault,
       roots: workspace.canonical_root_status || {},
-      limit: PROJECTION_LIMIT,
+      limit: request.limit ?? DEFAULT_LIMIT,
+      sort_direction: "desc",
+      include_match_metadata: true,
     }));
-    const candidates = [...activity.events].sort((left, right) => (
-      text(right.occurred_at).localeCompare(text(left.occurred_at))
-      || text(right.id).localeCompare(text(left.id))
-    ));
     const limit = request.limit ?? DEFAULT_LIMIT;
-    const events = candidates.slice(0, limit);
-    const truncated = candidates.length > events.length || activity.truncated;
+    const events = activity.events;
+    const matchedVisible = Number(activity.matched_count);
+    const truncated = activity.truncated;
 
     return getActivityEntriesResponseSchema.parse({
       task_id: taskId,
@@ -78,8 +76,8 @@ export class ActivityEntriesQueryService {
       truncated,
       result_meta: {
         contract_version: 1,
-        returned: events.length,
-        matched_visible: candidates.length,
+        returned_count: events.length,
+        matched_visible_count: matchedVisible,
         truncated,
       },
       read_only: true,

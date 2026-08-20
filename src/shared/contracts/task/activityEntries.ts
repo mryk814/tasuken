@@ -58,8 +58,8 @@ export const publicActivityEntrySchema = z.object({
 
 export const activityEntriesResultMetaSchema = z.object({
   contract_version: z.literal(1),
-  returned: z.number().int().nonnegative(),
-  matched_visible: z.number().int().nonnegative(),
+  returned_count: z.number().int().nonnegative(),
+  matched_visible_count: z.number().int().nonnegative(),
   truncated: z.boolean(),
 }).strict();
 

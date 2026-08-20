@@ -256,6 +256,8 @@ export function queryActivityEvents({
   workspaceDefault = undefined,
   roots = {},
   limit = MAX_EVENTS,
+  sort_direction = "asc",
+  include_match_metadata = false,
 } = {}) {
   const sourceWorkspace = { ...workspace, references: references.length ? references : workspace.references };
   const entityMap = allEntities(sourceWorkspace, entities);
@@ -282,7 +284,11 @@ export function queryActivityEvents({
   }));
   const projected = [];
   const exclusions = [];
-  for (const event of scopedEvents.sort((a, b) => String(a.occurred_at).localeCompare(String(b.occurred_at)) || String(a.id).localeCompare(String(b.id)))) {
+  const direction = sort_direction === "desc" ? -1 : 1;
+  for (const event of scopedEvents.sort((a, b) => direction * (
+    String(a.occurred_at).localeCompare(String(b.occurred_at))
+    || String(a.id).localeCompare(String(b.id))
+  ))) {
     const result = projectOne(event, { entityMap, themesById, workspaceDefault, audience, workspace: sourceWorkspace, roots });
     if (result.excluded) exclusions.push(result.excluded);
     else if (result.event) projected.push({ ...result.event, local_date: localDate(event.occurred_at, effectiveTimezone), local_time: localTime(event.occurred_at, effectiveTimezone) });
@@ -296,6 +302,7 @@ export function queryActivityEvents({
     excluded_count: exclusions.length,
     excluded_reasons: summarizeAiExclusions(exclusions).excluded_reasons,
     truncated: projected.length > max,
+    ...(include_match_metadata ? { matched_count: projected.length } : {}),
   };
 }
 

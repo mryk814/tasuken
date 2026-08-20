@@ -27,6 +27,7 @@ export interface ActivityProjectionResult {
   excluded_count: number;
   excluded_reasons: Array<Record<string, unknown>>;
   truncated: boolean;
+  matched_count?: number;
 }
 
 export interface ActivityProjectionQuery {
@@ -49,6 +50,8 @@ export interface ActivityProjectionQuery {
   workspaceDefault?: unknown;
   roots?: Record<string, unknown>;
   limit?: number;
+  sort_direction?: "asc" | "desc";
+  include_match_metadata?: boolean;
 }
 
 export function queryActivityEvents(input?: ActivityProjectionQuery): ActivityProjectionResult;

@@ -8,6 +8,7 @@ import { build } from "esbuild";
 
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 
 const bundled = await build({
   stdin: {
@@ -155,8 +156,8 @@ test("Task Activity Core query preserves legacy projection, visibility, refs, an
   assert.equal(JSON.stringify(page).includes("/home/private"), false);
   assert.deepEqual(page.result_meta, {
     contract_version: 1,
-    returned: 100,
-    matched_visible: 103,
+    returned_count: 100,
+    matched_visible_count: 103,
     truncated: true,
   });
 
@@ -184,5 +185,78 @@ test("Activity adapter reads an empty WorkspaceDatabase without creating the def
   } finally {
     database.db.close();
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function legacyActivityContext(count) {
+  const theme = { id: "theme", name: "Theme", default_ai_visibility: ["coding_agent"] };
+  const task = { id: "task", title: "Task", state: "doing", project_id: theme.id };
+  const hiddenTask = { id: "task-hidden", title: "Hidden", state: "doing", project_id: theme.id, ai_visibility: [] };
+  const deletedTask = { id: "task-deleted", title: "Deleted", state: "done", project_id: theme.id, deleted_at: "2026-08-21T00:00:00.000Z" };
+  const events = Array.from({ length: count }, (_, index) => buildActivityEvent({
+    id: index === count - 1 ? "tie-z" : index === count - 2 ? "tie-a" : `event-${String(index).padStart(3, "0")}`,
+    entity_type: "task",
+    entity_id: task.id,
+    event_kind: "task_work_recorded",
+    occurred_at: index >= count - 2 ? "2026-08-21T12:00:00.000Z" : occurredAt(index),
+    after: task,
+    summary: `Activity ${index}`,
+    metadata: { dedupe_key: `legacy-work-${index}` },
+  }));
+  events.unshift(buildActivityEvent({
+    id: "hidden-newest",
+    entity_type: "task",
+    entity_id: hiddenTask.id,
+    event_kind: "task_work_recorded",
+    occurred_at: "2026-08-22T00:00:00.000Z",
+    after: hiddenTask,
+    metadata: { dedupe_key: "hidden-newest" },
+  }));
+  events.push(buildActivityEvent({
+    id: "deleted-event",
+    entity_type: "task",
+    entity_id: deletedTask.id,
+    event_kind: "task_completed",
+    occurred_at: "2026-08-21T00:00:00.000Z",
+    after: deletedTask,
+    metadata: { dedupe_key: "deleted-event" },
+  }));
+  return new ReadOnlyTaskenContext("ignored", {
+    workspace: { themes: [theme], tasks: [task, hiddenTask, deletedTask], change_events: events },
+  });
+}
+
+test("#423 legacy Task Activity applies visibility and descending order before its public limit", () => {
+  for (const count of [0, 50, 100, 101]) {
+    const context = legacyActivityContext(count);
+    try {
+      const result = context.toolGetActivityEntries({ task_id: "task", limit: 100 });
+      assert.equal(result.events.length, Math.min(count, 100), `${count} returned`);
+      assert.deepEqual(result.result_meta, {
+        contract_version: 1,
+        returned_count: Math.min(count, 100),
+        matched_visible_count: count,
+        truncated: count > 100,
+      });
+      if (count >= 2) assert.deepEqual(result.events.slice(0, 2).map((event) => event.id), ["tie-z", "tie-a"]);
+      assert.equal(JSON.stringify(result).includes("hidden-newest"), false);
+    } finally {
+      context.close();
+    }
+  }
+
+  const context = legacyActivityContext(50);
+  try {
+    const defaults = context.toolGetActivityEntries({ task_id: "task" });
+    assert.equal(defaults.limit, 50);
+    assert.equal(defaults.result_meta.returned_count, 50);
+    assert.equal(defaults.result_meta.truncated, false);
+    assert.equal(context.toolGetActivityEntries({ task_id: "task-hidden" }).error.code, "not_found");
+    assert.equal(context.toolGetActivityEntries({ task_id: "task-deleted" }).error.code, "not_found");
+    const archived = context.toolGetActivityEntries({ task_id: "task-deleted", include_archived: true });
+    assert.equal(archived.events.length, 1);
+    assert.equal(archived.events[0].metadata.entity_status, "deleted");
+  } finally {
+    context.close();
   }
 });
