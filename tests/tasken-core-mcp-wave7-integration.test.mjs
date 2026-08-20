@@ -75,6 +75,52 @@ function fixture() {
   };
 }
 
+function equalTimestampCapFixture() {
+  const publicTheme = record("theme-stable", { name: "Stable", default_ai_visibility: ["coding_agent"] });
+  const descending = (prefix, count, fields) => Array.from({ length: count }, (_, index) => {
+    const padded = String(index).padStart(3, "0");
+    return record(`${prefix}-${padded}`, fields(index, padded));
+  }).reverse();
+  const notes = descending("note-stable", 101, (index) => ({
+    title: `Note ${index}`,
+    body_markdown: "ordinary",
+    project_id: publicTheme.id,
+    theme_id: publicTheme.id,
+  }));
+  const knowledgeNodes = descending("node-stable", 101, (index, padded) => ({
+    title: `Question ${index}`,
+    body: "ordinary",
+    node_type: "question",
+    theme_id: publicTheme.id,
+    source_type: "note",
+    source_id: `note-stable-${padded}`,
+    source_note_id: `note-stable-${padded}`,
+  }));
+  const knowledgeEdges = descending("edge-stable", 205, () => ({
+    source_node_id: "node-stable-000",
+    target_node_id: "node-stable-001",
+    relation_type: "supports",
+  }));
+  const tasks = descending("task-stable", 101, (index) => ({
+    title: `Task ${index}`,
+    state: "doing",
+    project_id: publicTheme.id,
+  }));
+  return {
+    themes: [publicTheme],
+    notes,
+    knowledge_nodes: knowledgeNodes,
+    knowledge_edges: knowledgeEdges,
+    tasks,
+    waitings: [],
+    plan_nodes: [],
+    schedules: [],
+    items: [],
+    links: [],
+    resources: [],
+  };
+}
+
 function adversarialMetadata() {
   const metadata = {
     ordinary: "ordinary metadata",
@@ -262,6 +308,58 @@ test("Wave 7 dense graph and health arrays are deterministically capped after vi
   assert.equal(health.unresolved_questions.length, 100);
   assert.equal(health.truncated, true);
   assert.equal(health.result_meta.matched_issue_count > health.result_meta.returned_issue_count, true);
+});
+
+test("Wave 7 equal-timestamp caps use stable id subsets across Core, HTTP, and MCP", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave7-stable-order-"));
+  fs.chmodSync(root, 0o700);
+  const workspace = equalTimestampCapFixture();
+  const core = createTaskenCore(new FixturePersistence(workspace));
+  const host = new TaskenCoreHost({ userDataPath: root, ...core });
+  const expectedIds = (prefix, count) => Array.from(
+    { length: count },
+    (_, index) => `${prefix}-${String(index).padStart(3, "0")}`,
+  );
+  const requests = [
+    ["tasken.get_recent_notes", { theme_id: "theme-stable", limit: 100 }, "getRecentNotes"],
+    ["tasken.search_knowledge", { theme_id: "theme-stable", limit: 100 }, "searchKnowledge"],
+    ["tasken.get_knowledge_context", {
+      theme_id: "theme-stable", limit: 100, include_relations: true, include_sources: true,
+    }, "getKnowledgeContext"],
+    ["tasken.get_plan_health", { theme_id: "theme-stable" }, "getPlanHealth"],
+    ["tasken.get_knowledge_health", { theme_id: "theme-stable" }, "getKnowledgeHealth"],
+  ];
+  try {
+    await host.start();
+    const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
+    const results = {};
+    for (const [tool, request, method] of requests) {
+      const inProcess = core[method].execute(request);
+      assert.deepEqual(await client[method](request), inProcess, `${tool} HTTP stable order`);
+      assert.deepEqual((await mcpCall(client, tool, request)).structuredContent, inProcess, `${tool} MCP stable order`);
+      results[method] = inProcess;
+    }
+
+    assert.deepEqual(results.getRecentNotes.notes.map((entry) => entry.id), expectedIds("note-stable", 100));
+    assert.deepEqual(results.searchKnowledge.knowledge_nodes.map((entry) => entry.id), expectedIds("node-stable", 100));
+    assert.deepEqual(results.getKnowledgeContext.knowledge_nodes.map((entry) => entry.id), expectedIds("node-stable", 100));
+    assert.deepEqual(results.getKnowledgeContext.knowledge_edges.map((entry) => entry.id), expectedIds("edge-stable", 200));
+    assert.deepEqual(results.getKnowledgeContext.sources.notes.map((entry) => entry.id), expectedIds("note-stable", 100));
+    assert.deepEqual(results.getPlanHealth.unscheduled_items.map((entry) => entry.id), expectedIds("task-stable", 100));
+    assert.deepEqual(results.getKnowledgeHealth.unresolved_questions.map((entry) => entry.id), expectedIds("node-stable", 100));
+
+    const expectedIssueIds = expectedIds("node-stable", 101)
+      .flatMap((id, index) => [
+        `${id}:unanswered_question`,
+        ...(index >= 2 ? [`${id}:isolated_node`] : []),
+      ])
+      .sort()
+      .slice(0, 100);
+    assert.deepEqual(results.getKnowledgeHealth.issues.map((entry) => entry.id), expectedIssueIds);
+  } finally {
+    await host.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Wave 7 named capabilities fail before fetch and malformed responses fail closed", async () => {

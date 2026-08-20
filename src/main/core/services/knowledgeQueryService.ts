@@ -181,8 +181,14 @@ function pickAiMetadata(record: KnowledgeReadRecord) {
   return picked;
 }
 
-function sortUpdated(records: KnowledgeReadRecord[]) {
-  return [...records].sort((a, b) => text(b.updated_at).localeCompare(text(a.updated_at)));
+type StableDomainRecord = Record<string, any> & { id?: unknown; updated_at?: unknown };
+
+function sortUpdated<T extends StableDomainRecord>(records: T[]) {
+  return [...records].sort((a, b) => {
+    const updated = text(b.updated_at ?? b.node?.updated_at)
+      .localeCompare(text(a.updated_at ?? a.node?.updated_at));
+    return updated || text(a.id).localeCompare(text(b.id));
+  });
 }
 
 export class KnowledgeQueryService {
@@ -276,7 +282,7 @@ export class KnowledgeQueryService {
       .filter((note) => !request.theme_id || note.theme_id === request.theme_id);
     const filtered = this.filterForAi("note", scoped);
     const matchedVisible = filtered.records.length;
-    const notes = filtered.records.slice(0, limit)
+    const notes = sortUpdated(filtered.records).slice(0, limit)
       .map((note) => publicNote(note, Boolean(request.include_raw_body), textLimit));
     const truncated = matchedVisible > notes.length;
     return getRecentNotesResponseSchema.parse({
@@ -308,10 +314,10 @@ export class KnowledgeQueryService {
     const filtered = this.filterForAi("knowledge_node", scoped);
     const query = text(request.query).toLowerCase();
     const nodeTypes = request.node_types ? new Set(request.node_types) : null;
-    const matched = filtered.records
+    const matched = sortUpdated(filtered.records
       .filter((node) => !query || [node.title, node.body, node.node_type]
         .some((value) => text(value).toLowerCase().includes(query)))
-      .filter((node) => !nodeTypes || nodeTypes.has(text(node.node_type)));
+      .filter((node) => !nodeTypes || nodeTypes.has(text(node.node_type))));
     const nodes = matched.slice(0, limit).map((node) => publicKnowledgeNode(node, textLimit));
     const truncated = matched.length > nodes.length;
     return searchKnowledgeResponseSchema.parse({
@@ -339,13 +345,13 @@ export class KnowledgeQueryService {
     const scoped = allNodes
       .filter((node) => !request.theme_id || node.theme_id === request.theme_id);
     const filteredNodes = this.filterForAi("knowledge_node", scoped);
-    const selectedRecords = filteredNodes.records.slice(0, limit);
+    const selectedRecords = sortUpdated(filteredNodes.records).slice(0, limit);
     const nodes = selectedRecords.map((node) => publicKnowledgeNode(node, textLimit));
     const selectedNodeIds = new Set(selectedRecords.map((node) => text(node.id)));
     const publicNodeIds = new Set(this.filterForAi("knowledge_node", allNodes).records
       .map((node) => text(node.id)));
     const matchedRelations = request.include_relations ?? true
-      ? this.port.list("knowledge_edge", Boolean(request.include_archived)).filter((relation) => {
+      ? sortUpdated(this.port.list("knowledge_edge", Boolean(request.include_archived)).filter((relation) => {
         const sourceId = text(relation.source_node_id);
         const targetId = text(relation.target_node_id);
         // Deliberate security correction over legacy: never disclose a raw edge
@@ -353,7 +359,7 @@ export class KnowledgeQueryService {
         return publicNodeIds.has(sourceId)
           && publicNodeIds.has(targetId)
           && (selectedNodeIds.has(sourceId) || selectedNodeIds.has(targetId));
-      })
+      }))
       : [];
     const relations = matchedRelations.slice(0, MAX_EDGE_RESULTS).map(publicKnowledgeEdge);
 
@@ -364,7 +370,7 @@ export class KnowledgeQueryService {
         activeNodes.some((node) => node.source_note_id === note.id
           || (node.source_type === "note" && node.source_id === note.id))));
       sourceExclusions.push(...filteredNotes.exclusions);
-      const matchedNotes = filteredNotes.records
+      const matchedNotes = sortUpdated(filteredNotes.records)
         .slice(0, MAX_HEALTH_RESULTS)
         .map((note) => publicNote(note, Boolean(request.include_raw_body), textLimit));
 
@@ -386,8 +392,8 @@ export class KnowledgeQueryService {
       sourceExclusions.push(...filteredItems.exclusions);
       return {
         notes: matchedNotes,
-        resources: filteredResources.records.slice(0, MAX_HEALTH_RESULTS).map(publicResource),
-        items: filteredItems.records.slice(0, MAX_HEALTH_RESULTS).map(publicItem),
+        resources: sortUpdated(filteredResources.records).slice(0, MAX_HEALTH_RESULTS).map(publicResource),
+        items: sortUpdated(filteredItems.records).slice(0, MAX_HEALTH_RESULTS).map(publicItem),
         matched_count: filteredNotes.records.length + filteredResources.records.length + filteredItems.records.length,
       };
     })() : undefined;
@@ -427,13 +433,13 @@ export class KnowledgeQueryService {
     const request = getPlanHealthRequestSchema.parse(input);
     const themeId = request.theme_id || "";
     const today = new Date().toISOString().slice(0, 10);
-    const tasks = this.filterForAi("task", this.port.list("task", false)
-      .filter((task) => !themeId || task.project_id === themeId)).records;
-    const waitings = this.filterForAi("waiting", this.port.list("waiting", false)
-      .filter((waiting) => !themeId || waiting.project_id === themeId)).records;
-    const planNodes = this.filterForAi("plan_node", this.port.list("plan_node", false)
-      .filter((node) => !themeId || node.project_id === themeId)).records;
-    const scheduleMap = new Map(this.port.list("schedule", false)
+    const tasks = sortUpdated(this.filterForAi("task", this.port.list("task", false)
+      .filter((task) => !themeId || task.project_id === themeId)).records);
+    const waitings = sortUpdated(this.filterForAi("waiting", this.port.list("waiting", false)
+      .filter((waiting) => !themeId || waiting.project_id === themeId)).records);
+    const planNodes = sortUpdated(this.filterForAi("plan_node", this.port.list("plan_node", false)
+      .filter((node) => !themeId || node.project_id === themeId)).records);
+    const scheduleMap = new Map(sortUpdated(this.port.list("schedule", false))
       .map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]));
     const endDate = (ownerType: string, ownerId: string) => {
       const schedule = scheduleMap.get(`${ownerType}:${ownerId}`);
@@ -444,26 +450,26 @@ export class KnowledgeQueryService {
     const openPlanNodes = planNodes.filter((node) => node.state !== "done" && node.state !== "cancelled");
     const overdueItems = [
       ...openTasks.filter((task) => endDate("task", task.id) && endDate("task", task.id) < today)
-        .map((task) => ({ id: task.id, title: task.title, kind: "task", date: endDate("task", task.id), theme_id: task.project_id })),
+        .map((task) => ({ id: task.id, title: task.title, kind: "task", date: endDate("task", task.id), theme_id: task.project_id, updated_at: task.updated_at })),
       ...openWaitings.filter((waiting) => endDate("waiting", waiting.id) && endDate("waiting", waiting.id) < today)
-        .map((waiting) => ({ id: waiting.id, title: waiting.title, kind: "waiting", date: endDate("waiting", waiting.id), theme_id: waiting.project_id })),
+        .map((waiting) => ({ id: waiting.id, title: waiting.title, kind: "waiting", date: endDate("waiting", waiting.id), theme_id: waiting.project_id, updated_at: waiting.updated_at })),
       ...openPlanNodes.filter((node) => endDate("plan_node", node.id) && endDate("plan_node", node.id) < today)
-        .map((node) => ({ id: node.id, title: node.title, kind: node.type, date: endDate("plan_node", node.id), theme_id: node.project_id })),
+        .map((node) => ({ id: node.id, title: node.title, kind: node.type, date: endDate("plan_node", node.id), theme_id: node.project_id, updated_at: node.updated_at })),
     ];
     const unscheduledItems = [
       ...openTasks.filter((task) => !scheduleMap.has(`task:${task.id}`))
-        .map((task) => ({ id: task.id, title: task.title, kind: "task", theme_id: task.project_id })),
+        .map((task) => ({ id: task.id, title: task.title, kind: "task", theme_id: task.project_id, updated_at: task.updated_at })),
       ...openPlanNodes.filter((node) => !scheduleMap.has(`plan_node:${node.id}`))
-        .map((node) => ({ id: node.id, title: node.title, kind: node.type, theme_id: node.project_id })),
+        .map((node) => ({ id: node.id, title: node.title, kind: node.type, theme_id: node.project_id, updated_at: node.updated_at })),
     ];
     const waitingItems = openWaitings.map((waiting) => ({
       id: waiting.id, title: waiting.title, waiting_for: waiting.waiting_for,
-      date: endDate("waiting", waiting.id), theme_id: waiting.project_id,
+      date: endDate("waiting", waiting.id), theme_id: waiting.project_id, updated_at: waiting.updated_at,
     }));
     const matchedItemCount = overdueItems.length + waitingItems.length + unscheduledItems.length;
-    const publicOverdue = overdueItems.slice(0, MAX_HEALTH_RESULTS).map(publicHealthItem);
-    const publicWaiting = waitingItems.slice(0, MAX_HEALTH_RESULTS).map(publicHealthItem);
-    const publicUnscheduled = unscheduledItems.slice(0, MAX_HEALTH_RESULTS).map(publicHealthItem);
+    const publicOverdue = sortUpdated(overdueItems).slice(0, MAX_HEALTH_RESULTS).map(publicHealthItem);
+    const publicWaiting = sortUpdated(waitingItems).slice(0, MAX_HEALTH_RESULTS).map(publicHealthItem);
+    const publicUnscheduled = sortUpdated(unscheduledItems).slice(0, MAX_HEALTH_RESULTS).map(publicHealthItem);
     const returnedItemCount = publicOverdue.length + publicWaiting.length + publicUnscheduled.length;
     const truncated = matchedItemCount > returnedItemCount;
     return getPlanHealthResponseSchema.parse({
@@ -490,21 +496,21 @@ export class KnowledgeQueryService {
   getKnowledgeHealth(input: GetKnowledgeHealthRequest): GetKnowledgeHealthResponse {
     const request = getKnowledgeHealthRequestSchema.parse(input);
     const themeId = request.theme_id || "";
-    const allPublicNodes = this.filterForAi("knowledge_node", this.port.list("knowledge_node", false)).records;
+    const allPublicNodes = sortUpdated(this.filterForAi("knowledge_node", this.port.list("knowledge_node", false)).records);
     const nodes = allPublicNodes.filter((node) => !themeId || node.theme_id === themeId);
     const publicNodeIds = new Set(allPublicNodes.map((node) => text(node.id)));
-    const relations = this.port.list("knowledge_edge", false).filter((relation) =>
-      publicNodeIds.has(text(relation.source_node_id)) && publicNodeIds.has(text(relation.target_node_id)));
-    const entities = [
+    const relations = sortUpdated(this.port.list("knowledge_edge", false).filter((relation) =>
+      publicNodeIds.has(text(relation.source_node_id)) && publicNodeIds.has(text(relation.target_node_id))));
+    const entities = sortUpdated([
       ...this.filterForAi("task", this.port.list("task", false)).records,
       ...this.filterForAi("waiting", this.port.list("waiting", false)).records,
       ...this.filterForAi("plan_node", this.port.list("plan_node", false)).records,
       ...this.filterForAi("item", this.port.list("item", false)).records,
-    ];
+    ]);
     const grouped = groupKnowledgeHealthIssues(buildKnowledgeHealth(nodes, relations, entities));
     const matchedIssueCount = grouped.issues.length;
-    const issues = grouped.issues.slice(0, MAX_HEALTH_RESULTS).map(publicHealthIssue);
-    const publicGroup = (records: KnowledgeReadRecord[]) => records
+    const issues = sortUpdated(grouped.issues).slice(0, MAX_HEALTH_RESULTS).map(publicHealthIssue);
+    const publicGroup = (records: KnowledgeReadRecord[]) => sortUpdated(records)
       .slice(0, MAX_HEALTH_RESULTS)
       .map((record) => publicKnowledgeNode(record));
     const groups = {
