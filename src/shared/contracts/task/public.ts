@@ -11,6 +11,11 @@ export {
 } from "./version.ts";
 
 export {
+  TASK_IPC_CHANNELS,
+  type TaskIpcChannel,
+} from "./transport.ts";
+
+export {
   taskChecklistItemSchema,
   taskDraftSchema,
   taskIdSchema,

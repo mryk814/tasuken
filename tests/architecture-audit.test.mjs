@@ -160,6 +160,8 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(ownershipByFile.get("src/shared/types/workspace.ts")?.classification, "compatibility");
     assert.equal(ownershipByFile.get("src/shared/kernel/public.ts")?.classification, "kernel");
     assert.equal(ownershipByFile.get("src/shared/contracts/task/public.ts")?.classification, "feature-contract");
+    assert.equal(ownershipByFile.get("src/shared/compatibility/taskIpc.ts")?.classification, "compatibility");
+    assert.equal(report.findings.find((entry) => entry.ruleId === "composition.baseline_increase" && entry.source === "src/shared/ipc/contracts.ts")?.suppressed, true);
     assert.equal(report.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.source.startsWith("src/shared/kernel/")), false);
     assert.equal(report.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.source.startsWith("src/shared/contracts/task/")), false);
     assert.doesNotThrow(() => JSON.parse(readFileSync(path.join(output, "shared-ownership.json"), "utf8")));

@@ -23,11 +23,11 @@
     {
       "rule": "composition.baseline_increase",
       "source": "src/shared/ipc/contracts.ts",
-      "reason": "Task IPC channels remain in the legacy aggregate registry until #407 finishes transport schema ownership.",
+      "reason": "The aggregate IPC surface retains TaskCapability and IPC.task* compatibility aliases while #406 migrates surface consumers; Task channel literals now belong to shared/contracts/task/transport.ts.",
       "owner": "shared-contract-migration",
       "issue": 407,
       "expiresAt": "2026-11-30",
-      "removalCondition": "Move Task transport channel ownership out of the legacy aggregate registry."
+      "removalCondition": "After Main, Preload, Renderer, Today Mini, and Root consumer inventory reaches zero, remove IPC.task*, ResearchDeskApi.task, LEGACY_TASK_IPC_CHANNELS, and this suppression."
     }
   ]
 }

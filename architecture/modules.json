@@ -19,7 +19,7 @@
     "shared.kernel": [],
     "shared.contracts.task": ["shared.kernel"],
     "shared.compatibility": ["shared.kernel", "shared.contracts.task"],
-    "shared.ipc": ["shared", "shared.kernel", "shared.contracts.task"],
+    "shared.ipc": ["shared", "shared.kernel", "shared.contracts.task", "shared.compatibility"],
     "shared": ["shared.kernel", "shared.contracts.task", "shared.compatibility"],
     "main.bootstrap": ["main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.transport": ["main.application", "main.task", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
@@ -65,7 +65,9 @@
       "root": "src/shared/compatibility",
       "kind": "shared-compatibility",
       "status": "inventory",
-      "publicEntrypoints": [],
+      "publicEntrypoints": [
+        "src/shared/compatibility/taskIpc.ts"
+      ],
       "enforcePublicApi": true,
       "owner": "platform-architecture"
     },
