@@ -182,8 +182,8 @@ Command / Query / Event / Error / read modelのversioned schemaを所有し、�
 別の役割として保ち、#404/#405/#406でこの正本へ順にadapter接続する。
 
 Main側のTask command/query ownerは `src/main/modules/task/public.ts` とする。既存Desktop
-Application Commandはこのmoduleへdelegateし、transport別adapterは#405、Renderer
-Projectionの移行は#406で接続する。
+Application Commandはこのmoduleへdelegateする。#405でElectron IPC / Preload / HTTP / MCP
+adapterを同じTaskCapabilityServiceへ接続した。Renderer Projectionの移行は#406で行う。
 
 ### Document cluster
 

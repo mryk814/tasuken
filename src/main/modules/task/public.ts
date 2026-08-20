@@ -3,6 +3,16 @@ import { SqliteTaskRepository } from "./infrastructure/sqliteTaskRepository.ts";
 import { TaskCommandHandler, type TaskCommandRuntime } from "./application/taskCommandHandler.ts";
 import { TaskQueryHandler } from "./application/taskQueryHandler.ts";
 
+export { TaskCapabilityService, type ExecuteApplicationCommand } from "./application/taskCapabilityService.ts";
+export { createTaskHttpAdapter, type TaskHttpRequest, type TaskHttpResponse } from "./transport/http/taskHttpAdapter.ts";
+export {
+  createTaskMcpAdapter,
+  TASK_MCP_OPERATIONS,
+  type TaskMcpOperation,
+  type TaskMcpPolicy,
+} from "./transport/mcp/taskMcpAdapter.ts";
+export { registerTaskIpc, type TaskIpcHost } from "./transport/ipc/registerTaskIpc.ts";
+
 export { normalizeTaskAssignment } from "./domain/taskAssignment.ts";
 
 export type { TaskCommandRuntime } from "./application/taskCommandHandler.ts";

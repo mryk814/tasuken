@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import { IPC, type ResearchDeskApi } from "../shared/ipc/contracts";
+import { createTaskPreloadCapability } from "./capabilities/task";
 
 type Unsubscribe = () => void;
 
@@ -10,6 +11,7 @@ const api: ResearchDeskApi = {
     bootstrap: (legacy) => ipcRenderer.invoke(IPC.workspaceBootstrap, legacy),
     getMeta: () => ipcRenderer.invoke(IPC.workspaceMeta),
   },
+  task: createTaskPreloadCapability(),
   activity: {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),

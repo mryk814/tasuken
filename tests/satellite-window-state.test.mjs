@@ -12,7 +12,6 @@ async function importBundled(relativePath, plugins = []) {
     bundle: true,
     platform: "node",
     format: "esm",
-    packages: "external",
     plugins,
     write: false,
     logLevel: "silent",
@@ -324,7 +323,7 @@ test("Notesのdebounce/manual/route flushはowner queueと終了registryを共�
 test("generic entity save IPCはMain内部timestampを公開せずMedia identityを正規化する（#291 / #367）", () => {
   assert.match(registerIpcSource, /function normalizeIpcSaveOptions/);
   assert.match(registerIpcSource, /normalizeMediaCapturePersistence\(repository, entityType, entity\)/);
-  assert.match(registerIpcSource, /repository\.save\(entityType, normalizedEntity, normalizeIpcSaveOptions\(options\)\)/);
+  assert.match(registerIpcSource, /repository\.save\(entityType, normalizedEntity(?: as Entity)?, normalizeIpcSaveOptions\(options\)\)/);
   assert.doesNotMatch(registerIpcSource, /repository\.save\(entityType, entity, options\)/);
   assert.doesNotMatch(registerIpcSource, /updatedAt|__canonicalOperationAt/);
   assert.deepEqual(

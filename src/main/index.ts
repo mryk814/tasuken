@@ -898,9 +898,8 @@ flowchart LR
         status: "active",
         default_ai_visibility: ["m365"]
       });
-      const smokeTaskReceipt = await window.api.commands.execute({
-        commandId: crypto.randomUUID(),
-        name: "CreateTask",
+      const smokeTaskReceipt = await window.api.task.create({
+        schemaVersion: 1, command_id: crypto.randomUUID(), name: "CreateTask",
         payload: { task: {
           id: ${JSON.stringify(smokeTaskId)},
           title: ${JSON.stringify(smokeTaskTitle)},
@@ -908,7 +907,6 @@ flowchart LR
           state: "todo",
           priority: "high",
           checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
-          created_at: new Date().toISOString(),
           ai_summary: "Todayミニの動作確認",
           ai_summary_authority: "user_confirmed",
           ai_freshness: "current",
@@ -917,10 +915,12 @@ flowchart LR
           ai_source_refs: [{ kind: "canonical_document", locator: "smoke.md", storage_root_id: "smoke-root" }]
         } },
         actor: { kind: "user", id: "electron-smoke" },
-        source: "main_ui",
-        issuedAt: new Date().toISOString(),
+        source: "desktop",
+        issued_at: new Date().toISOString(),
       });
-      const smokeTaskVersion = smokeTaskReceipt.saved.find((entry) => entry.type === "task")?.version || 0;
+      if (!smokeTaskReceipt.ok || !smokeTaskReceipt.value.task)
+        throw new Error(smokeTaskReceipt.ok ? "Task capability returned no task" : smokeTaskReceipt.error.message);
+      const smokeTaskVersion = smokeTaskReceipt.value.task.version;
       let aiMetadataRejectedInvalid = false;
       try {
         await window.api.commands.execute({
@@ -2428,7 +2428,7 @@ async function startDesktopApp(): Promise<void> {
       notifyMainWindowRefresh();
       notifyTodayMiniRefresh(types);
     },
-    notifyCommandApplied,
+    notifyCommandApplied, notifyTodayMiniRefresh,
   );
   mcpProposalInboxService = new McpProposalInboxService(
     workspaceRepository,

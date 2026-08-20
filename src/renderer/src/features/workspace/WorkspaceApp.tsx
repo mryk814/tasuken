@@ -7,24 +7,27 @@ import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
-import type {
-  BaseRecord,
-  ContentViewerTarget,
-  DocumentSaveReferenceCompanion,
-  DocumentSaveSnapshot,
-  DrawerConfig,
-  DrawerEntity,
-  DrawerEntityType,
-  Entity,
-  EntityType,
-  Item,
-  Note,
-  PlanRevision,
-  SaveEntities,
-  SaveEntity,
-  SnapshotPreview,
-  Theme,
-  WorkspaceData,
+import {
+  createTaskClient,
+  projectTaskDraft,
+  projectTaskPatch,
+  type BaseRecord,
+  type ContentViewerTarget,
+  type DocumentSaveReferenceCompanion,
+  type DocumentSaveSnapshot,
+  type DrawerConfig,
+  type DrawerEntity,
+  type DrawerEntityType,
+  type Entity,
+  type EntityType,
+  type Item,
+  type Note,
+  type PlanRevision,
+  type SaveEntities,
+  type SaveEntity,
+  type SnapshotPreview,
+  type Theme,
+  type WorkspaceData,
 } from "./types";
 import { entityTitle } from "./lib/domain";
 import { activeRecords, formText, str, uuid } from "./lib/format";
@@ -96,6 +99,10 @@ export function WorkspaceApp() {
   const applyCommandReceipt = useWorkspaceStore((state) => state.applyCommandReceipt);
   const removeWorkspaceEntity = useWorkspaceStore((state) => state.remove);
   const restoreWorkspaceEntity = useWorkspaceStore((state) => state.restore);
+  const taskClient = useMemo(() => {
+    if (!window.api?.task) throw new Error("Task capabilityを利用できません。");
+    return createTaskClient(window.api.task);
+  }, []);
   // 切り離しNoteウィンドウは本体と同じrendererを別モードで動かす（#290）。
   // Editorを二重に実装しないので、routeはNotesへ固定し外枠だけ落とす。
   const windowMode = useMemo(() => currentWindowMode(), []);
@@ -876,23 +883,19 @@ export function WorkspaceApp() {
         const isCompleting = Boolean(existing && existing.state !== "done" && entity.state === "done");
         const isReopening = Boolean(existing && existing.state === "done" && entity.state !== "done");
         const taskId = entity.id as string;
-        const commandSource = drawer?.commandSource || "main_ui";
-        const receipt = await workspaceApi.executeCommand({
-          commandId: uuid(),
-          name: !existing ? "CreateTask" : isCompleting ? "CompleteTask" : isReopening ? "ReopenTask" : "UpdateTask",
-          payload: !existing || (!isCompleting && !isReopening)
-            ? { task: entity as Entity }
-            : { taskId, task: entity as Entity, completionNote: entity.completion_note as string | null },
-          actor: { kind: "user" },
-          source: commandSource,
-          expectedVersions: existing
-            ? [{ type: "task", id: taskId, version: Number((existing as unknown as Entity).version || 0) }]
-            : [],
-          issuedAt: new Date().toISOString(),
-        });
-        applyCommandReceipt(receipt);
+        const context = { commandId: uuid(), issuedAt: new Date().toISOString(), entrypoint: drawer?.commandSource || "main_ui" } as const;
+        const expectedVersion = Number((existing as unknown as Entity | undefined)?.version || 0);
+        const outcome = !existing
+          ? await taskClient.create(projectTaskDraft(entity), context)
+          : isCompleting
+            ? await taskClient.complete(taskId, expectedVersion, entity.completion_note as string | null, projectTaskPatch(entity), context)
+            : isReopening
+              ? await taskClient.reopen(taskId, expectedVersion, projectTaskPatch(entity), context)
+              : await taskClient.update(taskId, expectedVersion, projectTaskPatch(entity), context);
+        if (!outcome.task) throw new Error("Task commandの結果にTaskがありません。");
+        applyExternalSave("task", outcome.task as unknown as Entity);
         if (!options.quiet) setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
-        return (receipt.changes.find((change) => change.type === "task")?.entity || entity) as Entity;
+        return outcome.task as unknown as Entity;
       }
       const saved = type === "note"
         ? await workspaceApi.saveDocument({
@@ -1203,16 +1206,11 @@ export function WorkspaceApp() {
       if (type === "task") {
         const current = fullDomain.tasks.find((task) => task.id === id);
         if (!current) throw new Error("削除対象のTaskがありません。");
-        const receipt = await workspaceApi.executeCommand({
+        const outcome = await taskClient.delete(id, Number((current as unknown as Entity).version || 0), {
           commandId: uuid(),
-          name: "DeleteTask",
-          payload: { taskId: id },
-          actor: { kind: "user" },
-          source: drawer?.commandSource || "main_ui",
-          expectedVersions: [{ type: "task", id, version: Number((current as unknown as Entity).version || 0) }],
           issuedAt: new Date().toISOString(),
         });
-        applyCommandReceipt(receipt);
+        if (outcome.task) applyExternalSave("task", outcome.task as unknown as Entity);
       } else {
         await removeWorkspaceEntity(type, id);
       }
