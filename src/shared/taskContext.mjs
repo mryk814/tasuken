@@ -285,14 +285,22 @@ export function publicArtifactMetadata(artifact, budget, relation = null) {
   }, budget);
 }
 
-/** Remove credentials and machine-local locators from free-form Work Receipt text. */
+const URL_LIKE = /(^|[\s(<\[{'"=,;])([A-Za-z][A-Za-z0-9+.-]*:(?:\/\/)?[^\s<>\]})'"`]*)/g;
+const WINDOWS_LOCAL_PATH = /(^|[\s(<\[{'"=,;])(?:[A-Za-z]:[\\/]|\\\\)[^\s,;)\]}> '"`]*/g;
+const UNIX_LOCAL_PATH = /(^|[\s(<\[{'"=,;])\/(?:[^/\s]+\/)+[^\s,;)\]}> '"`]*/g;
+
+/** Remove URL credentials, unsupported URL-like locators, local paths, and authentication material. */
 export function safeReceiptText(value) {
   let result = text(value);
-  result = result.replace(/https?:\/\/[^\s<>'"`]+/gi, (url) => safeExternalUrl(url) || "[redacted-url]");
-  result = result.replace(/(^|[\s('"=])(?:[A-Za-z]:[\\/]|\\\\)[^\s,;)'"`]+/g, "$1[redacted-local-path]");
-  result = result.replace(/(^|[\s('"=])\/(?:[^/\s]+\/)+[^\s,;)'"`]*/g, "$1[redacted-local-path]");
+  result = result.replace(URL_LIKE, (match, prefix, candidate) => {
+    // A drive letter is a local path, not a URL scheme; leave it for the path pass below.
+    if (/^[A-Za-z]:[\\/]/.test(candidate)) return match;
+    return `${prefix}${safeExternalUrl(candidate) || "[redacted-url]"}`;
+  });
+  result = result.replace(WINDOWS_LOCAL_PATH, "$1[redacted-local-path]");
+  result = result.replace(UNIX_LOCAL_PATH, "$1[redacted-local-path]");
   result = result.replace(/\b(token|secret|api[_-]?key|password|authorization)\s*[:=]\s*([^\s,;]+)/gi, "$1=[redacted]");
-  result = result.replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{12,}/gi, "Bearer [redacted]");
+  result = result.replace(/\b(Basic|Bearer)\s+[^\s,;)\]}>]+/gi, "$1 [redacted]");
   return result;
 }
 

@@ -12,7 +12,7 @@ import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
-import { safeReceiptText } from "../src/shared/taskContext.mjs";
+import { publicReceiptForContext, safeReceiptText, TaskContextTextBudget } from "../src/shared/taskContext.mjs";
 
 const bundled = await build({
   stdin: {
@@ -272,6 +272,32 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
   } finally {
     legacy.close();
   }
+});
+
+test("Work Receipt sanitizer rejects URL-like locators, local paths, and short authorization credentials across public fields", () => {
+  const hostileCases = [
+    { label: "summary file URL", leak: "SUMMARY_SECRET", apply: (receipt) => { receipt.summary = "file:///absolute/SUMMARY_SECRET/report.txt"; } },
+    { label: "list FTP credential", leak: "LIST_SECRET", apply: (receipt) => { receipt.completed_items = ["ftp://user:LIST_SECRET@example.com/report"]; } },
+    { label: "repository path scheme", leak: "REPOSITORY_SECRET", apply: (receipt) => { receipt.repository_context.branch = "path:/home/REPOSITORY_SECRET/work"; } },
+    { label: "runtime bracketed Windows path", leak: "RUNTIME_SECRET", apply: (receipt) => { receipt.runtime_metadata.model = "<C:\\Users\\RUNTIME_SECRET\\model.txt>"; } },
+    { label: "provenance Basic credential", leak: "QWxhZGRpbjpPcGVuU2VzYW1l", apply: (receipt) => { receipt.provenance.caller = "Basic QWxhZGRpbjpPcGVuU2VzYW1l"; } },
+    { label: "source session short Bearer credential", leak: "Bearer x", apply: (receipt) => { receipt.source_session = "Bearer x"; } },
+    { label: "external reference provider", leak: "EXTERNAL_SECRET", apply: (receipt) => { receipt.external_references[0].provider = "ftp://user:EXTERNAL_SECRET@example.com/item"; } },
+    { label: "external reference URL", leak: "EXTERNAL_URL_SECRET", apply: (receipt) => { receipt.external_references[0].url = "ftp://user:EXTERNAL_URL_SECRET@example.com/item"; } },
+  ];
+
+  for (const hostile of hostileCases) {
+    const receipt = structuredClone(fixture().work_receipts[0]);
+    hostile.apply(receipt);
+    const serialized = JSON.stringify(publicReceiptForContext(receipt, new TaskContextTextBudget(100_000)));
+    assert.equal(serialized.includes(hostile.leak), false, hostile.label);
+    assert.match(serialized, /\[redacted(?:-url|-local-path)?\]/, hostile.label);
+  }
+
+  assert.equal(
+    safeReceiptText("safe https://user:pass@example.com/report?token=SECRET#fragment"),
+    "safe https://example.com/report",
+  );
 });
 
 test("migrated Wave 3 tool fails closed and named capability is required", async () => {
