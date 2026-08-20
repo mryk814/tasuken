@@ -72,15 +72,15 @@ Phase 0からPhase 2では、#413のcanonical launcher、Electron-as-Node、runt
 ## MCP tool inventory
 
 `src/main/mcp/server.mjs`にはread toolが22件、Proposal toolが11件ある。
-Core移行済み5 toolsはpure client、残る17 toolsだけが`withReadContext`を通る。
+Core移行済み7 toolsはpure client、残る15 toolsだけが`withReadContext`を通る。
 表の「追加policy」は、DB read以外に正本化すべき選択、投影、制限を示す。
 
 ### Read tools
 
 | Tool | 現在の責務 | 追加policy | 移行予定 |
 |---|---|---|---|
-| `tasken.search_items` | Task、Waiting、Plan Node、legacy Itemの検索 | Schedule統合、AI visibility、件数制限 | Phase 3 |
-| `tasken.list_open_items` | open workの一覧 | Schedule統合、状態変換、日付順、AI visibility | Phase 3 |
+| `tasken.search_items` | Task、Waiting、Plan Node、legacy Itemの検索 | Schedule統合、AI visibility、件数制限 | Wave 4でCore移行済み |
+| `tasken.list_open_items` | open workの一覧 | Schedule統合、状態変換、日付順、AI visibility | Wave 4でCore移行済み |
 | `tasken.list_agent_ready_tasks` | Coding Agentが着手可能なTaskの一覧 | executor、work state、Task state、Theme、AI visibility、件数制限 | Phase 1の最初のslice |
 | `tasken.get_task_assignment` | Task、Work Receipt、RepositoryContextの取得 | AI visibility、repository resolution | Wave 2でCore移行済み |
 | `tasken.get_task_context` | bounded Task contextの取得 | AI visibility、Context Graph、provenance、text budget、repository match | Wave 3でCore移行済み |
@@ -131,7 +131,7 @@ Core側でProposalを作成し、利用者がDesktop UIで採用した後に既�
 | 移行済み | `list_agent_ready_tasks` | Coding Agentが着手可能なTaskを直接選べる | Task、Theme、AI visibility | 低。Wave 1で移行済み |
 | 1 | `resolve_repository_context` → `find_tasks_for_repository` → `get_task_assignment` | 現在地の特定、対象選択、assignment/receipt取得が一周する | Task、Theme、RepositoryContext、Work Receipt、AI visibility | 中。Wave 2で移行 |
 | 移行済み | `get_task_context` | 選択後のbounded contextを一括取得できる | Context Graph、provenance、Activity、receipt、repository match、text budget | 高。Wave 3で単独移行 |
-| 3 | `search_items`, `list_open_items` | 横断的な状況把握と対象選択 | Task、Waiting、Plan Node、legacy Item、Schedule、状態・日付順 | 高。混在projectionのexact characterization後に移行 |
+| 移行済み | `search_items`, `list_open_items` | 横断的な状況把握と対象選択 | Task、Waiting、Plan Node、legacy Item、Schedule、状態・日付順 | Wave 4でexact characterization後に移行 |
 | 4 | `get_activity_entries`, `get_activity`, `get_plan_health` | 作業履歴と計画状態の確認 | Activity projection、root registry、legacy work、timezone | 中〜高 |
 | 5 | `find_themes_for_repository`, `get_repository_context`, `get_theme_context` | repository/theme単位の周辺把握 | repository resolution、複数entity、health | 中〜高 |
 | 6 | `get_note`, `get_conversation`, `get_artifact_metadata`, `get_recent_notes` | stable locatorから詳細を読む | 本文budget、credential/path redaction、AI visibility | 低〜中 |
@@ -142,6 +142,10 @@ Core側でProposalを作成し、利用者がDesktop UIで採用した後に既�
 Wave 2は、既存`list_agent_ready_tasks`と合わせて「repositoryから対象を絞る／ready一覧から選ぶ → assignmentとreceiptを読む → Proposalを返す」を成立させる。
 Wave 3は`get_task_context`だけをquery-specific snapshot portへ移し、legacyのGraph、provenance、Activity、Work Receipt、repository match、text budgetをexact parityで維持した。
 Work Receiptの自由文は共通projectionでURL credential/query/hash、absolute local path、credential assignmentを除去し、通常の説明文は保持する。
+Wave 4は`search_items`と`list_open_items`をquery-specific snapshot portへ移し、mixed entity merge、legacy ID重複排除、Schedule、状態変換、検索・日付順、archived semanticsを維持した。
+各結果には正本entityの`locator`、response-level `next_tools`、`result_meta`（contract version、返却数、AI公開後の一致数、切り詰め有無）を追加し、Coding Agentが結果の完全性を判断してTask contextへ迷わず進めるようにした。
+またloopback HTTPのvalidation errorをcode/message/detailsの構造で返し、Core clientとMCP tool resultへstack、local path、tokenを出さずlosslessに伝播する。
+public errorにはcode別の`retryable`と`next_action`を必ず付け、Core停止・version/capability不一致・validation・認証失敗の復旧操作をAI Agentが機械的に選べるようにした。
 
 #### Wave 2.1 / Phase 3 gaps
 
@@ -149,9 +153,9 @@ Wave 2は既存MCP contractのexact parityを優先し、次の改善は出力�
 
 - `find_tasks_for_repository`にはpublicな件数上限がない。件数制限を追加する場合は既存の無制限結果をversioned contractとして扱う。
 - `get_task_assignment`のWork Receipt本文にはtext budgetがない。切り詰め方とtruncation metadataを先に契約化する。
-- loopback HTTPのstructured errorをMCP tool errorへlosslessに投影する仕組みは未実装である。
+- loopback HTTPのstructured errorはCore clientとMCPへlosslessに投影済み。今後のdomain queryは同じpublic error境界を使う。
 - response schemaは安定envelopeだけを検証し、legacy extension fieldsを保持している。strict schema化はversion移行と同時に行う。
-- Coding Agentが次に呼ぶべきtoolを結果内で案内するdescription/linkは未実装である。既存outputを変えず、tool descriptionまたはversioned metadataとして設計する。
+- response-level `next_tools`は`search_items`と`list_open_items`で導入済み。他toolへ広げる場合は同じmetadata形を使う。
 
 ## 最初のcharacterization対象
 
@@ -187,6 +191,10 @@ Wave 2は既存MCP contractのexact parityを優先し、次の改善は出力�
 Phase 0のtestは、候補判定、Theme filter、論理削除、AI visibility、並び順、limit、result metadataをin-memory workspaceで固定する。
 Phase 1では同じfixtureをCore application serviceへ適用し、legacy結果とのdeep equalityを要求する。
 Phase 2ではin-process Core、loopback transport、MCP toolのtransport固有metadataを除いた結果を比較する。
+
+Wave 4では`tests/tasken-core-mcp-wave4-characterization.test.mjs`で、移行前の`search_items`と`list_open_items`を固定する。
+Task・Waiting・Plan Node・legacy Itemの統合、`legacy_item_id`重複排除、Schedule投影、状態変換、検索対象4フィールド、open判定、日付順、Theme/論理削除、AI visibility先行、limit（1/20/100/101）を対象にする。
+このfixtureは移行前のinput/outputの基準であり、将来の`locator`や`result_meta`などの契約拡張は含めない。
 
 ## Migration phases
 

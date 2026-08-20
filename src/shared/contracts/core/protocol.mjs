@@ -8,6 +8,8 @@ export const TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY = "resolve_reposi
 export const TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY = "find_tasks_for_repository";
 export const TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY = "get_task_assignment";
 export const TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY = "get_task_context";
+export const TASKEN_CORE_SEARCH_ITEMS_CAPABILITY = "search_items";
+export const TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY = "list_open_items";
 // These identify the shared Task capability contract, not loopback endpoints.
 export const TASKEN_CORE_TASK_QUERY_CAPABILITY = "task.query";
 export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";

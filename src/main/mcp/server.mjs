@@ -5,7 +5,7 @@ import * as z from "zod/v4";
 import { queueMcpProposal } from "./proposalInbox.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { repositoryContextProposalInput } from "../../shared/repositoryContextProposal.mjs";
-import { TaskenCoreClient } from "./taskenCoreClient.mjs";
+import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -26,6 +26,21 @@ function toolResult(value) {
   return {
     content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
     structuredContent: typeof value === "string" ? undefined : value,
+  };
+}
+
+function withCoreClient(handler) {
+  return async (args) => {
+    try {
+      return toolResult(await handler(args));
+    } catch (error) {
+      if (!(error instanceof TaskenCoreClientError)) throw error;
+      const value = { error: error.toPublicError() };
+      return {
+        ...toolResult(value),
+        isError: true,
+      };
+    }
   };
 }
 
@@ -82,7 +97,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolSearchItems(args)));
+  }, withCoreClient((args) => coreClient.searchItems(args)));
 
   server.registerTool("tasken.list_open_items", {
     description: "List open Tasken tasks, waitings, and plan nodes.",
@@ -92,7 +107,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolListOpenItems(args)));
+  }, withCoreClient((args) => coreClient.listOpenItems(args)));
 
   server.registerTool("tasken.list_agent_ready_tasks", {
     description: "List AI-assigned Tasks that are ready for an agent. Read-only; a Work Receipt never completes a Task.",
@@ -102,7 +117,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, async (args) => toolResult(await coreClient.listAgentReadyTasks(args)));
+  }, withCoreClient((args) => coreClient.listAgentReadyTasks(args)));
 
   server.registerTool("tasken.get_task_assignment", {
     description: "Read one Task assignment and its append-only Work Receipts. Read-only.",
@@ -112,7 +127,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, async (args) => toolResult(await coreClient.getTaskAssignment(args)));
+  }, withCoreClient((args) => coreClient.getTaskAssignment(args)));
 
   const boundedTextLength = z.number().int().positive().max(100000).optional();
   const taskContextWorkspaceSchema = z.object({
@@ -139,7 +154,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, async (args) => toolResult(await coreClient.getTaskContext(args)));
+  }, withCoreClient((args) => coreClient.getTaskContext(args)));
 
   server.registerTool("tasken.get_note", {
     description: "Read one AI-visible Note body by stable ID with a text limit.",
@@ -196,7 +211,7 @@ export function createTaskenMcpServer(options = {}) {
     description: "Resolve a current workspace to a RepositoryContext without choosing an ambiguous candidate.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, async (args) => toolResult(await coreClient.resolveRepositoryContext(args)));
+  }, withCoreClient((args) => coreClient.resolveRepositoryContext(args)));
 
   server.registerTool("tasken.find_themes_for_repository", {
     description: "Find AI-visible Themes associated with a current repository workspace.",
@@ -208,7 +223,7 @@ export function createTaskenMcpServer(options = {}) {
     description: "Find AI-visible Tasks associated with a current repository workspace, respecting Task subdirectories.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, async (args) => toolResult(await coreClient.findTasksForRepository(args)));
+  }, withCoreClient((args) => coreClient.findTasksForRepository(args)));
 
   server.registerTool("tasken.get_repository_context", {
     description: "Read one RepositoryContext and its AI-visible Theme/Task associations. Private local paths are redacted.",

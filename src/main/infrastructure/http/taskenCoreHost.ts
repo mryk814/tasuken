@@ -11,18 +11,33 @@ import type {
   GetTaskContextResponse,
   ListAgentReadyTasksRequest,
   ListAgentReadyTasksResponse,
+  ListOpenItemsRequest,
+  ListOpenItemsResponse,
   RepositoryLookupRequest,
   ResolveRepositoryContextResponse,
+  SearchItemsRequest,
+  SearchItemsResponse,
+} from "../../../shared/contracts/task/public.ts";
+import {
+  getTaskAssignmentRequestSchema,
+  getTaskContextRequestSchema,
+  listAgentReadyTasksRequestSchema,
+  listOpenItemsRequestSchema,
+  repositoryLookupRequestSchema,
+  searchItemsRequestSchema,
 } from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
+  TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
+  TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
+  taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -44,6 +59,8 @@ export interface TaskenCoreHostOptions {
   findTasksForRepository?: QueryProvider<RepositoryLookupRequest, FindTasksForRepositoryResponse>;
   getTaskAssignment?: QueryProvider<GetTaskAssignmentRequest, GetTaskAssignmentResponse>;
   getTaskContext?: QueryProvider<GetTaskContextRequest, GetTaskContextResponse>;
+  searchItems?: QueryProvider<SearchItemsRequest, SearchItemsResponse>;
+  listOpenItems?: QueryProvider<ListOpenItemsRequest, ListOpenItemsResponse>;
 }
 
 interface DiscoveryDocument {
@@ -65,6 +82,61 @@ function json(response: ServerResponse, status: number, body: unknown) {
     "x-tasken-core-version": TASKEN_CORE_API_VERSION,
   });
   response.end(encoded);
+}
+
+function errorResponse(code: string, message: string, extra: Record<string, unknown> = {}) {
+  return { error: taskenCorePublicError(code, message, extra) };
+}
+
+class RequestValidationError extends Error {
+  readonly issues: unknown[];
+
+  constructor(issues: unknown[]) {
+    super("VALIDATION_FAILED");
+    this.name = "RequestValidationError";
+    this.issues = issues;
+  }
+}
+
+function parseQueryRequest(url: string, body: unknown): unknown {
+  const schema = url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
+    : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" ? repositoryLookupRequestSchema
+      : url === "/v1/queries/get-task-assignment" ? getTaskAssignmentRequestSchema
+        : url === "/v1/queries/get-task-context" ? getTaskContextRequestSchema
+          : url === "/v1/queries/search-items" ? searchItemsRequestSchema
+            : listOpenItemsRequestSchema;
+  const result = schema.safeParse(body);
+  if (!result.success) throw new RequestValidationError(result.error.issues);
+  return result.data;
+}
+
+function publicRequestError(error: unknown) {
+  if (error instanceof RequestValidationError) {
+    return {
+      status: 400,
+      body: errorResponse("VALIDATION_FAILED", "requestがschemaに適合しません。", {
+        details: {
+            issues: error.issues.map((issue) => {
+              const value = issue as { path?: unknown; code?: unknown };
+              return {
+                path: Array.isArray(value.path) ? value.path.filter((entry) => typeof entry === "string" || typeof entry === "number") : [],
+                code: typeof value.code === "string" ? value.code : "invalid_value",
+                // Zod messages can quote attacker-controlled values; expose only the stable issue shape.
+                message: "値が不正です。",
+              };
+            }),
+          },
+      }),
+    };
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (message === "BODY_TOO_LARGE") {
+    return { status: 413, body: errorResponse(message, "request bodyが大きすぎます。") };
+  }
+  if (message === "INVALID_JSON") {
+    return { status: 400, body: errorResponse(message, "JSONが不正です。") };
+  }
+  return { status: 500, body: errorResponse("INTERNAL_ERROR", "Tasken Core queryの処理に失敗しました。") };
 }
 
 function bearerMatches(header: string | undefined, token: string) {
@@ -133,6 +205,8 @@ export class TaskenCoreHost {
       ...(this.options.findTasksForRepository ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY] : []),
       ...(this.options.getTaskAssignment ? [TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY] : []),
       ...(this.options.getTaskContext ? [TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY] : []),
+      ...(this.options.searchItems ? [TASKEN_CORE_SEARCH_ITEMS_CAPABILITY] : []),
+      ...(this.options.listOpenItems ? [TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY] : []),
     ];
   }
 
@@ -184,7 +258,7 @@ export class TaskenCoreHost {
   private async handle(request: IncomingMessage, response: ServerResponse) {
     try {
       if (!bearerMatches(request.headers.authorization, this.token)) {
-        json(response, 401, { error: { code: "UNAUTHORIZED", message: "認証できません。" } });
+        json(response, 401, errorResponse("UNAUTHORIZED", "認証できません。"));
         return;
       }
       const queryPaths = new Set([
@@ -193,12 +267,14 @@ export class TaskenCoreHost {
         ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
         ...(this.options.getTaskAssignment ? ["/v1/queries/get-task-assignment"] : []),
         ...(this.options.getTaskContext ? ["/v1/queries/get-task-context"] : []),
+        ...(this.options.searchItems ? ["/v1/queries/search-items"] : []),
+        ...(this.options.listOpenItems ? ["/v1/queries/list-open-items"] : []),
       ]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
       if (knownPaths.has(request.url || "")
         && request.method !== (queryPaths.has(request.url || "") ? "POST" : "GET")) {
         response.setHeader("allow", queryPaths.has(request.url || "") ? "POST" : "GET");
-        json(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "methodが許可されていません。" } });
+        json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
         return;
       }
       if (request.method === "GET" && request.url === "/health") {
@@ -215,10 +291,10 @@ export class TaskenCoreHost {
       }
       if (request.method === "POST" && queryPaths.has(request.url || "")) {
         if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
-          json(response, 415, { error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "application/jsonを指定してください。" } });
+          json(response, 415, errorResponse("UNSUPPORTED_MEDIA_TYPE", "application/jsonを指定してください。"));
           return;
         }
-        const body = await requestBody(request);
+        const body = parseQueryRequest(request.url || "", await requestBody(request));
         if (request.url === "/v1/queries/list-agent-ready-tasks") {
           json(response, 200, this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest));
         } else if (request.url === "/v1/queries/resolve-repository-context") {
@@ -227,21 +303,24 @@ export class TaskenCoreHost {
           json(response, 200, this.options.findTasksForRepository!.execute(body as RepositoryLookupRequest));
         } else if (request.url === "/v1/queries/get-task-context") {
           json(response, 200, this.options.getTaskContext!.execute(body as GetTaskContextRequest));
+        } else if (request.url === "/v1/queries/search-items") {
+          json(response, 200, this.options.searchItems!.execute(body as SearchItemsRequest));
+        } else if (request.url === "/v1/queries/list-open-items") {
+          json(response, 200, this.options.listOpenItems!.execute(body as ListOpenItemsRequest));
         } else {
           json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
         }
         return;
       }
-      json(response, 404, { error: { code: "NOT_FOUND", message: "endpointがありません。" } });
+      json(response, 404, errorResponse("NOT_FOUND", "endpointがありません。"));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      if (message === "BODY_TOO_LARGE") {
+      const mapped = publicRequestError(error);
+      if (mapped.status === 413) {
         response.setHeader("connection", "close");
-        json(response, 413, { error: { code: message, message: "request bodyが大きすぎます。" } });
+        json(response, mapped.status, mapped.body);
         response.once("finish", () => request.destroy());
       }
-      else if (message === "INVALID_JSON") json(response, 400, { error: { code: message, message: "JSONが不正です。" } });
-      else json(response, 400, { error: { code: "INVALID_REQUEST", message: "requestが不正です。" } });
+      else json(response, mapped.status, mapped.body);
     }
   }
 }

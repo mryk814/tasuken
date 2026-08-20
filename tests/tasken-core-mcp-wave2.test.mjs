@@ -173,13 +173,13 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
     const discovery = JSON.parse(fs.readFileSync(path.join(root, "tasken-core.json"), "utf8"));
-    assert.deepEqual(discovery.capabilities, [
+    for (const capability of [
       "list_agent_ready_tasks",
       "resolve_repository_context",
       "find_tasks_for_repository",
       "get_task_assignment",
       "get_task_context",
-    ]);
+    ]) assert.ok(discovery.capabilities.includes(capability), capability);
     const cases = [
       ["tasken.resolve_repository_context", "toolResolveRepositoryContext", "resolveRepositoryContext", {
         remote_url: "git@github.com:mryk814/tasuken.git",
