@@ -10,6 +10,7 @@ import type {
 } from "../../../../shared/types/workspace";
 import type { WorkReceipt, WorkspaceDomain } from "./domain-model/types";
 import type { ApplicationCommandSource, CommandEnvelope, CommandReceipt } from "../../../../shared/applicationCommand";
+import type { TaskCommandEntrypoint } from "../../../../shared/contracts/task/public";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
 export type { DocumentSaveReferenceCompanion, DocumentSaveSnapshot, Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
@@ -312,7 +313,7 @@ export interface DrawerConfig {
   type: DrawerEntityType;
   mode?: "edit" | "view";
   entity: DrawerEntity;
-  commandSource?: import("../../../../shared/applicationCommand").ApplicationCommandSource;
+  commandSource?: TaskCommandEntrypoint;
   dataScope?: "full";
 }
 

@@ -30,7 +30,7 @@ export type ExecuteApplicationCommand = (command: CommandEnvelope) => CommandRec
 
 const sourceMap: Record<TaskCommand["source"], ApplicationCommandSource> = {
   desktop: "main_ui",
-  mobile: "inbox",
+  mobile: "mobile",
   http: "inbox",
   mcp: "mcp",
   system: "inbox",
