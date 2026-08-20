@@ -300,6 +300,25 @@ test("Work Receipt sanitizer rejects URL-like locators, local paths, and short a
   );
 });
 
+test("Work Receipt sanitizer preserves ordinary colon text and consumes complete credential assignments", () => {
+  const cases = [
+    ["authorization=Bearer short", "authorization=[redacted]"],
+    ["password=Basic c2VjcmV0", "password=[redacted]"],
+    ["pwd: Basic c2VjcmV0", "pwd=[redacted]"],
+    ["token=Bearer x", "token=[redacted]"],
+    ["Status: done", "Status: done"],
+    ["ordinary key: value", "ordinary key: value"],
+    ["x|https://user:pass@example.com/a?q=secret#fragment", "x|https://example.com/a"],
+    ["file:///absolute/private.txt", "[redacted-url]"],
+    ["ftp://user:pass@example.com/private", "[redacted-url]"],
+    ["path:/home/private/x", "[redacted-url]"],
+    ["<C:\\Users\\private\\x>", "<[redacted-local-path]>"],
+    ["Bearer x", "Bearer [redacted]"],
+    ["Basic c2VjcmV0", "Basic [redacted]"],
+  ];
+  for (const [input, expected] of cases) assert.equal(safeReceiptText(input), expected, input);
+});
+
 test("migrated Wave 3 tool fails closed and named capability is required", async () => {
   const result = await callMcp({ getTaskContext: async () => { throw new Error("CORE_UNAVAILABLE_SENTINEL"); } }, "tasken.get_task_context", { task_id: "task-visible" });
   assert.equal(result.isError, true);
