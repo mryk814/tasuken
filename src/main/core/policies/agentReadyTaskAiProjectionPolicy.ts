@@ -36,6 +36,6 @@ export class AgentReadyTaskAiProjectionPolicy {
       records.push({ ...task, ai: projected.header });
     }
 
-    return { records, ...summarizeAiExclusions(exclusions) };
+    return { records, exclusions, ...summarizeAiExclusions(exclusions) };
   }
 }

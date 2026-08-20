@@ -123,3 +123,16 @@ export {
   type ListAgentReadyTasksRequest,
   type ListAgentReadyTasksResponse,
 } from "./agentReadyTasks.ts";
+
+export {
+  findTasksForRepositoryResponseSchema,
+  getTaskAssignmentRequestSchema,
+  getTaskAssignmentResponseSchema,
+  repositoryLookupRequestSchema,
+  resolveRepositoryContextResponseSchema,
+  type FindTasksForRepositoryResponse,
+  type GetTaskAssignmentRequest,
+  type GetTaskAssignmentResponse,
+  type RepositoryLookupRequest,
+  type ResolveRepositoryContextResponse,
+} from "./agentWorkspaceQueries.ts";

@@ -4,7 +4,10 @@ import path from "node:path";
 import { resolveTaskenUserDataPath } from "../../shared/taskenPaths.mjs";
 import {
   TASKEN_CORE_API_VERSION,
-  TASKEN_CORE_CAPABILITY,
+  TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
+  TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
+  TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
 } from "../../shared/contracts/core/public.mjs";
@@ -32,8 +35,8 @@ function parseDiscovery(value) {
   if (value.api_version !== TASKEN_CORE_API_VERSION) {
     throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
   }
-  if (!Array.isArray(value.capabilities) || !value.capabilities.includes(TASKEN_CORE_CAPABILITY)) {
-    throw new TaskenCoreClientError("CAPABILITY_UNAVAILABLE", "Tasken Core query capabilityが利用できません。");
+  if (!Array.isArray(value.capabilities) || value.capabilities.some((capability) => typeof capability !== "string")) {
+    throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core capabilitiesが不正です。");
   }
   let origin;
   try {
@@ -102,11 +105,30 @@ export class TaskenCoreClient {
   }
 
   async listAgentReadyTasks(request = {}) {
+    return this.query("list-agent-ready-tasks", TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY, request);
+  }
+
+  async resolveRepositoryContext(request = {}) {
+    return this.query("resolve-repository-context", TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY, request);
+  }
+
+  async findTasksForRepository(request = {}) {
+    return this.query("find-tasks-for-repository", TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY, request);
+  }
+
+  async getTaskAssignment(request = {}) {
+    return this.query("get-task-assignment", TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY, request);
+  }
+
+  async query(path, capability, request) {
     const discovery = await readDiscovery(this.discoveryPath);
+    if (!discovery.capabilities.includes(capability)) {
+      throw new TaskenCoreClientError("CAPABILITY_UNAVAILABLE", `Tasken Core operation capabilityが利用できません（${capability}）。`);
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetch(`${discovery.origin}/v1/queries/list-agent-ready-tasks`, {
+      const response = await this.fetch(`${discovery.origin}/v1/queries/${path}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${discovery.token}`,
