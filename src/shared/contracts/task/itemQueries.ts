@@ -33,8 +33,8 @@ export const itemLocatorSchema = z.object({
 export const publicItemSchema = z.looseObject({
   id: z.string(),
   title: z.string(),
-  kind: z.string(),
-  status: z.string(),
+  kind: z.string().optional(),
+  status: z.string().optional(),
   theme_id: z.string().nullable().optional(),
   ai: aiHeaderSchema,
   locator: itemLocatorSchema,

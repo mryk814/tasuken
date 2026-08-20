@@ -19,6 +19,14 @@ import type {
   SearchItemsResponse,
 } from "../../../shared/contracts/task/public.ts";
 import {
+  getTaskAssignmentRequestSchema,
+  getTaskContextRequestSchema,
+  listAgentReadyTasksRequestSchema,
+  listOpenItemsRequestSchema,
+  repositoryLookupRequestSchema,
+  searchItemsRequestSchema,
+} from "../../../shared/contracts/task/public.ts";
+import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
@@ -75,9 +83,30 @@ function json(response: ServerResponse, status: number, body: unknown) {
   response.end(encoded);
 }
 
+class RequestValidationError extends Error {
+  readonly issues: unknown[];
+
+  constructor(issues: unknown[]) {
+    super("VALIDATION_FAILED");
+    this.name = "RequestValidationError";
+    this.issues = issues;
+  }
+}
+
+function parseQueryRequest(url: string, body: unknown): unknown {
+  const schema = url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
+    : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" ? repositoryLookupRequestSchema
+      : url === "/v1/queries/get-task-assignment" ? getTaskAssignmentRequestSchema
+        : url === "/v1/queries/get-task-context" ? getTaskContextRequestSchema
+          : url === "/v1/queries/search-items" ? searchItemsRequestSchema
+            : listOpenItemsRequestSchema;
+  const result = schema.safeParse(body);
+  if (!result.success) throw new RequestValidationError(result.error.issues);
+  return result.data;
+}
+
 function publicRequestError(error: unknown) {
-  const candidate = error as { name?: unknown; message?: unknown; issues?: unknown } | null;
-  if (candidate?.name === "ZodError" && Array.isArray(candidate.issues)) {
+  if (error instanceof RequestValidationError) {
     return {
       status: 400,
       body: {
@@ -85,7 +114,7 @@ function publicRequestError(error: unknown) {
           code: "VALIDATION_FAILED",
           message: "requestがschemaに適合しません。",
           details: {
-            issues: candidate.issues.map((issue) => {
+            issues: error.issues.map((issue) => {
               const value = issue as { path?: unknown; code?: unknown };
               return {
                 path: Array.isArray(value.path) ? value.path.filter((entry) => typeof entry === "string" || typeof entry === "number") : [],
@@ -264,7 +293,7 @@ export class TaskenCoreHost {
           json(response, 415, { error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "application/jsonを指定してください。" } });
           return;
         }
-        const body = await requestBody(request);
+        const body = parseQueryRequest(request.url || "", await requestBody(request));
         if (request.url === "/v1/queries/list-agent-ready-tasks") {
           json(response, 200, this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest));
         } else if (request.url === "/v1/queries/resolve-repository-context") {

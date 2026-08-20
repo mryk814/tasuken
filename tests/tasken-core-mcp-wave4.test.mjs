@@ -35,7 +35,7 @@ function fixture() {
   return {
     items: [
       { id: "legacy-shadowed", title: "old duplicate", kind: "task", status: "todo", theme_id: "theme-visible", updated_at: "2026-08-20T00:00:00.000Z" },
-      { id: "legacy-visible", title: "Legacy needle", kind: "task", status: "doing", theme_id: "theme-visible", due_date: "2026-08-25", updated_at: "2026-08-19T00:00:00.000Z" },
+      { id: "legacy-visible", title: "Legacy needle", theme_id: "theme-visible", due_date: "2026-08-25", updated_at: "2026-08-19T00:00:00.000Z" },
     ],
     tasks: [
       { id: "task-hidden", title: "Needle hidden newest", state: "todo", project_id: "theme-hidden", updated_at: "2026-08-23T00:00:00.000Z" },
@@ -187,6 +187,30 @@ test("Core HTTP errors remain lossless in the client and MCP typed error result"
     error: { code: "VALIDATION_FAILED", message: "requestがschemaに適合しません。", status: 400, details },
   });
   assert.doesNotMatch(JSON.stringify(result), /stack|cause|DB_CONSTRUCTOR_SENTINEL/);
+});
+
+test("Core output validation failures are internal errors, not request validation failures", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave4-output-error-"));
+  const workspace = fixture();
+  workspace.items.unshift({ id: "legacy-invalid-output", updated_at: "2026-08-30T00:00:00.000Z" });
+  const core = createTaskenCore(new FixtureRepository(workspace));
+  const host = new TaskenCoreHost({ userDataPath: root, ...core });
+  try {
+    const started = await host.start();
+    const discovery = JSON.parse(fs.readFileSync(path.join(root, "tasken-core.json"), "utf8"));
+    const response = await fetch(`${started.origin}/v1/queries/search-items`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${discovery.token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: { code: "INTERNAL_ERROR", message: "Tasken Core queryの処理に失敗しました。" },
+    });
+  } finally {
+    await host.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Wave 4 public limit rejects values outside 1..100", () => {
