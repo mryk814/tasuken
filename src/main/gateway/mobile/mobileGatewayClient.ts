@@ -116,7 +116,7 @@ export class MobileGatewayClient {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: controller.signal,
       });
-      const text = await this.readBounded(response);
+      const text = await this.readBounded(response, controller.signal);
       let payload: unknown;
       try {
         payload = JSON.parse(text);
@@ -140,11 +140,22 @@ export class MobileGatewayClient {
     }
   }
 
-  private async readBounded(response: Response): Promise<string> {
+  private async readBounded(response: Response, signal: AbortSignal): Promise<string> {
     if (!response.body) throw new MobileGatewayClientError("invalid_response", "Mobile Gateway responseが不正です。");
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
+    let rejectAborted!: (reason?: unknown) => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAborted = reject;
+    });
+    const onAbort = () => {
+      rejectAborted(new Error("Mobile Gateway response timed out"));
+      // Timeout is authoritative; a stream-level cancel failure must not keep the request pending.
+      void reader.cancel().catch(() => undefined);
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
     try {
       const declaredLength = Number(response.headers.get("content-length") || "0");
       if (Number.isFinite(declaredLength) && declaredLength > this.maxResponseBytes) {
@@ -153,7 +164,7 @@ export class MobileGatewayClient {
         throw new MobileGatewayClientError("response_too_large", safeClientMessage("response_too_large"));
       }
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await Promise.race([reader.read(), aborted]);
         if (done) break;
         size += value.byteLength;
         if (size > this.maxResponseBytes) {
@@ -164,6 +175,7 @@ export class MobileGatewayClient {
         chunks.push(value);
       }
     } finally {
+      signal.removeEventListener("abort", onAbort);
       reader.releaseLock();
     }
     const bytes = new Uint8Array(size);

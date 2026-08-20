@@ -678,6 +678,23 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
   });
   await assert.rejects(timeout.health(), (error) => error.code === "gateway_unavailable");
 
+  let stalledCancelled = false;
+  const stalledBody = new MobileGatewayClient({
+    baseUrl: "https://desktop.tailnet.ts.net",
+    accessToken,
+    timeoutMs: 5,
+    fetch: async () => new Response(new ReadableStream({
+      cancel() {
+        stalledCancelled = true;
+      },
+    }), {
+      status: 200,
+      headers: { "x-tasken-mobile-api-version": "1" },
+    }),
+  });
+  await assert.rejects(stalledBody.health(), (error) => error.code === "gateway_unavailable");
+  assert.equal(stalledCancelled, true);
+
   const sources = [
     readFileSync("src/main/gateway/mobile/mobileGatewayAdapter.ts", "utf8"),
     readFileSync("src/main/gateway/mobile/mobileGatewayClient.ts", "utf8"),

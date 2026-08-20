@@ -17,7 +17,7 @@ Issue #398の最初の縦断sliceとして、Android実装や外向きserverよ�
 
 | Method / path | Scope | Core委譲 | 公開内容 |
 |---|---|---|---|
-| `GET /v1/health` | `mobile:read` | Core version/capability handshake | Mobile API metadataと利用可能capability |
+| `GET /v1/health` | 認証済み`mobile_device` | Core version/capability handshake | Mobile API metadataと端末scopeに応じた利用可能capability |
 | `GET /v1/today?date=...&limit=...&requestId=...&apiVersion=1&schemaVersion=1` | `mobile:read` | `ListTodayTasks` query | Task ID、title、Theme ID、state、work state、updatedAtだけ |
 | `POST /v1/commands` | `mobile:task-write` | `CreateTask` command | command statusと同じMobile Task summaryだけ |
 
