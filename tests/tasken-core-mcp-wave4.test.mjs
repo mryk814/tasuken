@@ -76,7 +76,7 @@ class FixtureRepository {
     throw new Error("FULL_WORKSPACE_SNAPSHOT_SENTINEL");
   }
 
-  getPreference(key) {
+  readPreference(key) {
     assert.equal(key, "aiVisibilityDefault");
     return ["coding_agent"];
   }

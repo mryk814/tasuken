@@ -3,10 +3,20 @@ import path from "node:path";
 
 import { resolveTaskenUserDataPath } from "../../shared/taskenPaths.mjs";
 import {
+  getActivityEntriesResponseSchema,
+  getArtifactMetadataResponseSchema,
+  getConversationResponseSchema,
+  getNoteResponseSchema,
+} from "../../shared/contracts/task/public.ts";
+import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
+  TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
+  TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
+  TASKEN_CORE_GET_NOTE_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -150,7 +160,23 @@ export class TaskenCoreClient {
     return this.query("list-open-items", TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY, request);
   }
 
-  async query(path, capability, request) {
+  async getNote(request = {}) {
+    return this.query("get-note", TASKEN_CORE_GET_NOTE_CAPABILITY, request, getNoteResponseSchema);
+  }
+
+  async getConversation(request = {}) {
+    return this.query("get-conversation", TASKEN_CORE_GET_CONVERSATION_CAPABILITY, request, getConversationResponseSchema);
+  }
+
+  async getArtifactMetadata(request = {}) {
+    return this.query("get-artifact-metadata", TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY, request, getArtifactMetadataResponseSchema);
+  }
+
+  async getActivityEntries(request = {}) {
+    return this.query("get-activity-entries", TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY, request, getActivityEntriesResponseSchema);
+  }
+
+  async query(path, capability, request, responseSchema) {
     const discovery = await readDiscovery(this.discoveryPath);
     if (!discovery.capabilities.includes(capability)) {
       throw new TaskenCoreClientError("CAPABILITY_UNAVAILABLE", `Tasken Core operation capabilityが利用できません（${capability}）。`);
@@ -191,7 +217,15 @@ export class TaskenCoreClient {
       if (version !== TASKEN_CORE_API_VERSION) {
         throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
       }
-      return await response.json();
+      const payload = await response.json();
+      if (!responseSchema) return payload;
+      const parsed = responseSchema.safeParse(payload);
+      if (!parsed.success) {
+        throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core responseがschemaに適合しません。", {
+          details: { operation: path },
+        });
+      }
+      return parsed.data;
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
       throw new TaskenCoreClientError("CORE_UNAVAILABLE", "Tasken Coreへ接続できません。Taskenを起動してください。", { cause: error });

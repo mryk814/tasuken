@@ -343,10 +343,10 @@ export class WorkspaceDatabase {
       schemaVersion: SCHEMA_VERSION,
       workspaceId: this.workspaceId,
       deviceId: this.deviceId,
-      themeMode: this.getPreference("themeMode"),
-      activeGroups: this.getPreference("activeGroups"),
-      activeGroup: this.getPreference("activeGroup"),
-      aiVisibilityDefault: this.getPreference("aiVisibilityDefault"),
+      themeMode: this.readPreference("themeMode"),
+      activeGroups: this.readPreference("activeGroups"),
+      activeGroup: this.readPreference("activeGroup"),
+      aiVisibilityDefault: this.readPreference("aiVisibilityDefault"),
       entityCount: this.db.prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL").get().count,
       syncPendingCount: this.syncPendingCount(),
       syncConflictCount: this.syncConflictCount(),
@@ -397,6 +397,34 @@ export class WorkspaceDatabase {
       }
     }
     throw new Error(`未対応の設定です: ${key}`);
+  }
+
+  /** Read a Core query preference without materializing its default in workspace_meta. */
+  readPreference(key) {
+    const readMeta = (metaKey) => this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(metaKey)?.value;
+    if (key === "themeMode") return readMeta("theme_mode") ?? "light";
+    if (key === "activeGroups") {
+      const value = readMeta("active_groups");
+      if (value === undefined) return [];
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.filter((entry) => typeof entry === "string") : [];
+      } catch {
+        return [];
+      }
+    }
+    if (key === "activeGroup") return readMeta("active_group") ?? "";
+    if (key === "artifactDirectory") return readMeta("artifact_directory") ?? "";
+    if (key === "aiVisibilityDefault") {
+      const value = readMeta("ai_visibility_default");
+      if (value === undefined) return [...DEFAULT_AI_VISIBILITY];
+      try {
+        return normalizeAiVisibility(JSON.parse(value)) || [];
+      } catch {
+        return [...DEFAULT_AI_VISIBILITY];
+      }
+    }
+    throw new Error(`未対応のread-only設定です: ${key}`);
   }
 
   setPreference(key, value) {
@@ -576,7 +604,7 @@ export class WorkspaceDatabase {
 
   getActivityCanonicalRootPaths() {
     return buildActivityRootRegistry({
-      artifactDirectory: this.getPreference("artifactDirectory"),
+      artifactDirectory: this.readPreference("artifactDirectory"),
       themes: this.list("theme", true),
     });
   }

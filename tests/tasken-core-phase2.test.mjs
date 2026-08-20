@@ -71,7 +71,7 @@ class FixtureRepository {
     return records.filter((record) => includeDeleted || !record.deleted_at);
   }
 
-  getPreference(key) {
+  readPreference(key) {
     assert.equal(key, "aiVisibilityDefault");
     return ["coding_agent"];
   }
@@ -226,11 +226,18 @@ test("Phase 2: version and auth failures never fall back to the legacy DB contex
   }
 });
 
-test("Phase 2: an unmigrated MCP detail tool keeps the legacy context provider", async () => {
+test("Wave 5: migrated MCP detail tool never opens the legacy context provider", async () => {
   let legacyCalls = 0;
   const server = createTaskenMcpServer({
     readOnly: true,
-    coreClient: { listAgentReadyTasks: () => { throw new Error("CORE_CLIENT_SENTINEL"); } },
+    coreClient: {
+      getNote: () => ({
+        note: { id: "core-note" },
+        next_tools: [],
+        read_only: true,
+        ai_audience: "coding_agent",
+      }),
+    },
     readContextProvider: async () => ({
       toolGetNote: () => {
         legacyCalls += 1;
@@ -246,8 +253,8 @@ test("Phase 2: an unmigrated MCP detail tool keeps the legacy context provider",
   try {
     const result = await client.callTool({ name: "tasken.get_note", arguments: { note_id: "legacy-note" } });
     assert.equal(result.isError, undefined);
-    assert.equal(result.structuredContent.note.id, "legacy-note");
-    assert.equal(legacyCalls, 1);
+    assert.equal(result.structuredContent.note.id, "core-note");
+    assert.equal(legacyCalls, 0);
   } finally {
     await client.close();
     await server.close();

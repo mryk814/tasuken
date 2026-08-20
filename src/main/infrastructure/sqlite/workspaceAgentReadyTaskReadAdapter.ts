@@ -8,7 +8,7 @@ import type {
 export interface AgentReadyTaskWorkspacePersistence {
   list(type: "task", includeDeleted?: boolean): AgentReadyTaskSourceRecord[];
   list(type: "theme", includeDeleted?: boolean): AgentReadyTaskThemeRecord[];
-  getPreference(key: "aiVisibilityDefault"): unknown;
+  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Uses the composition root's existing WorkspaceDatabase instance; it never opens a DB. */
@@ -28,7 +28,7 @@ export class WorkspaceAgentReadyTaskReadAdapter implements AgentReadyTaskReadPor
   }
 
   workspaceAiVisibilityDefault() {
-    return normalizeAiVisibility(this.persistence.getPreference("aiVisibilityDefault"))
+    return normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
       || [...DEFAULT_AI_VISIBILITY];
   }
 }

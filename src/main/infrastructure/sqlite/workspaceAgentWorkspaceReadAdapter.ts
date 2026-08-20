@@ -10,7 +10,7 @@ export interface AgentWorkspacePersistence {
   list(type: "task", includeDeleted?: boolean): AgentReadyTaskSourceRecord[];
   list(type: "theme", includeDeleted?: boolean): AgentReadyTaskThemeRecord[];
   list(type: "repository_context" | "work_receipt", includeDeleted?: boolean): AgentWorkspaceRecord[];
-  getPreference(key: "aiVisibilityDefault"): unknown;
+  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Query-specific adapter over the composition root's existing WorkspaceDatabase. */
@@ -34,7 +34,7 @@ export class WorkspaceAgentWorkspaceReadAdapter implements AgentWorkspaceReadPor
   }
 
   workspaceAiVisibilityDefault() {
-    return normalizeAiVisibility(this.persistence.getPreference("aiVisibilityDefault"))
+    return normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
       || [...DEFAULT_AI_VISIBILITY];
   }
 }

@@ -136,8 +136,8 @@ class FixturePersistence {
     return (this.workspace[collection] || []).filter((record) => includeDeleted || !record.deleted_at);
   }
 
-  getPreference(key) {
-    this.calls.push({ operation: "getPreference", key });
+  readPreference(key) {
+    this.calls.push({ operation: "readPreference", key });
     return ["coding_agent"];
   }
 }
@@ -176,7 +176,9 @@ test("Wave 5 content detail service preserves legacy Note/Conversation/Artifact 
         : request.conversation_id
           ? service.getConversation(request)
           : service.getArtifactMetadata(request);
-      assert.deepEqual(actual, expected, JSON.stringify(request));
+      const { next_tools: nextTools, ...legacyFields } = actual;
+      assert.deepEqual(legacyFields, expected, JSON.stringify(request));
+      assert.equal(nextTools.length > 0, true);
     }
   } finally {
     legacy.close();
@@ -215,7 +217,7 @@ test("Wave 5 read adapter remains narrow and does not invoke a write API", () =>
   assert.deepEqual(persistence.calls, [
     { operation: "list", type: "note", includeDeleted: false },
     { operation: "list", type: "note", includeDeleted: true },
-    { operation: "getPreference", key: "aiVisibilityDefault" },
+    { operation: "readPreference", key: "aiVisibilityDefault" },
   ]);
   assert.equal("save" in persistence, false);
 });
@@ -233,4 +235,12 @@ test("Wave 5 shared request/response contracts are strict at the detail boundary
   assert.equal(getConversationResponseSchema.safeParse(conversation).success, true);
   assert.equal(getArtifactMetadataResponseSchema.safeParse(artifact).success, true);
   assert.equal(getNoteResponseSchema.safeParse(service.getNote({ note_id: "missing" })).success, true);
+  assert.equal(getNoteResponseSchema.safeParse({
+    ...service.getNote({ note_id: "missing" }),
+    error: { code: "not_found", message: "missing", artifact_id: "artifact-1" },
+  }).success, false);
+  assert.equal(getArtifactMetadataResponseSchema.safeParse({
+    ...artifact,
+    artifact: { ...artifact.artifact, ai: { ...artifact.artifact.ai, stored_path: "C:/private" } },
+  }).success, false);
 });

@@ -9,7 +9,7 @@ import type {
 export interface ItemQueryWorkspacePersistence {
   list(type: "item" | "task" | "waiting" | "plan_node" | "schedule", includeDeleted?: boolean): ItemQueryRecord[];
   list(type: "theme", includeDeleted?: boolean): ItemQueryThemeRecord[];
-  getPreference(key: "aiVisibilityDefault"): unknown;
+  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Builds a query-scoped snapshot from the existing database; every operation is read-only. */
@@ -24,7 +24,7 @@ export class WorkspaceItemQueryReadAdapter implements ItemQueryReadPort {
       planNodes: this.persistence.list("plan_node", includeArchived),
       schedules: this.persistence.list("schedule", includeArchived),
       themes: this.persistence.list("theme", true),
-      workspaceAiVisibilityDefault: normalizeAiVisibility(this.persistence.getPreference("aiVisibilityDefault"))
+      workspaceAiVisibilityDefault: normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
         || [...DEFAULT_AI_VISIBILITY],
     };
   }

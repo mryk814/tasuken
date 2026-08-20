@@ -161,3 +161,29 @@ export {
   type SearchItemsRequest,
   type SearchItemsResponse,
 } from "./itemQueries.ts";
+
+export {
+  contentDetailReadErrorSchema,
+  getArtifactMetadataRequestSchema,
+  getArtifactMetadataResponseSchema,
+  getConversationRequestSchema,
+  getConversationResponseSchema,
+  getNoteRequestSchema,
+  getNoteResponseSchema,
+  type GetArtifactMetadataRequest,
+  type GetArtifactMetadataResponse,
+  type GetConversationRequest,
+  type GetConversationResponse,
+  type GetNoteRequest,
+  type GetNoteResponse,
+} from "./contentDetailQueries.ts";
+
+export {
+  activityEntriesResultMetaSchema,
+  getActivityEntriesRequestSchema,
+  getActivityEntriesResponseSchema,
+  publicActivityEntrySchema,
+  type GetActivityEntriesRequest,
+  type GetActivityEntriesResponse,
+  type PublicActivityEntry,
+} from "./activityEntries.ts";

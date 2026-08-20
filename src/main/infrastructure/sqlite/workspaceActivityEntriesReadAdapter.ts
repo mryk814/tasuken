@@ -4,12 +4,12 @@ import type {
   ActivityEntriesRecord,
   ActivityEntriesSnapshot,
   ActivityEntriesWorkspace,
-} from "../../core/ports/activityEntriesReadPort.ts";
+} from "../../core/public.ts";
 
 export interface ActivityEntriesWorkspacePersistence {
   readWorkspaceSnapshot(includeDeleted?: boolean): ActivityEntriesWorkspace;
   list(type: "theme", includeDeleted?: boolean): ActivityEntriesRecord[];
-  getPreference(key: "aiVisibilityDefault"): unknown;
+  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Uses the injected WorkspaceDatabase and its side-effect-free snapshot API. */
@@ -21,7 +21,7 @@ export class WorkspaceActivityEntriesReadAdapter implements ActivityEntriesReadP
       workspace: this.persistence.readWorkspaceSnapshot(includeArchived),
       // Archived Theme policy still governs an active Task that references it.
       visibilityThemes: this.persistence.list("theme", true),
-      workspaceAiVisibilityDefault: normalizeAiVisibility(this.persistence.getPreference("aiVisibilityDefault"))
+      workspaceAiVisibilityDefault: normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
         || [...DEFAULT_AI_VISIBILITY],
     };
   }

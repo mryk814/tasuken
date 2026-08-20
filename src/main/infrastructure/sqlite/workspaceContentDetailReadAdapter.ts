@@ -1,9 +1,9 @@
 import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../../shared/aiMetadata.mjs";
-import type { ContentDetailReadPort, ContentDetailRecord } from "../../core/ports/contentDetailReadPort.ts";
+import type { ContentDetailReadPort, ContentDetailRecord } from "../../core/public.ts";
 
 export interface ContentDetailWorkspacePersistence {
   list(type: "theme" | "note" | "resource" | "artifact", includeDeleted?: boolean): ContentDetailRecord[];
-  getPreference(key: "aiVisibilityDefault"): unknown;
+  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Query-specific adapter over the composition root's existing WorkspaceDatabase. */
@@ -15,7 +15,7 @@ export class WorkspaceContentDetailReadAdapter implements ContentDetailReadPort 
   }
 
   workspaceAiVisibilityDefault() {
-    return normalizeAiVisibility(this.persistence.getPreference("aiVisibilityDefault"))
+    return normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
       || [...DEFAULT_AI_VISIBILITY];
   }
 }

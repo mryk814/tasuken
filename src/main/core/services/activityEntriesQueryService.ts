@@ -5,11 +5,23 @@ import {
   getActivityEntriesResponseSchema,
   type GetActivityEntriesRequest,
   type GetActivityEntriesResponse,
-} from "../../../shared/contracts/task/activityEntries.ts";
+} from "../../../shared/contracts/task/public.ts";
 import type { ActivityEntriesReadPort } from "../ports/activityEntriesReadPort.ts";
 
 const AUDIENCE = "coding_agent";
 const DEFAULT_LIMIT = 50;
+const ACTIVITY_NEXT_TOOLS = [
+  { tool: "tasken.get_task_assignment", description: "現在のassignmentとWork Receiptを確認する。" },
+  { tool: "tasken.get_task_context", description: "Taskのbounded contextを再取得する。" },
+  {
+    tool: "tasken.append_work_receipt",
+    description: "進捗を残すなら、Proposal toolが利用可能な場合だけ利用者レビュー用Work Receiptをqueueする。",
+  },
+  {
+    tool: "tasken.report_task_done",
+    description: "完了報告なら利用者レビュー用Proposalをqueueする。blocked時はtasken.report_task_blockedを使う。",
+  },
+];
 
 function text(value: unknown) {
   return value == null ? "" : String(value);
@@ -24,6 +36,7 @@ function notFound(taskId: string): GetActivityEntriesResponse {
     },
     read_only: true,
     ai_audience: AUDIENCE,
+    next_tools: ACTIVITY_NEXT_TOOLS,
   });
 }
 
@@ -82,6 +95,7 @@ export class ActivityEntriesQueryService {
       },
       read_only: true,
       ai_audience: AUDIENCE,
+      next_tools: ACTIVITY_NEXT_TOOLS,
     });
   }
 }

@@ -5,18 +5,30 @@ import {
   taskContextLimits,
   TaskContextTextBudget,
 } from "../../../shared/taskContext.mjs";
-import type {
-  GetArtifactMetadataRequest,
-  GetArtifactMetadataResponse,
-  GetConversationRequest,
-  GetConversationResponse,
-  GetNoteRequest,
-  GetNoteResponse,
-} from "../../../shared/contracts/task/contentDetailQueries.ts";
+import {
+  getArtifactMetadataRequestSchema,
+  getConversationRequestSchema,
+  getNoteRequestSchema,
+  type GetArtifactMetadataRequest,
+  type GetArtifactMetadataResponse,
+  type GetConversationRequest,
+  type GetConversationResponse,
+  type GetNoteRequest,
+  type GetNoteResponse,
+} from "../../../shared/contracts/task/public.ts";
 import type { AiAudience } from "../../../shared/aiMetadata.mjs";
 import type { ContentDetailReadPort, ContentDetailRecord } from "../ports/contentDetailReadPort.ts";
 
 const AUDIENCE = "coding_agent" as const;
+
+const TASK_CONTEXT_GUIDANCE = {
+  tool: "tasken.get_task_context",
+  description: "関連Taskのbounded contextを再取得する。",
+};
+const SEARCH_GUIDANCE = [{
+  tool: "tasken.search_items",
+  description: "stable IDが不明な場合にAI公開対象を検索し直す。",
+}];
 
 function text(value: unknown) {
   return value == null ? "" : String(value);
@@ -36,6 +48,7 @@ function notFound(codeField: string, id: string, label: string) {
     },
     read_only: true as const,
     ai_audience: AUDIENCE,
+    next_tools: SEARCH_GUIDANCE,
   };
 }
 
@@ -76,15 +89,16 @@ export class ContentDetailQueryService {
   constructor(private readonly port: ContentDetailReadPort) {}
 
   getNote(args: GetNoteRequest): GetNoteResponse {
-    const noteId = text(args.note_id).trim();
-    const includeArchived = Boolean(args.include_archived);
+    const request = getNoteRequestSchema.parse(args);
+    const noteId = request.note_id;
+    const includeArchived = Boolean(request.include_archived);
     const themes = this.port.list("theme", true);
     const notes = this.port.list("note", includeArchived);
     const candidate = notes.find((record) => String(record.id) === noteId);
     const filtered = visibleRecord("note", candidate, themes, this.port.workspaceAiVisibilityDefault());
     if (!filtered.record) return notFound("note_id", noteId, "Note");
 
-    const maxTextLength = taskContextLimits(args).maxTextLength;
+    const maxTextLength = taskContextLimits(request).maxTextLength;
     const body = text(filtered.record.body_markdown);
     const budget = new TaskContextTextBudget(maxTextLength);
     return {
@@ -102,19 +116,27 @@ export class ContentDetailQueryService {
       limits: { max_text_length: maxTextLength },
       read_only: true,
       ai_audience: AUDIENCE,
+      next_tools: [
+        TASK_CONTEXT_GUIDANCE,
+        {
+          tool: "tasken.propose_note_edit",
+          description: "書き換えが必要なら、Proposal toolが利用可能な場合だけ利用者レビュー用の編集案をqueueする。",
+        },
+      ],
     };
   }
 
   getConversation(args: GetConversationRequest): GetConversationResponse {
-    const conversationId = text(args.conversation_id).trim();
-    const includeArchived = Boolean(args.include_archived);
+    const request = getConversationRequestSchema.parse(args);
+    const conversationId = request.conversation_id;
+    const includeArchived = Boolean(request.include_archived);
     const themes = this.port.list("theme", true);
     const resources = this.port.list("resource", includeArchived);
     const candidate = resources.find((record) => String(record.id) === conversationId && record.resource_scope === "chat_ref");
     const filtered = visibleRecord("resource", candidate, themes, this.port.workspaceAiVisibilityDefault());
     if (!filtered.record) return notFound("conversation_id", conversationId, "Conversation");
 
-    const maxTextLength = taskContextLimits(args).maxTextLength;
+    const maxTextLength = taskContextLimits(request).maxTextLength;
     const body = text(filtered.record.body_markdown);
     const budget = new TaskContextTextBudget(maxTextLength);
     return {
@@ -135,24 +157,39 @@ export class ContentDetailQueryService {
       limits: { max_text_length: maxTextLength },
       read_only: true,
       ai_audience: AUDIENCE,
+      next_tools: [
+        TASK_CONTEXT_GUIDANCE,
+        {
+          tool: "tasken.propose_note",
+          description: "会話から記録を残すなら、Proposal toolが利用可能な場合だけ利用者レビュー用Note案をqueueする。",
+        },
+      ],
     };
   }
 
   getArtifactMetadata(args: GetArtifactMetadataRequest): GetArtifactMetadataResponse {
-    const artifactId = text(args.artifact_id).trim();
-    const includeArchived = Boolean(args.include_archived);
+    const request = getArtifactMetadataRequestSchema.parse(args);
+    const artifactId = request.artifact_id;
+    const includeArchived = Boolean(request.include_archived);
     const themes = this.port.list("theme", true);
     const artifacts = this.port.list("artifact", includeArchived);
     const candidate = artifacts.find((record) => String(record.id) === artifactId);
     const filtered = visibleRecord("artifact", candidate, themes, this.port.workspaceAiVisibilityDefault());
     if (!filtered.record) return notFound("artifact_id", artifactId, "Artifact");
 
-    const budget = new TaskContextTextBudget(taskContextLimits(args).maxTextLength);
+    const budget = new TaskContextTextBudget(taskContextLimits(request).maxTextLength);
     return {
       artifact: publicArtifactMetadata(filtered.record, budget),
       external_file_content_included: false,
       read_only: true,
       ai_audience: AUDIENCE,
+      next_tools: [
+        TASK_CONTEXT_GUIDANCE,
+        ...(filtered.record.origin_note_id ? [{
+          tool: "tasken.get_note",
+          description: `origin Note ${filtered.record.origin_note_id} の本文を読む。`,
+        }] : []),
+      ],
     };
   }
 }

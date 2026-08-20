@@ -1,5 +1,7 @@
 import * as z from "zod/v4";
 
+import { nextToolSchema } from "./itemQueries.ts";
+
 const recordSchema = z.record(z.string(), z.unknown());
 
 export const getActivityEntriesRequestSchema = z.object({
@@ -71,6 +73,7 @@ const successSchema = z.object({
   result_meta: activityEntriesResultMetaSchema,
   read_only: z.literal(true),
   ai_audience: z.literal("coding_agent"),
+  next_tools: z.array(nextToolSchema).max(4),
 }).strict();
 
 const notFoundSchema = z.object({
@@ -81,6 +84,7 @@ const notFoundSchema = z.object({
   }).strict(),
   read_only: z.literal(true),
   ai_audience: z.literal("coding_agent"),
+  next_tools: z.array(nextToolSchema).max(4),
 }).strict();
 
 export const getActivityEntriesResponseSchema = z.union([successSchema, notFoundSchema]);
