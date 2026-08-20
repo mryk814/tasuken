@@ -1,5 +1,33 @@
 {
   "schemaVersion": 1,
   "issue": 408,
-  "entries": []
+  "entries": [
+    {
+      "rule": "composition.baseline_increase",
+      "source": "src/main/ipc/registerIpc.ts",
+      "reason": "Task capability registration is temporarily composed in the legacy IPC registrar during the #405 reference migration.",
+      "owner": "task-capability-migration",
+      "issue": 405,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move Task registration to the feature composition boundary when the legacy registrar consumer is removed."
+    },
+    {
+      "rule": "composition.baseline_increase",
+      "source": "src/preload/index.ts",
+      "reason": "The main preload temporarily composes the typed Task capability while #405 replaces the aggregate ResearchDeskApi.",
+      "owner": "task-capability-migration",
+      "issue": 405,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Replace the aggregate preload composition with surface-scoped capability entrypoints."
+    },
+    {
+      "rule": "composition.baseline_increase",
+      "source": "src/shared/ipc/contracts.ts",
+      "reason": "Task IPC channels remain in the legacy aggregate registry until #407 finishes transport schema ownership.",
+      "owner": "shared-contract-migration",
+      "issue": 407,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move Task transport channel ownership out of the legacy aggregate registry."
+    }
+  ]
 }

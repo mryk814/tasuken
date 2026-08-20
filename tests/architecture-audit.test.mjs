@@ -125,7 +125,7 @@ test("suppression requires tracked debt and expires deterministically", () => {
   assert.equal(expiredFinding?.suppression?.expired, true);
 });
 
-test("production audit is report-only, deterministic, and has no unbaselined candidates", () => {
+test("production audit is deterministic and keeps temporary composition growth visible as tracked debt", () => {
   const output = mkdtempSync(path.join(os.tmpdir(), "tasken-architecture-audit-"));
   try {
     const args = ["scripts/audit-architecture.mjs", "--format=json", "--output-dir", output];
@@ -136,11 +136,25 @@ test("production audit is report-only, deterministic, and has no unbaselined can
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 0);
+    assert.equal(report.summary.newFindings, 3);
+    assert.equal(report.summary.suppressedFindings, 3);
+    assert.deepEqual(
+      report.findings
+        .filter((entry) => entry.ruleId === "composition.baseline_increase")
+        .map((entry) => [entry.source, entry.suppressed]),
+      [
+        ["src/main/ipc/registerIpc.ts", true],
+        ["src/preload/index.ts", true],
+        ["src/shared/ipc/contracts.ts", true],
+      ],
+    );
     assert.equal(report.summary.newCompatibilityConsumers, 0);
     assert.equal(report.summary.unclassifiedSharedFiles, 0);
     assert.equal(report.modules.find((entry) => entry.id === "main.task")?.publicEntrypoints[0], "src/main/modules/task/public.ts");
     assert.equal(report.findings.some((entry) => entry.ruleId === "main.task_legacy_logic"), false);
+    const mainPreload = report.capabilitySurfaces.find((entry) => entry.file === "src/preload/index.ts" && entry.global === "api");
+    assert.equal(mainPreload?.properties.includes("task"), true);
+    assert.deepEqual(mainPreload?.added, []);
     const ownershipByFile = new Map(report.sharedOwnership.map((entry) => [entry.file, entry]));
     assert.equal(ownershipByFile.get("src/shared/applicationCommand.ts")?.classification, "compatibility");
     assert.equal(ownershipByFile.get("src/shared/types/workspace.ts")?.classification, "compatibility");
@@ -153,4 +167,110 @@ test("production audit is report-only, deterministic, and has no unbaselined can
   } finally {
     rmSync(output, { recursive: true, force: true });
   }
+});
+
+test("Task enforcement profile is blocking and clean without changing global report-only mode", () => {
+  const output = mkdtempSync(path.join(os.tmpdir(), "tasken-architecture-enforced-"));
+  try {
+    const result = spawnSync(process.execPath, [
+      "scripts/audit-architecture.mjs",
+      "--enforce",
+      "task",
+      "--format=json",
+      "--output-dir",
+      output,
+    ], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.mode, "enforced:task");
+    assert.equal(report.summary.blockingFindings, 0);
+    assert.deepEqual(
+      report.modules
+        .filter((entry) => ["shared.kernel", "shared.contracts.task", "main.task"].includes(entry.id))
+        .map((entry) => entry.status)
+        .sort(),
+      ["enforced", "enforced", "enforced"],
+    );
+    assert.match(readFileSync(path.join(output, "report.md"), "utf8"), /Rollout: enforced:task/);
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
+});
+
+test("Task enforcement blocks malformed suppression debt records", () => {
+  const report = analyze({
+    enforcement: {
+      id: "task",
+      modules: ["renderer.tasks"],
+      blockingRules: ["suppression.invalid_debt_record"],
+      globalRules: ["suppression.invalid_debt_record"],
+    },
+    suppressions: {
+      entries: [{
+        rule: "renderer.cross_feature_deep_import",
+        source: "src/renderer/features/tasks/invalid.ts",
+        target: "src/renderer/features/notes/internal.ts",
+        reason: "Missing owner and issue on purpose",
+      }],
+    },
+  });
+  const finding = report.findings.find((entry) => entry.ruleId === "suppression.invalid_debt_record");
+  assert.equal(finding?.severity, "blocking");
+  assert.equal(report.summary.blockingFindings, 1);
+});
+
+test("Task enforcement blocks undeclared dependencies, shared runtime imports, and capability expansion", () => {
+  const undeclared = analyze({
+    policy: {
+      ...policy,
+      modules: policy.modules.map((module) => module.id === "renderer.tasks"
+        ? { ...module, allowedDependencies: [] }
+        : module),
+    },
+    enforcement: {
+      id: "task",
+      modules: ["renderer.tasks"],
+      blockingRules: ["module.undeclared_dependency"],
+      globalRules: [],
+    },
+  });
+  assert.equal(
+    undeclared.findings.some((entry) => entry.ruleId === "module.undeclared_dependency" && entry.severity === "blocking"),
+    true,
+  );
+
+  const sharedRuntime = analyze({
+    policy: {
+      ...policy,
+      modules: policy.modules.map((module) => module.id === "renderer.tasks"
+        ? { ...module, id: "shared.contracts.task", kind: "shared-contract" }
+        : module),
+    },
+    enforcement: {
+      id: "task",
+      modules: ["shared.contracts.task"],
+      blockingRules: ["runtime.shared_neutrality"],
+      globalRules: [],
+    },
+  });
+  assert.equal(
+    sharedRuntime.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.severity === "blocking"),
+    true,
+  );
+
+  const capabilityExpansion = analyze({
+    capabilityBaseline: {
+      surfaces: [{ file: "src/preload/index.ts", global: "api", properties: ["task"] }],
+    },
+    enforcement: {
+      id: "task",
+      modules: [],
+      blockingRules: ["capability.surface_expansion"],
+      globalRules: ["capability.surface_expansion"],
+    },
+  });
+  assert.equal(
+    capabilityExpansion.findings.some((entry) => entry.ruleId === "capability.surface_expansion" && entry.severity === "blocking"),
+    true,
+  );
 });
