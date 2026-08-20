@@ -57,6 +57,13 @@
       "removalCondition": "#404, #405, and #406 have moved Task consumers and the remaining feature owners are inventoried"
     },
     {
+      "id": "explicit-compatibility-adapters",
+      "classification": "compatibility",
+      "root": "src/shared/compatibility",
+      "owner": "platform-architecture",
+      "migrationTarget": "feature-owned contracts after consumer inventory reaches zero"
+    },
+    {
       "id": "existing-flat-pure-policy",
       "classification": "pure-domain",
       "root": "src/shared",
