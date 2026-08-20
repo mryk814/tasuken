@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
+import "./configureContractValidation";
 import { IPC, type ResearchDeskApi } from "../shared/ipc/contracts";
 import { createTaskPreloadCapability } from "./capabilities/task";
 

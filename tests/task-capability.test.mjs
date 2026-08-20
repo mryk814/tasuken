@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { build } from "esbuild";
 
@@ -34,6 +35,39 @@ const {
 } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
 
 const now = "2026-08-17T13:30:00.000Z";
+
+test("Preload configures Zod without JIT before importing Task contracts", async () => {
+  const preloadSource = readFileSync("src/preload/index.ts", "utf8");
+  const configureImport = 'import "./configureContractValidation";';
+  const taskImport = 'import { createTaskPreloadCapability } from "./capabilities/task";';
+  assert.ok(preloadSource.indexOf(configureImport) < preloadSource.indexOf(taskImport));
+  assert.doesNotMatch(readFileSync("src/renderer/index.html", "utf8"), /unsafe-eval/);
+
+  const preloadContractBundle = await build({
+    stdin: {
+      contents: `
+        import "./src/preload/configureContractValidation.ts";
+        export { taskCommandResponseSchema } from "./src/shared/contracts/task/public.ts";
+      `,
+      resolveDir: process.cwd(),
+    },
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  const preloadContract = await import(`data:text/javascript;base64,${Buffer.from(preloadContractBundle.outputFiles[0].text).toString("base64")}`);
+  const OriginalFunction = globalThis.Function;
+  globalThis.Function = function blockedFunctionConstructor() {
+    throw new Error("Function constructor must not run at the Preload contract boundary");
+  };
+  try {
+    assert.doesNotThrow(() => preloadContract.taskCommandResponseSchema.safeParse({}));
+  } finally {
+    globalThis.Function = OriginalFunction;
+  }
+});
 
 class MemoryRepository {
   constructor() {
