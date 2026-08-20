@@ -21,6 +21,16 @@
         "src/renderer/src/tasken-root/TaskenRootApp.tsx"
       ]
     },
+    "generic-task-write": {
+      "consumerPaths": [
+        "src/renderer/src/features/workspace/components/drawer.tsx",
+        "src/renderer/src/features/workspace/pages/TodayPage.tsx",
+        "src/renderer/src/features/workspace/pages/TodoPage.tsx",
+        "tests/audit-tools.test.mjs",
+        "tests/task-main-module.test.mjs",
+        "tests/task-work-receipts.test.mjs"
+      ]
+    },
     "legacy-workspace-data": {
       "consumerPaths": [
         "src/renderer/src/features/workspace/WorkspaceApp.tsx",

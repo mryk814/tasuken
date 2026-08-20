@@ -19,19 +19,29 @@ const valueAfter = (flag) => {
 const outputDirectory = valueAfter("--output-dir") || "artifacts/architecture";
 const outputRoot = path.isAbsolute(outputDirectory) ? outputDirectory : path.join(root, outputDirectory);
 const selectedRule = valueAfter("--rule");
+const enforcementName = valueAfter("--enforce");
 const changedOnly = process.argv.includes("--changed");
 const config = loadArchitectureConfig(root);
-let report = analyzeArchitecture({ root, ...config });
+const enforcementPolicy = enforcementName ? config.policy.enforcement?.profiles?.[enforcementName] : null;
+const enforcement = enforcementPolicy ? { ...enforcementPolicy, id: enforcementName } : null;
+if (enforcementName && !enforcementPolicy) {
+  console.error(`Unknown architecture enforcement profile: ${enforcementName}`);
+  process.exitCode = 2;
+}
+let report = analyzeArchitecture({ root, ...config, enforcement });
+
+const refreshSummary = (current) => ({
+  ...current,
+  findings: report.findings.length,
+  baselineFindings: report.findings.filter((entry) => entry.baseline).length,
+  newFindings: report.findings.filter((entry) => !entry.baseline).length,
+  suppressedFindings: report.findings.filter((entry) => entry.suppressed).length,
+  blockingFindings: report.findings.filter((entry) => entry.severity === "blocking" && !entry.suppressed).length,
+});
 
 if (selectedRule) {
   report = { ...report, findings: report.findings.filter((entry) => entry.ruleId === selectedRule) };
-  report.summary = {
-    ...report.summary,
-    findings: report.findings.length,
-    baselineFindings: report.findings.filter((entry) => entry.baseline).length,
-    newFindings: report.findings.filter((entry) => !entry.baseline).length,
-    suppressedFindings: report.findings.filter((entry) => entry.suppressed).length,
-  };
+  report.summary = refreshSummary(report.summary);
 }
 
 if (changedOnly) {
@@ -51,13 +61,7 @@ if (changedOnly) {
     }
   }
   report = { ...report, findings: report.findings.filter((entry) => changed.has(entry.source)) };
-  report.summary = {
-    ...report.summary,
-    findings: report.findings.length,
-    baselineFindings: report.findings.filter((entry) => entry.baseline).length,
-    newFindings: report.findings.filter((entry) => !entry.baseline).length,
-    suppressedFindings: report.findings.filter((entry) => entry.suppressed).length,
-  };
+  report.summary = refreshSummary(report.summary);
 }
 
 if (process.argv.includes("--write-baselines")) {
@@ -82,9 +86,11 @@ writeFileSync(path.join(outputRoot, "report.md"), markdownReport(report));
 
 if (process.argv.includes("--format=json")) console.log(JSON.stringify(report, null, 2));
 else {
-  console.log(`Architecture audit: REPORT-ONLY (${report.summary.findings} findings; ${report.summary.newFindings} new candidates)`);
+  console.log(`Architecture audit: ${report.mode.toUpperCase()} (${report.summary.findings} findings; ${report.summary.newFindings} new candidates; ${report.summary.blockingFindings} blocking)`);
   console.log(`Compatibility consumers: ${report.summary.compatibilityConsumers}; new candidates: ${report.summary.newCompatibilityConsumers}`);
   console.log(`Preload capabilities: ${report.capabilitySurfaces.reduce((total, entry) => total + entry.propertyCount, 0)}; new candidates: ${report.summary.newCapabilities}`);
   console.log(`Shared ownership: ${report.summary.sharedFiles} files; ${report.summary.unclassifiedSharedFiles} unclassified`);
   console.log(`Report: ${normalizePath(path.join(outputDirectory, "report.md"))}`);
 }
+
+if (report.summary.blockingFindings > 0) process.exitCode = 1;

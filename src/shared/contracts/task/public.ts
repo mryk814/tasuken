@@ -44,6 +44,7 @@ export {
   parseTaskCommand,
   reopenTaskCommandSchema,
   taskCommandActorSchema,
+  taskCommandEntrypointSchema,
   taskCommandSchema,
   taskCommandSourceSchema,
   updateTaskCommandSchema,
@@ -53,6 +54,7 @@ export {
   type ReopenTaskCommand,
   type TaskCommand,
   type TaskCommandActor,
+  type TaskCommandEntrypoint,
   type TaskCommandSource,
   type UpdateTaskCommand,
 } from "./commands.ts";
@@ -62,6 +64,8 @@ export {
   getTaskQuerySchema,
   listTasksQueryResultSchema,
   listTasksQuerySchema,
+  listTodayTasksQueryResultSchema,
+  listTodayTasksQuerySchema,
   parseTaskQuery,
   parseTaskQueryResult,
   taskQueryResultSchema,
@@ -70,6 +74,8 @@ export {
   type GetTaskQueryResult,
   type ListTasksQuery,
   type ListTasksQueryResult,
+  type ListTodayTasksQuery,
+  type ListTodayTasksQueryResult,
   type TaskQuery,
   type TaskQueryResult,
 } from "./queries.ts";
@@ -89,3 +95,15 @@ export {
   type TaskReopenedEvent,
   type TaskUpdatedEvent,
 } from "./events.ts";
+
+export {
+  taskCommandOutcomeSchema,
+  taskCommandResponseSchema,
+  taskQueryResponseSchema,
+  type TaskCapability,
+  type TaskCommandOutcome,
+  type TaskCommandResponse,
+  type TaskGetResponse,
+  type TaskListTodayResponse,
+  type TaskQueryResponse,
+} from "./capability.ts";

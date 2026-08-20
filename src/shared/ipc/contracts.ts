@@ -43,6 +43,7 @@ import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../d
 import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared, VideoTrimExportRequest, VideoTrimExportResult, VideoTrimSourceRevision } from "../mediaCapture";
 import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest, BatchTranscriptionHistoryResult, BatchTranscriptionPreviewResult, BatchTranscriptionRunRequest, BatchTranscriptionRunResult } from "../batchTranscriptionIpc";
 import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingRegionSelection, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
+import type { TaskCapability } from "../contracts/task/public.ts";
 
 /** 録画中インジケータが表示する状態（#383）。pathやsource IDは載せない。 */
 export interface RecordingIndicatorState {
@@ -59,6 +60,9 @@ export const IPC = {
   workspaceLoad: "workspace:load",
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
+  taskCommand: "task:command",
+  taskQuery: "task:query",
+  taskChanged: "task:changed",
   activityCanonicalRootStatus: "activity:canonical-root-status",
   activityOpenCanonicalRef: "activity:open-canonical-ref",
   aiContextPreview: "ai-context:preview",
@@ -554,6 +558,7 @@ export interface ResearchDeskApi {
     bootstrap(legacy: Workspace): Promise<Workspace>;
     getMeta(): Promise<WorkspaceMeta>;
   };
+  task: TaskCapability;
   activity: {
     getCanonicalRootStatus(): Promise<CanonicalRootStatusMap>;
     openCanonicalRef(ref: Record<string, unknown>): Promise<{ ok: boolean; error?: string }>;

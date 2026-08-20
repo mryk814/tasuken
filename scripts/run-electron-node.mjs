@@ -13,6 +13,7 @@ const result = spawnSync(electronPath, process.argv.slice(2), {
   env: {
     ...process.env,
     ELECTRON_RUN_AS_NODE: "1",
+    TASKEN_NODE_EXEC_PATH: process.execPath,
   },
   stdio: "inherit",
   windowsHide: true,

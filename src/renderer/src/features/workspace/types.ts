@@ -396,3 +396,4 @@ export interface PageProps {
   snapshotPreview: SnapshotPreview | null;
   setSnapshotPreview(preview: SnapshotPreview | null): void;
 }
+export { createTaskClient, projectTaskDraft, projectTaskPatch } from "../task/api/taskClient";

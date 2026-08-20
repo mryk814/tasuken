@@ -469,7 +469,8 @@ test("Command Palette source is attached to the new Drawer after dirty-form flus
   const source = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   assert.match(source, /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;[\s\S]*setDrawer\(config\);/);
   assert.match(source, /commandSource: "command_palette"/);
-  assert.match(source, /const commandSource = drawer\?\.commandSource \|\| "main_ui"/);
+  assert.match(source, /entrypoint: drawer\?\.commandSource \|\| "main_ui"/);
+  assert.match(source, /taskClient\.(create|update|complete|reopen)/);
   assert.doesNotMatch(source, /pendingCommandSource/);
 });
 
@@ -628,7 +629,7 @@ test("WorkspaceApp maps reachable mixed flows to named commands and preserves ot
   assert.match(todo, /duplicateTask/);
   assert.match(timeline, /timelineAddDependencyOperations/);
   assert.match(workspaceApp, /executeCommands\(envelopes\)/);
-  assert.match(workspaceApp, /name: "DeleteTask"/);
+  assert.match(workspaceApp, /taskClient\.delete\(/);
   assert.match(registerIpc, /rejectTaskPersistence\(entityType\)/);
   assert.match(registerIpc, /types\.includes\("task"\)/);
   assert.match(workspaceApi, /Taskの保存はApplication Command経由/);

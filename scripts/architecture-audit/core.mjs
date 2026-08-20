@@ -176,6 +176,8 @@ function inspectImport(edge, sourceModule, targetModule, policy) {
   const findings = [];
   const rendererSource = edge.source.startsWith("src/renderer/");
   const sharedSource = sourceModule?.kind === "shared-contract" || sourceModule?.kind === "shared-kernel";
+  const taskContractSource = sourceModule?.id === "shared.contracts.task";
+  const taskSource = sourceModule?.id === "main.task";
   if (rendererSource && (edge.target.startsWith("src/main/") || edge.target.startsWith("src/preload/")
       || matchesExternal(edge.target, ["electron", "node:fs", "node:path", "better-sqlite3"]))) {
     findings.push(finding(
@@ -196,6 +198,63 @@ function inspectImport(edge, sourceModule, targetModule, policy) {
       edge.target,
       "Shared source depends on a feature, platform, UI, filesystem, or database runtime.",
       "Move the dependency behind a Main/Renderer adapter and keep the shared contract runtime-neutral.",
+    ));
+  }
+  if (taskContractSource && matchesExternal(edge.target, ["electron", "react", "better-sqlite3", "sqlite3", "node:sqlite"])) {
+    findings.push(finding(
+      "contract.task_runtime_dependency",
+      edge.source,
+      edge.line,
+      edge.target,
+      "The shared Task contract depends on Electron, React, or a SQLite runtime.",
+      "Keep Task schemas and types runtime-neutral; provide platform/database adapters outside src/shared/contracts/task.",
+    ));
+  }
+  if (["shared.kernel", "shared.contracts.task", "main.task"].includes(targetModule?.id)
+      && sourceModule?.id !== targetModule?.id
+      && targetModule.publicEntrypoints?.length && !isPublicTarget(edge.target, targetModule)) {
+    findings.push(finding(
+      "task.internal_deep_import",
+      edge.source,
+      edge.line,
+      edge.target,
+      "A consumer imports an internal Task module file instead of the Task public entrypoint.",
+      `Import '${targetModule.publicEntrypoints[0]}'.`,
+    ));
+  }
+  if (taskSource && targetModule?.id === "main.bootstrap") {
+    findings.push(finding(
+      "task.reverse_dependency",
+      edge.source,
+      edge.line,
+      edge.target,
+      "The Task module depends on the Main composition root.",
+      "Move wiring to the composition root and expose a feature port or public registration to Task.",
+    ));
+  }
+  if (taskSource && targetModule?.id === "main.application" && /(?:workspaceService|snapshotService)/i.test(edge.target)) {
+    const ruleId = /workspaceService/i.test(edge.target)
+      ? "task.workspace_service_dependency"
+      : "task.legacy_workspace_snapshot";
+    findings.push(finding(
+      ruleId,
+      edge.source,
+      edge.line,
+      edge.target,
+      ruleId === "task.workspace_service_dependency"
+        ? "The Task module depends on the legacy WorkspaceService application boundary."
+        : "The Task module depends on the legacy Workspace snapshot service.",
+      "Keep Task persistence behind its repository/application ports and pass legacy coordination from outside the feature module.",
+    ));
+  }
+  if (taskSource && edge.target === "src/shared/types/workspace.ts" && /\bWorkspaceData\b/.test(edge.specifier)) {
+    findings.push(finding(
+      "task.legacy_workspace_snapshot",
+      edge.source,
+      edge.line,
+      edge.target,
+      "The Task module imports the legacy Workspace snapshot contract.",
+      "Use the Task contract and repository port; translate legacy Workspace data at the adapter boundary.",
     ));
   }
   if (sourceModule?.kind === "renderer-feature" && targetModule?.kind === "renderer-feature" && sourceModule.id !== targetModule.id) {
@@ -359,6 +418,14 @@ export function scanTextRules(file, source, policy) {
       "Delegate through src/main/modules/task/public.ts; keep only transaction, idempotency, receipt, and event coordination here.",
     );
   }
+  if (file.startsWith("src/main/modules/task/")) {
+    addMatches(
+      "task.legacy_workspace_snapshot",
+      /\b(?:WorkspaceData|workspaceApi\.load|window\.(?:api|researchDesk)\.workspace\.load|desktopApi\(\)\.workspace\.load)\b/,
+      "The Task module reaches into the legacy Workspace snapshot boundary.",
+      "Use the Task contract and repository port; translate legacy Workspace data at the adapter boundary.",
+    );
+  }
   if (/src\/shared\/(?:kernel|contracts)\//.test(file)) {
     addMatches(
       "contract.unsafe_boundary_cast",
@@ -449,6 +516,7 @@ function compareCapabilitySurfaces(current, baseline) {
 function compatibilityInventory(files, contents, importsByFile, pairs) {
   const categories = new Map([
     ["generic-entity-api", new Set()],
+    ["generic-task-write", new Set()],
     ["workspace-service", new Set()],
     ["workspace-repository", new Set()],
     ["global-workspace-snapshot", new Set()],
@@ -460,6 +528,7 @@ function compatibilityInventory(files, contents, importsByFile, pairs) {
   for (const file of files) {
     const source = contents.get(file);
     if (/\b(?:entities|workspaceApi)\.(?:get|save|saveMany|remove|restore)\s*\(/.test(source)) categories.get("generic-entity-api").add(file);
+    if (hasGenericTaskWrite(source)) categories.get("generic-task-write").add(file);
     if (importsByFile.get(file)?.some((entry) => /(?:^|\/)workspaceService$/.test(entry.specifier.replace(/\.(?:ts|js|mjs)$/, "")))) categories.get("workspace-service").add(file);
     if (importsByFile.get(file)?.some((entry) => /(?:^|\/)workspaceRepository(?:\.mjs)?$/.test(entry.specifier))) categories.get("workspace-repository").add(file);
     if (/\b(?:workspaceApi\.load|window\.(?:api|researchDesk)\.workspace\.load|desktopApi\(\)\.workspace\.load)\s*\(/.test(source)) categories.get("global-workspace-snapshot").add(file);
@@ -469,6 +538,19 @@ function compatibilityInventory(files, contents, importsByFile, pairs) {
     if (importsByFile.get(file)?.some((entry) => /features\/workspace\/(?:lib|types)(?:\/|$)/.test(entry.target || ""))) categories.get("renderer-workspace-internals").add(file);
   }
   return Object.fromEntries([...categories].map(([id, entries]) => [id, [...entries].sort()]));
+}
+
+/**
+ * Generic Task writes are compatibility debt because they bypass the Task
+ * command/capability boundary. Keep this detector deliberately narrow: a
+ * caller must contain a literal task entity type in a generic write call.
+ * Named Task builders and the feature repository are not generic writes.
+ */
+function hasGenericTaskWrite(source) {
+  if (!source) return false;
+  if (/(?:saveEntity|saveWorkspaceEntity)\s*\(\s*["']task["']/.test(source)) return true;
+  if (/(?:workspaceApi|entities|repository|workspaceRepository)\.(?:save|remove|restore)\s*\(\s*["']task["']/.test(source)) return true;
+  return /(?:saveMany|saveEntities|workspaceApi\.saveMany|entities\.saveMany)\s*\([\s\S]{0,1600}\btype\s*:\s*["']task["']/.test(source);
 }
 
 function compareCompatibility(current, baseline) {
@@ -587,7 +669,20 @@ function applySuppression(findingEntry, suppressions, today) {
   return { ...findingEntry, suppressed: validDebt && !expired, suppression: { ...matching, validDebt: Boolean(validDebt), expired } };
 }
 
-export function analyzeArchitecture({ root, policy, compatibilityBaseline, violationBaseline, compositionBaseline, capabilityBaseline = { surfaces: [] }, generatedPolicy, sharedOwnershipPolicy = { rules: [] }, suppressions, today = new Date().toISOString().slice(0, 10) }) {
+function classifyEnforcement(findingEntry, enforcement, modules) {
+  if (!enforcement) return { severity: "report-only", enforced: false };
+  const blockingRules = new Set(enforcement.blockingRules || []);
+  if (!blockingRules.has(findingEntry.ruleId)) return { severity: "report-only", enforced: false };
+  const globalRules = new Set(enforcement.globalRules || []);
+  if (globalRules.has(findingEntry.ruleId)) return { severity: "blocking", enforced: true };
+  const taskModules = new Set(enforcement.modules || []);
+  const sourceModule = moduleFor(findingEntry.source, modules);
+  const targetModule = moduleFor(findingEntry.target, modules);
+  const inScope = taskModules.has(sourceModule?.id) || taskModules.has(targetModule?.id);
+  return { severity: inScope ? "blocking" : "report-only", enforced: inScope };
+}
+
+export function analyzeArchitecture({ root, policy, compatibilityBaseline, violationBaseline, compositionBaseline, capabilityBaseline = { surfaces: [] }, generatedPolicy, sharedOwnershipPolicy = { rules: [] }, suppressions, enforcement = null, today = new Date().toISOString().slice(0, 10) }) {
   const sourceRoots = policy.sourceRoots || ["src"];
   const fixtureRoots = (policy.fixtureRoots || []).map(normalizePath);
   const files = [...new Set(sourceRoots.flatMap((sourceRoot) => filesUnder(root, sourceRoot)))]
@@ -689,7 +784,14 @@ export function analyzeArchitecture({ root, policy, compatibilityBaseline, viola
     .sort((left, right) => fingerprint(left).localeCompare(fingerprint(right)))
     .map((entry) => {
       const withSuppression = applySuppression(entry, suppressions, today);
-      return { ...withSuppression, fingerprint: fingerprint(entry), baseline: baselineKeys.has(fingerprint(entry)), rollout: "report-only" };
+      const enforcementResult = classifyEnforcement(entry, enforcement, modules);
+      return {
+        ...withSuppression,
+        ...enforcementResult,
+        fingerprint: fingerprint(entry),
+        baseline: baselineKeys.has(fingerprint(entry)),
+        rollout: enforcement ? `enforced:${enforcement.id || "profile"}` : "report-only",
+      };
     });
   const moduleInventory = modules.map((module) => ({
     id: module.id,
@@ -719,7 +821,7 @@ export function analyzeArchitecture({ root, policy, compatibilityBaseline, viola
     .sort((left, right) => [left.source, left.line, left.target].join("|").localeCompare([right.source, right.line, right.target].join("|")));
   return {
     schemaVersion: 1,
-    mode: "report-only",
+    mode: enforcement ? `enforced:${enforcement.id || "profile"}` : "report-only",
     modules: moduleInventory,
     dependencies,
     compatibility,
@@ -736,6 +838,7 @@ export function analyzeArchitecture({ root, policy, compatibilityBaseline, viola
       baselineFindings: uniqueFindings.filter((entry) => entry.baseline).length,
       newFindings: uniqueFindings.filter((entry) => !entry.baseline).length,
       suppressedFindings: uniqueFindings.filter((entry) => entry.suppressed).length,
+      blockingFindings: uniqueFindings.filter((entry) => entry.severity === "blocking" && !entry.suppressed).length,
       compatibilityConsumers: compatibility.reduce((total, entry) => total + entry.currentPaths.length, 0),
       newCompatibilityConsumers: compatibility.reduce((total, entry) => total + entry.added.length, 0),
       newCapabilities: capabilities.reduce((total, entry) => total + entry.added.length, 0),
@@ -784,7 +887,7 @@ export function markdownReport(report) {
   const lines = [
     "# Architecture audit",
     "",
-    "> Rollout: report-only. Findings do not fail CI during #408 Phase 1.",
+    `> Rollout: ${report.mode}. Blocking findings fail CI only for the selected enforcement profile.`,
     "",
     "## Summary",
     "",
@@ -792,6 +895,7 @@ export function markdownReport(report) {
     `- Modules: ${report.summary.modules}`,
     `- Dependency edges: ${report.summary.dependencyEdges}`,
     `- Findings: ${report.summary.findings} (${report.summary.newFindings} new candidates, ${report.summary.baselineFindings} baseline)`,
+    `- Blocking findings: ${report.summary.blockingFindings || 0}`,
     `- Compatibility consumers: ${report.summary.compatibilityConsumers} (${report.summary.newCompatibilityConsumers} new candidates)`,
     `- Preload capabilities: ${report.capabilitySurfaces.reduce((total, entry) => total + entry.propertyCount, 0)} (${report.summary.newCapabilities} new candidates)`,
     `- Shared ownership: ${report.summary.sharedFiles} files / ${report.summary.sharedExportedSymbols} exported symbols (${report.summary.unclassifiedSharedFiles} unclassified files)`,
@@ -835,7 +939,7 @@ export function markdownReport(report) {
   if (!report.findings.length) lines.push("No findings.");
   for (const entry of report.findings) {
     lines.push(
-      `### ${entry.baseline ? "BASELINE" : "NEW"} ${entry.ruleId}`,
+      `### ${entry.severity === "blocking" ? "BLOCKING" : entry.baseline ? "BASELINE" : "NEW"} ${entry.ruleId}`,
       "",
       `- Source: \`${entry.source}:${entry.line}\``,
       `- Target: ${entry.target ? `\`${entry.target}\`` : "n/a"}`,

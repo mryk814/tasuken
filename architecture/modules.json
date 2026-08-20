@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "issue": 408,
-  "rollout": "report-only",
+  "rollout": "task-enforced",
   "sourceRoots": [
     "src",
     "tests",
@@ -22,7 +22,7 @@
     "shared.ipc": ["shared", "shared.kernel", "shared.contracts.task"],
     "shared": ["shared.kernel", "shared.contracts.task", "shared.compatibility"],
     "main.bootstrap": ["main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "main.transport": ["main.application", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.transport": ["main.application", "main.task", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.application": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.task": ["shared", "shared.kernel", "shared.contracts.task"],
@@ -42,7 +42,7 @@
       "id": "shared.kernel",
       "root": "src/shared/kernel",
       "kind": "shared-kernel",
-      "status": "report-only",
+      "status": "enforced",
       "publicEntrypoints": [
         "src/shared/kernel/public.ts"
       ],
@@ -53,7 +53,7 @@
       "id": "shared.contracts.task",
       "root": "src/shared/contracts/task",
       "kind": "shared-contract",
-      "status": "report-only",
+      "status": "enforced",
       "publicEntrypoints": [
         "src/shared/contracts/task/public.ts"
       ],
@@ -116,7 +116,7 @@
       "id": "main.task",
       "root": "src/main/modules/task",
       "kind": "main-feature",
-      "status": "report-only",
+      "status": "enforced",
       "publicEntrypoints": [
         "src/main/modules/task/public.ts"
       ],
@@ -230,6 +230,38 @@
     "ipcRegistrarPaths": [
       "src/main/ipc/registerIpc.ts"
     ]
+  },
+  "enforcement": {
+    "profiles": {
+      "task": {
+        "modules": [
+          "shared.kernel",
+          "shared.contracts.task",
+          "main.task"
+        ],
+        "blockingRules": [
+          "module.undeclared_dependency",
+          "runtime.shared_neutrality",
+          "task.internal_deep_import",
+          "contract.task_runtime_dependency",
+          "task.legacy_workspace_snapshot",
+          "task.reverse_dependency",
+          "task.workspace_service_dependency",
+          "main.task_legacy_logic",
+          "capability.surface_expansion",
+          "compatibility.consumer_added",
+          "suppression.invalid_debt_record",
+          "suppression.expired"
+        ],
+        "globalRules": [
+          "capability.surface_expansion",
+          "compatibility.consumer_added",
+          "main.task_legacy_logic",
+          "suppression.invalid_debt_record",
+          "suppression.expired"
+        ]
+      }
+    }
   },
   "ignoreUnresolved": []
 }

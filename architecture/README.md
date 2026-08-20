@@ -1,8 +1,8 @@
 # Architecture fitness function
 
 Issue #408 Phase 0–1 introduces a deterministic architecture inventory and a
-report-only CI audit. Existing findings are deliberately visible but do not
-fail CI yet.
+report-only CI audit. The Task reference slice is now the first selectively
+enforced profile; unrelated repository findings remain report-only.
 
 ## Files
 
@@ -33,6 +33,7 @@ fail CI yet.
 npm run audit:architecture
 npm run audit:architecture -- --changed
 npm run audit:architecture -- --rule renderer.cross_feature_deep_import
+npm run audit:architecture -- --enforce task
 ```
 
 Reports are written under `artifacts/architecture/` and uploaded by Windows CI.
@@ -54,5 +55,7 @@ accepted before running:
 npm run audit:architecture -- --write-baselines
 ```
 
-Phase 2 will turn selected non-increasing checks into failures. Task-specific
-rules remain report-only until the #407/#404/#405/#406 reference slice exists.
+`--enforce task` turns the `shared.kernel`, `shared.contracts.task`, and
+`main.task` boundaries into blocking checks. It also blocks compatibility
+consumer growth and malformed/expired suppressions. All other module findings
+remain report-only until their own migration slice is explicitly enabled.

@@ -12,6 +12,9 @@ export const taskErrorCodeSchema = z.enum([
   "NOT_FOUND",
   "CONFLICT",
   "INVALID_TRANSITION",
+  "FORBIDDEN",
+  "UNAVAILABLE",
+  "INTERNAL_ERROR",
 ]);
 
 export const taskErrorSchema = z.object({

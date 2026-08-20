@@ -11,12 +11,14 @@ export const taskCommandActorSchema = z.object({
 }).strict();
 
 export const taskCommandSourceSchema = z.enum(["desktop", "mobile", "http", "mcp", "system"]);
+export const taskCommandEntrypointSchema = z.enum(["main_ui", "today_window", "quick_capture", "inbox", "command_palette", "tasken_root", "mcp"]);
 
 const commandBase = {
   schemaVersion: taskContractSchemaVersionSchema,
   command_id: entityIdSchema,
   actor: taskCommandActorSchema,
   source: taskCommandSourceSchema,
+  entrypoint: taskCommandEntrypointSchema.optional(),
   issued_at: isoTimestampSchema,
 };
 
@@ -52,6 +54,7 @@ export const completeTaskCommandSchema = z.object({
     task_id: taskIdSchema,
     expected_version: entityVersionSchema,
     completion_note: z.string().max(10000).nullable().optional(),
+    changes: taskPatchSchema.optional(),
   }).strict(),
 }).strict();
 
@@ -61,6 +64,7 @@ export const reopenTaskCommandSchema = z.object({
   payload: z.object({
     task_id: taskIdSchema,
     expected_version: entityVersionSchema,
+    changes: taskPatchSchema.optional(),
   }).strict(),
 }).strict();
 
@@ -74,6 +78,7 @@ export const taskCommandSchema = z.discriminatedUnion("name", [
 
 export type TaskCommandActor = z.output<typeof taskCommandActorSchema>;
 export type TaskCommandSource = z.output<typeof taskCommandSourceSchema>;
+export type TaskCommandEntrypoint = z.output<typeof taskCommandEntrypointSchema>;
 export type CreateTaskCommand = z.output<typeof createTaskCommandSchema>;
 export type UpdateTaskCommand = z.output<typeof updateTaskCommandSchema>;
 export type DeleteTaskCommand = z.output<typeof deleteTaskCommandSchema>;

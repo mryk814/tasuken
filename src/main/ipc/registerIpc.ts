@@ -35,6 +35,7 @@ import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
 import { projectScreenRecordingIpcError } from "../screenRecordingIpcError";
 import { logMain } from "../log";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
+import { registerTaskIpc, TaskCapabilityService } from "../modules/task/public.ts";
 import { projectBatchTranscriptionIpcError } from "../batchTranscriptionIpcError";
 import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
 import { assertRendererBootstrapContainsNoMedia } from "../services/snapshotMediaValidation";
@@ -58,12 +59,12 @@ interface WorkspaceRepository {
   setPreference(key: string, value: unknown): unknown;
   getViewPreferences(): unknown;
   setViewPreference(id: string, scopeKey: string, value: unknown, schemaVersion: number): unknown;
-  list(type: EntityType, includeDeleted?: boolean): unknown;
-  get(type: EntityType, id: string): unknown;
-  save(type: EntityType, entity: unknown, options?: unknown): unknown;
-  saveMany(operations: unknown): unknown;
-  remove(type: EntityType, id: string): unknown;
-  restore(type: EntityType, id: string): unknown;
+  list(type: EntityType, includeDeleted?: boolean): Entity[];
+  get(type: EntityType, id: string, includeDeleted?: boolean): Entity | null;
+  save(type: EntityType, entity: Entity, options?: unknown): Entity;
+  saveMany(operations: unknown): Entity[];
+  remove(type: EntityType, id: string): Entity | null;
+  restore(type: EntityType, id: string): Entity | null;
 }
 
 function requireEntityType(value: unknown): EntityType {
@@ -80,6 +81,11 @@ function requireId(value: unknown): string {
   return value;
 }
 
+function publishIpc(channel: string, payload: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(channel, payload);
+  }
+}
 function requireText(value: unknown, label: string): string {
   if (typeof value !== "string") {
     throw new Error(`${label}の形式が不正です。画面を再読み込みして、もう一度試してください。`);
@@ -192,8 +198,23 @@ export function registerIpc(
   screenRecording: ScreenRecordingService,
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
   notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number, options?: { senderReceivesAll?: boolean }) => void = () => {},
+  notifyTaskProjectionChanged: (types: EntityType[]) => void = () => {},
 ): void {
   const screenRecordingSenderIds = new Set<number>();
+  const taskCapability = new TaskCapabilityService(repository, (command) => applicationCommands.execute(command));
+  registerTaskIpc({
+    channels: {
+      command: IPC.taskCommand,
+      query: IPC.taskQuery,
+      changed: IPC.taskChanged,
+    },
+    handle: (channel, listener) => ipcMain.handle(channel, listener),
+    publish: publishIpc,
+    authorize: (event) => {
+      const url = new URL((event as Electron.IpcMainInvokeEvent).senderFrame?.url || "about:blank");
+      return !url.search && (url.pathname === "/" || url.pathname.endsWith("/index.html"));
+    },
+  }, taskCapability, () => notifyTaskProjectionChanged(["task"]));
   ipcMain.handle(IPC.workspaceLoad, () => projectWorkspaceForRenderer(service.loadWorkspace()));
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => {
     assertRendererBootstrapContainsNoMedia(legacy);
@@ -215,9 +236,7 @@ export function registerIpc(
       state: result.state,
       dirty: result.dirty,
     };
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send(IPC.themeAiPackChanged, change);
-    }
+    publishIpc(IPC.themeAiPackChanged, change);
     return result;
   });
   ipcMain.handle(IPC.themeAiPackOpenFolder, (_event, themeId) => service.openThemeAiPackFolder(requireId(themeId)));
@@ -238,16 +257,12 @@ export function registerIpc(
     const saved = repository.setPreference(normalizedKey, value);
     if (normalizedKey === "themeMode") {
       const mode = value === "dark" ? "dark" : "light";
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) window.webContents.send(IPC.todayMiniTheme, mode);
-      }
+      publishIpc(IPC.todayMiniTheme, mode);
     }
     if (normalizedKey === "artifactDirectory") {
       // Root changes are workspace projection changes, not entity changes.
       // Refreshing here updates canonical_root_status in the live renderer.
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) window.webContents.send(IPC.workspaceChanged, {});
-      }
+      publishIpc(IPC.workspaceChanged, {});
     }
     return saved;
   });
@@ -258,9 +273,7 @@ export function registerIpc(
     const normalizedScopeKey = definition?.scope === "theme" ? requireText(scopeKey, "Theme") : "";
     const normalized = normalizeViewPreference(id, value, Number(schemaVersion) || 1);
     const change = repository.setViewPreference(id, normalizedScopeKey, normalized, definition?.schemaVersion || 1) as ViewPreferenceChange;
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send(IPC.viewPreferenceChanged, change);
-    }
+    publishIpc(IPC.viewPreferenceChanged, change);
     return change;
   });
   ipcMain.handle(IPC.aiConfigGet, () => aiProvider.getConfig());
@@ -561,7 +574,7 @@ export function registerIpc(
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType);
     const normalizedEntity = normalizeMediaCapturePersistence(repository, entityType, entity);
-    const saved = repository.save(entityType, normalizedEntity, normalizeIpcSaveOptions(options));
+    const saved = repository.save(entityType, normalizedEntity as Entity, normalizeIpcSaveOptions(options));
     notifyEntitiesChanged([entityType]);
     return saved && typeof saved === "object" ? projectEntityForRenderer(entityType, saved as Entity) : saved;
   });
