@@ -162,6 +162,10 @@ MCP toolを追加または削除する変更は、同じ変更でinventory件数
 shared contract、Core application service、repository port、既存`WorkspaceDatabase`へのinfrastructure adapterを追加する。
 最初は`list_agent_ready_tasks`だけを実装し、Desktop Main内でin-process実行する。
 Core applicationはElectron、HTTP、MCP SDK、`better-sqlite3`をimportしない。
+`src/main/core/`を独立moduleとして強制し、`src/main/infrastructure/sqlite/`のadapterがCoreのread portを実装する。
+Phase 1ではfactoryをfixtureから生成してin-process境界を検証し、実runtimeのcomposition rootへはまだ接続しない。
+既存`WorkspaceDatabase` instanceの注入は、実consumerになるloopback hostを追加するPhase 2と同じ変更で行う。
+`tests/tasken-core-phase1.test.mjs`は同一fixtureに対するCoreとlegacy `ReadOnlyTaskenContext`のdeep equalityを固定する。
 
 Task command endpointは`TaskCapabilityService`へdelegateする。
 新しいcommand handlerやTask mutation policyは作らない。

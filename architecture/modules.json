@@ -24,10 +24,11 @@
     "main.bootstrap": ["main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.transport": ["main.application", "main.task", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.application": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.core": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.task": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.mcp": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "main.platform": ["main.application", "main.infrastructure", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.platform": ["main.application", "main.core", "main.infrastructure", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "preload": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.main": ["renderer.app", "renderer.workspace", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.root": ["renderer.app", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
@@ -125,6 +126,17 @@
       ],
       "enforcePublicApi": true,
       "owner": "task"
+    },
+    {
+      "id": "main.core",
+      "root": "src/main/core",
+      "kind": "main-core",
+      "status": "enforced",
+      "publicEntrypoints": [
+        "src/main/core/public.ts"
+      ],
+      "enforcePublicApi": true,
+      "owner": "core"
     },
     {
       "id": "main.infrastructure",
