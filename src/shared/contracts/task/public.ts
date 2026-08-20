@@ -201,3 +201,26 @@ export {
   type GetActivityEntriesResponse,
   type PublicActivityEntry,
 } from "./activityEntries.ts";
+
+export {
+  getKnowledgeContextRequestSchema,
+  getKnowledgeContextResponseSchema,
+  getKnowledgeHealthRequestSchema,
+  getKnowledgeHealthResponseSchema,
+  getPlanHealthRequestSchema,
+  getPlanHealthResponseSchema,
+  getRecentNotesRequestSchema,
+  getRecentNotesResponseSchema,
+  searchKnowledgeRequestSchema,
+  searchKnowledgeResponseSchema,
+  type GetKnowledgeContextRequest,
+  type GetKnowledgeContextResponse,
+  type GetKnowledgeHealthRequest,
+  type GetKnowledgeHealthResponse,
+  type GetPlanHealthRequest,
+  type GetPlanHealthResponse,
+  type GetRecentNotesRequest,
+  type GetRecentNotesResponse,
+  type SearchKnowledgeRequest,
+  type SearchKnowledgeResponse,
+} from "./knowledgeQueries.ts";

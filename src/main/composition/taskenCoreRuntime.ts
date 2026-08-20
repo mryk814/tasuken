@@ -8,12 +8,13 @@ import {
   type ContentDetailWorkspacePersistence,
   type ActivityEntriesWorkspacePersistence,
   type ThemeContextWorkspacePersistence,
+  type KnowledgeWorkspacePersistence,
 } from "../infrastructure/sqlite/public.ts";
 
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
 
-  constructor(userDataPath: string, persistence: AgentReadyTaskWorkspacePersistence & AgentWorkspacePersistence & TaskContextWorkspacePersistence & ItemQueryWorkspacePersistence & ContentDetailWorkspacePersistence & ActivityEntriesWorkspacePersistence & ThemeContextWorkspacePersistence) {
+  constructor(userDataPath: string, persistence: AgentReadyTaskWorkspacePersistence & AgentWorkspacePersistence & TaskContextWorkspacePersistence & ItemQueryWorkspacePersistence & ContentDetailWorkspacePersistence & ActivityEntriesWorkspacePersistence & ThemeContextWorkspacePersistence & KnowledgeWorkspacePersistence) {
     const core = createTaskenCore(persistence);
     this.host = new TaskenCoreHost({
       userDataPath,
@@ -31,6 +32,11 @@ export class TaskenCoreRuntime {
       getArtifactMetadata: core.getArtifactMetadata,
       getActivityEntries: core.getActivityEntries,
       getThemeContext: core.getThemeContext,
+      getRecentNotes: core.getRecentNotes,
+      searchKnowledge: core.searchKnowledge,
+      getKnowledgeContext: core.getKnowledgeContext,
+      getPlanHealth: core.getPlanHealth,
+      getKnowledgeHealth: core.getKnowledgeHealth,
     });
   }
 

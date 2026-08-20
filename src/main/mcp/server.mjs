@@ -260,7 +260,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetRecentNotes(args)));
+  }, withCoreClient((args) => coreClient.getRecentNotes(args)));
 
   server.registerTool("tasken.search_knowledge", {
     description: "Search Tasken Knowledge nodes.",
@@ -273,7 +273,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolSearchKnowledge(args)));
+  }, withCoreClient((args) => coreClient.searchKnowledge(args)));
 
   server.registerTool("tasken.get_knowledge_context", {
     description: "Return Knowledge nodes, relations, and optionally source entities.",
@@ -287,19 +287,19 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetKnowledgeContext(args)));
+  }, withCoreClient((args) => coreClient.getKnowledgeContext(args)));
 
   server.registerTool("tasken.get_plan_health", {
     description: "Return open, overdue, waiting, and unscheduled work health.",
     inputSchema: { theme_id: optionalText },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetPlanHealth(args)));
+  }, withCoreClient((args) => coreClient.getPlanHealth(args)));
 
   server.registerTool("tasken.get_knowledge_health", {
     description: "Return unresolved questions and other Knowledge health issues.",
     inputSchema: { theme_id: optionalText },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetKnowledgeHealth(args)));
+  }, withCoreClient((args) => coreClient.getKnowledgeHealth(args)));
 
   server.registerTool("tasken.get_activity", {
     description: "Return the structured Activity event index as JSON or Markdown. This is read-only and applies AI visibility policy at projection time.",
