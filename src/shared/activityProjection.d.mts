@@ -47,7 +47,7 @@ export interface ActivityProjectionQuery {
   timezone?: string;
   audience?: string | null;
   workspaceDefault?: unknown;
-  roots?: Record<string, string>;
+  roots?: Record<string, unknown>;
   limit?: number;
 }
 
