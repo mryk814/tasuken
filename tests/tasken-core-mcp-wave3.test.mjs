@@ -12,7 +12,7 @@ import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
-import { publicReceiptForContext, safeReceiptText, TaskContextTextBudget } from "../src/shared/taskContext.mjs";
+import { publicReceiptForContext, safeReceiptText, safeReceiptValue, TaskContextTextBudget } from "../src/shared/taskContext.mjs";
 
 const bundled = await build({
   stdin: {
@@ -320,6 +320,41 @@ test("Work Receipt sanitizer preserves ordinary colon text and consumes complete
     ["Basic c2VjcmV0", "Basic [redacted]"],
   ];
   for (const [input, expected] of cases) assert.equal(safeReceiptText(input), expected, input);
+});
+
+test("shared receipt sanitizer covers credential label variants, object fields, and single-component POSIX paths", () => {
+  const cases = [
+    ["authorizationToken=AUTH_CAMEL_SECRET", "authorizationToken=[redacted]"],
+    ["authorization_token=AUTH_SNAKE_SECRET", "authorization_token=[redacted]"],
+    ["client-secret: CLIENT_KEBAB_SECRET", "client-secret=[redacted]"],
+    ["accessToken='ACCESS QUOTED SECRET'", "accessToken=[redacted]"],
+    ["refresh-token=REFRESH_SECRET", "refresh-token=[redacted]"],
+    ["privateKey=PRIVATE_KEY_SECRET", "privateKey=[redacted]"],
+    ["credentials=CREDENTIAL_SECRET", "credentials=[redacted]"],
+    ["cookie=COOKIE_SECRET", "cookie=[redacted]"],
+    ["read /etc then /tmp", "read [redacted-local-path] then [redacted-local-path]"],
+    ["Status: done; metadata: public", "Status: done; metadata: public"],
+    ["safe https://example.com/docs/status?view=full#section", "safe https://example.com/docs/status"],
+  ];
+  for (const [input, expected] of cases) assert.equal(safeReceiptText(input), expected, input);
+
+  const sanitized = safeReceiptValue({
+    authorizationToken: "OBJECT_AUTH_SECRET",
+    client_secret: "OBJECT_CLIENT_SECRET",
+    "credential=OBJECT_KEY_SECRET": "ordinary",
+    nested: { detail: "access-token=OBJECT_VALUE_SECRET at /tmp" },
+    metadata: "public",
+    status: "ready",
+    url: "https://example.com/docs/status?token=URL_QUERY_SECRET#URL_HASH_SECRET",
+  });
+  const serialized = JSON.stringify(sanitized);
+  assert.doesNotMatch(serialized, /OBJECT_AUTH_SECRET|OBJECT_CLIENT_SECRET|OBJECT_KEY_SECRET|OBJECT_VALUE_SECRET|URL_QUERY_SECRET|URL_HASH_SECRET|\/tmp/);
+  assert.equal(sanitized.authorizationToken, "[redacted]");
+  assert.equal(sanitized.client_secret, "[redacted]");
+  assert.equal(sanitized.metadata, "public");
+  assert.equal(sanitized.status, "ready");
+  assert.equal(sanitized.url, "https://example.com/docs/status");
+  assert.equal(sanitized["credential=[redacted]"], "ordinary");
 });
 
 test("migrated Wave 3 tool fails closed and named capability is required", async () => {

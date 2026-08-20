@@ -35,11 +35,29 @@ const { TaskenCoreHost, createTaskenCore } = await import(
 );
 
 const now = "2026-08-21T00:00:00.000Z";
+const adversarialReceiptText = [
+  "authorizationToken=AUTH_CAMEL_LEAK",
+  "authorization_token=AUTH_SNAKE_LEAK",
+  "client-secret=CLIENT_KEBAB_LEAK",
+  "accessToken=ACCESS_CAMEL_LEAK",
+  "refresh_token=REFRESH_SNAKE_LEAK",
+  "privateKey=PRIVATE_CAMEL_LEAK",
+  "credentials=CREDENTIAL_LEAK",
+  "cookie=COOKIE_LEAK",
+  "credential=OBJECT_KEY_LEAK",
+  "C:\\Users\\private\\wave6-secret.txt",
+  "/etc",
+  "/tmp",
+  "https://example.com/docs/status?token=URL_QUERY_LEAK#URL_HASH_LEAK",
+  "Status: done",
+  "metadata: public",
+].join(" | ");
+const adversarialLeaks = /AUTH_CAMEL_LEAK|AUTH_SNAKE_LEAK|CLIENT_KEBAB_LEAK|ACCESS_CAMEL_LEAK|REFRESH_SNAKE_LEAK|PRIVATE_CAMEL_LEAK|CREDENTIAL_LEAK|COOKIE_LEAK|OBJECT_KEY_LEAK|wave6-secret|URL_QUERY_LEAK|URL_HASH_LEAK/;
 
 function fixture() {
   const repository = {
     id: "repository-wave6",
-    label: "Wave 6 repo",
+    label: adversarialReceiptText,
     provider: "github",
     canonical_url: "https://user:secret@github.com/acme/wave6.git?token=secret#private",
     local_path: "C:\\Users\\private\\wave6",
@@ -167,13 +185,21 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
       assert.deepEqual(overHttp, wireShape, `${tool} HTTP parity`);
       assert.deepEqual(overMcp.structuredContent, wireShape, `${tool} MCP parity`);
       assert.equal(overMcp.isError, undefined);
+      const serialized = JSON.stringify(overMcp.structuredContent);
+      assert.doesNotMatch(serialized, adversarialLeaks, `${tool} credential/url redaction`);
+      assert.doesNotMatch(serialized, /C:\\\\Users|\/etc(?:[\s|"}]|$)|\/tmp(?:[\s|"}]|$)/, `${tool} local path redaction`);
+      assert.match(serialized, /https:\/\/example\.com\/docs\/status/, `${tool} safe HTTPS path`);
+      assert.match(serialized, /Status: done/, `${tool} ordinary status label`);
+      assert.match(serialized, /metadata: public/, `${tool} ordinary metadata label`);
     }
 
     const repository = await client.getRepositoryContext({ repository_context_id: "repository-wave6" });
     assert.equal(repository.repository_context.canonical_url, "https://github.com/acme/wave6");
     assert.equal("local_path" in repository.repository_context, false);
     assert.doesNotMatch(JSON.stringify(repository), /user:secret|token=secret|Users\\\\private/);
-    assert.doesNotMatch(JSON.stringify(repository), /THEME_SECRET|TASK_SECRET|TASK_PASSWORD|password|authorization/i);
+    assert.doesNotMatch(JSON.stringify(repository), /THEME_SECRET|TASK_SECRET|TASK_PASSWORD/);
+    assert.equal("authorization" in repository.themes[0], false);
+    assert.equal("password" in repository.tasks[0], false);
     assert.match(repository.tasks[0].description, /\[redacted\]/);
     assert.equal((await client.getRepositoryContext({ repository_context_id: "repository-hidden" })).repository_context, null);
     const ambiguous = await client.findThemesForRepository({

@@ -7,7 +7,7 @@ import {
   publicNoteSummary,
   publicThemeForContext,
   relationForNode,
-  safeReceiptText,
+  safeReceiptValue,
   TaskContextTextBudget,
 } from "../../../shared/taskContext.mjs";
 import {
@@ -56,13 +56,6 @@ function graphPayloadTokens(shape: Record<string, any>) {
 
 function structuredReadError(code: string, message: string, details: Record<string, unknown> = {}) {
   return { error: { code, message, ...details }, read_only: true as const };
-}
-
-function sanitizeProjected(value: any): any {
-  if (typeof value === "string") return safeReceiptText(value);
-  if (Array.isArray(value)) return value.map(sanitizeProjected);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeProjected(entry)]));
 }
 
 function publicThemeGraphEntity(
@@ -227,7 +220,7 @@ export class ThemeContextQueryService {
     });
     const rawRelationGraph = contextGraphMcpShape(subgraph);
     rawRelationGraph.edges = rawRelationGraph.edges.map(({ metadata: _metadata, ...edge }: Record<string, any>) => edge);
-    const relationGraph = sanitizeProjected(rawRelationGraph);
+    const relationGraph = safeReceiptValue(rawRelationGraph);
     const budget = new TaskContextTextBudget(textLimit);
     const selected: { type: string; output: Record<string, any> }[] = [];
     const selectionExclusions = [...relationGraph.excluded_nodes];
@@ -241,7 +234,7 @@ export class ThemeContextQueryService {
       }
       const relation = relationForNode(relationGraph, node.type, node.id);
       const rawOutput = publicThemeGraphEntity(node.type, record, budget, relation, Boolean(args.include_raw_body));
-      const output = rawOutput ? sanitizeProjected(rawOutput) : null;
+      const output = rawOutput ? safeReceiptValue(rawOutput) : null;
       if (output) selected.push({
         type: node.type,
         output: {

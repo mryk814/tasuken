@@ -26,7 +26,7 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
-import { publicTaskForContext, publicThemeForContext, safeReceiptText, TaskContextTextBudget } from "../../../shared/taskContext.mjs";
+import { publicTaskForContext, publicThemeForContext, safeReceiptValue, TaskContextTextBudget } from "../../../shared/taskContext.mjs";
 
 interface TaskRepositoryResolution {
   mode: unknown;
@@ -56,29 +56,22 @@ function currentFromRequest(request: RepositoryLookupRequest) {
 }
 
 function publicMatch(match: Record<string, any>) {
-  return {
+  return safeReceiptValue({
     ...match,
     selected: publicRepositoryContext(match.selected),
     candidates: (match.candidates || []).map((candidate: Record<string, unknown>) => ({
       ...candidate,
       context: publicRepositoryContext(candidate.context as Record<string, unknown>),
     })),
-  };
-}
-
-function sanitizeProjected(value: any): any {
-  if (typeof value === "string") return safeReceiptText(value);
-  if (Array.isArray(value)) return value.map(sanitizeProjected);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeProjected(entry)]));
+  });
 }
 
 function publicTheme(theme: Record<string, any>) {
-  return sanitizeProjected(publicThemeForContext(theme, new TaskContextTextBudget(50_000)));
+  return safeReceiptValue(publicThemeForContext(theme, new TaskContextTextBudget(50_000)));
 }
 
 function publicTask(task: Record<string, any>) {
-  return sanitizeProjected(publicTaskForContext(task, new TaskContextTextBudget(50_000)));
+  return safeReceiptValue(publicTaskForContext(task, new TaskContextTextBudget(50_000)));
 }
 
 export class AgentWorkspaceQueryService {
@@ -124,7 +117,7 @@ export class AgentWorkspaceQueryService {
       themes: ((result.themes || []) as Record<string, any>[]).map(publicTheme),
       repository_contexts: contexts
         .filter((context) => matchedContextIds.has(String(context.id)))
-        .map(publicRepositoryContext),
+        .map((context) => safeReceiptValue(publicRepositoryContext(context))),
       read_only: true,
       ai_audience: "coding_agent",
     });
@@ -203,7 +196,7 @@ export class AgentWorkspaceQueryService {
       return taskRepositoryResolution({ task, theme, contexts }).contextIds.includes(id);
     });
     return getRepositoryContextResponseSchema.parse({
-      repository_context: publicRepositoryContext(context),
+      repository_context: safeReceiptValue(publicRepositoryContext(context)),
       themes: themes.map(publicTheme),
       tasks: matchingTasks.map(publicTask),
       repository_context_id: id,
