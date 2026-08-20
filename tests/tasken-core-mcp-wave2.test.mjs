@@ -50,6 +50,14 @@ function fixture() {
         default_ai_visibility: ["m365"],
         updated_at: now,
       },
+      {
+        id: "theme-archived-private",
+        name: "Archived private",
+        repository_context_ids: ["repo-archived-private"],
+        default_ai_visibility: ["m365"],
+        deleted_at: "2026-08-20T00:00:00.000Z",
+        updated_at: now,
+      },
     ],
     tasks: [
       {
@@ -69,6 +77,14 @@ function fixture() {
         project_id: "theme-hidden",
         intended_executor: "ai_agent",
         updated_at: "2026-08-21T02:00:00.000Z",
+      },
+      {
+        id: "task-active-under-archived-private-theme",
+        title: "Must remain private",
+        state: "todo",
+        project_id: "theme-archived-private",
+        intended_executor: "ai_agent",
+        updated_at: "2026-08-21T01:00:00.000Z",
       },
     ],
     repository_contexts: [
@@ -91,6 +107,17 @@ function fixture() {
         canonical_identity: "github:private/hidden",
         repository_slug: "private/hidden",
         local_path: "/private/hidden",
+        active: true,
+        updated_at: now,
+      },
+      {
+        id: "repo-archived-private",
+        label: "Archived private",
+        provider: "github",
+        canonical_url: "https://github.com/private/archived",
+        canonical_identity: "github:private/archived",
+        repository_slug: "private/archived",
+        local_path: "/private/archived",
         active: true,
         updated_at: now,
       },
@@ -167,6 +194,15 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
         task_id: "task-visible",
         limit: 1,
       }],
+      ["tasken.resolve_repository_context", "toolResolveRepositoryContext", "resolveRepositoryContext", {
+        remote_url: "https://github.com/private/archived",
+      }],
+      ["tasken.find_tasks_for_repository", "toolFindTasksForRepository", "findTasksForRepository", {
+        remote_url: "https://github.com/private/archived",
+      }],
+      ["tasken.get_task_assignment", "toolGetTaskAssignment", "getTaskAssignment", {
+        task_id: "task-active-under-archived-private-theme",
+      }],
     ];
     for (const [toolName, legacyMethod, clientMethod, request] of cases) {
       const expected = legacy[legacyMethod](request);
@@ -177,6 +213,10 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
       assert.deepEqual(http, expected, `${toolName}: HTTP`);
       assert.deepEqual(mcp.structuredContent, expected, `${toolName}: MCP`);
       assert.doesNotMatch(JSON.stringify(expected), /\/private\//);
+      if (request.task_id === "task-active-under-archived-private-theme") {
+        assert.equal(expected.task, null);
+        assert.equal(expected.excluded_count, 1);
+      }
     }
 
     for (const request of [
@@ -230,4 +270,42 @@ test("migrated Wave 2 tools fail closed without constructing the legacy DB conte
 test("normal Node MCP Wave 2 client remains native-free", () => {
   const graph = fs.readFileSync("src/main/mcp/taskenCoreClient.mjs", "utf8");
   assert.doesNotMatch(graph, /better-sqlite3|readOnlyContext/);
+});
+
+test("each Core client operation requires its named discovery capability before HTTP", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-capability-wave2-"));
+  const discoveryPath = path.join(root, "tasken-core.json");
+  const operations = [
+    ["listAgentReadyTasks", "list_agent_ready_tasks", {}],
+    ["resolveRepositoryContext", "resolve_repository_context", {}],
+    ["findTasksForRepository", "find_tasks_for_repository", {}],
+    ["getTaskAssignment", "get_task_assignment", { task_id: "task-visible" }],
+  ];
+  const allCapabilities = operations.map(([, capability]) => capability);
+  try {
+    for (const [method, missingCapability, request] of operations) {
+      fs.writeFileSync(discoveryPath, JSON.stringify({
+        schema_version: 1,
+        api_version: "1",
+        origin: "http://127.0.0.1:65535",
+        token: Buffer.alloc(32, 7).toString("base64url"),
+        capabilities: allCapabilities.filter((capability) => capability !== missingCapability),
+      }), { mode: 0o600 });
+      fs.chmodSync(discoveryPath, 0o600);
+      let fetchCalls = 0;
+      const client = new TaskenCoreClient({
+        discoveryPath,
+        fetch: async () => {
+          fetchCalls += 1;
+          throw new Error("HTTP_MUST_NOT_RUN");
+        },
+      });
+      await assert.rejects(client[method](request), (error) => (
+        error?.code === "CAPABILITY_UNAVAILABLE" && String(error.message).includes(missingCapability)
+      ));
+      assert.equal(fetchCalls, 0, method);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -68,9 +68,10 @@ export class AgentWorkspaceQueryService {
 
   private projected(includeArchived: boolean) {
     const themes = this.readPort.listThemes(includeArchived);
+    const visibilityThemes = this.readPort.listThemes(true);
     const tasks = this.projection.project(
       this.readPort.listTasks(includeArchived),
-      themes,
+      visibilityThemes,
       this.readPort.workspaceAiVisibilityDefault(),
     );
     const workspaceDefault = this.readPort.workspaceAiVisibilityDefault();
@@ -79,7 +80,7 @@ export class AgentWorkspaceQueryService {
       theme,
       workspaceDefault,
     }).included);
-    return { tasks, themes, projectedThemes };
+    return { tasks, themes, visibilityThemes, projectedThemes };
   }
 
   private visibleRepositoryContexts(includeArchived: boolean) {
@@ -87,14 +88,14 @@ export class AgentWorkspaceQueryService {
     const contexts = includeArchived
       ? this.readPort.listRepositoryContexts(true)
       : this.readPort.listRepositoryContexts(false).filter((context) => context.active !== false);
-    const { tasks, projectedThemes, themes } = this.projected(includeArchived);
+    const { tasks, projectedThemes, visibilityThemes } = this.projected(includeArchived);
     const visibleIds = new Set<string>();
     for (const theme of projectedThemes) {
       for (const id of Array.isArray(theme.repository_context_ids) ? theme.repository_context_ids : []) {
         visibleIds.add(String(id));
       }
     }
-    const themesById = new Map(themes.map((theme) => [theme.id, theme]));
+    const themesById = new Map(visibilityThemes.map((theme) => [theme.id, theme]));
     for (const task of tasks.records) {
       const theme = themesById.get(String(task.project_id || task.theme_id || ""));
       const resolution = taskRepositoryResolution({ task, theme, contexts: allContexts });
@@ -137,7 +138,7 @@ export class AgentWorkspaceQueryService {
     const includeArchived = Boolean(request.include_archived);
     const task = this.readPort.listTasks(includeArchived).find((candidate) => candidate.id === request.task_id);
     if (!task) return getTaskAssignmentResponseSchema.parse({ task: null, receipts: [], task_id: request.task_id, read_only: true, ai_audience: "coding_agent" });
-    const themes = this.readPort.listThemes(includeArchived);
+    const themes = this.readPort.listThemes(true);
     const filtered = this.projection.project([task], themes, this.readPort.workspaceAiVisibilityDefault());
     if (!filtered.records.length) {
       return getTaskAssignmentResponseSchema.parse({

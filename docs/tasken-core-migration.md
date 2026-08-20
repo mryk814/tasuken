@@ -141,6 +141,16 @@ Core側でProposalを作成し、利用者がDesktop UIで採用した後に既�
 Wave 2は、既存`list_agent_ready_tasks`と合わせて「repositoryから対象を絞る／ready一覧から選ぶ → assignmentとreceiptを読む → Proposalを返す」を成立させる。
 `get_task_context`は最も価値が高い次候補だが、legacyのGraph、provenance、Activity、text budgetを削らず移すため単独waveにする。
 
+#### Wave 2.1 / Phase 3 gaps
+
+Wave 2は既存MCP contractのexact parityを優先し、次の改善は出力やエラー契約を変えず保留する。
+
+- `find_tasks_for_repository`にはpublicな件数上限がない。件数制限を追加する場合は既存の無制限結果をversioned contractとして扱う。
+- `get_task_assignment`のWork Receipt本文にはtext budgetがない。切り詰め方とtruncation metadataを先に契約化する。
+- loopback HTTPのstructured errorをMCP tool errorへlosslessに投影する仕組みは未実装である。
+- response schemaは安定envelopeだけを検証し、legacy extension fieldsを保持している。strict schema化はversion移行と同時に行う。
+- Coding Agentが次に呼ぶべきtoolを結果内で案内するdescription/linkは未実装である。既存outputを変えず、tool descriptionまたはversioned metadataとして設計する。
+
 ## 最初のcharacterization対象
 
 最初の縦断sliceには`tasken.list_agent_ready_tasks`を使う。
@@ -204,6 +214,7 @@ health、Core API version、capability handshake、request size、timeout、auth
 endpointとtokenのdiscovery情報はuserData配下へ原子的に保存し、同一OS userだけが読める扱いにする。
 token、DB path、local pathをログやtool resultへ出さない。
 discoveryはschema version、API version、capability、loopback origin、256-bit token、owner、permission、symlinkをclient側でも検証する。
+capabilityは包括的な「Core read可」ではなくnamed operationである。clientは各HTTP request前に対応する`list_agent_ready_tasks`、`resolve_repository_context`、`find_tasks_for_repository`、`get_task_assignment`を個別に要求する。
 hostはJSON Content-Type、64 KiB request body、5秒timeout、method、pathを境界で検証する。
 
 MCP bridgeは`tasken.list_agent_ready_tasks`に加え、Wave 2で`resolve_repository_context`、`find_tasks_for_repository`、`get_task_assignment`をpure HTTP clientへ切り替える。

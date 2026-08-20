@@ -14,7 +14,10 @@ import type {
 } from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
-  TASKEN_CORE_CAPABILITY,
+  TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
+  TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
+  TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
 } from "../../../shared/contracts/core/public.mjs";
@@ -121,10 +124,10 @@ export class TaskenCoreHost {
 
   private capabilities() {
     return [
-      TASKEN_CORE_CAPABILITY,
-      ...(this.options.resolveRepositoryContext ? ["resolve_repository_context"] : []),
-      ...(this.options.findTasksForRepository ? ["find_tasks_for_repository"] : []),
-      ...(this.options.getTaskAssignment ? ["get_task_assignment"] : []),
+      TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
+      ...(this.options.resolveRepositoryContext ? [TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY] : []),
+      ...(this.options.findTasksForRepository ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY] : []),
+      ...(this.options.getTaskAssignment ? [TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY] : []),
     ];
   }
 
