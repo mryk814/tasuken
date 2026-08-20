@@ -3,6 +3,8 @@ export { ListAgentReadyTasksService } from "./services/listAgentReadyTasksServic
 export { AgentWorkspaceQueryService } from "./services/agentWorkspaceQueryService.ts";
 export { TaskContextQueryService } from "./services/taskContextQueryService.ts";
 export { ItemQueryService } from "./services/itemQueryService.ts";
+export { ContentDetailQueryService } from "./services/contentDetailQueryService.ts";
+export { ActivityEntriesQueryService } from "./services/activityEntriesQueryService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
@@ -16,3 +18,10 @@ export type {
   ItemQuerySnapshot,
   ItemQueryThemeRecord,
 } from "./ports/itemQueryReadPort.ts";
+export type { ContentDetailReadPort, ContentDetailRecord } from "./ports/contentDetailReadPort.ts";
+export type {
+  ActivityEntriesReadPort,
+  ActivityEntriesRecord,
+  ActivityEntriesSnapshot,
+  ActivityEntriesWorkspace,
+} from "./ports/activityEntriesReadPort.ts";

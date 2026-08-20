@@ -78,7 +78,7 @@ class FixtureWorkspaceRepository {
     return records.filter((record) => includeDeleted || !record.deleted_at);
   }
 
-  getPreference(key) {
+  readPreference(key) {
     this.calls.push({ operation: "getPreference", key });
     return ["coding_agent"];
   }

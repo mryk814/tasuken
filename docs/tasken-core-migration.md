@@ -9,9 +9,9 @@ Phase 1以降でtoolや経路を移行した場合は、同じ変更でinventory
 DesktopはElectron Mainが`WorkspaceDatabase`を生成し、Application Command、Workspace Service、IPCへ同じrepository instanceを渡す。
 Task capabilityは`src/main/modules/task/`にあり、Desktop IPC、HTTP adapter、MCP adapterが`TaskCapabilityService`へ到達する参照スライスを持つ。
 
-stdio MCP serverの`tasken.list_agent_ready_tasks`、Wave 2のrepository/assignment 3 tools、Wave 3の`tasken.get_task_context`は、Desktop Main内のCore hostへloopback HTTPで問い合わせる。
-この5 toolsは`ReadOnlyTaskenContext`を生成せず、Core unavailable、version mismatch、unauthorizedでもDB direct readへ戻らない。
-未移行のread tool 17件は引き続き各呼び出しで`ReadOnlyTaskenContext`を生成し、別processから`better-sqlite3`で同じDBをread-only openする。
+stdio MCP serverの`tasken.list_agent_ready_tasks`、Wave 2のrepository/assignment 3 tools、Wave 3の`tasken.get_task_context`、Wave 4のItem query 2 tools、Wave 5のcontent/activity 4 toolsは、Desktop Main内のCore hostへloopback HTTPで問い合わせる。
+この11 toolsは`ReadOnlyTaskenContext`を生成せず、Core unavailable、version mismatch、unauthorizedでもDB direct readへ戻らない。
+未移行のread tool 11件は引き続き各呼び出しで`ReadOnlyTaskenContext`を生成し、別processから`better-sqlite3`で同じDBをread-only openする。
 そのため、残るreadの意味とElectron ABI、native module resolutionはPhase 3までMCP bridgeに残る。
 
 write toolはSQLiteへ直接書かない。
@@ -21,11 +21,14 @@ write toolはSQLiteへ直接書かない。
 tasken.list_agent_ready_tasks / resolve_repository_context /
 find_tasks_for_repository / get_task_assignment
 tasken.get_task_context
+tasken.search_items / list_open_items
+tasken.get_note / get_conversation / get_artifact_metadata /
+get_activity_entries
   -> pure HTTP client
   -> 127.0.0.1 Core host
   -> injected WorkspaceDatabase adapter
 
-unmigrated read tool (17 tools)
+unmigrated read tool (11 tools)
   -> ReadOnlyTaskenContext
   -> better-sqlite3
   -> Tasken SQLite
@@ -72,7 +75,7 @@ Phase 0からPhase 2では、#413のcanonical launcher、Electron-as-Node、runt
 ## MCP tool inventory
 
 `src/main/mcp/server.mjs`にはread toolが22件、Proposal toolが11件ある。
-Core移行済み7 toolsはpure client、残る15 toolsだけが`withReadContext`を通る。
+Core移行済み11 toolsはpure client、残る11 toolsだけが`withReadContext`を通る。
 表の「追加policy」は、DB read以外に正本化すべき選択、投影、制限を示す。
 
 ### Read tools
@@ -84,10 +87,10 @@ Core移行済み7 toolsはpure client、残る15 toolsだけが`withReadContext`
 | `tasken.list_agent_ready_tasks` | Coding Agentが着手可能なTaskの一覧 | executor、work state、Task state、Theme、AI visibility、件数制限 | Phase 1の最初のslice |
 | `tasken.get_task_assignment` | Task、Work Receipt、RepositoryContextの取得 | AI visibility、repository resolution | Wave 2でCore移行済み |
 | `tasken.get_task_context` | bounded Task contextの取得 | AI visibility、Context Graph、provenance、text budget、repository match | Wave 3でCore移行済み |
-| `tasken.get_note` | Note detailの取得 | AI visibility、本文長制限 | Phase 3 |
-| `tasken.get_conversation` | Chat Ref detailの取得 | AI visibility、本文長制限、URL credential除去 | Phase 3 |
-| `tasken.get_artifact_metadata` | Artifact metadataの取得 | AI visibility、pathと外部file本文の除外 | Phase 3 |
-| `tasken.get_activity_entries` | Task Activityの取得 | AI visibility、Activity projection、件数制限 | Phase 3 |
+| `tasken.get_note` | Note detailの取得 | AI visibility、本文長制限 | Wave 5でCore移行済み |
+| `tasken.get_conversation` | Chat Ref detailの取得 | AI visibility、本文長制限、URL credential除去 | Wave 5でCore移行済み |
+| `tasken.get_artifact_metadata` | Artifact metadataの取得 | AI visibility、pathと外部file本文の除外 | Wave 5でCore移行済み |
+| `tasken.get_activity_entries` | Task Activityの取得 | AI visibility、Activity projection、件数制限 | Wave 5でCore移行済み |
 | `tasken.resolve_repository_context` | workspaceとRepositoryContextの照合 | ambiguity保持、private path非公開 | Wave 2でCore移行済み |
 | `tasken.find_themes_for_repository` | repositoryに関連するThemeの検索 | repository resolution、AI visibility | Phase 3 |
 | `tasken.find_tasks_for_repository` | repositoryに関連するTaskの検索 | subdirectory判定、AI visibility | Wave 2でCore移行済み |
@@ -146,6 +149,10 @@ Wave 4は`search_items`と`list_open_items`をquery-specific snapshot portへ移
 各結果には正本entityの`locator`、response-level `next_tools`、`result_meta`（contract version、返却数、AI公開後の一致数、切り詰め有無）を追加し、Coding Agentが結果の完全性を判断してTask contextへ迷わず進めるようにした。
 またloopback HTTPのvalidation errorをcode/message/detailsの構造で返し、Core clientとMCP tool resultへstack、local path、tokenを出さずlosslessに伝播する。
 public errorにはcode別の`retryable`と`next_action`を必ず付け、Core停止・version/capability不一致・validation・認証失敗の復旧操作をAI Agentが機械的に選べるようにした。
+Wave 5はstable locatorの`get_note`、`get_conversation`、`get_artifact_metadata`とTask単位の`get_activity_entries`をCoreへ移した。
+本文budget、Chat Ref URL credential除去、Artifactのpath/外部本文除外、Activityのvisibility・新しい順・101件時のtruncationを維持し、既存fieldへは変更せず`next_tools`だけを追加した。
+4 endpointは個別named capability、strict response schema、Core clientのcapability fail-fastを持ち、domain `not_found`はtransport errorにせず通常のread結果として返す。
+実SQLite ownerを注入したrunning Core hostとactual stdio MCPのE2Eで、MCP側がlegacy DBをopenしないことを固定した。
 
 #### Wave 2.1 / Phase 3 gaps
 
@@ -224,7 +231,7 @@ health、Core API version、capability handshake、request size、timeout、auth
 endpointとtokenのdiscovery情報はuserData配下へ原子的に保存し、同一OS userだけが読める扱いにする。
 token、DB path、local pathをログやtool resultへ出さない。
 discoveryはschema version、API version、capability、loopback origin、256-bit token、owner、permission、symlinkをclient側でも検証する。
-capabilityは包括的な「Core read可」ではなくnamed operationである。clientは各HTTP request前に対応する`list_agent_ready_tasks`、`resolve_repository_context`、`find_tasks_for_repository`、`get_task_assignment`を個別に要求する。
+capabilityは包括的な「Core read可」ではなくnamed operationである。clientは各HTTP request前に対応する`list_agent_ready_tasks`、`resolve_repository_context`、`find_tasks_for_repository`、`get_task_assignment`、`get_task_context`、`search_items`、`list_open_items`、`get_note`、`get_conversation`、`get_artifact_metadata`、`get_activity_entries`を個別に要求する。
 hostはJSON Content-Type、64 KiB request body、5秒timeout、method、pathを境界で検証する。
 
 MCP bridgeは`tasken.list_agent_ready_tasks`に加え、Wave 2で`resolve_repository_context`、`find_tasks_for_repository`、`get_task_assignment`をpure HTTP clientへ切り替える。

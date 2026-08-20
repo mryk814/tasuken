@@ -5,6 +5,14 @@ import path from "node:path";
 
 import type {
   FindTasksForRepositoryResponse,
+  GetActivityEntriesRequest,
+  GetActivityEntriesResponse,
+  GetArtifactMetadataRequest,
+  GetArtifactMetadataResponse,
+  GetConversationRequest,
+  GetConversationResponse,
+  GetNoteRequest,
+  GetNoteResponse,
   GetTaskAssignmentRequest,
   GetTaskAssignmentResponse,
   GetTaskContextRequest,
@@ -20,6 +28,10 @@ import type {
 } from "../../../shared/contracts/task/public.ts";
 import {
   getTaskAssignmentRequestSchema,
+  getActivityEntriesRequestSchema,
+  getArtifactMetadataRequestSchema,
+  getConversationRequestSchema,
+  getNoteRequestSchema,
   getTaskContextRequestSchema,
   listAgentReadyTasksRequestSchema,
   listOpenItemsRequestSchema,
@@ -31,6 +43,10 @@ import {
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
+  TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
+  TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
+  TASKEN_CORE_GET_NOTE_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -61,6 +77,10 @@ export interface TaskenCoreHostOptions {
   getTaskContext?: QueryProvider<GetTaskContextRequest, GetTaskContextResponse>;
   searchItems?: QueryProvider<SearchItemsRequest, SearchItemsResponse>;
   listOpenItems?: QueryProvider<ListOpenItemsRequest, ListOpenItemsResponse>;
+  getNote?: QueryProvider<GetNoteRequest, GetNoteResponse>;
+  getConversation?: QueryProvider<GetConversationRequest, GetConversationResponse>;
+  getArtifactMetadata?: QueryProvider<GetArtifactMetadataRequest, GetArtifactMetadataResponse>;
+  getActivityEntries?: QueryProvider<GetActivityEntriesRequest, GetActivityEntriesResponse>;
 }
 
 interface DiscoveryDocument {
@@ -104,7 +124,11 @@ function parseQueryRequest(url: string, body: unknown): unknown {
       : url === "/v1/queries/get-task-assignment" ? getTaskAssignmentRequestSchema
         : url === "/v1/queries/get-task-context" ? getTaskContextRequestSchema
           : url === "/v1/queries/search-items" ? searchItemsRequestSchema
-            : listOpenItemsRequestSchema;
+            : url === "/v1/queries/list-open-items" ? listOpenItemsRequestSchema
+              : url === "/v1/queries/get-note" ? getNoteRequestSchema
+                : url === "/v1/queries/get-conversation" ? getConversationRequestSchema
+                  : url === "/v1/queries/get-artifact-metadata" ? getArtifactMetadataRequestSchema
+                    : getActivityEntriesRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -207,6 +231,10 @@ export class TaskenCoreHost {
       ...(this.options.getTaskContext ? [TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY] : []),
       ...(this.options.searchItems ? [TASKEN_CORE_SEARCH_ITEMS_CAPABILITY] : []),
       ...(this.options.listOpenItems ? [TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY] : []),
+      ...(this.options.getNote ? [TASKEN_CORE_GET_NOTE_CAPABILITY] : []),
+      ...(this.options.getConversation ? [TASKEN_CORE_GET_CONVERSATION_CAPABILITY] : []),
+      ...(this.options.getArtifactMetadata ? [TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY] : []),
+      ...(this.options.getActivityEntries ? [TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY] : []),
     ];
   }
 
@@ -252,7 +280,14 @@ export class TaskenCoreHost {
     const server = this.server;
     this.server = null;
     if (!server) return;
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+      // `server.close()` alone can wait indefinitely for a child MCP process
+      // that still owns a keep-alive or partially-open request on Windows.
+      // Start graceful shutdown first, then retire every remaining connection.
+      server.closeIdleConnections?.();
+      server.closeAllConnections?.();
+    });
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse) {
@@ -269,6 +304,10 @@ export class TaskenCoreHost {
         ...(this.options.getTaskContext ? ["/v1/queries/get-task-context"] : []),
         ...(this.options.searchItems ? ["/v1/queries/search-items"] : []),
         ...(this.options.listOpenItems ? ["/v1/queries/list-open-items"] : []),
+        ...(this.options.getNote ? ["/v1/queries/get-note"] : []),
+        ...(this.options.getConversation ? ["/v1/queries/get-conversation"] : []),
+        ...(this.options.getArtifactMetadata ? ["/v1/queries/get-artifact-metadata"] : []),
+        ...(this.options.getActivityEntries ? ["/v1/queries/get-activity-entries"] : []),
       ]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
       if (knownPaths.has(request.url || "")
@@ -307,6 +346,14 @@ export class TaskenCoreHost {
           json(response, 200, this.options.searchItems!.execute(body as SearchItemsRequest));
         } else if (request.url === "/v1/queries/list-open-items") {
           json(response, 200, this.options.listOpenItems!.execute(body as ListOpenItemsRequest));
+        } else if (request.url === "/v1/queries/get-note") {
+          json(response, 200, this.options.getNote!.execute(body as GetNoteRequest));
+        } else if (request.url === "/v1/queries/get-conversation") {
+          json(response, 200, this.options.getConversation!.execute(body as GetConversationRequest));
+        } else if (request.url === "/v1/queries/get-artifact-metadata") {
+          json(response, 200, this.options.getArtifactMetadata!.execute(body as GetArtifactMetadataRequest));
+        } else if (request.url === "/v1/queries/get-activity-entries") {
+          json(response, 200, this.options.getActivityEntries!.execute(body as GetActivityEntriesRequest));
         } else {
           json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
         }

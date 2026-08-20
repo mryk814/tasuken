@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -71,7 +72,7 @@ class FixtureRepository {
     return records.filter((record) => includeDeleted || !record.deleted_at);
   }
 
-  getPreference(key) {
+  readPreference(key) {
     assert.equal(key, "aiVisibilityDefault");
     return ["coding_agent"];
   }
@@ -183,6 +184,36 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
   }
 });
 
+test("Phase 2: Core stop closes a partial keep-alive connection and remains idempotent", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-stop-"));
+  const core = createTaskenCore(new FixtureRepository(fixture()));
+  const host = new TaskenCoreHost({ userDataPath: root, listAgentReadyTasks: core.listAgentReadyTasks });
+  let socket;
+  try {
+    const { origin } = await host.start();
+    const { hostname, port } = new URL(origin);
+    socket = net.createConnection({ host: hostname, port: Number(port) });
+    await new Promise((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    socket.write(`GET /health HTTP/1.1\r\nHost: ${hostname}\r\nConnection: keep-alive\r\n`);
+
+    await Promise.race([
+      host.stop(),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Core stop timed out")), 500).unref();
+      }),
+    ]);
+    await host.stop();
+    assert.equal(fs.existsSync(path.join(root, "tasken-core.json")), false);
+  } finally {
+    socket?.destroy();
+    await host.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Phase 2: unavailable Core never constructs the legacy DB context", async () => {
   const missingDiscovery = path.join(os.tmpdir(), `tasken-core-missing-${crypto.randomUUID()}.json`);
   const result = await mcpResult(new TaskenCoreClient({ discoveryPath: missingDiscovery }), {});
@@ -226,11 +257,18 @@ test("Phase 2: version and auth failures never fall back to the legacy DB contex
   }
 });
 
-test("Phase 2: an unmigrated MCP detail tool keeps the legacy context provider", async () => {
+test("Wave 5: migrated MCP detail tool never opens the legacy context provider", async () => {
   let legacyCalls = 0;
   const server = createTaskenMcpServer({
     readOnly: true,
-    coreClient: { listAgentReadyTasks: () => { throw new Error("CORE_CLIENT_SENTINEL"); } },
+    coreClient: {
+      getNote: () => ({
+        note: { id: "core-note" },
+        next_tools: [],
+        read_only: true,
+        ai_audience: "coding_agent",
+      }),
+    },
     readContextProvider: async () => ({
       toolGetNote: () => {
         legacyCalls += 1;
@@ -246,8 +284,8 @@ test("Phase 2: an unmigrated MCP detail tool keeps the legacy context provider",
   try {
     const result = await client.callTool({ name: "tasken.get_note", arguments: { note_id: "legacy-note" } });
     assert.equal(result.isError, undefined);
-    assert.equal(result.structuredContent.note.id, "legacy-note");
-    assert.equal(legacyCalls, 1);
+    assert.equal(result.structuredContent.note.id, "core-note");
+    assert.equal(legacyCalls, 0);
   } finally {
     await client.close();
     await server.close();

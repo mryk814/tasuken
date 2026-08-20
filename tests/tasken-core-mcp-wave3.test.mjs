@@ -186,7 +186,7 @@ class FixtureRepository {
     ]));
   }
 
-  getPreference(key) {
+  readPreference(key) {
     this.calls.push({ operation: "getPreference", key });
     return ["coding_agent"];
   }

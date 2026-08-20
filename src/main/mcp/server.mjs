@@ -157,43 +157,43 @@ export function createTaskenMcpServer(options = {}) {
   }, withCoreClient((args) => coreClient.getTaskContext(args)));
 
   server.registerTool("tasken.get_note", {
-    description: "Read one AI-visible Note body by stable ID with a text limit.",
+    description: "Read one AI-visible Note body by stable ID with a text limit. Use its next_tools guidance to reopen Task context or queue a reviewed Note edit proposal.",
     inputSchema: {
       note_id: z.string().trim().min(1).max(200),
       max_text_length: boundedTextLength,
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetNote(args)));
+  }, withCoreClient((args) => coreClient.getNote(args)));
 
   server.registerTool("tasken.get_conversation", {
-    description: "Read one AI-visible Chat Ref conversation by stable ID with a text limit. URL credentials, query, and fragment are removed.",
+    description: "Read one AI-visible Chat Ref conversation by stable ID with a text limit. URL credentials, query, and fragment are removed; next_tools identifies safe follow-up reads and proposals.",
     inputSchema: {
       conversation_id: z.string().trim().min(1).max(200),
       max_text_length: boundedTextLength,
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetConversation(args)));
+  }, withCoreClient((args) => coreClient.getConversation(args)));
 
   server.registerTool("tasken.get_artifact_metadata", {
-    description: "Read safe Artifact metadata by stable ID. External file content and private filesystem paths are never returned.",
+    description: "Read safe Artifact metadata by stable ID. External file content and private filesystem paths are never returned; origin Note guidance is included when available.",
     inputSchema: {
       artifact_id: z.string().trim().min(1).max(200),
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetArtifactMetadata(args)));
+  }, withCoreClient((args) => coreClient.getArtifactMetadata(args)));
 
   server.registerTool("tasken.get_activity_entries", {
-    description: "Read AI-visible Activity entries for one Task by stable ID.",
+    description: "Read bounded AI-visible Activity entries for one Task by stable ID. Follow next_tools to refresh assignment/context or queue reviewed work reports.",
     inputSchema: {
       task_id: z.string().trim().min(1).max(200),
       limit: optionalLimit,
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetActivityEntries(args)));
+  }, withCoreClient((args) => coreClient.getActivityEntries(args)));
 
   const repositoryLookupSchema = {
     repository_context_id: optionalText,

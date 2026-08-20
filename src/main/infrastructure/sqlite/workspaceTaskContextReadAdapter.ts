@@ -4,7 +4,7 @@ import type { TaskContextReadPort, TaskContextRecord, TaskContextWorkspace } fro
 export interface TaskContextWorkspacePersistence {
   readWorkspaceSnapshot(includeDeleted?: boolean): TaskContextWorkspace;
   list(type: "theme", includeDeleted?: boolean): TaskContextRecord[];
-  getPreference(key: "aiVisibilityDefault"): unknown;
+  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Uses the composition root's existing WorkspaceDatabase; it never opens a database. */
@@ -20,7 +20,7 @@ export class WorkspaceTaskContextReadAdapter implements TaskContextReadPort {
   }
 
   workspaceAiVisibilityDefault() {
-    return normalizeAiVisibility(this.persistence.getPreference("aiVisibilityDefault"))
+    return normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
       || [...DEFAULT_AI_VISIBILITY];
   }
 }

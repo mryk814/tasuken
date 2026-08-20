@@ -141,7 +141,7 @@ class FixtureRepository {
       .sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
   }
 
-  getPreference(key) {
+  readPreference(key) {
     assert.equal(key, "aiVisibilityDefault");
     return ["coding_agent"];
   }

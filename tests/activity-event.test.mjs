@@ -237,6 +237,119 @@ test("canonical refs are root-relative, private absolute paths stay out, and pol
   assert.equal(JSON.stringify(coding).includes("C:\\\\Users\\\\private"), false);
 });
 
+test("public Activity projection sanitizes URLs and typed refs while allowlisting metadata fields", () => {
+  const event = buildActivityEvent({
+    id: "event-public-safety",
+    entity_type: "task",
+    entity_id: "task-safe",
+    event_kind: "task_work_recorded",
+    occurred_at: "2026-08-21T00:00:00.000Z",
+    after: { id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] },
+    summary: "See https://user:pass@example.com/report?q=secret#fragment and C:\\private\\report.txt token=secret",
+    canonical_refs: [
+      { kind: "canonical_document", web_url: "https://user:pass@example.com/report?q=secret#fragment" },
+      { kind: "canonical_document", web_url: "ftp://example.com/private" },
+      { kind: "canonical_document", storage_root_id: "root-safe", relative_path: "token=secret/report.md" },
+    ],
+    source_refs: [
+      { kind: "url", locator: "https://user:pass@example.com/source?q=secret#fragment" },
+      { type: "artifact", id: "artifact-safe", role: "evidence" },
+      { type: "artifact", id: "token=secret", role: "evidence" },
+    ],
+    relation_refs: [
+      { type: "note", id: "note-safe", relation: "context" },
+      { type: "note", id: "Bearer private", relation: "context" },
+    ],
+    work_receipt_ref: { type: "work_receipt", id: "C:\\private\\receipt.json" },
+    actor: { kind: "agent", id: "token=secret" },
+    origin: { kind: "mcp", session_id: "Basic private" },
+    metadata: {
+      dedupe_key: "event-public-safety",
+      activity_summary: "Ordinary metadata",
+      work_action: "reported",
+      executor_label: "Codex",
+      provenance: { reported_via: "mcp", source_session: "session-safe" },
+      capture_context: {
+        token: "KEY_SECRET",
+        accessToken: "CAMEL_TOKEN_SECRET",
+        access_token: "SNAKE_TOKEN_SECRET",
+        "access-token": "KEBAB_TOKEN_SECRET",
+        accesstoken: "JOINED_TOKEN_SECRET",
+        clientSecret: "CAMEL_CLIENT_SECRET",
+        client_secret: "SNAKE_CLIENT_SECRET",
+        authToken: "CAMEL_AUTH_TOKEN",
+        authorization: "AUTHORIZATION_SECRET",
+        credential: "CREDENTIAL_SECRET",
+        apiKey: "API_KEY_SECRET",
+        privateKey: "PRIVATE_KEY_SECRET",
+        localPath: "CAMEL_LOCAL_PATH",
+        absolute_path: "SNAKE_ABSOLUTE_PATH",
+        filePath: "CAMEL_FILE_PATH",
+        diagnosticPath: "C:\\private\\diagnostic.log",
+        "token=KEY_SECRET": "ordinary",
+        "C:\\Users\\KEY_PATH\\x": "ordinary",
+        "nested/path": "ordinary",
+        values: [
+          "https://user:pass@example.com/context?q=secret#fragment",
+          "ftp://example.com/private",
+          "C:\\private\\capture.wav",
+          "/home/private/capture.wav",
+          "token=secret",
+          "Authorization: Bearer private",
+          "ordinary",
+        ],
+      },
+      local_path: "C:\\private\\metadata.txt",
+      token: "secret",
+    },
+  });
+  event.actor = {
+    kind: "agent",
+    id: "token=secret",
+    display_name: "Ordinary but not public",
+    token: "KEY_SECRET",
+    "C:\\Users\\ACTOR_KEY\\x": "ordinary",
+  };
+  event.origin = {
+    kind: "mcp",
+    command_id: "command-safe",
+    session_id: "Basic private",
+    token: "KEY_SECRET",
+    "nested/path": "ordinary",
+  };
+  const result = queryActivityEvents({
+    events: [event],
+    workspace: { tasks: [{ id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] }] },
+    audience: "coding_agent",
+  });
+  const projected = result.events[0];
+  assert.equal(projected.canonical_refs[0].web_url, "https://example.com/report");
+  assert.equal(projected.canonical_refs.length, 1);
+  assert.equal(projected.source_refs.some((ref) => ref.web_url === "https://example.com/source"), true);
+  assert.deepEqual(projected.source_refs.find((ref) => ref.id === "artifact-safe"), {
+    type: "artifact",
+    id: "artifact-safe",
+    role: "evidence",
+  });
+  assert.equal(projected.source_refs.some((ref) => ref.id?.includes("redacted")), false);
+  assert.equal(projected.relation_refs.some((ref) => ref.id === "note-safe"), true);
+  assert.equal(projected.relation_refs.some((ref) => ref.id?.includes("redacted")), false);
+  assert.equal(projected.work_receipt_ref, null);
+  assert.equal(projected.metadata.activity_summary, "Ordinary metadata");
+  assert.equal(projected.metadata.work_action, "reported");
+  assert.equal(projected.metadata.executor_label, "Codex");
+  assert.deepEqual(projected.metadata.provenance, { reported_via: "mcp", source_session: "session-safe" });
+  assert.equal("capture_context" in projected.metadata, false);
+  assert.deepEqual(projected.actor, { kind: "agent" });
+  assert.deepEqual(projected.origin, { kind: "mcp", command_id: "command-safe" });
+  assert.equal("local_path" in projected.metadata, false);
+  assert.equal("token" in projected.metadata, false);
+  const serialized = JSON.stringify(projected);
+  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret", "TOKEN_SECRET", "CLIENT_SECRET", "AUTHORIZATION_SECRET", "CREDENTIAL_SECRET", "API_KEY_SECRET", "PRIVATE_KEY_SECRET", "LOCAL_PATH", "ABSOLUTE_PATH", "FILE_PATH", "KEY_SECRET", "KEY_PATH", "ACTOR_KEY", "nested/path", "display_name"]) {
+    assert.equal(serialized.includes(secret), false, secret);
+  }
+});
+
 test("canonical root identity survives root changes and public status never exposes paths", () => {
   const ref = { kind: "canonical_document", storage_root_id: "sync", relative_path: "Notes/measure.md" };
   const oldRegistry = buildActivityRootRegistry({ artifactDirectory: "C:/tasken-old" });
