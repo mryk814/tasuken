@@ -52,7 +52,6 @@ const PUBLIC_METADATA_KEYS = new Set([
   "include_in_activity",
   "formalized",
   "activity_summary",
-  "capture_context",
   "migrated_from",
   "entity_status",
   "work_action",
@@ -76,9 +75,12 @@ const PUBLIC_METADATA_KEYS = new Set([
   "review_note",
   "note_ai_command_marker",
 ]);
+const PUBLIC_METADATA_OBJECT_FIELDS = new Map([
+  ["provenance", ["reported_via", "proposal_id", "caller", "source_session", "idempotency_key", "proposal_created_at", "imported_by"]],
+  ["repository_context", ["repository_context_id", "provider", "repository_slug", "branch"]],
+  ["note_ai_command_marker", ["schema", "commandId", "commandFingerprint", "noteId", "proposalId", "noteVersion", "proposalVersion"]],
+]);
 const REDACTED_MARKER = /\[redacted(?:-url|-local-path)?\]/i;
-const PUBLIC_JSON_KEY = /^[A-Za-z0-9_.-]{1,100}$/;
-const PRIVATE_JSON_KEY = /token|secret|password|authorization|credential|apikey|privatekey|localpath|absolutepath|filepath/;
 const ACTOR_FIELDS = ["kind", "id"];
 const ORIGIN_FIELDS = ["kind", "command_id", "command_name", "session_id"];
 
@@ -95,28 +97,27 @@ function publicIdentifier(value) {
   return safe && !REDACTED_MARKER.test(safe) ? safe : null;
 }
 
-function publicJsonKey(value) {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return PUBLIC_JSON_KEY.test(value) && !PRIVATE_JSON_KEY.test(normalized);
-}
-
-function publicJsonValue(value, seen = new WeakSet()) {
+function publicPrimitive(value) {
   if (typeof value === "string") return safeReceiptText(value);
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (!value || typeof value !== "object") return null;
-  if (seen.has(value)) return null;
-  seen.add(value);
-  if (Array.isArray(value)) {
-    const result = value.map((entry) => publicJsonValue(entry, seen));
-    seen.delete(value);
-    return result;
+  return undefined;
+}
+
+function publicMetadataValue(keyName, value) {
+  const objectFields = PUBLIC_METADATA_OBJECT_FIELDS.get(keyName);
+  if (objectFields) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    return Object.fromEntries(objectFields.flatMap((field) => {
+      if (!Object.hasOwn(value, field)) return [];
+      const safe = publicPrimitive(value[field]);
+      return safe === undefined ? [] : [[field, safe]];
+    }));
   }
-  const result = Object.fromEntries(Object.entries(value)
-    .filter(([keyName]) => publicJsonKey(keyName))
-    .map(([keyName, entry]) => [keyName, publicJsonValue(entry, seen)]));
-  seen.delete(value);
-  return result;
+  if (Array.isArray(value)) {
+    return value.map(publicPrimitive).filter((entry) => entry !== undefined);
+  }
+  return publicPrimitive(value);
 }
 
 function publicStringRecord(value, fields) {
@@ -133,7 +134,9 @@ function publicMetadata(value) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const result = {};
   for (const keyName of PUBLIC_METADATA_KEYS) {
-    if (Object.hasOwn(source, keyName)) result[keyName] = publicJsonValue(source[keyName]);
+    if (!Object.hasOwn(source, keyName)) continue;
+    const safe = publicMetadataValue(keyName, source[keyName]);
+    if (safe !== undefined) result[keyName] = safe;
   }
   return result;
 }

@@ -237,7 +237,7 @@ test("canonical refs are root-relative, private absolute paths stay out, and pol
   assert.equal(JSON.stringify(coding).includes("C:\\\\Users\\\\private"), false);
 });
 
-test("public Activity projection sanitizes URLs and typed refs while allowlisting recursive metadata", () => {
+test("public Activity projection sanitizes URLs and typed refs while allowlisting metadata fields", () => {
   const event = buildActivityEvent({
     id: "event-public-safety",
     entity_type: "task",
@@ -270,7 +270,6 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
       executor_label: "Codex",
       provenance: { reported_via: "mcp", source_session: "session-safe" },
       capture_context: {
-        safe_key: "Safe value",
         token: "KEY_SECRET",
         accessToken: "CAMEL_TOKEN_SECRET",
         access_token: "SNAKE_TOKEN_SECRET",
@@ -340,10 +339,7 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   assert.equal(projected.metadata.work_action, "reported");
   assert.equal(projected.metadata.executor_label, "Codex");
   assert.deepEqual(projected.metadata.provenance, { reported_via: "mcp", source_session: "session-safe" });
-  assert.equal(projected.metadata.capture_context.values.at(-1), "ordinary");
-  assert.equal(projected.metadata.capture_context.safe_key, "Safe value");
-  assert.equal("token" in projected.metadata.capture_context, false);
-  assert.equal(projected.metadata.capture_context.diagnosticPath, "[redacted-local-path]");
+  assert.equal("capture_context" in projected.metadata, false);
   assert.deepEqual(projected.actor, { kind: "agent" });
   assert.deepEqual(projected.origin, { kind: "mcp", command_id: "command-safe" });
   assert.equal("local_path" in projected.metadata, false);

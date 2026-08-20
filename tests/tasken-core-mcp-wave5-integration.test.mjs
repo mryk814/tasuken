@@ -179,8 +179,7 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, HTTP, and MCP
     assert.equal(activity.events[0].source_refs.some((ref) => ref.id?.includes("redacted")), false);
     assert.equal(activity.events[0].relation_refs.some((ref) => ref.id?.includes("redacted")), false);
     assert.equal("token" in activity.events[0].metadata, false);
-    assert.equal(activity.events[0].metadata.capture_context.nested.at(-1), "ordinary");
-    assert.equal(activity.events[0].metadata.capture_context.safe_key, "Safe value");
+    assert.equal("capture_context" in activity.events[0].metadata, false);
     assert.deepEqual(activity.events[0].actor, { kind: "agent" });
     assert.deepEqual(activity.events[0].origin, { kind: "mcp", command_id: "command-safe" });
     assert.doesNotMatch(JSON.stringify(activity.events[0]), /user:pass|q=secret|fragment|C:\\\\private|Bearer private|token=secret|must-not-cross|KEY_SECRET|KEY_PATH|CAMEL_TOKEN_SECRET/);
