@@ -81,7 +81,7 @@ test("invalid MCP Proposal is rejected before it reaches the repository", () => 
   );
 });
 
-test("canonical MCP launcher reads the fixture DB and exposes proposal-only writes", async () => {
+test("canonical MCP launcher fails closed for migrated reads without Core and exposes proposal-only writes", async () => {
   const root = tempDirectory("tasken-mcp-stdio");
   const inboxPath = path.join(root, "mcp-inbox");
   const dbPath = path.join(root, "workspace.sqlite");
@@ -123,6 +123,7 @@ test("canonical MCP launcher reads the fixture DB and exposes proposal-only writ
       ...process.env,
       ELECTRON_RUN_AS_NODE: "",
       TASKEN_DB_PATH: dbPath,
+      TASKEN_USER_DATA_DIR: root,
       TASKEN_MCP_INBOX_PATH: inboxPath,
     },
     stderr: "pipe",
@@ -140,8 +141,9 @@ test("canonical MCP launcher reads the fixture DB and exposes proposal-only writ
       name: "tasken.search_items",
       arguments: { query: "Canonical launcher fixture", limit: 5 },
     });
-    assert.equal(search.isError, undefined);
-    assert.match(JSON.stringify(search.content), /Canonical launcher fixture/);
+    assert.equal(search.isError, true);
+    assert.match(JSON.stringify(search.content), /CORE_UNAVAILABLE/);
+    assert.doesNotMatch(JSON.stringify(search.content), /Canonical launcher fixture/);
 
     const result = await client.callTool({
       name: "tasken.propose_task",

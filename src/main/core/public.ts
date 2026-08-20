@@ -2,6 +2,7 @@ export { AgentReadyTaskAiProjectionPolicy } from "./policies/agentReadyTaskAiPro
 export { ListAgentReadyTasksService } from "./services/listAgentReadyTasksService.ts";
 export { AgentWorkspaceQueryService } from "./services/agentWorkspaceQueryService.ts";
 export { TaskContextQueryService } from "./services/taskContextQueryService.ts";
+export { ItemQueryService } from "./services/itemQueryService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
@@ -9,3 +10,9 @@ export type {
 } from "./ports/agentReadyTaskReadPort.ts";
 export type { AgentWorkspaceReadPort, AgentWorkspaceRecord } from "./ports/agentWorkspaceReadPort.ts";
 export type { TaskContextReadPort, TaskContextRecord, TaskContextWorkspace } from "./ports/taskContextReadPort.ts";
+export type {
+  ItemQueryReadPort,
+  ItemQueryRecord,
+  ItemQuerySnapshot,
+  ItemQueryThemeRecord,
+} from "./ports/itemQueryReadPort.ts";

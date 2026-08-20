@@ -145,3 +145,18 @@ export {
   type GetTaskContextRequest,
   type GetTaskContextResponse,
 } from "./taskContextQuery.ts";
+
+export {
+  itemLocatorSchema,
+  listOpenItemsRequestSchema,
+  listOpenItemsResponseSchema,
+  nextToolSchema,
+  publicItemSchema,
+  searchItemsRequestSchema,
+  searchItemsResponseSchema,
+  type ListOpenItemsRequest,
+  type ListOpenItemsResponse,
+  type PublicItem,
+  type SearchItemsRequest,
+  type SearchItemsResponse,
+} from "./itemQueries.ts";

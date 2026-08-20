@@ -4,12 +4,13 @@ import {
   type AgentReadyTaskWorkspacePersistence,
   type AgentWorkspacePersistence,
   type TaskContextWorkspacePersistence,
+  type ItemQueryWorkspacePersistence,
 } from "../infrastructure/sqlite/public.ts";
 
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
 
-  constructor(userDataPath: string, persistence: AgentReadyTaskWorkspacePersistence & AgentWorkspacePersistence & TaskContextWorkspacePersistence) {
+  constructor(userDataPath: string, persistence: AgentReadyTaskWorkspacePersistence & AgentWorkspacePersistence & TaskContextWorkspacePersistence & ItemQueryWorkspacePersistence) {
     const core = createTaskenCore(persistence);
     this.host = new TaskenCoreHost({
       userDataPath,
@@ -18,6 +19,8 @@ export class TaskenCoreRuntime {
       findTasksForRepository: core.findTasksForRepository,
       getTaskAssignment: core.getTaskAssignment,
       getTaskContext: core.getTaskContext,
+      searchItems: core.searchItems,
+      listOpenItems: core.listOpenItems,
     });
   }
 

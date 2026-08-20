@@ -7,8 +7,10 @@ import {
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
+  TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
+  TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
 } from "../../shared/contracts/core/public.mjs";
@@ -20,6 +22,17 @@ export class TaskenCoreClientError extends Error {
     super(message, options);
     this.name = "TaskenCoreClientError";
     this.code = code;
+    this.status = options.status;
+    this.details = options.details;
+  }
+
+  toPublicError() {
+    return {
+      code: this.code,
+      message: this.message,
+      ...(this.status === undefined ? {} : { status: this.status }),
+      ...(this.details === undefined ? {} : { details: this.details }),
+    };
   }
 }
 
@@ -125,6 +138,14 @@ export class TaskenCoreClient {
     return this.query("get-task-context", TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY, request);
   }
 
+  async searchItems(request = {}) {
+    return this.query("search-items", TASKEN_CORE_SEARCH_ITEMS_CAPABILITY, request);
+  }
+
+  async listOpenItems(request = {}) {
+    return this.query("list-open-items", TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY, request);
+  }
+
   async query(path, capability, request) {
     const discovery = await readDiscovery(this.discoveryPath);
     if (!discovery.capabilities.includes(capability)) {
@@ -142,9 +163,24 @@ export class TaskenCoreClient {
         body: JSON.stringify(request),
         signal: controller.signal,
       });
-      if (response.status === 401) throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。");
-      if (response.status === 409) throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
-      if (!response.ok) throw new TaskenCoreClientError("CORE_REQUEST_FAILED", `Tasken Core queryが失敗しました（${response.status}）。`);
+      if (!response.ok) {
+        let payload;
+        try {
+          payload = await response.json();
+        } catch {
+          // A non-JSON error is a transport failure, not a public domain error.
+        }
+        const publicError = payload?.error;
+        if (publicError && typeof publicError.code === "string" && typeof publicError.message === "string") {
+          throw new TaskenCoreClientError(publicError.code, publicError.message, {
+            status: response.status,
+            details: publicError.details,
+          });
+        }
+        if (response.status === 401) throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。", { status: 401 });
+        if (response.status === 409) throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。", { status: 409 });
+        throw new TaskenCoreClientError("CORE_REQUEST_FAILED", `Tasken Core queryが失敗しました（${response.status}）。`, { status: response.status });
+      }
       const version = response.headers.get("x-tasken-core-version");
       if (version !== TASKEN_CORE_API_VERSION) {
         throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");

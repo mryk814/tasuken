@@ -226,15 +226,15 @@ test("Phase 2: version and auth failures never fall back to the legacy DB contex
   }
 });
 
-test("Phase 2: an unmigrated MCP read tool keeps the legacy context provider", async () => {
+test("Phase 2: an unmigrated MCP detail tool keeps the legacy context provider", async () => {
   let legacyCalls = 0;
   const server = createTaskenMcpServer({
     readOnly: true,
     coreClient: { listAgentReadyTasks: () => { throw new Error("CORE_CLIENT_SENTINEL"); } },
     readContextProvider: async () => ({
-      toolSearchItems: () => {
+      toolGetNote: () => {
         legacyCalls += 1;
-        return { items: [{ id: "legacy-search" }] };
+        return { note: { id: "legacy-note" } };
       },
       close: () => undefined,
     }),
@@ -244,9 +244,9 @@ test("Phase 2: an unmigrated MCP read tool keeps the legacy context provider", a
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
-    const result = await client.callTool({ name: "tasken.search_items", arguments: {} });
+    const result = await client.callTool({ name: "tasken.get_note", arguments: { note_id: "legacy-note" } });
     assert.equal(result.isError, undefined);
-    assert.equal(result.structuredContent.items[0].id, "legacy-search");
+    assert.equal(result.structuredContent.note.id, "legacy-note");
     assert.equal(legacyCalls, 1);
   } finally {
     await client.close();
