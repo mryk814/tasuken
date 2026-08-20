@@ -34,7 +34,13 @@ const {
   TaskCapabilityService,
   mobileCreateTaskRequestSchema,
   mobileTodayRequestSchema,
+  mobileTodayResponseSchema,
 } = mobile;
+
+const todayGolden = JSON.parse(readFileSync(
+  new URL("../contracts/mobile/v1/today-response.golden.json", import.meta.url),
+  "utf8",
+));
 
 const now = "2026-08-21T01:00:00.000Z";
 const principal = {
@@ -158,6 +164,63 @@ function createRequest(overrides = {}) {
     ...overrides,
   };
 }
+
+test("canonical Today golden is accepted and malformed responses fail closed", () => {
+  assert.deepEqual(mobileTodayResponseSchema.parse(todayGolden), todayGolden);
+
+  const withMeta = (patch) => ({
+    ...structuredClone(todayGolden),
+    meta: { ...todayGolden.meta, ...patch },
+  });
+  const withData = (patch) => ({
+    ...structuredClone(todayGolden),
+    data: { ...todayGolden.data, ...patch },
+  });
+  const withFirstItem = (patch) => withData({
+    items: [{ ...todayGolden.data.items[0], ...patch }, ...todayGolden.data.items.slice(1)],
+  });
+  const missingTitle = structuredClone(todayGolden);
+  delete missingTitle.data.items[0].title;
+
+  for (const invalid of [
+    { ...structuredClone(todayGolden), ok: false },
+    withMeta({ apiVersion: 2 }),
+    withMeta({ schemaVersion: 2 }),
+    withMeta({ generatedAt: "not-a-timestamp" }),
+    withData({ date: "2026-02-30" }),
+    withData({ items: Array.from({ length: 51 }, (_, index) => ({
+      ...todayGolden.data.items[0],
+      id: `task-${index}`,
+    })) }),
+    withFirstItem({ id: " " }),
+    withFirstItem({ id: "x".repeat(201) }),
+    withFirstItem({ state: "invalid" }),
+    withFirstItem({ workState: "invalid" }),
+    withFirstItem({ updatedAt: "not-a-timestamp" }),
+    missingTitle,
+    { ...structuredClone(todayGolden), unexpected: true },
+  ]) {
+    assert.equal(mobileTodayResponseSchema.safeParse(invalid).success, false);
+  }
+
+  const nonUuidEntityIds = withFirstItem({ id: "task-contract-id", themeId: "theme-contract-id" });
+  assert.equal(mobileTodayResponseSchema.safeParse(nonUuidEntityIds).success, true);
+  const padded = mobileTodayResponseSchema.parse(withFirstItem({
+    id: "  task-contract-id  ",
+    title: "  Padded title  ",
+    themeId: "  theme-contract-id  ",
+  }));
+  assert.deepEqual(
+    {
+      id: padded.data.items[0].id,
+      title: padded.data.items[0].title,
+      themeId: padded.data.items[0].themeId,
+    },
+    { id: "task-contract-id", title: "Padded title", themeId: "theme-contract-id" },
+  );
+  assert.equal(mobileTodayResponseSchema.safeParse(withMeta({ truncated: true })).success, true);
+  assert.equal(mobileTodayResponseSchema.safeParse(withData({ nextCursor: "" })).success, true);
+});
 
 test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, versions, and ambiguous idempotency", () => {
   assert.deepEqual(TASKEN_MOBILE_ENDPOINTS, {
