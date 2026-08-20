@@ -7,6 +7,7 @@ import {
   themeRefFromEntity,
 } from "./activityEvent.mjs";
 import { projectEntityForAi, summarizeAiExclusions } from "./aiMetadata.mjs";
+import { safeExternalUrl, safeReceiptText } from "./taskContext.mjs";
 
 const DEFAULT_TIMEZONE = "Asia/Tokyo";
 const MAX_EVENTS = 500;
@@ -41,9 +42,117 @@ const DEFAULT_ACTIVITY_KINDS = new Set([
   "entity_deleted",
   "status_updated",
 ]);
+const PUBLIC_METADATA_KEYS = new Set([
+  "schema_version",
+  "dedupe_key",
+  "session_id",
+  "command_id",
+  "command_name",
+  "command_source",
+  "include_in_activity",
+  "formalized",
+  "activity_summary",
+  "capture_context",
+  "migrated_from",
+  "entity_status",
+  "work_action",
+  "executor_kind",
+  "executor_label",
+  "provenance",
+  "repository_context",
+  "reported_via",
+  "imported_by",
+  "proposal_id",
+  "caller",
+  "source_session",
+  "idempotency_key",
+  "proposal_created_at",
+  "media_kind",
+  "artifact_id",
+  "derived_from_artifact_id",
+  "source_type",
+  "source_id",
+  "content_hash",
+  "review_note",
+  "note_ai_command_marker",
+]);
+const REDACTED_MARKER = /\[redacted(?:-url|-local-path)?\]/i;
 
 function text(value) {
   return value == null ? "" : String(value).trim();
+}
+
+function publicText(value) {
+  return safeReceiptText(value).trim();
+}
+
+function publicIdentifier(value) {
+  const safe = publicText(value);
+  return safe && !REDACTED_MARKER.test(safe) ? safe : null;
+}
+
+function publicJsonValue(value, seen = new WeakSet()) {
+  if (typeof value === "string") return safeReceiptText(value);
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (!value || typeof value !== "object") return null;
+  if (seen.has(value)) return null;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const result = value.map((entry) => publicJsonValue(entry, seen));
+    seen.delete(value);
+    return result;
+  }
+  const result = Object.fromEntries(Object.entries(value).map(([keyName, entry]) => [
+    keyName,
+    publicJsonValue(entry, seen),
+  ]));
+  seen.delete(value);
+  return result;
+}
+
+function publicRecord(value) {
+  return publicJsonValue(value && typeof value === "object" && !Array.isArray(value) ? value : {});
+}
+
+function publicMetadata(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const result = {};
+  for (const keyName of PUBLIC_METADATA_KEYS) {
+    if (Object.hasOwn(source, keyName)) result[keyName] = publicJsonValue(source[keyName]);
+  }
+  return result;
+}
+
+function safeStorageRootId(value) {
+  const source = text(value);
+  if (!source || safeReceiptText(source) !== source || REDACTED_MARKER.test(source)) return null;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:$/.test(source)) return null;
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(source) ? source : null;
+}
+
+function safeRelativeLocator(value) {
+  const source = text(value).replaceAll("\\", "/");
+  if (!source || source.startsWith("/") || /^[A-Za-z]:\//.test(source) || source.startsWith("//")) return null;
+  if (source.split("/").some((segment) => segment === "..") || /[\x00-\x1f\x7f]/.test(source)) return null;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(source) || safeReceiptText(source) !== source || REDACTED_MARKER.test(source)) return null;
+  return source.replace(/^\.\//, "").slice(0, 2_000) || null;
+}
+
+function publicTypedRef(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const type = publicIdentifier(value.type);
+  const id = publicIdentifier(value.id);
+  if (!type || !id) return null;
+  const relation = publicIdentifier(value.relation);
+  const role = publicIdentifier(value.role);
+  return {
+    type,
+    id,
+    ...(Number.isFinite(value.revision) ? { revision: value.revision } : {}),
+    ...(relation ? { relation } : {}),
+    ...(role ? { role } : {}),
+  };
 }
 
 function normalizeTimezone(value) {
@@ -147,22 +256,47 @@ function relationRefsFor(event, workspace) {
     if (artifact.source_type === ref.type && String(artifact.source_id) === String(ref.id)) add("artifact", artifact.id, "generated");
     if (artifact.origin_note_id === ref.id && ref.type === "note") add("artifact", artifact.id, "exported");
   }
-  return [...new Map(result.filter((value) => value?.type && value?.id).map((value) => [JSON.stringify(value), value])).values()]
+  return [...new Map(result.map(publicTypedRef).filter(Boolean).map((value) => [JSON.stringify(value), value])).values()]
     .sort((a, b) => `${a.relation || ""}:${a.type}:${a.id}`.localeCompare(`${b.relation || ""}:${b.type}:${b.id}`));
+}
+
+function publicCanonicalBase(value) {
+  const ref = normalizeCanonicalRef(value);
+  if (!ref) return null;
+  const kind = publicIdentifier(ref.kind);
+  const storageRootId = safeStorageRootId(ref.storage_root_id);
+  const relativePath = safeRelativeLocator(ref.relative_path);
+  const webUrl = safeExternalUrl(ref.web_url);
+  const entityId = publicIdentifier(ref.entity_id);
+  if (!kind || (!webUrl && !(storageRootId && relativePath))) return null;
+  return {
+    kind,
+    ...(storageRootId && relativePath ? { storage_root_id: storageRootId, relative_path: relativePath } : {}),
+    ...(webUrl ? { web_url: webUrl } : {}),
+    ...(entityId ? { entity_id: entityId } : {}),
+  };
 }
 
 function publicCanonicalRefs(refs, roots) {
   return (Array.isArray(refs) ? refs : [])
-    .map((ref) => normalizeCanonicalRef(ref))
+    .map(publicCanonicalBase)
     .filter(Boolean)
-    .map((ref) => {
-      const resolved = resolveCanonicalRef(ref, roots);
+    .map((safeRef) => {
+      const resolved = resolveCanonicalRef(safeRef, roots);
       return {
-        ...ref,
+        ...safeRef,
         status: resolved.status,
         ...(resolved.local_status ? { local_status: resolved.local_status } : {}),
       };
-    });
+    })
+    .filter(Boolean);
+}
+
+function publicSourceRefs(refs) {
+  return (Array.isArray(refs) ? refs : []).map((ref) => {
+    if (ref?.type || ref?.id) return publicTypedRef(ref);
+    return publicCanonicalBase(ref);
+  }).filter(Boolean);
 }
 
 function deduplicate(events) {
@@ -208,25 +342,32 @@ function projectOne(event, context) {
     });
     if (!policy.included) return { excluded: policy.exclusion };
   }
+  const eventId = publicIdentifier(event.id);
+  const entityRef = publicTypedRef(event.entity_ref);
+  const eventKind = publicIdentifier(event.event_kind);
+  if (!eventId || !entityRef || !eventKind) {
+    return { excluded: { type: "activity", reason: "unsafe_public_ref", count: 1 } };
+  }
   const title = entityTitle(currentEntity, event.entity_ref);
+  const themeIdForPublic = publicIdentifier(themeId);
   const projected = {
-    id: event.id,
-    occurred_at: event.occurred_at,
-    event_kind: event.event_kind,
-    entity_ref: { ...event.entity_ref },
-    entity_title: title,
-    theme_ref: event.theme_ref?.kind === "theme" && event.theme_ref.id
-      ? { kind: "theme", id: event.theme_ref.id }
-      : themeRefFromEntity(currentEntity),
-    actor: { ...event.actor },
-    origin: { ...event.origin },
-    summary: event.summary,
-    changed_fields: [...(event.changed_fields || [])],
+    id: eventId,
+    occurred_at: publicText(event.occurred_at),
+    event_kind: eventKind,
+    entity_ref: entityRef,
+    entity_title: publicText(title),
+    theme_ref: themeIdForPublic
+      ? { kind: "theme", id: themeIdForPublic }
+      : { kind: "none", id: null },
+    actor: publicRecord(event.actor),
+    origin: publicRecord(event.origin),
+    summary: publicText(event.summary),
+    changed_fields: [...(event.changed_fields || [])].map(publicIdentifier).filter(Boolean),
     canonical_refs: publicCanonicalRefs(event.canonical_refs, roots),
-    source_refs: [...(event.source_refs || [])].filter((ref) => !ref?.absolute_path && !ref?.path?.match(/^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/)),
+    source_refs: publicSourceRefs(event.source_refs),
     relation_refs: relationRefsFor(event, workspace),
-    work_receipt_ref: event.work_receipt_ref ? { ...event.work_receipt_ref } : null,
-    metadata: { ...event.metadata },
+    work_receipt_ref: publicTypedRef(event.work_receipt_ref),
+    metadata: publicMetadata(event.metadata),
   };
   if (currentEntity?.deleted_at) projected.metadata.entity_status = "deleted";
   if (!currentEntity) projected.metadata.entity_status = "missing";

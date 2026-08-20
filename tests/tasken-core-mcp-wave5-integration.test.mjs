@@ -71,7 +71,21 @@ function fixture() {
     occurred_at: new Date(Date.parse(now) + index * 1_000).toISOString(),
     after: task,
     summary: `Activity ${index}`,
-    metadata: { dedupe_key: `wave5-${index}` },
+    metadata: {
+      dedupe_key: `wave5-${index}`,
+      ...(index === 100 ? {
+        capture_context: {
+          nested: ["https://user:pass@example.com/context?q=secret#fragment", "C:\\private\\capture.wav", "ordinary"],
+        },
+        token: "must-not-cross",
+      } : {}),
+    },
+    canonical_refs: index === 100 ? [{ kind: "canonical_document", web_url: "https://user:pass@example.com/report?q=secret#fragment" }] : [],
+    source_refs: index === 100 ? [
+      { kind: "url", locator: "https://user:pass@example.com/source?q=secret#fragment" },
+      { type: "artifact", id: "token=secret" },
+    ] : [],
+    relation_refs: index === 100 ? [{ type: "note", id: "Bearer private", relation: "context" }] : [],
   }));
   return { themes: [theme], tasks: [task], notes: [note], resources: [conversation], artifacts: [artifact], change_events: events };
 }
@@ -152,6 +166,13 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, HTTP, and MCP
     assert.equal(activity.events[0].id, "event-100");
     assert.equal(activity.result_meta.matched_visible_count, 101);
     assert.equal(activity.result_meta.truncated, true);
+    assert.equal(activity.events[0].canonical_refs[0].web_url, "https://example.com/report");
+    assert.equal(activity.events[0].source_refs[0].web_url, "https://example.com/source");
+    assert.equal(activity.events[0].source_refs.some((ref) => ref.id?.includes("redacted")), false);
+    assert.equal(activity.events[0].relation_refs.some((ref) => ref.id?.includes("redacted")), false);
+    assert.equal("token" in activity.events[0].metadata, false);
+    assert.equal(activity.events[0].metadata.capture_context.nested.at(-1), "ordinary");
+    assert.doesNotMatch(JSON.stringify(activity.events[0]), /user:pass|q=secret|fragment|C:\\\\private|Bearer private|token=secret|must-not-cross/);
 
     const missing = await mcpCall(client, "tasken.get_note", { note_id: "missing" });
     assert.equal(missing.isError, undefined);
