@@ -47,7 +47,7 @@ function fixture() {
     id: "theme-wave6",
     name: "Wave 6",
     description: "Theme description",
-    repository_context_ids: [repository.id],
+    repository_context_ids: [repository.id, "repository-subdir", "repository-amb-a", "repository-amb-b"],
     default_ai_visibility: ["coding_agent"],
     updated_at: now,
   };
@@ -55,15 +55,21 @@ function fixture() {
     themes: [
       theme,
       { id: "theme-hidden", name: "Hidden", repository_context_ids: ["repository-hidden"], default_ai_visibility: [], updated_at: now },
+      { id: "theme-archived", name: "Archived", repository_context_ids: ["repository-archived"], default_ai_visibility: ["coding_agent"], deleted_at: now, updated_at: now },
     ],
     repository_contexts: [
       repository,
+      { ...repository, id: "repository-subdir", label: "Subdir", subdirectory: "packages/core" },
+      { ...repository, id: "repository-amb-a", label: "Ambiguous A" },
+      { ...repository, id: "repository-amb-b", label: "Ambiguous B" },
       { id: "repository-hidden", provider: "local", local_path: "C:\\Users\\private\\hidden", active: true, updated_at: now },
+      { ...repository, id: "repository-archived", label: "Archived repo", deleted_at: now },
     ],
     tasks: [
       { id: "task-wave6", title: "Open Wave 6", description: "Do the work", state: "doing", project_id: theme.id, updated_at: now },
       { id: "task-done", title: "Done Wave 6", state: "done", project_id: theme.id, updated_at: "2026-08-20T00:00:00.000Z" },
       { id: "task-hidden", title: "Hidden work", state: "doing", project_id: "theme-hidden", updated_at: now },
+      { id: "task-archived", title: "Archived work", state: "doing", project_id: "theme-archived", deleted_at: now, updated_at: now },
     ],
     notes: [
       { id: "note-wave6", title: "Wave 6 note", body_markdown: "A".repeat(2_000), project_id: theme.id, updated_at: now },
@@ -126,7 +132,7 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
     const cases = [
-      ["tasken.find_themes_for_repository", { remote_url: "https://github.com/acme/wave6" }, "findThemesForRepository", "toolFindThemesForRepository"],
+      ["tasken.find_themes_for_repository", { remote_url: "https://github.com/acme/wave6", git_root: "C:\\Users\\private\\wave6", workspace_folder: "C:\\Users\\private\\wave6" }, "findThemesForRepository", "toolFindThemesForRepository"],
       ["tasken.get_repository_context", { repository_context_id: "repository-wave6" }, "getRepositoryContext", "toolGetRepositoryContext"],
       ["tasken.get_theme_context", { theme_id: "theme-wave6", max_chars: 80 }, "getThemeContext", "toolGetThemeContext"],
     ];
@@ -147,12 +153,45 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
     assert.equal("local_path" in repository.repository_context, false);
     assert.doesNotMatch(JSON.stringify(repository), /user:secret|token=secret|Users\\\\private/);
     assert.equal((await client.getRepositoryContext({ repository_context_id: "repository-hidden" })).repository_context, null);
+    const ambiguous = await client.findThemesForRepository({
+      remote_url: "https://github.com/acme/wave6",
+      git_root: "C:\\Users\\private\\wave6",
+      workspace_folder: "C:\\Users\\private\\wave6",
+    });
+    assert.equal(ambiguous.status, "ambiguous");
+    assert.deepEqual(ambiguous.candidates.map((candidate) => candidate.context.id), ["repository-amb-a", "repository-amb-b", "repository-wave6"]);
+    const subdirectory = await client.findThemesForRepository({
+      remote_url: "https://github.com/acme/wave6",
+      git_root: "C:\\Users\\private\\wave6",
+      workspace_folder: "C:\\Users\\private\\wave6\\packages\\core\\src",
+    });
+    assert.equal(subdirectory.status, "matched");
+    assert.equal(subdirectory.selected.id, "repository-subdir");
+    assert.equal((await client.getRepositoryContext({ repository_context_id: "repository-archived" })).repository_context, null);
+    const archived = await client.getRepositoryContext({ repository_context_id: "repository-archived", include_archived: true });
+    assert.equal(archived.repository_context.id, "repository-archived");
+    assert.deepEqual(archived.themes.map((entry) => entry.id), ["theme-archived"]);
+    assert.deepEqual(archived.tasks.map((entry) => entry.id), ["task-archived"]);
 
     const theme = await client.getThemeContext({ theme_id: "theme-wave6", max_chars: 80 });
     assert.equal(theme.truncated, true);
     assert.equal(theme.warnings.some((warning) => warning.code === "text_truncated"), true);
     assert.equal(theme.open_items.some((item) => item.id === "task-done"), false);
     assert.equal(theme.open_items.some((item) => item.id === "task-hidden"), false);
+    for (const [limit, expectedNodes, expectedEdges] of [[1, 1, 4], [50, 50, 200], [100, 100, 200]]) {
+      const bounded = core.getThemeContext.execute({ theme_id: "theme-wave6", limit });
+      assert.equal(bounded.limits.graph.maxNodes, expectedNodes);
+      assert.equal(bounded.limits.graph.maxEdges, expectedEdges);
+    }
+
+    const discovery = JSON.parse(fs.readFileSync(path.join(root, "tasken-core.json"), "utf8"));
+    const overMaximum = await fetch(`${discovery.origin}/v1/queries/get-theme-context`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${discovery.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ theme_id: "theme-wave6", limit: 101 }),
+    });
+    assert.equal(overMaximum.status, 400);
+    assert.equal((await overMaximum.json()).error.code, "VALIDATION_FAILED");
   } finally {
     legacy.close();
     await host.stop();
