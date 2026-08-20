@@ -3,7 +3,15 @@ import fs from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 
-import type { ListAgentReadyTasksRequest, ListAgentReadyTasksResponse } from "../../../shared/contracts/task/public.ts";
+import type {
+  FindTasksForRepositoryResponse,
+  GetTaskAssignmentRequest,
+  GetTaskAssignmentResponse,
+  ListAgentReadyTasksRequest,
+  ListAgentReadyTasksResponse,
+  RepositoryLookupRequest,
+  ResolveRepositoryContextResponse,
+} from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_CAPABILITY,
@@ -19,9 +27,16 @@ export interface ListAgentReadyTasksProvider {
   execute(request: ListAgentReadyTasksRequest): ListAgentReadyTasksResponse;
 }
 
+interface QueryProvider<Request, Response> {
+  execute(request: Request): Response;
+}
+
 export interface TaskenCoreHostOptions {
   userDataPath: string;
   listAgentReadyTasks: ListAgentReadyTasksProvider;
+  resolveRepositoryContext?: QueryProvider<RepositoryLookupRequest, ResolveRepositoryContextResponse>;
+  findTasksForRepository?: QueryProvider<RepositoryLookupRequest, FindTasksForRepositoryResponse>;
+  getTaskAssignment?: QueryProvider<GetTaskAssignmentRequest, GetTaskAssignmentResponse>;
 }
 
 interface DiscoveryDocument {
@@ -104,6 +119,15 @@ export class TaskenCoreHost {
     this.discoveryPath = path.join(options.userDataPath, TASKEN_CORE_DISCOVERY_FILE);
   }
 
+  private capabilities() {
+    return [
+      TASKEN_CORE_CAPABILITY,
+      ...(this.options.resolveRepositoryContext ? ["resolve_repository_context"] : []),
+      ...(this.options.findTasksForRepository ? ["find_tasks_for_repository"] : []),
+      ...(this.options.getTaskAssignment ? ["get_task_assignment"] : []),
+    ];
+  }
+
   async start() {
     if (this.server) throw new Error("Tasken Core hostは起動済みです。");
     const server = http.createServer((request, response) => void this.handle(request, response));
@@ -124,7 +148,7 @@ export class TaskenCoreHost {
       api_version: TASKEN_CORE_API_VERSION,
       origin: `http://${LOOPBACK_HOST}:${address.port}`,
       token: this.token,
-      capabilities: [TASKEN_CORE_CAPABILITY],
+      capabilities: this.capabilities(),
       pid: process.pid,
       started_at: new Date().toISOString(),
     };
@@ -155,10 +179,16 @@ export class TaskenCoreHost {
         json(response, 401, { error: { code: "UNAUTHORIZED", message: "認証できません。" } });
         return;
       }
-      const knownPaths = new Set(["/health", "/version", "/capabilities", "/v1/queries/list-agent-ready-tasks"]);
+      const queryPaths = new Set([
+        "/v1/queries/list-agent-ready-tasks",
+        ...(this.options.resolveRepositoryContext ? ["/v1/queries/resolve-repository-context"] : []),
+        ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
+        ...(this.options.getTaskAssignment ? ["/v1/queries/get-task-assignment"] : []),
+      ]);
+      const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
       if (knownPaths.has(request.url || "")
-        && request.method !== (request.url === "/v1/queries/list-agent-ready-tasks" ? "POST" : "GET")) {
-        response.setHeader("allow", request.url === "/v1/queries/list-agent-ready-tasks" ? "POST" : "GET");
+        && request.method !== (queryPaths.has(request.url || "") ? "POST" : "GET")) {
+        response.setHeader("allow", queryPaths.has(request.url || "") ? "POST" : "GET");
         json(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "methodが許可されていません。" } });
         return;
       }
@@ -171,16 +201,24 @@ export class TaskenCoreHost {
         return;
       }
       if (request.method === "GET" && request.url === "/capabilities") {
-        json(response, 200, { capabilities: [TASKEN_CORE_CAPABILITY] });
+        json(response, 200, { capabilities: this.capabilities() });
         return;
       }
-      if (request.method === "POST" && request.url === "/v1/queries/list-agent-ready-tasks") {
+      if (request.method === "POST" && queryPaths.has(request.url || "")) {
         if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
           json(response, 415, { error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "application/jsonを指定してください。" } });
           return;
         }
         const body = await requestBody(request);
-        json(response, 200, this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest));
+        if (request.url === "/v1/queries/list-agent-ready-tasks") {
+          json(response, 200, this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest));
+        } else if (request.url === "/v1/queries/resolve-repository-context") {
+          json(response, 200, this.options.resolveRepositoryContext!.execute(body as RepositoryLookupRequest));
+        } else if (request.url === "/v1/queries/find-tasks-for-repository") {
+          json(response, 200, this.options.findTasksForRepository!.execute(body as RepositoryLookupRequest));
+        } else {
+          json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
+        }
         return;
       }
       json(response, 404, { error: { code: "NOT_FOUND", message: "endpointがありません。" } });

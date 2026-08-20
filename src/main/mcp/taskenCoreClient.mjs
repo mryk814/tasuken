@@ -102,11 +102,27 @@ export class TaskenCoreClient {
   }
 
   async listAgentReadyTasks(request = {}) {
+    return this.query("list-agent-ready-tasks", request);
+  }
+
+  async resolveRepositoryContext(request = {}) {
+    return this.query("resolve-repository-context", request);
+  }
+
+  async findTasksForRepository(request = {}) {
+    return this.query("find-tasks-for-repository", request);
+  }
+
+  async getTaskAssignment(request = {}) {
+    return this.query("get-task-assignment", request);
+  }
+
+  async query(path, request) {
     const discovery = await readDiscovery(this.discoveryPath);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetch(`${discovery.origin}/v1/queries/list-agent-ready-tasks`, {
+      const response = await this.fetch(`${discovery.origin}/v1/queries/${path}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${discovery.token}`,

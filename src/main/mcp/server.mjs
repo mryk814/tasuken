@@ -112,7 +112,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetTaskAssignment(args)));
+  }, async (args) => toolResult(await coreClient.getTaskAssignment(args)));
 
   const boundedTextLength = z.number().int().positive().max(100000).optional();
   const taskContextWorkspaceSchema = z.object({
@@ -196,7 +196,7 @@ export function createTaskenMcpServer(options = {}) {
     description: "Resolve a current workspace to a RepositoryContext without choosing an ambiguous candidate.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolResolveRepositoryContext(args)));
+  }, async (args) => toolResult(await coreClient.resolveRepositoryContext(args)));
 
   server.registerTool("tasken.find_themes_for_repository", {
     description: "Find AI-visible Themes associated with a current repository workspace.",
@@ -208,7 +208,7 @@ export function createTaskenMcpServer(options = {}) {
     description: "Find AI-visible Tasks associated with a current repository workspace, respecting Task subdirectories.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolFindTasksForRepository(args)));
+  }, async (args) => toolResult(await coreClient.findTasksForRepository(args)));
 
   server.registerTool("tasken.get_repository_context", {
     description: "Read one RepositoryContext and its AI-visible Theme/Task associations. Private local paths are redacted.",
