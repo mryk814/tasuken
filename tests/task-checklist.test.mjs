@@ -30,4 +30,8 @@ test("Task checklist progress ignores blank items and counts completed items", (
     { id: "two", title: "確認", done: false, sort_order: 1 },
     { id: "blank", title: "", done: true, sort_order: 2 },
   ]), { done: 1, total: 2 });
+  assert.deepEqual(checklistProgress([
+    { id: "one", title: "準備", done: true, sort_order: 0 },
+    { id: "two", title: "確認", done: true, sort_order: 1 },
+  ]), { done: 2, total: 2 });
 });
