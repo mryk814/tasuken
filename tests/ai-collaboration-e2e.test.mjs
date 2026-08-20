@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -25,6 +24,8 @@ async function importBundled(relativePath) {
 }
 
 const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
+const { TaskenCoreHost } = await importBundled("src/main/infrastructure/http/taskenCoreHost.ts");
+const { createTaskenCore } = await importBundled("src/main/infrastructure/sqlite/public.ts");
 
 const FIXED_AT = "2026-08-09T04:00:00.000Z";
 const TASK_ID = "task-ai-collaboration-e2e";
@@ -42,6 +43,11 @@ const FAKE_PROVIDERS = [
   { provider: "fixture-provider-a", model: "fixture-model-a" },
   { provider: "fixture-provider-b", model: "fixture-model-b" },
 ];
+
+function assertDiscoveryOwnerOnly(root) {
+  if (typeof process.getuid !== "function") return;
+  assert.equal(fs.statSync(path.join(root, "tasken-core.json")).mode & 0o077, 0);
+}
 
 function command(name, payload, commandId, expectedVersions = [], options = {}) {
   return {
@@ -69,7 +75,8 @@ function durableSnapshot(database) {
 }
 
 function createLegacyFixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ai-collaboration-e2e-"));
+  // Keep discovery on a POSIX filesystem so its owner-only mode is meaningful under WSL.
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-ai-collaboration-e2e-"));
   const dbPath = path.join(root, "workspace.sqlite");
   const database = new WorkspaceDatabase(dbPath);
   database.bootstrap({
@@ -141,7 +148,7 @@ function createLegacyFixture() {
   return { root, dbPath, database, service: new ApplicationCommandService(database) };
 }
 
-async function connectMcp(dbPath, inboxPath) {
+async function connectMcp(dbPath, inboxPath, userDataPath = path.dirname(dbPath)) {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["scripts/mcp-server.mjs"],
@@ -149,6 +156,7 @@ async function connectMcp(dbPath, inboxPath) {
       ...process.env,
       TASKEN_DB_PATH: dbPath,
       TASKEN_MCP_INBOX_PATH: inboxPath,
+      TASKEN_USER_DATA_DIR: userDataPath,
     },
     stderr: "pipe",
   });
@@ -299,7 +307,10 @@ function withoutRuntimeProvenance(contract) {
 
 async function runProviderScenario(provider) {
   const fixture = createLegacyFixture();
-  let client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"));
+  let host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
+  await host.start();
+  assertDiscoveryOwnerOnly(fixture.root);
+  let client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
   try {
     const assigned = fixture.database.get("task", TASK_ID);
     const context = await callTaskWork(client, "tasken.get_task_context", {
@@ -460,10 +471,14 @@ async function runProviderScenario(provider) {
     assert.equal(fixture.database.get("task", TASK_ID).state, "done");
 
     await client.close();
+    await host.stop();
     fixture.database.db.close();
     fixture.database = new WorkspaceDatabase(fixture.dbPath);
     fixture.service = new ApplicationCommandService(fixture.database);
-    client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"));
+    host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
+    await host.start();
+    assertDiscoveryOwnerOnly(fixture.root);
+    client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
     const finalContext = await callTaskWork(client, "tasken.get_task_context", { task_id: TASK_ID });
     assert.equal(finalContext.task.state, "done");
     assert.equal(finalContext.related.work_receipts.length, 2);
@@ -473,6 +488,8 @@ async function runProviderScenario(provider) {
     return semanticContract(fixture.database, finalContext);
   } finally {
     await client.close().catch(() => {});
+    // A failed scenario may already have stopped or partially started the host; cleanup must not hide the original assertion.
+    await host.stop().catch(() => {});
     fixture.database.db.close();
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }

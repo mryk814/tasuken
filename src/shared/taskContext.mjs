@@ -285,48 +285,77 @@ export function publicArtifactMetadata(artifact, budget, relation = null) {
   }, budget);
 }
 
+const HTTP_URL = /https?:\/\/[^\s<>\]})'"`]+/gi;
+const DANGEROUS_URL = /\b(?:file|ftp|ftps|sftp|ssh|path):(?:\/\/)?[^\s<>\]})'"`]*/gi;
+const WINDOWS_LOCAL_PATH = /(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s,;)\]}> '"`]*/g;
+const UNIX_LOCAL_PATH = /(^|[^A-Za-z0-9/:]|:(?!\/\/))\/(?:[^/\s]+\/)+[^\s,;)\]}> '"`]*/g;
+const KEY_VALUE_CREDENTIAL = /\b(authorization|password|pwd|token|secret|api[_-]?key)\s*[:=]\s*(?:(?:Basic|Bearer)\s+)?[^\s,;)\]}>]+/gi;
+const STANDALONE_CREDENTIAL = /\b(Basic|Bearer)\s+[^\s,;)\]}>]+/gi;
+
+/** Remove URL credentials, unsupported URL-like locators, local paths, and authentication material. */
+export function safeReceiptText(value) {
+  let result = text(value);
+  result = result.replace(HTTP_URL, (url) => safeExternalUrl(url) || "[redacted-url]");
+  result = result.replace(DANGEROUS_URL, "[redacted-url]");
+  result = result.replace(WINDOWS_LOCAL_PATH, "$1[redacted-local-path]");
+  result = result.replace(UNIX_LOCAL_PATH, "$1[redacted-local-path]");
+  result = result.replace(KEY_VALUE_CREDENTIAL, "$1=[redacted]");
+  result = result.replace(STANDALONE_CREDENTIAL, "$1 [redacted]");
+  return result;
+}
+
 export function publicReceiptForContext(receipt, budget) {
-  const list = (value) => Array.isArray(value) ? value.slice(0, 100).map((entry) => budget.take(entry, 1_000)).filter(Boolean) : [];
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
+  const safeScalar = (value, limit = 500) => safeReceiptText(value).slice(0, limit);
+  const safeUrl = (value) => {
+    const url = safeExternalUrl(value);
+    return url ? safeScalar(url, 2_000) : null;
+  };
+  const list = (value) => Array.isArray(value) ? value.slice(0, 100).map((entry) => takeSafe(entry, 1_000)).filter(Boolean) : [];
   const rawProvenance = receipt.provenance && typeof receipt.provenance === "object" ? receipt.provenance : {};
   const provenance = {};
   for (const field of ["reported_via", "proposal_id", "imported_by", "caller", "source_session", "idempotency_key", "proposal_created_at"]) {
-    const value = budget.take(rawProvenance[field], 500);
+    const value = takeSafe(rawProvenance[field], 500);
     if (value) provenance[field] = value;
   }
   const rawRepositoryContext = receipt.repository_context && typeof receipt.repository_context === "object" ? receipt.repository_context : {};
   const repositoryContext = {};
   for (const field of ["repository_context_id", "repository_id", "provider", "repository_slug", "branch"]) {
-    const value = budget.take(rawRepositoryContext[field], 500);
+    const value = takeSafe(rawRepositoryContext[field], 500);
     if (value) repositoryContext[field] = value;
   }
   const rawRuntime = receipt.runtime_metadata && typeof receipt.runtime_metadata === "object" ? receipt.runtime_metadata : {};
   const runtimeMetadata = {};
   for (const field of ["provider", "model", "report_kind"]) {
-    const value = budget.take(rawRuntime[field], 500);
+    const value = takeSafe(rawRuntime[field], 500);
     if (value) runtimeMetadata[field] = value;
   }
+  const common = commonFields(receipt);
   return {
-    ...commonFields(receipt),
-    task_id: receipt.task_id,
-    executor_kind: receipt.executor_kind,
-    executor_label: budget.take(receipt.executor_label, 200),
-    started_at: receipt.started_at || null,
-    reported_at: receipt.reported_at || null,
-    summary: budget.take(receipt.summary, 10_000),
+    id: safeScalar(common.id),
+    version: common.version,
+    created_at: common.created_at ? safeScalar(common.created_at) : null,
+    updated_at: common.updated_at ? safeScalar(common.updated_at) : null,
+    task_id: safeScalar(receipt.task_id),
+    executor_kind: safeScalar(receipt.executor_kind),
+    executor_label: takeSafe(receipt.executor_label, 200),
+    started_at: receipt.started_at ? safeScalar(receipt.started_at) : null,
+    reported_at: receipt.reported_at ? safeScalar(receipt.reported_at) : null,
+    summary: takeSafe(receipt.summary, 10_000),
     completed_items: list(receipt.completed_items),
     changed_or_created_items: list(receipt.changed_or_created_items),
     verification: list(receipt.verification),
     remaining_work: list(receipt.remaining_work),
     external_references: Array.isArray(receipt.external_references)
       ? receipt.external_references.slice(0, 100).map((entry) => ({
-        kind: text(entry?.kind) || "other",
-        provider: text(entry?.provider) || "unknown",
-        display_label: budget.take(entry?.display_label, 500),
-        url: safeExternalUrl(entry?.url),
-        external_id: budget.take(entry?.external_id, 200) || null,
+        kind: safeScalar(entry?.kind, 200) || "other",
+        provider: safeScalar(entry?.provider, 200) || "unknown",
+        display_label: takeSafe(entry?.display_label, 500),
+        url: safeUrl(entry?.url),
+        external_id: takeSafe(entry?.external_id, 200) || null,
       }))
       : [],
-    source_session: receipt.source_session || null,
+    source_session: takeSafe(receipt.source_session, 500) || null,
     provenance,
     ...(Object.keys(repositoryContext).length ? { repository_context: repositoryContext } : {}),
     ...(Object.keys(runtimeMetadata).length ? { runtime_metadata: runtimeMetadata } : {}),

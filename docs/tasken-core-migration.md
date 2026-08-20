@@ -9,9 +9,9 @@ Phase 1以降でtoolや経路を移行した場合は、同じ変更でinventory
 DesktopはElectron Mainが`WorkspaceDatabase`を生成し、Application Command、Workspace Service、IPCへ同じrepository instanceを渡す。
 Task capabilityは`src/main/modules/task/`にあり、Desktop IPC、HTTP adapter、MCP adapterが`TaskCapabilityService`へ到達する参照スライスを持つ。
 
-stdio MCP serverの`tasken.list_agent_ready_tasks`は、Desktop Main内のCore hostへloopback HTTPで問い合わせる。
-このtoolは`ReadOnlyTaskenContext`を生成せず、Core unavailable、version mismatch、unauthorizedでもDB direct readへ戻らない。
-未移行のread tool 21件は引き続き各呼び出しで`ReadOnlyTaskenContext`を生成し、別processから`better-sqlite3`で同じDBをread-only openする。
+stdio MCP serverの`tasken.list_agent_ready_tasks`、Wave 2のrepository/assignment 3 tools、Wave 3の`tasken.get_task_context`は、Desktop Main内のCore hostへloopback HTTPで問い合わせる。
+この5 toolsは`ReadOnlyTaskenContext`を生成せず、Core unavailable、version mismatch、unauthorizedでもDB direct readへ戻らない。
+未移行のread tool 17件は引き続き各呼び出しで`ReadOnlyTaskenContext`を生成し、別processから`better-sqlite3`で同じDBをread-only openする。
 そのため、残るreadの意味とElectron ABI、native module resolutionはPhase 3までMCP bridgeに残る。
 
 write toolはSQLiteへ直接書かない。
@@ -20,11 +20,12 @@ write toolはSQLiteへ直接書かない。
 ```text
 tasken.list_agent_ready_tasks / resolve_repository_context /
 find_tasks_for_repository / get_task_assignment
+tasken.get_task_context
   -> pure HTTP client
   -> 127.0.0.1 Core host
   -> injected WorkspaceDatabase adapter
 
-unmigrated read tool (18 tools)
+unmigrated read tool (17 tools)
   -> ReadOnlyTaskenContext
   -> better-sqlite3
   -> Tasken SQLite
@@ -71,7 +72,7 @@ Phase 0からPhase 2では、#413のcanonical launcher、Electron-as-Node、runt
 ## MCP tool inventory
 
 `src/main/mcp/server.mjs`にはread toolが22件、Proposal toolが11件ある。
-read toolはすべて`withReadContext`を通るため、現在はtoolごとにDBを直接openする。
+Core移行済み5 toolsはpure client、残る17 toolsだけが`withReadContext`を通る。
 表の「追加policy」は、DB read以外に正本化すべき選択、投影、制限を示す。
 
 ### Read tools
@@ -82,7 +83,7 @@ read toolはすべて`withReadContext`を通るため、現在はtoolごとにDB
 | `tasken.list_open_items` | open workの一覧 | Schedule統合、状態変換、日付順、AI visibility | Phase 3 |
 | `tasken.list_agent_ready_tasks` | Coding Agentが着手可能なTaskの一覧 | executor、work state、Task state、Theme、AI visibility、件数制限 | Phase 1の最初のslice |
 | `tasken.get_task_assignment` | Task、Work Receipt、RepositoryContextの取得 | AI visibility、repository resolution | Wave 2でCore移行済み |
-| `tasken.get_task_context` | bounded Task contextの取得 | AI visibility、Context Graph、provenance、text budget、repository match | Phase 3 |
+| `tasken.get_task_context` | bounded Task contextの取得 | AI visibility、Context Graph、provenance、text budget、repository match | Wave 3でCore移行済み |
 | `tasken.get_note` | Note detailの取得 | AI visibility、本文長制限 | Phase 3 |
 | `tasken.get_conversation` | Chat Ref detailの取得 | AI visibility、本文長制限、URL credential除去 | Phase 3 |
 | `tasken.get_artifact_metadata` | Artifact metadataの取得 | AI visibility、pathと外部file本文の除外 | Phase 3 |
@@ -129,7 +130,7 @@ Core側でProposalを作成し、利用者がDesktop UIで採用した後に既�
 |---|---|---|---|---|
 | 移行済み | `list_agent_ready_tasks` | Coding Agentが着手可能なTaskを直接選べる | Task、Theme、AI visibility | 低。Wave 1で移行済み |
 | 1 | `resolve_repository_context` → `find_tasks_for_repository` → `get_task_assignment` | 現在地の特定、対象選択、assignment/receipt取得が一周する | Task、Theme、RepositoryContext、Work Receipt、AI visibility | 中。Wave 2で移行 |
-| 2 | `get_task_context` | 選択後のbounded contextを一括取得できる | Context Graph、provenance、Activity、receipt、repository match、text budget | 高。複合policyを一度に移すため次waveへ分離 |
+| 移行済み | `get_task_context` | 選択後のbounded contextを一括取得できる | Context Graph、provenance、Activity、receipt、repository match、text budget | 高。Wave 3で単独移行 |
 | 3 | `search_items`, `list_open_items` | 横断的な状況把握と対象選択 | Task、Waiting、Plan Node、legacy Item、Schedule、状態・日付順 | 高。混在projectionのexact characterization後に移行 |
 | 4 | `get_activity_entries`, `get_activity`, `get_plan_health` | 作業履歴と計画状態の確認 | Activity projection、root registry、legacy work、timezone | 中〜高 |
 | 5 | `find_themes_for_repository`, `get_repository_context`, `get_theme_context` | repository/theme単位の周辺把握 | repository resolution、複数entity、health | 中〜高 |
@@ -139,7 +140,8 @@ Core側でProposalを作成し、利用者がDesktop UIで採用した後に既�
 | 9 | 11 Proposal tools | 調査結果をTaskenへ返す | proposal-only inbox、検証、Desktop review | 中。read wave後も直接writeにはしない |
 
 Wave 2は、既存`list_agent_ready_tasks`と合わせて「repositoryから対象を絞る／ready一覧から選ぶ → assignmentとreceiptを読む → Proposalを返す」を成立させる。
-`get_task_context`は最も価値が高い次候補だが、legacyのGraph、provenance、Activity、text budgetを削らず移すため単独waveにする。
+Wave 3は`get_task_context`だけをquery-specific snapshot portへ移し、legacyのGraph、provenance、Activity、Work Receipt、repository match、text budgetをexact parityで維持した。
+Work Receiptの自由文は共通projectionでURL credential/query/hash、absolute local path、credential assignmentを除去し、通常の説明文は保持する。
 
 #### Wave 2.1 / Phase 3 gaps
 

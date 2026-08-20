@@ -7,6 +7,8 @@ import type {
   FindTasksForRepositoryResponse,
   GetTaskAssignmentRequest,
   GetTaskAssignmentResponse,
+  GetTaskContextRequest,
+  GetTaskContextResponse,
   ListAgentReadyTasksRequest,
   ListAgentReadyTasksResponse,
   RepositoryLookupRequest,
@@ -16,6 +18,7 @@ import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
+  TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
@@ -40,6 +43,7 @@ export interface TaskenCoreHostOptions {
   resolveRepositoryContext?: QueryProvider<RepositoryLookupRequest, ResolveRepositoryContextResponse>;
   findTasksForRepository?: QueryProvider<RepositoryLookupRequest, FindTasksForRepositoryResponse>;
   getTaskAssignment?: QueryProvider<GetTaskAssignmentRequest, GetTaskAssignmentResponse>;
+  getTaskContext?: QueryProvider<GetTaskContextRequest, GetTaskContextResponse>;
 }
 
 interface DiscoveryDocument {
@@ -128,6 +132,7 @@ export class TaskenCoreHost {
       ...(this.options.resolveRepositoryContext ? [TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY] : []),
       ...(this.options.findTasksForRepository ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY] : []),
       ...(this.options.getTaskAssignment ? [TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY] : []),
+      ...(this.options.getTaskContext ? [TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY] : []),
     ];
   }
 
@@ -187,6 +192,7 @@ export class TaskenCoreHost {
         ...(this.options.resolveRepositoryContext ? ["/v1/queries/resolve-repository-context"] : []),
         ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
         ...(this.options.getTaskAssignment ? ["/v1/queries/get-task-assignment"] : []),
+        ...(this.options.getTaskContext ? ["/v1/queries/get-task-context"] : []),
       ]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
       if (knownPaths.has(request.url || "")
@@ -219,6 +225,8 @@ export class TaskenCoreHost {
           json(response, 200, this.options.resolveRepositoryContext!.execute(body as RepositoryLookupRequest));
         } else if (request.url === "/v1/queries/find-tasks-for-repository") {
           json(response, 200, this.options.findTasksForRepository!.execute(body as RepositoryLookupRequest));
+        } else if (request.url === "/v1/queries/get-task-context") {
+          json(response, 200, this.options.getTaskContext!.execute(body as GetTaskContextRequest));
         } else {
           json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
         }

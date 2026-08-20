@@ -9,7 +9,7 @@ import {
   traceProvenance,
 } from "../src/shared/contextGraph.mjs";
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
-import { buildContextSelection, contextSelectionEntry } from "../src/main/mcp/contextSelection.mjs";
+import { buildContextSelection, contextSelectionEntry } from "../src/shared/contextSelection.mjs";
 import { previewContextSubgraph } from "../src/shared/aiContextPreview.mjs";
 
 const fixture = {

@@ -555,6 +555,11 @@ export class WorkspaceDatabase {
 
   loadWorkspace(includeDeleted = false) {
     this.ensurePersonalDefaultTheme();
+    return this.readWorkspaceSnapshot(includeDeleted);
+  }
+
+  /** Read the current persisted workspace without creating or updating records. */
+  readWorkspaceSnapshot(includeDeleted = false) {
     const result = {};
     for (const type of workspaceEntityTypes) result[collectionKeyForEntityType(type)] = this.list(type, includeDeleted);
     result.plan_revisions = this.db.prepare(
