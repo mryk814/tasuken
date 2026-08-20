@@ -17,6 +17,13 @@
       "migrationTarget": "src/shared/contracts/task/public.ts"
     },
     {
+      "id": "core-contract",
+      "classification": "feature-contract",
+      "root": "src/shared/contracts/core",
+      "owner": "core",
+      "migrationTarget": "src/shared/contracts/core/public.mjs"
+    },
+    {
       "id": "transport-platform",
       "classification": "platform",
       "root": "src/shared/ipc",

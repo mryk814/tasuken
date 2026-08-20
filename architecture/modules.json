@@ -18,6 +18,7 @@
   "allowedEdges": {
     "shared.kernel": [],
     "shared.contracts.task": ["shared.kernel"],
+    "shared.contracts.core": [],
     "shared.compatibility": ["shared.kernel", "shared.contracts.task"],
     "shared.ipc": ["shared", "shared.kernel", "shared.contracts.task", "shared.compatibility"],
     "shared": ["shared.kernel", "shared.contracts.task", "shared.compatibility"],
@@ -27,8 +28,8 @@
     "main.core": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.task": ["shared", "shared.kernel", "shared.contracts.task"],
-    "main.mcp": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "main.platform": ["main.application", "main.core", "main.infrastructure", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.mcp": ["shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
+    "main.platform": ["main.application", "main.core", "main.infrastructure", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
     "preload": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.main": ["renderer.app", "renderer.workspace", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.root": ["renderer.app", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
@@ -61,6 +62,17 @@
       ],
       "enforcePublicApi": true,
       "owner": "task"
+    },
+    {
+      "id": "shared.contracts.core",
+      "root": "src/shared/contracts/core",
+      "kind": "shared-contract",
+      "status": "enforced",
+      "publicEntrypoints": [
+        "src/shared/contracts/core/public.mjs"
+      ],
+      "enforcePublicApi": true,
+      "owner": "core"
     },
     {
       "id": "shared.compatibility",

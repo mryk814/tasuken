@@ -9,15 +9,21 @@ Phase 1以降でtoolや経路を移行した場合は、同じ変更でinventory
 DesktopはElectron Mainが`WorkspaceDatabase`を生成し、Application Command、Workspace Service、IPCへ同じrepository instanceを渡す。
 Task capabilityは`src/main/modules/task/`にあり、Desktop IPC、HTTP adapter、MCP adapterが`TaskCapabilityService`へ到達する参照スライスを持つ。
 
-stdio MCP serverのread toolは、このTask capabilityをまだ使っていない。
-各呼び出しは`ReadOnlyTaskenContext`を生成し、別processから`better-sqlite3`で同じDBをread-only openする。
-そのため、readの意味だけでなくElectron ABIとnative module resolutionもMCP bridgeへ漏れている。
+stdio MCP serverの`tasken.list_agent_ready_tasks`は、Desktop Main内のCore hostへloopback HTTPで問い合わせる。
+このtoolは`ReadOnlyTaskenContext`を生成せず、Core unavailable、version mismatch、unauthorizedでもDB direct readへ戻らない。
+未移行のread tool 21件は引き続き各呼び出しで`ReadOnlyTaskenContext`を生成し、別processから`better-sqlite3`で同じDBをread-only openする。
+そのため、残るreadの意味とElectron ABI、native module resolutionはPhase 3までMCP bridgeに残る。
 
 write toolはSQLiteへ直接書かない。
 `queueMcpProposal`がuserData配下のMCP inboxへProposal envelopeを書き、起動中のDesktopが検証してApplication Commandのtransactionへ取り込む。
 
 ```text
-read tool
+tasken.list_agent_ready_tasks
+  -> pure HTTP client
+  -> 127.0.0.1 Core host
+  -> injected WorkspaceDatabase adapter
+
+unmigrated read tool
   -> ReadOnlyTaskenContext
   -> better-sqlite3
   -> Tasken SQLite
@@ -176,10 +182,13 @@ Electron Mainが`127.0.0.1`のrandom portへCore hostをbindする。
 health、Core API version、capability handshake、request size、timeout、auth tokenを実装する。
 endpointとtokenのdiscovery情報はuserData配下へ原子的に保存し、同一OS userだけが読める扱いにする。
 token、DB path、local pathをログやtool resultへ出さない。
+discoveryはschema version、API version、capability、loopback origin、256-bit token、owner、permission、symlinkをclient側でも検証する。
+hostはJSON Content-Type、64 KiB request body、5秒timeout、method、pathを境界で検証する。
 
 MCP bridgeは`tasken.list_agent_ready_tasks`だけをpure HTTP clientへ切り替える。
 Core unavailable、version mismatch、unauthorizedをtyped errorへ変換し、SQLite direct readへfallbackしない。
 他のtoolはPhase 3までlegacy contextを使うため、#413のlauncherを残す。
+Phase 2ではquery sliceだけを完成させ、Task command endpointは追加しない。
 
 ### Phase 3: Pure MCP bridge
 

@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import { queueMcpProposal } from "./proposalInbox.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { repositoryContextProposalInput } from "../../shared/repositoryContextProposal.mjs";
+import { TaskenCoreClient } from "./taskenCoreClient.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -35,10 +36,14 @@ function loadReadOnlyContext() {
   return readOnlyContextModulePromise;
 }
 
-function withReadContext(handler) {
+async function defaultReadContextProvider() {
+  const { ReadOnlyTaskenContext, defaultTaskenDbPath } = await loadReadOnlyContext();
+  return new ReadOnlyTaskenContext(defaultTaskenDbPath());
+}
+
+function withReadContext(provider, handler) {
   return async (args) => {
-    const { ReadOnlyTaskenContext, defaultTaskenDbPath } = await loadReadOnlyContext();
-    const context = new ReadOnlyTaskenContext(defaultTaskenDbPath());
+    const context = await provider();
     try {
       return toolResult(handler(context, args));
     } finally {
@@ -57,6 +62,8 @@ export function mcpReadOnlyMode(env = process.env) {
 
 export function createTaskenMcpServer(options = {}) {
   const readOnly = options.readOnly ?? mcpReadOnlyMode(options.env || process.env);
+  const readContextProvider = options.readContextProvider || defaultReadContextProvider;
+  const coreClient = options.coreClient || new TaskenCoreClient({ env: options.env || process.env });
   const server = new McpServer({
     name: "tasken",
     version: "1.0.0",
@@ -75,7 +82,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolSearchItems(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolSearchItems(args)));
 
   server.registerTool("tasken.list_open_items", {
     description: "List open Tasken tasks, waitings, and plan nodes.",
@@ -85,7 +92,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolListOpenItems(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolListOpenItems(args)));
 
   server.registerTool("tasken.list_agent_ready_tasks", {
     description: "List AI-assigned Tasks that are ready for an agent. Read-only; a Work Receipt never completes a Task.",
@@ -95,7 +102,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolListAgentReadyTasks(args)));
+  }, async (args) => toolResult(await coreClient.listAgentReadyTasks(args)));
 
   server.registerTool("tasken.get_task_assignment", {
     description: "Read one Task assignment and its append-only Work Receipts. Read-only.",
@@ -105,7 +112,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetTaskAssignment(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetTaskAssignment(args)));
 
   const boundedTextLength = z.number().int().positive().max(100000).optional();
   const taskContextWorkspaceSchema = z.object({
@@ -132,7 +139,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetTaskContext(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetTaskContext(args)));
 
   server.registerTool("tasken.get_note", {
     description: "Read one AI-visible Note body by stable ID with a text limit.",
@@ -142,7 +149,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetNote(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetNote(args)));
 
   server.registerTool("tasken.get_conversation", {
     description: "Read one AI-visible Chat Ref conversation by stable ID with a text limit. URL credentials, query, and fragment are removed.",
@@ -152,7 +159,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetConversation(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetConversation(args)));
 
   server.registerTool("tasken.get_artifact_metadata", {
     description: "Read safe Artifact metadata by stable ID. External file content and private filesystem paths are never returned.",
@@ -161,7 +168,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetArtifactMetadata(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetArtifactMetadata(args)));
 
   server.registerTool("tasken.get_activity_entries", {
     description: "Read AI-visible Activity entries for one Task by stable ID.",
@@ -171,7 +178,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetActivityEntries(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetActivityEntries(args)));
 
   const repositoryLookupSchema = {
     repository_context_id: optionalText,
@@ -189,19 +196,19 @@ export function createTaskenMcpServer(options = {}) {
     description: "Resolve a current workspace to a RepositoryContext without choosing an ambiguous candidate.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolResolveRepositoryContext(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolResolveRepositoryContext(args)));
 
   server.registerTool("tasken.find_themes_for_repository", {
     description: "Find AI-visible Themes associated with a current repository workspace.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolFindThemesForRepository(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolFindThemesForRepository(args)));
 
   server.registerTool("tasken.find_tasks_for_repository", {
     description: "Find AI-visible Tasks associated with a current repository workspace, respecting Task subdirectories.",
     inputSchema: repositoryLookupSchema,
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolFindTasksForRepository(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolFindTasksForRepository(args)));
 
   server.registerTool("tasken.get_repository_context", {
     description: "Read one RepositoryContext and its AI-visible Theme/Task associations. Private local paths are redacted.",
@@ -210,7 +217,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetRepositoryContext(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetRepositoryContext(args)));
 
   server.registerTool("tasken.get_theme_context", {
     description: "Return themes, open work, recent notes, knowledge, and health.",
@@ -226,7 +233,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetThemeContext(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetThemeContext(args)));
 
   server.registerTool("tasken.get_recent_notes", {
     description: "Return recent notes. Full Markdown requires include_raw_body=true.",
@@ -238,7 +245,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetRecentNotes(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetRecentNotes(args)));
 
   server.registerTool("tasken.search_knowledge", {
     description: "Search Tasken Knowledge nodes.",
@@ -251,7 +258,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolSearchKnowledge(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolSearchKnowledge(args)));
 
   server.registerTool("tasken.get_knowledge_context", {
     description: "Return Knowledge nodes, relations, and optionally source entities.",
@@ -265,19 +272,19 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetKnowledgeContext(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetKnowledgeContext(args)));
 
   server.registerTool("tasken.get_plan_health", {
     description: "Return open, overdue, waiting, and unscheduled work health.",
     inputSchema: { theme_id: optionalText },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetPlanHealth(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetPlanHealth(args)));
 
   server.registerTool("tasken.get_knowledge_health", {
     description: "Return unresolved questions and other Knowledge health issues.",
     inputSchema: { theme_id: optionalText },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetKnowledgeHealth(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetKnowledgeHealth(args)));
 
   server.registerTool("tasken.get_activity", {
     description: "Return the structured Activity event index as JSON or Markdown. This is read-only and applies AI visibility policy at projection time.",
@@ -295,7 +302,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetActivity(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetActivity(args)));
 
   server.registerTool("tasken.get_context_subgraph", {
     description: "Return a bounded, read-only Context/Provenance subgraph for one typed entity. Suggested relations are excluded by default and never become facts.",
@@ -310,7 +317,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolGetContextSubgraph(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolGetContextSubgraph(args)));
 
   server.registerTool("tasken.export_ai_context", {
     description: "Export bounded Tasken context as Markdown or JSON.",
@@ -327,7 +334,7 @@ export function createTaskenMcpServer(options = {}) {
       audience: z.enum(["m365", "coding_agent", "external_ai"]).optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext((context, args) => context.toolExportAiContext(args)));
+  }, withReadContext(readContextProvider, (context, args) => context.toolExportAiContext(args)));
 
   if (readOnly) return server;
 
