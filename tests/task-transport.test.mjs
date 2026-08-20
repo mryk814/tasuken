@@ -31,4 +31,6 @@ test("compatibility alias has a consumer-zero removal condition", () => {
   const compatibilitySource = readFileSync("src/shared/compatibility/taskIpc.ts", "utf8");
   assert.match(compatibilitySource, /Removal condition \(#407\/#406\)/);
   assert.match(compatibilitySource, /consumer inventory reaches zero/);
+  assert.doesNotMatch(compatibilitySource, /contracts\/task\/public\.ts/);
+  assert.match(compatibilitySource, /contracts\/task\/transport\.ts/);
 });

@@ -1,7 +1,7 @@
 import {
   TASK_IPC_CHANNELS,
   type TaskIpcChannel,
-} from "../contracts/task/public.ts";
+} from "../contracts/task/transport.ts";
 
 /**
  * Temporary compatibility surface for aggregate IPC consumers.

@@ -55,7 +55,8 @@
       "kind": "shared-contract",
       "status": "enforced",
       "publicEntrypoints": [
-        "src/shared/contracts/task/public.ts"
+        "src/shared/contracts/task/public.ts",
+        "src/shared/contracts/task/transport.ts"
       ],
       "enforcePublicApi": true,
       "owner": "task"
