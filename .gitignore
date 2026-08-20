@@ -4,6 +4,11 @@
 /out
 /mcp-dist
 /build
+/android-app/.gradle/
+/android-app/.kotlin/
+/android-app/local.properties
+/android-app/build/
+/android-app/app/build/
 *.tsbuildinfo
 # OS
 .DS_Store
