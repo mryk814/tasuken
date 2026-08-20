@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -45,6 +44,11 @@ const FAKE_PROVIDERS = [
   { provider: "fixture-provider-b", model: "fixture-model-b" },
 ];
 
+function assertDiscoveryOwnerOnly(root) {
+  if (typeof process.getuid !== "function") return;
+  assert.equal(fs.statSync(path.join(root, "tasken-core.json")).mode & 0o077, 0);
+}
+
 function command(name, payload, commandId, expectedVersions = [], options = {}) {
   return {
     commandId,
@@ -71,7 +75,8 @@ function durableSnapshot(database) {
 }
 
 function createLegacyFixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ai-collaboration-e2e-"));
+  // Keep discovery on a POSIX filesystem so its owner-only mode is meaningful under WSL.
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-ai-collaboration-e2e-"));
   const dbPath = path.join(root, "workspace.sqlite");
   const database = new WorkspaceDatabase(dbPath);
   database.bootstrap({
@@ -304,6 +309,7 @@ async function runProviderScenario(provider) {
   const fixture = createLegacyFixture();
   let host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
   await host.start();
+  assertDiscoveryOwnerOnly(fixture.root);
   let client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
   try {
     const assigned = fixture.database.get("task", TASK_ID);
@@ -471,6 +477,7 @@ async function runProviderScenario(provider) {
     fixture.service = new ApplicationCommandService(fixture.database);
     host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
     await host.start();
+    assertDiscoveryOwnerOnly(fixture.root);
     client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
     const finalContext = await callTaskWork(client, "tasken.get_task_context", { task_id: TASK_ID });
     assert.equal(finalContext.task.state, "done");

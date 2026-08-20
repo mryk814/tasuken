@@ -12,6 +12,7 @@ import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
+import { safeReceiptText } from "../src/shared/taskContext.mjs";
 
 const bundled = await build({
   stdin: {
@@ -102,8 +103,15 @@ function fixture() {
     remaining_work: ["human review"],
     source_session: "secret=SESSION_SECRET",
     provenance: { reported_via: "mcp", caller: "codex", source_session: "/tmp/private/session.json", proposal_id: "proposal-safe" },
-    repository_context: { repository_context_id: "repo-visible", provider: "github", repository_slug: "mryk814/tasuken", branch: "codex/wave3", cwd: "C:/private/repo" },
-    runtime_metadata: { provider: "openai", model: "gpt-5.6", report_kind: "done", diagnostic_path: "/tmp/private/diagnostic" },
+    external_references: [{
+      kind: "issue token=KIND_SECRET",
+      provider: "github secret=EXTERNAL_PROVIDER_SECRET",
+      display_label: "safe issue C:\\private\\label.txt",
+      url: "https://bob:password@example.com/report?api_key=URL_KEY#fragment",
+      external_id: "token=EXTERNAL_ID_SECRET",
+    }],
+    repository_context: { repository_context_id: "repo-visible", provider: "github token=REPO_PROVIDER_SECRET", repository_slug: "mryk814/tasuken", branch: "codex/wave3 secret=BRANCH_SECRET", cwd: "C:/private/repo" },
+    runtime_metadata: { provider: "openai token=RUNTIME_PROVIDER_SECRET", model: "gpt-5.6 secret=MODEL_SECRET", report_kind: "done api_key=REPORT_SECRET", diagnostic_path: "/tmp/private/diagnostic" },
     updated_at: now,
   };
   return {
@@ -167,6 +175,11 @@ class FixtureRepository {
 
   loadWorkspace(includeDeleted = false) {
     this.calls.push({ operation: "loadWorkspace", includeDeleted });
+    return this.readWorkspaceSnapshot(includeDeleted);
+  }
+
+  readWorkspaceSnapshot(includeDeleted = false) {
+    this.calls.push({ operation: "readWorkspaceSnapshot", includeDeleted });
     return Object.fromEntries(Object.entries(this.workspace).map(([key, value]) => [
       key,
       Array.isArray(value) ? value.filter((record) => includeDeleted || !record.deleted_at) : value,
@@ -246,10 +259,16 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
     assert.equal(result.related.notes.some((note) => note.id === "note-hidden"), false);
     assert.equal(result.related.work_receipts[0].summary.includes("普通の説明は保持"), true);
     const serialized = JSON.stringify(result);
-    assert.doesNotMatch(serialized, /TOP_SECRET|VERY_SECRET|SESSION_SECRET|URL_SECRET|URL_KEY|alice:secret|bob:password/);
+    assert.doesNotMatch(serialized, /TOP_SECRET|VERY_SECRET|SESSION_SECRET|URL_SECRET|URL_KEY|KIND_SECRET|EXTERNAL_PROVIDER_SECRET|EXTERNAL_ID_SECRET|REPO_PROVIDER_SECRET|BRANCH_SECRET|RUNTIME_PROVIDER_SECRET|MODEL_SECRET|REPORT_SECRET|alice:secret|bob:password/);
     assert.doesNotMatch(serialized, /C:\\\\Users|\/home\/private|\/mnt\/c\/private|\/tmp\/private/);
     assert.doesNotMatch(serialized, /HIDDEN_BODY_SENTINEL/);
     assert.doesNotMatch(serialized, /local_path|stored_path|original_path|diagnostic_path/);
+    assert.equal(result.related.work_receipts[0].external_references[0].url, "https://example.com/report");
+    assert.doesNotMatch(result.related.work_receipts[0].external_references[0].url, /redacted-local-path/);
+    assert.equal(
+      safeReceiptText("keep https://alice:secret@example.com/report?token=URL_SECRET#fragment C:\\private\\report.txt /home/private/report.txt token=TEXT_SECRET"),
+      "keep https://example.com/report [redacted-local-path] [redacted-local-path] token=[redacted]",
+    );
   } finally {
     legacy.close();
   }

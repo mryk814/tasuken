@@ -1,12 +1,30 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { build } from "esbuild";
+
 import { createSnapshot } from "../src/main/services/snapshotService.mjs";
 import { validateEntity } from "../src/main/repositories/domain.mjs";
 import { WorkspaceDatabase, workspaceEntityTypes } from "../src/main/repositories/workspaceRepository.mjs";
+
+const taskContextCoreBundle = await build({
+  stdin: {
+    contents: 'export { createTaskenCore } from "./src/main/infrastructure/sqlite/public.ts";',
+    resolveDir: process.cwd(),
+  },
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  write: false,
+  logLevel: "silent",
+});
+const { createTaskenCore } = await import(
+  `data:text/javascript;base64,${Buffer.from(taskContextCoreBundle.outputFiles[0].text).toString("base64")}`
+);
 
 function item(overrides = {}) {
   return {
@@ -19,6 +37,24 @@ function item(overrides = {}) {
     ...overrides,
   };
 }
+
+test("Core Task context reads an empty SQLite snapshot without creating the default Theme", () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-empty-workspace-"));
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    assert.equal(database.list("theme", true).length, 0);
+    const result = createTaskenCore(database).getTaskContext.execute({ task_id: "missing" });
+    assert.equal(result.error.code, "not_found");
+    assert.equal(database.list("theme", true).length, 0);
+
+    const workspace = database.loadWorkspace();
+    assert.equal(database.list("theme", true).length, 1);
+    assert.equal(workspace.themes.length, 1);
+  } finally {
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function fakeRepository(preview) {
   const inserted = [];

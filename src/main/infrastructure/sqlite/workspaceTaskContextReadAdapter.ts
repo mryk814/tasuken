@@ -2,7 +2,7 @@ import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../../shared/ai
 import type { TaskContextReadPort, TaskContextRecord, TaskContextWorkspace } from "../../core/public.ts";
 
 export interface TaskContextWorkspacePersistence {
-  loadWorkspace(includeDeleted?: boolean): TaskContextWorkspace;
+  readWorkspaceSnapshot(includeDeleted?: boolean): TaskContextWorkspace;
   list(type: "theme", includeDeleted?: boolean): TaskContextRecord[];
   getPreference(key: "aiVisibilityDefault"): unknown;
 }
@@ -12,7 +12,7 @@ export class WorkspaceTaskContextReadAdapter implements TaskContextReadPort {
   constructor(private readonly persistence: TaskContextWorkspacePersistence) {}
 
   loadTaskContextWorkspace(includeArchived: boolean) {
-    return this.persistence.loadWorkspace(includeArchived);
+    return this.persistence.readWorkspaceSnapshot(includeArchived);
   }
 
   loadTaskContextVisibilityThemes() {
