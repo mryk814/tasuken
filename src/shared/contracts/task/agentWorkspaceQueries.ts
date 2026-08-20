@@ -21,6 +21,11 @@ export const getTaskAssignmentRequestSchema = z.object({
   include_archived: z.boolean().optional(),
 }).strict();
 
+export const getRepositoryContextRequestSchema = z.object({
+  repository_context_id: z.string().trim().min(1).max(200),
+  include_archived: z.boolean().optional(),
+}).strict();
+
 // Wave 2 preserves the established MCP compatibility shapes exactly. The
 // boundary validates the stable envelope while legacy extension fields remain
 // lossless until the public projections are versioned independently.
@@ -42,6 +47,19 @@ export const findTasksForRepositoryResponseSchema = z.looseObject({
   })),
 });
 
+export const findThemesForRepositoryResponseSchema = z.looseObject({
+  themes: z.array(z.looseObject({ id: z.string() })),
+  read_only: z.literal(true),
+  ai_audience: z.literal("coding_agent"),
+});
+
+export const getRepositoryContextResponseSchema = z.looseObject({
+  repository_context: z.looseObject({ id: z.string() }).nullable(),
+  repository_context_id: z.string(),
+  read_only: z.literal(true),
+  ai_audience: z.literal("coding_agent"),
+});
+
 export const getTaskAssignmentResponseSchema = z.looseObject({
   task: z.looseObject({ id: z.string() }).nullable(),
   receipts: z.array(z.looseObject({ id: z.string() })),
@@ -52,6 +70,9 @@ export const getTaskAssignmentResponseSchema = z.looseObject({
 
 export type RepositoryLookupRequest = z.output<typeof repositoryLookupRequestSchema>;
 export type ResolveRepositoryContextResponse = z.output<typeof resolveRepositoryContextResponseSchema>;
+export type FindThemesForRepositoryResponse = z.output<typeof findThemesForRepositoryResponseSchema>;
 export type FindTasksForRepositoryResponse = z.output<typeof findTasksForRepositoryResponseSchema>;
+export type GetRepositoryContextRequest = z.output<typeof getRepositoryContextRequestSchema>;
+export type GetRepositoryContextResponse = z.output<typeof getRepositoryContextResponseSchema>;
 export type GetTaskAssignmentRequest = z.output<typeof getTaskAssignmentRequestSchema>;
 export type GetTaskAssignmentResponse = z.output<typeof getTaskAssignmentResponseSchema>;

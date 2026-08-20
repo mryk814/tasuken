@@ -3,17 +3,23 @@ import path from "node:path";
 
 import { resolveTaskenUserDataPath } from "../../shared/taskenPaths.mjs";
 import {
+  findThemesForRepositoryResponseSchema,
   getActivityEntriesResponseSchema,
   getArtifactMetadataResponseSchema,
   getConversationResponseSchema,
   getNoteResponseSchema,
+  getRepositoryContextResponseSchema,
+  getThemeContextResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
+  TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
   TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
   TASKEN_CORE_GET_NOTE_CAPABILITY,
@@ -144,6 +150,14 @@ export class TaskenCoreClient {
     return this.query("find-tasks-for-repository", TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY, request);
   }
 
+  async findThemesForRepository(request = {}) {
+    return this.query("find-themes-for-repository", TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY, request, findThemesForRepositoryResponseSchema);
+  }
+
+  async getRepositoryContext(request = {}) {
+    return this.query("get-repository-context", TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY, request, getRepositoryContextResponseSchema);
+  }
+
   async getTaskAssignment(request = {}) {
     return this.query("get-task-assignment", TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY, request);
   }
@@ -174,6 +188,10 @@ export class TaskenCoreClient {
 
   async getActivityEntries(request = {}) {
     return this.query("get-activity-entries", TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY, request, getActivityEntriesResponseSchema);
+  }
+
+  async getThemeContext(request = {}) {
+    return this.query("get-theme-context", TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY, request, getThemeContextResponseSchema);
   }
 
   async query(path, capability, request, responseSchema) {

@@ -5,8 +5,13 @@ import path from "node:path";
 
 import type {
   FindTasksForRepositoryResponse,
+  FindThemesForRepositoryResponse,
   GetActivityEntriesRequest,
   GetActivityEntriesResponse,
+  GetRepositoryContextRequest,
+  GetRepositoryContextResponse,
+  GetThemeContextRequest,
+  GetThemeContextResponse,
   GetArtifactMetadataRequest,
   GetArtifactMetadataResponse,
   GetConversationRequest,
@@ -29,6 +34,8 @@ import type {
 import {
   getTaskAssignmentRequestSchema,
   getActivityEntriesRequestSchema,
+  getRepositoryContextRequestSchema,
+  getThemeContextRequestSchema,
   getArtifactMetadataRequestSchema,
   getConversationRequestSchema,
   getNoteRequestSchema,
@@ -41,9 +48,12 @@ import {
 import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
+  TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
   TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
   TASKEN_CORE_GET_NOTE_CAPABILITY,
@@ -73,6 +83,8 @@ export interface TaskenCoreHostOptions {
   listAgentReadyTasks: ListAgentReadyTasksProvider;
   resolveRepositoryContext?: QueryProvider<RepositoryLookupRequest, ResolveRepositoryContextResponse>;
   findTasksForRepository?: QueryProvider<RepositoryLookupRequest, FindTasksForRepositoryResponse>;
+  findThemesForRepository?: QueryProvider<RepositoryLookupRequest, FindThemesForRepositoryResponse>;
+  getRepositoryContext?: QueryProvider<GetRepositoryContextRequest, GetRepositoryContextResponse>;
   getTaskAssignment?: QueryProvider<GetTaskAssignmentRequest, GetTaskAssignmentResponse>;
   getTaskContext?: QueryProvider<GetTaskContextRequest, GetTaskContextResponse>;
   searchItems?: QueryProvider<SearchItemsRequest, SearchItemsResponse>;
@@ -81,6 +93,7 @@ export interface TaskenCoreHostOptions {
   getConversation?: QueryProvider<GetConversationRequest, GetConversationResponse>;
   getArtifactMetadata?: QueryProvider<GetArtifactMetadataRequest, GetArtifactMetadataResponse>;
   getActivityEntries?: QueryProvider<GetActivityEntriesRequest, GetActivityEntriesResponse>;
+  getThemeContext?: QueryProvider<GetThemeContextRequest, GetThemeContextResponse>;
 }
 
 interface DiscoveryDocument {
@@ -120,7 +133,8 @@ class RequestValidationError extends Error {
 
 function parseQueryRequest(url: string, body: unknown): unknown {
   const schema = url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
-    : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" ? repositoryLookupRequestSchema
+    : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" || url === "/v1/queries/find-themes-for-repository" ? repositoryLookupRequestSchema
+      : url === "/v1/queries/get-repository-context" ? getRepositoryContextRequestSchema
       : url === "/v1/queries/get-task-assignment" ? getTaskAssignmentRequestSchema
         : url === "/v1/queries/get-task-context" ? getTaskContextRequestSchema
           : url === "/v1/queries/search-items" ? searchItemsRequestSchema
@@ -128,7 +142,8 @@ function parseQueryRequest(url: string, body: unknown): unknown {
               : url === "/v1/queries/get-note" ? getNoteRequestSchema
                 : url === "/v1/queries/get-conversation" ? getConversationRequestSchema
                   : url === "/v1/queries/get-artifact-metadata" ? getArtifactMetadataRequestSchema
-                    : getActivityEntriesRequestSchema;
+                    : url === "/v1/queries/get-activity-entries" ? getActivityEntriesRequestSchema
+                      : getThemeContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -227,6 +242,8 @@ export class TaskenCoreHost {
       TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
       ...(this.options.resolveRepositoryContext ? [TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY] : []),
       ...(this.options.findTasksForRepository ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY] : []),
+      ...(this.options.findThemesForRepository ? [TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY] : []),
+      ...(this.options.getRepositoryContext ? [TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY] : []),
       ...(this.options.getTaskAssignment ? [TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY] : []),
       ...(this.options.getTaskContext ? [TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY] : []),
       ...(this.options.searchItems ? [TASKEN_CORE_SEARCH_ITEMS_CAPABILITY] : []),
@@ -235,6 +252,7 @@ export class TaskenCoreHost {
       ...(this.options.getConversation ? [TASKEN_CORE_GET_CONVERSATION_CAPABILITY] : []),
       ...(this.options.getArtifactMetadata ? [TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY] : []),
       ...(this.options.getActivityEntries ? [TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY] : []),
+      ...(this.options.getThemeContext ? [TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY] : []),
     ];
   }
 
@@ -300,6 +318,8 @@ export class TaskenCoreHost {
         "/v1/queries/list-agent-ready-tasks",
         ...(this.options.resolveRepositoryContext ? ["/v1/queries/resolve-repository-context"] : []),
         ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
+        ...(this.options.findThemesForRepository ? ["/v1/queries/find-themes-for-repository"] : []),
+        ...(this.options.getRepositoryContext ? ["/v1/queries/get-repository-context"] : []),
         ...(this.options.getTaskAssignment ? ["/v1/queries/get-task-assignment"] : []),
         ...(this.options.getTaskContext ? ["/v1/queries/get-task-context"] : []),
         ...(this.options.searchItems ? ["/v1/queries/search-items"] : []),
@@ -308,6 +328,7 @@ export class TaskenCoreHost {
         ...(this.options.getConversation ? ["/v1/queries/get-conversation"] : []),
         ...(this.options.getArtifactMetadata ? ["/v1/queries/get-artifact-metadata"] : []),
         ...(this.options.getActivityEntries ? ["/v1/queries/get-activity-entries"] : []),
+        ...(this.options.getThemeContext ? ["/v1/queries/get-theme-context"] : []),
       ]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
       if (knownPaths.has(request.url || "")
@@ -340,6 +361,10 @@ export class TaskenCoreHost {
           json(response, 200, this.options.resolveRepositoryContext!.execute(body as RepositoryLookupRequest));
         } else if (request.url === "/v1/queries/find-tasks-for-repository") {
           json(response, 200, this.options.findTasksForRepository!.execute(body as RepositoryLookupRequest));
+        } else if (request.url === "/v1/queries/find-themes-for-repository") {
+          json(response, 200, this.options.findThemesForRepository!.execute(body as RepositoryLookupRequest));
+        } else if (request.url === "/v1/queries/get-repository-context") {
+          json(response, 200, this.options.getRepositoryContext!.execute(body as GetRepositoryContextRequest));
         } else if (request.url === "/v1/queries/get-task-context") {
           json(response, 200, this.options.getTaskContext!.execute(body as GetTaskContextRequest));
         } else if (request.url === "/v1/queries/search-items") {
@@ -354,6 +379,8 @@ export class TaskenCoreHost {
           json(response, 200, this.options.getArtifactMetadata!.execute(body as GetArtifactMetadataRequest));
         } else if (request.url === "/v1/queries/get-activity-entries") {
           json(response, 200, this.options.getActivityEntries!.execute(body as GetActivityEntriesRequest));
+        } else if (request.url === "/v1/queries/get-theme-context") {
+          json(response, 200, this.options.getThemeContext!.execute(body as GetThemeContextRequest));
         } else {
           json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
         }
