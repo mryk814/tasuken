@@ -232,13 +232,15 @@ export class KnowledgeQueryService {
     const request = getKnowledgeContextRequestSchema.parse(input);
     const limit = request.limit ?? DEFAULT_CONTEXT_LIMIT;
     const textLimit = request.max_chars ?? DEFAULT_TEXT_LIMIT;
-    const scoped = this.port.list("knowledge_node", Boolean(request.include_archived))
+    const allNodes = this.port.list("knowledge_node", Boolean(request.include_archived));
+    const scoped = allNodes
       .filter((node) => !request.theme_id || node.theme_id === request.theme_id);
     const filteredNodes = this.filterForAi("knowledge_node", scoped);
     const nodes: KnowledgeReadRecord[] = filteredNodes.records.slice(0, limit)
       .map((node) => ({ ...node, body: truncate(node.body, textLimit) }));
     const selectedNodeIds = new Set(nodes.map((node) => text(node.id)));
-    const publicNodeIds = new Set(filteredNodes.records.map((node) => text(node.id)));
+    const publicNodeIds = new Set(this.filterForAi("knowledge_node", allNodes).records
+      .map((node) => text(node.id)));
     const relations = request.include_relations ?? true
       ? this.port.list("knowledge_edge", Boolean(request.include_archived)).filter((relation) => {
         const sourceId = text(relation.source_node_id);
@@ -283,7 +285,7 @@ export class KnowledgeQueryService {
     return getKnowledgeContextResponseSchema.parse({
       knowledge_nodes: nodes,
       knowledge_edges: relations,
-      sources,
+      ...(sources ? { sources } : {}),
       limit,
       ...summarizeAiExclusions([...filteredNodes.exclusions, ...sourceExclusions]),
       ai_audience: AUDIENCE,
@@ -345,9 +347,9 @@ export class KnowledgeQueryService {
   getKnowledgeHealth(input: GetKnowledgeHealthRequest): GetKnowledgeHealthResponse {
     const request = getKnowledgeHealthRequestSchema.parse(input);
     const themeId = request.theme_id || "";
-    const nodes = this.filterForAi("knowledge_node", this.port.list("knowledge_node", false)
-      .filter((node) => !themeId || node.theme_id === themeId)).records;
-    const publicNodeIds = new Set(nodes.map((node) => text(node.id)));
+    const allPublicNodes = this.filterForAi("knowledge_node", this.port.list("knowledge_node", false)).records;
+    const nodes = allPublicNodes.filter((node) => !themeId || node.theme_id === themeId);
+    const publicNodeIds = new Set(allPublicNodes.map((node) => text(node.id)));
     const relations = this.port.list("knowledge_edge", false).filter((relation) =>
       publicNodeIds.has(text(relation.source_node_id)) && publicNodeIds.has(text(relation.target_node_id)));
     const entities = [
