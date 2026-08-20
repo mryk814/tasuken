@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -179,6 +180,36 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
   } finally {
     await host.stop();
     assert.equal(fs.existsSync(path.join(root, "tasken-core.json")), false);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Phase 2: Core stop closes a partial keep-alive connection and remains idempotent", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-stop-"));
+  const core = createTaskenCore(new FixtureRepository(fixture()));
+  const host = new TaskenCoreHost({ userDataPath: root, listAgentReadyTasks: core.listAgentReadyTasks });
+  let socket;
+  try {
+    const { origin } = await host.start();
+    const { hostname, port } = new URL(origin);
+    socket = net.createConnection({ host: hostname, port: Number(port) });
+    await new Promise((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    socket.write(`GET /health HTTP/1.1\r\nHost: ${hostname}\r\nConnection: keep-alive\r\n`);
+
+    await Promise.race([
+      host.stop(),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Core stop timed out")), 500).unref();
+      }),
+    ]);
+    await host.stop();
+    assert.equal(fs.existsSync(path.join(root, "tasken-core.json")), false);
+  } finally {
+    socket?.destroy();
+    await host.stop();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

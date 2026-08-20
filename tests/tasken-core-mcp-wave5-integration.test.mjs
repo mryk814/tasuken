@@ -298,10 +298,19 @@ test("actual stdio MCP reads all Wave 5 tools from a running Core host and injec
     assert.equal(database.db.prepare("SELECT total_changes() AS count").get().count, totalChangesBefore);
     assert.equal(database.db.prepare("SELECT value FROM workspace_meta WHERE key = 'ai_visibility_default'").get(), undefined);
   } finally {
-    await client?.close();
-    await host?.stop();
-    database.db.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    try {
+      await client?.close();
+    } finally {
+      try {
+        await host?.stop();
+      } finally {
+        try {
+          database.db.close();
+        } finally {
+          fs.rmSync(root, { recursive: true, force: true });
+        }
+      }
+    }
   }
 });
 

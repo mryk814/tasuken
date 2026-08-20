@@ -280,7 +280,14 @@ export class TaskenCoreHost {
     const server = this.server;
     this.server = null;
     if (!server) return;
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+      // `server.close()` alone can wait indefinitely for a child MCP process
+      // that still owns a keep-alive or partially-open request on Windows.
+      // Start graceful shutdown first, then retire every remaining connection.
+      server.closeIdleConnections?.();
+      server.closeAllConnections?.();
+    });
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse) {
