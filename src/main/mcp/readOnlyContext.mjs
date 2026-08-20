@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -46,6 +46,32 @@ import {
   contextSelectionEntry,
   contextSelectionExclusions,
 } from "./contextSelection.mjs";
+
+const nativeRequire = createRequire(import.meta.url);
+let Database;
+
+function databaseConstructor() {
+  // better-sqlite3 is intentionally loaded only when a context is opened. The
+  // MCP entrypoint performs its Electron-as-Node guard before reaching here.
+  if (Database) return Database;
+  const requires = [];
+  // The packaged bridge lives in resources/mcp, while dependencies live in
+  // resources/app.asar. Add that explicit packaged resolution boundary.
+  if (process.resourcesPath) {
+    requires.push(createRequire(path.join(process.resourcesPath, "app.asar", "package.json")));
+  }
+  requires.push(nativeRequire);
+  let lastError;
+  for (const load of requires) {
+    try {
+      Database = load("better-sqlite3");
+      return Database;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
 
 const DEFAULT_LIMIT = 20;
 /** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
@@ -274,7 +300,8 @@ export class ReadOnlyTaskenContext {
     this.audience = options.audience || DEFAULT_AUDIENCE;
     this.aiVisibilityDefault = normalizeAiVisibility(options.aiVisibilityDefault) || null;
     if (!this.workspace) {
-      this.db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      const SqliteDatabase = databaseConstructor();
+      this.db = new SqliteDatabase(dbPath, { readonly: true, fileMustExist: true });
       this.db.pragma("query_only = ON");
     }
   }

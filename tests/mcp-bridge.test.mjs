@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import Database from "better-sqlite3";
 
 import {
   McpProposalInboxService,
@@ -80,14 +81,48 @@ test("invalid MCP Proposal is rejected before it reaches the repository", () => 
   );
 });
 
-test("Tasken MCP stdio server follows the official client transport and exposes safe write tools", async () => {
+test("canonical MCP launcher reads the fixture DB and exposes proposal-only writes", async () => {
   const root = tempDirectory("tasken-mcp-stdio");
   const inboxPath = path.join(root, "mcp-inbox");
+  const dbPath = path.join(root, "workspace.sqlite");
+  const database = new Database(dbPath);
+  database.exec(`
+    CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE entities (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT,
+      device_id TEXT,
+      source TEXT NOT NULL,
+      version INTEGER NOT NULL
+    );
+  `);
+  const insert = database.prepare(`
+    INSERT INTO entities (id, entity_type, data_json, created_at, updated_at, deleted_at, device_id, source, version)
+    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 1)
+  `);
+  const fixtureAt = "2026-08-20T00:00:00.000Z";
+  insert.run("theme-mcp-launcher", "theme", JSON.stringify({
+    name: "MCP Launcher",
+    code: "MCP",
+    default_ai_visibility: ["coding_agent"],
+  }), fixtureAt, fixtureAt, "fixture-device", "test");
+  insert.run("task-mcp-launcher", "task", JSON.stringify({
+    title: "Canonical launcher fixture",
+    state: "todo",
+    project_id: "theme-mcp-launcher",
+  }), fixtureAt, fixtureAt, "fixture-device", "test");
+  database.close();
   const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: ["scripts/mcp-server.mjs"],
+    command: process.env.TASKEN_NODE_EXEC_PATH || "node",
+    args: ["scripts/tasken-mcp-launcher.mjs"],
     env: {
       ...process.env,
+      ELECTRON_RUN_AS_NODE: "",
+      TASKEN_DB_PATH: dbPath,
       TASKEN_MCP_INBOX_PATH: inboxPath,
     },
     stderr: "pipe",
@@ -100,6 +135,13 @@ test("Tasken MCP stdio server follows the official client transport and exposes 
     assert.ok(names.has("tasken.search_items"));
     assert.ok(names.has("tasken.propose_task"));
     assert.ok(names.has("tasken.propose_note_edit"));
+
+    const search = await client.callTool({
+      name: "tasken.search_items",
+      arguments: { query: "Canonical launcher fixture", limit: 5 },
+    });
+    assert.equal(search.isError, undefined);
+    assert.match(JSON.stringify(search.content), /Canonical launcher fixture/);
 
     const result = await client.callTool({
       name: "tasken.propose_task",

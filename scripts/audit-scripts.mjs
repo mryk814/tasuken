@@ -14,6 +14,7 @@ const manualAllowlist = {
   "model-smoke.mjs": "Manual model/MCP integration check; it requires a real local database fixture.",
   "notes-performance.mjs": "Manual long-Notes performance benchmark; not a merge gate.",
   "mcp-server.mjs": "Manual MCP stdio entry point; launched by the mcp package script.",
+  "mcp-runtime.mjs": "Shared MCP launcher/doctor diagnostics module; imported by MCP entry points.",
 };
 
 function scriptFiles(directory) {

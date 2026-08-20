@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 
-import { ReadOnlyTaskenContext, defaultTaskenDbPath } from "./readOnlyContext.mjs";
 import { queueMcpProposal } from "./proposalInbox.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { repositoryContextProposalInput } from "../../shared/repositoryContextProposal.mjs";
@@ -29,8 +28,16 @@ function toolResult(value) {
   };
 }
 
+let readOnlyContextModulePromise;
+
+function loadReadOnlyContext() {
+  readOnlyContextModulePromise ||= import("./readOnlyContext.mjs");
+  return readOnlyContextModulePromise;
+}
+
 function withReadContext(handler) {
   return async (args) => {
+    const { ReadOnlyTaskenContext, defaultTaskenDbPath } = await loadReadOnlyContext();
     const context = new ReadOnlyTaskenContext(defaultTaskenDbPath());
     try {
       return toolResult(handler(context, args));
