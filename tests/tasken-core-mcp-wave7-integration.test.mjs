@@ -75,6 +75,21 @@ function fixture() {
   };
 }
 
+function adversarialMetadata() {
+  const metadata = {
+    ordinary: "ordinary metadata",
+    nested: {
+      label: "ordinary nested label",
+      apiKey: "NESTED_API_KEY_SECRET",
+      accessToken: "NESTED_ACCESS_TOKEN_SECRET",
+    },
+  };
+  Object.defineProperty(metadata, "__proto__", { value: "PROTO_SECRET", enumerable: true });
+  Object.defineProperty(metadata, "constructor", { value: "CONSTRUCTOR_SECRET", enumerable: true });
+  Object.defineProperty(metadata.nested, "prototype", { value: "PROTOTYPE_SECRET", enumerable: true });
+  return metadata;
+}
+
 class FixturePersistence {
   constructor(workspace) { this.workspace = workspace; }
   list(type, includeDeleted = false) {
@@ -89,7 +104,13 @@ class FixturePersistence {
 }
 
 function legacyFields(value) {
-  const { read_only: _readOnly, next_tools: _nextTools, ...legacy } = value;
+  const {
+    read_only: _readOnly,
+    next_tools: _nextTools,
+    truncated: _truncated,
+    result_meta: _resultMeta,
+    ...legacy
+  } = value;
   return legacy;
 }
 
@@ -157,6 +178,92 @@ test("Wave 7 drops every relation with a non-public endpoint", () => {
   assert.doesNotMatch(JSON.stringify(result), /edge-hidden|knowledge-hidden|PRIVATE_/);
 });
 
+test("Wave 7 all five tools allowlist fields and recursively redact adversarial values", () => {
+  const workspace = fixture();
+  const hostileText = "ordinary accessToken=CAMEL_SECRET /etc/passwd /tmp/private C:\\Users\\me\\secret.txt https://user:pass@example.com/path?q=secret#fragment";
+  workspace.notes[0].title = hostileText;
+  workspace.notes[0].metadata = adversarialMetadata();
+  workspace.notes[0].clientSecret = "TOP_LEVEL_NOTE_SECRET";
+  workspace.knowledge_nodes[0].body = hostileText;
+  workspace.knowledge_nodes[0].metadata = adversarialMetadata();
+  workspace.knowledge_nodes[0].authorizationToken = "TOP_LEVEL_NODE_SECRET";
+  workspace.knowledge_nodes[1].node_type = "question";
+  workspace.knowledge_nodes[1].metadata = adversarialMetadata();
+  workspace.knowledge_edges[0].description = hostileText;
+  workspace.knowledge_edges[0].metadata = adversarialMetadata();
+  workspace.resources.push(record("resource-adversarial", {
+    title: hostileText,
+    project_id: "theme-public",
+    url: "https://user:pass@example.com/source?q=secret#fragment",
+    metadata: adversarialMetadata(),
+  }));
+  workspace.knowledge_nodes[1].source_type = "resource";
+  workspace.knowledge_nodes[1].source_id = "resource-adversarial";
+  workspace.tasks[0].title = hostileText;
+  workspace.tasks[0].metadata = adversarialMetadata();
+
+  const core = createTaskenCore(new FixturePersistence(workspace));
+  const results = {
+    notes: core.getRecentNotes.execute({}),
+    search: core.searchKnowledge.execute({ query: "visible" }),
+    context: core.getKnowledgeContext.execute({ theme_id: "theme-public", include_sources: true }),
+    plan: core.getPlanHealth.execute({}),
+    health: core.getKnowledgeHealth.execute({}),
+  };
+  for (const [name, result] of Object.entries(results)) {
+    const serialized = JSON.stringify(result);
+    assert.doesNotMatch(serialized, /CAMEL_SECRET|NESTED_API_KEY_SECRET|NESTED_ACCESS_TOKEN_SECRET|TOP_LEVEL_|PROTO_SECRET|CONSTRUCTOR_SECRET|PROTOTYPE_SECRET|user:pass|q=secret|#fragment|\/etc\/passwd|\/tmp\/private|C:\\\\Users/i, name);
+    assert.match(serialized, /ordinary/, name);
+  }
+  assert.equal(results.notes.notes[0].metadata.ordinary, "ordinary metadata");
+  assert.equal(results.search.knowledge_nodes[0].metadata.nested.label, "ordinary nested label");
+  assert.equal(results.context.knowledge_edges[0].metadata.ordinary, "ordinary metadata");
+  assert.equal(results.context.sources.resources[0].source_url, "https://example.com/source");
+  assert.equal(results.context.sources.resources[0].metadata.ordinary, "ordinary metadata");
+  assert.equal(results.health.issues.some((issue) => issue.node.metadata?.ordinary === "ordinary metadata"), true);
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
+test("Wave 7 dense graph and health arrays are deterministically capped after visibility", () => {
+  const workspace = fixture();
+  workspace.knowledge_edges = Array.from({ length: 205 }, (_, index) => record(`edge-dense-${String(index).padStart(3, "0")}`, {
+    source_node_id: "knowledge-visible-claim",
+    target_node_id: "knowledge-visible-evidence",
+    relation_type: "supports",
+  }));
+  workspace.knowledge_nodes.push(...Array.from({ length: 101 }, (_, index) => record(`question-dense-${String(index).padStart(3, "0")}`, {
+    title: `Question ${index}`,
+    body: "ordinary",
+    node_type: "question",
+    theme_id: "theme-public",
+  })));
+  workspace.tasks.push(...Array.from({ length: 101 }, (_, index) => record(`task-dense-${String(index).padStart(3, "0")}`, {
+    title: `Task ${index}`,
+    state: "doing",
+    project_id: "theme-public",
+  })));
+  const core = createTaskenCore(new FixturePersistence(workspace));
+
+  const context = core.getKnowledgeContext.execute({ theme_id: "theme-public", limit: 1 });
+  assert.equal(context.knowledge_edges.length, 200);
+  assert.equal(context.truncated, true);
+  assert.equal(context.result_meta.returned_edge_count, 200);
+  assert.equal(context.result_meta.matched_public_edge_count, 205);
+  assert.equal(context.knowledge_edges[0].id, "edge-dense-000");
+  assert.equal(context.knowledge_edges.at(-1).id, "edge-dense-199");
+
+  const plan = core.getPlanHealth.execute({ theme_id: "theme-public" });
+  assert.equal(plan.unscheduled_items.length, 100);
+  assert.equal(plan.truncated, true);
+  assert.equal(plan.result_meta.matched_visible_item_count > plan.result_meta.returned_item_count, true);
+
+  const health = core.getKnowledgeHealth.execute({ theme_id: "theme-public" });
+  assert.equal(health.issues.length, 100);
+  assert.equal(health.unresolved_questions.length, 100);
+  assert.equal(health.truncated, true);
+  assert.equal(health.result_meta.matched_issue_count > health.result_meta.returned_issue_count, true);
+});
+
 test("Wave 7 named capabilities fail before fetch and malformed responses fail closed", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave7-client-"));
   const discoveryPath = path.join(root, "tasken-core.json");
@@ -199,6 +306,35 @@ test("Wave 7 named capabilities fail before fetch and malformed responses fail c
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Wave 7 MCP registrations reject the same nonempty and maximum inputs as shared contracts", async () => {
+  let calls = 0;
+  const rejectIfCalled = async () => { calls += 1; return {}; };
+  const coreClient = {
+    getRecentNotes: rejectIfCalled,
+    searchKnowledge: rejectIfCalled,
+    getKnowledgeContext: rejectIfCalled,
+    getPlanHealth: rejectIfCalled,
+    getKnowledgeHealth: rejectIfCalled,
+  };
+  const cases = [
+    ["tasken.get_recent_notes", { theme_id: "" }],
+    ["tasken.get_recent_notes", { theme_id: "x".repeat(201) }],
+    ["tasken.search_knowledge", { query: "" }],
+    ["tasken.search_knowledge", { query: "x".repeat(1_001) }],
+    ["tasken.search_knowledge", { node_types: [""] }],
+    ["tasken.search_knowledge", { node_types: Array.from({ length: 9 }, () => "claim") }],
+    ["tasken.get_knowledge_context", { theme_id: "" }],
+    ["tasken.get_plan_health", { theme_id: "x".repeat(201) }],
+    ["tasken.get_knowledge_health", { theme_id: "" }],
+  ];
+  for (const [name, args] of cases) {
+    const result = await mcpCall(coreClient, name, args);
+    assert.equal(result.isError, true, `${name} ${JSON.stringify(args)}`);
+    assert.match(result.content[0].text, /invalid|argument/i, `${name} ${JSON.stringify(args)}`);
+  }
+  assert.equal(calls, 0);
 });
 
 test("actual stdio MCP reads Wave 7 from Core-owned SQLite without writes or native fallback", async () => {
