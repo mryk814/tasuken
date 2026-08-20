@@ -21,6 +21,7 @@ import { createNoteWindowController, type NoteWindowController } from "./noteWin
 import { createTrayController, type TrayController } from "./trayController";
 import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
+import { TaskenCoreRuntime } from "./composition/taskenCoreRuntime.ts";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
@@ -82,6 +83,7 @@ let noteWindowController: NoteWindowController | null = null;
 let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let mcpProposalInboxService: McpProposalInboxService | null = null;
+let taskenCoreRuntime: TaskenCoreRuntime | null = null;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
@@ -2320,6 +2322,8 @@ async function startDesktopApp(): Promise<void> {
   configureMainLog(app.getPath("userData"));
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
+  taskenCoreRuntime = new TaskenCoreRuntime(app.getPath("userData"), workspaceRepository);
+  await taskenCoreRuntime.start();
   let smokeAudioSourcePath = "";
   if (isSmokeTest && !isSmokeRestartCheck) {
     const managedDirectory = path.join(app.getPath("userData"), "smoke-managed-artifacts");
@@ -2562,7 +2566,11 @@ if (!hasSingleInstanceLock) {
   app.on("second-instance", () => {
     if (app.isReady()) showMainWindow();
   });
-  void startDesktopApp().catch((error: unknown) => {
+  void startDesktopApp().catch(async (error: unknown) => {
+    await taskenCoreRuntime?.stop().catch((stopError: unknown) => {
+      logMain("warn", "tasken-core", "起動失敗後にloopback hostを停止できませんでした", stopError);
+    });
+    taskenCoreRuntime = null;
     console.error("Tasken failed to start.", error);
     recordSmoke("startup-failed", { error: String(error) });
     app.exit(1);
@@ -2585,12 +2593,16 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (appFlushPending) return;
   appFlushPending = true;
-  void Promise.all(rendererWindowsForAppFlush().map((window) => requestRendererFlush(window))).then((results) => {
+  void Promise.all(rendererWindowsForAppFlush().map((window) => requestRendererFlush(window))).then(async (results) => {
     appFlushPending = false;
     if (results.some((ok) => !ok)) {
       console.warn("終了前flushが完了しなかったため、アプリを終了しませんでした。");
       return;
     }
+    await taskenCoreRuntime?.stop().catch((error: unknown) => {
+      logMain("warn", "tasken-core", "loopback hostを停止できませんでした", error);
+    });
+    taskenCoreRuntime = null;
     appQuitApproved = true;
     app.quit();
   });
