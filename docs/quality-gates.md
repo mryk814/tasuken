@@ -22,7 +22,7 @@ Electron ABI rebuild
 
 途中で失敗したらそこで止まる。分割実行したいときは同じ順で個別のnpm scriptを叩く。
 
-testは`ELECTRON_RUN_AS_NODE=1 electron --test`で実行する。better-sqlite3のようなnative moduleは1つの`.node`に1つのABIしか持てず、素のNodeとElectronでは`NODE_MODULE_VERSION`が異なるため、両方から実行するとrebuildの往復が必要になる。実行環境をElectron側へ一本化してこれを解消している。Node ABI向けのrebuild scriptは持たない。
+Desktop repositoryを含むtestはElectron test runtimeで実行する。better-sqlite3のようなnative moduleは1つの`.node`に1つのABIしか持てないため、Desktop側の検証環境をElectronへ一本化している。MCP bridge自身はnative moduleを含まず、plain system Node source/bundle smokeを別gateで通す。Node ABI向けのSQLite rebuild scriptは持たない。
 
 full-testは全tests/*.test.mjsをnpm test経由で実行する。globはNodeのtest runnerが解決するため、新しいtest fileは自動的に含まれ、手動partitionから漏れない。
 

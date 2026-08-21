@@ -8,6 +8,7 @@ import type {
   RootShortcutState,
   SharedSyncStatus,
 } from "../../../../../shared/ipc/contracts";
+import { copyMcpBridgeConfig } from "../../../../../shared/ipc/contracts";
 import type { AiAdapterKind, AiApiSurface, AiAuthKind, AiCapability, AiFeatureAvailability, AiModelLifecycle, AiProviderConfig } from "../../../../../shared/ai";
 import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
@@ -507,14 +508,8 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
 
   async function copyMcpConfig() {
     if (!mcpInfo) return;
-    await workspaceApi.copyText(mcpInfo.configJson);
+    await copyMcpBridgeConfig((text) => workspaceApi.copyText(text), mcpInfo);
     setToast("MCPクライアント設定をコピーしました。", "success");
-  }
-
-  async function openMcpInbox() {
-    if (!mcpInfo) return;
-    const result = await workspaceApi.openPath(mcpInfo.inboxPath);
-    if (!result.ok) setToast(`MCP Inboxを開けませんでした。${result.error || ""}`, "danger");
   }
 
   async function saveAiSettings(clearApiKey = false) {
@@ -731,9 +726,9 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
           ? { label: `${aiConfig.providers.length} profile · ${aiConfig.models.length} model`, tone: "normal" as const }
           : { label: "credential未設定", tone: "neutral" as const };
   const mcpSummary = mcpInfo
-    ? mcpInfo.pendingFileCount > 0
-      ? { label: `要確認 · ${mcpInfo.pendingFileCount}件`, tone: "attention" as const }
-      : { label: "正常", tone: "normal" as const }
+    ? mcpInfo.pendingProposalCount > 0
+      ? { label: `要確認 · ${mcpInfo.pendingProposalCount}件`, tone: "attention" as const }
+      : { label: "設定をコピーできます", tone: "neutral" as const }
       : { label: "確認中", tone: "loading" as const };
   const automaticBackupSummary = automaticBackupState === "loading"
     ? { label: "確認中", tone: "loading" as const }
@@ -994,13 +989,12 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                   </dd>
                 </div>
                 <div>
-                  <dt>受信待ち</dt>
-                  <dd>{mcpInfo?.pendingFileCount || 0}件</dd>
+                  <dt>Pending Proposal</dt>
+                  <dd>{mcpInfo?.pendingProposalCount || 0}件</dd>
                 </div>
               </dl>
               <div className="settings-action-row">
                 <Button variant="secondary" disabled={!mcpInfo} onClick={copyMcpConfig}>接続設定をコピー</Button>
-                <Button variant="secondary" disabled={!mcpInfo} onClick={openMcpInbox}>Inboxを開く</Button>
               </div>
             </section>
             <section className="panel settings-form ai-visibility-settings-panel" hidden={activeSection !== "ai-mcp"}>

@@ -625,6 +625,49 @@ export class WorkspaceDatabase {
     return transaction();
   }
 
+  ensureMcpPackageSmokeFixture() {
+    const themeId = "theme-mcp-package-smoke";
+    const taskId = "task-mcp-package-smoke";
+    if (!this.get("theme", themeId, true)) {
+      this.save("theme", {
+        id: themeId,
+        name: "MCP Package Smoke",
+        code: "MCPSMOKE",
+        default_ai_visibility: ["coding_agent"],
+      });
+    }
+    if (!this.get("task", taskId, true)) {
+      this.save("task", {
+        id: taskId,
+        title: "Canonical packaged MCP task",
+        description: "Read through packaged Desktop Core and bundled MCP.",
+        state: "todo",
+        priority: "high",
+        project_id: themeId,
+        ai_visibility: ["coding_agent"],
+      });
+    }
+    return { themeId, taskId };
+  }
+
+  verifyMcpPackageSmokeProposal(proposalId) {
+    const proposal = this.get("ai_proposal", proposalId, true);
+    const matching = this.list("ai_proposal", true).filter((entry) => (
+      entry.source_app === "package-smoke"
+      && entry.request?.idempotency_key === "package-smoke-note-v1"
+    ));
+    const verified = proposal
+      && proposal.status === "pending"
+      && proposal.source === "mcp"
+      && proposal.source_app === "package-smoke"
+      && proposal.payload_type === "notes"
+      && proposal.payload?.notes?.[0]?.title === "Packaged MCP Smoke Proposal"
+      && proposal.payload?.notes?.[0]?.body === "Pending review from the packaged MCP smoke."
+      && matching.length === 1;
+    if (!verified) throw new Error("packaged Desktopのcanonical ai_proposalを検証できませんでした。");
+    return { proposal_id: proposal.id, status: proposal.status, matching_count: matching.length };
+  }
+
   saveMany(operations) {
     if (!Array.isArray(operations) || !operations.length) {
       throw new Error("保存するデータがありません。");

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 
 import { normalizeExternalReference } from "../src/shared/externalReference.mjs";
-import { validateMcpProposalEnvelope } from "../src/main/mcp/proposalInbox.mjs";
+import { validateMcpProposalEnvelope } from "./fixtures/legacyProposalInbox.mjs";
 
 test("GitLab Merge Request external reference is provider-neutral, HTTPS-only, and credential-free", () => {
   const reference = normalizeExternalReference({

@@ -14,7 +14,7 @@ import {
   summarizeAiExclusions,
 } from "../src/shared/aiMetadata.mjs";
 import { normalizeEntity, validateEntity } from "../src/main/repositories/domain.mjs";
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 
 test("AI共通metadataは未設定と明示指定を区別して正規化する（#294）", () => {
   const empty = normalizeAiMetadata("task", { title: "T" });

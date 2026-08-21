@@ -4,7 +4,7 @@ import test from "node:test";
 test("MCP repository resolver exposes only contexts reachable from AI-visible Themes/Tasks", async (t) => {
   let ReadOnlyTaskenContext;
   try {
-    ({ ReadOnlyTaskenContext } = await import("../src/main/mcp/readOnlyContext.mjs"));
+    ({ ReadOnlyTaskenContext } = await import("./fixtures/legacyReadOnlyContext.mjs"));
   } catch (error) {
     t.skip(`better-sqlite3依存がないためMCP visibility境界を実行できません: ${error instanceof Error ? error.message : String(error)}`);
     return;

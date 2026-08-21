@@ -5,7 +5,7 @@ Issue #296 の Context Preview と Data Health は、AIへ渡す内容と公開�
 ## Context Preview
 
 - M365はTheme AI Packの`buildThemeAiPackPlan`をそのまま`previewThemeM365`へ渡します。Taskを選んだ場合も独自Packを作らず、所属Themeの実PackにそのTaskが含まれるかを示します。
-- Coding Agentは`ReadOnlyTaskenContext.toolGetTaskContext` / `toolGetThemeContext`の実responseを既存adapterへ渡します。`tasken-context-selection/v1`があればそれを正本とし、旧responseもadapterの互換読み込みで表示できます。
+- Coding AgentはTasken Coreの`get_task_context` / `get_theme_context` responseを既存adapterへ渡します。Desktop Previewとstdio MCPが同じquery serviceを使い、Core停止時にSQLite直読へfallbackしません。
 - RendererからMainへ渡す値は`audience`とtyped `{type,id}`だけです。absolute path、本文、relation queryは受け取りません。
 - 表示はseed、included / excluded、relation path、asserted / suggested相当のstatus、visibility、freshness、authority、truncation、推定sizeです。表示上の上限を超える場合は、表示件数と残件数を明記します。
 

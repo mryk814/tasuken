@@ -9,7 +9,7 @@ const notes = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.
 const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
 const knowledge = readFileSync("src/renderer/src/features/workspace/pages/KnowledgePage.tsx", "utf8");
 const graph = readFileSync("src/shared/contextGraph.mjs", "utf8");
-const mcp = readFileSync("src/main/mcp/readOnlyContext.mjs", "utf8");
+const mcp = readFileSync("src/main/mcp/server.mjs", "utf8");
 const workspaceData = readFileSync("src/renderer/src/features/workspace/types.ts", "utf8");
 
 test("Knowledge route is a weak experimental tool, not the knowledge hub", () => {
@@ -31,8 +31,8 @@ test("Knowledge diagnostics preserve existing storage while Context Graph stays 
   assert.doesNotMatch(knowledge, /Context Graph|#332の共有projection/);
   assert.doesNotMatch(knowledge, /saveEntity|saveEntities|uuid\(|Knowledgeを追加|Knowledge化/);
   assert.match(graph, /projectContextGraph/);
-  assert.match(mcp, /toolGetContextSubgraph/);
-  assert.match(mcp, /toolGetKnowledgeHealth/);
+  assert.match(mcp, /coreClient\.getContextSubgraph/);
+  assert.match(mcp, /coreClient\.getKnowledgeHealth/);
   assert.match(workspaceData, /knowledge_nodes: KnowledgeNode\[\]/);
   assert.match(workspaceData, /knowledge_edges: BaseRecord\[\]/);
 });

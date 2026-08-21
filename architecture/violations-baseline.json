@@ -62,7 +62,6 @@
     "module.undeclared_dependency|src/main/services/snapshotMediaValidation.ts|src/main/mediaCapturePersistence.ts",
     "module.undeclared_dependency|src/main/services/snapshotService.mjs|src/main/repositories/workspaceRepository.mjs",
     "module.undeclared_dependency|src/main/services/workspaceService.ts|src/main/log.ts",
-    "module.undeclared_dependency|src/main/services/workspaceService.ts|src/main/mcp/readOnlyContext.mjs",
     "module.undeclared_dependency|src/main/services/workspaceService.ts|src/main/mediaCapturePersistence.ts",
     "module.undeclared_dependency|src/renderer/src/services/workspaceApi.ts|src/renderer/src/data/workspace.js",
     "module.undeclared_dependency|src/renderer/src/tasken-root/TaskenRootApp.tsx|src/renderer/src/services/workspaceApi.ts"

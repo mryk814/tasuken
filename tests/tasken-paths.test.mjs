@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { defaultTaskenDbPath } from "../src/main/mcp/readOnlyContext.mjs";
-import { resolveTaskenDatabasePath, resolveTaskenUserDataPath } from "../src/shared/taskenPaths.mjs";
+import { defaultTaskenDbPath } from "./fixtures/legacyReadOnlyContext.mjs";
+import {
+  TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE,
+  resolveTaskenDatabasePath,
+  resolveTaskenUserDataPath,
+  validateMcpPackageSmokeRoot,
+} from "../src/shared/taskenPaths.mjs";
 
 test("WSL/Linuxは引き継がれたAPPDATAではなくElectronのXDG userDataを使う", () => {
   const env = {
@@ -62,4 +67,23 @@ test("read-only MCPの旧Research Desk fallbackはWindowsだけで使う", async
     defaultTaskenDbPath(env, { platform: "win32", home: path.join(root, "home") }),
     legacy,
   );
+});
+
+test("packaged MCP smoke root requires an exact isolated temp root and marker", async (context) => {
+  const token = "a".repeat(64);
+  const boundaryTemp = process.platform === "linux" ? "/tmp" : os.tmpdir();
+  const root = await mkdtemp(path.join(boundaryTemp, "tasken-packaged-mcp-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(path.join(root, TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE), token, { mode: 0o600 });
+  await chmod(path.join(root, TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE), 0o600);
+  assert.equal(validateMcpPackageSmokeRoot({ userDataPath: root, markerToken: token, environmentMarker: token, tempRoot: boundaryTemp }), root);
+
+  assert.throws(() => validateMcpPackageSmokeRoot({ markerToken: token, environmentMarker: token, tempRoot: boundaryTemp }), /専用userData/);
+  assert.throws(() => validateMcpPackageSmokeRoot({ userDataPath: boundaryTemp, markerToken: token, environmentMarker: token, tempRoot: boundaryTemp }), /専用root/);
+  assert.throws(() => validateMcpPackageSmokeRoot({ userDataPath: root, markerToken: token, environmentMarker: "b".repeat(64), tempRoot: boundaryTemp }), /一致しません/);
+  const normalRoot = await mkdtemp(path.join(boundaryTemp, "tasken-normal-user-data-"));
+  context.after(() => rm(normalRoot, { recursive: true, force: true }));
+  await writeFile(path.join(normalRoot, TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE), token, { mode: 0o600 });
+  await chmod(path.join(normalRoot, TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE), 0o600);
+  assert.throws(() => validateMcpPackageSmokeRoot({ userDataPath: normalRoot, markerToken: token, environmentMarker: token, tempRoot: boundaryTemp }), /専用root/);
 });

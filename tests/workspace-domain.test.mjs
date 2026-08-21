@@ -475,7 +475,7 @@ test("document publish flag is separate from AI export inclusion", () => {
 });
 
 test("post-migration smoke: MCP mergedItems includes plan_nodes", async () => {
-  const { ReadOnlyTaskenContext } = await import("../src/main/mcp/readOnlyContext.mjs");
+  const { ReadOnlyTaskenContext } = await import("./fixtures/legacyReadOnlyContext.mjs");
   const ctx = new ReadOnlyTaskenContext("in-memory.sqlite", {
     workspace: {
       themes: [{ id: "theme-1", name: "A", updated_at: "2026-06-20T00:00:00.000Z" }],

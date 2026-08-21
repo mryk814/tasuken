@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { build } from "esbuild";
 
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 
 const bundled = await build({
   stdin: {

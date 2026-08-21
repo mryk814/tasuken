@@ -9,8 +9,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { build } from "esbuild";
 
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
-import { queueMcpProposal, validateMcpProposalEnvelope } from "../src/main/mcp/proposalInbox.mjs";
+import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
+import { queueMcpProposal, validateMcpProposalEnvelope } from "./fixtures/legacyProposalInbox.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";

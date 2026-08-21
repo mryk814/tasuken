@@ -1,42 +1,88 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
+import { buildReport, writeReport } from "../scripts/mcp-doctor.mjs";
 import {
-  MCP_DIAGNOSTIC_CODES,
-  electronRuntimeRequiredDiagnostic,
-  inspectMcpEnvironment,
-  runtimeKind,
-} from "../scripts/mcp-runtime.mjs";
+  TASKEN_MCP_REQUIRED_CORE_CAPABILITIES,
+  TaskenCoreClientError,
+} from "../src/main/mcp/taskenCoreClient.mjs";
 
-test("MCP runtime diagnostics distinguish Node from Electron-as-Node", () => {
-  assert.equal(runtimeKind({ env: {}, versions: { modules: "137" } }), "node");
-  assert.equal(runtimeKind({ env: { ELECTRON_RUN_AS_NODE: "1" }, versions: { electron: "37.0.0", modules: "136" } }), "electron-as-node");
-  const diagnostic = electronRuntimeRequiredDiagnostic({ kind: "node", node_abi: "137" });
-  assert.equal(diagnostic.code, MCP_DIAGNOSTIC_CODES.ELECTRON_RUNTIME_REQUIRED);
-  assert.ok(diagnostic.next_actions.some((action) => action.includes("npm run mcp")));
+test("plain Node MCP entrypoint has no Electron or native SQLite runtime dependency", () => {
+  const entry = fs.readFileSync("scripts/mcp-server.mjs", "utf8");
+  const server = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
+  assert.doesNotMatch(`${entry}\n${server}`, /electron|better-sqlite3|ELECTRON_RUN_AS_NODE|\.node["']/i);
+  assert.match(entry, /startTaskenMcpServer/);
 });
 
-test("plain Node MCP entrypoint rejects before loading the native binding", () => {
-  const result = spawnSync(process.env.TASKEN_NODE_EXEC_PATH || "node", ["scripts/mcp-server.mjs"], {
-    encoding: "utf8",
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "" },
+test("MCP doctor fails closed through Core discovery without exposing credentials or paths", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-mcp-doctor-"));
+  try {
+    const result = spawnSync(process.env.TASKEN_NODE_EXEC_PATH || "node", ["scripts/mcp-doctor.mjs", "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, TASKEN_USER_DATA_DIR: root },
+    });
+    assert.equal(result.status, 1);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.schema_version, 2);
+    assert.equal(report.status, "blocked");
+    assert.equal(report.checks[0].code, "CORE_UNAVAILABLE");
+    assert.doesNotMatch(result.stdout, /token|authorization|tasken-core\.json|[A-Za-z]:\\|\/tmp\//i);
+    assert.doesNotMatch(result.stderr, /NODE_MODULE_VERSION|better_sqlite3\.node|Require stack/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP doctor reports health, version, and the complete capability set", async () => {
+  const report = await buildReport({
+    inspect: async () => ({ status: "ok", api_version: "1", capabilities: [...TASKEN_MCP_REQUIRED_CORE_CAPABILITIES] }),
   });
-  assert.equal(result.status, 78);
-  assert.equal(result.stdout, "");
-  const diagnosticLine = result.stderr
-    .split(/\r?\n/)
-    .find((line) => line.startsWith("TASKEN_MCP_DIAGNOSTIC "));
-  assert.ok(diagnosticLine, result.stderr);
-  const diagnostic = JSON.parse(diagnosticLine.slice("TASKEN_MCP_DIAGNOSTIC ".length));
-  assert.equal(diagnostic.code, MCP_DIAGNOSTIC_CODES.ELECTRON_RUNTIME_REQUIRED);
-  assert.doesNotMatch(result.stderr, /NODE_MODULE_VERSION|better_sqlite3\.node|Require stack/);
+  assert.equal(report.ok, true);
+  assert.equal(report.status, "ready");
+  assert.deepEqual(report.checks.map((check) => check.code), [
+    "MCP_CORE_HEALTHY", "MCP_CORE_VERSION_MATCH", "MCP_CORE_CAPABILITIES_READY",
+  ]);
+  assert.equal(report.core.capability_count, TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length);
 });
 
-test("doctor snapshot exposes runtime, binding, Electron, and database paths", () => {
-  const snapshot = inspectMcpEnvironment({ env: { TASKEN_DB_PATH: "/tmp/tasken-mcp-413-fixture.sqlite" } });
-  assert.equal(snapshot.schema_version, 1);
-  assert.equal(snapshot.binding.package, "better-sqlite3");
-  assert.ok("path" in snapshot.electron);
-  assert.equal(snapshot.database.configured_by, "TASKEN_DB_PATH");
+test("MCP doctor blocks missing capabilities without exposing transport details", async () => {
+  const report = await buildReport({
+    inspect: async () => ({ status: "ok", api_version: "1", capabilities: TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.slice(1) }),
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.checks.at(-1).code, "MCP_CORE_CAPABILITIES_MISSING");
+  assert.deepEqual(report.checks.at(-1).missing_capabilities, [TASKEN_MCP_REQUIRED_CORE_CAPABILITIES[0]]);
+  assert.doesNotMatch(JSON.stringify(report), /token|authorization|tasken-core\.json|\/tmp\//i);
+});
+
+test("MCP doctor maps stale discovery, version, and auth failures to redacted public checks", async () => {
+  for (const code of ["CORE_UNAVAILABLE", "VERSION_MISMATCH", "UNAUTHORIZED"]) {
+    const report = await buildReport({
+      inspect: async () => { throw new TaskenCoreClientError(code, "safe public message"); },
+    });
+    assert.equal(report.ok, false);
+    assert.equal(report.checks[0].code, code);
+    assert.doesNotMatch(JSON.stringify(report), /private-token|Bearer|tasken-core\.json|\/tmp\//i);
+  }
+});
+
+test("doctor keeps JSON protocol stdout clean and sends human diagnostics only to stderr", async () => {
+  const report = await buildReport({
+    inspect: async () => ({ status: "ok", api_version: "1", capabilities: [...TASKEN_MCP_REQUIRED_CORE_CAPABILITIES] }),
+  });
+  const jsonOutput = [];
+  const jsonErrors = [];
+  writeReport(report, { human: false, stdout: { write: (value) => jsonOutput.push(value) }, stderr: { write: (value) => jsonErrors.push(value) } });
+  assert.equal(jsonErrors.join(""), "");
+  assert.equal(JSON.parse(jsonOutput.join("")).status, "ready");
+
+  const humanOutput = [];
+  const humanErrors = [];
+  writeReport(report, { human: true, stdout: { write: (value) => humanOutput.push(value) }, stderr: { write: (value) => humanErrors.push(value) } });
+  assert.equal(humanOutput.join(""), "");
+  assert.match(humanErrors.join(""), /MCP environment: READY/);
 });

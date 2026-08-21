@@ -10,7 +10,7 @@ import {
   McpProposalInboxService,
   queueMcpProposal,
   validateMcpProposalEnvelope,
-} from "../src/main/mcp/proposalInbox.mjs";
+} from "./fixtures/legacyProposalInbox.mjs";
 import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,

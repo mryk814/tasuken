@@ -12,7 +12,7 @@ import {
   McpProposalInboxService,
   queueMcpProposal,
   validateMcpProposalEnvelope,
-} from "../src/main/mcp/proposalInbox.mjs";
+} from "./fixtures/legacyProposalInbox.mjs";
 
 function tempDirectory(name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -118,7 +118,7 @@ test("canonical MCP launcher fails closed for migrated reads without Core and ex
   database.close();
   const transport = new StdioClientTransport({
     command: process.env.TASKEN_NODE_EXEC_PATH || "node",
-    args: ["scripts/tasken-mcp-launcher.mjs"],
+    args: ["scripts/mcp-server.mjs"],
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "",

@@ -22,6 +22,7 @@ import type {
   ThemeAiPackPublishResult,
   ThemeAiPackStatusResult,
 } from "../../shared/ipc/contracts";
+import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -87,7 +88,6 @@ import {
   publishThemeAiPack,
   recoverThemeAiPackOperations,
 } from "./themeAiPackPublisher.mjs";
-import { ReadOnlyTaskenContext } from "../mcp/readOnlyContext.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { artifactOpenTarget } from "../../shared/artifactLinks.mjs";
 import { isWebArtifact, normalizeWebArtifactExecutionPolicy, webArtifactPreviewUrl } from "../../shared/webArtifact.mjs";
@@ -583,16 +583,25 @@ export class WorkspaceService {
   private readonly themeAiPackRecoveryDirectory: string;
   private readonly dataHealthEvaluator = new DataHealthEvaluator();
   private readonly conversationContextRecoveryDirectory: string;
+  private readonly taskenCoreClient?: {
+    getTaskContext(request: { task_id: string }): Promise<unknown>;
+    getThemeContext(request: { theme_id: string }): Promise<unknown>;
+  };
 
   constructor(
     private readonly repository: WorkspaceRepository,
     private readonly userDataPath: string,
     private readonly now: () => string = () => new Date().toISOString(),
+    taskenCoreClient?: {
+      getTaskContext(request: { task_id: string }): Promise<unknown>;
+      getThemeContext(request: { theme_id: string }): Promise<unknown>;
+    },
   ) {
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
     this.canonicalRecoveryWarningPath = path.join(userDataPath, "canonical-markdown-recovery-warning.json");
     this.themeAiPackRecoveryDirectory = path.join(userDataPath, "theme-ai-pack-recovery");
     this.conversationContextRecoveryDirectory = path.join(userDataPath, "conversation-context-recovery");
+    this.taskenCoreClient = taskenCoreClient;
   }
 
   loadWorkspace(includeDeleted = false): unknown {
@@ -656,7 +665,7 @@ export class WorkspaceService {
     };
   }
 
-  getAiContextPreview(requestValue: unknown): AiContextPreviewResult {
+  async getAiContextPreview(requestValue: unknown): Promise<AiContextPreviewResult> {
     const request = objectValue(requestValue) as Partial<AiContextPreviewRequest>;
     const scopeValue = objectValue(request.scope);
     const scopeType = scopeValue.type === "theme" || scopeValue.type === "task" ? scopeValue.type : null;
@@ -698,40 +707,19 @@ export class WorkspaceService {
           includedInEffectiveScope: included,
         };
       }
-      const workspace = this.repository.loadWorkspace(false);
-      const context = new ReadOnlyTaskenContext("workspace-memory", {
-        workspace,
-        audience: "coding_agent",
-        aiVisibilityDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
-      });
-      try {
-        const response = scopeType === "task"
-          ? context.toolGetTaskContext({ task_id: scopeId })
-          : context.toolGetThemeContext({ theme_id: scopeId });
-        const responseRecord = response as Record<string, unknown>;
-        if (responseRecord.error) {
-          return {
-            state: "error",
-            requestedScope,
-            effectiveScope: requestedScope,
-            producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
-            preview: null,
-            includedInEffectiveScope: false,
-            error: safeContextPreviewError(responseRecord.error),
-          };
-        }
-        const preview = scopeType === "task" ? previewTaskCoding(response) : previewThemeCoding(response);
-        return {
-          state: preview.counts.included ? "ready" : "empty",
-          requestedScope,
-          effectiveScope: requestedScope,
-          producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
-          preview,
-          includedInEffectiveScope: preview.included.some((entry) => entry.ref.id === scopeId),
-        };
-      } finally {
-        context.close();
-      }
+      if (!this.taskenCoreClient) throw new Error("Tasken Core clientが構成されていません。");
+      const response = scopeType === "task"
+        ? await this.taskenCoreClient.getTaskContext({ task_id: scopeId })
+        : await this.taskenCoreClient.getThemeContext({ theme_id: scopeId });
+      const preview = scopeType === "task" ? previewTaskCoding(response) : previewThemeCoding(response);
+      return {
+        state: preview.counts.included ? "ready" : "empty",
+        requestedScope,
+        effectiveScope: requestedScope,
+        producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+        preview,
+        includedInEffectiveScope: preview.included.some((entry) => entry.ref.id === scopeId),
+      };
     } catch (error) {
       return {
         state: "error",
@@ -2692,30 +2680,17 @@ export class WorkspaceService {
   }
 
   getMcpBridgeInfo(): McpBridgeInfo {
-    const inboxPath = path.join(this.userDataPath, "mcp-inbox");
-    fs.mkdirSync(inboxPath, { recursive: true });
-    const command = process.execPath;
     const args = app.isPackaged
       ? [path.join(process.resourcesPath, "mcp", "server.mjs")]
       : [path.join(app.getAppPath(), "scripts", "mcp-server.mjs")];
-    const env = { ELECTRON_RUN_AS_NODE: "1" };
-    const config = {
-      mcpServers: {
-        tasken: {
-          command,
-          args,
-          env,
-        },
-      },
-    };
-    return {
-      command,
+    const pendingProposalCount = this.repository.list("ai_proposal")
+      .filter((proposal) => !proposal.deleted_at && proposal.status === "pending")
+      .length;
+    return createMcpBridgeInfo({
       args,
-      configJson: JSON.stringify(config, null, 2),
-      inboxPath,
-      pendingFileCount: fs.readdirSync(inboxPath).filter((name) => name.endsWith(".json")).length,
+      pendingProposalCount,
       packaged: app.isPackaged,
-    };
+    });
   }
 
   async exportSnapshot(): Promise<{ canceled: boolean; filePath?: string }> {

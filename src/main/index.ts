@@ -19,9 +19,9 @@ import { createSatelliteWindowRegistry, type SatelliteWindowRegistry } from "./s
 import { createMemoStickyController, type MemoStickyController } from "./memoStickyController";
 import { createNoteWindowController, type NoteWindowController } from "./noteWindowController";
 import { createTrayController, type TrayController } from "./trayController";
-import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { TaskenCoreRuntime } from "./composition/taskenCoreRuntime.ts";
+import { TaskenCoreClient } from "./mcp/taskenCoreClient.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
@@ -32,6 +32,7 @@ import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBack
 import { createSnapshot, readSnapshot } from "./services/snapshotService.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
+import { validateMcpPackageSmokeRoot } from "../shared/taskenPaths.mjs";
 import { ApplicationCommandService } from "./services/applicationCommandService";
 import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
@@ -46,6 +47,14 @@ import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
+const isMcpPackageSmoke = process.argv.includes("--mcp-package-smoke");
+const isMcpPackageSmokeVerifyOnly = process.argv.includes("--mcp-package-smoke-verify-only");
+const mcpPackageSmokeResultArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-result-path="));
+const mcpPackageSmokeResultPath = mcpPackageSmokeResultArgument?.slice("--mcp-package-smoke-result-path=".length) || "";
+const mcpPackageSmokeProposalArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-proposal-id="));
+const mcpPackageSmokeProposalId = mcpPackageSmokeProposalArgument?.slice("--mcp-package-smoke-proposal-id=".length) || "";
+const mcpPackageSmokeMarkerArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-marker="));
+const mcpPackageSmokeMarker = mcpPackageSmokeMarkerArgument?.slice("--mcp-package-smoke-marker=".length) || "";
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
 const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
@@ -82,7 +91,6 @@ let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
-let mcpProposalInboxService: McpProposalInboxService | null = null;
 let taskenCoreRuntime: TaskenCoreRuntime | null = null;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
@@ -479,7 +487,14 @@ app.disableHardwareAcceleration();
   // Windows画面録画はChromiumのlegacy desktop capturerへ固定して列挙と録画を同じbackendに揃える。
   app.commandLine.appendSwitch("disable-features", "EditContext,AllowWgcScreenCapturer,AllowWgcWindowCapturer");
 
-  if (requestedUserDataPath) {
+  if (isMcpPackageSmoke) {
+    if (!app.isPackaged) throw new Error("MCP package smokeはpackaged Desktopでのみ使用できます。");
+    app.setPath("userData", validateMcpPackageSmokeRoot({
+      userDataPath: requestedUserDataPath,
+      markerToken: mcpPackageSmokeMarker,
+      environmentMarker: process.env.TASKEN_MCP_PACKAGE_SMOKE_MARKER,
+    }));
+  } else if (requestedUserDataPath) {
     app.setPath("userData", path.resolve(requestedUserDataPath));
   } else if (isSmokeTest) {
     const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
@@ -2322,6 +2337,21 @@ async function startDesktopApp(): Promise<void> {
   configureMainLog(app.getPath("userData"));
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
+  if (isMcpPackageSmoke) {
+    workspaceRepository.ensureMcpPackageSmokeFixture();
+    if (mcpPackageSmokeProposalId) {
+      if (!/^[0-9a-f-]{36}$/i.test(mcpPackageSmokeProposalId)) throw new Error("MCP package smoke Proposal IDが不正です。");
+      const verification = workspaceRepository.verifyMcpPackageSmokeProposal(mcpPackageSmokeProposalId);
+      if (mcpPackageSmokeResultPath) {
+        fs.writeFileSync(path.resolve(mcpPackageSmokeResultPath), JSON.stringify(verification), { flag: "w" });
+      }
+    }
+    if (isMcpPackageSmokeVerifyOnly) {
+      workspaceRepository.db.close();
+      app.exit(0);
+      return;
+    }
+  }
   taskenCoreRuntime = new TaskenCoreRuntime(app.getPath("userData"), workspaceRepository);
   await taskenCoreRuntime.start();
   let smokeAudioSourcePath = "";
@@ -2334,7 +2364,12 @@ async function startDesktopApp(): Promise<void> {
     fs.writeFileSync(smokeVideoSourcePath, tinyVp8Webm(), { flag: "wx" });
   }
   const applicationCommands = new ApplicationCommandService(workspaceRepository);
-  const workspaceService = new WorkspaceService(workspaceRepository, app.getPath("userData"));
+  const workspaceService = new WorkspaceService(
+    workspaceRepository,
+    app.getPath("userData"),
+    undefined,
+    new TaskenCoreClient({ userDataPath: app.getPath("userData") }),
+  );
   const automaticSnapshotBackup = new AutomaticSnapshotBackupService({
     repository: workspaceRepository,
     defaultDirectory: path.join(app.getPath("userData"), "Backups"),
@@ -2434,14 +2469,6 @@ async function startDesktopApp(): Promise<void> {
     },
     notifyCommandApplied, notifyTodayMiniRefresh,
   );
-  mcpProposalInboxService = new McpProposalInboxService(
-    workspaceRepository,
-    app.getPath("userData"),
-    (entities: Entity[]) => notifyMainWindowRefresh({
-      entities: entities.map((entity) => ({ type: "ai_proposal", entity })),
-    }),
-  );
-  mcpProposalInboxService.start();
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので
   // 正本DBではなくuserData配下のJSONへ置き、別端末へ同期させない。
   satelliteWindows = createSatelliteWindowRegistry({
@@ -2587,7 +2614,6 @@ app.on("window-all-closed", () => {
 app.on("before-quit", (event) => {
   if (appQuitApproved) {
     sharedFolderSyncService?.stop();
-    mcpProposalInboxService?.stop();
     return;
   }
   event.preventDefault();
