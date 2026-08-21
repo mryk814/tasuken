@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,10 +25,14 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
@@ -56,6 +61,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -94,19 +100,61 @@ private fun TaskenTheme(content: @Composable () -> Unit) {
 @Composable
 private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
     val uiState by todayViewModel.uiState.collectAsState()
+    val captureState by todayViewModel.captureState.collectAsState()
+    val taskActionState by todayViewModel.taskActionState.collectAsState()
+    val pendingCount by todayViewModel.pendingCount.collectAsState()
     val paneState = rememberTodayPaneState()
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val navigator = rememberListDetailPaneScaffoldNavigator(
         scaffoldDirective = calculatePaneScaffoldDirective(adaptiveInfo),
     )
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { todayViewModel.load() }
+    LaunchedEffect(captureState) {
+        if (captureState is CaptureUiState.Queued) {
+            paneState.captureDraft = ""
+            paneState.captureOpen = false
+            snackbarHostState.showSnackbar("Taskを追加しました。Desktopへ自動送信します。")
+            todayViewModel.resetCaptureState()
+        }
+    }
+    LaunchedEffect(taskActionState) {
+        when (taskActionState) {
+            is TaskActionUiState.Queued -> {
+                snackbarHostState.showSnackbar("Taskの状態を更新しました。Desktopへ自動送信します。")
+                todayViewModel.resetTaskActionState()
+            }
+            is TaskActionUiState.Error -> {
+                snackbarHostState.showSnackbar((taskActionState as TaskActionUiState.Error).message)
+            }
+            TaskActionUiState.Idle, is TaskActionUiState.Saving -> Unit
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Today") },
+                actions = {
+                    if (pendingCount > 0) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(7.dp),
+                        ) {
+                            Text(
+                                "送信待ち $pendingCount",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                    TextButton(onClick = { paneState.captureOpen = true }) { Text("追加") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
@@ -136,11 +184,73 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
                     val task = (uiState as? TodayUiState.Success)
                         ?.tasks
                         ?.firstOrNull { it.id == paneState.selectedTaskId }
-                    TodayDetailPane(task)
+                    TodayDetailPane(
+                        task = task,
+                        actionState = taskActionState,
+                        onStateAction = todayViewModel::toggleTaskState,
+                    )
                 }
             },
             modifier = Modifier.padding(padding),
         )
+    }
+
+    if (paneState.captureOpen) {
+        CaptureTaskSheet(
+            draft = paneState.captureDraft,
+            state = captureState,
+            onDraftChanged = { paneState.captureDraft = it },
+            onSubmit = { todayViewModel.createTask(paneState.captureDraft) },
+            onDismiss = {
+                if (captureState !is CaptureUiState.Saving) {
+                    paneState.captureOpen = false
+                    todayViewModel.resetCaptureState()
+                }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CaptureTaskSheet(
+    draft: String,
+    state: CaptureUiState,
+    onDraftChanged: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Taskを追加", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { onDraftChanged(it.take(500)) },
+                label = { Text("Task名") },
+                placeholder = { Text("例: 実験条件を整理する") },
+                supportingText = if (state is CaptureUiState.Error) {
+                    { Text(state.message) }
+                } else {
+                    null
+                },
+                isError = state is CaptureUiState.Error,
+                enabled = state !is CaptureUiState.Saving,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (draft.isNotBlank()) onSubmit() }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = onSubmit,
+                enabled = state !is CaptureUiState.Saving && draft.isNotBlank(),
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+            }
+        }
     }
 }
 
@@ -254,7 +364,22 @@ private fun TodayTaskList(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(task.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                    Text(task.state, color = MaterialTheme.colorScheme.primary)
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (task.pending) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = RoundedCornerShape(7.dp),
+                            ) {
+                                Text(
+                                    "送信待ち",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                        Text(taskStateLabel(task.state), color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         }
@@ -262,7 +387,11 @@ private fun TodayTaskList(
 }
 
 @Composable
-private fun TodayDetailPane(task: MobileTask?) {
+internal fun TodayDetailPane(
+    task: MobileTask?,
+    actionState: TaskActionUiState,
+    onStateAction: (MobileTask) -> Unit,
+) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
         return
@@ -270,9 +399,23 @@ private fun TodayDetailPane(task: MobileTask?) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(task.title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("状態  ${task.state}")
+            if (task.pending) Text("送信待ち", color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  $it") }
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(
+                onClick = { onStateAction(task) },
+                enabled = !task.pending && actionState !is TaskActionUiState.Saving,
+            ) {
+                Text(
+                    when {
+                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
+                        task.pending -> "同期後に操作"
+                        task.state == "done" -> "再開する"
+                        else -> "完了する"
+                    },
+                )
+            }
         }
     }
 }
@@ -287,7 +430,7 @@ private fun CenteredState(content: @Composable () -> Unit) {
 }
 
 private val TodayPaneStateSaver = Saver<TodayPaneState, List<Any?>>(
-    save = { listOf(it.selectedTaskId, it.listScrollIndex, it.listScrollOffset) },
+    save = { it.save() },
     restore = { TodayPaneState.restore(it) },
 )
 

@@ -49,14 +49,43 @@ sealed interface TodayUiState {
     data class Success(val tasks: List<MobileTask>, val generatedAt: String) : TodayUiState
 }
 
+sealed interface CaptureUiState {
+    data object Idle : CaptureUiState
+    data object Saving : CaptureUiState
+    data class Queued(val taskId: String) : CaptureUiState
+    data class Error(val message: String) : CaptureUiState
+}
+
+sealed interface TaskActionUiState {
+    data object Idle : TaskActionUiState
+    data class Saving(val taskId: String) : TaskActionUiState
+    data class Queued(val taskId: String) : TaskActionUiState
+    data class Error(val taskId: String, val message: String) : TaskActionUiState
+}
+
 class TodayViewModel(
     private val repository: MobileTaskRepository = DisconnectedMobileTaskRepository(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
+    private val mutableCaptureState = MutableStateFlow<CaptureUiState>(CaptureUiState.Idle)
+    val captureState: StateFlow<CaptureUiState> = mutableCaptureState.asStateFlow()
+    private val mutableTaskActionState = MutableStateFlow<TaskActionUiState>(TaskActionUiState.Idle)
+    val taskActionState: StateFlow<TaskActionUiState> = mutableTaskActionState.asStateFlow()
+    private val mutablePendingCount = MutableStateFlow(0)
+    val pendingCount: StateFlow<Int> = mutablePendingCount.asStateFlow()
     private var observingCache = false
     private var cachedGeneratedAt = ""
+
+    init {
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository != null) {
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observePendingCount().collect { mutablePendingCount.value = it }
+            }
+        }
+    }
 
     fun load() {
         viewModelScope.launch { loadNow() }
@@ -102,6 +131,73 @@ class TodayViewModel(
         }
     }
 
+    fun createTask(title: String) {
+        mutableCaptureState.value = CaptureUiState.Saving
+        viewModelScope.launch(ioDispatcher) { createTaskNow(title) }
+    }
+
+    internal suspend fun createTaskNow(title: String) {
+        val normalized = title.trim()
+        if (normalized.isEmpty()) {
+            mutableCaptureState.value = CaptureUiState.Error("Task名を入力してください。")
+            return
+        }
+        if (normalized.length > 500) {
+            mutableCaptureState.value = CaptureUiState.Error("Task名は500文字以内で入力してください。")
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableCaptureState.value = CaptureUiState.Error("この環境ではTaskを追加できません。")
+            return
+        }
+        mutableCaptureState.value = try {
+            CaptureUiState.Queued(withContext(ioDispatcher) { offlineRepository.enqueueCreateTask(normalized) })
+        } catch (_: Exception) {
+            CaptureUiState.Error("Taskを保存できませんでした。入力を残したまま再試行してください。")
+        }
+    }
+
+    fun toggleTaskState(task: MobileTask) {
+        viewModelScope.launch { toggleTaskStateNow(task) }
+    }
+
+    internal suspend fun toggleTaskStateNow(task: MobileTask) {
+        if (task.pending) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                "このTaskの同期完了を待って再試行してください。",
+            )
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskの状態を変更できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            val commandId = withContext(ioDispatcher) {
+                if (task.state == "done") {
+                    offlineRepository.enqueueReopenTask(task.id)
+                } else {
+                    offlineRepository.enqueueCompleteTask(task.id)
+                }
+            }
+            TaskActionUiState.Queued(commandId)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Taskの状態を変更できませんでした。")
+        }
+    }
+
+    fun resetTaskActionState() {
+        mutableTaskActionState.value = TaskActionUiState.Idle
+    }
+
+    fun resetCaptureState() {
+        mutableCaptureState.value = CaptureUiState.Idle
+    }
+
     private fun applyResult(result: MobileTodayResult) {
         mutableUiState.value = when (result) {
             is MobileTodayResult.Available -> if (result.tasks.isEmpty()) {
@@ -130,25 +226,31 @@ class TodayPaneState(
     selectedTaskId: String? = null,
     listScrollIndex: Int = 0,
     listScrollOffset: Int = 0,
+    captureDraft: String = "",
+    captureOpen: Boolean = false,
 ) {
     var selectedTaskId by mutableStateOf(selectedTaskId)
     var listScrollIndex by mutableIntStateOf(listScrollIndex)
         private set
     var listScrollOffset by mutableIntStateOf(listScrollOffset)
         private set
+    var captureDraft by mutableStateOf(captureDraft)
+    var captureOpen by mutableStateOf(captureOpen)
 
     fun recordScroll(index: Int, offset: Int) {
         listScrollIndex = index.coerceAtLeast(0)
         listScrollOffset = offset.coerceAtLeast(0)
     }
 
-    fun save(): List<Any?> = listOf(selectedTaskId, listScrollIndex, listScrollOffset)
+    fun save(): List<Any?> = listOf(selectedTaskId, listScrollIndex, listScrollOffset, captureDraft, captureOpen)
 
     companion object {
         fun restore(saved: List<Any?>): TodayPaneState = TodayPaneState(
             selectedTaskId = saved[0] as String?,
             listScrollIndex = saved[1] as Int,
             listScrollOffset = saved[2] as Int,
+            captureDraft = saved.getOrNull(3) as? String ?: "",
+            captureOpen = saved.getOrNull(4) as? Boolean ?: false,
         )
     }
 }
