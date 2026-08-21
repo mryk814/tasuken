@@ -11,6 +11,7 @@ export { AgentContextQueryService } from "./services/agentContextQueryService.ts
 export { AgentContextExportService } from "./services/agentContextExportService.ts";
 export { ProposeTaskWorkError, ProposeTaskWorkService } from "./services/proposeTaskWorkService.ts";
 export { ProposeRepositoryTaskError, ProposeRepositoryTaskService } from "./services/proposeRepositoryTaskService.ts";
+export { ProposeContentError, ProposeContentService } from "./services/proposeContentService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,

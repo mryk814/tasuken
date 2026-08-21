@@ -411,6 +411,19 @@ export function createTaskenMcpServer(options = {}) {
     idempotency_key: args.idempotency_key || randomUUID(),
     caller: args.caller || "MCP client",
   });
+  const contentProposalBase = {
+    ...contentProposalIdentity,
+    repository_context: taskWorkRepositoryContextSchema,
+  };
+  const queueContent = (args, kind) => coreClient.proposeContent({
+    ...args,
+    idempotency_key: args.idempotency_key ?? randomUUID(),
+    caller: args.caller ?? sourceApp(args),
+    kind,
+    actor: { kind: "ai_agent" },
+    source: "mcp",
+    source_app: sourceApp(args),
+  });
 
   server.registerTool("tasken.start_task_work", {
     description: "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",
@@ -502,6 +515,7 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool("tasken.propose_note", {
     description: "Queue a new Note proposal. This does not create the Note until the user accepts it in Tasken.",
     inputSchema: {
+      ...contentProposalBase,
       title: z.string().trim().min(1).max(200),
       body: z.string().min(1).max(200000),
       theme: optionalText,
@@ -510,25 +524,12 @@ export function createTaskenMcpServer(options = {}) {
       source_app: z.string().trim().min(1).max(120).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => toolResult(queueMcpProposal({
-    payloadType: "notes",
-    sourceApp: sourceApp(args),
-    payload: {
-      notes: [{
-        action: "create",
-        title: args.title,
-        body: args.body,
-        theme: args.theme || "",
-        note_type: args.note_type || "memo",
-        reason: args.reason || "",
-      }],
-    },
-    request: { tool: "tasken.propose_note" },
-  })));
+  }, withCoreClient((args) => queueContent(args, "note_create")));
 
   server.registerTool("tasken.propose_note_edit", {
     description: "Queue a full Markdown replacement for an existing Note. base_version prevents stale overwrites.",
     inputSchema: {
+      ...contentProposalBase,
       note_id: z.string().trim().min(1),
       base_version: z.number().int().positive(),
       title: z.string().trim().min(1).max(200),
@@ -537,28 +538,12 @@ export function createTaskenMcpServer(options = {}) {
       source_app: z.string().trim().min(1).max(120).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => toolResult(queueMcpProposal({
-    payloadType: "notes",
-    sourceApp: sourceApp(args),
-    payload: {
-      notes: [{
-        action: "merge",
-        target_id: args.note_id,
-        base_version: args.base_version,
-        title: args.title,
-        body: args.body,
-        reason: args.reason,
-      }],
-    },
-    request: {
-      tool: "tasken.propose_note_edit",
-      target: { type: "note", id: args.note_id, base_version: args.base_version },
-    },
-  })));
+  }, withCoreClient((args) => queueContent(args, "note_edit")));
 
   server.registerTool("tasken.propose_knowledge", {
     description: "Queue a Knowledge proposal for review in Tasken.",
     inputSchema: {
+      ...contentProposalBase,
       title: z.string().trim().min(1).max(200),
       body: z.string().max(20000).optional(),
       node_type: z.enum(["question", "claim", "evidence", "decision", "insight"]).optional(),
@@ -568,26 +553,12 @@ export function createTaskenMcpServer(options = {}) {
       source_app: z.string().trim().min(1).max(120).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => toolResult(queueMcpProposal({
-    payloadType: "knowledge_nodes",
-    sourceApp: sourceApp(args),
-    payload: {
-      knowledge_nodes: [{
-        action: "create",
-        title: args.title,
-        body: args.body || "",
-        node_type: args.node_type || "insight",
-        theme: args.theme || "",
-        confidence: args.confidence || "medium",
-        reason: args.reason || "",
-      }],
-    },
-    request: { tool: "tasken.propose_knowledge" },
-  })));
+  }, withCoreClient((args) => queueContent(args, "knowledge_create")));
 
   server.registerTool("tasken.propose_sketch", {
     description: "Queue a safe inline SVG as a Sketch proposal. Tasken only saves it after user preview and acceptance.",
     inputSchema: {
+      ...contentProposalBase,
       title: z.string().trim().min(1).max(200),
       svg: z.string().min(1).max(500000),
       theme: optionalText,
@@ -595,24 +566,12 @@ export function createTaskenMcpServer(options = {}) {
       source_app: z.string().trim().min(1).max(120).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => toolResult(queueMcpProposal({
-    payloadType: "sketches",
-    sourceApp: sourceApp(args),
-    payload: {
-      sketches: [{
-        action: "create",
-        title: args.title,
-        svg: args.svg,
-        theme: args.theme || "",
-        reason: args.reason || "",
-      }],
-    },
-    request: { tool: "tasken.propose_sketch" },
-  })));
+  }, withCoreClient((args) => queueContent(args, "sketch_create")));
 
   server.registerTool("tasken.propose_artifact", {
     description: "Queue an inline SVG, Markdown, text, or JSON Artifact. Paths and external URLs are not accepted.",
     inputSchema: {
+      ...contentProposalBase,
       title: z.string().trim().min(1).max(200),
       file_name: z.string().trim().min(1).max(180),
       media_type: z.enum(["image/svg+xml", "text/markdown", "text/plain", "application/json"]),
@@ -622,22 +581,7 @@ export function createTaskenMcpServer(options = {}) {
       source_app: z.string().trim().min(1).max(120).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => toolResult(queueMcpProposal({
-    payloadType: "artifacts",
-    sourceApp: sourceApp(args),
-    payload: {
-      artifacts: [{
-        action: "create",
-        title: args.title,
-        file_name: args.file_name,
-        media_type: args.media_type,
-        content: args.content,
-        theme: args.theme || "",
-        reason: args.reason || "",
-      }],
-    },
-    request: { tool: "tasken.propose_artifact" },
-  })));
+  }, withCoreClient((args) => queueContent(args, "artifact_create")));
 
   return server;
 }

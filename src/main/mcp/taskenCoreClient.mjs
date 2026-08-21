@@ -20,6 +20,7 @@ import {
   exportAiContextResponseSchema,
   proposeTaskWorkResponseSchema,
   proposeRepositoryTaskResponseSchema,
+  proposeContentResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -43,6 +44,7 @@ import {
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -252,6 +254,10 @@ export class TaskenCoreClient {
 
   async proposeRepositoryTask(request = {}) {
     return this.request("/v1/commands/propose-repository-task", TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY, request, proposeRepositoryTaskResponseSchema, "propose-repository-task");
+  }
+
+  async proposeContent(request = {}) {
+    return this.request("/v1/commands/propose-content", TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY, request, proposeContentResponseSchema, "propose-content");
   }
 
   async query(path, capability, request, responseSchema) {

@@ -50,6 +50,8 @@ import type {
   ProposeTaskWorkResponse,
   ProposeRepositoryTaskRequest,
   ProposeRepositoryTaskResponse,
+  ProposeContentRequest,
+  ProposeContentResponse,
 } from "../../../shared/contracts/task/public.ts";
 import {
   getTaskAssignmentRequestSchema,
@@ -74,6 +76,7 @@ import {
   searchItemsRequestSchema,
   proposeTaskWorkRequestSchema,
   proposeRepositoryTaskRequestSchema,
+  proposeContentRequestSchema,
 } from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -97,6 +100,7 @@ import {
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -144,6 +148,7 @@ export interface TaskenCoreHostOptions {
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
   proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
   proposeRepositoryTask?: QueryProvider<ProposeRepositoryTaskRequest, ProposeRepositoryTaskResponse>;
+  proposeContent?: QueryProvider<ProposeContentRequest, ProposeContentResponse>;
 }
 
 interface DiscoveryDocument {
@@ -184,6 +189,7 @@ class RequestValidationError extends Error {
 function parseOperationRequest(url: string, body: unknown): unknown {
   const schema = url === "/v1/commands/propose-task-work" ? proposeTaskWorkRequestSchema
     : url === "/v1/commands/propose-repository-task" ? proposeRepositoryTaskRequestSchema
+    : url === "/v1/commands/propose-content" ? proposeContentRequestSchema
     : url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
     : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" || url === "/v1/queries/find-themes-for-repository" ? repositoryLookupRequestSchema
       : url === "/v1/queries/get-repository-context" ? getRepositoryContextRequestSchema
@@ -235,7 +241,7 @@ function publicRequestError(error: unknown) {
   if (message === "INVALID_JSON") {
     return { status: 400, body: errorResponse(message, "JSONが不正です。") };
   }
-  if (error instanceof Error && ["ProposeTaskWorkError", "ProposeRepositoryTaskError"].includes(error.name)
+  if (error instanceof Error && ["ProposeTaskWorkError", "ProposeRepositoryTaskError", "ProposeContentError"].includes(error.name)
     && "code" in error && error.code === "IDEMPOTENCY_CONFLICT") {
     return {
       status: 409,
@@ -252,6 +258,14 @@ function publicRequestError(error: unknown) {
         details: "details" in error && error.details && typeof error.details === "object" ? error.details as Record<string, unknown> : {},
       }),
     };
+  }
+  if (error instanceof Error && error.name === "ProposeContentError" && "code" in error) {
+    if (error.code === "PROPOSAL_TOO_LARGE") {
+      return { status: 413, body: errorResponse("PROPOSAL_TOO_LARGE", error.message) };
+    }
+    if (error.code === "VALIDATION_FAILED") {
+      return { status: 400, body: errorResponse("VALIDATION_FAILED", error.message) };
+    }
   }
   return { status: 500, body: errorResponse("INTERNAL_ERROR", "Tasken Core queryの処理に失敗しました。") };
 }
@@ -341,6 +355,7 @@ export class TaskenCoreHost {
       ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
       ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
       ...(this.options.proposeRepositoryTask ? [TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY] : []),
+      ...(this.options.proposeContent ? [TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY] : []),
     ];
   }
 
@@ -429,6 +444,7 @@ export class TaskenCoreHost {
       const commandPaths = new Set([
         ...(this.options.proposeTaskWork ? ["/v1/commands/propose-task-work"] : []),
         ...(this.options.proposeRepositoryTask ? ["/v1/commands/propose-repository-task"] : []),
+        ...(this.options.proposeContent ? ["/v1/commands/propose-content"] : []),
       ]);
       const operationPaths = new Set([...queryPaths, ...commandPaths]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...operationPaths]);
@@ -460,6 +476,8 @@ export class TaskenCoreHost {
           json(response, 200, this.options.proposeTaskWork!.execute(body as ProposeTaskWorkRequest));
         } else if (request.url === "/v1/commands/propose-repository-task") {
           json(response, 200, this.options.proposeRepositoryTask!.execute(body as ProposeRepositoryTaskRequest));
+        } else if (request.url === "/v1/commands/propose-content") {
+          json(response, 200, this.options.proposeContent!.execute(body as ProposeContentRequest));
         } else if (request.url === "/v1/queries/list-agent-ready-tasks") {
           json(response, 200, this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest));
         } else if (request.url === "/v1/queries/resolve-repository-context") {
