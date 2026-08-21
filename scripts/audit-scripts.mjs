@@ -12,6 +12,7 @@ const manualAllowlist = {
   "core.mjs": "Internal architecture scanner imported by audit-architecture; not a CLI entry point.",
   "generate-katex-document-css.mjs": "Manual generated CSS refresh after upgrading KaTeX; generated output is committed.",
   "model-smoke.mjs": "Manual model/MCP integration check; it requires a real local database fixture.",
+  "mcp-package-smoke-readiness.mjs": "Internal packaged MCP process readiness and diagnostic helper; imported by mcp-package-smoke.",
   "notes-performance.mjs": "Manual long-Notes performance benchmark; not a merge gate.",
   "mcp-server.mjs": "Manual MCP stdio entry point; launched by the mcp package script.",
 };
