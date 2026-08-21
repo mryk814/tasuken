@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
@@ -395,8 +397,8 @@ export function createTaskenMcpServer(options = {}) {
     source_app: sourceApp(args),
   });
   const contentProposalIdentity = {
-    idempotency_key: z.string().trim().min(1).max(200),
-    caller: z.string().trim().min(1).max(200),
+    idempotency_key: z.string().trim().min(1).max(200).optional(),
+    caller: z.string().trim().min(1).max(200).optional(),
     source_session: z.string().trim().min(1).max(200).optional(),
     source_app: z.string().trim().min(1).max(120).optional(),
   };
@@ -406,6 +408,8 @@ export function createTaskenMcpServer(options = {}) {
     actor: { kind: "ai_agent" },
     source: "mcp",
     source_app: sourceApp(args),
+    idempotency_key: args.idempotency_key || randomUUID(),
+    caller: args.caller || "MCP client",
   });
 
   server.registerTool("tasken.start_task_work", {
