@@ -34,6 +34,7 @@ android {
         add(rootProject.file("../contracts/mobile/v1").absolutePath)
         add(rootProject.file("../design-standard").absolutePath)
     }
+    sourceSets.getByName("androidTest").assets.srcDir(file("schemas"))
 }
 
 dependencies {
