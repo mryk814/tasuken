@@ -106,4 +106,6 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   await copyMcpBridgeConfig(async (text) => { copied = text; return true; }, info);
   assert.equal(copied, info.configJson);
   assert.match(settings, /copyMcpBridgeConfig\(\(text\) => workspaceApi\.copyText\(text\), mcpInfo\)/);
+  assert.match(settings, /label: "設定をコピーできます", tone: "neutral"/);
+  assert.doesNotMatch(settings, /const mcpSummary[\s\S]{0,300}label: "正常"/);
 });

@@ -32,6 +32,7 @@ import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBack
 import { createSnapshot, readSnapshot } from "./services/snapshotService.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
+import { validateMcpPackageSmokeRoot } from "../shared/taskenPaths.mjs";
 import { ApplicationCommandService } from "./services/applicationCommandService";
 import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
@@ -52,6 +53,8 @@ const mcpPackageSmokeResultArgument = process.argv.find((argument) => argument.s
 const mcpPackageSmokeResultPath = mcpPackageSmokeResultArgument?.slice("--mcp-package-smoke-result-path=".length) || "";
 const mcpPackageSmokeProposalArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-proposal-id="));
 const mcpPackageSmokeProposalId = mcpPackageSmokeProposalArgument?.slice("--mcp-package-smoke-proposal-id=".length) || "";
+const mcpPackageSmokeMarkerArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-marker="));
+const mcpPackageSmokeMarker = mcpPackageSmokeMarkerArgument?.slice("--mcp-package-smoke-marker=".length) || "";
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
 const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
@@ -484,7 +487,14 @@ app.disableHardwareAcceleration();
   // Windows画面録画はChromiumのlegacy desktop capturerへ固定して列挙と録画を同じbackendに揃える。
   app.commandLine.appendSwitch("disable-features", "EditContext,AllowWgcScreenCapturer,AllowWgcWindowCapturer");
 
-  if (requestedUserDataPath) {
+  if (isMcpPackageSmoke) {
+    if (!app.isPackaged) throw new Error("MCP package smokeはpackaged Desktopでのみ使用できます。");
+    app.setPath("userData", validateMcpPackageSmokeRoot({
+      userDataPath: requestedUserDataPath,
+      markerToken: mcpPackageSmokeMarker,
+      environmentMarker: process.env.TASKEN_MCP_PACKAGE_SMOKE_MARKER,
+    }));
+  } else if (requestedUserDataPath) {
     app.setPath("userData", path.resolve(requestedUserDataPath));
   } else if (isSmokeTest) {
     const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
@@ -2328,7 +2338,6 @@ async function startDesktopApp(): Promise<void> {
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
   if (isMcpPackageSmoke) {
-    if (!app.isPackaged) throw new Error("MCP package smoke fixtureはpackaged Desktopでのみ使用できます。");
     workspaceRepository.ensureMcpPackageSmokeFixture();
     if (mcpPackageSmokeProposalId) {
       if (!/^[0-9a-f-]{36}$/i.test(mcpPackageSmokeProposalId)) throw new Error("MCP package smoke Proposal IDが不正です。");

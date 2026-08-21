@@ -728,7 +728,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const mcpSummary = mcpInfo
     ? mcpInfo.pendingProposalCount > 0
       ? { label: `要確認 · ${mcpInfo.pendingProposalCount}件`, tone: "attention" as const }
-      : { label: "正常", tone: "normal" as const }
+      : { label: "設定をコピーできます", tone: "neutral" as const }
       : { label: "確認中", tone: "loading" as const };
   const automaticBackupSummary = automaticBackupState === "loading"
     ? { label: "確認中", tone: "loading" as const }

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 import { TASKEN_MCP_REQUIRED_CORE_CAPABILITIES, TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
+import { TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE } from "../src/shared/taskenPaths.mjs";
 
 const executable = path.resolve(process.argv[2] || path.join("release", "win-unpacked", "Tasken.exe"));
 if (!fs.existsSync(executable)) throw new Error("Tasken packaged executable was not found.");
@@ -16,16 +18,20 @@ const serverPath = path.join(path.dirname(executable), "resources", "mcp", "serv
 if (!fs.existsSync(serverPath)) throw new Error("Packaged MCP server was not found.");
 const canonicalDbPath = path.join(root, "research-desk.sqlite");
 const fakeDbPath = path.join(root, "fake-mcp.sqlite");
-const retiredProposalPath = path.join(root, ["mcp", "inbox", "must-not-exist"].join("-"));
+const legacyInboxPath = path.join(root, "mcp-inbox-must-not-exist");
 const verificationPath = path.join(root, "proposal-verification.json");
-const desktopArgs = [`--user-data-dir=${root}`, "--mcp-package-smoke"];
+const markerToken = randomBytes(32).toString("hex");
+fs.writeFileSync(path.join(root, TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE), markerToken, { flag: "wx", mode: 0o600 });
+const desktopArgs = [`--user-data-dir=${root}`, "--mcp-package-smoke", `--mcp-package-smoke-marker=${markerToken}`];
+const desktopEnvironment = { ...process.env, TASKEN_MCP_PACKAGE_SMOKE_MARKER: markerToken };
 const environment = {
-  ...process.env,
+  ...desktopEnvironment,
   TASKEN_USER_DATA_DIR: root,
   TASKEN_DB_PATH: fakeDbPath,
+  TASKEN_MCP_INBOX_PATH: legacyInboxPath,
 };
 const coreClient = new TaskenCoreClient({ env: environment, timeoutMs: 2_000 });
-let desktop = spawn(executable, desktopArgs, { stdio: "ignore", windowsHide: true });
+let desktop = spawn(executable, desktopArgs, { env: desktopEnvironment, stdio: "ignore", windowsHide: true });
 let client;
 
 async function waitForCore() {
@@ -71,7 +77,7 @@ async function launchVerification(proposalId, verifyOnly = false) {
     `--mcp-package-smoke-proposal-id=${proposalId}`,
     `--mcp-package-smoke-result-path=${verificationPath}`,
     ...(verifyOnly ? ["--mcp-package-smoke-verify-only"] : []),
-  ], { stdio: "ignore", windowsHide: true });
+  ], { env: desktopEnvironment, stdio: "ignore", windowsHide: true });
   if (!verifyOnly) return;
   const exitCode = await new Promise((resolve) => desktop.once("exit", resolve));
   if (exitCode !== 0 || !fs.existsSync(verificationPath)) throw new Error("Packaged Desktop Proposal verification failed.");
@@ -144,7 +150,7 @@ try {
   if (verified.proposal_id !== proposalId || verified.status !== "pending" || verified.matching_count !== 1) {
     throw new Error("Packaged Desktop did not verify one canonical pending Proposal.");
   }
-  for (const forbiddenPath of [fakeDbPath, retiredProposalPath]) {
+  for (const forbiddenPath of [fakeDbPath, legacyInboxPath]) {
     if (fs.existsSync(forbiddenPath)) throw new Error(`Retired MCP persistence path was created: ${path.basename(forbiddenPath)}`);
   }
   if (!fs.existsSync(canonicalDbPath)) throw new Error("Packaged Desktop canonical database was not created.");

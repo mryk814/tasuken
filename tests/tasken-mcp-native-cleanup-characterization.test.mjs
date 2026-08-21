@@ -48,7 +48,6 @@ test("#413 MCP production graph is Core-only and native-free", () => {
   for (const relativePath of [
     "scripts/mcp-server.mjs",
     "scripts/mcp-doctor.mjs",
-    "scripts/mcp-package-smoke.mjs",
     "scripts/build-mcp-bridge.mjs",
     "src/main/mcp/server.mjs",
     "src/main/mcp/taskenCoreClient.mjs",
@@ -56,8 +55,12 @@ test("#413 MCP production graph is Core-only and native-free", () => {
     "src/main/index.ts",
   ]) assert.doesNotMatch(source(relativePath), forbidden, `${relativePath} contains a retired native/inbox path`);
 
-  assert.match(source("scripts/mcp-package-smoke.mjs"), /command: process\.env\.TASKEN_NODE_EXEC_PATH \|\| process\.execPath/);
-  assert.match(source("scripts/mcp-package-smoke.mjs"), /spawn\(executable/);
+  const packageSmoke = source("scripts/mcp-package-smoke.mjs");
+  assert.doesNotMatch(packageSmoke, /better-sqlite3|ReadOnlyTaskenContext|ELECTRON_RUN_AS_NODE|queueMcpProposal|proposalInbox/);
+  assert.match(packageSmoke, /TASKEN_MCP_INBOX_PATH: legacyInboxPath/);
+  assert.match(packageSmoke, /for \(const forbiddenPath of \[fakeDbPath, legacyInboxPath\]\)/);
+  assert.match(packageSmoke, /command: process\.env\.TASKEN_NODE_EXEC_PATH \|\| process\.execPath/);
+  assert.match(packageSmoke, /spawn\(executable/);
   assert.match(source("scripts/mcp-doctor.mjs"), /\.inspect\(\)/);
   assert.match(source("src/main/services/workspaceService.ts"), /this\.taskenCoreClient\.getTaskContext/);
   assert.match(source("src/main/services/workspaceService.ts"), /createMcpBridgeInfo/);

@@ -79,9 +79,11 @@ MCP Serverをplain Nodeで起動（Tasken Desktopを先に起動してくださ�
 npm --silent run mcp
 ```
 
+MCPクライアントを動かす環境には **Node.js 20以上**をインストールし、`node`を`PATH`から実行できるようにしてください。Tasken DesktopとTasken Coreが起動していることも必要です。Settingsが生成する接続設定はsystem Nodeの`node`コマンドを使い、Electronや同梱native moduleへfallbackしません。
+
 `npm --silent run mcp`は`scripts/mcp-server.mjs`を通常のNodeで起動します。MCP bridgeはSQLiteを開かず、Desktop Mainが公開する認証済みloopback Tasken Coreへ接続します。Core停止時はDBへfallbackせず、tool resultに復旧可能な構造化errorを返します。MCPクライアント設定ではstdoutにnpmのログを混ぜないため`--silent`を付けてください。
 
-Core discovery・health・API version・live capabilities・認証を機械可読JSONで診断:
+Tasken Desktopを起動した状態で、Core discovery・health・API version・live capabilities・認証を機械可読JSONで診断:
 
 ```bash
 npm run doctor:mcp -- --json
