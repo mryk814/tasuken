@@ -22,6 +22,11 @@ sealed interface MobileCommandSendResult {
     data class Rejected(val reason: String) : MobileCommandSendResult
 }
 
+data class MobileStateActionResult(
+    val commandId: String?,
+    val requiresSync: Boolean,
+)
+
 class MobileOutbox(
     private val context: Context,
     private val dao: MobileLocalDao,
@@ -85,15 +90,16 @@ class MobileOutbox(
                 createdAt = issuedAt,
                 lastAttemptAt = null,
                 lastError = null,
+                taskId = taskId,
             ),
         )
         schedule()
         return taskId
     }
 
-    suspend fun enqueueComplete(taskId: String): String = enqueueState(taskId, "CompleteTask", "done")
+    suspend fun enqueueComplete(taskId: String): MobileStateActionResult = enqueueState(taskId, "CompleteTask", "done")
 
-    suspend fun enqueueReopen(taskId: String): String = enqueueState(taskId, "ReopenTask", "todo")
+    suspend fun enqueueReopen(taskId: String): MobileStateActionResult = enqueueState(taskId, "ReopenTask", "todo")
 
     suspend fun acceptServer(commandId: String) {
         val conflict = requireNotNull(dao.conflict(commandId)) { "競合情報が見つかりません。再読み込みしてください。" }
@@ -145,17 +151,45 @@ class MobileOutbox(
                 createdAt = issuedAt,
                 lastAttemptAt = null,
                 lastError = null,
+                taskId = conflict.taskId,
             ),
         )
         schedule()
         return replacementId
     }
 
-    private suspend fun enqueueState(taskId: String, commandName: String, optimisticState: String): String {
+    private suspend fun enqueueState(
+        taskId: String,
+        commandName: String,
+        optimisticState: String,
+    ): MobileStateActionResult {
         require(commandName in setOf("CompleteTask", "ReopenTask"))
         val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
-        require(task.optimisticCommandId == null) { "Taskの同期完了を待って再試行してください。" }
-        val expectedVersion = requireNotNull(task.serverVersion) { "Taskのversionがありません。再読み込みしてください。" }
+        val pending = task.optimisticCommandId?.let { dao.outbox(it) }
+        if (pending != null && pending.commandName in setOf("CompleteTask", "ReopenTask")) {
+            require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
+                "送信結果を確認してから再試行してください。"
+            }
+            if (pending.commandName == commandName) {
+                return MobileStateActionResult(pending.commandId, requiresSync = true)
+            }
+            dao.cancelUnsentStateAction(
+                commandId = pending.commandId,
+                task = task.copy(
+                    state = optimisticState,
+                    updatedAt = now().toString(),
+                    optimisticCommandId = pending.dependsOnCommandId,
+                ),
+            )
+            return MobileStateActionResult(pending.dependsOnCommandId, requiresSync = pending.dependsOnCommandId != null)
+        }
+        require(pending == null || pending.commandName == "CreateTask") { "Taskの同期完了を待って再試行してください。" }
+        if (pending != null) {
+            require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
+                "Task作成の送信結果を確認してから再試行してください。"
+            }
+        }
+        val expectedVersion = task.serverVersion ?: 1
         val commandId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
         val issuedAt = now().toString()
@@ -173,29 +207,36 @@ class MobileOutbox(
                 expectedVersion = expectedVersion,
             ),
         )
-        dao.enqueueStateAction(
-            task = task.copy(
-                state = optimisticState,
-                updatedAt = issuedAt,
-                optimisticCommandId = commandId,
-            ),
-            command = OutboxCommandEntity(
-                commandId = commandId,
-                idempotencyKey = commandId,
-                requestId = requestId,
-                clientDeviceId = envelope.clientDeviceId,
-                issuedAt = issuedAt,
-                commandName = commandName,
-                envelopeJson = MobileTaskCommandContract.encode(envelope),
-                state = OutboxState.Pending,
-                attemptCount = 0,
-                createdAt = issuedAt,
-                lastAttemptAt = null,
-                lastError = null,
-            ),
+        val command = OutboxCommandEntity(
+            commandId = commandId,
+            idempotencyKey = commandId,
+            requestId = requestId,
+            clientDeviceId = envelope.clientDeviceId,
+            issuedAt = issuedAt,
+            commandName = commandName,
+            envelopeJson = MobileTaskCommandContract.encode(envelope),
+            state = OutboxState.Pending,
+            attemptCount = 0,
+            createdAt = issuedAt,
+            lastAttemptAt = null,
+            lastError = null,
+            taskId = taskId,
+            dependsOnCommandId = pending?.commandId,
+        )
+        val optimisticTask = task.copy(
+            state = optimisticState,
+            updatedAt = issuedAt,
+            optimisticCommandId = commandId,
+        )
+        if (pending == null) dao.enqueueStateAction(
+            task = optimisticTask,
+            command = command,
+        ) else dao.enqueueDependentStateAction(
+            task = optimisticTask,
+            command = command,
         )
         schedule()
-        return commandId
+        return MobileStateActionResult(commandId, requiresSync = true)
     }
 
     suspend fun recoverInterruptedSending(): Int =
@@ -215,6 +256,15 @@ class MobileOutbox(
                     }
                     val task = response.data.task
                     val cached = dao.task(task.id)
+                    val dependents = dao.dependents(command.commandId)
+                    require(dependents.size <= 1)
+                    val dependent = dependents.singleOrNull()
+                    val dependentEnvelope = dependent?.let {
+                        val stored = MobileTaskCommandContract.decodeStateEnvelope(it.envelopeJson)
+                        MobileTaskCommandContract.encode(
+                            stored.copy(command = stored.command.copy(expectedVersion = task.version)),
+                        )
+                    }
                     dao.applyCommandReceipt(
                         commandId = command.commandId,
                         canonicalTask = TaskCacheEntity(
@@ -237,6 +287,9 @@ class MobileOutbox(
                             lastAttemptAt = attemptedAt,
                             lastError = null,
                         ),
+                        dependentCommandId = dependent?.commandId,
+                        dependentEnvelopeJson = dependentEnvelope,
+                        optimisticState = dependent?.let { if (it.commandName == "CompleteTask") "done" else "todo" },
                     )
                 }
                 is MobileCommandSendResult.Conflict -> {

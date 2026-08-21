@@ -47,6 +47,21 @@ class TaskStateActionUiTest {
     }
 
     @Test
+    fun unsentCompleteCanBeChangedBackToReopen() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask().copy(state = "done", pending = true, canChangePendingState = true),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("再開に変更").assertIsDisplayed().assertIsEnabled()
+    }
+
+    @Test
     fun conflictedTaskShowsBothExplicitResolutionActions() {
         composeRule.setContent {
             MaterialTheme {

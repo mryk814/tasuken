@@ -45,6 +45,8 @@ data class OutboxCommandEntity(
     val createdAt: String,
     val lastAttemptAt: String?,
     val lastError: String?,
+    val taskId: String? = null,
+    val dependsOnCommandId: String? = null,
 )
 
 @Entity(tableName = "sync_state")
@@ -82,6 +84,8 @@ data class TaskCacheWithConflict(
     @Embedded val task: TaskCacheEntity,
     @Relation(parentColumn = "conflictCommandId", entityColumn = "commandId")
     val conflict: TaskConflictEntity?,
+    @Relation(parentColumn = "optimisticCommandId", entityColumn = "commandId")
+    val optimisticCommand: OutboxCommandEntity?,
 )
 
 object OutboxState {
@@ -109,6 +113,9 @@ abstract class MobileLocalDao {
 
     @Query("SELECT * FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun outbox(commandId: String): OutboxCommandEntity?
+
+    @Query("SELECT * FROM outbox_command WHERE dependsOnCommandId = :commandId ORDER BY createdAt, commandId")
+    abstract suspend fun dependents(commandId: String): List<OutboxCommandEntity>
 
     @Query("SELECT COUNT(*) FROM outbox_command")
     abstract suspend fun outboxCount(): Int
@@ -139,7 +146,7 @@ abstract class MobileLocalDao {
 
     @Query(
         "SELECT * FROM outbox_command " +
-            "WHERE state IN ('pending', 'retry_wait') " +
+            "WHERE state IN ('pending', 'retry_wait') AND dependsOnCommandId IS NULL " +
             "ORDER BY createdAt ASC, commandId ASC LIMIT 1",
     )
     abstract suspend fun nextSendable(): OutboxCommandEntity?
@@ -175,6 +182,22 @@ abstract class MobileLocalDao {
     @Query("UPDATE task_cache SET conflictCommandId = NULL WHERE conflictCommandId = :commandId")
     abstract suspend fun clearTaskConflict(commandId: String)
 
+    @Query(
+        "UPDATE outbox_command SET envelopeJson = :envelopeJson, dependsOnCommandId = NULL " +
+            "WHERE commandId = :commandId AND dependsOnCommandId = :parentCommandId " +
+            "AND state = 'pending' AND attemptCount = 0",
+    )
+    abstract suspend fun materializeDependent(
+        commandId: String,
+        parentCommandId: String,
+        envelopeJson: String,
+    ): Int
+
+    @Query(
+        "DELETE FROM outbox_command WHERE commandId = :commandId AND state = 'pending' AND attemptCount = 0",
+    )
+    abstract suspend fun deleteUnsent(commandId: String): Int
+
     @Transaction
     open suspend fun enqueueCreate(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
@@ -193,6 +216,24 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun enqueueDependentStateAction(task: TaskCacheEntity, command: OutboxCommandEntity) {
+        require(task.optimisticCommandId == command.commandId)
+        require(command.dependsOnCommandId != null)
+        require(command.commandName in setOf("CompleteTask", "ReopenTask"))
+        upsertTask(task)
+        insertOutbox(command)
+    }
+
+    @Transaction
+    open suspend fun cancelUnsentStateAction(
+        commandId: String,
+        task: TaskCacheEntity,
+    ) {
+        require(deleteUnsent(commandId) == 1)
+        upsertTask(task)
+    }
+
+    @Transaction
     open suspend fun replaceToday(date: String, tasks: List<TaskCacheEntity>, syncState: SyncStateEntity) {
         deleteCanonicalToday(date)
         tasks.forEach { upsertTask(it) }
@@ -200,8 +241,25 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
-    open suspend fun applyCommandReceipt(commandId: String, canonicalTask: TaskCacheEntity, syncState: SyncStateEntity) {
-        upsertTask(canonicalTask.copy(optimisticCommandId = null, conflictCommandId = null))
+    open suspend fun applyCommandReceipt(
+        commandId: String,
+        canonicalTask: TaskCacheEntity,
+        syncState: SyncStateEntity,
+        dependentCommandId: String? = null,
+        dependentEnvelopeJson: String? = null,
+        optimisticState: String? = null,
+    ) {
+        if (dependentCommandId != null) {
+            require(dependentEnvelopeJson != null && optimisticState != null)
+            require(materializeDependent(dependentCommandId, commandId, dependentEnvelopeJson) == 1)
+        }
+        upsertTask(
+            canonicalTask.copy(
+                state = optimisticState ?: canonicalTask.state,
+                optimisticCommandId = dependentCommandId,
+                conflictCommandId = null,
+            ),
+        )
         upsertSyncState(syncState)
         deleteConflict(commandId)
         deleteOutbox(commandId)
@@ -262,7 +320,7 @@ abstract class MobileLocalDao {
 
 @Database(
     entities = [TaskCacheEntity::class, OutboxCommandEntity::class, SyncStateEntity::class, TaskConflictEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -276,7 +334,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 context.applicationContext,
                 MobileLocalDatabase::class.java,
                 "tasken-mobile-cache.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
     }
 }
@@ -297,6 +355,13 @@ internal val MIGRATION_2_3 = object : Migration(2, 3) {
                 "serverTitle TEXT NOT NULL, serverThemeId TEXT, serverWorkState TEXT, " +
                 "serverUpdatedAt TEXT NOT NULL, detectedAt TEXT NOT NULL)",
         )
+    }
+}
+
+internal val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE outbox_command ADD COLUMN taskId TEXT")
+        db.execSQL("ALTER TABLE outbox_command ADD COLUMN dependsOnCommandId TEXT")
     }
 }
 
@@ -321,4 +386,9 @@ fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
             detectedAt = it.detectedAt,
         )
     },
+    canChangePendingState = optimisticCommand?.let {
+        it.state == OutboxState.Pending &&
+            it.attemptCount == 0 &&
+            it.commandName in setOf("CreateTask", "CompleteTask", "ReopenTask")
+    } == true,
 )
