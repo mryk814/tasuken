@@ -11,6 +11,7 @@ import { build } from "esbuild";
 
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { queueMcpProposal, validateMcpProposalEnvelope } from "../src/main/mcp/proposalInbox.mjs";
+import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
 
@@ -549,6 +550,65 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
         database.db.close();
         fs.rmSync(root, { recursive: true, force: true });
       }
+    }
+  }
+});
+
+test("Core task-work idempotency binds actor/source identity and survives host restart", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-task-work-identity-"));
+  fs.chmodSync(root, 0o700);
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+  let host = null;
+  const startHost = async () => {
+    host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
+    await host.start();
+    return new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
+  };
+  const request = {
+    action: "start",
+    task_id: "task-identity",
+    expected_version: 3,
+    idempotency_key: "identity-start-1",
+    caller: "Codex",
+    actor: { kind: "ai_agent", id: "agent-a" },
+    source: "mcp",
+    source_session: "session-a",
+    source_app: "identity-fixture",
+  };
+  try {
+    let coreClient = await startHost();
+    const first = await coreClient.proposeTaskWork(request);
+    assert.equal(first.status, "queued");
+    assert.equal((await coreClient.proposeTaskWork(request)).status, "duplicate");
+    assert.equal(database.list("ai_proposal").length, 1);
+
+    await host.stop();
+    host = null;
+    coreClient = await startHost();
+    assert.equal((await coreClient.proposeTaskWork(request)).status, "duplicate");
+
+    await assert.rejects(
+      coreClient.proposeTaskWork({ ...request, actor: { kind: "ai_agent", id: "agent-b" } }),
+      (error) => error instanceof TaskenCoreClientError && error.code === "IDEMPOTENCY_CONFLICT",
+    );
+
+    const persisted = database.get("ai_proposal", first.proposal_id);
+    database.save("ai_proposal", {
+      ...persisted,
+      request: { ...persisted.request, source: "system" },
+    });
+    await assert.rejects(
+      coreClient.proposeTaskWork(request),
+      (error) => error instanceof TaskenCoreClientError && error.code === "IDEMPOTENCY_CONFLICT",
+    );
+    assert.equal(database.list("ai_proposal").length, 1);
+    assert.equal(fs.existsSync(path.join(root, "mcp-inbox")), false);
+  } finally {
+    try {
+      await host?.stop();
+    } finally {
+      database.db.close();
+      fs.rmSync(root, { recursive: true, force: true });
     }
   }
 });

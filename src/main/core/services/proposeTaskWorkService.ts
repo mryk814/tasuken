@@ -30,6 +30,28 @@ function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function canonicalIdentity(request: Record<string, unknown>) {
+  const actor = request.actor && typeof request.actor === "object" && !Array.isArray(request.actor)
+    ? request.actor as Record<string, unknown>
+    : {};
+  return {
+    tool: typeof request.tool === "string" ? request.tool : "",
+    caller: typeof request.caller === "string" ? request.caller : "",
+    actor: {
+      kind: typeof actor.kind === "string" ? actor.kind : "ai_agent",
+      ...(typeof actor.id === "string" && actor.id ? { id: actor.id } : {}),
+    },
+    source: typeof request.source === "string" ? request.source : "mcp",
+    source_session: typeof request.source_session === "string" && request.source_session
+      ? request.source_session
+      : null,
+  };
+}
+
+function proposalDigest(payload: Record<string, unknown>, request: Record<string, unknown>): string {
+  return digest({ payload, identity: canonicalIdentity(request) });
+}
+
 function proposalId(sourceApp: string, idempotencyKey: string): string {
   const hash = createHash("sha256").update(`${sourceApp}\0task_work\0${idempotencyKey}`).digest("hex");
   const uuidHex = `${hash.slice(0, 12)}5${hash.slice(13, 16)}8${hash.slice(17, 32)}`;
@@ -107,10 +129,9 @@ export class ProposeTaskWorkService {
     const request = proposeTaskWorkRequestSchema.parse(input);
     const sourceApp = request.source_app || "mcp-client";
     const payload = { task_work: [taskWorkEntry(request)] };
-    const payloadDigest = digest(payload);
     const id = proposalId(sourceApp, request.idempotency_key);
     const receivedAt = this.now();
-    const proposalRequest = {
+    const proposalRequestBase = {
       tool: TOOL_BY_ACTION[request.action],
       expected_version: request.expected_version,
       idempotency_key: request.idempotency_key,
@@ -118,15 +139,17 @@ export class ProposeTaskWorkService {
       actor: request.actor,
       source: request.source,
       source_session: request.source_session || null,
-      payload_digest: payloadDigest,
     };
+    const payloadDigest = proposalDigest(payload, proposalRequestBase);
+    const proposalRequest = { ...proposalRequestBase, payload_digest: payloadDigest };
 
     const status = this.writePort.runTransaction((transaction) => {
       const existing = transaction.get(id);
       if (existing) {
+        const existingDigest = proposalDigest(existing.payload, existing.request || {});
         if (existing.source !== "mcp"
           || existing.payload_type !== "task_work"
-          || existing.request?.payload_digest !== payloadDigest) {
+          || existingDigest !== payloadDigest) {
           throw new ProposeTaskWorkError(
             "IDEMPOTENCY_CONFLICT",
             "同じidempotency_keyへ異なる内容を送信できません。",
