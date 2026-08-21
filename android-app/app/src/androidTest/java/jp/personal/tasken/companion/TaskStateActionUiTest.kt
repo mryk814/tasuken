@@ -68,7 +68,7 @@ class TaskStateActionUiTest {
         }
 
         composeRule.onNodeWithText("同期できなかった変更").assertIsDisplayed()
-        composeRule.onNodeWithText("Desktop  未完了  v8").assertIsDisplayed()
+        composeRule.onNodeWithText("Desktop  未着手  v8").assertIsDisplayed()
         composeRule.onNodeWithText("この端末を採用").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText("Desktopを採用").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText("競合を解決してから操作").assertIsDisplayed().assertIsNotEnabled()

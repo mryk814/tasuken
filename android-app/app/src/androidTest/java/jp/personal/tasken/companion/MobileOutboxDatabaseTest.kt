@@ -139,7 +139,7 @@ class MobileOutboxDatabaseTest {
 
         val staleCommandId = outbox.enqueueComplete(taskId)
         assertTrue(outbox.drain {
-            MobileCommandSendResult.Conflict(conflict(staleCommandId, taskId, serverVersion = 8, serverState = "todo"))
+            MobileCommandSendResult.Conflict(conflict(taskId, serverVersion = 8, serverState = "todo"))
         }.not())
 
         val conflictedTask = requireNotNull(dao.task(taskId))
@@ -171,7 +171,7 @@ class MobileOutboxDatabaseTest {
         dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo"))
         val commandId = outbox.enqueueComplete(taskId)
         outbox.drain {
-            MobileCommandSendResult.Conflict(conflict(commandId, taskId, serverVersion = 4, serverState = "todo"))
+            MobileCommandSendResult.Conflict(conflict(taskId, serverVersion = 4, serverState = "todo"))
         }
 
         outbox.acceptServer(commandId)
@@ -213,7 +213,6 @@ class MobileOutboxDatabaseTest {
     )
 
     private fun conflict(
-        commandId: String,
         taskId: String,
         serverVersion: Int,
         serverState: String,

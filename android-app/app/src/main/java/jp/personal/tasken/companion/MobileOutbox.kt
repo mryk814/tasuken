@@ -244,7 +244,10 @@ class MobileOutbox(
                     val conflict = requireNotNull(response.error.conflict)
                     val current = conflict.currentTask
                     val cached = dao.task(current.id)
+                    val envelope = MobileTaskCommandContract.decodeStateEnvelope(command.envelopeJson)
                     require(command.commandName == conflict.intendedAction)
+                    require(envelope.command.taskId == current.id)
+                    require(envelope.command.expectedVersion == conflict.expectedVersion)
                     dao.recordConflict(
                         commandId = command.commandId,
                         canonicalTask = TaskCacheEntity(
