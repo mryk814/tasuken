@@ -17,7 +17,7 @@ class TaskStateActionUiTest {
     fun todoTaskShowsVisibleCompleteAction() {
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(sampleTask(), TaskActionUiState.Idle) {}
+                TodayDetailPane(sampleTask(), TaskActionUiState.Idle, onStateAction = {})
             }
         }
 
@@ -28,7 +28,7 @@ class TaskStateActionUiTest {
     fun doneTaskShowsVisibleReopenAction() {
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(sampleTask().copy(state = "done"), TaskActionUiState.Idle) {}
+                TodayDetailPane(sampleTask().copy(state = "done"), TaskActionUiState.Idle, onStateAction = {})
             }
         }
 
@@ -39,7 +39,7 @@ class TaskStateActionUiTest {
     fun pendingTaskExplainsWhyStateActionIsDisabled() {
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(sampleTask().copy(pending = true), TaskActionUiState.Idle) {}
+                TodayDetailPane(sampleTask().copy(pending = true), TaskActionUiState.Idle, onStateAction = {})
             }
         }
 
@@ -62,7 +62,7 @@ class TaskStateActionUiTest {
                         ),
                     ),
                     TaskActionUiState.Idle,
-                    {},
+                    onStateAction = {},
                 )
             }
         }
