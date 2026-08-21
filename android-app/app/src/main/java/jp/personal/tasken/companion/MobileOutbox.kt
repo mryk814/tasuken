@@ -1,18 +1,22 @@
 package jp.personal.tasken.companion
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.Flow
 
 sealed interface MobileCommandSendResult {
@@ -440,6 +444,7 @@ class MobileOutbox(
 
 object MobileOutboxScheduler {
     private const val UniqueWorkName = "tasken-mobile-outbox"
+    private const val PeriodicWorkName = "tasken-mobile-background-sync"
 
     fun enqueue(context: Context) {
         val request = OneTimeWorkRequestBuilder<MobileOutboxWorker>()
@@ -452,6 +457,18 @@ object MobileOutboxScheduler {
             request,
         )
     }
+
+    fun ensurePeriodicSync(context: Context) {
+        val request = PeriodicWorkRequestBuilder<MobileBackgroundSyncWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(30))
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
+            PeriodicWorkName,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+    }
 }
 
 class MobileOutboxWorker(
@@ -461,6 +478,26 @@ class MobileOutboxWorker(
     override suspend fun doWork(): Result {
         val repository = AndroidMobileTaskRepository(applicationContext, scheduleOutboxOnStart = false)
         repository.recoverInterruptedOutbox()
-        return if (repository.drainOutbox()) Result.retry() else Result.success()
+        val result = if (repository.drainOutbox()) Result.retry() else Result.success()
+        TaskenTodayWidget.updateAllNow(applicationContext)
+        return result
+    }
+}
+
+class MobileBackgroundSyncWorker(
+    appContext: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val repository = AndroidMobileTaskRepository(applicationContext, scheduleOutboxOnStart = false)
+        repository.recoverInterruptedOutbox()
+        val result = try {
+            if (repository.synchronizeIfPaired()) Result.success() else Result.retry()
+        } catch (error: Exception) {
+            Log.w("TaskenBackgroundSync", "Background sync failed and will be retried", error)
+            Result.retry()
+        }
+        TaskenTodayWidget.updateAllNow(applicationContext)
+        return result
     }
 }
