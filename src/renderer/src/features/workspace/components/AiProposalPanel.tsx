@@ -10,6 +10,7 @@ import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTask
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
 import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
+import { markdownSignature } from "../../../../../shared/canonicalMarkdown.mjs";
 import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../../../../../shared/repositoryContextProposal.mjs";
 import { ActionButton, Button } from "./common";
 
@@ -121,11 +122,11 @@ function noteDiffHunks(candidate: ProposalCandidate) {
   );
 }
 
-export function stabilizeProposalOperations(proposalId: string, operations: SaveOperation[]): SaveOperation[] {
+export function stabilizeProposalOperations(proposalId: string, operations: SaveOperation[], stableIndexes?: number[]): SaveOperation[] {
   const createdIdMap = new Map<string, string>();
   operations.forEach((operation, index) => {
     if (!Number.isInteger(operation.entity.version)) {
-      createdIdMap.set(operation.entity.id, stableProposalEntityId(proposalId, operation.type, index));
+      createdIdMap.set(operation.entity.id, stableProposalEntityId(proposalId, operation.type, stableIndexes?.[index] ?? index));
     }
   });
   return operations.map((operation) => ({
@@ -144,6 +145,20 @@ export function stabilizeProposalOperations(proposalId: string, operations: Save
         : {}),
     },
   })) as SaveOperation[];
+}
+
+export function buildContentProposalDecisions(preview: ProposalPreview, forceIgnore = false) {
+  return preview.candidates.map((candidate, entryIndex) => ({
+    entryIndex,
+    type: candidate.type as "note" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch",
+    action: forceIgnore || candidate.action === "ignore" ? "ignore" as const : "accept" as const,
+    ...(candidate.type === "note" && candidate.duplicate
+      ? {
+        acceptedHunks: [...(candidate.acceptedHunks || [])],
+        beforeSignature: markdownSignature(str(candidate.duplicate.body_markdown)),
+      }
+      : {}),
+  }));
 }
 
 export function buildCandidateOperations(candidates: ProposalCandidate[], repositoryContexts: BaseRecord[] = []): SaveOperation[] {
@@ -368,12 +383,28 @@ export function AiProposalPanel(props: PageProps) {
       setPreview(null);
       return;
     }
-    await saveEntities([{
-      action: "save",
-      type: "ai_proposal",
-      entity: { ...proposal, status: "rejected" },
-    }], "Proposalを却下しました。");
-    setPreview(null);
+    try {
+      const rejectedPreview = buildPreview(proposal, { data, themes, items });
+      const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(str(proposal.payload_type));
+      const decisions = isContentProposal ? buildContentProposalDecisions(rejectedPreview, true) : undefined;
+      await executeCommand({
+        commandId: `${proposal.id}:accept:v${Number(proposal.version || 0)}`,
+        name: "ApplyAiProposal",
+        payload: {
+          proposal: { ...proposal, status: "rejected" },
+          ...(isContentProposal ? { decision: "reject" as const, decisions } : {}),
+          candidates: [],
+        },
+        actor: { kind: "user" },
+        source: "main_ui",
+        expectedVersions: [{ type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) }],
+        issuedAt: str(proposal.received_at || proposal.created_at || proposal.updated_at) || new Date(0).toISOString(),
+      } as CommandEnvelope);
+      setToast("Proposalを却下しました。", "success");
+      setPreview(null);
+    } catch (error) {
+      setToast(`Proposalを却下できませんでした。${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async function quarantineProposal(proposal: BaseRecord) {
@@ -401,8 +432,7 @@ export function AiProposalPanel(props: PageProps) {
       try {
         const candidate = preview.candidates.find((entry) => entry.action !== "ignore");
         if (!candidate) {
-          await saveEntities([{ action: "save", type: "ai_proposal", entity: { ...proposal, status: "rejected" } }], "Work proposalを却下しました。");
-          setPreview(null);
+          await rejectProposal(proposal);
           return;
         }
         if (preview.candidates.filter((entry) => entry.action !== "ignore").length !== 1) throw new Error("Work proposalは1件ずつ採用してください。");
@@ -445,18 +475,26 @@ export function AiProposalPanel(props: PageProps) {
           }
         });
       const accepted = preview.candidates.filter((candidate) => candidate.action !== "ignore");
-      const operations = stabilizeProposalOperations(
-        proposal.id,
-        buildCandidateOperations(preview.candidates, (data.repository_contexts || []) as BaseRecord[]),
-      );
+      const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(str(proposal.payload_type));
+      const decisions = isContentProposal ? buildContentProposalDecisions(preview) : undefined;
+      const rawOperations = buildCandidateOperations(preview.candidates, (data.repository_contexts || []) as BaseRecord[]);
+      let acceptedCursor = 0;
+      const acceptedDecisions = decisions?.filter((decision) => decision.action === "accept") || [];
+      const operationIndexes = rawOperations.map((operation) => {
+        const matched = acceptedDecisions.slice(acceptedCursor).findIndex((decision) => decision.type === operation.type);
+        if (matched < 0) return acceptedCursor++;
+        acceptedCursor += matched + 1;
+        return acceptedDecisions[acceptedCursor - 1].entryIndex;
+      });
+      const operations = stabilizeProposalOperations(proposal.id, rawOperations, isContentProposal ? operationIndexes : undefined);
       for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
         const normalized = validateArtifactProposal(candidate.entry);
-        const entryIndex = preview.candidates.filter((entry) => entry.type === "artifact").indexOf(candidate);
+        const entryIndex = preview.candidates.indexOf(candidate);
         operations.push({
           action: "save",
           type: "artifact",
           entity: {
-            id: stableProposalEntityId(proposal.id, "artifact", operations.length + entryIndex),
+            id: stableProposalEntityId(proposal.id, "artifact", entryIndex),
             title: normalized.title,
             source_type: "ai_proposal",
             source_id: proposal.id,
@@ -472,11 +510,16 @@ export function AiProposalPanel(props: PageProps) {
         });
       }
       const status = accepted.length && accepted.length < preview.candidates.length ? "partially_accepted" : accepted.length ? "accepted" : "rejected";
+      const contentDecision = status === "rejected" ? "reject" as const : "accept" as const;
       const candidates = operations.map((operation) => ({ type: operation.type, entity: operation.entity }));
       await executeCommand({
         commandId: `${proposal.id}:accept:v${Number(proposal.version || 0)}`,
         name: "ApplyAiProposal",
-        payload: { proposal: { ...proposal, status }, candidates },
+        payload: {
+          proposal: { ...proposal, status },
+          ...(isContentProposal ? { decision: contentDecision, decisions } : {}),
+          candidates,
+        },
         actor: { kind: "user" },
         source: "main_ui",
         expectedVersions: [

@@ -97,6 +97,14 @@ export interface EndFocusSessionCommandPayload {
 
 export interface ApplyAiProposalCommandPayload {
   proposal: Entity;
+  decision?: "accept" | "reject";
+  decisions?: Array<{
+    entryIndex: number;
+    type: Extract<EntityType, "note" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch">;
+    action: "accept" | "ignore";
+    acceptedHunks?: number[];
+    beforeSignature?: string;
+  }>;
   candidates: Array<{
     type: Extract<EntityType, "task" | "note" | "waiting" | "plan_node" | "schedule" | "resource" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch" | "repository_context">;
     entity: Entity;
@@ -310,6 +318,22 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       }
       if (!["task", "note", "waiting", "plan_node", "schedule", "resource", "knowledge_node", "knowledge_edge", "artifact", "sketch", "repository_context"].includes(candidate.type)) {
         throw new ApplicationCommandError("INVALID_PAYLOAD", `ApplyAiProposalで未対応のcandidate typeです: ${candidate.type}`);
+      }
+    }
+    if (value.payload.decision !== undefined && value.payload.decision !== "accept" && value.payload.decision !== "reject") {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのdecisionが不正です。");
+    }
+    if (value.payload.decisions !== undefined) {
+      if (!Array.isArray(value.payload.decisions)) throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのdecisionsが不正です。");
+      for (const decision of value.payload.decisions) {
+        if (!isRecord(decision) || !Number.isInteger(decision.entryIndex) || Number(decision.entryIndex) < 0
+          || !["note", "knowledge_node", "knowledge_edge", "artifact", "sketch"].includes(String(decision.type))
+          || (decision.action !== "accept" && decision.action !== "ignore")
+          || (decision.acceptedHunks !== undefined && (!Array.isArray(decision.acceptedHunks)
+            || decision.acceptedHunks.some((index) => !Number.isInteger(index) || Number(index) < 0)))
+          || (decision.beforeSignature !== undefined && typeof decision.beforeSignature !== "string")) {
+          throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのentry decisionが不正です。");
+        }
       }
     }
   }

@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { build } from "esbuild";
-import { canonicalMarkdownBindingFromProperties } from "../src/shared/canonicalMarkdown.mjs";
+import { canonicalMarkdownBindingFromProperties, markdownSignature } from "../src/shared/canonicalMarkdown.mjs";
 import { stableProposalEntityId } from "../src/shared/proposalAcceptance.mjs";
 
 async function importBundled(relativePath) {
@@ -59,11 +59,15 @@ function root() {
   return fs.mkdtempSync(path.join(process.cwd(), ".tasken-ai-acceptance-"));
 }
 
-function envelope(proposal, candidates) {
+function envelope(proposal, candidates, decisions = candidates.map((candidate, entryIndex) => ({
+  entryIndex,
+  type: candidate.type,
+  action: "accept",
+}))) {
   return {
     commandId: `${proposal.id}:accept:v${proposal.version}`,
     name: "ApplyAiProposal",
-    payload: { proposal: { ...proposal, status: "accepted" }, candidates },
+    payload: { proposal: { ...proposal, status: "accepted" }, decision: "accept", decisions, candidates },
     actor: { kind: "user" },
     source: "main_ui",
     expectedVersions: [
@@ -304,7 +308,13 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
       status: "pending",
       received_at: "2026-08-21T00:10:00.000Z",
     });
-    const editCommand = envelope(editProposal, noteCandidates(editProposal, [created]));
+    const editCommand = envelope(editProposal, noteCandidates(editProposal, [created]), [{
+      entryIndex: 0,
+      type: "note",
+      action: "accept",
+      acceptedHunks: [0],
+      beforeSignature: markdownSignature(created.body_markdown),
+    }]);
     const editReceipt = acceptance.execute(editCommand);
     const edited = database.get("note", created.id);
     const editBinding = canonicalMarkdownBindingFromProperties(edited.properties_json, { noteId: edited.id });
@@ -379,9 +389,146 @@ test("canonical Note create recovers file-first DB failure and restart retry wri
 
 test("AiProposalPanel accepts through ApplyAiProposal without direct saveEntities or materialize API", () => {
   const source = fs.readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
-  const acceptStart = source.indexOf("      const accepted =", source.indexOf("async function acceptProposal"));
+  const acceptStart = source.indexOf("async function acceptProposal");
   const acceptBlock = source.slice(acceptStart, source.indexOf("  return (", acceptStart));
   assert.match(acceptBlock, /name: "ApplyAiProposal"/);
   assert.doesNotMatch(acceptBlock, /saveEntities\(/);
   assert.doesNotMatch(acceptBlock, /materializeArtifactProposal/);
+  const rejectStart = source.indexOf("async function rejectProposal");
+  const rejectBlock = source.slice(rejectStart, source.indexOf("async function quarantineProposal", rejectStart));
+  assert.match(rejectBlock, /name: "ApplyAiProposal"/);
+  assert.doesNotMatch(rejectBlock, /saveEntities\(/);
+});
+
+test("typed decisions preserve partial and rejected states with exactly-once receipts", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  const acceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), {
+    materializeArtifactProposal() { throw new Error("unexpected artifact"); },
+    rollbackMaterializedArtifactProposal() {},
+  }, database);
+  try {
+    const partialProposal = database.save("ai_proposal", {
+      id: "proposal-partial-decisions", source: "mcp", source_app: "fixture", payload_type: "knowledge_nodes",
+      payload: { knowledge_nodes: [
+        { action: "create", title: "Accepted", body: "A", node_type: "insight" },
+        { action: "create", title: "Ignored", body: "B", node_type: "insight" },
+      ] },
+      request: { tool: "tasken.propose_knowledge" }, status: "pending", received_at: "2026-08-21T02:00:00.000Z",
+    });
+    const acceptedCandidate = {
+      type: "knowledge_node",
+      entity: { id: stableProposalEntityId(partialProposal.id, "knowledge_node", 0) },
+    };
+    const partialCommand = envelope(partialProposal, [acceptedCandidate], [
+      { entryIndex: 0, type: "knowledge_node", action: "accept" },
+      { entryIndex: 1, type: "knowledge_node", action: "ignore" },
+    ]);
+    partialCommand.payload.proposal.status = "partially_accepted";
+    const partialReceipt = acceptance.execute(partialCommand);
+    assert.equal(database.get("ai_proposal", partialProposal.id).status, "partially_accepted");
+    assert.deepEqual(database.list("knowledge_node").map((entry) => entry.title), ["Accepted"]);
+    const partialEvents = database.list("change_event").length;
+    assert.deepEqual(acceptance.execute(partialCommand).events, partialReceipt.events);
+    assert.equal(database.list("change_event").length, partialEvents);
+
+    const rejectedProposal = database.save("ai_proposal", {
+      id: "proposal-rejected-decisions", source: "mcp", source_app: "fixture", payload_type: "knowledge_nodes",
+      payload: { knowledge_nodes: [{ action: "create", title: "Reject me", body: "", node_type: "insight" }] },
+      request: { tool: "tasken.propose_knowledge" }, status: "pending", received_at: "2026-08-21T02:10:00.000Z",
+    });
+    const rejectCommand = envelope(rejectedProposal, [], [{ entryIndex: 0, type: "knowledge_node", action: "ignore" }]);
+    rejectCommand.payload.decision = "reject";
+    rejectCommand.payload.proposal.status = "rejected";
+    const rejectReceipt = acceptance.execute(rejectCommand);
+    assert.equal(database.get("ai_proposal", rejectedProposal.id).status, "rejected");
+    assert.equal(database.list("knowledge_node").length, 1);
+    const rejectEvents = database.list("change_event").length;
+    assert.deepEqual(acceptance.execute(rejectCommand).events, rejectReceipt.events);
+    assert.equal(database.list("change_event").length, rejectEvents);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("content boundary rejects empty-artifact injection, extra/missing/mixed candidates, and version fallback bypass", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  let materialized = 0;
+  const acceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), {
+    materializeArtifactProposal() { materialized += 1; throw new Error("must not materialize"); },
+    rollbackMaterializedArtifactProposal() {},
+  }, database);
+  try {
+    const emptyArtifact = database.save("ai_proposal", {
+      id: "proposal-empty-artifact", source: "mcp", source_app: "fixture", payload_type: "artifacts",
+      payload: { artifacts: [] }, request: { tool: "tasken.propose_artifact" }, status: "pending", received_at: "2026-08-21T03:00:00.000Z",
+    });
+    const injected = envelope(emptyArtifact, [{ type: "note", entity: { id: "arbitrary-note", title: "Injected" } }], []);
+    assert.throws(() => acceptance.execute(injected), /件数|一致/);
+    assert.equal(database.get("note", "arbitrary-note"), null);
+    assert.equal(materialized, 0);
+
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-candidate-shape", source: "mcp", source_app: "fixture", payload_type: "knowledge_nodes",
+      payload: { knowledge_nodes: [{ action: "create", title: "Only", body: "", node_type: "insight" }] },
+      request: { tool: "tasken.propose_knowledge" }, status: "pending", received_at: "2026-08-21T03:10:00.000Z",
+    });
+    const correct = { type: "knowledge_node", entity: { id: stableProposalEntityId(proposal.id, "knowledge_node", 0) } };
+    const decision = [{ entryIndex: 0, type: "knowledge_node", action: "accept" }];
+    assert.throws(() => acceptance.execute(envelope(proposal, [], decision)), /件数/);
+    assert.throws(() => acceptance.execute(envelope(proposal, [correct, { type: "artifact", entity: { id: "mixed" } }], decision)), /件数/);
+    assert.throws(() => acceptance.execute(envelope(proposal, [{ type: "artifact", entity: { id: correct.entity.id } }], decision)), /type\/id\/index/);
+
+    const bypass = envelope({ ...proposal, version: Number(proposal.version) + 99 }, [{ type: "artifact", entity: { id: "bypass" } }], decision);
+    bypass.expectedVersions = [{ type: "ai_proposal", id: proposal.id, version: proposal.version }];
+    assert.throws(() => acceptance.execute(bypass), /更新済み/);
+    const typeBypass = envelope(proposal, [{ type: "repository_context", entity: { id: "bypass-context" } }], decision);
+    typeBypass.payload.proposal.payload_type = "repository_contexts";
+    assert.throws(() => acceptance.execute(typeBypass), /typeが正本と一致/);
+    assert.equal(database.list("knowledge_node").length, 0);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Note edit verifies target/base version and applies only signed accepted hunks in Main", () => {
+  const directory = root();
+  const managed = path.join(directory, "managed");
+  fs.mkdirSync(managed);
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.setPreference("artifactDirectory", managed);
+  const workspace = new WorkspaceService(database, directory, () => "2026-08-21T04:00:00.000Z");
+  try {
+    const initial = workspace.saveCanonicalNote({
+      entity: { id: "note-hunks", title: "Hunks", body_markdown: "a\nold1\nsame\nold2" },
+      snapshot: { owner: { recordType: "note", entityId: "note-hunks" }, body: "a\nold1\nsame\nold2", expectedRevision: 0 },
+    });
+    const stale = database.save("ai_proposal", {
+      id: "proposal-stale-note", source: "mcp", source_app: "fixture", payload_type: "notes",
+      payload: { notes: [{ action: "merge", target_id: initial.id, base_version: Number(initial.version) - 1, title: "Hunks", body: "a\nnew1\nsame\nnew2" }] },
+      request: { tool: "tasken.propose_note_edit", target: { type: "note", id: initial.id, base_version: Number(initial.version) - 1 } },
+      status: "pending", received_at: "2026-08-21T04:10:00.000Z",
+    });
+    const candidate = { type: "note", entity: { id: initial.id, version: initial.version } };
+    const signedDecision = [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: [1], beforeSignature: markdownSignature(initial.body_markdown) }];
+    const staleCommand = envelope(stale, [candidate], signedDecision);
+    assert.throws(() => new AiProposalAcceptanceService(new ApplicationCommandService(database), workspace, database).execute(staleCommand), /base_version|更新済み/);
+
+    const valid = database.save("ai_proposal", {
+      id: "proposal-partial-note", source: "mcp", source_app: "fixture", payload_type: "notes",
+      payload: { notes: [{ action: "merge", target_id: initial.id, base_version: initial.version, title: "Hunks", body: "a\nnew1\nsame\nnew2" }] },
+      request: { tool: "tasken.propose_note_edit", target: { type: "note", id: initial.id, base_version: initial.version } },
+      status: "pending", received_at: "2026-08-21T04:20:00.000Z",
+    });
+    const validCommand = envelope(valid, [candidate], signedDecision);
+    const acceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), workspace, database);
+    acceptance.execute(validCommand);
+    assert.equal(database.get("note", initial.id).body_markdown, "a\nold1\nsame\nnew2");
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

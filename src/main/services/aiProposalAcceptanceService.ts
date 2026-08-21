@@ -1,7 +1,8 @@
 import type { ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult } from "../../shared/attachments";
 import type { CommandEnvelope, CommandReceipt } from "../../shared/applicationCommand";
 import type { Entity } from "../../shared/types/workspace";
-import { stableProposalEntityId } from "../../shared/proposalAcceptance.mjs";
+import { markdownSignature } from "../../shared/canonicalMarkdown.mjs";
+import { applyProposalMarkdownHunks, markdownProposalHunkCount, stableProposalEntityId } from "../../shared/proposalAcceptance.mjs";
 import { isWebArtifact } from "../../shared/webArtifact.mjs";
 import { validateArtifactProposal, validateSafeSvg } from "../../shared/proposalMedia.mjs";
 
@@ -34,6 +35,14 @@ interface ProposalCandidate {
   entity: Entity & { proposal_materialization?: ArtifactMaterializationReference };
 }
 
+interface ProposalEntryDecision {
+  entryIndex: number;
+  type: "note" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch";
+  action: "accept" | "ignore";
+  acceptedHunks?: number[];
+  beforeSignature?: string;
+}
+
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -52,36 +61,54 @@ function canonicalThemeId(repository: ProposalRepository, entry: Record<string, 
   return theme?.id || null;
 }
 
-function assertCandidateIdentity(candidate: ProposalCandidate | undefined, type: string, id: string): void {
-  if (!candidate || candidate.type !== type || candidate.entity.id !== id) {
-    throw new Error("Proposal候補が正本と一致しません。Previewを開き直してください。");
-  }
-}
-
 function rebuildCanonicalCandidates(
   repository: ProposalRepository,
   proposal: Entity,
   canonicalPayload: Record<string, unknown>,
-  supplied: ProposalCandidate[],
-): ProposalCandidate[] | null {
+  decisions: ProposalEntryDecision[],
+): ProposalCandidate[] {
   const payloadType = text(proposal.payload_type);
-  if (payloadType === "artifacts") return null;
   if (payloadType === "notes") {
     const entries = records(canonicalPayload.notes);
-    if (entries.length !== 1 || supplied.length !== 1) throw new Error("Note Proposal候補が正本と一致しません。Previewを開き直してください。");
+    if (entries.length !== 1) throw new Error("Note Proposal候補が正本と一致しません。Previewを開き直してください。");
     const entry = entries[0];
     const targetId = text(entry.target_id);
     const current = targetId ? repository.get("note", targetId, true) : null;
-    if (targetId && (!current || current.deleted_at)) throw new Error("採用対象のNoteがありません。Previewを開き直してください。");
-    const id = current?.id || stableProposalEntityId(proposal.id, "note", 0);
-    assertCandidateIdentity(supplied[0], "note", id);
+    const decision = decisions[0];
+    if (decision?.action === "accept" && targetId && (!current || current.deleted_at)) {
+      throw new Error("採用対象のNoteがありません。Previewを開き直してください。");
+    }
+    const id = current?.id || targetId || stableProposalEntityId(proposal.id, "note", 0);
+    let body = text(entry.body_markdown) || text(entry.body);
+    if (current && decision?.action === "accept") {
+      const request = proposal.request && typeof proposal.request === "object" && !Array.isArray(proposal.request)
+        ? proposal.request as Record<string, unknown> : {};
+      const target = request.target && typeof request.target === "object" && !Array.isArray(request.target)
+        ? request.target as Record<string, unknown> : {};
+      const baseVersion = Number(entry.base_version);
+      if (target.type !== "note" || target.id !== current.id || Number(target.base_version) !== baseVersion
+        || !Number.isInteger(baseVersion) || baseVersion !== Number(current.version || 0)) {
+        throw new Error("Note Proposalのbase_versionまたはtargetが更新済みです。contextを再取得してください。");
+      }
+      const before = text(current.body_markdown);
+      if (!decision || decision.beforeSignature !== markdownSignature(before)) {
+        throw new Error("Note Proposalの編集元署名が一致しません。Previewを開き直してください。");
+      }
+      const acceptedHunks = decision.acceptedHunks;
+      const hunkCount = markdownProposalHunkCount(before, body);
+      if (!Array.isArray(acceptedHunks) || new Set(acceptedHunks).size !== acceptedHunks.length
+        || acceptedHunks.some((index) => index < 0 || index >= hunkCount)) {
+        throw new Error("Note Proposalの採用hunkが不正です。Previewを開き直してください。");
+      }
+      body = applyProposalMarkdownHunks(before, body, acceptedHunks);
+    }
     return [{
       type: "note",
       entity: {
         ...(current || {}),
         id,
         title: text(entry.title) || text(current?.title) || "無題",
-        body_markdown: text(entry.body_markdown) || text(entry.body),
+        body_markdown: body,
         note_type: text(entry.note_type) || text(current?.note_type) || "memo",
         theme_id: canonicalThemeId(repository, entry, current?.project_id || current?.theme_id),
         source_url: text(entry.source_url) || text(current?.source_url),
@@ -91,16 +118,12 @@ function rebuildCanonicalCandidates(
   if (payloadType === "knowledge_nodes") {
     const nodeEntries = records(canonicalPayload.knowledge_nodes);
     const edgeEntries = records(canonicalPayload.knowledge_edges);
-    if (supplied.length !== nodeEntries.length + edgeEntries.length) {
-      throw new Error("Knowledge Proposal候補が正本と一致しません。Previewを開き直してください。");
-    }
     const result: ProposalCandidate[] = [];
     const tempIds = new Map<string, string>();
     nodeEntries.forEach((entry, index) => {
       const targetId = text(entry.target_id);
       const current = targetId ? repository.get("knowledge_node", targetId, true) : null;
       const id = current?.id || stableProposalEntityId(proposal.id, "knowledge_node", index);
-      assertCandidateIdentity(supplied[index], "knowledge_node", id);
       if (text(entry.temp_id)) tempIds.set(text(entry.temp_id), id);
       result.push({
         type: "knowledge_node",
@@ -124,7 +147,6 @@ function rebuildCanonicalCandidates(
       const targetId = text(entry.target_id);
       const current = targetId ? repository.get("knowledge_edge", targetId, true) : null;
       const id = current?.id || stableProposalEntityId(proposal.id, "knowledge_edge", operationIndex);
-      assertCandidateIdentity(supplied[operationIndex], "knowledge_edge", id);
       result.push({
         type: "knowledge_edge",
         entity: {
@@ -141,10 +163,8 @@ function rebuildCanonicalCandidates(
   }
   if (payloadType === "sketches") {
     const entries = records(canonicalPayload.sketches);
-    if (supplied.length !== entries.length) throw new Error("Sketch Proposal候補が正本と一致しません。Previewを開き直してください。");
     return entries.map((entry, index) => {
       const id = stableProposalEntityId(proposal.id, "sketch", index);
-      assertCandidateIdentity(supplied[index], "sketch", id);
       const svg = validateSafeSvg(entry.svg);
       return {
         type: "sketch",
@@ -178,7 +198,45 @@ function rebuildCanonicalCandidates(
       };
     });
   }
-  return supplied;
+  if (payloadType === "artifacts") {
+    return records(canonicalPayload.artifacts).map((entry, index) => ({
+      type: "artifact",
+      entity: {
+        id: stableProposalEntityId(proposal.id, "artifact", index),
+        proposal_materialization: { entryIndex: index },
+      },
+    }));
+  }
+  throw new Error("このProposal typeはcontent acceptance境界で扱えません。");
+}
+
+function selectedCanonicalCandidates(
+  full: ProposalCandidate[],
+  supplied: ProposalCandidate[],
+  decisions: ProposalEntryDecision[],
+  reject: boolean,
+): ProposalCandidate[] {
+  if (decisions.length !== full.length) throw new Error("Proposal entry decisionが不足しています。Previewを開き直してください。");
+  decisions.forEach((decision, index) => {
+    if (decision.entryIndex !== index || decision.type !== full[index]?.type) {
+      throw new Error("Proposal entry decisionのindex/typeが正本と一致しません。Previewを開き直してください。");
+    }
+  });
+  if (reject) {
+    if (supplied.length || decisions.some((decision) => decision.action !== "ignore")) {
+      throw new Error("Proposal却下には全entryのignore decisionと空の候補だけを指定してください。");
+    }
+    return [];
+  }
+  const selected = full.filter((_, index) => decisions[index].action === "accept");
+  if (selected.length !== supplied.length) throw new Error("Proposal候補の件数がentry decisionと一致しません。");
+  selected.forEach((candidate, index) => {
+    const input = supplied[index];
+    if (!input || input.type !== candidate.type || input.entity.id !== candidate.entity.id) {
+      throw new Error("Proposal候補のtype/id/indexが正本と一致しません。Previewを開き直してください。");
+    }
+  });
+  return selected;
 }
 
 /**
@@ -195,19 +253,45 @@ export class AiProposalAcceptanceService {
 
   execute(input: CommandEnvelope): CommandReceipt {
     if (input.name !== "ApplyAiProposal") return this.commands.execute(input);
-    const payload = input.payload as { proposal?: Entity; candidates?: ProposalCandidate[] };
-    if (!payload.proposal || !Array.isArray(payload.candidates)) return this.commands.execute(input);
+    const payload = input.payload as {
+      proposal?: Entity;
+      decision?: "accept" | "reject";
+      decisions?: ProposalEntryDecision[];
+      candidates?: ProposalCandidate[];
+    };
+    const contentTypes = new Set(["notes", "knowledge_nodes", "sketches", "artifacts"]);
+    const hintedType = text(payload.proposal?.payload_type);
+    const proposalId = text(payload.proposal?.id);
+    const currentProposal = proposalId ? this.repository.get("ai_proposal", proposalId) : null;
+    const currentType = text(currentProposal?.payload_type);
+    if (!contentTypes.has(hintedType) && !contentTypes.has(currentType)) return this.commands.execute(input);
+    if (!payload.proposal || !Array.isArray(payload.candidates) || !Array.isArray(payload.decisions)
+      || (payload.decision !== "accept" && payload.decision !== "reject")) {
+      throw new Error("Content Proposal acceptance payloadが不正です。");
+    }
     const proposalVersion = Number(payload.proposal.version || 0);
     const commandId = `${payload.proposal.id}:accept:v${proposalVersion}`;
-    const existingEvent = this.repository.list("change_event", true).find((event) => event.command_id === commandId && typeof event.receipt_json === "string");
-    if (existingEvent) {
+    const existingEvent = this.repository.list("change_event", true).find((event) => event.command_id === commandId);
+    if (existingEvent && typeof existingEvent.receipt_json === "string") {
       const receipt = JSON.parse(String(existingEvent.receipt_json)) as CommandReceipt;
       Object.defineProperty(receipt, "replayed", { value: true, enumerable: false });
       return receipt;
     }
-    const currentProposal = this.repository.get("ai_proposal", payload.proposal.id);
-    if (!currentProposal || currentProposal.status !== "pending") return this.commands.execute(input);
-    if (Number(currentProposal.version || 0) !== proposalVersion) return this.commands.execute(input);
+    if (!currentProposal) throw new Error("Content Proposalがありません。");
+    if (!contentTypes.has(currentType) || currentType !== hintedType) {
+      throw new Error("Content Proposal typeが正本と一致しません。");
+    }
+    if (currentProposal.status !== "pending") {
+      const marker = existingEvent?.metadata && typeof existingEvent.metadata === "object" && !Array.isArray(existingEvent.metadata)
+        ? (existingEvent.metadata as Record<string, unknown>).note_ai_command_marker : null;
+      if (marker && this.commands.executeCanonicalNoteAiProposal) {
+        return this.commands.executeCanonicalNoteAiProposal(input, () => {
+          throw new Error("durable canonical Note replay must not save again");
+        });
+      }
+      throw new Error("Pending以外のContent Proposalは採用できません。");
+    }
+    if (Number(currentProposal.version || 0) !== proposalVersion) throw new Error("Content Proposalが更新済みです。Previewを開き直してください。");
     const canonicalPayload = currentProposal.payload && typeof currentProposal.payload === "object" && !Array.isArray(currentProposal.payload)
       ? currentProposal.payload as Record<string, unknown>
       : {};
@@ -219,8 +303,18 @@ export class AiProposalAcceptanceService {
     };
     const createdPaths: string[] = [];
     try {
-      const canonicalCandidates = rebuildCanonicalCandidates(this.repository, currentProposal, canonicalPayload, payload.candidates);
-      const candidates = canonicalCandidates || payload.candidates.map((candidate) => {
+      const fullCandidates = rebuildCanonicalCandidates(this.repository, currentProposal, canonicalPayload, payload.decisions);
+      const selectedCandidates = selectedCanonicalCandidates(
+        fullCandidates,
+        payload.candidates,
+        payload.decisions,
+        payload.decision === "reject",
+      );
+      const expectedStatus = payload.decision === "reject" || selectedCandidates.length === 0
+        ? "rejected"
+        : selectedCandidates.length === fullCandidates.length ? "accepted" : "partially_accepted";
+      if (payload.proposal.status !== expectedStatus) throw new Error("Content Proposal statusがentry decisionと一致しません。");
+      const candidates = selectedCandidates.map((candidate) => {
         if (candidate.type !== "artifact") return candidate;
         const request = candidate.entity.proposal_materialization;
         if (!request) throw new Error("Artifact Proposal参照がありません。Previewを開き直してください。");
@@ -228,7 +322,7 @@ export class AiProposalAcceptanceService {
           throw new Error("Artifact Proposal参照が不正です。Previewを開き直してください。");
         }
         const candidateId = stableProposalEntityId(currentProposal.id, "artifact", request.entryIndex);
-        assertCandidateIdentity(candidate, "artifact", candidateId);
+        if (candidate.entity.id !== candidateId) throw new Error("Artifact候補IDが正本と一致しません。");
         const normalized = validateArtifactProposal(artifactEntries[request.entryIndex]);
         const result = this.artifacts.materializeArtifactProposal({
           title: normalized.title,
