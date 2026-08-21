@@ -136,10 +136,12 @@ test("preview candidates commit entities, relation, Activity events and exactly-
     assert.equal(database.get("ai_proposal", proposal.id).status, "accepted");
     assert.equal(counts.events, 4);
     assert.equal(first.events.length, 4);
+    const eventVersionsBeforeReplay = first.events.map((id) => database.get("change_event", id, true).version);
     const retry = acceptance.execute(command);
     assert.equal(retry.status, first.status);
     assert.deepEqual(retry.events, first.events);
     assert.deepEqual(retry.saved, first.saved);
+    assert.deepEqual(first.events.map((id) => database.get("change_event", id, true).version), eventVersionsBeforeReplay);
     assert.deepEqual({
       nodes: database.list("knowledge_node").length,
       edges: database.list("knowledge_edge").length,
@@ -167,6 +169,46 @@ test("preview candidates commit entities, relation, Activity events and exactly-
     reused((changed) => { changed.payload.candidates[0].type = "artifact"; });
 
     const event = database.list("change_event", true).find((entry) => entry.command_id === command.commandId);
+    const originalReceiptJson = event.receipt_json;
+    const originalReceipt = JSON.parse(originalReceiptJson);
+    const nestedReceiptMutations = [
+      (receipt) => { receipt.status = "no_change"; },
+      (receipt) => { receipt.events = receipt.events.slice(1); },
+      (receipt) => { receipt.saved[0].version += 1; },
+      (receipt) => { receipt.revisions[0].version += 1; },
+      (receipt) => { receipt.changes[0].entity.title = "tampered nested entity"; },
+    ];
+    for (const mutate of nestedReceiptMutations) {
+      const tampered = structuredClone(originalReceipt);
+      mutate(tampered);
+      database.save("change_event", { ...database.get("change_event", event.id, true), receipt_json: JSON.stringify(tampered) });
+      assert.throws(() => acceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
+      database.save("change_event", { ...database.get("change_event", event.id, true), receipt_json: originalReceiptJson });
+    }
+
+    const eventWithoutIntegrity = database.get("change_event", event.id, true);
+    const legacyMetadata = { ...eventWithoutIntegrity.metadata };
+    delete legacyMetadata.content_proposal_receipt_integrity;
+    database.save("change_event", { ...eventWithoutIntegrity, metadata: legacyMetadata });
+    const restartedAcceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), {
+      materializeArtifactProposal() { throw new Error("unexpected artifact"); },
+      rollbackMaterializedArtifactProposal() {},
+    }, database);
+    assert.deepEqual(restartedAcceptance.execute(command).events, first.events);
+    const legacyTamperedEvent = database.get("change_event", event.id, true);
+    const legacyTamperedMetadata = { ...legacyTamperedEvent.metadata };
+    delete legacyTamperedMetadata.content_proposal_receipt_integrity;
+    const legacyTamperedReceipt = structuredClone(originalReceipt);
+    legacyTamperedReceipt.changes[0].entity.title = "legacy tampered nested entity";
+    database.save("change_event", {
+      ...legacyTamperedEvent,
+      metadata: legacyTamperedMetadata,
+      receipt_json: JSON.stringify(legacyTamperedReceipt),
+    });
+    assert.throws(() => restartedAcceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
+    database.save("change_event", { ...database.get("change_event", event.id, true), receipt_json: originalReceiptJson });
+    restartedAcceptance.execute(command);
+
     database.save("change_event", { ...event, command_name: "UpdateTask" });
     assert.throws(() => acceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
     let restoredEvent = database.save("change_event", { ...database.get("change_event", event.id, true), command_name: event.command_name });

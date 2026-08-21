@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult } from "../../shared/attachments";
 import { ApplicationCommandError, parseCommandEnvelope, type CommandEnvelope, type CommandReceipt } from "../../shared/applicationCommand";
 import type { Entity } from "../../shared/types/workspace";
@@ -24,6 +25,75 @@ interface ArtifactMaterializer {
 interface ProposalRepository {
   get(type: string, id: string, includeDeleted?: boolean): Entity | null;
   list(type: string, includeDeleted?: boolean): Entity[];
+  save(type: string, entity: Entity): Entity;
+}
+
+const RECEIPT_INTEGRITY_SCHEMA = "tasken-content-proposal-receipt/v1";
+const RECEIPT_INTEGRITY_KEY = "content_proposal_receipt_integrity";
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function receiptDigest(serialized: string): string {
+  return `sha256:${createHash("sha256").update(serialized, "utf8").digest("hex")}`;
+}
+
+function receiptConflict(commandId: string): never {
+  throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態がContent Proposal commandと一致しません。", {
+    commandId,
+    conflictReason: "command_fingerprint_mismatch",
+  });
+}
+
+function validateLegacyReceipt(
+  repository: ProposalRepository,
+  command: CommandEnvelope,
+  receipt: CommandReceipt,
+  payload: { proposal?: Entity; candidates?: ProposalCandidate[] },
+): void {
+  const allowedKeys = ["changes", "commandId", "deleted", "events", "name", "revisions", "saved", "status", "warnings"];
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)
+    || canonicalJson(Object.keys(receipt).sort()) !== canonicalJson(allowedKeys)
+    || receipt.commandId !== command.commandId || receipt.name !== command.name || receipt.status !== "applied"
+    || !Array.isArray(receipt.events) || !Array.isArray(receipt.changes) || !Array.isArray(receipt.saved)
+    || !Array.isArray(receipt.revisions) || !Array.isArray(receipt.deleted) || !Array.isArray(receipt.warnings)
+    || receipt.deleted.length !== 0 || receipt.warnings.length !== 0
+    || new Set(receipt.events).size !== receipt.events.length) receiptConflict(command.commandId);
+
+  const commandEvents = repository.list("change_event", true)
+    .filter((event) => event.command_id === command.commandId);
+  const commandEventIds = new Set(commandEvents.map((event) => event.id));
+  if (commandEventIds.size !== receipt.events.length || receipt.events.some((id) => typeof id !== "string" || !commandEventIds.has(id))) {
+    receiptConflict(command.commandId);
+  }
+  const events = receipt.events.map((id) => repository.get("change_event", id, true));
+  if (events.some((event) => !event || event.command_name !== command.name || event.command_fingerprint !== commandFingerprint(command))) {
+    receiptConflict(command.commandId);
+  }
+  let expectedChanges: CommandReceipt["changes"];
+  try {
+    expectedChanges = events.map((event) => ({
+      type: String(event!.record_type) as CommandReceipt["changes"][number]["type"],
+      entity: JSON.parse(String(event!.after_json)) as Entity,
+    }));
+  } catch {
+    receiptConflict(command.commandId);
+  }
+  const expectedRefs = [
+    ...(payload.candidates || []).map((candidate) => ({ type: candidate.type, id: candidate.entity.id })),
+    { type: "ai_proposal", id: String(payload.proposal?.id || "") },
+  ];
+  if (canonicalJson(expectedChanges.map(({ type, entity }) => ({ type, id: entity.id }))) !== canonicalJson(expectedRefs)
+    || canonicalJson(receipt.changes) !== canonicalJson(expectedChanges)) receiptConflict(command.commandId);
+  const expectedSaved = expectedChanges.map(({ type, entity }) => ({ type, id: entity.id, version: Number(entity.version || 0) }));
+  if (canonicalJson(receipt.saved) !== canonicalJson(expectedSaved)
+    || canonicalJson(receipt.revisions) !== canonicalJson(expectedSaved)) receiptConflict(command.commandId);
 }
 
 interface ArtifactMaterializationReference {
@@ -252,6 +322,27 @@ export class AiProposalAcceptanceService {
     private readonly repository: ProposalRepository,
   ) {}
 
+  private sealReceipt(receipt: CommandReceipt): CommandReceipt {
+    for (const eventId of receipt.events) {
+      const event = this.repository.get("change_event", eventId, true);
+      if (!event || typeof event.receipt_json !== "string") receiptConflict(receipt.commandId);
+      const metadata = event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+        ? event.metadata as Record<string, unknown>
+        : {};
+      this.repository.save("change_event", {
+        ...event,
+        metadata: {
+          ...metadata,
+          [RECEIPT_INTEGRITY_KEY]: {
+            schema: RECEIPT_INTEGRITY_SCHEMA,
+            digest: receiptDigest(event.receipt_json),
+          },
+        },
+      });
+    }
+    return receipt;
+  }
+
   execute(input: CommandEnvelope): CommandReceipt {
     if (input.name !== "ApplyAiProposal") return this.commands.execute(input);
     const parsedInput = parseCommandEnvelope(input);
@@ -290,9 +381,10 @@ export class AiProposalAcceptanceService {
           conflictReason: "command_fingerprint_mismatch",
         });
       }
+      const serializedReceipt = String(existingEvent.receipt_json);
       let receipt: CommandReceipt;
       try {
-        receipt = JSON.parse(String(existingEvent.receipt_json)) as CommandReceipt;
+        receipt = JSON.parse(serializedReceipt) as CommandReceipt;
       } catch {
         throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態を復元できません。", {
           commandId,
@@ -305,6 +397,19 @@ export class AiProposalAcceptanceService {
           conflictReason: "command_fingerprint_mismatch",
         });
       }
+      const metadata = existingEvent.metadata && typeof existingEvent.metadata === "object" && !Array.isArray(existingEvent.metadata)
+        ? existingEvent.metadata as Record<string, unknown>
+        : {};
+      if (Object.prototype.hasOwnProperty.call(metadata, RECEIPT_INTEGRITY_KEY)) {
+        const integrity = metadata[RECEIPT_INTEGRITY_KEY];
+        if (!integrity || typeof integrity !== "object" || Array.isArray(integrity)
+          || canonicalJson(Object.keys(integrity as Record<string, unknown>).sort()) !== canonicalJson(["digest", "schema"])
+          || (integrity as Record<string, unknown>).schema !== RECEIPT_INTEGRITY_SCHEMA
+          || (integrity as Record<string, unknown>).digest !== receiptDigest(serializedReceipt)) receiptConflict(commandId);
+      } else {
+        validateLegacyReceipt(this.repository, command, receipt, payload);
+        this.sealReceipt(receipt);
+      }
       Object.defineProperty(receipt, "replayed", { value: true, enumerable: false });
       return receipt;
     }
@@ -315,9 +420,9 @@ export class AiProposalAcceptanceService {
       const marker = existingEvent?.metadata && typeof existingEvent.metadata === "object" && !Array.isArray(existingEvent.metadata)
         ? (existingEvent.metadata as Record<string, unknown>).note_ai_command_marker : null;
       if (marker && this.commands.executeCanonicalNoteAiProposal) {
-        return this.commands.executeCanonicalNoteAiProposal(input, () => {
+        return this.sealReceipt(this.commands.executeCanonicalNoteAiProposal(command, () => {
           throw new Error("durable canonical Note replay must not save again");
-        });
+        }));
       }
       throw new Error("Pending以外のContent Proposalは採用できません。");
     }

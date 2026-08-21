@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
@@ -347,11 +347,19 @@ function eventChangesFor(repository: Repository, eventIds: string[]): CommandRec
     .map((event) => ({ type: "change_event" as const, entity: withoutReceiptJson(event) }));
 }
 
+const contentProposalPayloadTypes = new Set(["notes", "knowledge_nodes", "sketches", "artifacts"]);
+
+function isContentProposalDecision(command: CommandEnvelope): boolean {
+  const payload = command.payload as ApplyAiProposalCommandPayload;
+  return command.name === "ApplyAiProposal" && Array.isArray(payload.decisions)
+    && contentProposalPayloadTypes.has(String(payload.proposal?.payload_type || ""));
+}
+
 function fingerprintPayload(command: CommandEnvelope): unknown {
-  if (command.name !== "ApplyAiProposal" || !Array.isArray((command.payload as ApplyAiProposalCommandPayload).decisions)) {
+  const payload = command.payload as ApplyAiProposalCommandPayload;
+  if (!isContentProposalDecision(command)) {
     return command.payload;
   }
-  const payload = command.payload as ApplyAiProposalCommandPayload;
   return {
     proposal: {
       id: payload.proposal.id,
@@ -375,6 +383,20 @@ export function commandFingerprint(command: CommandEnvelope): string {
     expectedVersions: command.expectedVersions || [],
     issuedAt: command.issuedAt,
   });
+}
+
+function receiptMetadata(command: CommandEnvelope, event: Entity, serializedReceipt: string): Entity["metadata"] {
+  if (!isContentProposalDecision(command)) return event.metadata;
+  const metadata = event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+    ? event.metadata as Record<string, unknown>
+    : {};
+  return {
+    ...metadata,
+    content_proposal_receipt_integrity: {
+      schema: "tasken-content-proposal-receipt/v1",
+      digest: `sha256:${createHash("sha256").update(serializedReceipt, "utf8").digest("hex")}`,
+    },
+  };
 }
 
 const NOTE_AI_COMMAND_MARKER_SCHEMA = "tasken-note-ai-command-marker/v1";
@@ -483,6 +505,7 @@ function persistReceipt(repository: Repository, command: CommandEnvelope, operat
     .map((entity, index) => ({ type: operations[index].type, entity }))
     .filter(({ type }) => changeTypes.includes(type));
   const baseReceipt = receiptFor(command, "applied", changes, eventIds);
+  const serializedReceipt = JSON.stringify(baseReceipt);
   for (const eventId of eventIds) {
     const event = repository.get("change_event", eventId, true);
     if (!event) throw new Error(`Change Eventが保存されていません: ${eventId}`);
@@ -492,7 +515,8 @@ function persistReceipt(repository: Repository, command: CommandEnvelope, operat
     repository.save("change_event", {
       ...event,
       after_json: actualAfter ? JSON.stringify(actualAfter) : event.after_json,
-      receipt_json: JSON.stringify(baseReceipt),
+      metadata: receiptMetadata(command, event, serializedReceipt),
+      receipt_json: serializedReceipt,
     });
   }
   return { ...baseReceipt, eventChanges: eventChangesFor(repository, eventIds) };
@@ -669,10 +693,16 @@ export class ApplicationCommandService {
     const changes = [{ type: "note" as const, entity: savedNote }, { type: "ai_proposal" as const, entity: savedProposal }];
     const eventIds = [noteEvent.id];
     const baseReceipt = receiptFor(command, "applied", changes, eventIds);
+    const serializedReceipt = JSON.stringify(baseReceipt);
     for (const eventId of eventIds) {
       const event = this.repository.get("change_event", eventId, true);
       if (!event) throw new Error(`Change Eventが保存されていません: ${eventId}`);
-      this.repository.save("change_event", { ...event, after_json: JSON.stringify(savedNote), receipt_json: JSON.stringify(baseReceipt) });
+      this.repository.save("change_event", {
+        ...event,
+        after_json: JSON.stringify(savedNote),
+        metadata: receiptMetadata(command, event, serializedReceipt),
+        receipt_json: serializedReceipt,
+      });
     }
     return { ...baseReceipt, eventChanges: eventChangesFor(this.repository, eventIds) };
   }
