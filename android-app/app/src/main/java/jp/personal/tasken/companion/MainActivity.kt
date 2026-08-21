@@ -101,6 +101,7 @@ private fun TaskenTheme(content: @Composable () -> Unit) {
 private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
     val uiState by todayViewModel.uiState.collectAsState()
     val captureState by todayViewModel.captureState.collectAsState()
+    val taskActionState by todayViewModel.taskActionState.collectAsState()
     val pendingCount by todayViewModel.pendingCount.collectAsState()
     val paneState = rememberTodayPaneState()
     val adaptiveInfo = currentWindowAdaptiveInfo()
@@ -117,6 +118,18 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
             paneState.captureOpen = false
             snackbarHostState.showSnackbar("Taskを追加しました。Desktopへ自動送信します。")
             todayViewModel.resetCaptureState()
+        }
+    }
+    LaunchedEffect(taskActionState) {
+        when (taskActionState) {
+            is TaskActionUiState.Queued -> {
+                snackbarHostState.showSnackbar("Taskの状態を更新しました。Desktopへ自動送信します。")
+                todayViewModel.resetTaskActionState()
+            }
+            is TaskActionUiState.Error -> {
+                snackbarHostState.showSnackbar((taskActionState as TaskActionUiState.Error).message)
+            }
+            TaskActionUiState.Idle, is TaskActionUiState.Saving -> Unit
         }
     }
 
@@ -171,7 +184,11 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
                     val task = (uiState as? TodayUiState.Success)
                         ?.tasks
                         ?.firstOrNull { it.id == paneState.selectedTaskId }
-                    TodayDetailPane(task)
+                    TodayDetailPane(
+                        task = task,
+                        actionState = taskActionState,
+                        onStateAction = todayViewModel::toggleTaskState,
+                    )
                 }
             },
             modifier = Modifier.padding(padding),
@@ -370,7 +387,11 @@ private fun TodayTaskList(
 }
 
 @Composable
-private fun TodayDetailPane(task: MobileTask?) {
+internal fun TodayDetailPane(
+    task: MobileTask?,
+    actionState: TaskActionUiState,
+    onStateAction: (MobileTask) -> Unit,
+) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
         return
@@ -382,6 +403,19 @@ private fun TodayDetailPane(task: MobileTask?) {
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  $it") }
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(
+                onClick = { onStateAction(task) },
+                enabled = !task.pending && actionState !is TaskActionUiState.Saving,
+            ) {
+                Text(
+                    when {
+                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
+                        task.pending -> "同期後に操作"
+                        task.state == "done" -> "再開する"
+                        else -> "完了する"
+                    },
+                )
+            }
         }
     }
 }

@@ -56,6 +56,13 @@ sealed interface CaptureUiState {
     data class Error(val message: String) : CaptureUiState
 }
 
+sealed interface TaskActionUiState {
+    data object Idle : TaskActionUiState
+    data class Saving(val taskId: String) : TaskActionUiState
+    data class Queued(val taskId: String) : TaskActionUiState
+    data class Error(val taskId: String, val message: String) : TaskActionUiState
+}
+
 class TodayViewModel(
     private val repository: MobileTaskRepository = DisconnectedMobileTaskRepository(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -64,6 +71,8 @@ class TodayViewModel(
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
     private val mutableCaptureState = MutableStateFlow<CaptureUiState>(CaptureUiState.Idle)
     val captureState: StateFlow<CaptureUiState> = mutableCaptureState.asStateFlow()
+    private val mutableTaskActionState = MutableStateFlow<TaskActionUiState>(TaskActionUiState.Idle)
+    val taskActionState: StateFlow<TaskActionUiState> = mutableTaskActionState.asStateFlow()
     private val mutablePendingCount = MutableStateFlow(0)
     val pendingCount: StateFlow<Int> = mutablePendingCount.asStateFlow()
     private var observingCache = false
@@ -147,6 +156,42 @@ class TodayViewModel(
         } catch (_: Exception) {
             CaptureUiState.Error("Taskを保存できませんでした。入力を残したまま再試行してください。")
         }
+    }
+
+    fun toggleTaskState(task: MobileTask) {
+        viewModelScope.launch { toggleTaskStateNow(task) }
+    }
+
+    internal suspend fun toggleTaskStateNow(task: MobileTask) {
+        if (task.pending) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                "このTaskの同期完了を待って再試行してください。",
+            )
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskの状態を変更できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            val commandId = withContext(ioDispatcher) {
+                if (task.state == "done") {
+                    offlineRepository.enqueueReopenTask(task.id)
+                } else {
+                    offlineRepository.enqueueCompleteTask(task.id)
+                }
+            }
+            TaskActionUiState.Queued(commandId)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Taskの状態を変更できませんでした。")
+        }
+    }
+
+    fun resetTaskActionState() {
+        mutableTaskActionState.value = TaskActionUiState.Idle
     }
 
     fun resetCaptureState() {
