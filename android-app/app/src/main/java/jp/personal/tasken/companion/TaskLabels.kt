@@ -21,3 +21,9 @@ private val taskWorkStateLabels = mapOf(
 fun taskStateLabel(state: String): String = taskStateLabels[state] ?: state
 
 fun taskWorkStateLabel(state: String): String = taskWorkStateLabels[state] ?: state
+
+fun taskTodayDateLabel(value: String?, today: String = java.time.LocalDate.now().toString()): String = when (value) {
+    null -> "未設定"
+    today -> "今日"
+    else -> value
+}

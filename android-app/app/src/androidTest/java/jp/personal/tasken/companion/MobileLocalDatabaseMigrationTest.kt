@@ -141,6 +141,33 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationFiveToSixPreservesConflictAndAddsTodayDateIntent() {
+        helper.createDatabase(DatabaseName, 5).apply {
+            execSQL(
+                "INSERT INTO task_conflict " +
+                    "(commandId, taskId, intendedAction, expectedVersion, serverVersion, serverState, " +
+                    "serverTitle, localTitle, serverThemeId, serverWorkState, serverUpdatedAt, detectedAt) " +
+                    "VALUES ('command-5', 'task-5', 'UpdateTask', 1, 2, 'todo', 'Server Task', " +
+                    "'端末Task', NULL, NULL, '2026-08-22T01:00:00Z', '2026-08-22T01:01:00Z')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 6, true, MIGRATION_5_6).use { db ->
+            db.query(
+                "SELECT localTitle, serverTodayDate, localTodayDate, localTodayDateChanged " +
+                    "FROM task_conflict WHERE commandId = 'command-5'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("端末Task", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+                assertTrue(cursor.isNull(2))
+                assertEquals(0, cursor.getInt(3))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }

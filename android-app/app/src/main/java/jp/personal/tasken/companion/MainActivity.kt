@@ -3,6 +3,7 @@ package jp.personal.tasken.companion
 import android.content.res.Configuration
 import android.content.Intent
 import android.os.Bundle
+import java.time.LocalDate
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
@@ -314,6 +315,7 @@ private fun TodayApp(
                         actionState = taskActionState,
                         onStateAction = todayViewModel::toggleTaskState,
                         onTitleUpdate = todayViewModel::updateTaskTitle,
+                        onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                         onConflictResolution = todayViewModel::resolveConflict,
                     )
                 }
@@ -600,6 +602,7 @@ internal fun TodayDetailPane(
     actionState: TaskActionUiState,
     onStateAction: (MobileTask) -> Unit,
     onTitleUpdate: (MobileTask, String) -> Unit = { _, _ -> },
+    onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
@@ -643,8 +646,13 @@ internal fun TodayDetailPane(
                     ) {
                         Text("同期できなかった変更", fontWeight = FontWeight.Bold)
                         if (conflict.intendedAction == "UpdateTask") {
-                            Text("Desktop  ${task.title}")
-                            Text("この端末  ${conflict.localTitle}")
+                            if (conflict.localTodayDateChanged) {
+                                Text("Desktop  日付 ${taskTodayDateLabel(conflict.serverTodayDate)}")
+                                Text("この端末  日付 ${taskTodayDateLabel(conflict.localTodayDate)}")
+                            } else {
+                                Text("Desktop  ${task.title}")
+                                Text("この端末  ${conflict.localTitle}")
+                            }
                         } else {
                             Text("Desktop  ${taskStateLabel(conflict.serverState)}  v${conflict.serverVersion}")
                             Text(
@@ -667,6 +675,16 @@ internal fun TodayDetailPane(
             }
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
+            val today = LocalDate.now()
+            Text("日付  ${taskTodayDateLabel(task.todayDate, today.toString())}")
+            Button(
+                onClick = {
+                    onTodayDateUpdate(task, if (task.todayDate == today.toString()) null else today)
+                },
+                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+            ) {
+                Text(if (task.todayDate == today.toString()) "今日から外す" else "今日に入れる")
+            }
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = { onStateAction(task) },

@@ -75,6 +75,9 @@ data class TaskConflictEntity(
     val serverState: String,
     val serverTitle: String,
     val localTitle: String? = null,
+    val serverTodayDate: String? = null,
+    val localTodayDate: String? = null,
+    val localTodayDateChanged: Boolean = false,
     val serverThemeId: String?,
     val serverWorkState: String?,
     val serverUpdatedAt: String,
@@ -368,7 +371,7 @@ abstract class MobileLocalDao {
 
 @Database(
     entities = [TaskCacheEntity::class, OutboxCommandEntity::class, SyncStateEntity::class, TaskConflictEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -382,7 +385,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 context.applicationContext,
                 MobileLocalDatabase::class.java,
                 "tasken-mobile-cache.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
         }
     }
 }
@@ -419,12 +422,21 @@ internal val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+internal val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN serverTodayDate TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localTodayDate TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localTodayDateChanged INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     id = id,
     title = title,
     themeId = themeId,
     state = state,
     workState = workState,
+    todayDate = todayDate,
     updatedAt = updatedAt,
     pending = optimisticCommandId != null,
 )
@@ -438,6 +450,9 @@ fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
             serverVersion = it.serverVersion,
             serverState = it.serverState,
             localTitle = it.localTitle,
+            serverTodayDate = it.serverTodayDate,
+            localTodayDate = it.localTodayDate,
+            localTodayDateChanged = it.localTodayDateChanged,
             detectedAt = it.detectedAt,
         )
     },
