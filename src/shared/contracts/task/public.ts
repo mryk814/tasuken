@@ -233,3 +233,12 @@ export {
   type GetActivityRequest, type GetActivityResponse,
   type GetContextSubgraphRequest, type GetContextSubgraphResponse,
 } from "./agentContextQueries.ts";
+export {
+  proposeTaskWorkRequestSchema,
+  proposeTaskWorkResponseSchema,
+  taskWorkExternalReferenceSchema,
+  taskWorkProposalActorSchema,
+  taskWorkRepositoryContextSchema,
+  type ProposeTaskWorkRequest,
+  type ProposeTaskWorkResponse,
+} from "./taskWorkProposal.ts";

@@ -388,32 +388,13 @@ export function createTaskenMcpServer(options = {}) {
     repository_context: taskWorkRepositoryContextSchema,
     source_app: z.string().trim().min(1).max(120).optional(),
   };
-  const queueTaskWork = (args, action, extra = {}) => toolResult(queueMcpProposal({
-    payloadType: "task_work",
-    sourceApp: sourceApp(args),
-    idempotencyKey: args.idempotency_key,
-    payload: { task_work: [{
-      action,
-      task_id: args.task_id,
-      expected_version: args.expected_version,
-      caller: args.caller,
-      source_session: args.source_session || null,
-      repository_context: args.repository_context || null,
-      ...extra,
-    }] },
-    request: {
-      tool: {
-      start: "tasken.start_task_work",
-      append_receipt: "tasken.append_work_receipt",
-      report_done: "tasken.report_task_done",
-      report_blocked: "tasken.report_task_blocked",
-      }[action] || `tasken.${action}`,
-      expected_version: args.expected_version,
-      idempotency_key: args.idempotency_key,
-      caller: args.caller,
-      source_session: args.source_session || null,
-    },
-  }));
+  const queueTaskWork = (args, action) => coreClient.proposeTaskWork({
+    ...args,
+    action,
+    actor: { kind: "ai_agent" },
+    source: "mcp",
+    source_app: sourceApp(args),
+  });
 
   server.registerTool("tasken.start_task_work", {
     description: "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",
@@ -424,11 +405,7 @@ export function createTaskenMcpServer(options = {}) {
       started_at: optionalTimestamp,
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => queueTaskWork(args, "start", {
-    executor_kind: args.executor_kind || "ai_agent",
-    executor_identity: args.executor_identity || null,
-    started_at: args.started_at || null,
-  }));
+  }, withCoreClient((args) => queueTaskWork(args, "start")));
 
   const receiptProposalSchema = {
     ...taskWorkBase,
@@ -444,31 +421,17 @@ export function createTaskenMcpServer(options = {}) {
     provider: z.string().trim().max(120).optional(),
     model: z.string().trim().max(200).optional(),
   };
-  const receiptProposalFields = (args) => ({
-    executor_kind: args.executor_kind,
-    executor_label: args.executor_label,
-    summary: args.summary,
-    completed_items: args.completed_items || [],
-    changed_or_created_items: args.changed_or_created_items || [],
-    verification: args.verification || [],
-    remaining_work: args.remaining_work || [],
-    external_references: args.external_references || [],
-    reported_at: args.reported_at || null,
-    repository_context: args.repository_context || null,
-    runtime_metadata: args.provider || args.model ? { provider: args.provider || null, model: args.model || null } : null,
-  });
-
   server.registerTool("tasken.append_work_receipt", {
     description: "Queue an append-only Work Receipt proposal. It enters Tasken review and does not complete the Task.",
     inputSchema: receiptProposalSchema,
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => queueTaskWork(args, "append_receipt", receiptProposalFields(args)));
+  }, withCoreClient((args) => queueTaskWork(args, "append_receipt")));
 
   server.registerTool("tasken.report_task_done", {
     description: "Queue an AI work report as a proposal. The report is not Task completion and requires human review.",
     inputSchema: receiptProposalSchema,
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => queueTaskWork(args, "report_done", receiptProposalFields(args)));
+  }, withCoreClient((args) => queueTaskWork(args, "report_done")));
 
   server.registerTool("tasken.report_task_blocked", {
     description: "Queue an append-only blocker report. The Task changes only after human review; the original Task body is never overwritten.",
@@ -486,23 +449,7 @@ export function createTaskenMcpServer(options = {}) {
       model: z.string().trim().max(200).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => queueTaskWork(args, "report_blocked", {
-    executor_kind: args.executor_kind || "ai_agent",
-    executor_label: args.executor_label,
-    summary: args.blocker,
-    completed_items: args.attempted_work || [],
-    changed_or_created_items: args.retained_artifacts || [],
-    verification: [],
-    remaining_work: args.needed_input || [],
-    external_references: args.external_references || [],
-    reported_at: args.reported_at || null,
-    repository_context: args.repository_context || null,
-    runtime_metadata: {
-      ...(args.provider ? { provider: args.provider } : {}),
-      ...(args.model ? { model: args.model } : {}),
-      report_kind: "blocked",
-    },
-  }));
+  }, withCoreClient((args) => queueTaskWork(args, "report_blocked")));
 
   server.registerTool("tasken.propose_repository_context", {
     description: "Queue a RepositoryContext proposal for user review. This never writes a context directly and never stores credentials.",

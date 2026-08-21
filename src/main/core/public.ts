@@ -9,6 +9,7 @@ export { ThemeContextQueryService } from "./services/themeContextQueryService.ts
 export { KnowledgeQueryService } from "./services/knowledgeQueryService.ts";
 export { AgentContextQueryService } from "./services/agentContextQueryService.ts";
 export { AgentContextExportService } from "./services/agentContextExportService.ts";
+export { ProposeTaskWorkError, ProposeTaskWorkService } from "./services/proposeTaskWorkService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
@@ -36,3 +37,8 @@ export type {
   KnowledgeReadRecord,
 } from "./ports/knowledgeReadPort.ts";
 export type { AgentContextReadPort, AgentContextRecord, AgentContextSnapshot, AgentContextWorkspace } from "./ports/agentContextReadPort.ts";
+export type {
+  TaskWorkProposalRecord,
+  TaskWorkProposalTransaction,
+  TaskWorkProposalWritePort,
+} from "./ports/taskWorkProposalWritePort.ts";

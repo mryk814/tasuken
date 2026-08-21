@@ -25,6 +25,7 @@ export const TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY = "get_knowledge_health
 export const TASKEN_CORE_GET_ACTIVITY_CAPABILITY = "get_activity";
 export const TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY = "get_context_subgraph";
 export const TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY = "export_ai_context";
+export const TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY = "propose_task_work";
 // These identify the shared Task capability contract, not loopback endpoints.
 export const TASKEN_CORE_TASK_QUERY_CAPABILITY = "task.query";
 export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";

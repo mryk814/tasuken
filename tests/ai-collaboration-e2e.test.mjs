@@ -8,7 +8,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { build } from "esbuild";
 
-import { McpProposalInboxService } from "../src/main/mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 async function importBundled(relativePath) {
@@ -171,10 +170,11 @@ async function callTaskWork(client, toolName, args) {
   return result.structuredContent;
 }
 
-function drainOne(database, root) {
-  const imported = new McpProposalInboxService(database, root).drain();
-  assert.equal(imported.length, 1);
-  return imported[0];
+function canonicalProposal(database, proposalId, root) {
+  assert.equal(fs.existsSync(path.join(root, "mcp-inbox")), false);
+  const proposal = database.get("ai_proposal", proposalId);
+  assert.ok(proposal);
+  return proposal;
 }
 
 function proposalDecisionCommand(database, proposal, decision, commandId = `${proposal.id}:${decision}`) {
@@ -344,7 +344,7 @@ async function runProviderScenario(provider) {
     const duplicateStart = await callTaskWork(client, "tasken.start_task_work", startArguments);
     assert.equal(queuedStart.status, "queued");
     assert.equal(duplicateStart.status, "duplicate");
-    const startProposal = drainOne(fixture.database, fixture.root);
+    const startProposal = canonicalProposal(fixture.database, queuedStart.proposal_id, fixture.root);
     decideProposal(fixture.service, fixture.database, startProposal, "accept");
     assert.equal(fixture.database.get("task", TASK_ID).work_state, "in_progress");
     assert.equal(fixture.database.get("task", TASK_ID).description, "The Task body must survive every AI proposal unchanged.");
@@ -354,8 +354,8 @@ async function runProviderScenario(provider) {
     );
 
     const proposalCountAfterStart = fixture.database.list("ai_proposal").length;
-    assert.equal((await callTaskWork(client, "tasken.start_task_work", startArguments)).status, "queued");
-    assert.equal(new McpProposalInboxService(fixture.database, fixture.root).drain().length, 0);
+    assert.equal((await callTaskWork(client, "tasken.start_task_work", startArguments)).status, "duplicate");
+    assert.equal(fs.existsSync(path.join(fixture.root, "mcp-inbox")), false);
     assert.equal(fixture.database.list("ai_proposal").length, proposalCountAfterStart);
 
     const progressArguments = receiptArguments(
@@ -364,8 +364,8 @@ async function runProviderScenario(provider) {
       "fixture-progress-1",
       "Interim receipt remains in progress.",
     );
-    await callTaskWork(client, "tasken.append_work_receipt", progressArguments);
-    let progressProposal = drainOne(fixture.database, fixture.root);
+    const queuedProgress = await callTaskWork(client, "tasken.append_work_receipt", progressArguments);
+    let progressProposal = canonicalProposal(fixture.database, queuedProgress.proposal_id, fixture.root);
     progressProposal = fixture.database.save("ai_proposal", {
       ...progressProposal,
       payload: {
@@ -390,8 +390,8 @@ async function runProviderScenario(provider) {
       "fixture-done-rejected",
       "This report is rejected by the human reviewer.",
     );
-    await callTaskWork(client, "tasken.report_task_done", rejectedDoneArguments);
-    const rejectedProposal = drainOne(fixture.database, fixture.root);
+    const queuedRejected = await callTaskWork(client, "tasken.report_task_done", rejectedDoneArguments);
+    const rejectedProposal = canonicalProposal(fixture.database, queuedRejected.proposal_id, fixture.root);
     const beforeRejectTask = fixture.database.get("task", TASK_ID);
     decideProposal(fixture.service, fixture.database, rejectedProposal, "reject");
     assert.equal(fixture.database.get("ai_proposal", rejectedProposal.id).status, "rejected");
@@ -404,8 +404,8 @@ async function runProviderScenario(provider) {
       "fixture-done-accepted",
       "Implementation is ready for human review.",
     );
-    await callTaskWork(client, "tasken.report_task_done", doneArguments);
-    const doneProposal = drainOne(fixture.database, fixture.root);
+    const queuedDone = await callTaskWork(client, "tasken.report_task_done", doneArguments);
+    const doneProposal = canonicalProposal(fixture.database, queuedDone.proposal_id, fixture.root);
 
     const beforeRollback = durableSnapshot(fixture.database);
     const restoreTransactions = injectProposalDecisionFailure(fixture.database);
