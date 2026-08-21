@@ -48,7 +48,7 @@ class MobileOutboxDatabaseTest {
         val taskId = outbox.enqueueCreate("  外出先で記録  ", LocalDate.parse("2026-08-22"))
         val task = requireNotNull(dao.task(taskId))
         val command = requireNotNull(dao.outbox(requireNotNull(task.optimisticCommandId)))
-        val envelope = MobileCreateTaskContract.decodeEnvelope(command.envelopeJson)
+        val envelope = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson)
 
         assertEquals("外出先で記録", task.title)
         assertEquals("2026-08-22", task.todayDate)
@@ -85,7 +85,7 @@ class MobileOutboxDatabaseTest {
         assertNull(dao.task(taskId)?.optimisticCommandId)
         assertEquals(0, dao.outboxCount())
 
-        dao.applyCreateReceipt(
+        dao.applyCommandReceipt(
             commandId,
             canonicalTask(response),
             syncState(response),
@@ -94,7 +94,49 @@ class MobileOutboxDatabaseTest {
         assertEquals(0, dao.outboxCount())
     }
 
-    private fun receipt(commandId: String, taskId: String) = MobileCreateTaskResponseDto(
+    @Test
+    fun completeAndReopenUseCachedVersionAndConvergeReceipts() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000010"
+        dao.upsertTask(
+            TaskCacheEntity(
+                id = taskId,
+                serverVersion = 7,
+                title = "状態を変える",
+                themeId = null,
+                state = "todo",
+                workState = null,
+                todayDate = "2026-08-22",
+                updatedAt = "2026-08-22T01:00:00Z",
+                optimisticCommandId = null,
+            ),
+        )
+
+        val completeId = outbox.enqueueComplete(taskId)
+        val completeEnvelope = MobileTaskCommandContract.decodeStateEnvelope(
+            requireNotNull(dao.outbox(completeId)).envelopeJson,
+        )
+        assertEquals("CompleteTask", completeEnvelope.command.name)
+        assertEquals(7, completeEnvelope.command.expectedVersion)
+        assertEquals("done", dao.task(taskId)?.state)
+        assertTrue(outbox.drain { MobileCommandSendResult.Applied(receipt(completeId, taskId, "done", 8)) }.not())
+        assertEquals(8, dao.task(taskId)?.serverVersion)
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+
+        val reopenId = outbox.enqueueReopen(taskId)
+        val reopenEnvelope = MobileTaskCommandContract.decodeStateEnvelope(
+            requireNotNull(dao.outbox(reopenId)).envelopeJson,
+        )
+        assertEquals("ReopenTask", reopenEnvelope.command.name)
+        assertEquals(8, reopenEnvelope.command.expectedVersion)
+        assertEquals("todo", dao.task(taskId)?.state)
+    }
+
+    private fun receipt(
+        commandId: String,
+        taskId: String,
+        state: String = "todo",
+        version: Int = 1,
+    ) = MobileTaskCommandResponseDto(
         ok = true,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
@@ -104,23 +146,25 @@ class MobileOutboxDatabaseTest {
             generatedAt = "2026-08-22T01:04:00Z",
             truncated = false,
         ),
-        data = MobileCreateTaskReceiptDto(
+        data = MobileTaskCommandReceiptDto(
             commandId = commandId,
             status = "applied",
             task = MobileTaskSummaryDto(
                 id = taskId,
+                version = version,
                 title = "Desktop正規化後",
                 themeId = null,
-                state = "todo",
+                state = state,
                 workState = null,
                 updatedAt = "2026-08-22T01:04:00Z",
             ),
         ),
     )
 
-    private fun canonicalTask(response: MobileCreateTaskResponseDto): TaskCacheEntity =
+    private fun canonicalTask(response: MobileTaskCommandResponseDto): TaskCacheEntity =
         TaskCacheEntity(
             id = response.data.task.id,
+            serverVersion = response.data.task.version,
             title = response.data.task.title,
             themeId = response.data.task.themeId,
             state = response.data.task.state,
@@ -130,7 +174,7 @@ class MobileOutboxDatabaseTest {
             optimisticCommandId = null,
         )
 
-    private fun syncState(response: MobileCreateTaskResponseDto): SyncStateEntity =
+    private fun syncState(response: MobileTaskCommandResponseDto): SyncStateEntity =
         SyncStateEntity(
             serverId = response.meta.serverId,
             apiVersion = response.meta.apiVersion,

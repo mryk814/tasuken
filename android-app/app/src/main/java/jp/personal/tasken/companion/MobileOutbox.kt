@@ -16,7 +16,7 @@ import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 
 sealed interface MobileCommandSendResult {
-    data class Applied(val response: MobileCreateTaskResponseDto) : MobileCommandSendResult
+    data class Applied(val response: MobileTaskCommandResponseDto) : MobileCommandSendResult
     data class Retry(val reason: String) : MobileCommandSendResult
     data class Rejected(val reason: String) : MobileCommandSendResult
 }
@@ -60,6 +60,7 @@ class MobileOutbox(
         dao.enqueueCreate(
             task = TaskCacheEntity(
                 id = taskId,
+                serverVersion = null,
                 title = normalizedTitle,
                 themeId = null,
                 state = "todo",
@@ -75,7 +76,7 @@ class MobileOutbox(
                 clientDeviceId = envelope.clientDeviceId,
                 issuedAt = issuedAt,
                 commandName = "CreateTask",
-                envelopeJson = MobileCreateTaskContract.encode(envelope),
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
                 state = OutboxState.Pending,
                 attemptCount = 0,
                 createdAt = issuedAt,
@@ -85,6 +86,57 @@ class MobileOutbox(
         )
         schedule()
         return taskId
+    }
+
+    suspend fun enqueueComplete(taskId: String): String = enqueueState(taskId, "CompleteTask", "done")
+
+    suspend fun enqueueReopen(taskId: String): String = enqueueState(taskId, "ReopenTask", "todo")
+
+    private suspend fun enqueueState(taskId: String, commandName: String, optimisticState: String): String {
+        require(commandName in setOf("CompleteTask", "ReopenTask"))
+        val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(task.optimisticCommandId == null) { "Taskの同期完了を待って再試行してください。" }
+        val expectedVersion = requireNotNull(task.serverVersion) { "Taskのversionがありません。再読み込みしてください。" }
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val envelope = MobileTaskStateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskStateCommandDto(
+                name = commandName,
+                taskId = taskId,
+                expectedVersion = expectedVersion,
+            ),
+        )
+        dao.enqueueStateAction(
+            task = task.copy(
+                state = optimisticState,
+                updatedAt = issuedAt,
+                optimisticCommandId = commandId,
+            ),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = commandName,
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+            ),
+        )
+        schedule()
+        return commandId
     }
 
     suspend fun recoverInterruptedSending(): Int =
@@ -103,15 +155,17 @@ class MobileOutbox(
                         continue
                     }
                     val task = response.data.task
-                    dao.applyCreateReceipt(
+                    val cached = dao.task(task.id)
+                    dao.applyCommandReceipt(
                         commandId = command.commandId,
                         canonicalTask = TaskCacheEntity(
                             id = task.id,
+                            serverVersion = task.version,
                             title = task.title,
                             themeId = task.themeId,
                             state = task.state,
                             workState = task.workState,
-                            todayDate = MobileCreateTaskContract.decodeEnvelope(command.envelopeJson).command.task.todayDate,
+                            todayDate = cached?.todayDate,
                             updatedAt = task.updatedAt,
                             optimisticCommandId = null,
                         ),

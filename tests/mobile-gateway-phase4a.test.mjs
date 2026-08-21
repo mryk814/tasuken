@@ -38,7 +38,7 @@ const {
   TaskCapabilityService,
   TaskenCoreClient,
   TaskenCoreRuntime,
-  mobileCreateTaskRequestSchema,
+  mobileTaskCommandRequestSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
 } = mobile;
@@ -171,6 +171,25 @@ function createRequest(overrides = {}) {
   };
 }
 
+function stateRequest(name, expectedVersion, overrides = {}) {
+  const suffix = name === "CompleteTask" ? "complete" : "reopen";
+  return {
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: `request-mobile-${suffix}`,
+    commandId: `command-mobile-${suffix}`,
+    idempotencyKey: `command-mobile-${suffix}`,
+    clientDeviceId: principal.deviceId,
+    issuedAt: now,
+    command: {
+      name,
+      taskId: "task-mobile-create",
+      expectedVersion,
+    },
+    ...overrides,
+  };
+}
+
 test("canonical Today golden is accepted and malformed responses fail closed", () => {
   assert.deepEqual(mobileTodayResponseSchema.parse(todayGolden), todayGolden);
 
@@ -236,16 +255,16 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     commands: "/v1/commands",
   });
   const valid = createRequest();
-  assert.equal(mobileCreateTaskRequestSchema.safeParse(valid).success, true);
+  assert.equal(mobileTaskCommandRequestSchema.safeParse(valid).success, true);
   for (const invalid of [
     { ...valid, apiVersion: 2 },
     { ...valid, schemaVersion: 2 },
     { ...valid, actor: { kind: "user", id: "forged" } },
     { ...valid, source: "android" },
-    { ...valid, command: { ...valid.command, name: "CompleteTask" } },
+    { ...valid, command: { name: "CompleteTask", taskId: "task-mobile-create" } },
     { ...valid, idempotencyKey: "different-command" },
   ]) {
-    assert.equal(mobileCreateTaskRequestSchema.safeParse(invalid).success, false);
+    assert.equal(mobileTaskCommandRequestSchema.safeParse(invalid).success, false);
   }
   assert.equal(mobileTodayRequestSchema.safeParse({
     apiVersion: 1,
@@ -298,7 +317,7 @@ test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret fr
     name: "ListTodayTasks",
     parameters: { date: "2026-08-21", limit: 20 },
   });
-  assert.deepEqual(Object.keys(response.body.data.items[0]).sort(), ["id", "state", "themeId", "title", "updatedAt", "workState"]);
+  assert.deepEqual(Object.keys(response.body.data.items[0]).sort(), ["id", "state", "themeId", "title", "updatedAt", "version", "workState"]);
   assert.doesNotMatch(JSON.stringify(response.body), /C:\/private|secret|token\.txt|repository_subdirectory|ai_source_refs/);
 
   const forbidden = await adapter.handle({
@@ -346,7 +365,7 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   });
   assert.equal(first.status, 200);
   assert.equal(first.body.data.status, "applied");
-  assert.equal(first.body.data.task.version, undefined);
+  assert.equal(first.body.data.task.version, 1);
   assert.equal(mobileCapability.repository.list("change_event").length, 1);
   const event = mobileCapability.repository.list("change_event")[0];
   assert.equal(event.command_id, "command-mobile-create");
@@ -552,6 +571,62 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   assert.equal(brokenMobileReplay.body.error.retryable, false);
 });
 
+test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and preserve replay", async () => {
+  const mobileCapability = capability();
+  const adapter = gateway(mobileCapability.service);
+  const created = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.data.task.version, 1);
+
+  const completed = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: stateRequest("CompleteTask", 1),
+  });
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.data.task.state, "done");
+  assert.equal(completed.body.data.task.version, 2);
+
+  const replay = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: stateRequest("CompleteTask", 1),
+  });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.data.task.version, 2);
+  assert.equal(mobileCapability.repository.list("change_event").length, 2);
+
+  const stale = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: stateRequest("ReopenTask", 1),
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error.code, "version_conflict");
+
+  const reopened = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: stateRequest("ReopenTask", 2, {
+      requestId: "request-mobile-reopen-current",
+      commandId: "command-mobile-reopen-current",
+      idempotencyKey: "command-mobile-reopen-current",
+    }),
+  });
+  assert.equal(reopened.status, 200);
+  assert.equal(reopened.body.data.task.state, "todo");
+  assert.equal(reopened.body.data.task.version, 3);
+});
+
 test("Phase 4A fails closed on Core version/capability and client uses separate HTTPS bearer", async () => {
   const { service } = capability();
   const mismatch = gateway(service, { status: async () => ({ apiVersion: "999", capabilities: ["task.query", "task.command"] }) });
@@ -572,7 +647,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.equal(writeOnlyHealth.status, 200);
   assert.deepEqual(writeOnlyHealth.body.data.capabilities, [
     TASKEN_MOBILE_CAPABILITIES.health,
-    TASKEN_MOBILE_CAPABILITIES.taskCreate,
+    TASKEN_MOBILE_CAPABILITIES.taskWrite,
   ]);
 
   let coreStatusCalls = 0;
@@ -636,8 +711,8 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     },
   });
   const health = await client.health();
-  assert.equal(health.data.capabilities.includes(TASKEN_MOBILE_CAPABILITIES.taskCreate), true);
-  const created = await client.createTask(createRequest({
+  assert.equal(health.data.capabilities.includes(TASKEN_MOBILE_CAPABILITIES.taskWrite), true);
+  const created = await client.executeTaskCommand(createRequest({
     requestId: "request-client-create",
     commandId: "command-client-create",
     idempotencyKey: "command-client-create",
@@ -673,7 +748,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
       return new Response(JSON.stringify(result.body), { status: result.status, headers: result.headers });
     },
   });
-  const writeOnlyCreated = await writeOnlyClient.createTask(createRequest({
+  const writeOnlyCreated = await writeOnlyClient.executeTaskCommand(createRequest({
     requestId: "request-write-only-create",
     commandId: "command-write-only-create",
     idempotencyKey: "command-write-only-create",

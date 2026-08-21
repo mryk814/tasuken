@@ -3,8 +3,8 @@ import {
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
   TASKEN_MOBILE_SCHEMA_VERSION,
-  mobileCreateTaskRequestSchema,
-  mobileCreateTaskResponseSchema,
+  mobileTaskCommandRequestSchema,
+  mobileTaskCommandResponseSchema,
   mobileErrorResponseSchema,
   mobileHealthResponseSchema,
   mobileResponseMetaSchema,
@@ -79,6 +79,7 @@ export interface MobileGatewayOptions {
 function projectTask(task: TaskReadModel) {
   return {
     id: task.id,
+    version: task.version,
     title: task.title,
     themeId: task.project_id || null,
     state: task.state,
@@ -204,35 +205,41 @@ export class MobileGatewayAdapter {
         }));
       }
 
-      const parsed = mobileCreateTaskRequestSchema.safeParse(request.body);
+      const parsed = mobileTaskCommandRequestSchema.safeParse(request.body);
       if (!parsed.success || parsed.data.clientDeviceId !== request.principal.deviceId) {
         return this.error(meta, "validation_failed");
       }
       diagnosticId = parsed.data.requestId;
-      const candidate = parsed.data.command.task;
+      const command = parsed.data.command;
+      const payload = command.name === "CreateTask"
+        ? {
+            task: {
+              id: command.task.id,
+              title: command.task.title,
+              project_id: command.task.projectId ?? null,
+              state: command.task.state,
+              priority: command.task.priority,
+              requester: command.task.requester,
+              intended_executor: command.task.intendedExecutor,
+              today_date: command.task.todayDate ?? null,
+            },
+          }
+        : {
+            task_id: command.taskId,
+            expected_version: command.expectedVersion,
+          };
       const result = await this.options.core.executeTaskCommand({
         schemaVersion: 1,
         command_id: parsed.data.commandId,
-        name: "CreateTask",
+        name: command.name,
         actor: { kind: "user", id: request.principal.deviceId },
         source: "mobile",
         issued_at: parsed.data.issuedAt,
-        payload: {
-          task: {
-            id: candidate.id,
-            title: candidate.title,
-            project_id: candidate.projectId ?? null,
-            state: candidate.state,
-            priority: candidate.priority,
-            requester: candidate.requester,
-            intended_executor: candidate.intendedExecutor,
-            today_date: candidate.todayDate ?? null,
-          },
-        },
+        payload,
       });
       if (!result.ok) return this.taskError(meta, result.error);
-      if (result.value.name !== "CreateTask" || !result.value.task) throw new Error("Unexpected Task command outcome");
-      return this.success(mobileCreateTaskResponseSchema.parse({
+      if (result.value.name !== command.name || !result.value.task) throw new Error("Unexpected Task command outcome");
+      return this.success(mobileTaskCommandResponseSchema.parse({
         ok: true,
         meta,
         data: {
@@ -279,7 +286,7 @@ export class MobileGatewayAdapter {
   private capabilities(principal: MobilePrincipal): MobileCapability[] {
     const capabilities: MobileCapability[] = [TASKEN_MOBILE_CAPABILITIES.health];
     if (principal.scopes.includes("mobile:read")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.todayRead);
-    if (principal.scopes.includes("mobile:task-write")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskCreate);
+    if (principal.scopes.includes("mobile:task-write")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskWrite);
     return capabilities;
   }
 
