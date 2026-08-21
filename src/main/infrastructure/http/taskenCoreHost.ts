@@ -28,6 +28,12 @@ import type {
   GetPlanHealthResponse,
   GetKnowledgeHealthRequest,
   GetKnowledgeHealthResponse,
+  GetActivityRequest,
+  GetActivityResponse,
+  GetContextSubgraphRequest,
+  GetContextSubgraphResponse,
+  ExportAiContextRequest,
+  ExportAiContextResponse,
   GetTaskAssignmentRequest,
   GetTaskAssignmentResponse,
   GetTaskContextRequest,
@@ -54,6 +60,9 @@ import {
   getKnowledgeContextRequestSchema,
   getPlanHealthRequestSchema,
   getKnowledgeHealthRequestSchema,
+  getActivityRequestSchema,
+  getContextSubgraphRequestSchema,
+  exportAiContextRequestSchema,
   getTaskContextRequestSchema,
   listAgentReadyTasksRequestSchema,
   listOpenItemsRequestSchema,
@@ -77,6 +86,9 @@ import {
   TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY,
   TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
+  TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
+  TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+  TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -119,6 +131,9 @@ export interface TaskenCoreHostOptions {
   getKnowledgeContext?: QueryProvider<GetKnowledgeContextRequest, GetKnowledgeContextResponse>;
   getPlanHealth?: QueryProvider<GetPlanHealthRequest, GetPlanHealthResponse>;
   getKnowledgeHealth?: QueryProvider<GetKnowledgeHealthRequest, GetKnowledgeHealthResponse>;
+  getActivity?: QueryProvider<GetActivityRequest, GetActivityResponse>;
+  getContextSubgraph?: QueryProvider<GetContextSubgraphRequest, GetContextSubgraphResponse>;
+  exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
 }
 
 interface DiscoveryDocument {
@@ -173,7 +188,10 @@ function parseQueryRequest(url: string, body: unknown): unknown {
                       : url === "/v1/queries/search-knowledge" ? searchKnowledgeRequestSchema
                         : url === "/v1/queries/get-knowledge-context" ? getKnowledgeContextRequestSchema
                           : url === "/v1/queries/get-plan-health" ? getPlanHealthRequestSchema
-                            : getKnowledgeHealthRequestSchema;
+                            : url === "/v1/queries/get-knowledge-health" ? getKnowledgeHealthRequestSchema
+                              : url === "/v1/queries/get-activity" ? getActivityRequestSchema
+                                : url === "/v1/queries/get-context-subgraph" ? getContextSubgraphRequestSchema
+                                  : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -288,6 +306,9 @@ export class TaskenCoreHost {
       ...(this.options.getKnowledgeContext ? [TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY] : []),
       ...(this.options.getPlanHealth ? [TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY] : []),
       ...(this.options.getKnowledgeHealth ? [TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY] : []),
+      ...(this.options.getActivity ? [TASKEN_CORE_GET_ACTIVITY_CAPABILITY] : []),
+      ...(this.options.getContextSubgraph ? [TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY] : []),
+      ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
     ];
   }
 
@@ -369,6 +390,9 @@ export class TaskenCoreHost {
         ...(this.options.getKnowledgeContext ? ["/v1/queries/get-knowledge-context"] : []),
         ...(this.options.getPlanHealth ? ["/v1/queries/get-plan-health"] : []),
         ...(this.options.getKnowledgeHealth ? ["/v1/queries/get-knowledge-health"] : []),
+        ...(this.options.getActivity ? ["/v1/queries/get-activity"] : []),
+        ...(this.options.getContextSubgraph ? ["/v1/queries/get-context-subgraph"] : []),
+        ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
       ]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
       if (knownPaths.has(request.url || "")
@@ -431,6 +455,12 @@ export class TaskenCoreHost {
           json(response, 200, this.options.getPlanHealth!.execute(body as GetPlanHealthRequest));
         } else if (request.url === "/v1/queries/get-knowledge-health") {
           json(response, 200, this.options.getKnowledgeHealth!.execute(body as GetKnowledgeHealthRequest));
+        } else if (request.url === "/v1/queries/get-activity") {
+          json(response, 200, this.options.getActivity!.execute(body as GetActivityRequest));
+        } else if (request.url === "/v1/queries/get-context-subgraph") {
+          json(response, 200, this.options.getContextSubgraph!.execute(body as GetContextSubgraphRequest));
+        } else if (request.url === "/v1/queries/export-ai-context") {
+          json(response, 200, this.options.exportAiContext!.execute(body as ExportAiContextRequest));
         } else {
           json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
         }

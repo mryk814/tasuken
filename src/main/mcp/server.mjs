@@ -307,20 +307,20 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool("tasken.get_activity", {
     description: "Return the structured Activity event index as JSON or Markdown. This is read-only and applies AI visibility policy at projection time.",
     inputSchema: {
-      date: optionalText,
-      from: optionalText,
-      to: optionalText,
-      theme_id: optionalText,
-      entity_type: optionalText,
-      event_kinds: z.array(z.string()).max(20).optional(),
-      timezone: optionalText,
+      date: z.string().trim().max(40).optional(),
+      from: z.string().trim().max(80).optional(),
+      to: z.string().trim().max(80).optional(),
+      theme_id: z.string().trim().max(200).optional(),
+      entity_type: z.string().trim().max(100).optional(),
+      event_kinds: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
+      timezone: z.string().trim().max(100).optional(),
       limit: optionalLimit,
       format: z.enum(["json", "markdown"]).optional(),
       audience: z.enum(["m365", "coding_agent", "external_ai"]).optional(),
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetActivity(args)));
+  }, withCoreClient((args) => coreClient.getActivity(args)));
 
   server.registerTool("tasken.get_context_subgraph", {
     description: "Return a bounded, read-only Context/Provenance subgraph for one typed entity. Suggested relations are excluded by default and never become facts.",
@@ -335,13 +335,13 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetContextSubgraph(args)));
+  }, withCoreClient((args) => coreClient.getContextSubgraph(args)));
 
   server.registerTool("tasken.export_ai_context", {
     description: "Export bounded Tasken context as Markdown or JSON.",
     inputSchema: {
       scope: z.enum(["active_theme", "selected_theme", "recent", "open_items", "knowledge"]).optional(),
-      theme_id: optionalText,
+      theme_id: z.string().trim().max(200).optional(),
       max_items: optionalLimit,
       max_notes: optionalLimit,
       max_knowledge_nodes: optionalLimit,
@@ -352,7 +352,7 @@ export function createTaskenMcpServer(options = {}) {
       audience: z.enum(["m365", "coding_agent", "external_ai"]).optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolExportAiContext(args)));
+  }, withCoreClient((args) => coreClient.exportAiContext(args)));
 
   if (readOnly) return server;
 

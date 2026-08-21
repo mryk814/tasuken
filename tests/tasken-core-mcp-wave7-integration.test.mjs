@@ -435,7 +435,7 @@ test("Wave 7 MCP registrations reject the same nonempty and maximum inputs as sh
   assert.equal(calls, 0);
 });
 
-test("actual stdio MCP reads Wave 7 from Core-owned SQLite without writes or native fallback", async () => {
+test("actual stdio MCP reads Wave 7/8 from Core-owned SQLite without writes or native fallback", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave7-stdio-"));
   fs.chmodSync(root, 0o700);
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
@@ -475,6 +475,9 @@ test("actual stdio MCP reads Wave 7 from Core-owned SQLite without writes or nat
       ["tasken.get_knowledge_context", { theme_id: "theme-public" }, "knowledge_edges"],
       ["tasken.get_plan_health", {}, "open_count"],
       ["tasken.get_knowledge_health", {}, "issues"],
+      ["tasken.get_activity", {}, "events"],
+      ["tasken.get_context_subgraph", { entity_type: "task", entity_id: "task-visible" }, "nodes"],
+      ["tasken.export_ai_context", { format: "json" }, "items"],
     ]) {
       const result = await client.callTool({ name, arguments: args });
       assert.equal(result.isError, undefined, JSON.stringify(result));

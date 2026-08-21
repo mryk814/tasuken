@@ -37,6 +37,9 @@ export class TaskenCoreRuntime {
       getKnowledgeContext: core.getKnowledgeContext,
       getPlanHealth: core.getPlanHealth,
       getKnowledgeHealth: core.getKnowledgeHealth,
+      getActivity: core.getActivity,
+      getContextSubgraph: core.getContextSubgraph,
+      exportAiContext: core.exportAiContext,
     });
   }
 

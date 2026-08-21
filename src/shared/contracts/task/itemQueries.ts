@@ -55,7 +55,7 @@ export const itemQueryResultMetaSchema = z.object({
 const itemQueryResponseShape = {
   items: z.array(publicItemSchema),
   limit: z.number().int().min(1).max(100),
-  ai_audience: z.literal("coding_agent"),
+  ai_audience: z.enum(["m365", "coding_agent", "external_ai"]),
   read_only: z.literal(true),
   excluded_count: z.number().int().nonnegative(),
   excluded_reasons: z.array(z.object({

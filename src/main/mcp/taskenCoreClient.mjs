@@ -15,6 +15,9 @@ import {
   getKnowledgeContextResponseSchema,
   getPlanHealthResponseSchema,
   getKnowledgeHealthResponseSchema,
+  getActivityResponseSchema,
+  getContextSubgraphResponseSchema,
+  exportAiContextResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -33,6 +36,9 @@ import {
   TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY,
   TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
+  TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
+  TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+  TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -222,6 +228,18 @@ export class TaskenCoreClient {
 
   async getKnowledgeHealth(request = {}) {
     return this.query("get-knowledge-health", TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY, request, getKnowledgeHealthResponseSchema);
+  }
+
+  async getActivity(request = {}) {
+    return this.query("get-activity", TASKEN_CORE_GET_ACTIVITY_CAPABILITY, request, getActivityResponseSchema);
+  }
+
+  async getContextSubgraph(request = {}) {
+    return this.query("get-context-subgraph", TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY, request, getContextSubgraphResponseSchema);
+  }
+
+  async exportAiContext(request = {}) {
+    return this.query("export-ai-context", TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY, request, exportAiContextResponseSchema);
   }
 
   async query(path, capability, request, responseSchema) {

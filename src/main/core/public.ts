@@ -7,6 +7,8 @@ export { ContentDetailQueryService } from "./services/contentDetailQueryService.
 export { ActivityEntriesQueryService } from "./services/activityEntriesQueryService.ts";
 export { ThemeContextQueryService } from "./services/themeContextQueryService.ts";
 export { KnowledgeQueryService } from "./services/knowledgeQueryService.ts";
+export { AgentContextQueryService } from "./services/agentContextQueryService.ts";
+export { AgentContextExportService } from "./services/agentContextExportService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
@@ -33,3 +35,4 @@ export type {
   KnowledgeReadPort,
   KnowledgeReadRecord,
 } from "./ports/knowledgeReadPort.ts";
+export type { AgentContextReadPort, AgentContextRecord, AgentContextSnapshot, AgentContextWorkspace } from "./ports/agentContextReadPort.ts";
