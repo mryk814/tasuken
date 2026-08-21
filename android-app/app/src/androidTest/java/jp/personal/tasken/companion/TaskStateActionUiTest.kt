@@ -1,9 +1,11 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -137,6 +139,40 @@ class TaskStateActionUiTest {
 
         composeRule.onNodeWithText("Desktop  Desktopの名前").assertIsDisplayed()
         composeRule.onNodeWithText("この端末  端末の名前").assertIsDisplayed()
+    }
+
+    @Test
+    fun acceptedDesktopTitleReplacesTheStaleLocalDraft() {
+        val conflicted = sampleTask().copy(
+            title = "Desktopの名前",
+            conflict = MobileTaskConflict(
+                commandId = "command-update",
+                intendedAction = "UpdateTask",
+                expectedVersion = 4,
+                serverVersion = 5,
+                serverState = "todo",
+                localTitle = "端末の名前",
+                detectedAt = "2026-08-22T01:00:00Z",
+            ),
+        )
+        val task = mutableStateOf(sampleTask())
+        val actionState = mutableStateOf<TaskActionUiState>(TaskActionUiState.Idle)
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(task.value, actionState.value, onStateAction = {})
+            }
+        }
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("端末の下書き")
+        composeRule.runOnIdle { task.value = conflicted }
+        composeRule.onNodeWithText("同期できなかった変更").assertIsDisplayed()
+
+        composeRule.runOnIdle {
+            task.value = conflicted.copy(conflict = null)
+            actionState.value = TaskActionUiState.ConflictResolved(conflicted.id, keptLocal = false)
+        }
+
+        composeRule.onNode(hasSetTextAction()).assertTextContains("Desktopの名前")
+        composeRule.onNodeWithText("Task名を保存").assertIsNotEnabled()
     }
 
     private fun sampleTask() = MobileTask(
