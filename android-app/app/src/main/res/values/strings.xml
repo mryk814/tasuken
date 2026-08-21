@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="tasken_widget_description">TodayのTaskを確認・完了します</string>
+    <string name="shortcut_add_task">Taskを追加</string>
+    <string name="shortcut_open_today">Todayを開く</string>
 </resources>

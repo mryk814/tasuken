@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="add_task"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_input_add"
+        android:shortcutShortLabel="@string/shortcut_add_task">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="tasken://capture/new?source=app_shortcut"
+            android:targetClass="jp.personal.tasken.companion.MainActivity"
+            android:targetPackage="jp.personal.tasken.companion" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_today"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_menu_today"
+        android:shortcutShortLabel="@string/shortcut_open_today">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="tasken://today?source=app_shortcut"
+            android:targetClass="jp.personal.tasken.companion.MainActivity"
+            android:targetPackage="jp.personal.tasken.companion" />
+    </shortcut>
+</shortcuts>

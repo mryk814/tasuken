@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
@@ -92,8 +93,8 @@ class TaskenTodayWidget : AppWidgetProvider() {
 
         private fun views(context: Context, widgetId: Int, snapshot: TaskenWidgetSnapshot): RemoteViews =
             RemoteViews(context.packageName, R.layout.tasken_today_widget).apply {
-                setOnClickPendingIntent(R.id.widget_header, openAppIntent(context, widgetId))
-                setOnClickPendingIntent(R.id.widget_add, openAppIntent(context, widgetId + 10_000))
+                setOnClickPendingIntent(R.id.widget_header, openAppIntent(context, widgetId, "tasken://today?source=widget"))
+                setOnClickPendingIntent(R.id.widget_add, openAppIntent(context, widgetId + 10_000, "tasken://capture/new?source=widget"))
                 setTextViewText(R.id.widget_status, statusText(snapshot))
                 setViewVisibility(R.id.widget_empty, if (snapshot.tasks.isEmpty()) View.VISIBLE else View.GONE)
                 rowIds.forEachIndexed { index, (rowId, buttonId, titleId) ->
@@ -103,7 +104,10 @@ class TaskenTodayWidget : AppWidgetProvider() {
                         setTextViewText(buttonId, if (task.isDone) "↻" else "✓")
                         setTextViewText(titleId, task.title)
                         setOnClickPendingIntent(buttonId, toggleIntent(context, widgetId, index, task))
-                        setOnClickPendingIntent(titleId, openAppIntent(context, widgetId + index + 1))
+                        setOnClickPendingIntent(
+                            titleId,
+                            openAppIntent(context, widgetId + index + 1, "tasken://task/${task.id}?source=widget"),
+                        )
                     }
                 }
             }
@@ -124,10 +128,10 @@ class TaskenTodayWidget : AppWidgetProvider() {
             )
         }
 
-        private fun openAppIntent(context: Context, requestCode: Int): PendingIntent = PendingIntent.getActivity(
+        private fun openAppIntent(context: Context, requestCode: Int, uri: String): PendingIntent = PendingIntent.getActivity(
             context,
             requestCode,
-            Intent(context, MainActivity::class.java),
+            Intent(Intent.ACTION_VIEW, Uri.parse(uri), context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 

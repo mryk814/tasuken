@@ -1,6 +1,7 @@
 package jp.personal.tasken.companion
 
 import android.content.res.Configuration
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -48,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
@@ -68,16 +70,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
+    private val entryRequest = MutableStateFlow<MobileEntryRequest>(MobileEntryRequest.None)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        entryRequest.value = MobileEntryRequestResolver.fromIntent(intent)
         val repository = AndroidMobileTaskRepository(applicationContext)
         setContent {
             TaskenTheme {
-                TodayApp(viewModel(factory = TodayViewModelFactory(repository)))
+                val request by entryRequest.collectAsState()
+                TodayApp(viewModel(factory = TodayViewModelFactory(repository)), request)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        entryRequest.value = MobileEntryRequestResolver.fromIntent(intent)
     }
 }
 
@@ -100,7 +113,10 @@ private fun TaskenTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3AdaptiveApi::class)
 @Composable
-private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
+private fun TodayApp(
+    todayViewModel: TodayViewModel = viewModel(),
+    entryRequest: MobileEntryRequest = MobileEntryRequest.None,
+) {
     val uiState by todayViewModel.uiState.collectAsState()
     val captureState by todayViewModel.captureState.collectAsState()
     val taskActionState by todayViewModel.taskActionState.collectAsState()
@@ -113,8 +129,35 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
     )
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
 
     LaunchedEffect(Unit) { todayViewModel.load() }
+    LaunchedEffect(entryRequest, uiState) {
+        if (entryRequest.token == 0L || entryRequest.token == handledEntryToken) return@LaunchedEffect
+        when (entryRequest) {
+            is MobileEntryRequest.Capture -> {
+                paneState.captureDraft = entryRequest.draft
+                paneState.captureOpen = true
+                handledEntryToken = entryRequest.token
+            }
+            is MobileEntryRequest.Task -> {
+                val taskExists = (uiState as? TodayUiState.Success)?.tasks?.any { it.id == entryRequest.taskId }
+                if (taskExists == true) {
+                    paneState.selectedTaskId = entryRequest.taskId
+                    navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, entryRequest.taskId)
+                    handledEntryToken = entryRequest.token
+                } else if (uiState is TodayUiState.Empty || uiState is TodayUiState.Error) {
+                    snackbarHostState.showSnackbar("Taskを開けませんでした。Todayを同期して再試行してください。")
+                    handledEntryToken = entryRequest.token
+                }
+            }
+            is MobileEntryRequest.Today -> {
+                navigator.navigateTo(ListDetailPaneScaffoldRole.List)
+                handledEntryToken = entryRequest.token
+            }
+            MobileEntryRequest.None -> Unit
+        }
+    }
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
             paneState.captureDraft = ""
