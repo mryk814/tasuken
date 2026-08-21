@@ -74,6 +74,7 @@ data class TaskConflictEntity(
     val serverVersion: Int,
     val serverState: String,
     val serverTitle: String,
+    val localTitle: String? = null,
     val serverThemeId: String?,
     val serverWorkState: String?,
     val serverUpdatedAt: String,
@@ -219,7 +220,7 @@ abstract class MobileLocalDao {
     open suspend fun enqueueStateAction(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
         require(task.serverVersion != null)
-        require(command.commandName in setOf("CompleteTask", "ReopenTask"))
+        require(command.commandName in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
         upsertTask(task)
         insertOutbox(command)
     }
@@ -357,7 +358,7 @@ abstract class MobileLocalDao {
 
 @Database(
     entities = [TaskCacheEntity::class, OutboxCommandEntity::class, SyncStateEntity::class, TaskConflictEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -371,7 +372,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 context.applicationContext,
                 MobileLocalDatabase::class.java,
                 "tasken-mobile-cache.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
         }
     }
 }
@@ -402,6 +403,12 @@ internal val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+internal val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localTitle TEXT")
+    }
+}
+
 fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     id = id,
     title = title,
@@ -420,6 +427,7 @@ fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
             expectedVersion = it.expectedVersion,
             serverVersion = it.serverVersion,
             serverState = it.serverState,
+            localTitle = it.localTitle,
             detectedAt = it.detectedAt,
         )
     },
