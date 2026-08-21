@@ -52,6 +52,8 @@ import type {
   ProposeRepositoryTaskResponse,
   ProposeContentRequest,
   ProposeContentResponse,
+  TaskCommandResponse,
+  TaskQueryResponse,
 } from "../../../shared/contracts/task/public.ts";
 import {
   getTaskAssignmentRequestSchema,
@@ -77,6 +79,8 @@ import {
   proposeTaskWorkRequestSchema,
   proposeRepositoryTaskRequestSchema,
   proposeContentRequestSchema,
+  taskCommandSchema,
+  taskQuerySchema,
 } from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -107,6 +111,8 @@ import {
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
+  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
 
@@ -124,6 +130,8 @@ interface QueryProvider<Request, Response> {
 
 export interface TaskenCoreHostOptions {
   userDataPath: string;
+  taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
+  taskCommand?: QueryProvider<unknown, TaskCommandResponse>;
   listAgentReadyTasks: ListAgentReadyTasksProvider;
   resolveRepositoryContext?: QueryProvider<RepositoryLookupRequest, ResolveRepositoryContextResponse>;
   findTasksForRepository?: QueryProvider<RepositoryLookupRequest, FindTasksForRepositoryResponse>;
@@ -187,7 +195,9 @@ class RequestValidationError extends Error {
 }
 
 function parseOperationRequest(url: string, body: unknown): unknown {
-  const schema = url === "/v1/commands/propose-task-work" ? proposeTaskWorkRequestSchema
+  const schema = url === "/v1/task/query" ? taskQuerySchema
+    : url === "/v1/task/command" ? taskCommandSchema
+    : url === "/v1/commands/propose-task-work" ? proposeTaskWorkRequestSchema
     : url === "/v1/commands/propose-repository-task" ? proposeRepositoryTaskRequestSchema
     : url === "/v1/commands/propose-content" ? proposeContentRequestSchema
     : url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
@@ -331,6 +341,8 @@ export class TaskenCoreHost {
 
   private capabilities() {
     return [
+      ...(this.options.taskQuery ? [TASKEN_CORE_TASK_QUERY_CAPABILITY] : []),
+      ...(this.options.taskCommand ? [TASKEN_CORE_TASK_COMMAND_CAPABILITY] : []),
       TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
       ...(this.options.resolveRepositoryContext ? [TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY] : []),
       ...(this.options.findTasksForRepository ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY] : []),
@@ -418,6 +430,7 @@ export class TaskenCoreHost {
         return;
       }
       const queryPaths = new Set([
+        ...(this.options.taskQuery ? ["/v1/task/query"] : []),
         "/v1/queries/list-agent-ready-tasks",
         ...(this.options.resolveRepositoryContext ? ["/v1/queries/resolve-repository-context"] : []),
         ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
@@ -442,6 +455,7 @@ export class TaskenCoreHost {
         ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
       ]);
       const commandPaths = new Set([
+        ...(this.options.taskCommand ? ["/v1/task/command"] : []),
         ...(this.options.proposeTaskWork ? ["/v1/commands/propose-task-work"] : []),
         ...(this.options.proposeRepositoryTask ? ["/v1/commands/propose-repository-task"] : []),
         ...(this.options.proposeContent ? ["/v1/commands/propose-content"] : []),
@@ -472,7 +486,11 @@ export class TaskenCoreHost {
           return;
         }
         const body = parseOperationRequest(request.url || "", await requestBody(request));
-        if (request.url === "/v1/commands/propose-task-work") {
+        if (request.url === "/v1/task/query") {
+          json(response, 200, this.options.taskQuery!.execute(body));
+        } else if (request.url === "/v1/task/command") {
+          json(response, 200, this.options.taskCommand!.execute(body));
+        } else if (request.url === "/v1/commands/propose-task-work") {
           json(response, 200, this.options.proposeTaskWork!.execute(body as ProposeTaskWorkRequest));
         } else if (request.url === "/v1/commands/propose-repository-task") {
           json(response, 200, this.options.proposeRepositoryTask!.execute(body as ProposeRepositoryTaskRequest));

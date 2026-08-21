@@ -36,7 +36,7 @@ import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
 import { projectScreenRecordingIpcError } from "../screenRecordingIpcError";
 import { logMain } from "../log";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
-import { registerTaskIpc, TaskCapabilityService } from "../modules/task/public.ts";
+import { registerTaskIpc, type TaskCapabilityService } from "../modules/task/public.ts";
 import { projectBatchTranscriptionIpcError } from "../batchTranscriptionIpcError";
 import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
 import { assertRendererBootstrapContainsNoMedia } from "../services/snapshotMediaValidation";
@@ -194,6 +194,7 @@ export function registerIpc(
   aiProvider: AiProviderService,
   calendar: CalendarService,
   applicationCommands: ApplicationCommandService,
+  taskCapability: TaskCapabilityService,
   mediaCapture: MediaCaptureService,
   batchTranscription: BatchTranscriptionService,
   screenRecording: ScreenRecordingService,
@@ -202,7 +203,6 @@ export function registerIpc(
   notifyTaskProjectionChanged: (types: EntityType[]) => void = () => {},
 ): void {
   const screenRecordingSenderIds = new Set<number>();
-  const taskCapability = new TaskCapabilityService(repository, (command) => applicationCommands.execute(command));
   const aiProposalAcceptance = new AiProposalAcceptanceService(applicationCommands, service, repository);
   registerTaskIpc({
     channels: {

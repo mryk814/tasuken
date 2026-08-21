@@ -4,7 +4,7 @@ Issue #412 / #413で、Desktop・MCP・Mobileが同じapplication serviceを使�
 
 ## 現在の境界
 
-Desktop Mainが`WorkspaceDatabase`を生成し、Tasken Coreへquery/command serviceを注入する。Core hostは`127.0.0.1`のephemeral portだけで待ち受け、userData配下のowner-only discovery documentにAPI version、named capabilities、origin、256-bit tokenを原子的に公開する。
+Desktop Mainが`WorkspaceDatabase`を生成して`TaskenDesktopComposition`へ注入する。compositionは`ApplicationCommandService`、`TaskenCoreRuntime`、単一の`TaskCapabilityService`を所有し、Desktop IPC、Core HTTP、Mobile adapterへ同じinstanceを渡す。Core hostは`127.0.0.1`のephemeral portだけで待ち受け、userData配下のowner-only discovery documentにAPI version、named capabilities、origin、256-bit tokenを原子的に公開する。
 
 stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 22 toolsとProposal 11 toolsはすべて認証済みCore clientを通る。
 
@@ -18,6 +18,20 @@ MCP client
 ```
 
 Core unavailable、API version mismatch、named capability不足、auth failure、invalid responseではfail closedとする。DB direct read、legacy context、filesystem queueへ戻らない。
+
+## Canonical Task composition (#412)
+
+`TaskenDesktopComposition`をDesktop lifecycleとTasken Coreのcomposition rootとする。Taskのread/write経路は次の単一serviceへ収束する。
+
+```text
+Desktop IPC ─┐
+Core HTTP ───┼─> TaskCapabilityService -> ApplicationCommandService / WorkspaceDatabase
+Mobile ──────┘
+```
+
+Core discoveryとlive statusは`task.query`、`task.command` capabilityを公開する。Desktop IPCはin-process、Mobile adapterはCoreの外向きadapter、Core HTTPはloopback transportだが、query semantics、expected version、idempotency、Activity/Relation副作用は同じserviceで処理する。
+
+MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する`task.command`は公開しない。MCPのwrite権限は引き続きProposal作成だけに限定し、利用者のPreview/採用を迂回させない。
 
 ## 非交渉の互換条件
 
@@ -64,10 +78,13 @@ Task work proposalはexpected versionとagent identityを必須にする。publi
 ## 実証gate
 
 - typecheck、full Electron tests、build、build:mcp、architecture/consistency/script audits
+- production Runtime parity: Desktop service、Core HTTP、Mobile adapterが同じTaskを作成・更新・再読込し、同一idempotency keyのretryでeventを増やさない
+- contract hardening: unknown request field、unknown response field、Core停止後のqueryをfail closedにする
 - plain Node source MCP: Core停止時のstructured fail-closed、native import sentinel
 - built `mcp-dist/server.mjs`: native/Electron/inbox symbol sentinel
 - Windows packaged Desktop: Desktop Core起動後、system Nodeでbundled MCPへ接続し、33 tools、read、Proposal commandを確認
 - actual MCP client config: Settingsからコピーした`node <resources>/mcp/server.mjs`で接続
+- architecture audit: `main.composition`をenforced moduleにし、`src/main/index.ts`の#412 suppressionを撤去する。監査結果は65 findings / 3 new candidates / 0 blocking
 
 package/buildだけではWindows packaged E2Eやactual client接続の代わりにならない。未実施の境界はIssueに明記する。
 

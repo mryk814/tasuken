@@ -28,6 +28,6 @@ export const TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY = "export_ai_context";
 export const TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY = "propose_task_work";
 export const TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY = "propose_repository_task";
 export const TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY = "propose_content";
-// These identify the shared Task capability contract, not loopback endpoints.
+// These identify the shared Task capability contract across in-process and loopback adapters.
 export const TASKEN_CORE_TASK_QUERY_CAPABILITY = "task.query";
 export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";
