@@ -1,7 +1,7 @@
-# Mobile Gateway Phase 4A contract
+# Mobile Gateway contract and runtime evidence
 
-Issue #398の最初の縦断sliceとして、Android実装や外向きserverより先にMobile固有contractと純粋adapter/client境界を固定する。
-このPhaseではlisten、Tailscale Serve、pairing、token保存、SQLite接続、Electron lifecycleを実装しない。
+Issue #398のPhase 4Aでは、Mobile固有contractと純粋adapter/client境界を固定した。
+Phase 4Bでは、localhost listener、Electron lifecycle、Tailscale Serve、device pairing、Android Keystore、Settings diagnosticsを同じ縦断経路へ接続した。
 
 ## 非交渉条件
 
@@ -27,25 +27,42 @@ pure clientはHTTPS、Mobile専用bearer、timeout、256 KiB response上限、ve
 
 ## Issue #398 ACチェックリスト
 
-- [ ] Gatewayはlocalhostにだけlistenする — Phase 4Aはserverを持たず、Phase 4Bのlifecycleで検証する。
-- [ ] Tailscale Serve経由のprivate HTTPSでAndroidから到達できる — Android実機/Tailscale sliceで検証する。
-- [ ] Funnelを使用しない — Serve設定を追加するPhaseで構成と実機を検証する。
+- [x] Gatewayはlocalhostにだけlistenする。
+  `127.0.0.1:48177`へbindし、Windows実行中のdiagnosticsでもloopback originを確認した。
+- [x] Tailscale Serve経由のprivate HTTPSでAndroidから到達できる。
+  ServeのHTTPS portからlocalhost Gatewayへreverse proxyし、S23の`GET /v1/today`が200を返した。
+- [x] Funnelを使用しない。
+  `tailscale funnel status`はtailnet onlyを示し、public internet公開を示す表示がないことを確認した。
 - [x] Read ModelとCommand APIがversioned contractを持つ — Mobile専用strict schemaとfixtureで固定する。
 - [x] Task writeがApplicationCommandServiceを通る — Gatewayは注入されたTask capabilityだけを呼び、parity/replay testで固定する。
-- [ ] Android / agentを別scopeとして認証できる — contractは分離済み。pairing/token検証とagent principalは未実装。
-- [ ] QRまたはone-time codeでdevice pairingできる — Phase 4B以降。
-- [ ] Desktopからdeviceをrevokeできる — Phase 4B以降。
+- [x] Android / agentを別scopeとして認証できる。
+  Mobile tokenは`mobile:read`と`mobile:task-write`に固定し、agent principalはMobile endpointで拒否する。
+- [x] QRまたはone-time codeでdevice pairingできる。
+  Desktopが8桁、5分、1回限りのcodeを発行し、S23からpairしてper-device tokenをAndroid Keystoreへ保存した。
+- [x] Desktopからdeviceをrevokeできる。
+  Settingsのdevice一覧から失効でき、revoked tokenを即時拒否するruntime testを通した。
 - [x] local path / secretsを返さない — allowlist projectionとleak testで固定する。
 - [x] Desktop UIとMobile APIのcommand parity testがある — 同じTask capability fixtureのEntity/Event結果を比較する。
-- [ ] tray / restart / sleep後の状態が分かる — runtime wiringと実Windows smokeで検証する。
+- [ ] tray / restart / sleep後の状態が分かる。
+  SettingsはGateway状態、local port、paired device、latest requestを表示する。
+  Electron再起動後にGateway ready、登録端末1台、S23のToday 200を確認した。
+  PC sleepとwakeは未検証である。
 
-## Phase 4Aで意図的に未実装
+## 実機検証
 
-- HTTP serverのbind、CORS、rate limit、request body stream上限
-- Tailscale Serve / MagicDNS / grants / Funnel禁止設定
-- one-time pairing、per-device token、Keystore、revoke
-- Settings / Diagnostics UI
-- Android Kotlin model生成、Room cache、outbox、sync cursor
-- sleep / restart / network切替 / Fold実機検証
+- Windows Android Studio JBRで`:app:testDebugUnitTest :app:assembleDebug`を実行し、44 taskが成功した。
+- S23へ`adb install -r`で上書きし、cold launchは738 ms、fresh crash markerは0だった。
+- S23の現在画面はpairing、Gateway error、loadingのいずれでもなかった。
+- Desktop Gatewayは再起動後もreadyとなり、有効端末1台を復元して`/v1/today`へ200を返した。
+- Windows-native production buildとLinux production buildを通した。
+- 全自動testは1,267件成功、0件失敗、1件skipだった。
+- Architecture auditは既存の期限付き3件だけがnew candidateで、blockingは0だった。
 
-これらを未実装のままIssue #398はcloseしない。
+## 未検証の境界
+
+- PC sleepとwake後のGateway復帰
+- Wi-Fiとcellularの切替
+- Tailscale grantsのdenyとallow
+- Fold実機
+
+PC sleepとwakeを確認するまで、Issue #398はcloseしない。

@@ -36,6 +36,7 @@
         "exports",
         "files",
         "mediaCapture",
+        "mobileGateway",
         "preferences",
         "screenRecording",
         "sharedSync",

@@ -137,7 +137,7 @@ test("fake provider SQLite E2E confirms, sends one verified descriptor, and appe
   assert.equal(result.revisions.length, 1);
   assert.deepEqual(state.database.get("capture_entry", CAPTURE_ID).transcription_revisions, result.revisions);
   assert.deepEqual(state.database.get("artifact", ARTIFACT_ID).transcription_revisions, result.revisions);
-  assert.equal(state.database.getMeta().schemaVersion, 4);
+  assert.equal(state.database.getMeta().schemaVersion, 5);
 });
 
 test("retry reuses one durable revision and a new run appends without overwriting history", async (t) => {

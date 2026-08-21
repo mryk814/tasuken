@@ -230,6 +230,7 @@ test("canonical Today golden is accepted and malformed responses fail closed", (
 
 test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, versions, and ambiguous idempotency", () => {
   assert.deepEqual(TASKEN_MOBILE_ENDPOINTS, {
+    pair: "/v1/pair",
     health: "/v1/health",
     today: "/v1/today",
     commands: "/v1/commands",

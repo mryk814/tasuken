@@ -12,6 +12,12 @@ const api: ResearchDeskApi = {
     bootstrap: (legacy) => ipcRenderer.invoke(IPC.workspaceBootstrap, legacy),
     getMeta: () => ipcRenderer.invoke(IPC.workspaceMeta),
   },
+  mobileGateway: {
+    diagnostics: () => ipcRenderer.invoke(IPC.mobileGatewayDiagnostics),
+    issuePairing: () => ipcRenderer.invoke(IPC.mobileGatewayIssuePairing),
+    cancelPairing: () => ipcRenderer.invoke(IPC.mobileGatewayCancelPairing),
+    revokeDevice: (deviceId) => ipcRenderer.invoke(IPC.mobileGatewayRevokeDevice, deviceId),
+  },
   task: createTaskPreloadCapability(),
   activity: {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
@@ -281,5 +287,7 @@ const api: ResearchDeskApi = {
   },
 };
 
+const { mobileGateway: _mobileGateway, ...legacyResearchDesk } = api;
+
 contextBridge.exposeInMainWorld("api", api);
-contextBridge.exposeInMainWorld("researchDesk", api);
+contextBridge.exposeInMainWorld("researchDesk", legacyResearchDesk);

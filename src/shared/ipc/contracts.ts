@@ -45,6 +45,11 @@ import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest
 import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingRegionSelection, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
 import { LEGACY_TASK_IPC_CHANNELS } from "../compatibility/taskIpc.ts";
 import type { TaskCapability } from "../contracts/task/public.ts";
+import type {
+  MobileGatewayDiagnostics,
+  MobileGatewayDevice,
+  MobileGatewayPairingTicket,
+} from "../mobileGatewayIpc.ts";
 
 /** 録画中インジケータが表示する状態（#383）。pathやsource IDは載せない。 */
 export interface RecordingIndicatorState {
@@ -61,6 +66,10 @@ export const IPC = {
   workspaceLoad: "workspace:load",
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
+  mobileGatewayDiagnostics: "mobile-gateway:diagnostics",
+  mobileGatewayIssuePairing: "mobile-gateway:issue-pairing",
+  mobileGatewayCancelPairing: "mobile-gateway:cancel-pairing",
+  mobileGatewayRevokeDevice: "mobile-gateway:revoke-device",
   taskCommand: LEGACY_TASK_IPC_CHANNELS.command,
   taskQuery: LEGACY_TASK_IPC_CHANNELS.query,
   taskChanged: LEGACY_TASK_IPC_CHANNELS.changed,
@@ -580,6 +589,12 @@ export interface ResearchDeskApi {
     load(): Promise<Workspace>;
     bootstrap(legacy: Workspace): Promise<Workspace>;
     getMeta(): Promise<WorkspaceMeta>;
+  };
+  mobileGateway: {
+    diagnostics(): Promise<MobileGatewayDiagnostics>;
+    issuePairing(): Promise<MobileGatewayPairingTicket>;
+    cancelPairing(): Promise<boolean>;
+    revokeDevice(deviceId: string): Promise<MobileGatewayDevice | null>;
   };
   task: TaskCapability;
   activity: {

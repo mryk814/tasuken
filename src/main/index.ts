@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
+import { registerMobileGatewayIpc } from "./ipc/registerMobileGatewayIpc";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
 import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
 import { registerWebArtifactProtocol, registerWebArtifactScheme } from "./webArtifactProtocol";
@@ -2435,6 +2436,7 @@ async function startDesktopApp(): Promise<void> {
     },
     notifyCommandApplied, notifyTodayMiniRefresh,
   );
+  registerMobileGatewayIpc(composition.mobileGateway);
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので
   // 正本DBではなくuserData配下のJSONへ置き、別端末へ同期させない。
   satelliteWindows = createSatelliteWindowRegistry({

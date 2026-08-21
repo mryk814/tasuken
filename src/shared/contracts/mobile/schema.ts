@@ -41,6 +41,8 @@ export const mobileErrorCodeSchema = z.enum([
   "unauthorized",
   "forbidden",
   "validation_failed",
+  "pairing_code_invalid",
+  "rate_limited",
   "not_found",
   "method_not_allowed",
   "version_mismatch",
@@ -133,6 +135,27 @@ export const mobileCreateTaskResponseSchema = z.object({
   }).strict(),
 }).strict();
 
+export const mobilePairRequestSchema = z.object({
+  apiVersion: apiVersionSchema,
+  schemaVersion: schemaVersionSchema,
+  requestId: requestIdSchema,
+  pairingCode: z.string().regex(/^\d{8}$/),
+  clientDeviceId: entityIdSchema,
+  deviceLabel: z.string().trim().min(1).max(80),
+}).strict();
+
+export const mobilePairResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    deviceId: entityIdSchema,
+    deviceLabel: z.string().trim().min(1).max(80),
+    accessToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    scopes: z.array(mobileScopeSchema).min(1).max(10),
+    pairedAt: isoTimestampSchema,
+  }).strict(),
+}).strict();
+
 export const mobileErrorResponseSchema = z.object({
   ok: z.literal(false),
   meta: mobileResponseMetaSchema,
@@ -148,4 +171,6 @@ export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
 export type MobileCreateTaskRequest = z.output<typeof mobileCreateTaskRequestSchema>;
 export type MobileCreateTaskResponse = z.output<typeof mobileCreateTaskResponseSchema>;
+export type MobilePairRequest = z.output<typeof mobilePairRequestSchema>;
+export type MobilePairResponse = z.output<typeof mobilePairResponseSchema>;
 export type MobileErrorResponse = z.output<typeof mobileErrorResponseSchema>;

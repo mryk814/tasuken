@@ -183,7 +183,8 @@
       "kind": "main-transport",
       "status": "enforced",
       "publicEntrypoints": [
-        "src/main/gateway/mobile/public.ts"
+        "src/main/gateway/mobile/public.ts",
+        "src/main/gateway/mobile/runtimePublic.ts"
       ],
       "enforcePublicApi": true,
       "owner": "mobile-gateway"
@@ -290,10 +291,12 @@
   ],
   "capabilities": {
     "rendererAdapterPaths": [
+      "src/renderer/src/services/mobileGatewayApi.ts",
       "src/renderer/src/services/workspaceApi.ts"
     ],
     "ipcRegistrarPaths": [
-      "src/main/ipc/registerIpc.ts"
+      "src/main/ipc/registerIpc.ts",
+      "src/main/ipc/registerMobileGatewayIpc.ts"
     ]
   },
   "enforcement": {
