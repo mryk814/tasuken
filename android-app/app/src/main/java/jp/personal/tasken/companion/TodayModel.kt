@@ -10,8 +10,10 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -22,6 +24,7 @@ data class MobileTask(
     val state: String,
     val workState: String?,
     val updatedAt: String,
+    val pending: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -52,6 +55,8 @@ class TodayViewModel(
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
+    private var observingCache = false
+    private var cachedGeneratedAt = ""
 
     fun load() {
         viewModelScope.launch { loadNow() }
@@ -59,7 +64,34 @@ class TodayViewModel(
 
     internal suspend fun loadNow() {
         mutableUiState.value = TodayUiState.Loading
-        applyResult(withContext(ioDispatcher) { repository.loadToday() })
+        val result = withContext(ioDispatcher) { repository.loadToday() }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository != null && result !is MobileTodayResult.PairingRequired) {
+            val cachedTasks = withContext(ioDispatcher) { offlineRepository.observeCachedTasks().first() }
+            if (cachedTasks.isNotEmpty() || result is MobileTodayResult.Available) {
+                cachedGeneratedAt = (result as? MobileTodayResult.Available)?.generatedAt.orEmpty()
+                applyCachedTasks(cachedTasks)
+                observeCache(offlineRepository)
+                return
+            }
+        }
+        applyResult(result)
+    }
+
+    private fun observeCache(repository: MobileOfflineTaskRepository) {
+        if (observingCache) return
+        observingCache = true
+        viewModelScope.launch(ioDispatcher) {
+            repository.observeCachedTasks().collect(::applyCachedTasks)
+        }
+    }
+
+    private fun applyCachedTasks(tasks: List<MobileTask>) {
+        mutableUiState.value = if (tasks.isEmpty()) {
+            TodayUiState.Empty
+        } else {
+            TodayUiState.Success(tasks.toList(), cachedGeneratedAt)
+        }
     }
 
     fun pair(origin: String, pairingCode: String) {
@@ -124,4 +156,10 @@ class TodayPaneState(
 interface MobileGatewayRepository : MobileTaskRepository {
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
+}
+
+interface MobileOfflineTaskRepository {
+    fun observeCachedTasks(): Flow<List<MobileTask>>
+    fun observePendingCount(): Flow<Int>
+    suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
 }
