@@ -135,9 +135,9 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueCreateTask(title: String, todayDate: LocalDate?): String =
         outbox.enqueueCreate(title, todayDate)
 
-    override suspend fun enqueueCompleteTask(taskId: String): String = outbox.enqueueComplete(taskId)
+    override suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult = outbox.enqueueComplete(taskId)
 
-    override suspend fun enqueueReopenTask(taskId: String): String = outbox.enqueueReopen(taskId)
+    override suspend fun enqueueReopenTask(taskId: String): MobileStateActionResult = outbox.enqueueReopen(taskId)
 
     override suspend fun acceptServerConflict(commandId: String) = outbox.acceptServer(commandId)
 

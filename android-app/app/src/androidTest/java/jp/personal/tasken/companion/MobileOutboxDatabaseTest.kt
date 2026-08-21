@@ -112,7 +112,7 @@ class MobileOutboxDatabaseTest {
             ),
         )
 
-        val completeId = outbox.enqueueComplete(taskId)
+        val completeId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
         val completeEnvelope = MobileTaskCommandContract.decodeStateEnvelope(
             requireNotNull(dao.outbox(completeId)).envelopeJson,
         )
@@ -123,7 +123,7 @@ class MobileOutboxDatabaseTest {
         assertEquals(8, dao.task(taskId)?.serverVersion)
         assertNull(dao.task(taskId)?.optimisticCommandId)
 
-        val reopenId = outbox.enqueueReopen(taskId)
+        val reopenId = requireNotNull(outbox.enqueueReopen(taskId).commandId)
         val reopenEnvelope = MobileTaskCommandContract.decodeStateEnvelope(
             requireNotNull(dao.outbox(reopenId)).envelopeJson,
         )
@@ -137,7 +137,7 @@ class MobileOutboxDatabaseTest {
         val taskId = "10000000-0000-4000-8000-000000000020"
         dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
 
-        val staleCommandId = outbox.enqueueComplete(taskId)
+        val staleCommandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
         assertTrue(outbox.drain {
             MobileCommandSendResult.Conflict(conflict(taskId, serverVersion = 8, serverState = "todo"))
         }.not())
@@ -169,7 +169,7 @@ class MobileOutboxDatabaseTest {
     fun acceptingServerDeletesConflictAndOriginalCommand() = runBlocking {
         val taskId = "10000000-0000-4000-8000-000000000021"
         dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo"))
-        val commandId = outbox.enqueueComplete(taskId)
+        val commandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
         outbox.drain {
             MobileCommandSendResult.Conflict(conflict(taskId, serverVersion = 4, serverState = "todo"))
         }
@@ -180,6 +180,68 @@ class MobileOutboxDatabaseTest {
         assertNull(dao.conflict(commandId))
         assertNull(dao.task(taskId)?.conflictCommandId)
         assertEquals("todo", dao.task(taskId)?.state)
+    }
+
+    @Test
+    fun completeAfterOfflineCreateWaitsForReceiptThenUsesCanonicalVersion() = runBlocking {
+        val taskId = outbox.enqueueCreate("作成後に完了", LocalDate.parse("2026-08-22"))
+        val createId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+        val complete = outbox.enqueueComplete(taskId)
+        val completeId = requireNotNull(complete.commandId)
+        assertEquals(createId, dao.outbox(completeId)?.dependsOnCommandId)
+        assertEquals(2, dao.outboxCount())
+        assertEquals("done", dao.task(taskId)?.state)
+
+        val sentNames = mutableListOf<String>()
+        assertTrue(outbox.drain { payload ->
+            if (sentNames.isEmpty()) {
+                val envelope = MobileTaskCommandContract.decodeCreateEnvelope(payload)
+                sentNames += envelope.command.name
+                MobileCommandSendResult.Applied(receipt(createId, taskId, "todo", 1))
+            } else {
+                val envelope = MobileTaskCommandContract.decodeStateEnvelope(payload)
+                sentNames += envelope.command.name
+                assertEquals(1, envelope.command.expectedVersion)
+                MobileCommandSendResult.Applied(receipt(completeId, taskId, "done", 2))
+            }
+        }.not())
+
+        assertEquals(listOf("CreateTask", "CompleteTask"), sentNames)
+        assertEquals(0, dao.outboxCount())
+        assertEquals(2, dao.task(taskId)?.serverVersion)
+        assertEquals("done", dao.task(taskId)?.state)
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+    }
+
+    @Test
+    fun completeThenReopenBeforeSendCancelsCommandAtCanonicalState() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000030"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+        outbox.enqueueComplete(taskId)
+
+        val reopened = outbox.enqueueReopen(taskId)
+
+        assertEquals(false, reopened.requiresSync)
+        assertNull(reopened.commandId)
+        assertEquals(0, dao.outboxCount())
+        assertEquals("todo", dao.task(taskId)?.state)
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+    }
+
+    @Test
+    fun createCompleteThenReopenKeepsOnlyOriginalCreate() = runBlocking {
+        val taskId = outbox.enqueueCreate("作成だけ残す", LocalDate.parse("2026-08-22"))
+        val createId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+        outbox.enqueueComplete(taskId)
+
+        val reopened = outbox.enqueueReopen(taskId)
+
+        assertEquals(true, reopened.requiresSync)
+        assertEquals(createId, reopened.commandId)
+        assertEquals(1, dao.outboxCount())
+        assertEquals("CreateTask", dao.outbox(createId)?.commandName)
+        assertEquals("todo", dao.task(taskId)?.state)
+        assertEquals(createId, dao.task(taskId)?.optimisticCommandId)
     }
 
     private fun receipt(

@@ -93,6 +93,32 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationThreeToFourPreservesOutboxAndAddsDependencyColumns() {
+        helper.createDatabase(DatabaseName, 3).apply {
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, state, attemptCount, createdAt, lastAttemptAt, lastError) " +
+                    "VALUES ('command-3', 'command-3', 'request-3', 'device-1', " +
+                    "'2026-08-22T01:00:00Z', 'CreateTask', '{}', 'pending', 0, " +
+                    "'2026-08-22T01:00:00Z', NULL, NULL)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 4, true, MIGRATION_3_4).use { db ->
+            db.query(
+                "SELECT state, taskId, dependsOnCommandId FROM outbox_command WHERE commandId = 'command-3'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("pending", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+                assertTrue(cursor.isNull(2))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }

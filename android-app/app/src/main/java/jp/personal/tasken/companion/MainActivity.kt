@@ -126,7 +126,14 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
     LaunchedEffect(taskActionState) {
         when (taskActionState) {
             is TaskActionUiState.Queued -> {
-                snackbarHostState.showSnackbar("Taskの状態を更新しました。Desktopへ自動送信します。")
+                val queued = taskActionState as TaskActionUiState.Queued
+                snackbarHostState.showSnackbar(
+                    if (queued.requiresSync) {
+                        "Taskの状態を更新しました。Desktopへ自動送信します。"
+                    } else {
+                        "未送信の変更を取り消しました。"
+                    },
+                )
                 todayViewModel.resetTaskActionState()
             }
             is TaskActionUiState.Error -> {
@@ -461,13 +468,16 @@ internal fun TodayDetailPane(
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = { onStateAction(task) },
-                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+                enabled = (!task.pending || task.canChangePendingState) &&
+                    task.conflict == null && actionState !is TaskActionUiState.Saving,
             ) {
                 Text(
                     when {
                         actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
                         task.conflict != null -> "競合を解決してから操作"
-                        task.pending -> "同期後に操作"
+                        task.pending && !task.canChangePendingState -> "同期後に操作"
+                        task.pending && task.state == "done" -> "再開に変更"
+                        task.pending -> "完了に変更"
                         task.state == "done" -> "再開する"
                         else -> "完了する"
                     },

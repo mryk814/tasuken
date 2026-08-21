@@ -53,8 +53,8 @@ class TodayViewModelTest {
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(listOf(cached))
             override fun observePendingCount(): Flow<Int> = flowOf(1)
             override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
-            override suspend fun enqueueCompleteTask(taskId: String) = "unused"
-            override suspend fun enqueueReopenTask(taskId: String) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
         }
         val viewModel = TodayViewModel(repository)
 
@@ -76,8 +76,8 @@ class TodayViewModelTest {
                 receivedTitle = title
                 return "queued-task-id"
             }
-            override suspend fun enqueueCompleteTask(taskId: String) = "unused"
-            override suspend fun enqueueReopenTask(taskId: String) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
         }
         val viewModel = TodayViewModel(repository)
 
@@ -104,22 +104,22 @@ class TodayViewModelTest {
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
             override fun observePendingCount(): Flow<Int> = flowOf(0)
             override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
-            override suspend fun enqueueCompleteTask(taskId: String): String {
+            override suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult {
                 received += "complete:$taskId"
-                return "complete-command"
+                return MobileStateActionResult("complete-command", true)
             }
-            override suspend fun enqueueReopenTask(taskId: String): String {
+            override suspend fun enqueueReopenTask(taskId: String): MobileStateActionResult {
                 received += "reopen:$taskId"
-                return "reopen-command"
+                return MobileStateActionResult("reopen-command", true)
             }
         }
         val viewModel = TodayViewModel(repository)
         val task = sampleTask()
 
         runBlocking { viewModel.toggleTaskStateNow(task) }
-        assertEquals(TaskActionUiState.Queued("complete-command"), viewModel.taskActionState.value)
+        assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
         runBlocking { viewModel.toggleTaskStateNow(task.copy(state = "done")) }
-        assertEquals(TaskActionUiState.Queued("reopen-command"), viewModel.taskActionState.value)
+        assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
         assertEquals(listOf("complete:${task.id}", "reopen:${task.id}"), received)
     }
 
@@ -134,6 +134,24 @@ class TodayViewModelTest {
             TaskActionUiState.Error(task.id, "このTaskの同期完了を待って再試行してください。"),
             viewModel.taskActionState.value,
         )
+    }
+
+    @Test
+    fun unsentPendingTaskCanCoalesceBackToCanonicalState() {
+        val task = sampleTask().copy(state = "done", pending = true, canChangePendingState = true)
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(listOf(task), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(listOf(task))
+            override fun observePendingCount(): Flow<Int> = flowOf(1)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult(null, false)
+        }
+        val viewModel = TodayViewModel(repository)
+
+        runBlocking { viewModel.toggleTaskStateNow(task) }
+
+        assertEquals(TaskActionUiState.Queued(task.id, requiresSync = false), viewModel.taskActionState.value)
     }
 
     @Test
