@@ -8,10 +8,11 @@ import {
   ListAgentReadyTasksService,
   KnowledgeQueryService,
   ProposeTaskWorkService,
+  ProposeRepositoryTaskService,
   TaskContextQueryService,
   ThemeContextQueryService,
 } from "../../core/public.ts";
-import { WorkspaceTaskWorkProposalWriteAdapter } from "./workspaceTaskWorkProposalWriteAdapter.ts";
+import { WorkspaceAiProposalWriteAdapter } from "./workspaceAiProposalWriteAdapter.ts";
 import {
   WorkspaceAgentReadyTaskReadAdapter,
   type AgentReadyTaskWorkspacePersistence,
@@ -55,9 +56,9 @@ export { WorkspaceActivityEntriesReadAdapter, type ActivityEntriesWorkspacePersi
 export { WorkspaceThemeContextReadAdapter, type ThemeContextWorkspacePersistence };
 export { WorkspaceKnowledgeReadAdapter, type KnowledgeWorkspacePersistence };
 export { WorkspaceAgentContextReadAdapter, type AgentContextWorkspacePersistence };
-export { WorkspaceTaskWorkProposalWriteAdapter };
+export { WorkspaceAiProposalWriteAdapter };
 
-export interface TaskWorkProposalPersistence {
+export interface AiProposalPersistence {
   runTransaction<T>(callback: (repository: {
     get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
     save(type: string, entity: Record<string, unknown>, options?: unknown): Record<string, unknown>;
@@ -73,7 +74,7 @@ export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence
   & ThemeContextWorkspacePersistence
   & KnowledgeWorkspacePersistence
   & AgentContextWorkspacePersistence
-  & TaskWorkProposalPersistence;
+  & AiProposalPersistence;
 
 export function createTaskenCore(persistence: TaskenCorePersistence) {
   const agentWorkspace = new AgentWorkspaceQueryService(new WorkspaceAgentWorkspaceReadAdapter(persistence));
@@ -106,6 +107,7 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     getActivity: { execute: agentContext.getActivity.bind(agentContext) },
     getContextSubgraph: { execute: agentContext.getContextSubgraph.bind(agentContext) },
     exportAiContext,
-    proposeTaskWork: new ProposeTaskWorkService(new WorkspaceTaskWorkProposalWriteAdapter(persistence)),
+    proposeTaskWork: new ProposeTaskWorkService(new WorkspaceAiProposalWriteAdapter(persistence)),
+    proposeRepositoryTask: new ProposeRepositoryTaskService(new WorkspaceAiProposalWriteAdapter(persistence)),
   };
 }

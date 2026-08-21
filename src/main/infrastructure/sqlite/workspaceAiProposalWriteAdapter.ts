@@ -1,7 +1,7 @@
 import type {
-  TaskWorkProposalRecord,
-  TaskWorkProposalTransaction,
-  TaskWorkProposalWritePort,
+  AiProposalRecord,
+  AiProposalTransaction,
+  AiProposalWritePort,
 } from "../../core/public.ts";
 
 interface CanonicalProposalPersistence {
@@ -11,14 +11,14 @@ interface CanonicalProposalPersistence {
   }) => T): T;
 }
 
-function asProposal(value: Record<string, unknown> | null): TaskWorkProposalRecord | null {
-  return value as TaskWorkProposalRecord | null;
+function asProposal(value: Record<string, unknown> | null): AiProposalRecord | null {
+  return value as AiProposalRecord | null;
 }
 
-export class WorkspaceTaskWorkProposalWriteAdapter implements TaskWorkProposalWritePort {
+export class WorkspaceAiProposalWriteAdapter implements AiProposalWritePort {
   constructor(private readonly persistence: CanonicalProposalPersistence) {}
 
-  runTransaction<T>(callback: (transaction: TaskWorkProposalTransaction) => T): T {
+  runTransaction<T>(callback: (transaction: AiProposalTransaction) => T): T {
     return this.persistence.runTransaction((repository) => callback({
       get: (id) => asProposal(repository.get("ai_proposal", id, true)),
       save: (proposal) => asProposal(repository.save("ai_proposal", { ...proposal }, { source: "mcp" }))!,

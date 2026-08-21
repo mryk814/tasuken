@@ -10,6 +10,7 @@ export { KnowledgeQueryService } from "./services/knowledgeQueryService.ts";
 export { AgentContextQueryService } from "./services/agentContextQueryService.ts";
 export { AgentContextExportService } from "./services/agentContextExportService.ts";
 export { ProposeTaskWorkError, ProposeTaskWorkService } from "./services/proposeTaskWorkService.ts";
+export { ProposeRepositoryTaskError, ProposeRepositoryTaskService } from "./services/proposeRepositoryTaskService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
@@ -38,7 +39,7 @@ export type {
 } from "./ports/knowledgeReadPort.ts";
 export type { AgentContextReadPort, AgentContextRecord, AgentContextSnapshot, AgentContextWorkspace } from "./ports/agentContextReadPort.ts";
 export type {
-  TaskWorkProposalRecord,
-  TaskWorkProposalTransaction,
-  TaskWorkProposalWritePort,
-} from "./ports/taskWorkProposalWritePort.ts";
+  AiProposalRecord,
+  AiProposalTransaction,
+  AiProposalWritePort,
+} from "./ports/aiProposalWritePort.ts";

@@ -6,7 +6,7 @@ import {
   type ProposeTaskWorkRequest,
   type ProposeTaskWorkResponse,
 } from "../../../shared/contracts/task/public.ts";
-import type { TaskWorkProposalRecord, TaskWorkProposalWritePort } from "../ports/taskWorkProposalWritePort.ts";
+import type { AiProposalRecord, AiProposalWritePort } from "../ports/aiProposalWritePort.ts";
 
 const TOOL_BY_ACTION = {
   start: "tasken.start_task_work",
@@ -121,7 +121,7 @@ function taskWorkEntry(request: ProposeTaskWorkRequest): Record<string, unknown>
 
 export class ProposeTaskWorkService {
   constructor(
-    private readonly writePort: TaskWorkProposalWritePort,
+    private readonly writePort: AiProposalWritePort,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -158,7 +158,7 @@ export class ProposeTaskWorkService {
         }
         return "duplicate" as const;
       }
-      const proposal: TaskWorkProposalRecord = {
+      const proposal: AiProposalRecord = {
         id,
         source: "mcp",
         source_app: sourceApp,
