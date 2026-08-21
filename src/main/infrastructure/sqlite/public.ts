@@ -4,6 +4,7 @@ import {
   ContentDetailQueryService,
   ItemQueryService,
   ListAgentReadyTasksService,
+  KnowledgeQueryService,
   TaskContextQueryService,
   ThemeContextQueryService,
 } from "../../core/public.ts";
@@ -35,6 +36,10 @@ import {
   WorkspaceThemeContextReadAdapter,
   type ThemeContextWorkspacePersistence,
 } from "./workspaceThemeContextReadAdapter.ts";
+import {
+  WorkspaceKnowledgeReadAdapter,
+  type KnowledgeWorkspacePersistence,
+} from "./workspaceKnowledgeReadAdapter.ts";
 
 export { WorkspaceAgentReadyTaskReadAdapter, type AgentReadyTaskWorkspacePersistence };
 export { WorkspaceAgentWorkspaceReadAdapter, type AgentWorkspacePersistence };
@@ -43,6 +48,7 @@ export { WorkspaceItemQueryReadAdapter, type ItemQueryWorkspacePersistence };
 export { WorkspaceContentDetailReadAdapter, type ContentDetailWorkspacePersistence };
 export { WorkspaceActivityEntriesReadAdapter, type ActivityEntriesWorkspacePersistence };
 export { WorkspaceThemeContextReadAdapter, type ThemeContextWorkspacePersistence };
+export { WorkspaceKnowledgeReadAdapter, type KnowledgeWorkspacePersistence };
 
 export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence
   & AgentWorkspacePersistence
@@ -50,12 +56,14 @@ export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence
   & ItemQueryWorkspacePersistence
   & ContentDetailWorkspacePersistence
   & ActivityEntriesWorkspacePersistence
-  & ThemeContextWorkspacePersistence;
+  & ThemeContextWorkspacePersistence
+  & KnowledgeWorkspacePersistence;
 
 export function createTaskenCore(persistence: TaskenCorePersistence) {
   const agentWorkspace = new AgentWorkspaceQueryService(new WorkspaceAgentWorkspaceReadAdapter(persistence));
   const itemQueries = new ItemQueryService(new WorkspaceItemQueryReadAdapter(persistence));
   const contentDetails = new ContentDetailQueryService(new WorkspaceContentDetailReadAdapter(persistence));
+  const knowledge = new KnowledgeQueryService(new WorkspaceKnowledgeReadAdapter(persistence));
   return {
     listAgentReadyTasks: new ListAgentReadyTasksService(new WorkspaceAgentReadyTaskReadAdapter(persistence)),
     resolveRepositoryContext: { execute: agentWorkspace.resolveRepositoryContext.bind(agentWorkspace) },
@@ -71,5 +79,10 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     getArtifactMetadata: { execute: contentDetails.getArtifactMetadata.bind(contentDetails) },
     getActivityEntries: new ActivityEntriesQueryService(new WorkspaceActivityEntriesReadAdapter(persistence)),
     getThemeContext: new ThemeContextQueryService(new WorkspaceThemeContextReadAdapter(persistence)),
+    getRecentNotes: { execute: knowledge.getRecentNotes.bind(knowledge) },
+    searchKnowledge: { execute: knowledge.searchKnowledge.bind(knowledge) },
+    getKnowledgeContext: { execute: knowledge.getKnowledgeContext.bind(knowledge) },
+    getPlanHealth: { execute: knowledge.getPlanHealth.bind(knowledge) },
+    getKnowledgeHealth: { execute: knowledge.getKnowledgeHealth.bind(knowledge) },
   };
 }

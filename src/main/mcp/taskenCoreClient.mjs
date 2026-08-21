@@ -10,6 +10,11 @@ import {
   getNoteResponseSchema,
   getRepositoryContextResponseSchema,
   getThemeContextResponseSchema,
+  getRecentNotesResponseSchema,
+  searchKnowledgeResponseSchema,
+  getKnowledgeContextResponseSchema,
+  getPlanHealthResponseSchema,
+  getKnowledgeHealthResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -23,6 +28,11 @@ import {
   TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
   TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
   TASKEN_CORE_GET_NOTE_CAPABILITY,
+  TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
+  TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY,
+  TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY,
+  TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -192,6 +202,26 @@ export class TaskenCoreClient {
 
   async getThemeContext(request = {}) {
     return this.query("get-theme-context", TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY, request, getThemeContextResponseSchema);
+  }
+
+  async getRecentNotes(request = {}) {
+    return this.query("get-recent-notes", TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY, request, getRecentNotesResponseSchema);
+  }
+
+  async searchKnowledge(request = {}) {
+    return this.query("search-knowledge", TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY, request, searchKnowledgeResponseSchema);
+  }
+
+  async getKnowledgeContext(request = {}) {
+    return this.query("get-knowledge-context", TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY, request, getKnowledgeContextResponseSchema);
+  }
+
+  async getPlanHealth(request = {}) {
+    return this.query("get-plan-health", TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY, request, getPlanHealthResponseSchema);
+  }
+
+  async getKnowledgeHealth(request = {}) {
+    return this.query("get-knowledge-health", TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY, request, getKnowledgeHealthResponseSchema);
   }
 
   async query(path, capability, request, responseSchema) {

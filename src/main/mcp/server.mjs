@@ -21,6 +21,9 @@ const PROPOSAL_ANNOTATIONS = {
 };
 const optionalText = z.string().trim().optional();
 const optionalLimit = z.number().int().positive().max(100).optional();
+const optionalWave7ThemeId = z.string().trim().min(1).max(200).optional();
+const optionalWave7Query = z.string().trim().min(1).max(1000).optional();
+const optionalWave7NodeTypes = z.array(z.string().trim().min(1).max(100)).max(8).optional();
 
 function toolResult(value) {
   return {
@@ -253,32 +256,32 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool("tasken.get_recent_notes", {
     description: "Return recent notes. Full Markdown requires include_raw_body=true.",
     inputSchema: {
-      theme_id: optionalText,
+      theme_id: optionalWave7ThemeId,
       limit: optionalLimit,
       max_chars: z.number().int().positive().max(8000).optional(),
       include_raw_body: z.boolean().optional(),
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetRecentNotes(args)));
+  }, withCoreClient((args) => coreClient.getRecentNotes(args)));
 
   server.registerTool("tasken.search_knowledge", {
     description: "Search Tasken Knowledge nodes.",
     inputSchema: {
-      query: optionalText,
-      theme_id: optionalText,
-      node_types: z.array(z.string()).max(8).optional(),
+      query: optionalWave7Query,
+      theme_id: optionalWave7ThemeId,
+      node_types: optionalWave7NodeTypes,
       limit: optionalLimit,
       max_chars: z.number().int().positive().max(8000).optional(),
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolSearchKnowledge(args)));
+  }, withCoreClient((args) => coreClient.searchKnowledge(args)));
 
   server.registerTool("tasken.get_knowledge_context", {
     description: "Return Knowledge nodes, relations, and optionally source entities.",
     inputSchema: {
-      theme_id: optionalText,
+      theme_id: optionalWave7ThemeId,
       include_relations: z.boolean().optional(),
       include_sources: z.boolean().optional(),
       include_raw_body: z.boolean().optional(),
@@ -287,19 +290,19 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetKnowledgeContext(args)));
+  }, withCoreClient((args) => coreClient.getKnowledgeContext(args)));
 
   server.registerTool("tasken.get_plan_health", {
     description: "Return open, overdue, waiting, and unscheduled work health.",
-    inputSchema: { theme_id: optionalText },
+    inputSchema: { theme_id: optionalWave7ThemeId },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetPlanHealth(args)));
+  }, withCoreClient((args) => coreClient.getPlanHealth(args)));
 
   server.registerTool("tasken.get_knowledge_health", {
     description: "Return unresolved questions and other Knowledge health issues.",
-    inputSchema: { theme_id: optionalText },
+    inputSchema: { theme_id: optionalWave7ThemeId },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetKnowledgeHealth(args)));
+  }, withCoreClient((args) => coreClient.getKnowledgeHealth(args)));
 
   server.registerTool("tasken.get_activity", {
     description: "Return the structured Activity event index as JSON or Markdown. This is read-only and applies AI visibility policy at projection time.",

@@ -18,6 +18,16 @@ import type {
   GetConversationResponse,
   GetNoteRequest,
   GetNoteResponse,
+  GetRecentNotesRequest,
+  GetRecentNotesResponse,
+  SearchKnowledgeRequest,
+  SearchKnowledgeResponse,
+  GetKnowledgeContextRequest,
+  GetKnowledgeContextResponse,
+  GetPlanHealthRequest,
+  GetPlanHealthResponse,
+  GetKnowledgeHealthRequest,
+  GetKnowledgeHealthResponse,
   GetTaskAssignmentRequest,
   GetTaskAssignmentResponse,
   GetTaskContextRequest,
@@ -39,6 +49,11 @@ import {
   getArtifactMetadataRequestSchema,
   getConversationRequestSchema,
   getNoteRequestSchema,
+  getRecentNotesRequestSchema,
+  searchKnowledgeRequestSchema,
+  getKnowledgeContextRequestSchema,
+  getPlanHealthRequestSchema,
+  getKnowledgeHealthRequestSchema,
   getTaskContextRequestSchema,
   listAgentReadyTasksRequestSchema,
   listOpenItemsRequestSchema,
@@ -57,6 +72,11 @@ import {
   TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
   TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
   TASKEN_CORE_GET_NOTE_CAPABILITY,
+  TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
+  TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY,
+  TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY,
+  TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -94,6 +114,11 @@ export interface TaskenCoreHostOptions {
   getArtifactMetadata?: QueryProvider<GetArtifactMetadataRequest, GetArtifactMetadataResponse>;
   getActivityEntries?: QueryProvider<GetActivityEntriesRequest, GetActivityEntriesResponse>;
   getThemeContext?: QueryProvider<GetThemeContextRequest, GetThemeContextResponse>;
+  getRecentNotes?: QueryProvider<GetRecentNotesRequest, GetRecentNotesResponse>;
+  searchKnowledge?: QueryProvider<SearchKnowledgeRequest, SearchKnowledgeResponse>;
+  getKnowledgeContext?: QueryProvider<GetKnowledgeContextRequest, GetKnowledgeContextResponse>;
+  getPlanHealth?: QueryProvider<GetPlanHealthRequest, GetPlanHealthResponse>;
+  getKnowledgeHealth?: QueryProvider<GetKnowledgeHealthRequest, GetKnowledgeHealthResponse>;
 }
 
 interface DiscoveryDocument {
@@ -143,7 +168,12 @@ function parseQueryRequest(url: string, body: unknown): unknown {
                 : url === "/v1/queries/get-conversation" ? getConversationRequestSchema
                   : url === "/v1/queries/get-artifact-metadata" ? getArtifactMetadataRequestSchema
                     : url === "/v1/queries/get-activity-entries" ? getActivityEntriesRequestSchema
-                      : getThemeContextRequestSchema;
+                      : url === "/v1/queries/get-theme-context" ? getThemeContextRequestSchema
+                        : url === "/v1/queries/get-recent-notes" ? getRecentNotesRequestSchema
+                      : url === "/v1/queries/search-knowledge" ? searchKnowledgeRequestSchema
+                        : url === "/v1/queries/get-knowledge-context" ? getKnowledgeContextRequestSchema
+                          : url === "/v1/queries/get-plan-health" ? getPlanHealthRequestSchema
+                            : getKnowledgeHealthRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -253,6 +283,11 @@ export class TaskenCoreHost {
       ...(this.options.getArtifactMetadata ? [TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY] : []),
       ...(this.options.getActivityEntries ? [TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY] : []),
       ...(this.options.getThemeContext ? [TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY] : []),
+      ...(this.options.getRecentNotes ? [TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY] : []),
+      ...(this.options.searchKnowledge ? [TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY] : []),
+      ...(this.options.getKnowledgeContext ? [TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY] : []),
+      ...(this.options.getPlanHealth ? [TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY] : []),
+      ...(this.options.getKnowledgeHealth ? [TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY] : []),
     ];
   }
 
@@ -329,6 +364,11 @@ export class TaskenCoreHost {
         ...(this.options.getArtifactMetadata ? ["/v1/queries/get-artifact-metadata"] : []),
         ...(this.options.getActivityEntries ? ["/v1/queries/get-activity-entries"] : []),
         ...(this.options.getThemeContext ? ["/v1/queries/get-theme-context"] : []),
+        ...(this.options.getRecentNotes ? ["/v1/queries/get-recent-notes"] : []),
+        ...(this.options.searchKnowledge ? ["/v1/queries/search-knowledge"] : []),
+        ...(this.options.getKnowledgeContext ? ["/v1/queries/get-knowledge-context"] : []),
+        ...(this.options.getPlanHealth ? ["/v1/queries/get-plan-health"] : []),
+        ...(this.options.getKnowledgeHealth ? ["/v1/queries/get-knowledge-health"] : []),
       ]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
       if (knownPaths.has(request.url || "")
@@ -381,6 +421,16 @@ export class TaskenCoreHost {
           json(response, 200, this.options.getActivityEntries!.execute(body as GetActivityEntriesRequest));
         } else if (request.url === "/v1/queries/get-theme-context") {
           json(response, 200, this.options.getThemeContext!.execute(body as GetThemeContextRequest));
+        } else if (request.url === "/v1/queries/get-recent-notes") {
+          json(response, 200, this.options.getRecentNotes!.execute(body as GetRecentNotesRequest));
+        } else if (request.url === "/v1/queries/search-knowledge") {
+          json(response, 200, this.options.searchKnowledge!.execute(body as SearchKnowledgeRequest));
+        } else if (request.url === "/v1/queries/get-knowledge-context") {
+          json(response, 200, this.options.getKnowledgeContext!.execute(body as GetKnowledgeContextRequest));
+        } else if (request.url === "/v1/queries/get-plan-health") {
+          json(response, 200, this.options.getPlanHealth!.execute(body as GetPlanHealthRequest));
+        } else if (request.url === "/v1/queries/get-knowledge-health") {
+          json(response, 200, this.options.getKnowledgeHealth!.execute(body as GetKnowledgeHealthRequest));
         } else {
           json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
         }

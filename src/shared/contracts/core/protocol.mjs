@@ -17,6 +17,11 @@ export const TASKEN_CORE_GET_CONVERSATION_CAPABILITY = "get_conversation";
 export const TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY = "get_artifact_metadata";
 export const TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY = "get_activity_entries";
 export const TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY = "get_theme_context";
+export const TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY = "get_recent_notes";
+export const TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY = "search_knowledge";
+export const TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY = "get_knowledge_context";
+export const TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY = "get_plan_health";
+export const TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY = "get_knowledge_health";
 // These identify the shared Task capability contract, not loopback endpoints.
 export const TASKEN_CORE_TASK_QUERY_CAPABILITY = "task.query";
 export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";
