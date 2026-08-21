@@ -277,7 +277,7 @@ class AndroidMobileTaskRepository(
         require(response.status == 200) { "Mobile bootstrap failed with HTTP ${response.status}" }
         val decoded = MobileSyncContract.decodeBootstrap(response.body)
         dao.applyBootstrap(
-            tasks = decoded.data.tasks.map(MobileTaskSummaryDto::toCache),
+            tasks = decoded.data.tasks.map { it.toCache() },
             syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
         )
     }
