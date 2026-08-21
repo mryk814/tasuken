@@ -244,6 +244,52 @@ class MobileOutboxDatabaseTest {
         assertEquals(createId, dao.task(taskId)?.optimisticCommandId)
     }
 
+    @Test
+    fun bootstrapAndPagedSyncAdvanceCursorAtomicallyWithoutOverwritingPendingIntent() = runBlocking {
+        val pendingTaskId = outbox.enqueueCreate("端末の未送信Task", LocalDate.parse("2026-08-22"))
+        dao.upsertTask(canonicalCachedTask("stale-canonical", 1, "todo"))
+
+        dao.applyBootstrap(
+            tasks = listOf(
+                canonicalCachedTask(pendingTaskId, 4, "done").copy(title = "Desktop側の同一Task"),
+                canonicalCachedTask("bootstrap-task", 2, "todo").copy(title = "Bootstrap Task"),
+            ),
+            syncState = SyncStateEntity(
+                serverId = "server-restored",
+                apiVersion = 1,
+                schemaVersion = 1,
+                cursor = "2026-08-22T02:00:00Z|bootstrap-task",
+                lastSuccessfulSyncAt = "2026-08-22T02:00:00Z",
+                lastAttemptAt = "2026-08-22T02:00:00Z",
+                lastError = null,
+            ),
+        )
+
+        assertNull(dao.task("stale-canonical"))
+        assertEquals("端末の未送信Task", dao.task(pendingTaskId)?.title)
+        assertEquals("Bootstrap Task", dao.task("bootstrap-task")?.title)
+        assertEquals("server-restored", dao.syncState()?.serverId)
+
+        dao.applySyncPage(
+            upserts = listOf(
+                canonicalCachedTask("bootstrap-task", 3, "doing").copy(
+                    title = "Delta Task",
+                    updatedAt = "2026-08-22T03:00:00Z",
+                ),
+            ),
+            tombstoneIds = listOf(pendingTaskId),
+            syncState = requireNotNull(dao.syncState()).copy(
+                cursor = "2026-08-22T03:00:00Z|bootstrap-task",
+                lastSuccessfulSyncAt = "2026-08-22T03:00:00Z",
+            ),
+        )
+
+        assertEquals("端末の未送信Task", dao.task(pendingTaskId)?.title)
+        assertEquals("Delta Task", dao.task("bootstrap-task")?.title)
+        assertEquals("doing", dao.task("bootstrap-task")?.state)
+        assertEquals("2026-08-22T03:00:00Z|bootstrap-task", dao.syncState()?.cursor)
+    }
+
     private fun receipt(
         commandId: String,
         taskId: String,

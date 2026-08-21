@@ -23,6 +23,7 @@ const requestIdSchema = entityIdSchema;
 export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.health,
   TASKEN_MOBILE_CAPABILITIES.todayRead,
+  TASKEN_MOBILE_CAPABILITIES.syncRead,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
 ]);
 
@@ -79,6 +80,7 @@ export const mobileTaskSummarySchema = z.object({
   themeId: entityIdSchema.nullable(),
   state: taskStateSchema,
   workState: taskWorkStateSchema.nullable(),
+  todayDate: localDateSchema.nullable().optional(),
   updatedAt: isoTimestampSchema,
 }).strict();
 
@@ -110,6 +112,56 @@ export const mobileTodayResponseSchema = z.object({
     date: localDateSchema,
     items: z.array(mobileTaskSummarySchema).max(TASKEN_MOBILE_MAX_ITEMS),
     nextCursor: z.string().max(1000).nullable(),
+  }).strict(),
+}).strict();
+
+const mobileSyncRequestBase = {
+  apiVersion: apiVersionSchema,
+  schemaVersion: schemaVersionSchema,
+  requestId: requestIdSchema,
+  limit: z.number().int().positive().max(TASKEN_MOBILE_MAX_ITEMS).default(TASKEN_MOBILE_MAX_ITEMS),
+};
+
+export const mobileBootstrapRequestSchema = z.object({
+  ...mobileSyncRequestBase,
+}).strict();
+
+export const mobileBootstrapResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    tasks: z.array(mobileTaskSummarySchema).max(TASKEN_MOBILE_MAX_ITEMS),
+    nextCursor: z.string().max(1000).nullable(),
+    hasMore: z.boolean(),
+  }).strict(),
+}).strict();
+
+export const mobileSyncRequestSchema = z.object({
+  ...mobileSyncRequestBase,
+  cursor: z.string().max(1000),
+}).strict();
+
+export const mobileSyncChangeSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("upsert"),
+    task: mobileTaskSummarySchema,
+  }).strict(),
+  z.object({
+    kind: z.literal("tombstone"),
+    entityType: z.literal("task"),
+    id: taskIdSchema,
+    version: entityVersionSchema,
+    updatedAt: isoTimestampSchema,
+  }).strict(),
+]);
+
+export const mobileSyncResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    changes: z.array(mobileSyncChangeSchema).max(TASKEN_MOBILE_MAX_ITEMS),
+    nextCursor: z.string().max(1000),
+    hasMore: z.boolean(),
   }).strict(),
 }).strict();
 
@@ -199,6 +251,11 @@ export type MobileErrorCode = z.output<typeof mobileErrorCodeSchema>;
 export type MobileHealthResponse = z.output<typeof mobileHealthResponseSchema>;
 export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
+export type MobileBootstrapRequest = z.output<typeof mobileBootstrapRequestSchema>;
+export type MobileBootstrapResponse = z.output<typeof mobileBootstrapResponseSchema>;
+export type MobileSyncRequest = z.output<typeof mobileSyncRequestSchema>;
+export type MobileSyncChange = z.output<typeof mobileSyncChangeSchema>;
+export type MobileSyncResponse = z.output<typeof mobileSyncResponseSchema>;
 export type MobileTaskCommandRequest = z.output<typeof mobileTaskCommandRequestSchema>;
 export type MobileTaskCommandResponse = z.output<typeof mobileTaskCommandResponseSchema>;
 export type MobilePairRequest = z.output<typeof mobilePairRequestSchema>;

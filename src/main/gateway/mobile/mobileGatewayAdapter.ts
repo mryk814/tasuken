@@ -3,11 +3,15 @@ import {
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
   TASKEN_MOBILE_SCHEMA_VERSION,
+  mobileBootstrapRequestSchema,
+  mobileBootstrapResponseSchema,
   mobileTaskCommandRequestSchema,
   mobileTaskCommandResponseSchema,
   mobileErrorResponseSchema,
   mobileHealthResponseSchema,
   mobileResponseMetaSchema,
+  mobileSyncRequestSchema,
+  mobileSyncResponseSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
   type MobileCapability,
@@ -77,7 +81,7 @@ export interface MobileGatewayOptions {
   logger?: MobileGatewayLoggerPort;
 }
 
-function projectTask(task: TaskReadModel) {
+function projectTask(task: TaskReadModel, includeTodayDate = false) {
   return {
     id: task.id,
     version: task.version,
@@ -85,6 +89,7 @@ function projectTask(task: TaskReadModel) {
     themeId: task.project_id || null,
     state: task.state,
     workState: task.work_state || null,
+    ...(includeTodayDate ? { todayDate: task.today_date || null } : {}),
     updatedAt: task.updated_at,
   };
 }
@@ -150,7 +155,7 @@ export class MobileGatewayAdapter {
       if (request.method === "GET" && request.body !== undefined) return this.error(meta, "validation_failed");
 
       if (
-        request.path === TASKEN_MOBILE_ENDPOINTS.today
+        [TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never)
         && !request.principal.scopes.includes("mobile:read")
       ) return this.error(meta, "forbidden");
       if (
@@ -161,9 +166,17 @@ export class MobileGatewayAdapter {
       const today = request.path === TASKEN_MOBILE_ENDPOINTS.today
         ? this.parseTodayQuery(request.query)
         : null;
+      const bootstrap = request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap
+        ? this.parseBootstrapQuery(request.query)
+        : null;
+      const sync = request.path === TASKEN_MOBILE_ENDPOINTS.sync
+        ? this.parseSyncQuery(request.query)
+        : null;
       if (request.path === TASKEN_MOBILE_ENDPOINTS.today && !today) return this.error(meta, "validation_failed");
-      if (today) diagnosticId = today.requestId;
-      if (request.path !== TASKEN_MOBILE_ENDPOINTS.today && Object.keys(request.query || {}).length > 0) {
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap && !bootstrap) return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.sync && !sync) return this.error(meta, "validation_failed");
+      if (today || bootstrap || sync) diagnosticId = (today || bootstrap || sync)!.requestId;
+      if (![TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never) && Object.keys(request.query || {}).length > 0) {
         return this.error(meta, "validation_failed");
       }
 
@@ -200,8 +213,62 @@ export class MobileGatewayAdapter {
           meta,
           data: {
             date: result.value.date,
-            items: result.value.items.map(projectTask),
+            items: result.value.items.map((task) => projectTask(task)),
             nextCursor: result.value.next_cursor,
+          },
+        }));
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap) {
+        let cursor: string | null = null;
+        const active = new Map<string, TaskReadModel>();
+        for (let page = 0; page < 100; page += 1) {
+          const result = await this.options.core.executeTaskQuery({
+            schemaVersion: 1,
+            query_id: `${bootstrap!.requestId}-bootstrap-${page}`,
+            name: "ListTaskChanges",
+            parameters: { cursor, limit: 200 },
+          });
+          if (!result.ok) return this.taskError(meta, result.error);
+          if (result.value.name !== "ListTaskChanges") throw new Error("Unexpected Task bootstrap outcome");
+          for (const task of result.value.items) {
+            if (task.deleted_at) active.delete(task.id);
+            else active.set(task.id, task);
+          }
+          cursor = result.value.next_cursor;
+          if (!result.value.has_more) break;
+          if (page === 99) throw new Error("Task bootstrap exceeded the page limit");
+        }
+        const tasks = [...active.values()]
+          .sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)) || left.id.localeCompare(right.id));
+        meta = this.meta(tasks.length > bootstrap!.limit);
+        return this.success(mobileBootstrapResponseSchema.parse({
+          ok: true,
+          meta,
+          data: {
+            tasks: tasks.slice(0, bootstrap!.limit).map((task) => projectTask(task, true)),
+            nextCursor: cursor || "",
+            hasMore: false,
+          },
+        }));
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.sync) {
+        const result = await this.options.core.executeTaskQuery({
+          schemaVersion: 1,
+          query_id: sync!.requestId,
+          name: "ListTaskChanges",
+          parameters: { cursor: sync!.cursor, limit: sync!.limit },
+        });
+        if (!result.ok) return this.taskError(meta, result.error);
+        if (result.value.name !== "ListTaskChanges") throw new Error("Unexpected Task sync outcome");
+        return this.success(mobileSyncResponseSchema.parse({
+          ok: true,
+          meta,
+          data: {
+            changes: result.value.items.map((task) => task.deleted_at
+              ? { kind: "tombstone", entityType: "task", id: task.id, version: task.version, updatedAt: task.updated_at }
+              : { kind: "upsert", task: projectTask(task, true) }),
+            nextCursor: result.value.next_cursor || sync!.cursor,
+            hasMore: result.value.has_more,
           },
         }));
       }
@@ -276,6 +343,31 @@ export class MobileGatewayAdapter {
     return parsed.success ? parsed.data : null;
   }
 
+  private parseBootstrapQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    if (Object.keys(values).some((key) => !["apiVersion", "schemaVersion", "requestId", "limit"].includes(key))) return null;
+    const parsed = mobileBootstrapRequestSchema.safeParse({
+      apiVersion: Number(values.apiVersion),
+      schemaVersion: Number(values.schemaVersion),
+      requestId: values.requestId,
+      ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
+  private parseSyncQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    if (Object.keys(values).some((key) => !["apiVersion", "schemaVersion", "requestId", "cursor", "limit"].includes(key))) return null;
+    const parsed = mobileSyncRequestSchema.safeParse({
+      apiVersion: Number(values.apiVersion),
+      schemaVersion: Number(values.schemaVersion),
+      requestId: values.requestId,
+      cursor: values.cursor,
+      ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
   private warnUnexpected(id: string): void {
     try {
       this.options.logger?.warn({ id, location: "MobileGatewayAdapter.handle" });
@@ -286,7 +378,9 @@ export class MobileGatewayAdapter {
 
   private capabilities(principal: MobilePrincipal): MobileCapability[] {
     const capabilities: MobileCapability[] = [TASKEN_MOBILE_CAPABILITIES.health];
-    if (principal.scopes.includes("mobile:read")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.todayRead);
+    if (principal.scopes.includes("mobile:read")) {
+      capabilities.push(TASKEN_MOBILE_CAPABILITIES.todayRead, TASKEN_MOBILE_CAPABILITIES.syncRead);
+    }
     if (principal.scopes.includes("mobile:task-write")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskWrite);
     return capabilities;
   }
