@@ -27,8 +27,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -60,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -122,6 +127,7 @@ private fun TodayApp(
     val taskActionState by todayViewModel.taskActionState.collectAsState()
     val pendingCount by todayViewModel.pendingCount.collectAsState()
     val conflictCount by todayViewModel.conflictCount.collectAsState()
+    val allTasks by todayViewModel.allTasks.collectAsState()
     val paneState = rememberTodayPaneState()
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val navigator = rememberListDetailPaneScaffoldNavigator(
@@ -129,10 +135,12 @@ private fun TodayApp(
     )
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
 
     LaunchedEffect(Unit) { todayViewModel.load() }
-    LaunchedEffect(entryRequest, uiState) {
+    LaunchedEffect(entryRequest, uiState, allTasks) {
         if (entryRequest.token == 0L || entryRequest.token == handledEntryToken) return@LaunchedEffect
         when (entryRequest) {
             is MobileEntryRequest.Capture -> {
@@ -141,17 +149,21 @@ private fun TodayApp(
                 handledEntryToken = entryRequest.token
             }
             is MobileEntryRequest.Task -> {
-                val taskExists = (uiState as? TodayUiState.Success)?.tasks?.any { it.id == entryRequest.taskId }
+                val taskExists = allTasks.any { it.id == entryRequest.taskId }
                 if (taskExists == true) {
+                    paneState.activeSection = AppSection.Tasks
                     paneState.selectedTaskId = entryRequest.taskId
                     navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, entryRequest.taskId)
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
                     handledEntryToken = entryRequest.token
                 } else if (uiState is TodayUiState.Empty || uiState is TodayUiState.Error) {
-                    snackbarHostState.showSnackbar("Taskを開けませんでした。Todayを同期して再試行してください。")
+                    snackbarHostState.showSnackbar("Taskを開けませんでした。Tasksを同期して再試行してください。")
                     handledEntryToken = entryRequest.token
                 }
             }
             is MobileEntryRequest.Today -> {
+                paneState.activeSection = AppSection.Today
                 navigator.navigateTo(ListDetailPaneScaffoldRole.List)
                 handledEntryToken = entryRequest.token
             }
@@ -197,7 +209,7 @@ private fun TodayApp(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Today") },
+                title = { Text(if (paneState.activeSection == AppSection.Today) "Today" else "Tasks") },
                 actions = {
                     if (conflictCount > 0) {
                         Surface(
@@ -227,37 +239,76 @@ private fun TodayApp(
                             )
                         }
                     }
-                    TextButton(onClick = { paneState.captureOpen = true }) { Text("追加") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
         },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = paneState.activeSection == AppSection.Today,
+                    onClick = {
+                        paneState.activeSection = AppSection.Today
+                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
+                    },
+                    icon = { Text("T") },
+                    label = { Text("Today") },
+                )
+                NavigationBarItem(
+                    selected = paneState.activeSection == AppSection.Tasks,
+                    onClick = {
+                        paneState.activeSection = AppSection.Tasks
+                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
+                    },
+                    icon = { Text("All") },
+                    label = { Text("Tasks") },
+                )
+                NavigationBarItem(
+                    selected = false,
+                    onClick = { paneState.captureOpen = true },
+                    icon = { Text("+") },
+                    label = { Text("追加") },
+                )
+            }
+        },
     ) { padding ->
         NavigableListDetailPaneScaffold(
             navigator = navigator,
             listPane = {
                 AnimatedPane {
-                    TodayListPane(
-                        uiState = uiState,
-                        paneState = paneState,
-                        onRetry = todayViewModel::load,
-                        onPair = todayViewModel::pair,
-                        onTaskSelected = { taskId ->
-                            paneState.selectedTaskId = taskId
-                            coroutineScope.launch {
-                                navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, taskId)
-                            }
-                        },
-                    )
+                    val onTaskSelected: (String) -> Unit = { taskId ->
+                        paneState.selectedTaskId = taskId
+                        coroutineScope.launch {
+                            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, taskId)
+                            focusManager.clearFocus(force = true)
+                            keyboardController?.hide()
+                        }
+                    }
+                    if (paneState.activeSection == AppSection.Today) {
+                        TodayListPane(
+                            uiState = uiState,
+                            paneState = paneState,
+                            onRetry = todayViewModel::load,
+                            onPair = todayViewModel::pair,
+                            onTaskSelected = onTaskSelected,
+                        )
+                    } else {
+                        TasksListPane(
+                            uiState = uiState,
+                            tasks = allTasks,
+                            paneState = paneState,
+                            onRetry = todayViewModel::load,
+                            onPair = todayViewModel::pair,
+                            onTaskSelected = onTaskSelected,
+                        )
+                    }
                 }
             },
             detailPane = {
                 AnimatedPane {
-                    val task = (uiState as? TodayUiState.Success)
-                        ?.tasks
-                        ?.firstOrNull { it.id == paneState.selectedTaskId }
+                    val task = allTasks.firstOrNull { it.id == paneState.selectedTaskId }
                     TodayDetailPane(
                         task = task,
                         actionState = taskActionState,
@@ -354,6 +405,84 @@ private fun TodayListPane(
     }
 }
 
+internal fun filterCachedTasks(
+    tasks: List<MobileTask>,
+    query: String,
+    filter: TaskListFilter,
+): List<MobileTask> {
+    val normalizedQuery = query.trim()
+    return tasks.filter { task ->
+        val matchesQuery = normalizedQuery.isEmpty() || task.title.contains(normalizedQuery, ignoreCase = true)
+        val matchesState = when (filter) {
+            TaskListFilter.Open -> task.state !in setOf("done", "cancelled")
+            TaskListFilter.Done -> task.state == "done"
+            TaskListFilter.All -> true
+        }
+        matchesQuery && matchesState
+    }
+}
+
+@Composable
+private fun TasksListPane(
+    uiState: TodayUiState,
+    tasks: List<MobileTask>,
+    paneState: TodayPaneState,
+    onRetry: () -> Unit,
+    onPair: (String, String) -> Unit,
+    onTaskSelected: (String) -> Unit,
+) {
+    when {
+        uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
+        uiState is TodayUiState.Error && tasks.isEmpty() -> CenteredState {
+            Text(uiState.message, fontWeight = FontWeight.SemiBold)
+            Text(uiState.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = onRetry) { Text("再読み込み") }
+        }
+        uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
+            CircularProgressIndicator()
+            Text("Tasksを読み込んでいます")
+        }
+        else -> {
+            val filtered = filterCachedTasks(tasks, paneState.taskSearch, paneState.taskFilter)
+            Column(modifier = Modifier.fillMaxSize()) {
+                OutlinedTextField(
+                    value = paneState.taskSearch,
+                    onValueChange = { paneState.taskSearch = it.take(100) },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    label = { Text("Taskを検索") },
+                    singleLine = true,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf(
+                        TaskListFilter.Open to "進行中",
+                        TaskListFilter.Done to "完了",
+                        TaskListFilter.All to "すべて",
+                    ).forEach { (filter, label) ->
+                        FilterChip(
+                            selected = paneState.taskFilter == filter,
+                            onClick = { paneState.taskFilter = filter },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                if (filtered.isEmpty()) {
+                    CenteredState {
+                        Text(if (tasks.isEmpty()) "Taskはありません" else "条件に合うTaskはありません")
+                        if (paneState.taskSearch.isNotEmpty()) {
+                            TextButton(onClick = { paneState.taskSearch = "" }) { Text("検索を解除") }
+                        }
+                    }
+                } else {
+                    TodayTaskList(filtered, paneState, onTaskSelected, allTasksMode = true)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PairingPane(
     state: TodayUiState.PairingRequired,
@@ -397,14 +526,17 @@ private fun TodayTaskList(
     tasks: List<MobileTask>,
     paneState: TodayPaneState,
     onTaskSelected: (String) -> Unit,
+    allTasksMode: Boolean = false,
 ) {
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = paneState.listScrollIndex,
-        initialFirstVisibleItemScrollOffset = paneState.listScrollOffset,
+        initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
+        initialFirstVisibleItemScrollOffset = if (allTasksMode) paneState.taskListScrollOffset else paneState.listScrollOffset,
     )
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collect { (index, offset) -> paneState.recordScroll(index, offset) }
+            .collect { (index, offset) ->
+                if (allTasksMode) paneState.recordTaskScroll(index, offset) else paneState.recordScroll(index, offset)
+            }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -534,7 +666,7 @@ internal fun TodayDetailPane(
                 }
             }
             Text("状態  ${taskStateLabel(task.state)}")
-            task.workState?.let { Text("作業状態  $it") }
+            task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = { onStateAction(task) },

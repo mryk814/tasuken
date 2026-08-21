@@ -41,6 +41,8 @@ class MobileOutbox(
     fun observeTasks(date: LocalDate = LocalDate.now()): Flow<List<TaskCacheWithConflict>> =
         dao.observeTasks(date.toString())
 
+    fun observeAllTasks(): Flow<List<TaskCacheWithConflict>> = dao.observeAllTasks()
+
     fun observePendingCount(): Flow<Int> = dao.observePendingCount()
 
     fun observeConflictCount(): Flow<Int> = dao.observeConflictCount()

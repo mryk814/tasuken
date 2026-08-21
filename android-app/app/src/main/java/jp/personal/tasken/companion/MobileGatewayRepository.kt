@@ -131,6 +131,9 @@ class AndroidMobileTaskRepository(
     override fun observeCachedTasks(): Flow<List<MobileTask>> =
         outbox.observeTasks().map { tasks -> tasks.map(TaskCacheWithConflict::toMobileTask) }
 
+    override fun observeAllCachedTasks(): Flow<List<MobileTask>> =
+        outbox.observeAllTasks().map { tasks -> tasks.map(TaskCacheWithConflict::toMobileTask) }
+
     override fun observePendingCount(): Flow<Int> = outbox.observePendingCount()
 
     override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()

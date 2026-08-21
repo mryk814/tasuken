@@ -103,6 +103,10 @@ abstract class MobileLocalDao {
     @Transaction
     abstract fun observeTasks(date: String): Flow<List<TaskCacheWithConflict>>
 
+    @Query("SELECT * FROM task_cache ORDER BY updatedAt DESC, id ASC")
+    @Transaction
+    abstract fun observeAllTasks(): Flow<List<TaskCacheWithConflict>>
+
     @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
     abstract suspend fun tasksForDate(date: String): List<TaskCacheEntity>
 

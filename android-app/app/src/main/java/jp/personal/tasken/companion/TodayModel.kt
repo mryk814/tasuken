@@ -90,6 +90,8 @@ class TodayViewModel(
     val pendingCount: StateFlow<Int> = mutablePendingCount.asStateFlow()
     private val mutableConflictCount = MutableStateFlow(0)
     val conflictCount: StateFlow<Int> = mutableConflictCount.asStateFlow()
+    private val mutableAllTasks = MutableStateFlow<List<MobileTask>>(emptyList())
+    val allTasks: StateFlow<List<MobileTask>> = mutableAllTasks.asStateFlow()
     private var observingCache = false
     private var cachedGeneratedAt = ""
 
@@ -101,6 +103,9 @@ class TodayViewModel(
             }
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observeConflictCount().collect { mutableConflictCount.value = it }
+            }
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observeAllCachedTasks().collect { mutableAllTasks.value = it.toList() }
             }
         }
     }
@@ -291,12 +296,20 @@ class TodayViewModelFactory(
 }
 
 
+enum class AppSection { Today, Tasks }
+enum class TaskListFilter { Open, Done, All }
+
 class TodayPaneState(
     selectedTaskId: String? = null,
     listScrollIndex: Int = 0,
     listScrollOffset: Int = 0,
     captureDraft: String = "",
     captureOpen: Boolean = false,
+    activeSection: AppSection = AppSection.Today,
+    taskSearch: String = "",
+    taskFilter: TaskListFilter = TaskListFilter.Open,
+    taskListScrollIndex: Int = 0,
+    taskListScrollOffset: Int = 0,
 ) {
     var selectedTaskId by mutableStateOf(selectedTaskId)
     var listScrollIndex by mutableIntStateOf(listScrollIndex)
@@ -305,13 +318,36 @@ class TodayPaneState(
         private set
     var captureDraft by mutableStateOf(captureDraft)
     var captureOpen by mutableStateOf(captureOpen)
+    var activeSection by mutableStateOf(activeSection)
+    var taskSearch by mutableStateOf(taskSearch)
+    var taskFilter by mutableStateOf(taskFilter)
+    var taskListScrollIndex by mutableIntStateOf(taskListScrollIndex)
+        private set
+    var taskListScrollOffset by mutableIntStateOf(taskListScrollOffset)
+        private set
 
     fun recordScroll(index: Int, offset: Int) {
         listScrollIndex = index.coerceAtLeast(0)
         listScrollOffset = offset.coerceAtLeast(0)
     }
 
-    fun save(): List<Any?> = listOf(selectedTaskId, listScrollIndex, listScrollOffset, captureDraft, captureOpen)
+    fun recordTaskScroll(index: Int, offset: Int) {
+        taskListScrollIndex = index.coerceAtLeast(0)
+        taskListScrollOffset = offset.coerceAtLeast(0)
+    }
+
+    fun save(): List<Any?> = listOf(
+        selectedTaskId,
+        listScrollIndex,
+        listScrollOffset,
+        captureDraft,
+        captureOpen,
+        activeSection.name,
+        taskSearch,
+        taskFilter.name,
+        taskListScrollIndex,
+        taskListScrollOffset,
+    )
 
     companion object {
         fun restore(saved: List<Any?>): TodayPaneState = TodayPaneState(
@@ -320,6 +356,15 @@ class TodayPaneState(
             listScrollOffset = saved[2] as Int,
             captureDraft = saved.getOrNull(3) as? String ?: "",
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
+            activeSection = (saved.getOrNull(5) as? String)
+                ?.let { runCatching { AppSection.valueOf(it) }.getOrNull() }
+                ?: AppSection.Today,
+            taskSearch = saved.getOrNull(6) as? String ?: "",
+            taskFilter = (saved.getOrNull(7) as? String)
+                ?.let { runCatching { TaskListFilter.valueOf(it) }.getOrNull() }
+                ?: TaskListFilter.Open,
+            taskListScrollIndex = saved.getOrNull(8) as? Int ?: 0,
+            taskListScrollOffset = saved.getOrNull(9) as? Int ?: 0,
         )
     }
 }
@@ -331,6 +376,7 @@ interface MobileGatewayRepository : MobileTaskRepository {
 
 interface MobileOfflineTaskRepository {
     fun observeCachedTasks(): Flow<List<MobileTask>>
+    fun observeAllCachedTasks(): Flow<List<MobileTask>> = observeCachedTasks()
     fun observePendingCount(): Flow<Int>
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
