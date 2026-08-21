@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -779,7 +780,8 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
 });
 
 test("Phase 4A production Runtime shares one Task service across Desktop, Core HTTP, and Mobile", async () => {
-  const root = mkdtempSync("/tmp/tasken-core-mobile-");
+  const tempRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
+  const root = mkdtempSync(path.join(tempRoot, "tasken-core-mobile-"));
   chmodSync(root, 0o700);
   const repository = new MemoryRepository();
   const application = new ApplicationCommandService(repository);
