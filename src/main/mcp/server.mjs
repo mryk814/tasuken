@@ -1,10 +1,11 @@
+import { randomUUID } from "node:crypto";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 
 import { queueMcpProposal } from "./proposalInbox.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
-import { repositoryContextProposalInput } from "../../shared/repositoryContextProposal.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
@@ -395,6 +396,21 @@ export function createTaskenMcpServer(options = {}) {
     source: "mcp",
     source_app: sourceApp(args),
   });
+  const contentProposalIdentity = {
+    idempotency_key: z.string().trim().min(1).max(200).optional(),
+    caller: z.string().trim().min(1).max(200).optional(),
+    source_session: z.string().trim().min(1).max(200).optional(),
+    source_app: z.string().trim().min(1).max(120).optional(),
+  };
+  const queueRepositoryTask = (args, kind) => coreClient.proposeRepositoryTask({
+    ...args,
+    kind,
+    actor: { kind: "ai_agent" },
+    source: "mcp",
+    source_app: sourceApp(args),
+    idempotency_key: args.idempotency_key || randomUUID(),
+    caller: args.caller || "MCP client",
+  });
 
   server.registerTool("tasken.start_task_work", {
     description: "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",
@@ -454,6 +470,7 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool("tasken.propose_repository_context", {
     description: "Queue a RepositoryContext proposal for user review. This never writes a context directly and never stores credentials.",
     inputSchema: {
+      ...contentProposalIdentity,
       label: z.string().trim().min(1).max(200),
       provider: z.enum(["github", "gitlab", "azure_devops", "local", "generic_git", "unknown"]).optional(),
       remote_url: optionalText,
@@ -463,21 +480,14 @@ export function createTaskenMcpServer(options = {}) {
       subdirectory: optionalText,
       default_branch: optionalText,
       reason: z.string().max(2000).optional(),
-      source_app: z.string().trim().min(1).max(120).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => toolResult(queueMcpProposal({
-    payloadType: "repository_contexts",
-    sourceApp: sourceApp(args),
-    payload: {
-      repository_contexts: [repositoryContextProposalInput(args)],
-    },
-    request: { tool: "tasken.propose_repository_context" },
-  })));
+  }, withCoreClient((args) => queueRepositoryTask(args, "repository_context")));
 
   server.registerTool("tasken.propose_task", {
     description: "Queue a new Task proposal. This does not create the Task until the user accepts it in Tasken.",
     inputSchema: {
+      ...contentProposalIdentity,
       title: z.string().trim().min(1).max(200),
       description: z.string().max(20000).optional(),
       theme: optionalText,
@@ -485,28 +495,9 @@ export function createTaskenMcpServer(options = {}) {
       planned_start: optionalText,
       planned_end: optionalText,
       reason: z.string().max(2000).optional(),
-      source_app: z.string().trim().min(1).max(120).optional(),
     },
     annotations: PROPOSAL_ANNOTATIONS,
-  }, async (args) => toolResult(queueMcpProposal({
-    payloadType: "items",
-    sourceApp: sourceApp(args),
-    payload: {
-      items: [{
-        action: "create",
-        kind: "task",
-        status: "todo",
-        title: args.title,
-        description: args.description || "",
-        theme: args.theme || "",
-        priority: args.priority || "normal",
-        planned_start: args.planned_start || null,
-        planned_end: args.planned_end || null,
-        reason: args.reason || "",
-      }],
-    },
-    request: { tool: "tasken.propose_task" },
-  })));
+  }, withCoreClient((args) => queueRepositoryTask(args, "task")));
 
   server.registerTool("tasken.propose_note", {
     description: "Queue a new Note proposal. This does not create the Note until the user accepts it in Tasken.",

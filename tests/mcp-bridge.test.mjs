@@ -148,16 +148,16 @@ test("canonical MCP launcher fails closed for migrated reads without Core and ex
     const result = await client.callTool({
       name: "tasken.propose_task",
       arguments: {
+        idempotency_key: "canonical-launcher-proposal-1",
+        caller: "node-test",
         title: "MCP経由の確認",
         description: "正式保存前のProposal",
         source_app: "node-test",
       },
     });
-    assert.equal(result.isError, undefined);
-    assert.equal(fs.readdirSync(inboxPath).filter((name) => name.endsWith(".json")).length, 1);
-    const envelope = JSON.parse(fs.readFileSync(path.join(inboxPath, fs.readdirSync(inboxPath)[0]), "utf8"));
-    assert.equal(envelope.payload_type, "items");
-    assert.equal(envelope.payload.items[0].title, "MCP経由の確認");
+    assert.equal(result.isError, true);
+    assert.match(JSON.stringify(result.content), /CORE_UNAVAILABLE/);
+    assert.equal(fs.existsSync(inboxPath), false);
   } finally {
     await client.close();
     fs.rmSync(root, { recursive: true, force: true });

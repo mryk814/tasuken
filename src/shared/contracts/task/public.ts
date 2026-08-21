@@ -242,3 +242,9 @@ export {
   type ProposeTaskWorkRequest,
   type ProposeTaskWorkResponse,
 } from "./taskWorkProposal.ts";
+export {
+  proposeRepositoryTaskRequestSchema,
+  proposeRepositoryTaskResponseSchema,
+  type ProposeRepositoryTaskRequest,
+  type ProposeRepositoryTaskResponse,
+} from "./repositoryTaskProposal.ts";

@@ -1,0 +1,21 @@
+export interface AiProposalRecord {
+  id: string;
+  source: "mcp";
+  source_app: string;
+  payload_type: string;
+  payload: Record<string, unknown>;
+  request: Record<string, unknown>;
+  status: "pending";
+  received_at: string;
+  version?: number;
+}
+
+export interface AiProposalTransaction {
+  get(id: string): AiProposalRecord | null;
+  save(proposal: AiProposalRecord): AiProposalRecord;
+}
+
+/** Owns the atomic canonical ai_proposal write boundary. */
+export interface AiProposalWritePort {
+  runTransaction<T>(callback: (transaction: AiProposalTransaction) => T): T;
+}
