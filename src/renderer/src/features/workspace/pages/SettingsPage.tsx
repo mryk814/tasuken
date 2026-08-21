@@ -8,6 +8,7 @@ import type {
   RootShortcutState,
   SharedSyncStatus,
 } from "../../../../../shared/ipc/contracts";
+import type { MobileGatewayDiagnostics, MobileGatewayPairingTicket } from "../../../../../shared/mobileGatewayIpc";
 import { copyMcpBridgeConfig } from "../../../../../shared/ipc/contracts";
 import type { AiAdapterKind, AiApiSurface, AiAuthKind, AiCapability, AiFeatureAvailability, AiModelLifecycle, AiProviderConfig } from "../../../../../shared/ai";
 import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
@@ -27,7 +28,7 @@ interface SettingsPageProps extends PageProps {
   allThemes: Theme[];
 }
 
-type SettingsSectionId = "general" | "appearance" | "storage" | "integrations" | "ai-mcp" | "advanced";
+type SettingsSectionId = "general" | "appearance" | "storage" | "integrations" | "mobile" | "ai-mcp" | "advanced";
 
 const AI_SURFACES_BY_ADAPTER: Record<AiAdapterKind, AiApiSurface[]> = {
   "openai-native": ["responses"],
@@ -62,6 +63,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; descripti
   { id: "appearance", label: "Appearance", description: "表示と編集" },
   { id: "storage", label: "Storage & Files", description: "保存と同期" },
   { id: "integrations", label: "Integrations", description: "外部サービス" },
+  { id: "mobile", label: "Mobile", description: "Android接続" },
   { id: "ai-mcp", label: "AI & MCP", description: "AI接続と提案" },
   { id: "advanced", label: "Advanced", description: "更新と復元" },
 ];
@@ -131,6 +133,10 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   const [automaticBackupState, setAutomaticBackupState] = useState<"loading" | "error" | "success">("loading");
   const [automaticBackupError, setAutomaticBackupError] = useState("");
   const [automaticBackupReloadToken, setAutomaticBackupReloadToken] = useState(0);
+  const [mobileGateway, setMobileGateway] = useState<MobileGatewayDiagnostics | null>(null);
+  const [mobileGatewayState, setMobileGatewayState] = useState<"loading" | "error" | "success">("loading");
+  const [mobileGatewayError, setMobileGatewayError] = useState("");
+  const [mobilePairing, setMobilePairing] = useState<MobileGatewayPairingTicket | null>(null);
 
   useEffect(() => {
     const onHash = () => setActiveSection(settingsSectionFromHash(window.location.hash));
@@ -175,6 +181,54 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
         setToast(`自動バックアップの状態を確認できませんでした。${message}`, "danger");
       });
   }, [automaticBackupReloadToken, setToast]);
+
+  async function loadMobileGateway(): Promise<void> {
+    setMobileGatewayState("loading");
+    setMobileGatewayError("");
+    try {
+      const diagnostics = await window.api.mobileGateway.diagnostics();
+      setMobileGateway(diagnostics);
+      setMobileGatewayState("success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setMobileGatewayState("error");
+      setMobileGatewayError(`Mobile Gatewayの状態を確認できませんでした。${message}`);
+    }
+  }
+
+  useEffect(() => {
+    void loadMobileGateway();
+  }, []);
+
+  async function issueMobilePairing(): Promise<void> {
+    try {
+      const ticket = await window.api.mobileGateway.issuePairing();
+      setMobilePairing(ticket);
+      await loadMobileGateway();
+    } catch (error) {
+      setToast(`ペアリングコードを発行できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
+  }
+
+  async function cancelMobilePairing(): Promise<void> {
+    await window.api.mobileGateway.cancelPairing();
+    setMobilePairing(null);
+    await loadMobileGateway();
+  }
+
+  async function copyMobilePairingCode(): Promise<void> {
+    if (!mobilePairing) return;
+    await window.api.clipboard.writeText(mobilePairing.code);
+    setToast("ペアリングコードをコピーしました。", "success");
+  }
+
+  async function revokeMobileDevice(deviceId: string, label: string): Promise<void> {
+    if (!window.confirm(`${label} のTasken接続を失効します。再接続には新しいペアリングが必要です。`)) return;
+    await window.api.mobileGateway.revokeDevice(deviceId);
+    setToast(`${label} の接続を失効しました。`, "success");
+    await loadMobileGateway();
+  }
+
 
   function acceptAutomaticBackupStatus(status: AutomaticSnapshotBackupStatus) {
     setAutomaticBackupStatus(status);
@@ -776,6 +830,10 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
             <span>AI Provider</span>
             <strong><IntegrationStatus label={aiSummary.label} tone={aiSummary.tone} /></strong>
           </button>
+          <button type="button" className="settings-summary-item" onClick={() => selectSection("mobile")}>
+            <span>Mobile Gateway</span>
+            <strong><IntegrationStatus label={mobileGateway?.status === "ready" ? "稼働中" : mobileGatewayState === "loading" ? "確認中" : "停止"} tone={mobileGateway?.status === "ready" ? "normal" : mobileGatewayState === "loading" ? "loading" : "attention"} /></strong>
+          </button>
           <button type="button" className="settings-summary-item" onClick={() => selectSection("ai-mcp")}>
             <span>MCP Bridge</span>
             <strong><IntegrationStatus label={mcpSummary.label} tone={mcpSummary.tone} /></strong>
@@ -975,6 +1033,66 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                 {artifactDirectory && <Button variant="secondary" onClick={openArtifactDirectory}>フォルダを開く</Button>}
               </div>
             </section>
++            <section className="panel settings-form" hidden={activeSection !== "mobile"}>
+              <div className="settings-section-heading">
+                <h2>Android Companion</h2>
+                <IntegrationStatus
+                  label={mobileGateway?.status === "ready" ? "稼働中" : mobileGatewayState === "loading" ? "確認中" : "停止"}
+                  tone={mobileGateway?.status === "ready" ? "normal" : mobileGatewayState === "loading" ? "loading" : "attention"}
+                />
+              </div>
+              {mobileGatewayState === "error" ? <p className="form-error">{mobileGatewayError}</p> : null}
+              <dl className="settings-meta-list">
+                <div>
+                  <dt>Local endpoint</dt>
+                  <dd className="mono-value">{mobileGateway?.localOrigin || "確認中"}</dd>
+                </div>
+                <div>
+                  <dt>起動</dt>
+                  <dd>{mobileGateway?.startedAt ? backupTime(mobileGateway.startedAt) : "停止中"}</dd>
+                </div>
+                <div>
+                  <dt>最終リクエスト</dt>
+                  <dd>{mobileGateway?.latestRequest ? `${mobileGateway.latestRequest.status} · ${mobileGateway.latestRequest.method} ${mobileGateway.latestRequest.path}` : "未受信"}</dd>
+                </div>
+              </dl>
+              <div className="settings-action-row">
+                <Button variant="primary" disabled={mobileGateway?.status !== "ready"} onClick={issueMobilePairing}>Androidを追加</Button>
+                <Button variant="secondary" onClick={loadMobileGateway}>状態を更新</Button>
+              </div>
+              {mobilePairing ? (
+                <div className="settings-detail-body" aria-live="polite">
+                  <strong>Pairing code</strong>
+                  <p className="mono-value">{mobilePairing.code}</p>
+                  <p className="field-help">{backupTime(mobilePairing.expiresAt)}まで・1回のみ有効です。</p>
+                  <div className="settings-action-row">
+                    <Button variant="secondary" onClick={copyMobilePairingCode}>コードをコピー</Button>
+                    <button type="button" className="text-button" onClick={cancelMobilePairing}>取り消す</button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "mobile"}>
+              <h2>接続済み端末</h2>
+              {mobileGateway?.devices.length ? (
+                <div className="settings-list">
+                  {mobileGateway.devices.map((device) => (
+                    <div className="settings-list-row" key={device.id}>
+                      <div>
+                        <strong>{device.label}</strong>
+                        <p className="field-help">
+                          {device.revokedAt ? `失効 ${backupTime(device.revokedAt)}` : device.lastSeenAt ? `最終接続 ${backupTime(device.lastSeenAt)}` : "未接続"}
+                        </p>
+                      </div>
+                      {!device.revokedAt ? <Button variant="danger" onClick={() => revokeMobileDevice(device.id, device.label)}>失効</Button> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="field-help">接続済みのAndroid端末はありません。</p>
+              )}
+            </section>
+
             <section className="panel settings-form mcp-settings-panel" hidden={activeSection !== "ai-mcp"}>
               <div className="settings-section-heading">
                 <h2>MCP Bridge</h2>

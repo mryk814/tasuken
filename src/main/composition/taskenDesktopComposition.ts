@@ -4,10 +4,15 @@ import path from "node:path";
 import { validateMcpPackageSmokeRoot } from "../../shared/taskenPaths.mjs";
 import { TaskenCoreRuntime } from "./taskenCoreRuntime.ts";
 import { ApplicationCommandService } from "../services/applicationCommandService";
+import { MobileGatewayRuntime } from "../gateway/mobile/mobileGatewayRuntime.ts";
+import type { MobileDevicePersistence } from "../gateway/mobile/mobileDeviceRegistry.ts";
+import type { MobileGatewayStatePort } from "../gateway/mobile/mobileGatewayAdapter.ts";
 
 type DesktopPersistence = ConstructorParameters<typeof TaskenCoreRuntime>[1]
   & ConstructorParameters<typeof ApplicationCommandService>[0]
+  & MobileDevicePersistence
   & {
+    mobileGatewayState(): ReturnType<MobileGatewayStatePort["current"]>;
     ensureMcpPackageSmokeFixture(): unknown;
     verifyMcpPackageSmokeProposal(id: string): unknown;
     db: { close(): void };
@@ -76,6 +81,7 @@ export class TaskenDesktopComposition<TPersistence extends DesktopPersistence = 
   readonly repository: TPersistence;
   readonly applicationCommands: ApplicationCommandService;
   readonly coreRuntime: TaskenCoreRuntime;
+  readonly mobileGateway: MobileGatewayRuntime;
   private readonly userDataPath: string;
   private verifyOnlyCompleted = false;
 
@@ -88,6 +94,14 @@ export class TaskenDesktopComposition<TPersistence extends DesktopPersistence = 
       this.repository,
       (command) => this.applicationCommands.execute(command),
     );
+    const mobileState: MobileGatewayStatePort = {
+      current: () => this.repository.mobileGatewayState(),
+    };
+    this.mobileGateway = new MobileGatewayRuntime({
+      adapter: this.coreRuntime.createMobileGateway(mobileState),
+      state: mobileState,
+      persistence: this.repository,
+    });
     this.prepareMcpPackageSmoke(options.mcpPackageSmoke);
   }
 
@@ -106,10 +120,15 @@ export class TaskenDesktopComposition<TPersistence extends DesktopPersistence = 
   async start(): Promise<void> {
     if (this.verifyOnlyCompleted) throw new Error("verify-only compositionは起動できません。");
     await this.coreRuntime.start();
+    await this.mobileGateway.start();
   }
 
   async stop(): Promise<void> {
-    await this.coreRuntime.stop();
+    try {
+      await this.mobileGateway.stop();
+    } finally {
+      await this.coreRuntime.stop();
+    }
   }
 
   async stopSafely(onError: (error: unknown) => void): Promise<void> {

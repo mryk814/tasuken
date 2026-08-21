@@ -1,5 +1,6 @@
 package jp.personal.tasken.companion
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -14,7 +15,7 @@ class TodayViewModelTest {
     @Test
     fun loadReachesEmptyState() {
         val viewModel = TodayViewModel(FakeRepository(emptyList()))
-        viewModel.load()
+        runBlocking { viewModel.loadNow() }
         assertSame(TodayUiState.Empty, viewModel.uiState.value)
     }
 
@@ -23,7 +24,7 @@ class TodayViewModelTest {
         val viewModel = TodayViewModel(object : MobileTaskRepository {
             override fun loadToday() = MobileTodayResult.Unavailable("接続失敗", "Desktopを確認してください。")
         })
-        viewModel.load()
+        runBlocking { viewModel.loadNow() }
         assertEquals(
             TodayUiState.Error("接続失敗", "Desktopを確認してください。"),
             viewModel.uiState.value,
@@ -34,7 +35,7 @@ class TodayViewModelTest {
     fun loadReachesImmutableSuccessProjection() {
         val source = mutableListOf(sampleTask())
         val viewModel = TodayViewModel(FakeRepository(source))
-        viewModel.load()
+        runBlocking { viewModel.loadNow() }
         source.clear()
         val success = viewModel.uiState.value as TodayUiState.Success
         assertEquals(1, success.tasks.size)

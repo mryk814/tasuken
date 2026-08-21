@@ -5,9 +5,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class MobileTask(
     val id: String,
@@ -21,6 +27,7 @@ data class MobileTask(
 sealed interface MobileTodayResult {
     data class Available(val tasks: List<MobileTask>, val generatedAt: String) : MobileTodayResult
     data class Unavailable(val message: String, val recovery: String) : MobileTodayResult
+    data class PairingRequired(val origin: String = "", val message: String = "") : MobileTodayResult
 }
 
 interface MobileTaskRepository {
@@ -28,37 +35,64 @@ interface MobileTaskRepository {
 }
 
 class DisconnectedMobileTaskRepository : MobileTaskRepository {
-    override fun loadToday(): MobileTodayResult = MobileTodayResult.Unavailable(
-        message = "Mobile Gatewayに接続できません。",
-        recovery = "DesktopでMobile Gatewayを起動してから再読み込みしてください。",
-    )
+    override fun loadToday(): MobileTodayResult = MobileTodayResult.PairingRequired()
 }
 
 sealed interface TodayUiState {
     data object Loading : TodayUiState
     data object Empty : TodayUiState
+    data class PairingRequired(val origin: String, val message: String = "") : TodayUiState
     data class Error(val message: String, val recovery: String) : TodayUiState
     data class Success(val tasks: List<MobileTask>, val generatedAt: String) : TodayUiState
 }
 
 class TodayViewModel(
     private val repository: MobileTaskRepository = DisconnectedMobileTaskRepository(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
 
     fun load() {
+        viewModelScope.launch { loadNow() }
+    }
+
+    internal suspend fun loadNow() {
         mutableUiState.value = TodayUiState.Loading
-        mutableUiState.value = when (val result = repository.loadToday()) {
+        applyResult(withContext(ioDispatcher) { repository.loadToday() })
+    }
+
+    fun pair(origin: String, pairingCode: String) {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        mutableUiState.value = TodayUiState.Loading
+        viewModelScope.launch {
+            applyResult(withContext(ioDispatcher) { gateway.pair(origin, pairingCode) })
+        }
+    }
+
+    private fun applyResult(result: MobileTodayResult) {
+        mutableUiState.value = when (result) {
             is MobileTodayResult.Available -> if (result.tasks.isEmpty()) {
                 TodayUiState.Empty
             } else {
                 TodayUiState.Success(result.tasks.toList(), result.generatedAt)
             }
             is MobileTodayResult.Unavailable -> TodayUiState.Error(result.message, result.recovery)
+            is MobileTodayResult.PairingRequired -> TodayUiState.PairingRequired(result.origin, result.message)
         }
     }
 }
+
+class TodayViewModelFactory(
+    private val repository: MobileTaskRepository,
+) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        require(modelClass.isAssignableFrom(TodayViewModel::class.java))
+        return TodayViewModel(repository) as T
+    }
+}
+
 
 class TodayPaneState(
     selectedTaskId: String? = null,
@@ -85,4 +119,9 @@ class TodayPaneState(
             listScrollOffset = saved[2] as Int,
         )
     }
+}
+
+interface MobileGatewayRepository : MobileTaskRepository {
+    fun configuration(): MobileGatewayConfiguration
+    fun pair(origin: String, pairingCode: String): MobileTodayResult
 }

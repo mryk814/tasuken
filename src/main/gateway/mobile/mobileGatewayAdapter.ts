@@ -89,7 +89,9 @@ function projectTask(task: TaskReadModel) {
 
 function statusFor(code: MobileErrorCode) {
   if (code === "unauthorized") return 401;
+  if (code === "pairing_code_invalid") return 401;
   if (code === "forbidden") return 403;
+  if (code === "rate_limited") return 429;
   if (code === "not_found") return 404;
   if (code === "method_not_allowed") return 405;
   if (code === "version_mismatch") return 409;
@@ -106,7 +108,9 @@ function statusFor(code: MobileErrorCode) {
 function safeMessage(code: MobileErrorCode) {
   const messages: Record<MobileErrorCode, string> = {
     unauthorized: "端末を認証できません。再ペアリングしてください。",
+    pairing_code_invalid: "ペアリングコードが無効です。Desktopで新しいコードを発行してください。",
     forbidden: "この操作は端末へ許可されていません。",
+    rate_limited: "短時間のリクエストが多すぎます。少し待って再試行してください。",
     validation_failed: "リクエストが不正です。アプリを更新して再試行してください。",
     not_found: "Mobile API endpointが見つかりません。",
     method_not_allowed: "このmethodは利用できません。",

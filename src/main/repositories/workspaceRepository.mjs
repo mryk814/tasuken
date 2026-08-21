@@ -28,7 +28,7 @@ import { buildActivityEvent, migrateChangeEvent, normalizeActivityEvent, activit
 import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
 import { normalizeReferenceAssertion, referenceAssertionIdentity } from "../../shared/relationAssertion.mjs";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
@@ -48,6 +48,30 @@ function parseRow(row) {
   return row.entity_type === "reference"
     ? normalizeReferenceAssertion(entity, { legacyRead: true })
     : entity;
+}
+
+function parseMobileDeviceRow(row) {
+  if (!row) return null;
+  let scopes;
+  try {
+    scopes = JSON.parse(row.scopes_json);
+  } catch {
+    throw new Error("Mobile device scopes are invalid");
+  }
+  if (!Array.isArray(scopes) || scopes.some((scope) => !["mobile:read", "mobile:task-write"].includes(scope))) {
+    throw new Error("Mobile device scopes are invalid");
+  }
+  return {
+    id: row.id,
+    label: row.label,
+    tokenHash: row.token_hash,
+    scopes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastSeenAt: row.last_seen_at,
+    revokedAt: row.revoked_at,
+    version: row.version,
+  };
 }
 
 function contentOf(entity) {
@@ -236,6 +260,27 @@ export class WorkspaceDatabase {
             ON transcription_operations(artifact_id, created_at DESC);
           CREATE INDEX IF NOT EXISTS idx_transcription_operations_lease
             ON transcription_operations(status, lease_expires_at);
+        `),
+      },
+      {
+        version: 5,
+        up: () => this.db.exec(`
+          CREATE TABLE IF NOT EXISTS mobile_devices (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            scopes_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL DEFAULT '',
+            revoked_at TEXT NOT NULL DEFAULT '',
+            deleted_at TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            source TEXT NOT NULL DEFAULT 'pairing'
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_mobile_devices_active
+            ON mobile_devices(revoked_at, updated_at DESC);
         `),
       },
     ];
@@ -1457,6 +1502,79 @@ export class WorkspaceDatabase {
       revision.created_at || revision.changed_at,
     );
   }
+  mobileGatewayState() {
+    return {
+      serverId: this.workspaceId,
+      serverRevision: Number(this.ensureMeta("sync_device_sequence", "0")) || 0,
+      generatedAt: now(),
+    };
+  }
+
+  createMobileDevice(input) {
+    const id = String(input?.id || "").trim();
+    const label = String(input?.label || "").trim();
+    const tokenHash = String(input?.tokenHash || "").trim().toLowerCase();
+    const scopes = Array.isArray(input?.scopes) ? [...new Set(input.scopes)] : [];
+    const createdAt = String(input?.createdAt || "").trim();
+    if (!id || !label || !createdAt || !/^[a-f0-9]{64}$/.test(tokenHash)) {
+      throw new Error("Mobile device record is invalid");
+    }
+    if (scopes.length === 0 || scopes.some((scope) => !["mobile:read", "mobile:task-write"].includes(scope))) {
+      throw new Error("Mobile device scopes are invalid");
+    }
+    this.db.prepare(`
+      INSERT INTO mobile_devices(
+        id, label, token_hash, scopes_json, created_at, updated_at,
+        last_seen_at, revoked_at, deleted_at, version, source
+      ) VALUES (?, ?, ?, ?, ?, ?, '', '', NULL, 1, 'pairing')
+    `).run(id, label, tokenHash, JSON.stringify(scopes), createdAt, createdAt);
+    const created = this.findMobileDeviceByTokenHash(tokenHash);
+    if (!created) throw new Error("Mobile device record was not created");
+    return created;
+  }
+
+  findMobileDeviceByTokenHash(tokenHash) {
+    const hash = String(tokenHash || "").trim().toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(hash)) return null;
+    return parseMobileDeviceRow(this.db.prepare(`
+      SELECT * FROM mobile_devices
+      WHERE token_hash = ? AND deleted_at IS NULL
+    `).get(hash));
+  }
+
+  listMobileDevices() {
+    return this.db.prepare(`
+      SELECT * FROM mobile_devices
+      WHERE deleted_at IS NULL
+      ORDER BY created_at DESC, id ASC
+    `).all().map(parseMobileDeviceRow);
+  }
+
+  revokeMobileDevice(id, revokedAt) {
+    const deviceId = String(id || "").trim();
+    const timestamp = String(revokedAt || "").trim();
+    if (!deviceId || !timestamp) return null;
+    this.db.prepare(`
+      UPDATE mobile_devices
+      SET revoked_at = ?, updated_at = ?, version = version + 1
+      WHERE id = ? AND deleted_at IS NULL AND revoked_at = ''
+    `).run(timestamp, timestamp, deviceId);
+    return parseMobileDeviceRow(this.db.prepare(`
+      SELECT * FROM mobile_devices WHERE id = ? AND deleted_at IS NULL
+    `).get(deviceId));
+  }
+
+  touchMobileDevice(id, lastSeenAt) {
+    const deviceId = String(id || "").trim();
+    const timestamp = String(lastSeenAt || "").trim();
+    if (!deviceId || !timestamp) return;
+    this.db.prepare(`
+      UPDATE mobile_devices
+      SET last_seen_at = ?, updated_at = ?, version = version + 1
+      WHERE id = ? AND deleted_at IS NULL AND revoked_at = ''
+    `).run(timestamp, timestamp, deviceId);
+  }
+
 
   nextSyncSequence() {
     const current = Number(this.ensureMeta("sync_device_sequence", "0")) || 0;
