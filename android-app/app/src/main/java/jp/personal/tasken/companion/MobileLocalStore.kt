@@ -300,14 +300,17 @@ internal val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-fun TaskCacheWithConflict.toMobileTask(): MobileTask = MobileTask(
-    id = task.id,
-    title = task.title,
-    themeId = task.themeId,
-    state = task.state,
-    workState = task.workState,
-    updatedAt = task.updatedAt,
-    pending = task.optimisticCommandId != null,
+fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
+    id = id,
+    title = title,
+    themeId = themeId,
+    state = state,
+    workState = workState,
+    updatedAt = updatedAt,
+    pending = optimisticCommandId != null,
+)
+
+fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
     conflict = conflict?.let {
         MobileTaskConflict(
             commandId = it.commandId,
