@@ -144,6 +144,9 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String =
         outbox.enqueueUpdateTitle(taskId, title)
 
+    override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: LocalDate?): String =
+        outbox.enqueueUpdateTodayDate(taskId, todayDate)
+
     override suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult = outbox.enqueueComplete(taskId)
 
     override suspend fun enqueueReopenTask(taskId: String): MobileStateActionResult = outbox.enqueueReopen(taskId)

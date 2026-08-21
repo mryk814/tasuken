@@ -24,6 +24,7 @@ data class MobileTask(
     val state: String,
     val workState: String?,
     val updatedAt: String,
+    val todayDate: String? = null,
     val pending: Boolean = false,
     val conflict: MobileTaskConflict? = null,
     val canChangePendingState: Boolean = false,
@@ -37,6 +38,9 @@ data class MobileTaskConflict(
     val serverState: String,
     val localTitle: String? = null,
     val detectedAt: String,
+    val serverTodayDate: String? = null,
+    val localTodayDate: String? = null,
+    val localTodayDateChanged: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -207,6 +211,30 @@ class TodayViewModel(
             TaskActionUiState.Queued(task.id)
         } catch (error: Exception) {
             TaskActionUiState.Error(task.id, error.message ?: "Task名を変更できませんでした。")
+        }
+    }
+
+    fun updateTaskTodayDate(task: MobileTask, todayDate: java.time.LocalDate?) {
+        viewModelScope.launch { updateTaskTodayDateNow(task, todayDate) }
+    }
+
+    internal suspend fun updateTaskTodayDateNow(task: MobileTask, todayDate: java.time.LocalDate?) {
+        if (task.todayDate == todayDate?.toString()) return
+        if (task.pending || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから予定を変更してください。")
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskの予定を変更できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) { offlineRepository.enqueueUpdateTaskTodayDate(task.id, todayDate) }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Taskの予定を変更できませんでした。")
         }
     }
 
@@ -381,6 +409,8 @@ interface MobileOfflineTaskRepository {
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
     suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String = error("この環境ではTaskを編集できません。")
+    suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: java.time.LocalDate?): String =
+        error("この環境ではTaskの予定を変更できません。")
     suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult
     suspend fun enqueueReopenTask(taskId: String): MobileStateActionResult
     suspend fun acceptServerConflict(commandId: String) {

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -139,6 +140,54 @@ class TaskStateActionUiTest {
 
         composeRule.onNodeWithText("Desktop  Desktopの名前").assertIsDisplayed()
         composeRule.onNodeWithText("この端末  端末の名前").assertIsDisplayed()
+    }
+
+    @Test
+    fun todayScheduleActionIsVisibleAndSubmitsTheExplicitDate() {
+        var submitted: LocalDate? = null
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask(),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                    onTodayDateUpdate = { _, date -> submitted = date },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("日付  未設定").assertIsDisplayed()
+        composeRule.onNodeWithText("今日に入れる").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertEquals(LocalDate.now(), submitted) }
+    }
+
+    @Test
+    fun todayDateConflictShowsServerAndLocalValues() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask().copy(
+                        todayDate = "2026-08-23",
+                        conflict = MobileTaskConflict(
+                            commandId = "command-schedule",
+                            intendedAction = "UpdateTask",
+                            expectedVersion = 4,
+                            serverVersion = 5,
+                            serverState = "todo",
+                            detectedAt = "2026-08-22T01:00:00Z",
+                            serverTodayDate = "2026-08-23",
+                            localTodayDate = null,
+                            localTodayDateChanged = true,
+                        ),
+                    ),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Desktop  日付 2026-08-23").assertIsDisplayed()
+        composeRule.onNodeWithText("この端末  日付 未設定").assertIsDisplayed()
     }
 
     @Test

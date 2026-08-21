@@ -155,6 +155,30 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun todayDateActionQueuesTheExplicitDateWithoutLocalScheduleRules() {
+        var received: java.time.LocalDate? = null
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: java.time.LocalDate?): String {
+                received = todayDate
+                return "schedule-command"
+            }
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository)
+        val date = java.time.LocalDate.parse("2026-08-22")
+
+        runBlocking { viewModel.updateTaskTodayDateNow(sampleTask(), date) }
+
+        assertEquals(date, received)
+        assertEquals(TaskActionUiState.Queued(sampleTask().id), viewModel.taskActionState.value)
+    }
+
+    @Test
     fun taskStateLabelsUseSharedJapaneseVocabulary() {
         assertEquals("未着手", taskStateLabel("todo"))
         assertEquals("確認待ち", taskStateLabel("review"))

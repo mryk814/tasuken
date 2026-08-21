@@ -1,8 +1,12 @@
 package jp.personal.tasken.companion
 
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable
 data class MobileCreateTaskEnvelopeDto(
@@ -70,12 +74,9 @@ data class MobileTaskUpdateCommandDto(
     val name: String,
     val taskId: String,
     val expectedVersion: Int,
-    val changes: MobileTaskTitlePatchDto,
-    val base: MobileTaskTitlePatchDto,
+    val changes: JsonObject,
+    val base: JsonObject,
 )
-
-@Serializable
-data class MobileTaskTitlePatchDto(val title: String)
 
 @Serializable
 data class MobileTaskCommandResponseDto(
@@ -195,8 +196,29 @@ object MobileTaskCommandContract {
         require(envelope.command.name == "UpdateTask")
         require(envelope.command.taskId.isNotBlank())
         require(envelope.command.expectedVersion > 0)
-        require(envelope.command.changes.title.isNotBlank() && envelope.command.changes.title.length <= 500)
-        require(envelope.command.base.title.isNotBlank() && envelope.command.base.title.length <= 500)
+        require(envelope.command.changes.keys == envelope.command.base.keys)
+        validateTaskPatch(envelope.command.changes)
+        validateTaskPatch(envelope.command.base)
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
+    }
+
+    private fun validateTaskPatch(patch: JsonObject) {
+        require(patch.size == 1)
+        when (val field = patch.keys.single()) {
+            "title" -> {
+                val value = patch[field]
+                require(value is JsonPrimitive && value.isString)
+                require(value.content.isNotBlank() && value.content.length <= 500)
+            }
+            "todayDate" -> {
+                val value = patch[field]
+                require(
+                    value is JsonNull ||
+                        (value is JsonPrimitive && value.isString &&
+                            runCatching { LocalDate.parse(value.content) }.isSuccess),
+                )
+            }
+            else -> error("Unsupported Task patch field: $field")
+        }
     }
 }

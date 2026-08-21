@@ -18,6 +18,17 @@ import java.time.LocalDate
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+private fun titlePatch(title: String): JsonObject = buildJsonObject { put("title", JsonPrimitive(title)) }
+
+private fun todayDatePatch(todayDate: String?): JsonObject = buildJsonObject {
+    put("todayDate", todayDate?.let(::JsonPrimitive) ?: JsonNull)
+}
 
 sealed interface MobileCommandSendResult {
     data class Applied(val response: MobileTaskCommandResponseDto) : MobileCommandSendResult
@@ -129,12 +140,59 @@ class MobileOutbox(
                 name = "UpdateTask",
                 taskId = taskId,
                 expectedVersion = expectedVersion,
-                changes = MobileTaskTitlePatchDto(normalized),
-                base = MobileTaskTitlePatchDto(task.title),
+                changes = titlePatch(normalized),
+                base = titlePatch(task.title),
             ),
         )
         dao.enqueueStateAction(
             task = task.copy(title = normalized, updatedAt = issuedAt, optimisticCommandId = commandId),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = "UpdateTask",
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+                taskId = taskId,
+            ),
+        )
+        schedule()
+        return commandId
+    }
+
+    suspend fun enqueueUpdateTodayDate(taskId: String, todayDate: LocalDate?): String {
+        val normalized = todayDate?.toString()
+        val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(task.optimisticCommandId == null && task.conflictCommandId == null) { "Taskの同期を解決してから編集してください。" }
+        val expectedVersion = requireNotNull(task.serverVersion) { "Task作成の同期完了を待って編集してください。" }
+        require(task.todayDate != normalized)
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val envelope = MobileTaskUpdateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskUpdateCommandDto(
+                name = "UpdateTask",
+                taskId = taskId,
+                expectedVersion = expectedVersion,
+                changes = todayDatePatch(normalized),
+                base = todayDatePatch(task.todayDate),
+            ),
+        )
+        dao.enqueueStateAction(
+            task = task.copy(todayDate = normalized, updatedAt = issuedAt, optimisticCommandId = commandId),
             command = OutboxCommandEntity(
                 commandId = commandId,
                 idempotencyKey = commandId,
@@ -184,8 +242,10 @@ class MobileOutbox(
                         name = "UpdateTask",
                         taskId = conflict.taskId,
                         expectedVersion = conflict.serverVersion,
-                        changes = MobileTaskTitlePatchDto(requireNotNull(conflict.localTitle)),
-                        base = MobileTaskTitlePatchDto(conflict.serverTitle),
+                        changes = conflict.localTitle?.let(::titlePatch)
+                            ?: todayDatePatch(conflict.localTodayDate),
+                        base = conflict.localTitle?.let { titlePatch(conflict.serverTitle) }
+                            ?: todayDatePatch(conflict.serverTodayDate),
                     ),
                 ),
             )
@@ -217,6 +277,7 @@ class MobileOutbox(
             task = task.copy(
                 serverVersion = conflict.serverVersion,
                 title = conflict.localTitle ?: task.title,
+                todayDate = if (conflict.localTodayDateChanged) conflict.localTodayDate else task.todayDate,
                 state = optimisticState,
                 updatedAt = issuedAt,
                 optimisticCommandId = replacementId,
@@ -339,7 +400,6 @@ class MobileOutbox(
                         continue
                     }
                     val task = response.data.task
-                    val cached = dao.task(task.id)
                     val dependents = dao.dependents(command.commandId)
                     require(dependents.size <= 1)
                     val dependent = dependents.singleOrNull()
@@ -358,7 +418,7 @@ class MobileOutbox(
                             themeId = task.themeId,
                             state = task.state,
                             workState = task.workState,
-                            todayDate = cached?.todayDate,
+                            todayDate = task.todayDate,
                             updatedAt = task.updatedAt,
                             optimisticCommandId = null,
                         ),
@@ -380,18 +440,22 @@ class MobileOutbox(
                     val response = result.response
                     val conflict = requireNotNull(response.error.conflict)
                     val current = conflict.currentTask
-                    val cached = dao.task(current.id)
                     require(command.commandName == conflict.intendedAction)
-                    val localTitle = if (command.commandName == "UpdateTask") {
+                    val localPatch = if (command.commandName == "UpdateTask") {
                         val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(command.envelopeJson)
                         require(envelope.command.taskId == current.id)
                         require(envelope.command.expectedVersion == conflict.expectedVersion)
-                        envelope.command.changes.title
+                        envelope.command.changes
                     } else {
                         val envelope = MobileTaskCommandContract.decodeStateEnvelope(command.envelopeJson)
                         require(envelope.command.taskId == current.id)
                         require(envelope.command.expectedVersion == conflict.expectedVersion)
                         null
+                    }
+                    val localTitle = localPatch?.get("title")?.jsonPrimitive?.content
+                    val localTodayDateChanged = localPatch?.containsKey("todayDate") == true
+                    val localTodayDate = localPatch?.get("todayDate")?.let {
+                        if (it == JsonNull) null else it.jsonPrimitive.content
                     }
                     dao.recordConflict(
                         commandId = command.commandId,
@@ -402,7 +466,7 @@ class MobileOutbox(
                             themeId = current.themeId,
                             state = current.state,
                             workState = current.workState,
-                            todayDate = cached?.todayDate,
+                            todayDate = current.todayDate,
                             updatedAt = current.updatedAt,
                             optimisticCommandId = null,
                             conflictCommandId = command.commandId,
@@ -416,6 +480,9 @@ class MobileOutbox(
                             serverState = current.state,
                             serverTitle = current.title,
                             localTitle = localTitle,
+                            serverTodayDate = current.todayDate,
+                            localTodayDate = localTodayDate,
+                            localTodayDateChanged = localTodayDateChanged,
                             serverThemeId = current.themeId,
                             serverWorkState = current.workState,
                             serverUpdatedAt = current.updatedAt,

@@ -8,6 +8,8 @@ import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -297,8 +299,8 @@ class MobileOutboxDatabaseTest {
 
         val commandId = outbox.enqueueUpdateTitle(taskId, "端末の名前")
         val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(commandId)).envelopeJson)
-        assertEquals("元の名前", envelope.command.base.title)
-        assertEquals("端末の名前", envelope.command.changes.title)
+        assertEquals("元の名前", envelope.command.base.getValue("title").jsonPrimitive.content)
+        assertEquals("端末の名前", envelope.command.changes.getValue("title").jsonPrimitive.content)
         assertEquals("端末の名前", dao.task(taskId)?.title)
 
         assertEquals(false, outbox.drain {
@@ -313,9 +315,44 @@ class MobileOutboxDatabaseTest {
         val replacementId = outbox.keepLocal(commandId)
         val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(replacementId)).envelopeJson)
         assertEquals(5, replacement.command.expectedVersion)
-        assertEquals("Desktopの名前", replacement.command.base.title)
-        assertEquals("端末の名前", replacement.command.changes.title)
+        assertEquals("Desktopの名前", replacement.command.base.getValue("title").jsonPrimitive.content)
+        assertEquals("端末の名前", replacement.command.changes.getValue("title").jsonPrimitive.content)
         assertEquals("端末の名前", dao.task(taskId)?.title)
+    }
+
+    @Test
+    fun todayDateUpdatePersistsNullablePatchAndSurvivesConflictResolution() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000041"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo").copy(todayDate = null))
+
+        val commandId = outbox.enqueueUpdateTodayDate(taskId, LocalDate.parse("2026-08-22"))
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(commandId)).envelopeJson)
+        assertEquals(JsonNull, envelope.command.base.getValue("todayDate"))
+        assertEquals("2026-08-22", envelope.command.changes.getValue("todayDate").jsonPrimitive.content)
+        assertEquals("2026-08-22", dao.task(taskId)?.todayDate)
+
+        assertEquals(false, outbox.drain {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId,
+                    serverVersion = 5,
+                    serverState = "todo",
+                    intendedAction = "UpdateTask",
+                    serverTodayDate = "2026-08-23",
+                ),
+            )
+        })
+        val storedConflict = requireNotNull(dao.conflict(commandId))
+        assertTrue(storedConflict.localTodayDateChanged)
+        assertEquals("2026-08-22", storedConflict.localTodayDate)
+        assertEquals("2026-08-23", storedConflict.serverTodayDate)
+        assertEquals("2026-08-23", dao.task(taskId)?.todayDate)
+
+        val replacementId = outbox.keepLocal(commandId)
+        val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(replacementId)).envelopeJson)
+        assertEquals("2026-08-23", replacement.command.base.getValue("todayDate").jsonPrimitive.content)
+        assertEquals("2026-08-22", replacement.command.changes.getValue("todayDate").jsonPrimitive.content)
+        assertEquals("2026-08-22", dao.task(taskId)?.todayDate)
     }
 
     private fun receipt(
@@ -354,6 +391,7 @@ class MobileOutboxDatabaseTest {
         serverState: String,
         intendedAction: String = "CompleteTask",
         serverTitle: String = "Desktop側Task",
+        serverTodayDate: String? = null,
     ) = MobileTaskCommandErrorResponseDto(
         ok = false,
         meta = MobileResponseMetaDto(
@@ -376,6 +414,7 @@ class MobileOutboxDatabaseTest {
                     themeId = null,
                     state = serverState,
                     workState = null,
+                    todayDate = serverTodayDate,
                     updatedAt = "2026-08-22T01:05:00Z",
                 ),
                 intendedAction = intendedAction,

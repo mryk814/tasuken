@@ -94,6 +94,10 @@ function projectTask(task: TaskReadModel, includeTodayDate = false) {
   };
 }
 
+function taskUpdatePatch(patch: { title: string } | { todayDate: string | null }) {
+  return "todayDate" in patch ? { today_date: patch.todayDate } : patch;
+}
+
 function statusFor(code: MobileErrorCode) {
   if (code === "unauthorized") return 401;
   if (code === "pairing_code_invalid") return 401;
@@ -296,8 +300,8 @@ export class MobileGatewayAdapter {
           ? {
               task_id: command.taskId,
               expected_version: command.expectedVersion,
-              changes: command.changes,
-              base: command.base,
+              changes: taskUpdatePatch(command.changes),
+              base: taskUpdatePatch(command.base),
             }
           : {
               task_id: command.taskId,
@@ -320,7 +324,7 @@ export class MobileGatewayAdapter {
         data: {
           commandId: result.value.command_id,
           status: result.value.status,
-          task: projectTask(result.value.task),
+          task: projectTask(result.value.task, true),
         },
       }));
     } catch (error) {
@@ -450,7 +454,7 @@ export class MobileGatewayAdapter {
           || command.expectedVersion === undefined
         ) throw new Error("Version conflict is missing its canonical Task context");
         return this.error(meta, "version_conflict", false, {
-          currentTask: projectTask(currentTask.data),
+          currentTask: projectTask(currentTask.data, true),
           intendedAction: command.name,
           expectedVersion: command.expectedVersion,
         });

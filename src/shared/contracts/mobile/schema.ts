@@ -176,6 +176,11 @@ const mobileCreateTaskCandidateSchema = z.object({
   todayDate: localDateSchema.nullable().optional(),
 }).strict();
 
+const mobileTaskUpdatePatchSchema = z.union([
+  z.object({ title: z.string().trim().min(1).max(500) }).strict(),
+  z.object({ todayDate: localDateSchema.nullable() }).strict(),
+]);
+
 const mobileTaskCommandSchema = z.discriminatedUnion("name", [
   z.object({
     name: z.literal("CreateTask"),
@@ -185,9 +190,15 @@ const mobileTaskCommandSchema = z.discriminatedUnion("name", [
     name: z.literal("UpdateTask"),
     taskId: taskIdSchema,
     expectedVersion: entityVersionSchema,
-    changes: z.object({ title: z.string().trim().min(1).max(500) }).strict(),
-    base: z.object({ title: z.string().trim().min(1).max(500) }).strict(),
-  }).strict(),
+    changes: mobileTaskUpdatePatchSchema,
+    base: mobileTaskUpdatePatchSchema,
+  }).strict().superRefine((value, context) => {
+    const changedKey = Object.keys(value.changes)[0];
+    const baseKey = Object.keys(value.base)[0];
+    if (changedKey !== baseKey) {
+      context.addIssue({ code: "custom", path: ["base"], message: "baseはchangesと同じfieldを持つ必要があります。" });
+    }
+  }),
   z.object({
     name: z.literal("CompleteTask"),
     taskId: taskIdSchema,

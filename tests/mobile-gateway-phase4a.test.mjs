@@ -258,12 +258,32 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   });
   const valid = createRequest();
   assert.equal(mobileTaskCommandRequestSchema.safeParse(valid).success, true);
+  assert.equal(mobileTaskCommandRequestSchema.safeParse({
+    ...valid,
+    command: {
+      name: "UpdateTask",
+      taskId: "task-mobile-create",
+      expectedVersion: 1,
+      changes: { todayDate: "2026-08-22" },
+      base: { todayDate: null },
+    },
+  }).success, true);
   for (const invalid of [
     { ...valid, apiVersion: 2 },
     { ...valid, schemaVersion: 2 },
     { ...valid, actor: { kind: "user", id: "forged" } },
     { ...valid, source: "android" },
     { ...valid, command: { name: "CompleteTask", taskId: "task-mobile-create" } },
+    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { todayDate: "2026-08-22" },
+        base: { title: "Mobile Task" },
+      },
+    },
     { ...valid, idempotencyKey: "different-command" },
   ]) {
     assert.equal(mobileTaskCommandRequestSchema.safeParse(invalid).success, false);
@@ -275,6 +295,59 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     date: "2026-08-21",
     limit: 51,
   }).success, false);
+});
+
+test("Mobile UpdateTask maps Today schedule to the canonical task field", async () => {
+  const { service } = capability();
+  const adapter = gateway(service);
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  })).status, 200);
+
+  const scheduled = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-schedule",
+      commandId: "command-mobile-schedule",
+      idempotencyKey: "command-mobile-schedule",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { todayDate: "2026-08-22" },
+        base: { todayDate: null },
+      },
+    },
+  });
+  assert.equal(scheduled.status, 200);
+  assert.equal(scheduled.body.data.task.todayDate, "2026-08-22");
+
+  const unscheduled = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-unschedule",
+      commandId: "command-mobile-unschedule",
+      idempotencyKey: "command-mobile-unschedule",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 2,
+        changes: { todayDate: null },
+        base: { todayDate: "2026-08-22" },
+      },
+    },
+  });
+  assert.equal(unscheduled.status, 200);
+  assert.equal(unscheduled.body.data.task.todayDate, null);
 });
 
 test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret free", async () => {
@@ -624,6 +697,7 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
       themeId: "theme-personal-default",
       state: "done",
       workState: "not_delegated",
+      todayDate: "2026-08-21",
       updatedAt: now,
     },
     intendedAction: "ReopenTask",
