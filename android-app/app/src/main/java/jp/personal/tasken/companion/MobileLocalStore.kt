@@ -3,11 +3,13 @@ package jp.personal.tasken.companion
 import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Relation
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
@@ -26,6 +28,7 @@ data class TaskCacheEntity(
     val todayDate: String?,
     val updatedAt: String,
     val optimisticCommandId: String?,
+    val conflictCommandId: String? = null,
 )
 
 @Entity(tableName = "outbox_command")
@@ -60,17 +63,40 @@ data class SyncStateEntity(
     }
 }
 
+@Entity(tableName = "task_conflict")
+data class TaskConflictEntity(
+    @PrimaryKey val commandId: String,
+    val taskId: String,
+    val intendedAction: String,
+    val expectedVersion: Int,
+    val serverVersion: Int,
+    val serverState: String,
+    val serverTitle: String,
+    val serverThemeId: String?,
+    val serverWorkState: String?,
+    val serverUpdatedAt: String,
+    val detectedAt: String,
+)
+
+data class TaskCacheWithConflict(
+    @Embedded val task: TaskCacheEntity,
+    @Relation(parentColumn = "conflictCommandId", entityColumn = "commandId")
+    val conflict: TaskConflictEntity?,
+)
+
 object OutboxState {
     const val Pending = "pending"
     const val Sending = "sending"
     const val Rejected = "rejected"
     const val RetryWait = "retry_wait"
+    const val Conflict = "conflict"
 }
 
 @Dao
 abstract class MobileLocalDao {
     @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
-    abstract fun observeTasks(date: String): Flow<List<TaskCacheEntity>>
+    @Transaction
+    abstract fun observeTasks(date: String): Flow<List<TaskCacheWithConflict>>
 
     @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
     abstract suspend fun tasksForDate(date: String): List<TaskCacheEntity>
@@ -90,6 +116,12 @@ abstract class MobileLocalDao {
     @Query("SELECT COUNT(*) FROM outbox_command WHERE state IN ('pending', 'sending', 'retry_wait')")
     abstract fun observePendingCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM task_conflict")
+    abstract fun observeConflictCount(): Flow<Int>
+
+    @Query("SELECT * FROM task_conflict WHERE commandId = :commandId")
+    abstract suspend fun conflict(commandId: String): TaskConflictEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertTask(task: TaskCacheEntity)
 
@@ -98,6 +130,9 @@ abstract class MobileLocalDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertSyncState(state: SyncStateEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertConflict(conflict: TaskConflictEntity)
 
     @Query("DELETE FROM task_cache WHERE todayDate = :date AND optimisticCommandId IS NULL")
     abstract suspend fun deleteCanonicalToday(date: String)
@@ -128,8 +163,17 @@ abstract class MobileLocalDao {
     @Query("UPDATE outbox_command SET state = 'rejected', lastError = :reason WHERE commandId = :commandId")
     abstract suspend fun markRejected(commandId: String, reason: String)
 
+    @Query("UPDATE outbox_command SET state = 'conflict', lastError = :reason WHERE commandId = :commandId")
+    abstract suspend fun markConflict(commandId: String, reason: String)
+
     @Query("DELETE FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun deleteOutbox(commandId: String)
+
+    @Query("DELETE FROM task_conflict WHERE commandId = :commandId")
+    abstract suspend fun deleteConflict(commandId: String)
+
+    @Query("UPDATE task_cache SET conflictCommandId = NULL WHERE conflictCommandId = :commandId")
+    abstract suspend fun clearTaskConflict(commandId: String)
 
     @Transaction
     open suspend fun enqueueCreate(task: TaskCacheEntity, command: OutboxCommandEntity) {
@@ -157,9 +201,47 @@ abstract class MobileLocalDao {
 
     @Transaction
     open suspend fun applyCommandReceipt(commandId: String, canonicalTask: TaskCacheEntity, syncState: SyncStateEntity) {
-        upsertTask(canonicalTask.copy(optimisticCommandId = null))
+        upsertTask(canonicalTask.copy(optimisticCommandId = null, conflictCommandId = null))
         upsertSyncState(syncState)
+        deleteConflict(commandId)
         deleteOutbox(commandId)
+    }
+
+    @Transaction
+    open suspend fun recordConflict(
+        commandId: String,
+        canonicalTask: TaskCacheEntity,
+        conflict: TaskConflictEntity,
+        syncState: SyncStateEntity,
+        reason: String,
+    ) {
+        require(commandId == conflict.commandId)
+        require(canonicalTask.id == conflict.taskId)
+        upsertTask(canonicalTask.copy(optimisticCommandId = null, conflictCommandId = commandId))
+        upsertConflict(conflict)
+        upsertSyncState(syncState)
+        markConflict(commandId, reason)
+    }
+
+    @Transaction
+    open suspend fun acceptServer(commandId: String) {
+        clearTaskConflict(commandId)
+        deleteConflict(commandId)
+        deleteOutbox(commandId)
+    }
+
+    @Transaction
+    open suspend fun replaceConflictWithCommand(
+        oldCommandId: String,
+        task: TaskCacheEntity,
+        command: OutboxCommandEntity,
+    ) {
+        require(task.optimisticCommandId == command.commandId)
+        clearTaskConflict(oldCommandId)
+        deleteConflict(oldCommandId)
+        deleteOutbox(oldCommandId)
+        upsertTask(task.copy(conflictCommandId = null))
+        insertOutbox(command)
     }
 
     @Transaction
@@ -179,8 +261,8 @@ abstract class MobileLocalDao {
 }
 
 @Database(
-    entities = [TaskCacheEntity::class, OutboxCommandEntity::class, SyncStateEntity::class],
-    version = 2,
+    entities = [TaskCacheEntity::class, OutboxCommandEntity::class, SyncStateEntity::class, TaskConflictEntity::class],
+    version = 3,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -194,7 +276,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 context.applicationContext,
                 MobileLocalDatabase::class.java,
                 "tasken-mobile-cache.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }
@@ -202,6 +284,19 @@ abstract class MobileLocalDatabase : RoomDatabase() {
 internal val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE task_cache ADD COLUMN serverVersion INTEGER")
+    }
+}
+
+internal val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN conflictCommandId TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS task_conflict (" +
+                "commandId TEXT NOT NULL PRIMARY KEY, taskId TEXT NOT NULL, intendedAction TEXT NOT NULL, " +
+                "expectedVersion INTEGER NOT NULL, serverVersion INTEGER NOT NULL, serverState TEXT NOT NULL, " +
+                "serverTitle TEXT NOT NULL, serverThemeId TEXT, serverWorkState TEXT, " +
+                "serverUpdatedAt TEXT NOT NULL, detectedAt TEXT NOT NULL)",
+        )
     }
 }
 
@@ -213,4 +308,17 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     workState = workState,
     updatedAt = updatedAt,
     pending = optimisticCommandId != null,
+)
+
+fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
+    conflict = conflict?.let {
+        MobileTaskConflict(
+            commandId = it.commandId,
+            intendedAction = it.intendedAction,
+            expectedVersion = it.expectedVersion,
+            serverVersion = it.serverVersion,
+            serverState = it.serverState,
+            detectedAt = it.detectedAt,
+        )
+    },
 )

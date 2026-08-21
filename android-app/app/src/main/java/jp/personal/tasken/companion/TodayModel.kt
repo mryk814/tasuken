@@ -25,6 +25,16 @@ data class MobileTask(
     val workState: String?,
     val updatedAt: String,
     val pending: Boolean = false,
+    val conflict: MobileTaskConflict? = null,
+)
+
+data class MobileTaskConflict(
+    val commandId: String,
+    val intendedAction: String,
+    val expectedVersion: Int,
+    val serverVersion: Int,
+    val serverState: String,
+    val detectedAt: String,
 )
 
 sealed interface MobileTodayResult {
@@ -60,6 +70,7 @@ sealed interface TaskActionUiState {
     data object Idle : TaskActionUiState
     data class Saving(val taskId: String) : TaskActionUiState
     data class Queued(val taskId: String) : TaskActionUiState
+    data class ConflictResolved(val taskId: String, val keptLocal: Boolean) : TaskActionUiState
     data class Error(val taskId: String, val message: String) : TaskActionUiState
 }
 
@@ -75,6 +86,8 @@ class TodayViewModel(
     val taskActionState: StateFlow<TaskActionUiState> = mutableTaskActionState.asStateFlow()
     private val mutablePendingCount = MutableStateFlow(0)
     val pendingCount: StateFlow<Int> = mutablePendingCount.asStateFlow()
+    private val mutableConflictCount = MutableStateFlow(0)
+    val conflictCount: StateFlow<Int> = mutableConflictCount.asStateFlow()
     private var observingCache = false
     private var cachedGeneratedAt = ""
 
@@ -83,6 +96,9 @@ class TodayViewModel(
         if (offlineRepository != null) {
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observePendingCount().collect { mutablePendingCount.value = it }
+            }
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observeConflictCount().collect { mutableConflictCount.value = it }
             }
         }
     }
@@ -163,10 +179,10 @@ class TodayViewModel(
     }
 
     internal suspend fun toggleTaskStateNow(task: MobileTask) {
-        if (task.pending) {
+        if (task.pending || task.conflict != null) {
             mutableTaskActionState.value = TaskActionUiState.Error(
                 task.id,
-                "このTaskの同期完了を待って再試行してください。",
+                if (task.conflict != null) "先に同期競合を解決してください。" else "このTaskの同期完了を待って再試行してください。",
             )
             return
         }
@@ -187,6 +203,32 @@ class TodayViewModel(
             TaskActionUiState.Queued(commandId)
         } catch (error: Exception) {
             TaskActionUiState.Error(task.id, error.message ?: "Taskの状態を変更できませんでした。")
+        }
+    }
+
+    fun resolveConflict(task: MobileTask, keepLocal: Boolean) {
+        viewModelScope.launch { resolveConflictNow(task, keepLocal) }
+    }
+
+    internal suspend fun resolveConflictNow(task: MobileTask, keepLocal: Boolean) {
+        val conflict = task.conflict
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (conflict == null || offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "競合情報を読み込めませんでした。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) {
+                if (keepLocal) {
+                    offlineRepository.keepLocalConflict(conflict.commandId)
+                } else {
+                    offlineRepository.acceptServerConflict(conflict.commandId)
+                }
+            }
+            TaskActionUiState.ConflictResolved(task.id, keepLocal)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "同期競合を解決できませんでした。")
         }
     }
 
@@ -263,7 +305,12 @@ interface MobileGatewayRepository : MobileTaskRepository {
 interface MobileOfflineTaskRepository {
     fun observeCachedTasks(): Flow<List<MobileTask>>
     fun observePendingCount(): Flow<Int>
+    fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
     suspend fun enqueueCompleteTask(taskId: String): String
     suspend fun enqueueReopenTask(taskId: String): String
+    suspend fun acceptServerConflict(commandId: String) {
+        error("この環境では競合を解決できません。")
+    }
+    suspend fun keepLocalConflict(commandId: String): String = error("この環境では競合を解決できません。")
 }

@@ -17,7 +17,7 @@ class TaskStateActionUiTest {
     fun todoTaskShowsVisibleCompleteAction() {
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(sampleTask(), TaskActionUiState.Idle) {}
+                TodayDetailPane(sampleTask(), TaskActionUiState.Idle, onStateAction = {})
             }
         }
 
@@ -28,7 +28,7 @@ class TaskStateActionUiTest {
     fun doneTaskShowsVisibleReopenAction() {
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(sampleTask().copy(state = "done"), TaskActionUiState.Idle) {}
+                TodayDetailPane(sampleTask().copy(state = "done"), TaskActionUiState.Idle, onStateAction = {})
             }
         }
 
@@ -39,11 +39,39 @@ class TaskStateActionUiTest {
     fun pendingTaskExplainsWhyStateActionIsDisabled() {
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(sampleTask().copy(pending = true), TaskActionUiState.Idle) {}
+                TodayDetailPane(sampleTask().copy(pending = true), TaskActionUiState.Idle, onStateAction = {})
             }
         }
 
         composeRule.onNodeWithText("同期後に操作").assertIsDisplayed().assertIsNotEnabled()
+    }
+
+    @Test
+    fun conflictedTaskShowsBothExplicitResolutionActions() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask().copy(
+                        conflict = MobileTaskConflict(
+                            commandId = "command-1",
+                            intendedAction = "CompleteTask",
+                            expectedVersion = 7,
+                            serverVersion = 8,
+                            serverState = "todo",
+                            detectedAt = "2026-08-22T01:00:00Z",
+                        ),
+                    ),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("同期できなかった変更").assertIsDisplayed()
+        composeRule.onNodeWithText("Desktop  未着手  v8").assertIsDisplayed()
+        composeRule.onNodeWithText("この端末を採用").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("Desktopを採用").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("競合を解決してから操作").assertIsDisplayed().assertIsNotEnabled()
     }
 
     private fun sampleTask() = MobileTask(

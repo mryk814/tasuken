@@ -188,13 +188,22 @@ export class TaskCapabilityService {
     const parsed = parseTaskCommand(input);
     if (!parsed.ok) return parsed;
     const command = parsed.value;
+    const taskId = command.name === "CreateTask" ? command.payload.task.id : command.payload.task_id;
     try {
-      const taskId = command.name === "CreateTask" ? command.payload.task.id : command.payload.task_id;
       const current = this.queries.getTask(taskId, true);
       if (command.name === "UpdateTask" && !current) return { ok: false, error: taskError("NOT_FOUND", "更新対象のTaskがありません。") };
       const receipt = this.executeApplicationCommand(applicationEnvelope(command, current));
       if (receipt.status === "conflict") {
-        return { ok: false, error: taskError("CONFLICT", "Taskが更新されています。再読み込みしてください。", undefined, "version_conflict") };
+        const currentTask = this.queries.getTask(taskId, true);
+        return {
+          ok: false,
+          error: taskError(
+            "CONFLICT",
+            "Taskが更新されています。再読み込みしてください。",
+            currentTask ? { current_task: projectTask(currentTask) } : undefined,
+            "version_conflict",
+          ),
+        };
       }
       const changed = receipt.changes.find((change) => change.type === "task")?.entity
         || this.queries.getTask(taskId, true);
@@ -210,7 +219,14 @@ export class TaskCapabilityService {
       };
       return { ok: true, value: taskCommandOutcomeSchema.parse(outcome) };
     } catch (error) {
-      return { ok: false, error: mappedApplicationError(error) };
+      const mapped = mappedApplicationError(error);
+      if (mapped.code === "CONFLICT" && mapped.conflict_reason === "version_conflict") {
+        const currentTask = this.queries.getTask(taskId, true);
+        if (currentTask) {
+          mapped.details = { ...mapped.details, current_task: projectTask(currentTask) };
+        }
+      }
+      return { ok: false, error: mapped };
     }
   }
 

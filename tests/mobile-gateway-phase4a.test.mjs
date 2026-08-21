@@ -479,6 +479,9 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   assert.equal(stale.ok, false);
   assert.equal(stale.error.code, "CONFLICT");
   assert.equal(stale.error.conflict_reason, "version_conflict");
+  assert.equal(stale.error.details.current_task.id, "task-mobile-create");
+  assert.equal(stale.error.details.current_task.version, 1);
+  assert.equal(stale.error.details.current_task.state, "todo");
 
   const desktopDuplicate = desktopCapability.service.executeCommand({
     schemaVersion: 1,
@@ -611,6 +614,19 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
   });
   assert.equal(stale.status, 409);
   assert.equal(stale.body.error.code, "version_conflict");
+  assert.deepEqual(stale.body.error.conflict, {
+    currentTask: {
+      id: "task-mobile-create",
+      version: 2,
+      title: "Mobile Task",
+      themeId: "theme-personal-default",
+      state: "done",
+      workState: "not_delegated",
+      updatedAt: now,
+    },
+    intendedAction: "ReopenTask",
+    expectedVersion: 1,
+  });
 
   const reopened = await adapter.handle({
     method: "POST",

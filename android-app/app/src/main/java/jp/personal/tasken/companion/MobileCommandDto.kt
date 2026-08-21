@@ -67,6 +67,28 @@ data class MobileTaskCommandReceiptDto(
     val task: MobileTaskSummaryDto,
 )
 
+@Serializable
+data class MobileTaskCommandErrorResponseDto(
+    val ok: Boolean,
+    val meta: MobileResponseMetaDto,
+    val error: MobileTaskCommandErrorDto,
+)
+
+@Serializable
+data class MobileTaskCommandErrorDto(
+    val code: String,
+    val message: String,
+    val retryable: Boolean,
+    val conflict: MobileVersionConflictDto? = null,
+)
+
+@Serializable
+data class MobileVersionConflictDto(
+    val currentTask: MobileTaskSummaryDto,
+    val intendedAction: String,
+    val expectedVersion: Int,
+)
+
 object MobileTaskCommandContract {
     private val json = Json {
         ignoreUnknownKeys = false
@@ -100,6 +122,21 @@ object MobileTaskCommandContract {
             require(response.data.commandId.isNotBlank())
             require(response.data.task.version > 0)
             require(runCatching { OffsetDateTime.parse(response.meta.generatedAt) }.isSuccess)
+        }
+
+    fun decodeError(payload: String): MobileTaskCommandErrorResponseDto =
+        json.decodeFromString<MobileTaskCommandErrorResponseDto>(payload).also { response ->
+            require(!response.ok)
+            require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 1)
+            require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
+            if (response.error.code == "version_conflict") {
+                val conflict = requireNotNull(response.error.conflict)
+                require(conflict.intendedAction in setOf("CompleteTask", "ReopenTask"))
+                require(conflict.expectedVersion > 0)
+                require(conflict.currentTask.version > conflict.expectedVersion)
+            } else {
+                require(response.error.conflict == null)
+            }
         }
 
     private fun validateCreateEnvelope(envelope: MobileCreateTaskEnvelopeDto) {

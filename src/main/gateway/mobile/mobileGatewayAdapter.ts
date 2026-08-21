@@ -21,6 +21,7 @@ import {
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../../shared/contracts/core/public.mjs";
 import {
+  taskReadModelSchema,
   type TaskCommandResponse,
   type TaskError,
   type TaskQueryResponse,
@@ -237,7 +238,7 @@ export class MobileGatewayAdapter {
         issued_at: parsed.data.issuedAt,
         payload,
       });
-      if (!result.ok) return this.taskError(meta, result.error);
+      if (!result.ok) return this.taskError(meta, result.error, command);
       if (result.value.name !== command.name || !result.value.task) throw new Error("Unexpected Task command outcome");
       return this.success(mobileTaskCommandResponseSchema.parse({
         ok: true,
@@ -314,20 +315,45 @@ export class MobileGatewayAdapter {
     return { status: 200, headers: this.headers(), body };
   }
 
-  private error(meta: MobileResponseMeta, code: MobileErrorCode, retryable = false): MobileGatewayResponse {
+  private error(
+    meta: MobileResponseMeta,
+    code: MobileErrorCode,
+    retryable = false,
+    conflict?: {
+      currentTask: ReturnType<typeof projectTask>;
+      intendedAction: "CompleteTask" | "ReopenTask";
+      expectedVersion: number;
+    },
+  ): MobileGatewayResponse {
     const body = mobileErrorResponseSchema.parse({
       ok: false,
       meta,
-      error: { code, message: safeMessage(code), retryable },
+      error: { code, message: safeMessage(code), retryable, ...(conflict ? { conflict } : {}) },
     });
     return { status: statusFor(code), headers: this.headers(), body };
   }
 
-  private taskError(meta: MobileResponseMeta, error: TaskError) {
+  private taskError(
+    meta: MobileResponseMeta,
+    error: TaskError,
+    command?: { name: string; expectedVersion?: number },
+  ) {
     if (error.code === "CONFLICT") {
       if (error.conflict_reason === "command_fingerprint_mismatch") return this.error(meta, "idempotency_conflict");
       if (error.conflict_reason === "entity_already_exists") return this.error(meta, "entity_conflict");
-      if (error.conflict_reason === "version_conflict") return this.error(meta, "version_conflict");
+      if (error.conflict_reason === "version_conflict") {
+        const currentTask = taskReadModelSchema.safeParse(error.details?.current_task);
+        if (
+          !currentTask.success
+          || (command?.name !== "CompleteTask" && command?.name !== "ReopenTask")
+          || command.expectedVersion === undefined
+        ) throw new Error("Version conflict is missing its canonical Task context");
+        return this.error(meta, "version_conflict", false, {
+          currentTask: projectTask(currentTask.data),
+          intendedAction: command.name,
+          expectedVersion: command.expectedVersion,
+        });
+      }
       throw new Error("Unclassified Task conflict");
     }
     if (error.code === "NOT_FOUND") return this.error(meta, "not_found");
