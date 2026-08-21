@@ -15,7 +15,7 @@ import {
   resolveThemeRepositoryContexts,
 } from "../src/shared/repositoryContext.mjs";
 import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations, repositoryContextProposalInput } from "../src/shared/repositoryContextProposal.mjs";
-import { McpProposalInboxService, queueMcpProposal } from "../src/main/mcp/proposalInbox.mjs";
+import { McpProposalInboxService, queueMcpProposal } from "./fixtures/legacyProposalInbox.mjs";
 
 test("Repository URL canonicalization removes credentials/query/fragment while preserving path case and port", () => {
   const https = canonicalizeRepositoryUrl("https://user:password@GitLab.EXAMPLE:8443/Team/Repo.git?token=secret#readme");

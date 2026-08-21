@@ -21,7 +21,7 @@
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
 | AI Inbox | `ImportExportPage.tsx` | 「AI Import」「AI連携」（旧称）。外部AIから届いたProposalを検証→プレビュー→採用する安全な取り込み導線 |
 | Note AI | `NoteAiDrawer.tsx` | Noteを見ながら右ドロワーで会話する編集支援。外部AIへ送るContextを明示確認し、返答をPending Proposalへ保存してから差分hunk単位で採用する |
-| AI Proposal | `AiProposalPanel.tsx` / `McpProposalInboxService` | 内蔵LLM・MCP・手動Importから届く安全な書き込み候補。Note / Knowledge / Sketch / Artifactの正式保存前にPreviewする |
+| AI Proposal | `AiProposalPanel.tsx` / Tasken Core proposal commands | 内蔵LLM・MCP・手動Importから届く安全な書き込み候補。Note / Knowledge / Sketch / Artifactの正式保存前にPreviewする |
 | M365向け AI Pack | `ThemePage.tsx` / `themeAiPackPublisher.mjs` | Themeの公開可能情報を固定7 Markdownへ投影する同期用Pack。Previewで除外・警告・文字量を確認してから更新し、AI Pack自体は正本にしない。詳細は `docs/theme-ai-pack.md` |
 | Context Preview | `AiContextPreviewPanel.tsx` / `aiContextPreview.mjs` | Theme / Taskについて、M365向けAI PackまたはCoding Agent向けMCPが実際に選んだbounded contextを表示する。専用の選択規則は持たず、included / excluded / relation path / visibility / freshness / authority / truncationを実producer responseから投影する |
 | Data Health | `KnowledgePage.tsx` / `dataHealth.mjs` | AI公開・Relation・Internal Link・Canonical Markdown・AI Packの不整合を理由と修正候補付きで検出する診断。無視/解決済みはMain-ownedのversioned stateへ保存し、内容やRelationを自動変更しない |

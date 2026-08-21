@@ -36,6 +36,12 @@ jobs:
       - name: Run Windows quality gates
         run: npm run ci
 
+      - name: Package Windows app
+        run: npm run package
+
+      - name: Smoke packaged MCP with system Node
+        run: npm run smoke:mcp-package
+
       - name: Upload architecture audit report
         if: always()
         uses: actions/upload-artifact@v4

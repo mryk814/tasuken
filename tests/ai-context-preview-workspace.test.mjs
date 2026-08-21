@@ -7,7 +7,6 @@ import test from "node:test";
 
 import { build } from "esbuild";
 import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 
 async function importWorkspaceService() {
   const outputDirectory = mkdtempSync(path.join(os.tmpdir(), "tasken-context-preview-service-bundle-"));
@@ -27,7 +26,7 @@ async function importWorkspaceService() {
         buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({ path: "adm-zip-mock", namespace: "adm-zip-mock" }));
         buildApi.onLoad({ filter: /.*/, namespace: "adm-zip-mock" }, () => ({ contents: "export default class AdmZip {}", loader: "js" }));
         buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: "better-sqlite3-mock", namespace: "better-sqlite3-mock" }));
-        buildApi.onLoad({ filter: /.*/, namespace: "better-sqlite3-mock" }, () => ({ contents: "export default class Database { constructor() { throw new Error('database path is not used by in-memory Context Preview'); } }", loader: "js" }));
+        buildApi.onLoad({ filter: /.*/, namespace: "better-sqlite3-mock" }, () => ({ contents: "export default class Database { constructor() { throw new Error('database path is not used by Core Context Preview'); } }", loader: "js" }));
       },
     }],
   });
@@ -57,37 +56,51 @@ function fixtureRepository() {
   };
 }
 
-test("WorkspaceService Previewはactual MCP context_selectionとTheme AI Pack planをそのままadapterへ通す (#296)", () => {
+test("WorkspaceService PreviewはCore context_selectionとTheme AI Pack planをそのままadapterへ通す (#296)", async () => {
   const repository = fixtureRepository();
-  const service = new WorkspaceService(repository, mkdtempSync(path.join(os.tmpdir(), "tasken-preview-userdata-")), () => "2026-08-09T00:00:00.000Z");
-  const context = new ReadOnlyTaskenContext("ignored", { workspace: repository.workspace, audience: "coding_agent", aiVisibilityDefault: ["coding_agent"] });
-  try {
-    const taskResponse = context.toolGetTaskContext({ task_id: "task-1" });
-    const task = service.getAiContextPreview({ audience: "coding_agent", scope: { type: "task", id: "task-1" } });
+  const taskResponse = {
+    ai_audience: "coding_agent",
+    task: repository.workspace.tasks[0],
+    theme: repository.workspace.projects[0],
+    related: { notes: repository.workspace.notes, conversations: [], resources: [], artifacts: [], activity: [], work_receipts: [] },
+  };
+  const themeResponse = {
+    ai_audience: "coding_agent",
+    themes: repository.workspace.projects,
+    open_items: repository.workspace.tasks.map((entry) => ({ ...entry, entity_type: "task" })),
+    recent_notes: repository.workspace.notes,
+    repository_contexts: [],
+    knowledge: { knowledge_nodes: [], knowledge_edges: [] },
+  };
+  const calls = [];
+  const coreClient = {
+    getTaskContext: async (request) => { calls.push(["task", request]); return taskResponse; },
+    getThemeContext: async (request) => { calls.push(["theme", request]); return themeResponse; },
+  };
+  const service = new WorkspaceService(repository, mkdtempSync(path.join(os.tmpdir(), "tasken-preview-userdata-")), () => "2026-08-09T00:00:00.000Z", coreClient);
+    const task = await service.getAiContextPreview({ audience: "coding_agent", scope: { type: "task", id: "task-1" } });
     assert.deepEqual(task.preview, previewTaskCoding(taskResponse));
-    assert.deepEqual(task.preview.included.map((entry) => entry.ref), taskResponse.context_selection.included.map((entry) => entry.ref));
 
-    const themeResponse = context.toolGetThemeContext({ theme_id: "theme-1" });
-    const theme = service.getAiContextPreview({ audience: "coding_agent", scope: { type: "theme", id: "theme-1" } });
+    const theme = await service.getAiContextPreview({ audience: "coding_agent", scope: { type: "theme", id: "theme-1" } });
     assert.deepEqual(theme.preview, previewThemeCoding(themeResponse));
-    assert.deepEqual(theme.preview.included.map((entry) => entry.ref), themeResponse.context_selection.included.map((entry) => entry.ref));
+    assert.deepEqual(calls, [["task", { task_id: "task-1" }], ["theme", { theme_id: "theme-1" }]]);
 
-    const m365Theme = service.getAiContextPreview({ audience: "m365", scope: { type: "theme", id: "theme-1" } });
-    const m365Task = service.getAiContextPreview({ audience: "m365", scope: { type: "task", id: "task-1" } });
+    const m365Theme = await service.getAiContextPreview({ audience: "m365", scope: { type: "theme", id: "theme-1" } });
+    const m365Task = await service.getAiContextPreview({ audience: "m365", scope: { type: "task", id: "task-1" } });
     assert.equal(m365Theme.preview.schema, "tasken-ai-context-preview/v1");
     assert.deepEqual(m365Task.preview, m365Theme.preview);
     assert.deepEqual(m365Task.effectiveScope, { type: "theme", id: "theme-1" });
     assert.equal(m365Task.includedInEffectiveScope, true);
-  } finally {
-    context.close();
-  }
 });
 
-test("WorkspaceService Previewはraw filesystem/DB errorをRendererへ公開しない (#296)", () => {
+test("WorkspaceService Previewはraw Core/discovery errorをRendererへ公開しない (#296)", async () => {
   const repository = fixtureRepository();
-  repository.loadWorkspace = () => { throw new Error("C:\\Users\\alice\\private\\workspace.sqlite"); };
-  const service = new WorkspaceService(repository, "C:\\Users\\alice\\private");
-  const result = service.getAiContextPreview({ audience: "coding_agent", scope: { type: "task", id: "task-1" } });
+  const coreClient = {
+    getTaskContext: async () => { throw new Error("C:\\Users\\alice\\private\\tasken-core.json"); },
+    getThemeContext: async () => { throw new Error("unused"); },
+  };
+  const service = new WorkspaceService(repository, "C:\\Users\\alice\\private", undefined, coreClient);
+  const result = await service.getAiContextPreview({ audience: "coding_agent", scope: { type: "task", id: "task-1" } });
   assert.equal(result.state, "error");
   assert.doesNotMatch(result.error, /C:\\Users|workspace\.sqlite|alice|private/);
 });

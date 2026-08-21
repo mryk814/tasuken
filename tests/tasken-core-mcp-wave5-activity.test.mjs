@@ -7,7 +7,7 @@ import test from "node:test";
 import { build } from "esbuild";
 
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 
 const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
 const { WorkspaceDatabase } = await import(workspaceRepositoryModule);

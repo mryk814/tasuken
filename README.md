@@ -73,28 +73,21 @@ npm run audit:responsive
 npm run audit:note-window
 ```
 
-Read-only MCP Serverを起動:
+MCP Serverをplain Nodeで起動（Tasken Desktopを先に起動してください）:
 
 ```bash
 npm --silent run mcp
 ```
 
-`npm --silent run mcp`は`tasken-mcp-launcher.mjs`から同梱ElectronをNode互換モードで起動し、stdio MCP Serverへ接続します。`better-sqlite3`のNode ABIへ再ビルドする経路は使いません。`scripts/mcp-server.mjs`をplain Nodeで直接起動した場合は、native moduleを読み込む前に復旧手順付きの診断をstderrへ返します。
-MCPクライアント設定では、stdoutにnpmのログを混ぜないため`--silent`を付けてください。
-通常はElectronの`userData`配下にある`research-desk.sqlite`を読みます。
-別DBを使う場合は`TASKEN_DB_PATH`を指定してください。
+`npm --silent run mcp`は`scripts/mcp-server.mjs`を通常のNodeで起動します。MCP bridgeはSQLiteを開かず、Desktop Mainが公開する認証済みloopback Tasken Coreへ接続します。Core停止時はDBへfallbackせず、tool resultに復旧可能な構造化errorを返します。MCPクライアント設定ではstdoutにnpmのログを混ぜないため`--silent`を付けてください。
 
-```bash
-TASKEN_DB_PATH="/path/to/research-desk.sqlite" npm run mcp
-```
-
-MCPのruntime・Node/Electron ABI・CPU architecture・Electron executable・native binding・DB pathを機械可読JSONで診断:
+Core discovery・health・API version・live capabilities・認証を機械可読JSONで診断:
 
 ```bash
 npm run doctor:mcp -- --json
 ```
 
-MCPの検索・文脈取得toolは読み取り専用です。Note本文の全文は`include_raw_body: true`を明示した場合だけ返します。Task / Note / Knowledge / Sketch / Artifactのwrite toolはSQLiteへ直接書かず、TaskenのPending Proposalへ送ります。
+MCPの検索・文脈取得toolは読み取り専用です。Note本文の全文は`include_raw_body: true`を明示した場合だけ返します。Task / Note / Knowledge / Sketch / Artifactのwrite toolはCore commandで`ai_proposal`だけを作り、正式データはTaskenで採用するまで変えません。
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Conversation・Artifact・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`、`tasken.get_conversation`、`tasken.get_artifact_metadata`、`tasken.get_activity_entries`を呼びます。Artifact toolはメタデータのみを返し、外部ファイル本文やローカルパスを読みません。
 

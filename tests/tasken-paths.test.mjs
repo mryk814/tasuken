@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { defaultTaskenDbPath } from "../src/main/mcp/readOnlyContext.mjs";
+import { defaultTaskenDbPath } from "./fixtures/legacyReadOnlyContext.mjs";
 import { resolveTaskenDatabasePath, resolveTaskenUserDataPath } from "../src/shared/taskenPaths.mjs";
 
 test("WSL/Linuxは引き継がれたAPPDATAではなくElectronのXDG userDataを使う", () => {

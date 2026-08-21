@@ -17,7 +17,7 @@ Suggested relationは既定で除外し、含めても `status: "suggested"` の
 ### 実装した範囲
 
 - `src/shared/contextGraph.mjs`: 既存collectionから再構築可能なGraph projection、neighbors/provenance/context query、selection explanation。
-- `src/main/mcp/readOnlyContext.mjs`: SQLite `readonly` + `query_only=ON` の既存境界からprojectionを呼ぶ。
+- `src/main/core/services/agentContextQueryService.ts`: 注入repositoryからprojectionを呼び、MCPはTasken Core経由で利用する。
 - `src/main/mcp/server.mjs`: `tasken.get_context_subgraph` read-only MCP tool。
 - `tests/context-graph.test.mjs`: fixtureでConversation→Note→Artifact、Capture→Task、Decision→Evidence、Change Event、cycle/duplicate/limit/suggestedを検証。
 
@@ -122,7 +122,7 @@ MCPは既存 `projectEntityForAi` / `summarizeAiExclusions` と同じ公開先�
 1. Relationの保管場所は既存Entity field、専用collection、Change Eventの三つに分散している。
 2. `reference`と`knowledge_edge`は、方向とendpointはあるが、assertionのorigin/evidence/authority/freshness/statusが不足する。
 3. Change Eventは保存builderの一部には接続済みだが、direct save経路の全てを覆っていない。これは#315→#336→#337の責務であり、本Researchで過去履歴を捏造しない。
-4. `ReadOnlyTaskenContext`の既存MCPはkeyword search/list/AI Packで、explicit relation traversalはなかった。今回のsubgraphは既存AI公開判定の前に本文を返さず、relation/pathを返す最小追加である。
+4. 旧MCPはkeyword search/list/AI Pack中心でexplicit relation traversalがなかった。現在のCore subgraph queryはAI公開判定前に本文を返さず、relation/pathを返す最小追加である。
 
 ## 3. Bounded projection / query prototype
 

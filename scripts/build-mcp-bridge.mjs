@@ -2,15 +2,6 @@ import path from "node:path";
 
 import { build } from "vite";
 
-const esmPolyfill = [
-  'import { createRequire as __mcpCreateRequire } from "node:module";',
-  'import { fileURLToPath as __mcpFileURLToPath } from "node:url";',
-  'import { dirname as __mcpDirname } from "node:path";',
-  "const __filename = __mcpFileURLToPath(import.meta.url);",
-  "const __dirname = __mcpDirname(__filename);",
-  "const require = __mcpCreateRequire(import.meta.url);",
-].join("\n");
-
 await build({
   configFile: false,
   build: {
@@ -23,14 +14,10 @@ await build({
         entryFileNames: "server.mjs",
         format: "es",
         inlineDynamicImports: true,
-        banner: esmPolyfill,
       },
     },
     ssr: true,
     target: "node20",
   },
-  ssr: {
-    noExternal: true,
-    external: ["better-sqlite3"],
-  },
+  ssr: { noExternal: true },
 });

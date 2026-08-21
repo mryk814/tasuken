@@ -8,13 +8,13 @@ import {
   normalizeAiVisibility,
   projectEntityForAi,
   summarizeAiExclusions,
-} from "../../shared/aiMetadata.mjs";
-import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../shared/knowledgeHealth.mjs";
-import { collectionKeyForEntityType, entityTypes } from "../../shared/entityRegistry.mjs";
-import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../shared/contextGraph.mjs";
-import { projectActivityJson, projectActivityMarkdown, queryActivityEvents } from "../../shared/activityProjection.mjs";
-import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
-import { resolveTaskenDatabasePath } from "../../shared/taskenPaths.mjs";
+} from "../../src/shared/aiMetadata.mjs";
+import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../src/shared/knowledgeHealth.mjs";
+import { collectionKeyForEntityType, entityTypes } from "../../src/shared/entityRegistry.mjs";
+import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../src/shared/contextGraph.mjs";
+import { projectActivityJson, projectActivityMarkdown, queryActivityEvents } from "../../src/shared/activityProjection.mjs";
+import { buildActivityRootRegistry, publicActivityRootStatus } from "../../src/shared/activityRootRegistry.mjs";
+import { resolveTaskenDatabasePath } from "../../src/shared/taskenPaths.mjs";
 import {
   findTasksForRepository,
   findThemesForRepository,
@@ -22,7 +22,7 @@ import {
   resolveRepositoryContext,
   resolveTaskRepositoryContexts,
   resolveThemeRepositoryContexts,
-} from "../../shared/repositoryContext.mjs";
+} from "../../src/shared/repositoryContext.mjs";
 import {
   boundedList,
   normalizeTaskContextInclude,
@@ -40,12 +40,12 @@ import {
   taskContextLimits,
   TaskContextTextBudget,
   workspaceIdentityProvided,
-} from "../../shared/taskContext.mjs";
+} from "../../src/shared/taskContext.mjs";
 import {
   buildContextSelection,
   contextSelectionEntry,
   contextSelectionExclusions,
-} from "../../shared/contextSelection.mjs";
+} from "../../src/shared/contextSelection.mjs";
 
 const nativeRequire = createRequire(import.meta.url);
 let Database;

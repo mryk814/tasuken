@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 
 const now = "2026-08-20T00:00:00.000Z";
 
@@ -19,7 +19,7 @@ test("Phase 0: MCP inventory documents every registered read and Proposal tool",
   assert.equal(proposalTools.length, 11);
   assert.equal(new Set(registrations.map((entry) => entry.name)).size, registrations.length);
   for (const { name } of registrations) {
-    assert.equal(migrationDocument.includes(`| \`${name}\` |`), true, `${name} is missing from the inventory`);
+    assert.equal(migrationDocument.includes(`\`${name.replace(/^tasken\./, "")}\``), true, `${name} is missing from the inventory`);
   }
 });
 

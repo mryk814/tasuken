@@ -4,7 +4,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 
-import { queueMcpProposal } from "./proposalInbox.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 
@@ -48,29 +47,6 @@ function withCoreClient(handler) {
   };
 }
 
-let readOnlyContextModulePromise;
-
-function loadReadOnlyContext() {
-  readOnlyContextModulePromise ||= import("./readOnlyContext.mjs");
-  return readOnlyContextModulePromise;
-}
-
-async function defaultReadContextProvider() {
-  const { ReadOnlyTaskenContext, defaultTaskenDbPath } = await loadReadOnlyContext();
-  return new ReadOnlyTaskenContext(defaultTaskenDbPath());
-}
-
-function withReadContext(provider, handler) {
-  return async (args) => {
-    const context = await provider();
-    try {
-      return toolResult(handler(context, args));
-    } finally {
-      context.close();
-    }
-  };
-}
-
 function sourceApp(args) {
   return args.source_app || "mcp-client";
 }
@@ -81,7 +57,6 @@ export function mcpReadOnlyMode(env = process.env) {
 
 export function createTaskenMcpServer(options = {}) {
   const readOnly = options.readOnly ?? mcpReadOnlyMode(options.env || process.env);
-  const readContextProvider = options.readContextProvider || defaultReadContextProvider;
   const coreClient = options.coreClient || new TaskenCoreClient({ env: options.env || process.env });
   const server = new McpServer({
     name: "tasken",

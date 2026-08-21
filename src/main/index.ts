@@ -19,9 +19,9 @@ import { createSatelliteWindowRegistry, type SatelliteWindowRegistry } from "./s
 import { createMemoStickyController, type MemoStickyController } from "./memoStickyController";
 import { createNoteWindowController, type NoteWindowController } from "./noteWindowController";
 import { createTrayController, type TrayController } from "./trayController";
-import { McpProposalInboxService } from "./mcp/proposalInbox.mjs";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { TaskenCoreRuntime } from "./composition/taskenCoreRuntime.ts";
+import { TaskenCoreClient } from "./mcp/taskenCoreClient.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
@@ -82,7 +82,6 @@ let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
-let mcpProposalInboxService: McpProposalInboxService | null = null;
 let taskenCoreRuntime: TaskenCoreRuntime | null = null;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
@@ -2334,7 +2333,12 @@ async function startDesktopApp(): Promise<void> {
     fs.writeFileSync(smokeVideoSourcePath, tinyVp8Webm(), { flag: "wx" });
   }
   const applicationCommands = new ApplicationCommandService(workspaceRepository);
-  const workspaceService = new WorkspaceService(workspaceRepository, app.getPath("userData"));
+  const workspaceService = new WorkspaceService(
+    workspaceRepository,
+    app.getPath("userData"),
+    undefined,
+    new TaskenCoreClient({ userDataPath: app.getPath("userData") }),
+  );
   const automaticSnapshotBackup = new AutomaticSnapshotBackupService({
     repository: workspaceRepository,
     defaultDirectory: path.join(app.getPath("userData"), "Backups"),
@@ -2434,14 +2438,6 @@ async function startDesktopApp(): Promise<void> {
     },
     notifyCommandApplied, notifyTodayMiniRefresh,
   );
-  mcpProposalInboxService = new McpProposalInboxService(
-    workspaceRepository,
-    app.getPath("userData"),
-    (entities: Entity[]) => notifyMainWindowRefresh({
-      entities: entities.map((entity) => ({ type: "ai_proposal", entity })),
-    }),
-  );
-  mcpProposalInboxService.start();
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので
   // 正本DBではなくuserData配下のJSONへ置き、別端末へ同期させない。
   satelliteWindows = createSatelliteWindowRegistry({
@@ -2587,7 +2583,6 @@ app.on("window-all-closed", () => {
 app.on("before-quit", (event) => {
   if (appQuitApproved) {
     sharedFolderSyncService?.stop();
-    mcpProposalInboxService?.stop();
     return;
   }
   event.preventDefault();

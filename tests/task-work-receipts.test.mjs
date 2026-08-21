@@ -119,7 +119,6 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   const domain = readFileSync("src/main/repositories/domain.mjs", "utf8");
   const repositorySource = readFileSync("src/main/repositories/workspaceRepository.mjs", "utf8");
   const mcp = readFileSync("src/main/mcp/server.mjs", "utf8");
-  const proposalInbox = readFileSync("src/main/mcp/proposalInbox.mjs", "utf8");
   const proposalPanel = readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
   const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
   assert.match(todo, /buildCompleteTaskOperations/);
@@ -128,7 +127,6 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   assert.match(repositorySource, /normalizeTaskAssignment\(protectedInput, existing\)/);
   assert.doesNotMatch(mcp, /registerTool\("tasken\.accept_task_work"/);
   assert.doesNotMatch(mcp, /request_human_review|request_review/);
-  assert.doesNotMatch(proposalInbox, /request_review/);
   assert.doesNotMatch(proposalPanel, /request_review/);
   assert.match(drawer, /!\["done", "cancelled"\]\.includes\(task\.state\) && !\["accepted", "reported_done", "needs_human_review", "in_progress"\]\.includes\(workState\)/);
 

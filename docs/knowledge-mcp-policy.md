@@ -311,18 +311,18 @@ Coding AgentのTask入口は`tasken.get_task_context`とする。Task、assignme
 
 ## MCP Safe Write Proposal
 
-MCP経由のwriteは直接保存しない。Tasken側のpreview inboxに「提案」として送る。
+MCP経由のwriteは正式データへ直接適用せず、Tasken Coreへ「提案」として送る。
 
 Note、Knowledgeに加えてSketchとArtifactを対象にする。Sketchは安全性を検証したinline SVGを編集可能なSketch文書内の画像オブジェクトとして取り込み、ArtifactはSVG / Markdown / text / JSONのinline contentだけをmanaged保存先へ作る。MCPから任意のローカルパスやURLを指定する操作は提供しない。
 
 実装境界は以下で固定する。
 
-1. MCP BridgeはSQLiteへ書き込まない
-2. write toolは`%APPDATA%\Tasken\mcp-inbox`へ1MB以下のProposal envelopeをatomic writeする
-3. Tasken Main Processが起動時と起動中にInboxを検証する
-4. Main ProcessだけがWorkspace Repository経由で`ai_proposal`へ保存する
-5. 不正なEnvelopeは`mcp-inbox/rejected`へ隔離する
-6. Note編集は`target_id`と`base_version`を必須にし、現在versionが違えば既定で無視する
+1. MCP BridgeはSQLiteとfilesystem queueへ書き込まない
+2. write toolは認証済みloopback Coreのproposal commandだけを呼ぶ
+3. Coreが入力・64 KiB UTF-8上限・AI identity・idempotencyを検証する
+4. Main ProcessのWorkspace Repositoryだけがtransaction内で`ai_proposal`へ保存する
+5. Core unavailable、version/capability/auth不一致ではfail closedとし、別経路へfallbackしない
+6. Note編集は`note_id`と`base_version`を必須にし、採用時にも現在versionを再検証する
 
 write toolsは以下とする。
 

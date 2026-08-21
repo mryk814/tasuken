@@ -56,6 +56,34 @@ import {
 
 export const TASKEN_CORE_CLIENT_TIMEOUT_MS = 5_000;
 
+export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
+  TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
+  TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
+  TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
+  TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
+  TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_NOTE_CAPABILITY,
+  TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
+  TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
+  TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
+  TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
+  TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
+  TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
+  TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY,
+  TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY,
+  TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
+  TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
+  TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+  TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+]);
+
 export class TaskenCoreClientError extends Error {
   constructor(code, message, options = {}) {
     super(message, options);
@@ -260,6 +288,31 @@ export class TaskenCoreClient {
     return this.request("/v1/commands/propose-content", TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY, request, proposeContentResponseSchema, "propose-content");
   }
 
+  async inspect() {
+    const discovery = await readDiscovery(this.discoveryPath);
+    const [health, version, capabilityPayload] = await Promise.all([
+      this.get(discovery, "/health"),
+      this.get(discovery, "/version"),
+      this.get(discovery, "/capabilities"),
+    ]);
+    if (health?.status !== "ok" || health?.api_version !== TASKEN_CORE_API_VERSION) {
+      throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core health responseが不正です。");
+    }
+    if (version?.api_version !== TASKEN_CORE_API_VERSION) {
+      throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
+    }
+    if (!Array.isArray(capabilityPayload?.capabilities)
+      || capabilityPayload.capabilities.some((capability) => typeof capability !== "string")) {
+      throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core capabilities responseが不正です。");
+    }
+    const advertised = [...new Set(discovery.capabilities)].sort();
+    const live = [...new Set(capabilityPayload.capabilities)].sort();
+    if (JSON.stringify(advertised) !== JSON.stringify(live)) {
+      throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core discoveryとlive capabilitiesが一致しません。");
+    }
+    return { status: "ok", api_version: TASKEN_CORE_API_VERSION, capabilities: live };
+  }
+
   async query(path, capability, request, responseSchema) {
     return this.request(`/v1/queries/${path}`, capability, request, responseSchema, path);
   }
@@ -314,6 +367,31 @@ export class TaskenCoreClient {
         });
       }
       return parsed.data;
+    } catch (error) {
+      if (error instanceof TaskenCoreClientError) throw error;
+      throw new TaskenCoreClientError("CORE_UNAVAILABLE", "Tasken Coreへ接続できません。Taskenを起動してください。", { cause: error });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async get(discovery, route) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetch(`${discovery.origin}${route}`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${discovery.token}` },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        if (response.status === 401) throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。", { status: 401 });
+        throw new TaskenCoreClientError("CORE_REQUEST_FAILED", `Tasken Core inspectionが失敗しました（${response.status}）。`, { status: response.status });
+      }
+      if (response.headers.get("x-tasken-core-version") !== TASKEN_CORE_API_VERSION) {
+        throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
+      }
+      return await response.json();
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
       throw new TaskenCoreClientError("CORE_UNAVAILABLE", "Tasken Coreへ接続できません。Taskenを起動してください。", { cause: error });

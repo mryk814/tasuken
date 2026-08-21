@@ -9,7 +9,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { build } from "esbuild";
 
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 

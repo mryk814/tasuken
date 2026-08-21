@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { validateArtifactProposal, validateSafeSvg } from "../../shared/proposalMedia.mjs";
-import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
-import { normalizeRepositoryContext, publicRepositoryContext } from "../../shared/repositoryContext.mjs";
+import { validateArtifactProposal, validateSafeSvg } from "../../src/shared/proposalMedia.mjs";
+import { normalizeExternalReferences } from "../../src/shared/externalReference.mjs";
+import { normalizeRepositoryContext, publicRepositoryContext } from "../../src/shared/repositoryContext.mjs";
 
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 1024 * 1024;

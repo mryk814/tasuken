@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
+import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 
 const now = "2026-08-21T00:00:00.000Z";
 

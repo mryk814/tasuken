@@ -316,8 +316,8 @@ export interface McpBridgeInfo {
   command: string;
   args: string[];
   configJson: string;
-  inboxPath: string;
-  pendingFileCount: number;
+  pendingProposalCount: number;
+  transport: "stdio-core";
   packaged: boolean;
 }
 
