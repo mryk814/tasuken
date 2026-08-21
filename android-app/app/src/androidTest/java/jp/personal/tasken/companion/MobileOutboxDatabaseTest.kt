@@ -1,0 +1,143 @@
+package jp.personal.tasken.companion
+
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.time.Instant
+import java.time.LocalDate
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class MobileOutboxDatabaseTest {
+    private lateinit var context: Context
+    private lateinit var database: MobileLocalDatabase
+    private lateinit var dao: MobileLocalDao
+    private lateinit var outbox: MobileOutbox
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        database = Room.inMemoryDatabaseBuilder(context, MobileLocalDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        dao = database.mobileDao()
+        outbox = MobileOutbox(
+            context = context,
+            dao = dao,
+            deviceId = { "android-test-device" },
+            now = { Instant.parse("2026-08-22T01:02:03Z") },
+            schedule = {},
+        )
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    @Test
+    fun offlineCreatePersistsOptimisticTaskAndImmutableEnvelopeTogether() = runBlocking {
+        val taskId = outbox.enqueueCreate("  外出先で記録  ", LocalDate.parse("2026-08-22"))
+        val task = requireNotNull(dao.task(taskId))
+        val command = requireNotNull(dao.outbox(requireNotNull(task.optimisticCommandId)))
+        val envelope = MobileCreateTaskContract.decodeEnvelope(command.envelopeJson)
+
+        assertEquals("外出先で記録", task.title)
+        assertEquals("2026-08-22", task.todayDate)
+        assertEquals(command.commandId, command.idempotencyKey)
+        assertEquals(command.commandId, envelope.commandId)
+        assertEquals(command.requestId, envelope.requestId)
+        assertEquals(command.issuedAt, envelope.issuedAt)
+        assertEquals(taskId, envelope.command.task.id)
+        assertEquals(OutboxState.Pending, command.state)
+    }
+
+    @Test
+    fun interruptedSendingReturnsToRetryWithoutChangingEnvelope() = runBlocking {
+        val taskId = outbox.enqueueCreate("再送する", LocalDate.parse("2026-08-22"))
+        val commandId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+        val before = requireNotNull(dao.outbox(commandId))
+        requireNotNull(dao.claimNext("2026-08-22T01:03:00Z"))
+
+        assertEquals(1, outbox.recoverInterruptedSending())
+        val recovered = requireNotNull(dao.outbox(commandId))
+        assertEquals(OutboxState.RetryWait, recovered.state)
+        assertEquals(before.envelopeJson, recovered.envelopeJson)
+        assertEquals(1, recovered.attemptCount)
+    }
+
+    @Test
+    fun receiptConvergesCanonicalTaskThenDeletesOutboxAndDuplicateIsSafe() = runBlocking {
+        val taskId = outbox.enqueueCreate("正規化前", LocalDate.parse("2026-08-22"))
+        val commandId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+        val response = receipt(commandId, taskId)
+
+        assertTrue(outbox.drain { MobileCommandSendResult.Applied(response) }.not())
+        assertEquals("Desktop正規化後", dao.task(taskId)?.title)
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+        assertEquals(0, dao.outboxCount())
+
+        dao.applyCreateReceipt(
+            commandId,
+            canonicalTask(response),
+            syncState(response),
+        )
+        assertEquals(1, dao.tasks().count { it.id == taskId })
+        assertEquals(0, dao.outboxCount())
+    }
+
+    private fun receipt(commandId: String, taskId: String) = MobileCreateTaskResponseDto(
+        ok = true,
+        meta = MobileResponseMetaDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            serverId = "server-1",
+            serverRevision = 10,
+            generatedAt = "2026-08-22T01:04:00Z",
+            truncated = false,
+        ),
+        data = MobileCreateTaskReceiptDto(
+            commandId = commandId,
+            status = "applied",
+            task = MobileTaskSummaryDto(
+                id = taskId,
+                title = "Desktop正規化後",
+                themeId = null,
+                state = "todo",
+                workState = null,
+                updatedAt = "2026-08-22T01:04:00Z",
+            ),
+        ),
+    )
+
+    private fun canonicalTask(response: MobileCreateTaskResponseDto): TaskCacheEntity =
+        TaskCacheEntity(
+            id = response.data.task.id,
+            title = response.data.task.title,
+            themeId = response.data.task.themeId,
+            state = response.data.task.state,
+            workState = response.data.task.workState,
+            todayDate = "2026-08-22",
+            updatedAt = response.data.task.updatedAt,
+            optimisticCommandId = null,
+        )
+
+    private fun syncState(response: MobileCreateTaskResponseDto): SyncStateEntity =
+        SyncStateEntity(
+            serverId = response.meta.serverId,
+            apiVersion = response.meta.apiVersion,
+            schemaVersion = response.meta.schemaVersion,
+            cursor = null,
+            lastSuccessfulSyncAt = response.meta.generatedAt,
+            lastAttemptAt = response.meta.generatedAt,
+            lastError = null,
+        )
+}

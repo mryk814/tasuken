@@ -20,6 +20,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 
 private const val PREFERENCES_NAME = "tasken_mobile_gateway"
 private const val KEY_ORIGIN = "origin"
@@ -109,10 +112,30 @@ class MobileGatewayConnectionStore(context: Context) {
 class AndroidMobileTaskRepository(
     private val context: Context,
     private val store: MobileGatewayConnectionStore = MobileGatewayConnectionStore(context),
-) : MobileGatewayRepository {
+    database: MobileLocalDatabase = MobileLocalDatabase.open(context),
+    scheduleOutboxOnStart: Boolean = true,
+) : MobileGatewayRepository, MobileOfflineTaskRepository {
     private val json = Json { ignoreUnknownKeys = false }
+    private val dao = database.mobileDao()
+    private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
+
+    init {
+        if (scheduleOutboxOnStart) MobileOutboxScheduler.enqueue(context)
+    }
 
     override fun configuration(): MobileGatewayConfiguration = store.configuration()
+
+    override fun observeCachedTasks(): Flow<List<MobileTask>> =
+        outbox.observeTasks().map { tasks -> tasks.map(TaskCacheEntity::toMobileTask) }
+
+    override fun observePendingCount(): Flow<Int> = outbox.observePendingCount()
+
+    override suspend fun enqueueCreateTask(title: String, todayDate: LocalDate?): String =
+        outbox.enqueueCreate(title, todayDate)
+
+    internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
+
+    internal suspend fun drainOutbox(): Boolean = outbox.drain(::sendCreateTask)
 
     override fun pair(origin: String, pairingCode: String): MobileTodayResult {
         val normalizedOrigin = normalizeHttpsOrigin(origin)
@@ -186,13 +209,72 @@ class AndroidMobileTaskRepository(
                     "DesktopのMobile Gateway状態を確認して再読み込みしてください。",
                 )
             } else {
-                MobileTodayContract.decodeSuccess(response.body).toResult()
+                val decoded = MobileTodayContract.decodeSuccess(response.body)
+                val cached = runBlocking {
+                    dao.replaceToday(
+                        date = decoded.data.date,
+                        tasks = decoded.data.items.map { task ->
+                            TaskCacheEntity(
+                                id = task.id,
+                                title = task.title,
+                                themeId = task.themeId,
+                                state = task.state,
+                                workState = task.workState,
+                                todayDate = decoded.data.date,
+                                updatedAt = task.updatedAt,
+                                optimisticCommandId = null,
+                            )
+                        },
+                        syncState = SyncStateEntity(
+                            serverId = decoded.meta.serverId,
+                            apiVersion = decoded.meta.apiVersion,
+                            schemaVersion = decoded.meta.schemaVersion,
+                            cursor = decoded.data.nextCursor,
+                            lastSuccessfulSyncAt = decoded.meta.generatedAt,
+                            lastAttemptAt = decoded.meta.generatedAt,
+                            lastError = null,
+                        ),
+                    )
+                    dao.tasksForDate(decoded.data.date).map(TaskCacheEntity::toMobileTask)
+                }
+                MobileTodayResult.Available(cached, decoded.meta.generatedAt)
             }
         } catch (_: Exception) {
             MobileTodayResult.Unavailable(
                 "Mobile Gatewayに接続できません。",
                 "DesktopとTailscale接続を確認して再読み込みしてください。",
             )
+        }
+    }
+
+    private fun sendCreateTask(envelopeJson: String): MobileCommandSendResult {
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return MobileCommandSendResult.Retry("Mobile Gatewayとのペアリングが必要です。")
+        }
+        return try {
+            val response = request(
+                origin = configuration.origin,
+                path = "/v1/commands",
+                method = "POST",
+                body = envelopeJson,
+                accessToken = token,
+            )
+            when {
+                response.status == 200 -> MobileCommandSendResult.Applied(
+                    MobileCreateTaskContract.decodeReceipt(response.body),
+                )
+                response.status == 401 -> {
+                    store.clearToken()
+                    MobileCommandSendResult.Retry("接続が失効しました。新しいコードで再接続してください。")
+                }
+                response.status == 408 || response.status == 429 || response.status >= 500 ->
+                    MobileCommandSendResult.Retry("Desktopへ送信できませんでした。自動で再送します。")
+                else -> MobileCommandSendResult.Rejected("DesktopがCreateTaskを受理しませんでした。")
+            }
+        } catch (_: Exception) {
+            MobileCommandSendResult.Retry("Desktopへ接続できませんでした。自動で再送します。")
         }
     }
 
@@ -253,4 +335,3 @@ class AndroidMobileTaskRepository(
 
     private data class GatewayHttpResponse(val status: Int, val body: String)
 }
-
