@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,11 +7,34 @@ import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { build } from "esbuild";
 
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { queueMcpProposal, validateMcpProposalEnvelope } from "../src/main/mcp/proposalInbox.mjs";
+import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
+
+const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
+const { WorkspaceDatabase } = await import(workspaceRepositoryModule);
+
+const bundledCore = await build({
+  stdin: {
+    contents: `
+      export { TaskenCoreHost } from "./src/main/infrastructure/http/taskenCoreHost.ts";
+      export { createTaskenCore } from "./src/main/infrastructure/sqlite/public.ts";
+    `,
+    resolveDir: process.cwd(),
+  },
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  write: false,
+  logLevel: "silent",
+});
+const { TaskenCoreHost, createTaskenCore } = await import(
+  `data:text/javascript;base64,${Buffer.from(bundledCore.outputFiles[0].text).toString("base64")}`
+);
 
 function contextFixture() {
   const theme = {
@@ -390,12 +414,24 @@ test("read-only MCP mode exposes context tools and no proposal or task-work writ
 });
 
 test("task blocker workflow is callable over MCP and queues a reviewable append-only receipt proposal", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-task-blocked-stdio-"));
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-task-blocked-stdio-"));
+  fs.chmodSync(root, 0o700);
   const inboxPath = path.join(root, "mcp-inbox");
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+  const host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
+  await host.start();
+  const discovery = JSON.parse(fs.readFileSync(path.join(root, "tasken-core.json"), "utf8"));
+  const oversized = await fetch(`${discovery.origin}/v1/commands/propose-task-work`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${discovery.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ padding: "x".repeat(64 * 1024) }),
+  });
+  assert.equal(oversized.status, 413);
+  assert.equal((await oversized.json()).error.code, "BODY_TOO_LARGE");
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["scripts/mcp-server.mjs"],
-    env: { ...process.env, TASKEN_MCP_INBOX_PATH: inboxPath },
+    env: { ...process.env, TASKEN_USER_DATA_DIR: root, TASKEN_MCP_INBOX_PATH: inboxPath },
     stderr: "pipe",
   });
   const client = new Client({ name: "tasken-task-blocked-test", version: "1.0.0" });
@@ -426,11 +462,12 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
         retained_artifacts: ["diagnostic log"],
       },
     });
-    assert.equal(result.isError, undefined);
-    const files = fs.readdirSync(inboxPath).filter((name) => name.endsWith(".json"));
-    assert.equal(files.length, 1);
-    const envelope = validateMcpProposalEnvelope(JSON.parse(fs.readFileSync(path.join(inboxPath, files[0]), "utf8")));
-    const report = envelope.payload.task_work[0];
+    assert.equal(result.isError, undefined, JSON.stringify(result));
+    assert.equal("inbox_path" in result.structuredContent, false);
+    assert.equal(fs.existsSync(inboxPath), false);
+    const proposal = database.get("ai_proposal", result.structuredContent.proposal_id);
+    assert.ok(proposal);
+    const report = proposal.payload.task_work[0];
     assert.equal(report.action, "report_blocked");
     assert.equal(report.summary, "Repository credential is unavailable.");
     assert.deepEqual(report.repository_context, {
@@ -439,7 +476,55 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
       repository_slug: "mryk814/tasuken",
       branch: "codex/issue-279-task-context",
     });
-    assert.equal(envelope.request.idempotency_key, "session-1-blocked-1");
+    assert.equal(proposal.request.idempotency_key, "session-1-blocked-1");
+    assert.deepEqual(proposal.request.actor, { kind: "ai_agent" });
+    assert.equal(proposal.request.source, "mcp");
+    const persistedRow = database.db.prepare(
+      "SELECT entity_type, version, data_json FROM entities WHERE entity_type = ? AND id = ?",
+    ).get("ai_proposal", proposal.id);
+    assert.equal(persistedRow.entity_type, "ai_proposal");
+    assert.equal(persistedRow.version, 1);
+    assert.equal(JSON.parse(persistedRow.data_json).status, "pending");
+
+    const duplicate = await client.callTool({
+      name: "tasken.report_task_blocked",
+      arguments: {
+        task_id: "task-1",
+        expected_version: 4,
+        idempotency_key: "session-1-blocked-1",
+        caller: "Codex",
+        source_session: "session-1",
+        repository_context: {
+          repository_context_id: "repo-1",
+          provider: "github",
+          repository_slug: "mryk814/tasuken",
+          branch: "codex/issue-279-task-context",
+        },
+        executor_label: "Codex",
+        blocker: "Repository credential is unavailable.",
+        attempted_work: ["Inspected repository configuration"],
+        needed_input: ["Provide repository access"],
+        retained_artifacts: ["diagnostic log"],
+      },
+    });
+    assert.equal(duplicate.structuredContent.status, "duplicate");
+    assert.equal(duplicate.structuredContent.proposal_id, proposal.id);
+    assert.equal(database.list("ai_proposal").length, 1);
+
+    const conflict = await client.callTool({
+      name: "tasken.report_task_blocked",
+      arguments: {
+        task_id: "task-1",
+        expected_version: 4,
+        idempotency_key: "session-1-blocked-1",
+        caller: "Codex",
+        executor_label: "Codex",
+        blocker: "Different content for the same key.",
+      },
+    });
+    assert.equal(conflict.isError, true);
+    assert.equal(conflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
+    assert.equal(database.list("ai_proposal").length, 1);
     const rejected = await client.callTool({
       name: "tasken.report_task_blocked",
       arguments: {
@@ -453,9 +538,77 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
       },
     });
     assert.equal(rejected.isError, true);
-    assert.equal(fs.readdirSync(inboxPath).filter((name) => name.endsWith(".json")).length, 1);
+    assert.equal(database.list("ai_proposal").length, 1);
+    assert.equal(fs.existsSync(inboxPath), false);
   } finally {
-    await client.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    try {
+      await client.close();
+    } finally {
+      try {
+        await host.stop();
+      } finally {
+        database.db.close();
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
+test("Core task-work idempotency binds actor/source identity and survives host restart", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-task-work-identity-"));
+  fs.chmodSync(root, 0o700);
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+  let host = null;
+  const startHost = async () => {
+    host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
+    await host.start();
+    return new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
+  };
+  const request = {
+    action: "start",
+    task_id: "task-identity",
+    expected_version: 3,
+    idempotency_key: "identity-start-1",
+    caller: "Codex",
+    actor: { kind: "ai_agent", id: "agent-a" },
+    source: "mcp",
+    source_session: "session-a",
+    source_app: "identity-fixture",
+  };
+  try {
+    let coreClient = await startHost();
+    const first = await coreClient.proposeTaskWork(request);
+    assert.equal(first.status, "queued");
+    assert.equal((await coreClient.proposeTaskWork(request)).status, "duplicate");
+    assert.equal(database.list("ai_proposal").length, 1);
+
+    await host.stop();
+    host = null;
+    coreClient = await startHost();
+    assert.equal((await coreClient.proposeTaskWork(request)).status, "duplicate");
+
+    await assert.rejects(
+      coreClient.proposeTaskWork({ ...request, actor: { kind: "ai_agent", id: "agent-b" } }),
+      (error) => error instanceof TaskenCoreClientError && error.code === "IDEMPOTENCY_CONFLICT",
+    );
+
+    const persisted = database.get("ai_proposal", first.proposal_id);
+    database.save("ai_proposal", {
+      ...persisted,
+      request: { ...persisted.request, source: "system" },
+    });
+    await assert.rejects(
+      coreClient.proposeTaskWork(request),
+      (error) => error instanceof TaskenCoreClientError && error.code === "IDEMPOTENCY_CONFLICT",
+    );
+    assert.equal(database.list("ai_proposal").length, 1);
+    assert.equal(fs.existsSync(path.join(root, "mcp-inbox")), false);
+  } finally {
+    try {
+      await host?.stop();
+    } finally {
+      database.db.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   }
 });

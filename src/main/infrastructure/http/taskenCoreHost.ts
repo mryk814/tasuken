@@ -46,6 +46,8 @@ import type {
   ResolveRepositoryContextResponse,
   SearchItemsRequest,
   SearchItemsResponse,
+  ProposeTaskWorkRequest,
+  ProposeTaskWorkResponse,
 } from "../../../shared/contracts/task/public.ts";
 import {
   getTaskAssignmentRequestSchema,
@@ -68,6 +70,7 @@ import {
   listOpenItemsRequestSchema,
   repositoryLookupRequestSchema,
   searchItemsRequestSchema,
+  proposeTaskWorkRequestSchema,
 } from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -89,6 +92,7 @@ import {
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -134,6 +138,7 @@ export interface TaskenCoreHostOptions {
   getActivity?: QueryProvider<GetActivityRequest, GetActivityResponse>;
   getContextSubgraph?: QueryProvider<GetContextSubgraphRequest, GetContextSubgraphResponse>;
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
+  proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
 }
 
 interface DiscoveryDocument {
@@ -171,8 +176,9 @@ class RequestValidationError extends Error {
   }
 }
 
-function parseQueryRequest(url: string, body: unknown): unknown {
-  const schema = url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
+function parseOperationRequest(url: string, body: unknown): unknown {
+  const schema = url === "/v1/commands/propose-task-work" ? proposeTaskWorkRequestSchema
+    : url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
     : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" || url === "/v1/queries/find-themes-for-repository" ? repositoryLookupRequestSchema
       : url === "/v1/queries/get-repository-context" ? getRepositoryContextRequestSchema
       : url === "/v1/queries/get-task-assignment" ? getTaskAssignmentRequestSchema
@@ -222,6 +228,15 @@ function publicRequestError(error: unknown) {
   }
   if (message === "INVALID_JSON") {
     return { status: 400, body: errorResponse(message, "JSONが不正です。") };
+  }
+  if (error instanceof Error && error.name === "ProposeTaskWorkError"
+    && "code" in error && error.code === "IDEMPOTENCY_CONFLICT") {
+    return {
+      status: 409,
+      body: errorResponse("IDEMPOTENCY_CONFLICT", error.message, {
+        details: "details" in error && error.details && typeof error.details === "object" ? error.details as Record<string, unknown> : {},
+      }),
+    };
   }
   return { status: 500, body: errorResponse("INTERNAL_ERROR", "Tasken Core queryの処理に失敗しました。") };
 }
@@ -309,6 +324,7 @@ export class TaskenCoreHost {
       ...(this.options.getActivity ? [TASKEN_CORE_GET_ACTIVITY_CAPABILITY] : []),
       ...(this.options.getContextSubgraph ? [TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY] : []),
       ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
+      ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
     ];
   }
 
@@ -394,10 +410,14 @@ export class TaskenCoreHost {
         ...(this.options.getContextSubgraph ? ["/v1/queries/get-context-subgraph"] : []),
         ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
       ]);
-      const knownPaths = new Set(["/health", "/version", "/capabilities", ...queryPaths]);
+      const commandPaths = new Set([
+        ...(this.options.proposeTaskWork ? ["/v1/commands/propose-task-work"] : []),
+      ]);
+      const operationPaths = new Set([...queryPaths, ...commandPaths]);
+      const knownPaths = new Set(["/health", "/version", "/capabilities", ...operationPaths]);
       if (knownPaths.has(request.url || "")
-        && request.method !== (queryPaths.has(request.url || "") ? "POST" : "GET")) {
-        response.setHeader("allow", queryPaths.has(request.url || "") ? "POST" : "GET");
+        && request.method !== (operationPaths.has(request.url || "") ? "POST" : "GET")) {
+        response.setHeader("allow", operationPaths.has(request.url || "") ? "POST" : "GET");
         json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
         return;
       }
@@ -413,13 +433,15 @@ export class TaskenCoreHost {
         json(response, 200, { capabilities: this.capabilities() });
         return;
       }
-      if (request.method === "POST" && queryPaths.has(request.url || "")) {
+      if (request.method === "POST" && operationPaths.has(request.url || "")) {
         if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
           json(response, 415, errorResponse("UNSUPPORTED_MEDIA_TYPE", "application/jsonを指定してください。"));
           return;
         }
-        const body = parseQueryRequest(request.url || "", await requestBody(request));
-        if (request.url === "/v1/queries/list-agent-ready-tasks") {
+        const body = parseOperationRequest(request.url || "", await requestBody(request));
+        if (request.url === "/v1/commands/propose-task-work") {
+          json(response, 200, this.options.proposeTaskWork!.execute(body as ProposeTaskWorkRequest));
+        } else if (request.url === "/v1/queries/list-agent-ready-tasks") {
           json(response, 200, this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest));
         } else if (request.url === "/v1/queries/resolve-repository-context") {
           json(response, 200, this.options.resolveRepositoryContext!.execute(body as RepositoryLookupRequest));

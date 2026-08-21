@@ -18,6 +18,7 @@ import {
   getActivityResponseSchema,
   getContextSubgraphResponseSchema,
   exportAiContextResponseSchema,
+  proposeTaskWorkResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -39,6 +40,7 @@ import {
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
@@ -242,7 +244,15 @@ export class TaskenCoreClient {
     return this.query("export-ai-context", TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY, request, exportAiContextResponseSchema);
   }
 
+  async proposeTaskWork(request = {}) {
+    return this.request("/v1/commands/propose-task-work", TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY, request, proposeTaskWorkResponseSchema, "propose-task-work");
+  }
+
   async query(path, capability, request, responseSchema) {
+    return this.request(`/v1/queries/${path}`, capability, request, responseSchema, path);
+  }
+
+  async request(route, capability, request, responseSchema, operation = route) {
     const discovery = await readDiscovery(this.discoveryPath);
     if (!discovery.capabilities.includes(capability)) {
       throw new TaskenCoreClientError("CAPABILITY_UNAVAILABLE", `Tasken Core operation capabilityが利用できません（${capability}）。`);
@@ -250,7 +260,7 @@ export class TaskenCoreClient {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetch(`${discovery.origin}/v1/queries/${path}`, {
+      const response = await this.fetch(`${discovery.origin}${route}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${discovery.token}`,
@@ -288,7 +298,7 @@ export class TaskenCoreClient {
       const parsed = responseSchema.safeParse(payload);
       if (!parsed.success) {
         throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core responseがschemaに適合しません。", {
-          details: { operation: path },
+          details: { operation },
         });
       }
       return parsed.data;
