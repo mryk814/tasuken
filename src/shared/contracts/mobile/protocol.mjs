@@ -7,7 +7,7 @@ export const TASKEN_MOBILE_CLIENT_TIMEOUT_MS = 5_000;
 export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   health: "mobile.health",
   todayRead: "mobile.today.read",
-  taskCreate: "mobile.task.create",
+  taskWrite: "mobile.task.write",
 });
 
 export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({

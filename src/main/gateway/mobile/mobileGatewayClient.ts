@@ -4,14 +4,14 @@ import {
   TASKEN_MOBILE_CLIENT_TIMEOUT_MS,
   TASKEN_MOBILE_ENDPOINTS,
   TASKEN_MOBILE_MAX_RESPONSE_BYTES,
-  mobileCreateTaskRequestSchema,
-  mobileCreateTaskResponseSchema,
+  mobileTaskCommandRequestSchema,
+  mobileTaskCommandResponseSchema,
   mobileErrorResponseSchema,
   mobileHealthResponseSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
   type MobileCapability,
-  type MobileCreateTaskRequest,
+  type MobileTaskCommandRequest,
   type MobileTodayRequest,
 } from "../../../shared/contracts/mobile/public.ts";
 
@@ -89,10 +89,10 @@ export class MobileGatewayClient {
     return mobileTodayResponseSchema.parse(await this.request("GET", `${TASKEN_MOBILE_ENDPOINTS.today}?${query}`));
   }
 
-  async createTask(input: MobileCreateTaskRequest) {
-    mobileCreateTaskRequestSchema.parse(input);
-    await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.taskCreate);
-    return mobileCreateTaskResponseSchema.parse(await this.request("POST", TASKEN_MOBILE_ENDPOINTS.commands, input));
+  async executeTaskCommand(input: MobileTaskCommandRequest) {
+    mobileTaskCommandRequestSchema.parse(input);
+    await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.taskWrite);
+    return mobileTaskCommandResponseSchema.parse(await this.request("POST", TASKEN_MOBILE_ENDPOINTS.commands, input));
   }
 
   private async requireCapability(capability: MobileCapability) {

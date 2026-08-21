@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 
-import { entityIdSchema, isoTimestampSchema, localDateSchema } from "../../kernel/public.ts";
+import { entityIdSchema, entityVersionSchema, isoTimestampSchema, localDateSchema } from "../../kernel/public.ts";
 import {
   taskIdSchema,
   taskIntendedExecutorSchema,
@@ -23,7 +23,7 @@ const requestIdSchema = entityIdSchema;
 export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.health,
   TASKEN_MOBILE_CAPABILITIES.todayRead,
-  TASKEN_MOBILE_CAPABILITIES.taskCreate,
+  TASKEN_MOBILE_CAPABILITIES.taskWrite,
 ]);
 
 export const mobileScopeSchema = z.enum(["mobile:read", "mobile:task-write"]);
@@ -80,6 +80,7 @@ export const mobileTodayRequestSchema = z.object({
 
 export const mobileTaskSummarySchema = z.object({
   id: taskIdSchema,
+  version: entityVersionSchema,
   title: z.string().trim().min(1).max(500),
   themeId: entityIdSchema.nullable(),
   state: taskStateSchema,
@@ -108,7 +109,24 @@ const mobileCreateTaskCandidateSchema = z.object({
   todayDate: localDateSchema.nullable().optional(),
 }).strict();
 
-export const mobileCreateTaskRequestSchema = z.object({
+const mobileTaskCommandSchema = z.discriminatedUnion("name", [
+  z.object({
+    name: z.literal("CreateTask"),
+    task: mobileCreateTaskCandidateSchema,
+  }).strict(),
+  z.object({
+    name: z.literal("CompleteTask"),
+    taskId: taskIdSchema,
+    expectedVersion: entityVersionSchema,
+  }).strict(),
+  z.object({
+    name: z.literal("ReopenTask"),
+    taskId: taskIdSchema,
+    expectedVersion: entityVersionSchema,
+  }).strict(),
+]);
+
+export const mobileTaskCommandRequestSchema = z.object({
   apiVersion: apiVersionSchema,
   schemaVersion: schemaVersionSchema,
   requestId: requestIdSchema,
@@ -116,16 +134,13 @@ export const mobileCreateTaskRequestSchema = z.object({
   idempotencyKey: entityIdSchema,
   clientDeviceId: entityIdSchema,
   issuedAt: isoTimestampSchema,
-  command: z.object({
-    name: z.literal("CreateTask"),
-    task: mobileCreateTaskCandidateSchema,
-  }).strict(),
+  command: mobileTaskCommandSchema,
 }).strict().refine((value) => value.commandId === value.idempotencyKey, {
   path: ["idempotencyKey"],
-  message: "Phase 4AではcommandIdとidempotencyKeyを一致させてください。",
+  message: "commandIdとidempotencyKeyを一致させてください。",
 });
 
-export const mobileCreateTaskResponseSchema = z.object({
+export const mobileTaskCommandResponseSchema = z.object({
   ok: z.literal(true),
   meta: mobileResponseMetaSchema,
   data: z.object({
@@ -169,8 +184,8 @@ export type MobileErrorCode = z.output<typeof mobileErrorCodeSchema>;
 export type MobileHealthResponse = z.output<typeof mobileHealthResponseSchema>;
 export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
-export type MobileCreateTaskRequest = z.output<typeof mobileCreateTaskRequestSchema>;
-export type MobileCreateTaskResponse = z.output<typeof mobileCreateTaskResponseSchema>;
+export type MobileTaskCommandRequest = z.output<typeof mobileTaskCommandRequestSchema>;
+export type MobileTaskCommandResponse = z.output<typeof mobileTaskCommandResponseSchema>;
 export type MobilePairRequest = z.output<typeof mobilePairRequestSchema>;
 export type MobilePairResponse = z.output<typeof mobilePairResponseSchema>;
 export type MobileErrorResponse = z.output<typeof mobileErrorResponseSchema>;
