@@ -133,9 +133,13 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueCreateTask(title: String, todayDate: LocalDate?): String =
         outbox.enqueueCreate(title, todayDate)
 
+    override suspend fun enqueueCompleteTask(taskId: String): String = outbox.enqueueComplete(taskId)
+
+    override suspend fun enqueueReopenTask(taskId: String): String = outbox.enqueueReopen(taskId)
+
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
 
-    internal suspend fun drainOutbox(): Boolean = outbox.drain(::sendCreateTask)
+    internal suspend fun drainOutbox(): Boolean = outbox.drain(::sendTaskCommand)
 
     override fun pair(origin: String, pairingCode: String): MobileTodayResult {
         val normalizedOrigin = normalizeHttpsOrigin(origin)
@@ -216,6 +220,7 @@ class AndroidMobileTaskRepository(
                         tasks = decoded.data.items.map { task ->
                             TaskCacheEntity(
                                 id = task.id,
+                                serverVersion = task.version,
                                 title = task.title,
                                 themeId = task.themeId,
                                 state = task.state,
@@ -247,7 +252,7 @@ class AndroidMobileTaskRepository(
         }
     }
 
-    private fun sendCreateTask(envelopeJson: String): MobileCommandSendResult {
+    private fun sendTaskCommand(envelopeJson: String): MobileCommandSendResult {
         val configuration = store.configuration()
         val token = store.readToken()
         if (configuration.origin.isBlank() || token == null) {
@@ -263,7 +268,7 @@ class AndroidMobileTaskRepository(
             )
             when {
                 response.status == 200 -> MobileCommandSendResult.Applied(
-                    MobileCreateTaskContract.decodeReceipt(response.body),
+                    MobileTaskCommandContract.decodeReceipt(response.body),
                 )
                 response.status == 401 -> {
                     store.clearToken()
@@ -271,7 +276,7 @@ class AndroidMobileTaskRepository(
                 }
                 response.status == 408 || response.status == 429 || response.status >= 500 ->
                     MobileCommandSendResult.Retry("Desktopへ送信できませんでした。自動で再送します。")
-                else -> MobileCommandSendResult.Rejected("DesktopがCreateTaskを受理しませんでした。")
+                else -> MobileCommandSendResult.Rejected("DesktopがTask操作を受理しませんでした。")
             }
         } catch (_: Exception) {
             MobileCommandSendResult.Retry("Desktopへ接続できませんでした。自動で再送します。")

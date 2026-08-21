@@ -11,11 +11,14 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "task_cache")
 data class TaskCacheEntity(
     @PrimaryKey val id: String,
+    val serverVersion: Int?,
     val title: String,
     val themeId: String?,
     val state: String,
@@ -137,6 +140,15 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun enqueueStateAction(task: TaskCacheEntity, command: OutboxCommandEntity) {
+        require(task.optimisticCommandId == command.commandId)
+        require(task.serverVersion != null)
+        require(command.commandName in setOf("CompleteTask", "ReopenTask"))
+        upsertTask(task)
+        insertOutbox(command)
+    }
+
+    @Transaction
     open suspend fun replaceToday(date: String, tasks: List<TaskCacheEntity>, syncState: SyncStateEntity) {
         deleteCanonicalToday(date)
         tasks.forEach { upsertTask(it) }
@@ -144,7 +156,7 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
-    open suspend fun applyCreateReceipt(commandId: String, canonicalTask: TaskCacheEntity, syncState: SyncStateEntity) {
+    open suspend fun applyCommandReceipt(commandId: String, canonicalTask: TaskCacheEntity, syncState: SyncStateEntity) {
         upsertTask(canonicalTask.copy(optimisticCommandId = null))
         upsertSyncState(syncState)
         deleteOutbox(commandId)
@@ -168,7 +180,7 @@ abstract class MobileLocalDao {
 
 @Database(
     entities = [TaskCacheEntity::class, OutboxCommandEntity::class, SyncStateEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -182,8 +194,14 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 context.applicationContext,
                 MobileLocalDatabase::class.java,
                 "tasken-mobile-cache.db",
-            ).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN serverVersion INTEGER")
     }
 }
 

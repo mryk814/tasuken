@@ -32,6 +32,7 @@ data class MobileTodayDataDto(
 @Serializable
 data class MobileTaskSummaryDto(
     val id: String,
+    val version: Int,
     val title: String,
     val themeId: String?,
     val state: String,
@@ -89,6 +90,7 @@ object MobileTodayContract {
         )
         response.data.items.forEach { item ->
             requireContract(isEntityId(item.id), "Invalid Task ID.")
+            requireContract(item.version > 0, "Invalid Task version.")
             requireContract(item.title.trim().isNotEmpty() && item.title.length <= 500, "Invalid Task title.")
             requireContract(item.themeId == null || isEntityId(item.themeId), "Invalid Theme ID.")
             requireContract(item.state in taskStates, "Invalid Task state.")

@@ -53,6 +53,8 @@ class TodayViewModelTest {
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(listOf(cached))
             override fun observePendingCount(): Flow<Int> = flowOf(1)
             override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = "unused"
+            override suspend fun enqueueReopenTask(taskId: String) = "unused"
         }
         val viewModel = TodayViewModel(repository)
 

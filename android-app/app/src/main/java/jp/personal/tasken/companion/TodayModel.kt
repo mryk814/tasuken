@@ -162,4 +162,6 @@ interface MobileOfflineTaskRepository {
     fun observeCachedTasks(): Flow<List<MobileTask>>
     fun observePendingCount(): Flow<Int>
     suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
+    suspend fun enqueueCompleteTask(taskId: String): String
+    suspend fun enqueueReopenTask(taskId: String): String
 }
