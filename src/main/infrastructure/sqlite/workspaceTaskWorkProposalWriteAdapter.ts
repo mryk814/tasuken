@@ -2,7 +2,7 @@ import type {
   TaskWorkProposalRecord,
   TaskWorkProposalTransaction,
   TaskWorkProposalWritePort,
-} from "../../core/ports/taskWorkProposalWritePort.ts";
+} from "../../core/public.ts";
 
 interface CanonicalProposalPersistence {
   runTransaction<T>(callback: (repository: {

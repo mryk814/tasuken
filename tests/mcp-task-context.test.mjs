@@ -11,9 +11,11 @@ import { build } from "esbuild";
 
 import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { queueMcpProposal, validateMcpProposalEnvelope } from "../src/main/mcp/proposalInbox.mjs";
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
+
+const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
+const { WorkspaceDatabase } = await import(workspaceRepositoryModule);
 
 const bundledCore = await build({
   stdin: {
@@ -417,6 +419,14 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
   const host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
   await host.start();
+  const discovery = JSON.parse(fs.readFileSync(path.join(root, "tasken-core.json"), "utf8"));
+  const oversized = await fetch(`${discovery.origin}/v1/commands/propose-task-work`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${discovery.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ padding: "x".repeat(64 * 1024) }),
+  });
+  assert.equal(oversized.status, 413);
+  assert.equal((await oversized.json()).error.code, "BODY_TOO_LARGE");
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["scripts/mcp-server.mjs"],
@@ -468,6 +478,52 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     assert.equal(proposal.request.idempotency_key, "session-1-blocked-1");
     assert.deepEqual(proposal.request.actor, { kind: "ai_agent" });
     assert.equal(proposal.request.source, "mcp");
+    const persistedRow = database.db.prepare(
+      "SELECT entity_type, version, data_json FROM entities WHERE entity_type = ? AND id = ?",
+    ).get("ai_proposal", proposal.id);
+    assert.equal(persistedRow.entity_type, "ai_proposal");
+    assert.equal(persistedRow.version, 1);
+    assert.equal(JSON.parse(persistedRow.data_json).status, "pending");
+
+    const duplicate = await client.callTool({
+      name: "tasken.report_task_blocked",
+      arguments: {
+        task_id: "task-1",
+        expected_version: 4,
+        idempotency_key: "session-1-blocked-1",
+        caller: "Codex",
+        source_session: "session-1",
+        repository_context: {
+          repository_context_id: "repo-1",
+          provider: "github",
+          repository_slug: "mryk814/tasuken",
+          branch: "codex/issue-279-task-context",
+        },
+        executor_label: "Codex",
+        blocker: "Repository credential is unavailable.",
+        attempted_work: ["Inspected repository configuration"],
+        needed_input: ["Provide repository access"],
+        retained_artifacts: ["diagnostic log"],
+      },
+    });
+    assert.equal(duplicate.structuredContent.status, "duplicate");
+    assert.equal(duplicate.structuredContent.proposal_id, proposal.id);
+    assert.equal(database.list("ai_proposal").length, 1);
+
+    const conflict = await client.callTool({
+      name: "tasken.report_task_blocked",
+      arguments: {
+        task_id: "task-1",
+        expected_version: 4,
+        idempotency_key: "session-1-blocked-1",
+        caller: "Codex",
+        executor_label: "Codex",
+        blocker: "Different content for the same key.",
+      },
+    });
+    assert.equal(conflict.isError, true);
+    assert.equal(conflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
+    assert.equal(database.list("ai_proposal").length, 1);
     const rejected = await client.callTool({
       name: "tasken.report_task_blocked",
       arguments: {

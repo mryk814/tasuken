@@ -5,11 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import {
   McpProposalInboxService,
   queueMcpProposal,
   validateMcpProposalEnvelope,
 } from "../src/main/mcp/proposalInbox.mjs";
+import {
+  TASKEN_CORE_API_VERSION,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+} from "../src/shared/contracts/core/public.mjs";
 
 function tempRoot(name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -60,7 +65,7 @@ const receiptFields = {
   runtime_metadata: { provider: "openai", model: "gpt-5" },
 };
 
-test("proposal Task-work tools preserve version, caller/session, receipt fields, and idempotency without creating official entities", () => {
+test("legacy Task-work inbox envelope remains a compatibility reference for acceptance semantics", () => {
   const root = tempRoot("tasken-proposal-task-work-char");
   const inboxPath = path.join(root, "mcp-inbox");
   try {
@@ -343,7 +348,7 @@ test("proposal validators enforce public bounds and reject private paths, creden
   }
 });
 
-test("all eleven proposal tools remain registered with proposal-only annotations and public schema guards", () => {
+test("four Task-work tools use Core while seven content tools retain the legacy proposal owner", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const names = [
     "tasken.start_task_work",
@@ -364,8 +369,14 @@ test("all eleven proposal tools remain registered with proposal-only annotations
     const block = source.slice(source.indexOf(marker), source.indexOf("server.registerTool(", source.indexOf(marker) + marker.length) === -1 ? source.length : source.indexOf("server.registerTool(", source.indexOf(marker) + marker.length));
     assert.match(block, /annotations: PROPOSAL_ANNOTATIONS/);
     assert.match(block, index < 4 ? /queueTaskWork/ : /queueMcpProposal/);
-    assert.doesNotMatch(block, /coreClient\.|withCoreClient|readContextProvider/);
+    if (index < 4) {
+      assert.match(block, /withCoreClient/);
+      assert.doesNotMatch(block, /queueMcpProposal/);
+    } else {
+      assert.doesNotMatch(block, /coreClient\.|withCoreClient|readContextProvider/);
+    }
   }
+  assert.match(source, /coreClient\.proposeTaskWork/);
   assert.match(source, /expected_version: z\.number\(\)\.int\(\)\.nonnegative\(\)/);
   assert.match(source, /idempotency_key: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(200\)/);
   assert.match(source, /source_session: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(200\)\.optional\(\)/);
@@ -374,4 +385,62 @@ test("all eleven proposal tools remain registered with proposal-only annotations
   assert.match(source, /svg: z\.string\(\)\.min\(1\)\.max\(500000\)/);
   assert.match(source, /content: z\.string\(\)\.min\(1\)\.max\(1000000\)/);
   assert.match(source, /base_version: z\.number\(\)\.int\(\)\.positive\(\)/);
+});
+
+test("Task-work Core client requires its named capability and rejects additive response fields", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-proposal-client-contract-"));
+  fs.chmodSync(root, 0o700);
+  const discoveryPath = path.join(root, "tasken-core.json");
+  const writeDiscovery = (capabilities) => fs.writeFileSync(discoveryPath, JSON.stringify({
+    schema_version: 1,
+    api_version: TASKEN_CORE_API_VERSION,
+    origin: "http://127.0.0.1:32123",
+    token: Buffer.alloc(32, 7).toString("base64url"),
+    capabilities,
+    pid: process.pid,
+    started_at: "2026-08-21T00:00:00.000Z",
+  }), { mode: 0o600 });
+  const request = {
+    action: "start",
+    task_id: "task-1",
+    expected_version: 1,
+    idempotency_key: "start-1",
+    caller: "Codex",
+    actor: { kind: "ai_agent" },
+    source: "mcp",
+  };
+  try {
+    writeDiscovery([]);
+    let fetchCalls = 0;
+    const unavailable = new TaskenCoreClient({ discoveryPath, fetch: async () => {
+      fetchCalls += 1;
+      throw new Error("must not fetch");
+    } });
+    await assert.rejects(
+      unavailable.proposeTaskWork(request),
+      (error) => error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE",
+    );
+    assert.equal(fetchCalls, 0);
+
+    writeDiscovery([TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY]);
+    const malformed = new TaskenCoreClient({
+      discoveryPath,
+      fetch: async () => new Response(JSON.stringify({
+        proposal_id: crypto.randomUUID(),
+        status: "queued",
+        payload_type: "task_work",
+        message: "queued",
+        inbox_path: "C:/private/Tasken/mcp-inbox",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json", "x-tasken-core-version": TASKEN_CORE_API_VERSION },
+      }),
+    });
+    await assert.rejects(
+      malformed.proposeTaskWork(request),
+      (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE",
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
