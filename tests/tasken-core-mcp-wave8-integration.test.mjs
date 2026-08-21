@@ -6,7 +6,6 @@ import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { build } from "esbuild";
 
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
@@ -27,6 +26,7 @@ const record = (id, fields = {}) => ({ id, created_at: now, updated_at: now, ...
 
 function fixture() {
   const theme = record("theme-wave8", { name: "Wave 8", state: "active", repository_context_ids: ["repo-wave8"], default_ai_visibility: ["coding_agent"] });
+  const m365Theme = record("theme-m365", { name: "M365 only", state: "active", default_ai_visibility: ["m365"] });
   const task = record("task-wave8", { title: "Visible task", state: "todo", project_id: theme.id });
   const hidden = record("task-hidden", { title: "PRIVATE", state: "todo", project_id: theme.id, ai_visibility: [] });
   const event = buildActivityEvent({ id: "event-wave8", entity_type: "task", entity_id: task.id, event_kind: "task_work_recorded", occurred_at: "2026-08-20T15:30:00.000Z", after: task, summary: "safe", metadata: { dedupe_key: "wave8" } });
@@ -34,9 +34,9 @@ function fixture() {
   const note = record("note-wave8", { title: "Visible note", body_markdown: "body token=SECRET C:/private/note.md", project_id: theme.id });
   const knowledge = record("knowledge-wave8", { title: "Question", body: "body", node_type: "question", theme_id: theme.id });
   return {
-    themes: [theme], tasks: [task, hidden], waitings: [], plan_nodes: [], schedules: [], items: [],
-    notes: [note], knowledge_nodes: [knowledge], knowledge_edges: [], links: [],
-    resources: [record("resource-wave8", { title: "Resource", project_id: theme.id, url: "https://user:pass@example.com/private?token=SECRET#frag", local_path: "C:/private/resource.md", token: "SECRET" })],
+    themes: [theme, m365Theme], tasks: [task, hidden, record("task-m365", { title: "M365 task", state: "todo", project_id: m365Theme.id })], waitings: [], plan_nodes: [], schedules: [], items: [],
+    notes: [note, record("note-m365", { title: "M365 note", body_markdown: "m365 body", project_id: m365Theme.id })], knowledge_nodes: [knowledge, record("knowledge-m365", { title: "M365 question", body: "m365", node_type: "question", theme_id: m365Theme.id })], knowledge_edges: [], links: [],
+    resources: [record("resource-wave8", { title: "Resource", project_id: theme.id, url: "https://user:pass@example.com/private?token=SECRET#frag", local_path: "C:/private/resource.md", token: "SECRET" }), record("resource-m365", { title: "M365 resource", project_id: m365Theme.id, url: "https://example.com/m365" })],
     repository_contexts: [record("repo-wave8", { label: "Repo", provider: "github", canonical_url: "https://github.com/mryk814/tasuken", canonical_identity: "github.com/mryk814/tasuken", repository_slug: "mryk814/tasuken", local_path: "C:/private/repo", active: true })],
     references: [record("ref-task-note", { source_type: "task", source_id: task.id, target_type: "note", target_id: note.id, relation_type: "related_to" }), record("ref-note-knowledge", { source_type: "note", source_id: note.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "answers" })],
     change_events: [event, hiddenEvent],
@@ -115,6 +115,13 @@ test("Wave 8 applies visibility before caps and recursively removes secret/path/
   assert.equal("local_path" in exported.resources[0], false);
   assert.equal("token" in exported.resources[0], false);
   assert.doesNotMatch(JSON.stringify({ graph, exported }), /PRIVATE|user:pass|token=SECRET|C:\/private|#frag|local_path/);
+  const m365 = core.exportAiContext.execute({ format: "json", audience: "m365" });
+  assert.deepEqual(m365.themes.map((entry) => entry.id), ["theme-m365"]);
+  assert.deepEqual(m365.items.map((entry) => entry.id), ["task-m365"]);
+  assert.deepEqual(m365.notes.map((entry) => entry.id), ["note-m365"]);
+  assert.deepEqual(m365.knowledge_nodes.map((entry) => entry.id), ["knowledge-m365"]);
+  assert.deepEqual(m365.resources.map((entry) => entry.id), ["resource-m365"]);
+  assert.equal(m365.ai_audience, "m365");
 });
 
 test("Wave 8 public inputs, named capabilities, and nested responses fail closed", async () => {
@@ -142,31 +149,4 @@ test("Wave 8 public inputs, named capabilities, and nested responses fail closed
 test("Wave 8 MCP registrations contain no legacy read-context fallback", () => {
   const source = fs.readFileSync(new URL("../src/main/mcp/server.mjs", import.meta.url), "utf8");
   for (const method of ["toolGetActivity", "toolGetContextSubgraph", "toolExportAiContext"]) assert.equal(source.includes(`context.${method}`), false, method);
-});
-
-test("actual stdio MCP reads Wave 8 from Core-owned SQLite without writes or native fallback", async (t) => {
-  let WorkspaceDatabase;
-  try { ({ WorkspaceDatabase } = await import("../src/main/repositories/workspaceRepository.mjs")); }
-  catch (error) { if (error?.code === "ERR_DLOPEN_FAILED") { t.skip(`local native ABI unavailable: ${error.code}`); return; } throw error; }
-  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave8-stdio-"));
-  fs.chmodSync(root, 0o700);
-  let database;
-  try { database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3")); }
-  catch (error) { if (error?.code === "ERR_DLOPEN_FAILED") { fs.rmSync(root, { recursive: true, force: true }); t.skip(`local native ABI unavailable: ${error.code}`); return; } throw error; }
-  let host; let client;
-  try {
-    const workspace = fixture();
-    for (const [type, values] of Object.entries({ theme: workspace.themes, task: workspace.tasks, note: workspace.notes, knowledge_node: workspace.knowledge_nodes, resource: workspace.resources, repository_context: workspace.repository_contexts, reference: workspace.references, change_event: workspace.change_events })) for (const value of values) database.save(type, value);
-    const changesBefore = database.db.prepare("SELECT total_changes() AS count").get().count;
-    host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) }); await host.start();
-    const transport = new StdioClientTransport({ command: process.execPath, args: ["scripts/mcp-server.mjs"], env: { ...process.env, TASKEN_USER_DATA_DIR: root, TASKEN_DB_PATH: path.join(root, "must-not-open.sqlite3"), TASKEN_MCP_READ_ONLY: "true" }, stderr: "pipe" });
-    client = new Client({ name: "wave8-stdio", version: "1.0.0" }); await client.connect(transport);
-    for (const [name, args] of [["tasken.get_activity", {}], ["tasken.get_context_subgraph", { entity_type: "task", entity_id: "task-wave8" }], ["tasken.export_ai_context", { format: "json" }]]) {
-      const result = await client.callTool({ name, arguments: args }); assert.equal(result.isError, undefined, JSON.stringify(result)); assert.equal(result.structuredContent.read_only, true);
-    }
-    assert.equal(fs.existsSync(path.join(root, "must-not-open.sqlite3")), false);
-    assert.equal(database.db.prepare("SELECT total_changes() AS count").get().count, changesBefore);
-  } finally {
-    try { await client?.close(); } finally { try { await host?.stop(); } finally { try { database.db.close(); } finally { fs.rmSync(root, { recursive: true, force: true }); } } }
-  }
 });

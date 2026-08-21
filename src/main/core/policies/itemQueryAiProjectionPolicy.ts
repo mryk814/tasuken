@@ -2,6 +2,7 @@ import {
   projectEntityForAi,
   summarizeAiExclusions,
   type AiExclusion,
+  type AiAudience,
 } from "../../../shared/aiMetadata.mjs";
 import type {
   ItemQueryRecord,
@@ -16,7 +17,7 @@ const ITEM_ENTITY_TYPES = {
 } as const;
 
 export class ItemQueryAiProjectionPolicy {
-  project(records: ItemQueryRecord[], snapshot: ItemQuerySnapshot) {
+  project(records: ItemQueryRecord[], snapshot: ItemQuerySnapshot, audience: AiAudience = "coding_agent") {
     const themesById = new Map(snapshot.themes.map((theme) => [theme.id, theme]));
     const included: ItemQueryRecord[] = [];
     const exclusions: AiExclusion[] = [];
@@ -26,7 +27,7 @@ export class ItemQueryAiProjectionPolicy {
       const entityType = ITEM_ENTITY_TYPES[kind as keyof typeof ITEM_ENTITY_TYPES] || "item";
       const themeId = String(record.theme_id || record.project_id || "");
       const projected = projectEntityForAi(entityType, record, {
-        audience: "coding_agent",
+        audience,
         theme: themesById.get(themeId) || null,
         workspaceDefault: snapshot.workspaceAiVisibilityDefault,
       });

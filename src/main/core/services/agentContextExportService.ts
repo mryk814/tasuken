@@ -9,14 +9,14 @@ import {
 import type { AgentContextReadPort, AgentContextRecord } from "../ports/agentContextReadPort.ts";
 
 interface ItemQueries {
-  searchItems(request: Record<string, unknown>): any;
-  listOpenItems(request: Record<string, unknown>): any;
+  searchItems(request: Record<string, unknown>, audience?: AiAudience): any;
+  listOpenItems(request: Record<string, unknown>, audience?: AiAudience): any;
 }
 interface KnowledgeQueries {
-  getRecentNotes(request: Record<string, unknown>): any;
-  getKnowledgeContext(request: Record<string, unknown>): any;
-  getPlanHealth(request: Record<string, unknown>): any;
-  getKnowledgeHealth(request: Record<string, unknown>): any;
+  getRecentNotes(request: Record<string, unknown>, audience?: AiAudience): any;
+  getKnowledgeContext(request: Record<string, unknown>, audience?: AiAudience): any;
+  getPlanHealth(request: Record<string, unknown>, audience?: AiAudience): any;
+  getKnowledgeHealth(request: Record<string, unknown>, audience?: AiAudience): any;
 }
 interface ActivityQueries { getActivity(request: Record<string, unknown>): any }
 
@@ -101,13 +101,14 @@ export class AgentContextExportService {
     const snapshot = this.port.readAgentContextSnapshot(false);
     const themeId = request.theme_id || "";
     const exclusions: any[] = [];
-    const themes = sortUpdated((snapshot.workspace.themes || []).filter((theme) => !themeId || text(theme.id) === themeId))
+    const visibleThemes = sortUpdated((snapshot.workspace.themes || []).filter((theme) => !themeId || text(theme.id) === themeId))
       .flatMap((theme) => {
         const visibility = projectEntityForAi("theme", theme, { audience, theme, workspaceDefault: snapshot.workspaceAiVisibilityDefault });
         if (!visibility.included) { if (visibility.exclusion) exclusions.push(visibility.exclusion); return []; }
         const projected = publicThemeForContext({ ...theme, ai: visibility.header }, new TaskContextTextBudget(maxChars));
         return projected ? [sanitizePublicValue(projected)] : [];
       });
+    const themes = visibleThemes.slice(0, 100);
     const visibleThemeIds = new Set(themes.map((theme: any) => text(theme.id)));
     const contextRecords = (snapshot.workspace.repository_contexts || []) as AgentContextRecord[];
     const repositoryContexts = new Map<string, unknown>();
@@ -119,38 +120,39 @@ export class AgentContextExportService {
         return sanitizePublicValue({ theme_id: theme.id, context_ids: resolution.contextIds, missing_context_ids: resolution.missingContextIds, missing_context_reasons: resolution.missingContextReasons });
       });
     const itemResult = scope === "open_items"
-      ? this.items.listOpenItems({ theme_id: themeId || undefined, limit: maxItems })
-      : this.items.searchItems({ theme_id: themeId || undefined, limit: maxItems });
-    const noteResult = this.knowledge.getRecentNotes({ theme_id: themeId || undefined, limit: maxNotes, max_chars: maxChars, include_raw_body: Boolean(request.include_raw_body) });
-    const knowledgeResult = this.knowledge.getKnowledgeContext({ theme_id: themeId || undefined, limit: maxKnowledge, max_chars: maxChars, include_relations: true, include_sources: false });
+      ? this.items.listOpenItems({ theme_id: themeId || undefined, limit: maxItems }, audience)
+      : this.items.searchItems({ theme_id: themeId || undefined, limit: maxItems }, audience);
+    const noteResult = this.knowledge.getRecentNotes({ theme_id: themeId || undefined, limit: maxNotes, max_chars: maxChars, include_raw_body: Boolean(request.include_raw_body) }, audience);
+    const knowledgeResult = this.knowledge.getKnowledgeContext({ theme_id: themeId || undefined, limit: maxKnowledge, max_chars: maxChars, include_relations: true, include_sources: false }, audience);
     const activityResult = this.activity.getActivity({ theme_id: themeId || undefined, limit: maxItems, format: "json", audience });
     const resourceCandidates = [
       ...((snapshot.workspace.resources || []) as AgentContextRecord[]),
       ...((snapshot.workspace.links || []) as AgentContextRecord[]),
     ].filter((resource) => !themeId || text(resource.project_id || resource.theme_id) === themeId);
     const resourceIds = new Set<string>();
-    const resources = [];
+    const visibleResources = [];
     for (const resource of sortUpdated(resourceCandidates)) {
-      if (resources.length >= maxItems || resourceIds.has(text(resource.id))) continue;
+      if (resourceIds.has(text(resource.id))) continue;
       const effectiveThemeId = text(resource.project_id || resource.theme_id);
       const visibility = projectEntityForAi("resource", resource, { audience, theme: snapshot.visibilityThemes.find((theme) => text(theme.id) === effectiveThemeId) || null, workspaceDefault: snapshot.workspaceAiVisibilityDefault });
       if (!visibility.included) { if (visibility.exclusion) exclusions.push(visibility.exclusion); continue; }
       resourceIds.add(text(resource.id));
-      resources.push(publicResource({ ...resource, ai: visibility.header }));
+      visibleResources.push(publicResource({ ...resource, ai: visibility.header }));
     }
+    const resources = visibleResources.slice(0, maxItems);
     const items = (sanitizePublicValue((itemResult.items || []).filter((entry: any) => visibleForAudience(entry, audience)), { maxDepth: 12, maxArray: 100, maxKeys: 100 }) || []) as any[];
     const notes = (sanitizePublicValue((noteResult.notes || []).filter((entry: any) => visibleForAudience(entry, audience)), { maxDepth: 12, maxArray: 100, maxKeys: 100 }) || []) as any[];
     const knowledgeNodes = (sanitizePublicValue((knowledgeResult.knowledge_nodes || []).filter((entry: any) => visibleForAudience(entry, audience)), { maxDepth: 12, maxArray: 100, maxKeys: 100 }) || []) as any[];
     const publicKnowledgeIds = new Set(knowledgeNodes.map((node: any) => text(node.id)));
     const knowledgeEdges = (sanitizePublicValue((knowledgeResult.knowledge_edges || []).filter((edge: any) => publicKnowledgeIds.has(text(edge.source_node_id)) && publicKnowledgeIds.has(text(edge.target_node_id))), { maxDepth: 12, maxArray: 200, maxKeys: 100 }) || []) as any[];
-    const planHealth = this.knowledge.getPlanHealth({ theme_id: themeId || undefined });
-    const knowledgeHealth = this.knowledge.getKnowledgeHealth({ theme_id: themeId || undefined });
+    const planHealth = this.knowledge.getPlanHealth({ theme_id: themeId || undefined }, audience);
+    const knowledgeHealth = this.knowledge.getKnowledgeHealth({ theme_id: themeId || undefined }, audience);
     const resultMeta = {
       contract_version: 1 as const,
       returned_theme_count: themes.length, returned_item_count: items.length,
       returned_note_count: notes.length, returned_resource_count: resources.length,
       returned_knowledge_node_count: knowledgeNodes.length, returned_activity_count: activityResult.events.length,
-      truncated: Boolean(itemResult.truncated || noteResult.truncated || knowledgeResult.truncated || activityResult.truncated || resourceCandidates.length > resources.length),
+      truncated: Boolean(itemResult.truncated || noteResult.truncated || knowledgeResult.truncated || activityResult.truncated || visibleThemes.length > themes.length || visibleResources.length > resources.length || repositoryContexts.size > 100),
     };
     const summarized = summarizeAiExclusions([
       ...exclusions,
@@ -159,7 +161,7 @@ export class AgentContextExportService {
     ]);
     const pack = {
       generated_at: this.now().toISOString(), scope, ai_audience: audience,
-      themes, repository_contexts: [...repositoryContexts.values()], theme_repository_contexts: themeRepositoryContexts,
+      themes, repository_contexts: [...repositoryContexts.values()].slice(0, 100), theme_repository_contexts: themeRepositoryContexts.slice(0, 100),
       items, notes, resources, knowledge_nodes: knowledgeNodes, knowledge_edges: knowledgeEdges,
       activity: activityResult.events,
       activity_meta: { schema_version: activityResult.schema_version, timezone: activityResult.timezone, excluded_count: activityResult.excluded_count, excluded_reasons: activityResult.excluded_reasons },

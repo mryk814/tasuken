@@ -10,6 +10,7 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import type { ItemQueryReadPort, ItemQueryRecord, ItemQuerySnapshot } from "../ports/itemQueryReadPort.ts";
 import { ItemQueryAiProjectionPolicy } from "../policies/itemQueryAiProjectionPolicy.ts";
+import type { AiAudience } from "../../../shared/aiMetadata.mjs";
 
 const DEFAULT_LIMIT = 20;
 const OPEN_ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "inbox"]);
@@ -160,19 +161,19 @@ export class ItemQueryService {
     private readonly projection = new ItemQueryAiProjectionPolicy(),
   ) {}
 
-  searchItems(input: SearchItemsRequest): SearchItemsResponse {
+  searchItems(input: SearchItemsRequest, audience: AiAudience = "coding_agent"): SearchItemsResponse {
     const request = searchItemsRequestSchema.parse(input);
     const snapshot = this.readPort.readItemQuerySnapshot(Boolean(request.include_archived));
     const candidates = projectItems(snapshot)
       .filter((item) => queryMatches(item, request.query))
       .filter((item) => !request.theme_id || item.theme_id === request.theme_id);
-    const filtered = this.projection.project(candidates, snapshot);
+    const filtered = this.projection.project(candidates, snapshot, audience);
     const limit = request.limit ?? DEFAULT_LIMIT;
     const items = filtered.records.slice(0, limit);
     return searchItemsResponseSchema.parse({
       items,
       limit,
-      ai_audience: "coding_agent",
+      ai_audience: audience,
       read_only: true,
       excluded_count: filtered.excluded_count,
       excluded_reasons: filtered.excluded_reasons,
@@ -186,20 +187,20 @@ export class ItemQueryService {
     });
   }
 
-  listOpenItems(input: ListOpenItemsRequest): ListOpenItemsResponse {
+  listOpenItems(input: ListOpenItemsRequest, audience: AiAudience = "coding_agent"): ListOpenItemsResponse {
     const request = listOpenItemsRequestSchema.parse(input);
     const snapshot = this.readPort.readItemQuerySnapshot(Boolean(request.include_archived));
     const candidates = projectItems(snapshot)
       .filter((item) => OPEN_ITEM_STATUSES.has(text(item.status || "todo")) && !item.deleted_at)
       .filter((item) => !request.theme_id || item.theme_id === request.theme_id)
       .sort((left, right) => (itemDate(left) || "9999-12-31").localeCompare(itemDate(right) || "9999-12-31"));
-    const filtered = this.projection.project(candidates, snapshot);
+    const filtered = this.projection.project(candidates, snapshot, audience);
     const limit = request.limit ?? DEFAULT_LIMIT;
     const items = filtered.records.slice(0, limit);
     return listOpenItemsResponseSchema.parse({
       items,
       limit,
-      ai_audience: "coding_agent",
+      ai_audience: audience,
       read_only: true,
       excluded_count: filtered.excluded_count,
       excluded_reasons: filtered.excluded_reasons,

@@ -164,7 +164,7 @@ const exclusionReasonSchema = z.object({
 }).strict();
 
 const readMetadataShape = {
-  ai_audience: z.literal("coding_agent"),
+  ai_audience: z.enum(["m365", "coding_agent", "external_ai"]),
   read_only: z.literal(true),
   next_tools: z.array(nextToolSchema).max(4),
 };
