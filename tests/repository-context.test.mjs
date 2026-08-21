@@ -199,7 +199,9 @@ test("MCP repository proposal crosses inbox and Panel helpers as credential-free
     const panel = fs.readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
     assert.match(panel, /payloadType === "repository_contexts"/);
     assert.match(panel, /buildRepositoryContextProposalOperations/);
-    assert.match(panel, /\.\.\.operations,\s*\{\s*action: "save",\s*type: "ai_proposal"/s);
+    assert.match(panel, /name: "ApplyAiProposal"/);
+    const contentAccept = panel.slice(panel.indexOf("      const accepted ="), panel.indexOf("  return (", panel.indexOf("      const accepted =")));
+    assert.doesNotMatch(contentAccept, /saveEntities\(/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

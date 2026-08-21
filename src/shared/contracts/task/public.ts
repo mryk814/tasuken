@@ -248,3 +248,13 @@ export {
   type ProposeRepositoryTaskRequest,
   type ProposeRepositoryTaskResponse,
 } from "./repositoryTaskProposal.ts";
+export {
+  contentProposalActorSchema,
+  contentProposalPayloadTypeSchema,
+  contentProposalRepositoryContextSchema,
+  proposeContentRequestSchema,
+  proposeContentResponseSchema,
+  type ContentProposalPayloadType,
+  type ProposeContentRequest,
+  type ProposeContentResponse,
+} from "./contentProposal.ts";

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
@@ -10,6 +10,7 @@ import type { CanonicalNoteAiCompanion, Entity, EntityType, SaveOperation } from
 import {
   ApplicationCommandError,
   parseCommandEnvelope,
+  type ApplyAiProposalCommandPayload,
   type ApplicationCommandName,
   type CommandEnvelope,
   type CommandReceipt,
@@ -346,10 +347,35 @@ function eventChangesFor(repository: Repository, eventIds: string[]): CommandRec
     .map((event) => ({ type: "change_event" as const, entity: withoutReceiptJson(event) }));
 }
 
-function commandFingerprint(command: CommandEnvelope): string {
+const contentProposalPayloadTypes = new Set(["notes", "knowledge_nodes", "sketches", "artifacts"]);
+
+function isContentProposalDecision(command: CommandEnvelope): boolean {
+  const payload = command.payload as ApplyAiProposalCommandPayload;
+  return command.name === "ApplyAiProposal" && Array.isArray(payload.decisions)
+    && contentProposalPayloadTypes.has(String(payload.proposal?.payload_type || ""));
+}
+
+function fingerprintPayload(command: CommandEnvelope): unknown {
+  const payload = command.payload as ApplyAiProposalCommandPayload;
+  if (!isContentProposalDecision(command)) {
+    return command.payload;
+  }
+  return {
+    proposal: {
+      id: payload.proposal.id,
+      version: payload.proposal.version,
+      status: payload.proposal.status,
+    },
+    decision: payload.decision,
+    decisions: payload.decisions,
+    candidates: payload.candidates.map((candidate) => ({ type: candidate.type, id: candidate.entity.id })),
+  };
+}
+
+export function commandFingerprint(command: CommandEnvelope): string {
   return JSON.stringify({
     name: command.name,
-    payload: command.payload,
+    payload: fingerprintPayload(command),
     actor: command.actor,
     source: command.source,
     windowId: command.windowId || null,
@@ -357,6 +383,20 @@ function commandFingerprint(command: CommandEnvelope): string {
     expectedVersions: command.expectedVersions || [],
     issuedAt: command.issuedAt,
   });
+}
+
+function receiptMetadata(command: CommandEnvelope, event: Entity, serializedReceipt: string): Entity["metadata"] {
+  if (!isContentProposalDecision(command)) return event.metadata;
+  const metadata = event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+    ? event.metadata as Record<string, unknown>
+    : {};
+  return {
+    ...metadata,
+    content_proposal_receipt_integrity: {
+      schema: "tasken-content-proposal-receipt/v1",
+      digest: `sha256:${createHash("sha256").update(serializedReceipt, "utf8").digest("hex")}`,
+    },
+  };
 }
 
 const NOTE_AI_COMMAND_MARKER_SCHEMA = "tasken-note-ai-command-marker/v1";
@@ -465,6 +505,7 @@ function persistReceipt(repository: Repository, command: CommandEnvelope, operat
     .map((entity, index) => ({ type: operations[index].type, entity }))
     .filter(({ type }) => changeTypes.includes(type));
   const baseReceipt = receiptFor(command, "applied", changes, eventIds);
+  const serializedReceipt = JSON.stringify(baseReceipt);
   for (const eventId of eventIds) {
     const event = repository.get("change_event", eventId, true);
     if (!event) throw new Error(`Change Eventが保存されていません: ${eventId}`);
@@ -474,7 +515,8 @@ function persistReceipt(repository: Repository, command: CommandEnvelope, operat
     repository.save("change_event", {
       ...event,
       after_json: actualAfter ? JSON.stringify(actualAfter) : event.after_json,
-      receipt_json: JSON.stringify(baseReceipt),
+      metadata: receiptMetadata(command, event, serializedReceipt),
+      receipt_json: serializedReceipt,
     });
   }
   return { ...baseReceipt, eventChanges: eventChangesFor(repository, eventIds) };
@@ -614,23 +656,25 @@ export class ApplicationCommandService {
     entityDefinition("ai_proposal").parseUpdate(proposal);
 
     const currentNote = this.repository.get("note", payload.candidates[0].entity.id, true);
-    if (!currentNote || currentNote.deleted_at) throw new ApplicationCommandError("NOT_FOUND", "採用対象のNoteがありません。", { id: payload.candidates[0].entity.id });
-    if (!expectedVersionFor(command, "note", currentNote.id)) {
-      throw new ApplicationCommandError("CONFLICT", "ApplyAiProposalにはNoteのexpected versionが必要です。", { type: "note", id: currentNote.id });
+    if (currentNote?.deleted_at) throw new ApplicationCommandError("CONFLICT", "削除済みNoteをAI Proposalから更新できません。", { id: payload.candidates[0].entity.id });
+    if (currentNote) {
+      if (!expectedVersionFor(command, "note", currentNote.id)) {
+        throw new ApplicationCommandError("CONFLICT", "既存Noteの採用にはexpected versionが必要です。", { type: "note", id: currentNote.id });
+      }
+      assertExpectedVersion(this.repository, command, "note", currentNote.id, currentNote);
     }
-    assertExpectedVersion(this.repository, command, "note", currentNote.id, currentNote);
-    const note = normalizeCanonicalNote(payload.candidates[0].entity, String(currentNote.project_id || currentNote.theme_id || ""));
-    entityDefinition("note").parseUpdate(note);
+    const note = normalizeCanonicalNote(payload.candidates[0].entity, String(currentNote?.project_id || currentNote?.theme_id || ""));
+    entityDefinition("note")[currentNote ? "parseUpdate" : "parseCreate"](note);
     const marker: NoteAiCommandMarker = {
       schema: NOTE_AI_COMMAND_MARKER_SCHEMA,
       commandId: command.commandId,
       commandFingerprint: durableCommandFingerprint,
       noteId: note.id,
       proposalId: proposal.id,
-      noteVersion: Number(currentNote.version || 0) + 1,
+      noteVersion: Number(currentNote?.version || 0) + 1,
       proposalVersion: Number(currentProposal.version || 0) + 1,
     };
-    const noteEvent = annotateEvent(command, commandEvent(command, "note", note.id, "updated", currentNote, note));
+    const noteEvent = annotateEvent(command, commandEvent(command, "note", note.id, currentNote ? "updated" : "created", currentNote, note));
     noteEvent.command_fingerprint = durableCommandFingerprint;
     noteEvent.metadata = {
       ...(noteEvent.metadata && typeof noteEvent.metadata === "object" && !Array.isArray(noteEvent.metadata) ? noteEvent.metadata : {}),
@@ -649,10 +693,16 @@ export class ApplicationCommandService {
     const changes = [{ type: "note" as const, entity: savedNote }, { type: "ai_proposal" as const, entity: savedProposal }];
     const eventIds = [noteEvent.id];
     const baseReceipt = receiptFor(command, "applied", changes, eventIds);
+    const serializedReceipt = JSON.stringify(baseReceipt);
     for (const eventId of eventIds) {
       const event = this.repository.get("change_event", eventId, true);
       if (!event) throw new Error(`Change Eventが保存されていません: ${eventId}`);
-      this.repository.save("change_event", { ...event, after_json: JSON.stringify(savedNote), receipt_json: JSON.stringify(baseReceipt) });
+      this.repository.save("change_event", {
+        ...event,
+        after_json: JSON.stringify(savedNote),
+        metadata: receiptMetadata(command, event, serializedReceipt),
+        receipt_json: serializedReceipt,
+      });
     }
     return { ...baseReceipt, eventChanges: eventChangesFor(this.repository, eventIds) };
   }

@@ -44,6 +44,7 @@ export class TaskenCoreRuntime {
       exportAiContext: core.exportAiContext,
       proposeTaskWork: core.proposeTaskWork,
       proposeRepositoryTask: core.proposeRepositoryTask,
+      proposeContent: core.proposeContent,
     });
   }
 

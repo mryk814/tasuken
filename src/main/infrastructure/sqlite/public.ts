@@ -9,6 +9,7 @@ import {
   KnowledgeQueryService,
   ProposeTaskWorkService,
   ProposeRepositoryTaskService,
+  ProposeContentService,
   TaskContextQueryService,
   ThemeContextQueryService,
 } from "../../core/public.ts";
@@ -109,5 +110,6 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     exportAiContext,
     proposeTaskWork: new ProposeTaskWorkService(new WorkspaceAiProposalWriteAdapter(persistence)),
     proposeRepositoryTask: new ProposeRepositoryTaskService(new WorkspaceAiProposalWriteAdapter(persistence)),
+    proposeContent: new ProposeContentService(new WorkspaceAiProposalWriteAdapter(persistence)),
   };
 }

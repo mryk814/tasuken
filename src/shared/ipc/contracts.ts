@@ -10,7 +10,7 @@ import type {
 } from "../types/workspace";
 import type { CanonicalRootStatusMap } from "../types/workspace";
 import type { MemoStickyColor, MemoStickyTargetRequest, MemoStickyThemeRequest } from "../memoPresentation";
-import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
+import type { ArtifactFileImportRequest, ArtifactFileImportResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
 import type {
@@ -86,7 +86,6 @@ export const IPC = {
   dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
-  artifactProposalMaterialize: "artifact:proposal-materialize",
   artifactWebPreview: "artifact:web-preview",
   audioCapturePrepare: "audio-capture:prepare",
   audioCaptureListPrepared: "audio-capture:list-prepared",
@@ -626,7 +625,6 @@ export interface ResearchDeskApi {
   attachments: {
     saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
     importArtifactFiles(request: ArtifactFileImportRequest): Promise<ArtifactFileImportResult>;
-    materializeArtifactProposal(request: ArtifactProposalMaterializeRequest): Promise<ArtifactProposalMaterializeResult>;
   };
   artifacts: {
     readWebPreview(artifactId: string): Promise<WebArtifactPreviewResult>;

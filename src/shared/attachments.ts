@@ -38,8 +38,10 @@ export interface ArtifactProposalMaterializeRequest {
   mediaType: string;
   content: string;
   themeId?: string | null;
+  /** Stable candidate identity used to make retries resolve to the same managed file. */
+  materializationKey?: string;
 }
 
 export type ArtifactProposalMaterializeResult =
   | { status: "needs_directory" }
-  | { status: "ok"; directory: string; file: ImportedArtifactFile };
+  | { status: "ok"; directory: string; file: ImportedArtifactFile; created: boolean };

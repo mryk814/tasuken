@@ -19,7 +19,7 @@ async function importBundled(relativePath) {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 }
 
-const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
+const { ApplicationCommandService, commandFingerprint } = await importBundled("src/main/services/applicationCommandService.ts");
 const { parseCommandEnvelope } = await importBundled("src/shared/applicationCommand.ts");
 const { selectTodayTasks } = await importBundled("src/shared/todayTasks.mjs");
 const { WorkspaceDatabase } = await import("../src/main/repositories/workspaceRepository.mjs");
@@ -411,6 +411,40 @@ test("CommitAudioCapture is a Main-owned typed command and persists the Capture-
       artifact: { ...payload.artifact, id: "audio-artifact-mismatch", source_id: "other-capture" },
     },
   }), /managed owner/);
+});
+
+test("ApplyAiProposal entry decisions are bounded, strict, and type-discriminated at IPC parsing", () => {
+  const base = envelope("ApplyAiProposal", {
+    proposal: { id: "proposal-bounded", version: 1, status: "accepted" },
+    decision: "accept",
+    decisions: [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: [0], beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    candidates: [{ type: "note", entity: { id: "note-bounded" } }],
+  }, "proposal-bounded:accept:v1");
+  assert.equal(parseCommandEnvelope(base).name, "ApplyAiProposal");
+  const invalidDecisions = [
+    Array.from({ length: 101 }, (_, entryIndex) => ({ entryIndex, type: "artifact", action: "ignore" })),
+    [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: Array.from({ length: 32_769 }, (_, index) => index), beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: [32_768], beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: [0], beforeSignature: "a".repeat(1_000_000) }],
+    [{ entryIndex: 0, type: "artifact", action: "accept", acceptedHunks: [0] }],
+    [{ entryIndex: 0, type: "knowledge_node", action: "accept", beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    [{ entryIndex: 0, type: "sketch", action: "accept", unexpected: true }],
+  ];
+  for (const decisions of invalidDecisions) {
+    assert.throws(() => parseCommandEnvelope({ ...base, payload: { ...base.payload, decisions } }), /entry decision|decisions/);
+  }
+});
+
+test("non-content ApplyAiProposal with decisions keeps candidate bodies in its idempotency fingerprint", () => {
+  const base = envelope("ApplyAiProposal", {
+    proposal: { id: "proposal-non-content", version: 1, status: "accepted", payload_type: "items" },
+    decision: "accept",
+    decisions: [{ entryIndex: 0, type: "note", action: "ignore" }],
+    candidates: [{ type: "task", entity: { id: "task-non-content", title: "canonical body" } }],
+  }, "proposal-non-content:accept:v1");
+  const changed = structuredClone(base);
+  changed.payload.candidates[0].entity.title = "changed body";
+  assert.notEqual(commandFingerprint(parseCommandEnvelope(base)), commandFingerprint(parseCommandEnvelope(changed)));
 });
 
 test("CommitTrimmedVideoArtifact atomically saves a derived Artifact and its lineage", () => {

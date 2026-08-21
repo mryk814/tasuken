@@ -8,6 +8,7 @@ import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
+import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
 import type { BatchTranscriptionService } from "../services/batchTranscriptionService.mjs";
 import {
@@ -202,6 +203,7 @@ export function registerIpc(
 ): void {
   const screenRecordingSenderIds = new Set<number>();
   const taskCapability = new TaskCapabilityService(repository, (command) => applicationCommands.execute(command));
+  const aiProposalAcceptance = new AiProposalAcceptanceService(applicationCommands, service, repository);
   registerTaskIpc({
     channels: {
       command: IPC.taskCommand,
@@ -311,7 +313,6 @@ export function registerIpc(
   ipcMain.handle(IPC.dialogChooseFiles, (_event, title) => service.chooseFiles(title));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
   ipcMain.handle(IPC.artifactFilesImport, (_event, request) => service.importArtifactFiles(request));
-  ipcMain.handle(IPC.artifactProposalMaterialize, (_event, request) => service.materializeArtifactProposal(request));
   ipcMain.handle(IPC.artifactWebPreview, (_event, artifactId) => service.getWebArtifactPreview(requireId(artifactId)));
   ipcMain.handle(IPC.audioCapturePrepare, async (event, request) => {
     try {
@@ -629,7 +630,7 @@ export function registerIpc(
     return restored && typeof restored === "object" ? projectEntityForRenderer(entityType, restored as Entity) : restored;
   });
   ipcMain.handle(IPC.applicationCommand, (event, envelope) => {
-    const receipt = applicationCommands.execute(envelope);
+    const receipt = aiProposalAcceptance.execute(envelope);
     notifyCommandApplied(receipt, event.sender.id);
     return projectCommandReceiptForRenderer(receipt);
   });

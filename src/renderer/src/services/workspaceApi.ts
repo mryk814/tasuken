@@ -198,9 +198,6 @@ export const workspaceApi = {
   importArtifactFiles(request: ArtifactFileImportRequest) {
     return desktopApi().attachments.importArtifactFiles(request);
   },
-  materializeArtifactProposal(request: import("../../../shared/attachments").ArtifactProposalMaterializeRequest) {
-    return desktopApi().attachments.materializeArtifactProposal(request);
-  },
   readWebArtifactPreview(artifactId: string) {
     return desktopApi().artifacts.readWebPreview(artifactId);
   },
