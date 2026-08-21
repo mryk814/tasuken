@@ -46,6 +46,34 @@ class TaskStateActionUiTest {
         composeRule.onNodeWithText("同期後に操作").assertIsDisplayed().assertIsNotEnabled()
     }
 
+    @Test
+    fun conflictedTaskShowsBothExplicitResolutionActions() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask().copy(
+                        conflict = MobileTaskConflict(
+                            commandId = "command-1",
+                            intendedAction = "CompleteTask",
+                            expectedVersion = 7,
+                            serverVersion = 8,
+                            serverState = "todo",
+                            detectedAt = "2026-08-22T01:00:00Z",
+                        ),
+                    ),
+                    TaskActionUiState.Idle,
+                    {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("同期できなかった変更").assertIsDisplayed()
+        composeRule.onNodeWithText("Desktop  未完了  v8").assertIsDisplayed()
+        composeRule.onNodeWithText("この端末を採用").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("Desktopを採用").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("競合を解決してから操作").assertIsDisplayed().assertIsNotEnabled()
+    }
+
     private fun sampleTask() = MobileTask(
         id = "10000000-0000-4000-8000-000000000001",
         title = "Task",

@@ -126,9 +126,11 @@ class AndroidMobileTaskRepository(
     override fun configuration(): MobileGatewayConfiguration = store.configuration()
 
     override fun observeCachedTasks(): Flow<List<MobileTask>> =
-        outbox.observeTasks().map { tasks -> tasks.map(TaskCacheEntity::toMobileTask) }
+        outbox.observeTasks().map { tasks -> tasks.map(TaskCacheWithConflict::toMobileTask) }
 
     override fun observePendingCount(): Flow<Int> = outbox.observePendingCount()
+
+    override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()
 
     override suspend fun enqueueCreateTask(title: String, todayDate: LocalDate?): String =
         outbox.enqueueCreate(title, todayDate)
@@ -136,6 +138,10 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueCompleteTask(taskId: String): String = outbox.enqueueComplete(taskId)
 
     override suspend fun enqueueReopenTask(taskId: String): String = outbox.enqueueReopen(taskId)
+
+    override suspend fun acceptServerConflict(commandId: String) = outbox.acceptServer(commandId)
+
+    override suspend fun keepLocalConflict(commandId: String): String = outbox.keepLocal(commandId)
 
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
 
@@ -273,6 +279,14 @@ class AndroidMobileTaskRepository(
                 response.status == 401 -> {
                     store.clearToken()
                     MobileCommandSendResult.Retry("接続が失効しました。新しいコードで再接続してください。")
+                }
+                response.status == 409 -> {
+                    val error = MobileTaskCommandContract.decodeError(response.body)
+                    if (error.error.code == "version_conflict") {
+                        MobileCommandSendResult.Conflict(error)
+                    } else {
+                        MobileCommandSendResult.Rejected(error.error.message)
+                    }
                 }
                 response.status == 408 || response.status == 429 || response.status >= 500 ->
                     MobileCommandSendResult.Retry("Desktopへ送信できませんでした。自動で再送します。")

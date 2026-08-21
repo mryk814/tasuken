@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 
 sealed interface MobileCommandSendResult {
     data class Applied(val response: MobileTaskCommandResponseDto) : MobileCommandSendResult
+    data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
     data class Retry(val reason: String) : MobileCommandSendResult
     data class Rejected(val reason: String) : MobileCommandSendResult
 }
@@ -28,10 +29,12 @@ class MobileOutbox(
     private val now: () -> Instant = Instant::now,
     private val schedule: () -> Unit = { MobileOutboxScheduler.enqueue(context) },
 ) {
-    fun observeTasks(date: LocalDate = LocalDate.now()): Flow<List<TaskCacheEntity>> =
+    fun observeTasks(date: LocalDate = LocalDate.now()): Flow<List<TaskCacheWithConflict>> =
         dao.observeTasks(date.toString())
 
     fun observePendingCount(): Flow<Int> = dao.observePendingCount()
+
+    fun observeConflictCount(): Flow<Int> = dao.observeConflictCount()
 
     suspend fun enqueueCreate(title: String, todayDate: LocalDate? = LocalDate.now()): String {
         val normalizedTitle = title.trim()
@@ -91,6 +94,62 @@ class MobileOutbox(
     suspend fun enqueueComplete(taskId: String): String = enqueueState(taskId, "CompleteTask", "done")
 
     suspend fun enqueueReopen(taskId: String): String = enqueueState(taskId, "ReopenTask", "todo")
+
+    suspend fun acceptServer(commandId: String) {
+        val conflict = requireNotNull(dao.conflict(commandId)) { "競合情報が見つかりません。再読み込みしてください。" }
+        require(dao.task(conflict.taskId)?.conflictCommandId == commandId)
+        dao.acceptServer(commandId)
+    }
+
+    suspend fun keepLocal(commandId: String): String {
+        val conflict = requireNotNull(dao.conflict(commandId)) { "競合情報が見つかりません。再読み込みしてください。" }
+        val task = requireNotNull(dao.task(conflict.taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(task.conflictCommandId == commandId)
+        val replacementId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val envelope = MobileTaskStateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            requestId = requestId,
+            commandId = replacementId,
+            idempotencyKey = replacementId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskStateCommandDto(
+                name = conflict.intendedAction,
+                taskId = conflict.taskId,
+                expectedVersion = conflict.serverVersion,
+            ),
+        )
+        val optimisticState = if (conflict.intendedAction == "CompleteTask") "done" else "todo"
+        dao.replaceConflictWithCommand(
+            oldCommandId = commandId,
+            task = task.copy(
+                serverVersion = conflict.serverVersion,
+                state = optimisticState,
+                updatedAt = issuedAt,
+                optimisticCommandId = replacementId,
+                conflictCommandId = null,
+            ),
+            command = OutboxCommandEntity(
+                commandId = replacementId,
+                idempotencyKey = replacementId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = conflict.intendedAction,
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+            ),
+        )
+        schedule()
+        return replacementId
+    }
 
     private suspend fun enqueueState(taskId: String, commandName: String, optimisticState: String): String {
         require(commandName in setOf("CompleteTask", "ReopenTask"))
@@ -178,6 +237,51 @@ class MobileOutbox(
                             lastAttemptAt = attemptedAt,
                             lastError = null,
                         ),
+                    )
+                }
+                is MobileCommandSendResult.Conflict -> {
+                    val response = result.response
+                    val conflict = requireNotNull(response.error.conflict)
+                    val current = conflict.currentTask
+                    val cached = dao.task(current.id)
+                    require(command.commandName == conflict.intendedAction)
+                    dao.recordConflict(
+                        commandId = command.commandId,
+                        canonicalTask = TaskCacheEntity(
+                            id = current.id,
+                            serverVersion = current.version,
+                            title = current.title,
+                            themeId = current.themeId,
+                            state = current.state,
+                            workState = current.workState,
+                            todayDate = cached?.todayDate,
+                            updatedAt = current.updatedAt,
+                            optimisticCommandId = null,
+                            conflictCommandId = command.commandId,
+                        ),
+                        conflict = TaskConflictEntity(
+                            commandId = command.commandId,
+                            taskId = current.id,
+                            intendedAction = conflict.intendedAction,
+                            expectedVersion = conflict.expectedVersion,
+                            serverVersion = current.version,
+                            serverState = current.state,
+                            serverTitle = current.title,
+                            serverThemeId = current.themeId,
+                            serverWorkState = current.workState,
+                            serverUpdatedAt = current.updatedAt,
+                            detectedAt = response.meta.generatedAt,
+                        ),
+                        syncState = SyncStateEntity(
+                            serverId = response.meta.serverId,
+                            apiVersion = response.meta.apiVersion,
+                            schemaVersion = response.meta.schemaVersion,
+                            cursor = null,
+                            lastSuccessfulSyncAt = response.meta.generatedAt,
+                            lastAttemptAt = attemptedAt,
+                            lastError = response.error.message,
+                        ),
+                        reason = response.error.message,
                     )
                 }
                 is MobileCommandSendResult.Retry -> {

@@ -103,6 +103,7 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
     val captureState by todayViewModel.captureState.collectAsState()
     val taskActionState by todayViewModel.taskActionState.collectAsState()
     val pendingCount by todayViewModel.pendingCount.collectAsState()
+    val conflictCount by todayViewModel.conflictCount.collectAsState()
     val paneState = rememberTodayPaneState()
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val navigator = rememberListDetailPaneScaffoldNavigator(
@@ -129,6 +130,13 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
             is TaskActionUiState.Error -> {
                 snackbarHostState.showSnackbar((taskActionState as TaskActionUiState.Error).message)
             }
+            is TaskActionUiState.ConflictResolved -> {
+                val resolved = taskActionState as TaskActionUiState.ConflictResolved
+                snackbarHostState.showSnackbar(
+                    if (resolved.keptLocal) "この端末の変更を再送します。" else "Desktopの状態を採用しました。",
+                )
+                todayViewModel.resetTaskActionState()
+            }
             TaskActionUiState.Idle, is TaskActionUiState.Saving -> Unit
         }
     }
@@ -139,6 +147,20 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
             TopAppBar(
                 title = { Text("Today") },
                 actions = {
+                    if (conflictCount > 0) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = RoundedCornerShape(7.dp),
+                        ) {
+                            Text(
+                                "要確認 $conflictCount",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
                     if (pendingCount > 0) {
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer,
@@ -188,6 +210,7 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
                         task = task,
                         actionState = taskActionState,
                         onStateAction = todayViewModel::toggleTaskState,
+                        onConflictResolution = todayViewModel::resolveConflict,
                     )
                 }
             },
@@ -391,6 +414,7 @@ internal fun TodayDetailPane(
     task: MobileTask?,
     actionState: TaskActionUiState,
     onStateAction: (MobileTask) -> Unit,
+    onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
@@ -400,16 +424,44 @@ internal fun TodayDetailPane(
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(task.title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             if (task.pending) Text("送信待ち", color = MaterialTheme.colorScheme.onSecondaryContainer)
+            task.conflict?.let { conflict ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("同期できなかった変更", fontWeight = FontWeight.Bold)
+                        Text("Desktop  ${taskStateLabel(conflict.serverState)}  v${conflict.serverVersion}")
+                        Text(
+                            "この端末  ${if (conflict.intendedAction == "CompleteTask") "完了" else "再開"}  " +
+                                "(v${conflict.expectedVersion}から)",
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { onConflictResolution(task, true) },
+                                enabled = actionState !is TaskActionUiState.Saving,
+                            ) { Text("この端末を採用") }
+                            TextButton(
+                                onClick = { onConflictResolution(task, false) },
+                                enabled = actionState !is TaskActionUiState.Saving,
+                            ) { Text("Desktopを採用") }
+                        }
+                    }
+                }
+            }
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  $it") }
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = { onStateAction(task) },
-                enabled = !task.pending && actionState !is TaskActionUiState.Saving,
+                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
             ) {
                 Text(
                     when {
                         actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
+                        task.conflict != null -> "競合を解決してから操作"
                         task.pending -> "同期後に操作"
                         task.state == "done" -> "再開する"
                         else -> "完了する"

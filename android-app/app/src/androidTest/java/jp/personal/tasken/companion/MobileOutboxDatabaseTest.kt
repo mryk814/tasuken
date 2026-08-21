@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -131,6 +132,56 @@ class MobileOutboxDatabaseTest {
         assertEquals("todo", dao.task(taskId)?.state)
     }
 
+    @Test
+    fun versionConflictKeepsServerStateAndLocalIntentUntilExplicitResolution() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000020"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+
+        val staleCommandId = outbox.enqueueComplete(taskId)
+        assertTrue(outbox.drain {
+            MobileCommandSendResult.Conflict(conflict(staleCommandId, taskId, serverVersion = 8, serverState = "todo"))
+        }.not())
+
+        val conflictedTask = requireNotNull(dao.task(taskId))
+        assertEquals("todo", conflictedTask.state)
+        assertEquals(8, conflictedTask.serverVersion)
+        assertEquals(staleCommandId, conflictedTask.conflictCommandId)
+        assertEquals(OutboxState.Conflict, dao.outbox(staleCommandId)?.state)
+        assertEquals(1, dao.observeConflictCount().first())
+
+        val replacementId = outbox.keepLocal(staleCommandId)
+        val replacement = requireNotNull(dao.outbox(replacementId))
+        val replacementEnvelope = MobileTaskCommandContract.decodeStateEnvelope(replacement.envelopeJson)
+        assertNull(dao.outbox(staleCommandId))
+        assertNull(dao.conflict(staleCommandId))
+        assertEquals(8, replacementEnvelope.command.expectedVersion)
+        assertEquals("CompleteTask", replacementEnvelope.command.name)
+        assertEquals("done", dao.task(taskId)?.state)
+
+        assertTrue(outbox.drain {
+            MobileCommandSendResult.Applied(receipt(replacementId, taskId, "done", 9))
+        }.not())
+        assertEquals(9, dao.task(taskId)?.serverVersion)
+        assertNull(dao.task(taskId)?.conflictCommandId)
+    }
+
+    @Test
+    fun acceptingServerDeletesConflictAndOriginalCommand() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000021"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo"))
+        val commandId = outbox.enqueueComplete(taskId)
+        outbox.drain {
+            MobileCommandSendResult.Conflict(conflict(commandId, taskId, serverVersion = 4, serverState = "todo"))
+        }
+
+        outbox.acceptServer(commandId)
+
+        assertNull(dao.outbox(commandId))
+        assertNull(dao.conflict(commandId))
+        assertNull(dao.task(taskId)?.conflictCommandId)
+        assertEquals("todo", dao.task(taskId)?.state)
+    }
+
     private fun receipt(
         commandId: String,
         taskId: String,
@@ -159,6 +210,53 @@ class MobileOutboxDatabaseTest {
                 updatedAt = "2026-08-22T01:04:00Z",
             ),
         ),
+    )
+
+    private fun conflict(
+        commandId: String,
+        taskId: String,
+        serverVersion: Int,
+        serverState: String,
+    ) = MobileTaskCommandErrorResponseDto(
+        ok = false,
+        meta = MobileResponseMetaDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            serverId = "server-1",
+            serverRevision = 11,
+            generatedAt = "2026-08-22T01:05:00Z",
+            truncated = false,
+        ),
+        error = MobileTaskCommandErrorDto(
+            code = "version_conflict",
+            message = "Taskが更新されています。",
+            retryable = false,
+            conflict = MobileVersionConflictDto(
+                currentTask = MobileTaskSummaryDto(
+                    id = taskId,
+                    version = serverVersion,
+                    title = "Desktop側Task",
+                    themeId = null,
+                    state = serverState,
+                    workState = null,
+                    updatedAt = "2026-08-22T01:05:00Z",
+                ),
+                intendedAction = "CompleteTask",
+                expectedVersion = serverVersion - 1,
+            ),
+        ),
+    )
+
+    private fun canonicalCachedTask(taskId: String, version: Int, state: String) = TaskCacheEntity(
+        id = taskId,
+        serverVersion = version,
+        title = "状態を変える",
+        themeId = null,
+        state = state,
+        workState = null,
+        todayDate = "2026-08-22",
+        updatedAt = "2026-08-22T01:00:00Z",
+        optimisticCommandId = null,
     )
 
     private fun canonicalTask(response: MobileTaskCommandResponseDto): TaskCacheEntity =

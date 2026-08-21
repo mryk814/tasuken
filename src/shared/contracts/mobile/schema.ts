@@ -55,12 +55,6 @@ export const mobileErrorCodeSchema = z.enum([
   "internal_error",
 ]);
 
-export const mobileErrorSchema = z.object({
-  code: mobileErrorCodeSchema,
-  message: z.string().trim().min(1).max(300),
-  retryable: z.boolean(),
-}).strict();
-
 export const mobileHealthResponseSchema = z.object({
   ok: z.literal(true),
   meta: mobileResponseMetaSchema,
@@ -87,6 +81,27 @@ export const mobileTaskSummarySchema = z.object({
   workState: taskWorkStateSchema.nullable(),
   updatedAt: isoTimestampSchema,
 }).strict();
+
+export const mobileVersionConflictSchema = z.object({
+  currentTask: mobileTaskSummarySchema,
+  intendedAction: z.enum(["CompleteTask", "ReopenTask"]),
+  expectedVersion: entityVersionSchema,
+}).strict();
+
+export const mobileErrorSchema = z.object({
+  code: mobileErrorCodeSchema,
+  message: z.string().trim().min(1).max(300),
+  retryable: z.boolean(),
+  conflict: mobileVersionConflictSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if ((value.code === "version_conflict") !== (value.conflict !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["conflict"],
+      message: "version_conflictだけが競合詳細を持てます。",
+    });
+  }
+});
 
 export const mobileTodayResponseSchema = z.object({
   ok: z.literal(true),
