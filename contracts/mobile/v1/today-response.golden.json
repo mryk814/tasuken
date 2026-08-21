@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "meta": {
+    "apiVersion": 1,
+    "schemaVersion": 1,
+    "serverId": "desktop-main",
+    "serverRevision": 42,
+    "generatedAt": "2026-08-21T10:00:00.000Z",
+    "truncated": false
+  },
+  "data": {
+    "date": "2026-08-21",
+    "items": [
+      {
+        "id": "10000000-0000-4000-8000-000000000001",
+        "title": "解析結果を確認する",
+        "themeId": "20000000-0000-4000-8000-000000000001",
+        "state": "todo",
+        "workState": "in_progress",
+        "updatedAt": "2026-08-21T09:00:00.000Z"
+      },
+      {
+        "id": "10000000-0000-4000-8000-000000000002",
+        "title": "次の実験条件を整理する",
+        "themeId": null,
+        "state": "todo",
+        "workState": null,
+        "updatedAt": "2026-08-21T09:30:00.000Z"
+      }
+    ],
+    "nextCursor": null
+  }
+}
