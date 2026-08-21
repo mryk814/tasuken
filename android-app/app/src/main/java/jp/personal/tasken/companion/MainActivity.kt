@@ -432,6 +432,10 @@ internal fun TodayDetailPane(
         return
     }
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
+    LaunchedEffect(task.id, task.title, actionState) {
+        val resolution = actionState as? TaskActionUiState.ConflictResolved
+        if (resolution?.taskId == task.id) titleDraft = task.title
+    }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
