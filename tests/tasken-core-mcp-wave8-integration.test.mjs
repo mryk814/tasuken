@@ -143,6 +143,18 @@ test("Wave 8 public inputs, named capabilities, and nested responses fail closed
     fs.writeFileSync(discoveryPath, JSON.stringify({ schema_version: 1, api_version: "1", origin: "http://127.0.0.1:43210", token: Buffer.alloc(32, 7).toString("base64url"), capabilities: ["get_activity"] }), { mode: 0o600 });
     const malformed = new TaskenCoreClient({ discoveryPath, fetch: async () => new Response(JSON.stringify({ schema_version: 1, timezone: "UTC", date: null, events: [], excluded_count: 0, excluded_reasons: [], truncated: false, activity: { schema_version: 1, timezone: "UTC", date: null, events: [], excluded_count: 0, excluded_reasons: [], truncated: false, nested_extra: true }, format: "json", result_meta: { contract_version: 1, returned_count: 0, matched_visible_count: 0, truncated: false }, ai_audience: "coding_agent", read_only: true }), { status: 200, headers: { "content-type": "application/json", "x-tasken-core-version": "1" } }) });
     await assert.rejects(malformed.getActivity({}), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
+
+    const unsafeGraph = structuredClone(core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8" }));
+    unsafeGraph.nodes[0].access_token = "MALICIOUS_RESPONSE_SECRET";
+    fs.writeFileSync(discoveryPath, JSON.stringify({ schema_version: 1, api_version: "1", origin: "http://127.0.0.1:43210", token: Buffer.alloc(32, 7).toString("base64url"), capabilities: ["get_context_subgraph"] }), { mode: 0o600 });
+    const unsafeGraphClient = new TaskenCoreClient({ discoveryPath, fetch: async () => new Response(JSON.stringify(unsafeGraph), { status: 200, headers: { "content-type": "application/json", "x-tasken-core-version": "1" } }) });
+    await assert.rejects(unsafeGraphClient.getContextSubgraph({ entity_type: "task", entity_id: "task-wave8" }), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
+
+    const unsafeExport = structuredClone(core.exportAiContext.execute({ format: "json" }));
+    unsafeExport.resources[0].constructor = "prototype-pollution";
+    fs.writeFileSync(discoveryPath, JSON.stringify({ schema_version: 1, api_version: "1", origin: "http://127.0.0.1:43210", token: Buffer.alloc(32, 7).toString("base64url"), capabilities: ["export_ai_context"] }), { mode: 0o600 });
+    const unsafeExportClient = new TaskenCoreClient({ discoveryPath, fetch: async () => new Response(JSON.stringify(unsafeExport), { status: 200, headers: { "content-type": "application/json", "x-tasken-core-version": "1" } }) });
+    await assert.rejects(unsafeExportClient.exportAiContext({ format: "json" }), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

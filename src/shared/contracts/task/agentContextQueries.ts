@@ -13,11 +13,45 @@ export const agentContextEntityTypeSchema = z.enum([
 ]);
 
 const exclusionReasonSchema = z.object({ type: z.string(), reason: z.string(), count: z.number().int().nonnegative() }).strict();
-export const publicContextValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
-  z.string(), z.number().finite(), z.boolean(), z.null(),
-  z.array(publicContextValueSchema).max(200),
-  z.record(z.string(), publicContextValueSchema),
-]));
+const PUBLIC_CONTEXT_MAX_DEPTH = 12;
+const PUBLIC_CONTEXT_MAX_ARRAY = 200;
+const PUBLIC_CONTEXT_MAX_KEYS = 200;
+const PUBLIC_CONTEXT_MAX_TEXT = 8_000;
+const PUBLIC_CONTEXT_UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+const PUBLIC_CONTEXT_SECRET_KEYS = new Set([
+  "authorization", "authorizationtoken", "clientsecret", "accesstoken", "refreshtoken",
+  "sessiontoken", "privatekey", "credential", "credentials", "cookie", "password",
+  "passwd", "pwd", "token", "secret", "apikey",
+]);
+
+function isUnsafeContextResponseKey(value: string) {
+  return PUBLIC_CONTEXT_UNSAFE_KEYS.has(value)
+    || PUBLIC_CONTEXT_SECRET_KEYS.has(value.replace(/[^A-Za-z0-9]/g, "").toLowerCase());
+}
+
+function validatePublicContextValue(value: unknown, path: PropertyKey[], depth: number, context: z.RefinementCtx) {
+  const reject = (message: string) => context.addIssue({ code: "custom", message, path });
+  if (depth > PUBLIC_CONTEXT_MAX_DEPTH) { reject("Public context nesting exceeds the maximum depth"); return; }
+  if (value === null || typeof value === "boolean") return;
+  if (typeof value === "string") { if (value.length > PUBLIC_CONTEXT_MAX_TEXT) reject("Public context text exceeds the maximum length"); return; }
+  if (typeof value === "number") { if (!Number.isFinite(value)) reject("Public context numbers must be finite"); return; }
+  if (Array.isArray(value)) {
+    if (value.length > PUBLIC_CONTEXT_MAX_ARRAY) { reject("Public context array exceeds the maximum length"); return; }
+    value.forEach((entry, index) => validatePublicContextValue(entry, [...path, index], depth + 1, context));
+    return;
+  }
+  if (!value || typeof value !== "object") { reject("Public context contains an unsupported value"); return; }
+  const keys = Object.keys(value);
+  if (keys.length > PUBLIC_CONTEXT_MAX_KEYS) { reject("Public context object exceeds the maximum key count"); return; }
+  for (const key of keys) {
+    if (isUnsafeContextResponseKey(key)) { context.addIssue({ code: "custom", message: "Public context contains a credential or prototype key", path: [...path, key] }); continue; }
+    validatePublicContextValue((value as Record<string, unknown>)[key], [...path, key], depth + 1, context);
+  }
+}
+
+export const publicContextValueSchema: z.ZodType<unknown> = z.unknown().superRefine((value, context) => {
+  validatePublicContextValue(value, [], 0, context);
+});
 
 const activityPayloadSchema = z.object({
   schema_version: z.number().int().positive(), timezone: z.string(), date: z.string().nullable(),
@@ -50,8 +84,12 @@ export const getContextSubgraphRequestSchema = z.object({
 }).strict();
 
 const graphRefSchema = z.object({ type: z.string(), id: z.string() }).strict();
-const graphNodeSchema = z.record(z.string(), publicContextValueSchema).and(z.object({ type: z.string(), id: z.string() }));
-const graphEdgeSchema = z.record(z.string(), publicContextValueSchema).and(z.object({ id: z.string(), source: graphRefSchema, target: graphRefSchema, predicate: z.string(), layer: z.string(), status: z.string() }));
+const graphNodeSchema = z.looseObject({ type: z.string(), id: z.string() }).superRefine((value, context) => {
+  validatePublicContextValue(value, [], 0, context);
+});
+const graphEdgeSchema = z.looseObject({ id: z.string(), source: graphRefSchema, target: graphRefSchema, predicate: z.string(), layer: z.string(), status: z.string() }).superRefine((value, context) => {
+  validatePublicContextValue(value, [], 0, context);
+});
 
 export const getContextSubgraphResponseSchema = z.object({
   seed: graphRefSchema, nodes: z.array(graphNodeSchema).max(100), edges: z.array(graphEdgeSchema).max(200),
