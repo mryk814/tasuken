@@ -213,7 +213,7 @@ export class MobileGatewayAdapter {
           meta,
           data: {
             date: result.value.date,
-            items: result.value.items.map(projectTask),
+            items: result.value.items.map((task) => projectTask(task)),
             nextCursor: result.value.next_cursor,
           },
         }));
