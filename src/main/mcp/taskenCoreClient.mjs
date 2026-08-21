@@ -245,14 +245,14 @@ export class TaskenCoreClient {
   }
 
   async proposeTaskWork(request = {}) {
-    return this.request("/v1/commands/propose-task-work", TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY, request, proposeTaskWorkResponseSchema);
+    return this.request("/v1/commands/propose-task-work", TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY, request, proposeTaskWorkResponseSchema, "propose-task-work");
   }
 
   async query(path, capability, request, responseSchema) {
-    return this.request(`/v1/queries/${path}`, capability, request, responseSchema);
+    return this.request(`/v1/queries/${path}`, capability, request, responseSchema, path);
   }
 
-  async request(route, capability, request, responseSchema) {
+  async request(route, capability, request, responseSchema, operation = route) {
     const discovery = await readDiscovery(this.discoveryPath);
     if (!discovery.capabilities.includes(capability)) {
       throw new TaskenCoreClientError("CAPABILITY_UNAVAILABLE", `Tasken Core operation capabilityが利用できません（${capability}）。`);
@@ -298,7 +298,7 @@ export class TaskenCoreClient {
       const parsed = responseSchema.safeParse(payload);
       if (!parsed.success) {
         throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core responseがschemaに適合しません。", {
-          details: { operation: route },
+          details: { operation },
         });
       }
       return parsed.data;
