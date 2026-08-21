@@ -72,6 +72,10 @@ function renderMarkdown(pack: any) {
     "## Claims", ...nodeLines(pack.knowledge_nodes, "claim"), "",
     "## Evidence", ...nodeLines(pack.knowledge_nodes, "evidence"), "",
     "## Decisions", ...nodeLines(pack.knowledge_nodes, "decision"), "",
+    "## Risks / Contradictions",
+    ...(pack.health?.knowledge?.contradicted_claims?.length ? pack.health.knowledge.contradicted_claims.map((node: any) => `- ${node.title}`) : ["- なし"]), "",
+    "## Suggested Next Actions",
+    ...(pack.health?.knowledge?.unresolved_questions?.length ? pack.health.knowledge.unresolved_questions.map((node: any) => `- Questionを処理: ${node.title}`) : ["- なし"]), "",
     "## AI公開範囲で除外した情報",
     ...(pack.excluded_count ? pack.excluded_reasons.map((entry: any) => `- ${entry.type}: ${entry.reason}（${entry.count}件）`) : ["- 除外なし"]),
   ].join("\n");
@@ -134,11 +138,11 @@ export class AgentContextExportService {
       resourceIds.add(text(resource.id));
       resources.push(publicResource({ ...resource, ai: visibility.header }));
     }
-    const items = (itemResult.items || []).filter((entry: any) => visibleForAudience(entry, audience));
-    const notes = (noteResult.notes || []).filter((entry: any) => visibleForAudience(entry, audience));
-    const knowledgeNodes = (knowledgeResult.knowledge_nodes || []).filter((entry: any) => visibleForAudience(entry, audience));
+    const items = (sanitizePublicValue((itemResult.items || []).filter((entry: any) => visibleForAudience(entry, audience)), { maxDepth: 12, maxArray: 100, maxKeys: 100 }) || []) as any[];
+    const notes = (sanitizePublicValue((noteResult.notes || []).filter((entry: any) => visibleForAudience(entry, audience)), { maxDepth: 12, maxArray: 100, maxKeys: 100 }) || []) as any[];
+    const knowledgeNodes = (sanitizePublicValue((knowledgeResult.knowledge_nodes || []).filter((entry: any) => visibleForAudience(entry, audience)), { maxDepth: 12, maxArray: 100, maxKeys: 100 }) || []) as any[];
     const publicKnowledgeIds = new Set(knowledgeNodes.map((node: any) => text(node.id)));
-    const knowledgeEdges = (knowledgeResult.knowledge_edges || []).filter((edge: any) => publicKnowledgeIds.has(text(edge.source_node_id)) && publicKnowledgeIds.has(text(edge.target_node_id)));
+    const knowledgeEdges = (sanitizePublicValue((knowledgeResult.knowledge_edges || []).filter((edge: any) => publicKnowledgeIds.has(text(edge.source_node_id)) && publicKnowledgeIds.has(text(edge.target_node_id))), { maxDepth: 12, maxArray: 200, maxKeys: 100 }) || []) as any[];
     const planHealth = this.knowledge.getPlanHealth({ theme_id: themeId || undefined });
     const knowledgeHealth = this.knowledge.getKnowledgeHealth({ theme_id: themeId || undefined });
     const resultMeta = {
@@ -163,6 +167,6 @@ export class AgentContextExportService {
       ...summarized, result_meta: resultMeta, read_only: true as const,
     };
     if (request.format === "json") return exportAiContextResponseSchema.parse(pack);
-    return exportAiContextResponseSchema.parse({ format: "markdown", content: renderMarkdown(pack), scope, ai_audience: audience, result_meta: resultMeta, read_only: true });
+    return exportAiContextResponseSchema.parse(renderMarkdown(pack));
   }
 }

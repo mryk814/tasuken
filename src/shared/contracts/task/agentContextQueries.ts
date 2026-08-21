@@ -87,7 +87,7 @@ export const exportAiContextPackSchema = z.object({
 }).strict();
 export const exportAiContextResponseSchema = z.union([
   exportAiContextPackSchema,
-  z.object({ format: z.literal("markdown"), content: z.string(), scope: z.enum(["active_theme", "selected_theme", "recent", "open_items", "knowledge"]), ai_audience: aiContextAudienceSchema, result_meta: exportResultMetaSchema, read_only: z.literal(true) }).strict(),
+  z.string(),
 ]);
 
 export type GetActivityRequest = z.output<typeof getActivityRequestSchema>;

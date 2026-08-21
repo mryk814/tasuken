@@ -45,7 +45,7 @@ export class AgentContextQueryService {
       limit: request.limit ?? DEFAULT_ACTIVITY_LIMIT,
       include_match_metadata: true,
     });
-    const publicResult = projectActivityJson(result);
+    const { matched_count: matchedVisible, ...publicResult } = projectActivityJson(result);
     const format = request.format === "markdown" ? "markdown" : "json";
     return getActivityResponseSchema.parse({
       ...publicResult,
@@ -54,7 +54,7 @@ export class AgentContextQueryService {
       result_meta: {
         contract_version: 1,
         returned_count: result.events.length,
-        matched_visible_count: Number(result.matched_count || result.events.length),
+        matched_visible_count: Number(matchedVisible || result.events.length),
         truncated: result.truncated,
       },
       ai_audience: request.audience || AUDIENCE,
