@@ -292,10 +292,17 @@ export class MobileGatewayAdapter {
               today_date: command.task.todayDate ?? null,
             },
           }
-        : {
-            task_id: command.taskId,
-            expected_version: command.expectedVersion,
-          };
+        : command.name === "UpdateTask"
+          ? {
+              task_id: command.taskId,
+              expected_version: command.expectedVersion,
+              changes: command.changes,
+              base: command.base,
+            }
+          : {
+              task_id: command.taskId,
+              expected_version: command.expectedVersion,
+            };
       const result = await this.options.core.executeTaskCommand({
         schemaVersion: 1,
         command_id: parsed.data.commandId,
@@ -415,7 +422,7 @@ export class MobileGatewayAdapter {
     retryable = false,
     conflict?: {
       currentTask: ReturnType<typeof projectTask>;
-      intendedAction: "CompleteTask" | "ReopenTask";
+      intendedAction: "UpdateTask" | "CompleteTask" | "ReopenTask";
       expectedVersion: number;
     },
   ): MobileGatewayResponse {
@@ -439,7 +446,7 @@ export class MobileGatewayAdapter {
         const currentTask = taskReadModelSchema.safeParse(error.details?.current_task);
         if (
           !currentTask.success
-          || (command?.name !== "CompleteTask" && command?.name !== "ReopenTask")
+          || (command?.name !== "UpdateTask" && command?.name !== "CompleteTask" && command?.name !== "ReopenTask")
           || command.expectedVersion === undefined
         ) throw new Error("Version conflict is missing its canonical Task context");
         return this.error(meta, "version_conflict", false, {

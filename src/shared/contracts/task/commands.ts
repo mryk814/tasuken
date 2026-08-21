@@ -35,7 +35,15 @@ export const updateTaskCommandSchema = z.object({
     task_id: taskIdSchema,
     expected_version: entityVersionSchema,
     changes: taskPatchSchema,
-  }).strict(),
+    base: taskPatchSchema.optional(),
+  }).strict().superRefine((value, context) => {
+    if (!value.base) return;
+    const changedKeys = Object.keys(value.changes).sort();
+    const baseKeys = Object.keys(value.base).sort();
+    if (changedKeys.length !== baseKeys.length || changedKeys.some((key, index) => key !== baseKeys[index])) {
+      context.addIssue({ code: "custom", path: ["base"], message: "baseはchangesと同じfieldを持つ必要があります。" });
+    }
+  }),
 }).strict();
 
 export const deleteTaskCommandSchema = z.object({
