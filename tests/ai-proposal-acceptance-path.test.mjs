@@ -51,7 +51,7 @@ async function importWorkspaceService() {
 
 const repositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
 const { WorkspaceDatabase } = await import(repositoryModule);
-const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
+const { ApplicationCommandService, commandFingerprint } = await importBundled("src/main/services/applicationCommandService.ts");
 const { AiProposalAcceptanceService } = await importBundled("src/main/services/aiProposalAcceptanceService.ts");
 const { WorkspaceService } = await importWorkspaceService();
 const { buildPreview, buildCandidateOperations, stabilizeProposalOperations } = await importBundled("src/renderer/src/features/workspace/components/AiProposalPanel.tsx");
@@ -381,6 +381,48 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
   const workspace = new WorkspaceService(database, directory, () => "2026-08-21T01:00:00.000Z");
   const acceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), workspace, database);
   try {
+    const verifyLegacyNoteReplay = (command, receipt) => {
+      const originalEvent = database.get("change_event", receipt.events[0], true);
+      const originalReceiptJson = originalEvent.receipt_json;
+      const storedReceipt = JSON.parse(originalReceiptJson);
+      assert.equal(originalEvent.record_type || originalEvent.entity_type, "note");
+      assert.deepEqual(database.list("change_event", true).filter((event) => event.command_id === command.commandId).map((event) => event.id), receipt.events);
+      assert.deepEqual(storedReceipt.changes[0], { type: "note", entity: JSON.parse(originalEvent.after_json) });
+      assert.deepEqual(storedReceipt.changes[1], {
+        type: "ai_proposal",
+        entity: database.get("ai_proposal", command.payload.proposal.id, true),
+      });
+      const legacyMetadata = { ...originalEvent.metadata };
+      delete legacyMetadata.content_proposal_receipt_integrity;
+      const legacyEvent = database.save("change_event", { ...originalEvent, metadata: legacyMetadata });
+      assert.equal(legacyEvent.command_fingerprint, commandFingerprint(command));
+      assert.deepEqual(storedReceipt.events, [legacyEvent.id]);
+      assert.deepEqual(storedReceipt.saved, storedReceipt.changes.map(({ type, entity }) => ({ type, id: entity.id, version: entity.version })));
+      assert.deepEqual(storedReceipt.revisions, storedReceipt.saved);
+      const restartedWorkspace = new WorkspaceService(database, directory, () => "2026-08-21T01:00:00.000Z");
+      const restartedAcceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), restartedWorkspace, database);
+      assert.deepEqual(restartedAcceptance.execute(command).events, receipt.events);
+      const sealedEvent = database.get("change_event", receipt.events[0], true);
+      assert.equal(sealedEvent.metadata.content_proposal_receipt_integrity.schema, "tasken-content-proposal-receipt/v1");
+      const sealedVersion = sealedEvent.version;
+      restartedAcceptance.execute(command);
+      assert.equal(database.get("change_event", receipt.events[0], true).version, sealedVersion);
+
+      const tamperedReceipt = JSON.parse(originalReceiptJson);
+      tamperedReceipt.changes[0].entity.body_markdown = "legacy nested tamper";
+      const tamperedMetadata = { ...sealedEvent.metadata };
+      delete tamperedMetadata.content_proposal_receipt_integrity;
+      database.save("change_event", {
+        ...sealedEvent,
+        metadata: tamperedMetadata,
+        receipt_json: JSON.stringify(tamperedReceipt),
+      });
+      assert.throws(() => restartedAcceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
+      const tamperedEvent = database.get("change_event", receipt.events[0], true);
+      database.save("change_event", { ...tamperedEvent, metadata: tamperedMetadata, receipt_json: originalReceiptJson });
+      restartedAcceptance.execute(command);
+    };
+
     const createProposal = database.save("ai_proposal", {
       id: "proposal-note-create",
       source: "mcp",
@@ -405,6 +447,7 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
     const createCounts = { notes: database.list("note").length, events: database.list("change_event").length };
     assert.deepEqual(acceptance.execute(createCommand).events, createReceipt.events);
     assert.deepEqual({ notes: database.list("note").length, events: database.list("change_event").length }, createCounts);
+    verifyLegacyNoteReplay(createCommand, createReceipt);
 
     const editProposal = database.save("ai_proposal", {
       id: "proposal-note-edit",
@@ -433,6 +476,7 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
     const editCounts = { notes: database.list("note").length, events: database.list("change_event").length };
     assert.deepEqual(acceptance.execute(editCommand).events, editReceipt.events);
     assert.deepEqual({ notes: database.list("note").length, events: database.list("change_event").length }, editCounts);
+    verifyLegacyNoteReplay(editCommand, editReceipt);
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });

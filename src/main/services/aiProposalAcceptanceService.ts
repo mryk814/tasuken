@@ -79,11 +79,17 @@ function validateLegacyReceipt(
   let expectedChanges: CommandReceipt["changes"];
   try {
     expectedChanges = events.map((event) => ({
-      type: String(event!.record_type) as CommandReceipt["changes"][number]["type"],
+      type: String(event!.record_type || event!.entity_type) as CommandReceipt["changes"][number]["type"],
       entity: JSON.parse(String(event!.after_json)) as Entity,
     }));
   } catch {
     receiptConflict(command.commandId);
+  }
+  if (!expectedChanges.some(({ type }) => type === "ai_proposal")) {
+    const proposalId = String(payload.proposal?.id || "");
+    const companionProposal = proposalId ? repository.get("ai_proposal", proposalId, true) : null;
+    if (!companionProposal) receiptConflict(command.commandId);
+    expectedChanges.push({ type: "ai_proposal", entity: companionProposal });
   }
   const expectedRefs = [
     ...(payload.candidates || []).map((candidate) => ({ type: candidate.type, id: candidate.entity.id })),
