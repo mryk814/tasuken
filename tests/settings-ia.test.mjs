@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import path from "node:path";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+
+import { build } from "esbuild";
+
+async function mcpBridgeContract() {
+  const result = await build({
+    entryPoints: [path.resolve("src/shared/ipc/contracts.ts")],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+}
 
 const settings = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
 const routes = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
@@ -67,4 +83,27 @@ test("Settings does not render stored secrets and remains compact at narrow widt
   assert.match(styles, /\.settings-layout \{[\s\S]*grid-template-columns/);
   assert.match(styles, /\.settings-category-nav \{ position: static; display: flex/);
   assert.match(styles, /\.settings-summary-list \{ grid-template-columns: 1fr; \}/);
+});
+
+test("Settings copies the exact typed MCP client config generated for the runtime", async () => {
+  const { copyMcpBridgeConfig, createMcpBridgeInfo } = await mcpBridgeContract();
+  const info = createMcpBridgeInfo({
+    args: ["C:/Program Files/Tasken/resources/mcp/server.mjs"],
+    pendingProposalCount: 2,
+    packaged: true,
+  });
+  assert.deepEqual(JSON.parse(info.configJson), {
+    mcpServers: {
+      tasken: {
+        command: "node",
+        args: ["C:/Program Files/Tasken/resources/mcp/server.mjs"],
+      },
+    },
+  });
+  assert.equal(info.transport, "stdio-core");
+  assert.equal(info.pendingProposalCount, 2);
+  let copied = "";
+  await copyMcpBridgeConfig(async (text) => { copied = text; return true; }, info);
+  assert.equal(copied, info.configJson);
+  assert.match(settings, /copyMcpBridgeConfig\(\(text\) => workspaceApi\.copyText\(text\), mcpInfo\)/);
 });

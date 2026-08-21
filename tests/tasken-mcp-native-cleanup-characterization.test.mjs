@@ -60,7 +60,8 @@ test("#413 MCP production graph is Core-only and native-free", () => {
   assert.match(source("scripts/mcp-package-smoke.mjs"), /spawn\(executable/);
   assert.match(source("scripts/mcp-doctor.mjs"), /\.inspect\(\)/);
   assert.match(source("src/main/services/workspaceService.ts"), /this\.taskenCoreClient\.getTaskContext/);
-  assert.match(source("src/main/services/workspaceService.ts"), /const command = "node"/);
+  assert.match(source("src/main/services/workspaceService.ts"), /createMcpBridgeInfo/);
+  assert.match(source("src/shared/ipc/contracts.ts"), /const command = "node"/);
   assert.doesNotMatch(source("src/main/services/workspaceService.ts"), /mcpServers:[\s\S]{0,300}\benv\b/);
   assert.doesNotMatch(source("src/renderer/src/features/workspace/pages/SettingsPage.tsx"), /MCP Inbox|Inboxを開く|pendingFileCount/);
 });

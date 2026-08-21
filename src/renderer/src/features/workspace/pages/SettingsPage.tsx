@@ -8,6 +8,7 @@ import type {
   RootShortcutState,
   SharedSyncStatus,
 } from "../../../../../shared/ipc/contracts";
+import { copyMcpBridgeConfig } from "../../../../../shared/ipc/contracts";
 import type { AiAdapterKind, AiApiSurface, AiAuthKind, AiCapability, AiFeatureAvailability, AiModelLifecycle, AiProviderConfig } from "../../../../../shared/ai";
 import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
@@ -507,7 +508,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
 
   async function copyMcpConfig() {
     if (!mcpInfo) return;
-    await workspaceApi.copyText(mcpInfo.configJson);
+    await copyMcpBridgeConfig((text) => workspaceApi.copyText(text), mcpInfo);
     setToast("MCPクライアント設定をコピーしました。", "success");
   }
 

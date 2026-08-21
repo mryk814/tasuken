@@ -22,6 +22,7 @@ import type {
   ThemeAiPackPublishResult,
   ThemeAiPackStatusResult,
 } from "../../shared/ipc/contracts";
+import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -2679,29 +2680,17 @@ export class WorkspaceService {
   }
 
   getMcpBridgeInfo(): McpBridgeInfo {
-    const command = "node";
     const args = app.isPackaged
       ? [path.join(process.resourcesPath, "mcp", "server.mjs")]
       : [path.join(app.getAppPath(), "scripts", "mcp-server.mjs")];
-    const config = {
-      mcpServers: {
-        tasken: {
-          command,
-          args,
-        },
-      },
-    };
     const pendingProposalCount = this.repository.list("ai_proposal")
       .filter((proposal) => !proposal.deleted_at && proposal.status === "pending")
       .length;
-    return {
-      command,
+    return createMcpBridgeInfo({
       args,
-      configJson: JSON.stringify(config, null, 2),
       pendingProposalCount,
-      transport: "stdio-core",
       packaged: app.isPackaged,
-    };
+    });
   }
 
   async exportSnapshot(): Promise<{ canceled: boolean; filePath?: string }> {

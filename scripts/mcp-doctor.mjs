@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   TASKEN_MCP_REQUIRED_CORE_CAPABILITIES,
@@ -7,9 +9,9 @@ import {
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
 
-async function buildReport() {
+export async function buildReport(coreClient = new TaskenCoreClient()) {
   try {
-    const status = await new TaskenCoreClient().inspect();
+    const status = await coreClient.inspect();
     const missing = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter((capability) => !status.capabilities.includes(capability));
     const checks = [
       { status: "ok", code: "MCP_CORE_HEALTHY", message: "Tasken Core health checkに成功しました。" },
@@ -45,15 +47,25 @@ async function buildReport() {
   }
 }
 
-const report = await buildReport();
-if (process.argv.includes("--human")) {
-  process.stdout.write("Tasken MCP doctor\n");
+export function writeReport(report, options = {}) {
+  const human = options.human ?? process.argv.includes("--human");
+  const stdout = options.stdout || process.stdout;
+  const stderr = options.stderr || process.stderr;
+  if (!human) {
+    stdout.write(`${JSON.stringify(report)}\n`);
+    return;
+  }
+  stderr.write("Tasken MCP doctor\n");
   for (const check of report.checks) {
     const label = check.status === "ok" ? "OK" : "ERROR";
-    process.stdout.write(`[${label}] ${check.code}: ${check.message}\n`);
+    stderr.write(`[${label}] ${check.code}: ${check.message}\n`);
   }
-  process.stdout.write(`${report.ok ? "MCP environment: READY" : "MCP environment: BLOCKED"}\n`);
-} else {
-  process.stdout.write(`${JSON.stringify(report)}\n`);
+  stderr.write(`${report.ok ? "MCP environment: READY" : "MCP environment: BLOCKED"}\n`);
 }
-if (!report.ok) process.exitCode = 1;
+
+const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+if (isMain) {
+  const report = await buildReport();
+  writeReport(report);
+  if (!report.ok) process.exitCode = 1;
+}

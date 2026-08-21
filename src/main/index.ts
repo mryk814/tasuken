@@ -46,6 +46,12 @@ import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
+const isMcpPackageSmoke = process.argv.includes("--mcp-package-smoke");
+const isMcpPackageSmokeVerifyOnly = process.argv.includes("--mcp-package-smoke-verify-only");
+const mcpPackageSmokeResultArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-result-path="));
+const mcpPackageSmokeResultPath = mcpPackageSmokeResultArgument?.slice("--mcp-package-smoke-result-path=".length) || "";
+const mcpPackageSmokeProposalArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-proposal-id="));
+const mcpPackageSmokeProposalId = mcpPackageSmokeProposalArgument?.slice("--mcp-package-smoke-proposal-id=".length) || "";
 const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
 const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
 const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
@@ -2321,6 +2327,22 @@ async function startDesktopApp(): Promise<void> {
   configureMainLog(app.getPath("userData"));
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
+  if (isMcpPackageSmoke) {
+    if (!app.isPackaged) throw new Error("MCP package smoke fixtureはpackaged Desktopでのみ使用できます。");
+    workspaceRepository.ensureMcpPackageSmokeFixture();
+    if (mcpPackageSmokeProposalId) {
+      if (!/^[0-9a-f-]{36}$/i.test(mcpPackageSmokeProposalId)) throw new Error("MCP package smoke Proposal IDが不正です。");
+      const verification = workspaceRepository.verifyMcpPackageSmokeProposal(mcpPackageSmokeProposalId);
+      if (mcpPackageSmokeResultPath) {
+        fs.writeFileSync(path.resolve(mcpPackageSmokeResultPath), JSON.stringify(verification), { flag: "w" });
+      }
+    }
+    if (isMcpPackageSmokeVerifyOnly) {
+      workspaceRepository.db.close();
+      app.exit(0);
+      return;
+    }
+  }
   taskenCoreRuntime = new TaskenCoreRuntime(app.getPath("userData"), workspaceRepository);
   await taskenCoreRuntime.start();
   let smokeAudioSourcePath = "";

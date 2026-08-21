@@ -321,6 +321,29 @@ export interface McpBridgeInfo {
   packaged: boolean;
 }
 
+export function createMcpBridgeInfo(input: {
+  args: string[];
+  pendingProposalCount: number;
+  packaged: boolean;
+}): McpBridgeInfo {
+  const command = "node";
+  return {
+    command,
+    args: [...input.args],
+    configJson: JSON.stringify({ mcpServers: { tasken: { command, args: input.args } } }, null, 2),
+    pendingProposalCount: input.pendingProposalCount,
+    transport: "stdio-core",
+    packaged: input.packaged,
+  };
+}
+
+export async function copyMcpBridgeConfig(
+  copyText: (text: string) => Promise<boolean>,
+  info: McpBridgeInfo,
+): Promise<void> {
+  await copyText(info.configJson);
+}
+
 export type ThemeAiPackState =
   | "loading"
   | "missing"
