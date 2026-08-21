@@ -348,7 +348,7 @@ test("proposal validators enforce public bounds and reject private paths, creden
   }
 });
 
-test("four Task-work tools use Core while seven content tools retain the legacy proposal owner", () => {
+test("six Task-work/repository/task proposal tools use Core while five content tools retain the legacy proposal owner", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const names = [
     "tasken.start_task_work",
@@ -368,8 +368,8 @@ test("four Task-work tools use Core while seven content tools retain the legacy 
     assert.equal(source.split(marker).length - 1, 1, `${name} registration`);
     const block = source.slice(source.indexOf(marker), source.indexOf("server.registerTool(", source.indexOf(marker) + marker.length) === -1 ? source.length : source.indexOf("server.registerTool(", source.indexOf(marker) + marker.length));
     assert.match(block, /annotations: PROPOSAL_ANNOTATIONS/);
-    assert.match(block, index < 4 ? /queueTaskWork/ : /queueMcpProposal/);
-    if (index < 4) {
+    assert.match(block, index < 4 ? /queueTaskWork/ : index < 6 ? /queueRepositoryTask/ : /queueMcpProposal/);
+    if (index < 6) {
       assert.match(block, /withCoreClient/);
       assert.doesNotMatch(block, /queueMcpProposal/);
     } else {
@@ -377,6 +377,7 @@ test("four Task-work tools use Core while seven content tools retain the legacy 
     }
   }
   assert.match(source, /coreClient\.proposeTaskWork/);
+  assert.match(source, /coreClient\.proposeRepositoryTask/);
   assert.match(source, /expected_version: z\.number\(\)\.int\(\)\.nonnegative\(\)/);
   assert.match(source, /idempotency_key: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(200\)/);
   assert.match(source, /source_session: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(200\)\.optional\(\)/);
