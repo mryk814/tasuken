@@ -1,0 +1,387 @@
+import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import test from "node:test";
+
+import { build } from "esbuild";
+import { canonicalMarkdownBindingFromProperties } from "../src/shared/canonicalMarkdown.mjs";
+import { stableProposalEntityId } from "../src/shared/proposalAcceptance.mjs";
+
+async function importBundled(relativePath) {
+  const result = await build({ entryPoints: [path.resolve(relativePath)], bundle: true, platform: "node", format: "esm", write: false, logLevel: "silent" });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+}
+
+async function importWorkspaceService() {
+  const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ai-acceptance-service-bundle-"));
+  const outputFile = path.join(outputDirectory, "workspaceService.mjs");
+  test.after(() => fs.rmSync(outputDirectory, { recursive: true, force: true }));
+  const mock = {
+    name: "workspace-service-dependencies",
+    setup(buildApi) {
+      buildApi.onResolve({ filter: /^electron$/ }, () => ({ path: "electron-mock", namespace: "acceptance-mock" }));
+      buildApi.onLoad({ filter: /^electron-mock$/, namespace: "acceptance-mock" }, () => ({
+        contents: "export const app={getPath:()=>\"\"}; export class BrowserWindow{}; export const clipboard={}; export const dialog={}; export const nativeImage={}; export const shell={};",
+        loader: "js",
+      }));
+      buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({ path: "adm-zip-mock", namespace: "acceptance-mock" }));
+      buildApi.onLoad({ filter: /^adm-zip-mock$/, namespace: "acceptance-mock" }, () => ({
+        contents: "export default class AdmZip { constructor() { throw new Error('unused'); } }",
+        loader: "js",
+      }));
+      buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: "better-sqlite3-mock", namespace: "acceptance-mock" }));
+      buildApi.onLoad({ filter: /^better-sqlite3-mock$/, namespace: "acceptance-mock" }, () => ({
+        contents: "export default class Database { constructor() { throw new Error('unused'); } }",
+        loader: "js",
+      }));
+      buildApi.onResolve({ filter: /workspaceRepository\.mjs$/ }, () => ({ path: "workspace-repository-mock", namespace: "acceptance-mock" }));
+      buildApi.onLoad({ filter: /^workspace-repository-mock$/, namespace: "acceptance-mock" }, () => ({
+        contents: "export const workspaceEntityTypes=[]; export const workspaceSchemaVersion=1;",
+        loader: "js",
+      }));
+    },
+  };
+  await build({ entryPoints: [path.resolve("src/main/services/workspaceService.ts")], bundle: true, platform: "node", format: "esm", outfile: outputFile, logLevel: "silent", plugins: [mock] });
+  return import(pathToFileURL(outputFile).href);
+}
+
+const repositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
+const { WorkspaceDatabase } = await import(repositoryModule);
+const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
+const { AiProposalAcceptanceService } = await importBundled("src/main/services/aiProposalAcceptanceService.ts");
+const { WorkspaceService } = await importWorkspaceService();
+const { buildPreview, buildCandidateOperations, stabilizeProposalOperations } = await importBundled("src/renderer/src/features/workspace/components/AiProposalPanel.tsx");
+
+function root() {
+  return fs.mkdtempSync(path.join(process.cwd(), ".tasken-ai-acceptance-"));
+}
+
+function envelope(proposal, candidates) {
+  return {
+    commandId: `${proposal.id}:accept:v${proposal.version}`,
+    name: "ApplyAiProposal",
+    payload: { proposal: { ...proposal, status: "accepted" }, candidates },
+    actor: { kind: "user" },
+    source: "main_ui",
+    expectedVersions: [
+      { type: "ai_proposal", id: proposal.id, version: proposal.version },
+      ...candidates
+        .filter((candidate) => Number(candidate.entity.version || 0) > 0)
+        .map((candidate) => ({ type: candidate.type, id: candidate.entity.id, version: Number(candidate.entity.version) })),
+    ],
+    issuedAt: proposal.received_at,
+  };
+}
+
+function noteCandidates(proposal, notes) {
+  const preview = buildPreview(proposal, { data: { notes }, themes: [], items: [] });
+  return stabilizeProposalOperations(proposal.id, buildCandidateOperations(preview.candidates))
+    .map((operation) => ({ type: operation.type, entity: operation.entity }));
+}
+
+test("preview candidates commit entities, relation, Activity events and exactly-once receipt through ApplyAiProposal", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  try {
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-preview-path",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "knowledge_nodes",
+      payload: {
+        knowledge_nodes: [
+          { action: "create", temp_id: "claim", title: "Claim", body: "C", node_type: "claim" },
+          { action: "create", temp_id: "evidence", title: "Evidence", body: "E", node_type: "evidence" },
+        ],
+        knowledge_edges: [{ action: "create", source_temp_id: "evidence", target_temp_id: "claim", relation_type: "supports" }],
+      },
+      request: { tool: "tasken.propose_knowledge" },
+      status: "pending",
+      received_at: "2026-08-21T00:00:00.000Z",
+    });
+    const preview = buildPreview(proposal, { data: { knowledge_nodes: [], knowledge_edges: [] }, themes: [], items: [] });
+    const firstOperations = stabilizeProposalOperations(proposal.id, buildCandidateOperations(preview.candidates));
+    const secondOperations = stabilizeProposalOperations(proposal.id, buildCandidateOperations(preview.candidates));
+    assert.deepEqual(firstOperations.map((operation) => operation.entity.id), secondOperations.map((operation) => operation.entity.id));
+    assert.equal(firstOperations[2].entity.source_node_id, firstOperations[1].entity.id);
+    assert.equal(firstOperations[2].entity.target_node_id, firstOperations[0].entity.id);
+    const candidates = firstOperations.map((operation) => ({
+      type: operation.type,
+      entity: operation.type === "knowledge_node" ? { ...operation.entity, title: "Renderer forged title", body: "Renderer forged body" } : operation.entity,
+    }));
+    const commands = new ApplicationCommandService(database);
+    const acceptance = new AiProposalAcceptanceService(commands, {
+      materializeArtifactProposal() { throw new Error("unexpected artifact"); },
+      rollbackMaterializedArtifactProposal() {},
+    }, database);
+    const command = envelope(proposal, candidates);
+    const first = acceptance.execute(command);
+    const counts = {
+      nodes: database.list("knowledge_node").length,
+      edges: database.list("knowledge_edge").length,
+      events: database.list("change_event").length,
+    };
+    assert.equal(first.status, "applied");
+    assert.equal(counts.nodes, 2);
+    assert.deepEqual(database.list("knowledge_node").map((entry) => entry.title).sort(), ["Claim", "Evidence"]);
+    assert.equal(counts.edges, 1);
+    assert.equal(database.get("ai_proposal", proposal.id).status, "accepted");
+    assert.equal(counts.events, 4);
+    assert.equal(first.events.length, 4);
+    const retry = acceptance.execute(command);
+    assert.equal(retry.status, first.status);
+    assert.deepEqual(retry.events, first.events);
+    assert.deepEqual(retry.saved, first.saved);
+    assert.deepEqual({
+      nodes: database.list("knowledge_node").length,
+      edges: database.list("knowledge_edge").length,
+      events: database.list("change_event").length,
+    }, counts);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("artifact acceptance rebuilds content from DB, compensates DB failure, and retry creates no duplicate file", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  const files = new Map();
+  const removed = [];
+  const materializer = {
+    materializeArtifactProposal(request) {
+      assert.equal(request.content, '{"from":"database"}');
+      const storedPath = path.join(directory, `${request.materializationKey}.json`);
+      const created = !files.has(storedPath);
+      if (created) files.set(storedPath, request.content);
+      return { status: "ok", directory, created, file: { filename: "result.json", fileType: "json", mimeType: "application/json", fileSize: request.content.length, storedPath, originalPath: "", copiedAt: "2026-08-21T00:00:00.000Z", storageMode: "managed" } };
+    },
+    rollbackMaterializedArtifactProposal(storedPath) { removed.push(storedPath); files.delete(storedPath); },
+  };
+  try {
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-artifact-path", source: "mcp", source_app: "fixture", payload_type: "artifacts",
+      payload: { artifacts: [{ action: "create", title: "Result", file_name: "result.json", media_type: "application/json", content: '{"from":"database"}', reason: "proof" }] },
+      request: { tool: "tasken.propose_artifact" }, status: "pending", received_at: "2026-08-21T00:00:00.000Z",
+    });
+    const commands = new ApplicationCommandService(database);
+    const acceptance = new AiProposalAcceptanceService(commands, materializer, database);
+    const artifactId = stableProposalEntityId(proposal.id, "artifact", 0);
+    const candidate = { type: "artifact", entity: { id: artifactId, title: "Renderer title", source_type: "ai_proposal", source_id: proposal.id, proposal_materialization: { entryIndex: 0, themeId: null }, stored_path: "C:/untrusted/path" } };
+    const invalid = envelope(proposal, [candidate]);
+    invalid.expectedVersions[0].version = 999;
+    assert.throws(() => acceptance.execute(invalid), /更新済み|expected/i);
+    assert.equal(files.size, 0);
+    assert.equal(removed.length, 1);
+    assert.equal(database.get("artifact", artifactId), null);
+    const valid = envelope(proposal, [candidate]);
+    const first = acceptance.execute(valid);
+    assert.equal(first.status, "applied");
+    assert.equal(files.size, 1);
+    assert.equal(database.list("artifact").length, 1);
+    assert.notEqual(database.get("artifact", artifactId).stored_path, "C:/untrusted/path");
+    const eventCount = database.list("change_event").length;
+    const retry = acceptance.execute(valid);
+    assert.equal(retry.status, first.status);
+    assert.deepEqual(retry.events, first.events);
+    assert.deepEqual(retry.saved, first.saved);
+    assert.equal(files.size, 1);
+    assert.equal(database.list("artifact").length, 1);
+    assert.equal(database.list("change_event").length, eventCount);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("WorkspaceService reuses only hash-identical deterministic Artifact files and conflicts on content drift", () => {
+  const directory = root();
+  const managed = path.join(directory, "managed");
+  fs.mkdirSync(managed);
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.setPreference("artifactDirectory", managed);
+  const service = new WorkspaceService(database, directory, () => "2026-08-21T00:00:00.000Z");
+  try {
+    const request = { title: "Stable", fileName: "stable.json", mediaType: "application/json", content: '{"stable":true}', themeId: null, materializationKey: "stable-candidate" };
+    const first = service.materializeArtifactProposal(request);
+    const retry = service.materializeArtifactProposal(request);
+    assert.equal(first.status, "ok");
+    assert.equal(retry.status, "ok");
+    assert.equal(first.created, true);
+    assert.equal(retry.created, false);
+    assert.equal(retry.file.storedPath, first.file.storedPath);
+    assert.equal(fs.readdirSync(path.dirname(first.file.storedPath)).length, 1);
+    assert.throws(() => service.materializeArtifactProposal({ ...request, content: '{"stable":false}' }), /競合/);
+    assert.equal(fs.readFileSync(first.file.storedPath, "utf8"), request.content);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("sketch acceptance rebuilds SVG and nested IDs from the DB proposal", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  try {
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-sketch-path",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "sketches",
+      payload: { sketches: [{ action: "create", title: "Canonical sketch", svg: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>', reason: "proof" }] },
+      request: { tool: "tasken.propose_sketch" },
+      status: "pending",
+      received_at: "2026-08-21T00:15:00.000Z",
+    });
+    const preview = buildPreview(proposal, { data: {}, themes: [], items: [] });
+    const candidates = stabilizeProposalOperations(proposal.id, buildCandidateOperations(preview.candidates))
+      .map((operation) => ({ type: operation.type, entity: { ...operation.entity, title: "Renderer forged sketch", document: { forged: true } } }));
+    const acceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), {
+      materializeArtifactProposal() { throw new Error("unexpected artifact"); },
+      rollbackMaterializedArtifactProposal() {},
+    }, database);
+    const command = envelope(proposal, candidates);
+    const first = acceptance.execute(command);
+    const sketch = database.list("sketch")[0];
+    assert.equal(sketch.title, "Canonical sketch");
+    assert.equal(sketch.document.pages[0].id, stableProposalEntityId(proposal.id, "sketch_page", 0));
+    assert.equal(sketch.document.pages[0].objects[0].id, stableProposalEntityId(proposal.id, "sketch_object", 0));
+    assert.match(sketch.document.pages[0].objects[0].data_url, /%3Csvg/);
+    const eventCount = database.list("change_event").length;
+    assert.deepEqual(acceptance.execute(command).events, first.events);
+    assert.equal(database.list("sketch").length, 1);
+    assert.equal(database.list("change_event").length, eventCount);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, receipt and retry exactly-once", () => {
+  const directory = root();
+  const managed = path.join(directory, "managed");
+  fs.mkdirSync(managed);
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.setPreference("artifactDirectory", managed);
+  const workspace = new WorkspaceService(database, directory, () => "2026-08-21T01:00:00.000Z");
+  const acceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), workspace, database);
+  try {
+    const createProposal = database.save("ai_proposal", {
+      id: "proposal-note-create",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: { notes: [{ action: "create", title: "Canonical create", body: "created body", note_type: "memo", reason: "test" }] },
+      request: { tool: "tasken.propose_note" },
+      status: "pending",
+      received_at: "2026-08-21T00:00:00.000Z",
+    });
+    const createCommand = envelope(createProposal, noteCandidates(createProposal, []));
+    createCommand.payload.candidates[0].entity.body_markdown = "Renderer forged body";
+    const createReceipt = acceptance.execute(createCommand);
+    const created = database.list("note")[0];
+    const createBinding = canonicalMarkdownBindingFromProperties(created.properties_json, { noteId: created.id });
+    assert.equal(created.body_markdown, "created body");
+    assert.equal(database.get("ai_proposal", createProposal.id).status, "accepted");
+    assert.equal(createReceipt.changes.length, 2);
+    assert.equal(createReceipt.events.length, 1);
+    assert.equal(fs.existsSync(createBinding.canonical_path), true);
+    assert.match(fs.readFileSync(createBinding.canonical_path, "utf8"), /created body/);
+    const createCounts = { notes: database.list("note").length, events: database.list("change_event").length };
+    assert.deepEqual(acceptance.execute(createCommand).events, createReceipt.events);
+    assert.deepEqual({ notes: database.list("note").length, events: database.list("change_event").length }, createCounts);
+
+    const editProposal = database.save("ai_proposal", {
+      id: "proposal-note-edit",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: { notes: [{ action: "merge", target_id: created.id, base_version: created.version, title: created.title, body: "edited body", reason: "test" }] },
+      request: { tool: "tasken.propose_note_edit", target: { type: "note", id: created.id, base_version: created.version } },
+      status: "pending",
+      received_at: "2026-08-21T00:10:00.000Z",
+    });
+    const editCommand = envelope(editProposal, noteCandidates(editProposal, [created]));
+    const editReceipt = acceptance.execute(editCommand);
+    const edited = database.get("note", created.id);
+    const editBinding = canonicalMarkdownBindingFromProperties(edited.properties_json, { noteId: edited.id });
+    assert.equal(edited.body_markdown, "edited body");
+    assert.equal(editBinding.canonical_path, createBinding.canonical_path);
+    assert.equal(database.get("ai_proposal", editProposal.id).status, "accepted");
+    assert.match(fs.readFileSync(editBinding.canonical_path, "utf8"), /edited body/);
+    const editCounts = { notes: database.list("note").length, events: database.list("change_event").length };
+    assert.deepEqual(acceptance.execute(editCommand).events, editReceipt.events);
+    assert.deepEqual({ notes: database.list("note").length, events: database.list("change_event").length }, editCounts);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("canonical Note create recovers file-first DB failure and restart retry writes one receipt", () => {
+  const directory = root();
+  const managed = path.join(directory, "managed");
+  fs.mkdirSync(managed);
+  const databasePath = path.join(directory, "workspace.sqlite3");
+  const database = new WorkspaceDatabase(databasePath);
+  database.setPreference("artifactDirectory", managed);
+  let closed = false;
+  let recovered = null;
+  try {
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-note-create-recovery",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: { notes: [{ action: "create", title: "Recovered create", body: "recovered body", note_type: "memo", reason: "test" }] },
+      request: { tool: "tasken.propose_note" },
+      status: "pending",
+      received_at: "2026-08-21T00:20:00.000Z",
+    });
+    const command = envelope(proposal, noteCandidates(proposal, []));
+    const failingRepository = new Proxy(database, {
+      get(target, property, receiver) {
+        if (property === "saveMany") return () => { throw new Error("injected create transaction failure"); };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const failingWorkspace = new WorkspaceService(failingRepository, directory, () => "2026-08-21T01:00:00.000Z");
+    const failingAcceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), failingWorkspace, database);
+    assert.throws(() => failingAcceptance.execute(command), /Tasken内部への保存に失敗/);
+    assert.equal(database.list("note").length, 0);
+    assert.equal(database.get("ai_proposal", proposal.id).status, "pending");
+    assert.equal(fs.readdirSync(managed, { recursive: true }).filter((entry) => String(entry).endsWith(".md")).length, 1);
+
+    database.db.close();
+    closed = true;
+    recovered = new WorkspaceDatabase(databasePath);
+    const recoveredWorkspace = new WorkspaceService(recovered, directory, () => "2026-08-21T01:00:00.000Z");
+    recoveredWorkspace.loadWorkspace();
+    const recoveredNote = recovered.list("note")[0];
+    assert.equal(recoveredNote.body_markdown, "recovered body");
+    assert.equal(recovered.get("ai_proposal", proposal.id).status, "accepted");
+    const retry = new AiProposalAcceptanceService(new ApplicationCommandService(recovered), recoveredWorkspace, recovered).execute(command);
+    assert.equal(retry.status, "applied");
+    assert.equal(recovered.list("note").length, 1);
+    assert.equal(recovered.list("change_event").length, 1);
+    const event = recovered.get("change_event", retry.events[0], true);
+    assert.equal(JSON.parse(event.receipt_json).commandId, command.commandId);
+    assert.equal(fs.readdirSync(managed, { recursive: true }).filter((entry) => String(entry).endsWith(".md")).length, 1);
+  } finally {
+    if (recovered) recovered.db.close();
+    if (!closed) database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("AiProposalPanel accepts through ApplyAiProposal without direct saveEntities or materialize API", () => {
+  const source = fs.readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
+  const acceptStart = source.indexOf("      const accepted =", source.indexOf("async function acceptProposal"));
+  const acceptBlock = source.slice(acceptStart, source.indexOf("  return (", acceptStart));
+  assert.match(acceptBlock, /name: "ApplyAiProposal"/);
+  assert.doesNotMatch(acceptBlock, /saveEntities\(/);
+  assert.doesNotMatch(acceptBlock, /materializeArtifactProposal/);
+});

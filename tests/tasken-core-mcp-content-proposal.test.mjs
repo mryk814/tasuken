@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -152,6 +153,39 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
     });
     assert.equal(conflict.isError, true);
     assert.equal(conflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
+    const contextConflict = await client.callTool({
+      name: "tasken.propose_note",
+      arguments: {
+        ...calls[0][1],
+        repository_context: { ...calls[0][1].repository_context, branch: "different-branch" },
+      },
+    });
+    assert.equal(contextConflict.isError, true);
+    assert.equal(contextConflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
+
+    const legacySeed = await callProposal(client, "tasken.propose_note", {
+      ...baseArgs("legacy-row-retry"),
+      repository_context: undefined,
+      title: "Legacy stored row",
+      body: "Same payload",
+    });
+    const legacyRow = database.get("ai_proposal", legacySeed.proposal_id);
+    database.save("ai_proposal", {
+      ...legacyRow,
+      request: {
+        tool: "tasken.propose_note",
+        idempotency_key: "legacy-row-retry",
+        payload_digest: createHash("sha256").update(JSON.stringify(legacyRow.payload)).digest("hex"),
+      },
+    });
+    const legacyRetry = await callProposal(client, "tasken.propose_note", {
+      ...baseArgs("legacy-row-retry"),
+      repository_context: undefined,
+      title: "Legacy stored row",
+      body: "Same payload",
+    });
+    assert.equal(legacyRetry.status, "duplicate");
+    assert.equal(legacyRetry.proposal_id, legacySeed.proposal_id);
 
     const service = new ApplicationCommandService(database);
     const candidates = [
@@ -230,6 +264,18 @@ test("content proposal transport enforces 64KiB by actual UTF-8 bytes and media 
     await assert.rejects(
       client.proposeContent({ ...identity, idempotency_key: "mismatch-artifact", kind: "artifact_create", title: "Mismatch", file_name: "result.txt", media_type: "application/json", content: "{}" }),
       (error) => error instanceof TaskenCoreClientError && error.code === "VALIDATION_FAILED",
+    );
+    await assert.rejects(
+      client.proposeContent({ ...identity, idempotency_key: "reserved-artifact", kind: "artifact_create", title: "Reserved", file_name: "CON.json", media_type: "application/json", content: "{}" }),
+      (error) => error instanceof TaskenCoreClientError && error.code === "VALIDATION_FAILED" && /予約名/.test(error.message),
+    );
+    const secretFragment = "super-secret-fragment";
+    await assert.rejects(
+      client.proposeContent({ ...identity, idempotency_key: "invalid-json-artifact", kind: "artifact_create", title: "Invalid", file_name: "result.json", media_type: "application/json", content: `{\"token\":\"${secretFragment}\"` }),
+      (error) => error instanceof TaskenCoreClientError
+        && error.code === "VALIDATION_FAILED"
+        && error.message === "Artifact JSONが不正です。JSON構文を確認してください。"
+        && !error.message.includes(secretFragment),
     );
   } finally {
     try {

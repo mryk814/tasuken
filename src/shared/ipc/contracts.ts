@@ -86,7 +86,6 @@ export const IPC = {
   dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
-  artifactProposalMaterialize: "artifact:proposal-materialize",
   artifactWebPreview: "artifact:web-preview",
   audioCapturePrepare: "audio-capture:prepare",
   audioCaptureListPrepared: "audio-capture:list-prepared",
@@ -626,7 +625,6 @@ export interface ResearchDeskApi {
   attachments: {
     saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
     importArtifactFiles(request: ArtifactFileImportRequest): Promise<ArtifactFileImportResult>;
-    materializeArtifactProposal(request: ArtifactProposalMaterializeRequest): Promise<ArtifactProposalMaterializeResult>;
   };
   artifacts: {
     readWebPreview(artifactId: string): Promise<WebArtifactPreviewResult>;

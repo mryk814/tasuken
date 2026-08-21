@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, nativeImage, shell, type WebContents } from "electron";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -268,6 +268,11 @@ function normalizeCanonicalNoteAiCompanion(value: unknown, noteId: string): Cano
   const proposalNotes = Array.isArray(proposalPayload.notes) ? proposalPayload.notes.map(objectValue) : [];
   const proposalRequest = objectValue(proposal.request);
   const proposalTarget = objectValue(proposalRequest.target);
+  const proposalNote = proposalNotes[0] || {};
+  const isCreate = proposalNote.action === "create";
+  // Pre-Core Note edit proposals did not persist an explicit action. Their
+  // target identity remains authoritative during recovery.
+  const isEdit = proposalNote.action === "merge" || proposalNote.target_id === noteId;
   const before = parsedRecord(event.before_json);
   const after = parsedRecord(event.after_json);
   const commandId = typeof companion.commandId === "string" ? companion.commandId : "";
@@ -279,9 +284,8 @@ function normalizeCanonicalNoteAiCompanion(value: unknown, noteId: string): Cano
     && proposal.payload_type === "notes"
     && ["accepted", "partially_accepted"].includes(String(proposal.status || ""))
     && proposalNotes.length === 1
-    && proposalNotes[0].target_id === noteId
-    && proposalTarget.type === "note"
-    && proposalTarget.id === noteId
+    && ((isCreate && !proposalNote.target_id && !proposalTarget.type && !proposalTarget.id)
+      || (isEdit && proposalNote.target_id === noteId && proposalTarget.type === "note" && proposalTarget.id === noteId))
     && typeof event.id === "string"
     && event.id.length > 0
     && event.entity_type === "note"
@@ -291,7 +295,7 @@ function normalizeCanonicalNoteAiCompanion(value: unknown, noteId: string): Cano
     && event.command_name === "ApplyAiProposal"
     && typeof event.command_fingerprint === "string"
     && event.command_fingerprint.length > 0
-    && before.id === noteId
+    && ((isCreate && !before.id) || (isEdit && before.id === noteId))
     && after.id === noteId
     && marker.schema === "tasken-note-ai-command-marker/v1"
     && marker.commandId === commandId
@@ -2562,26 +2566,50 @@ export class WorkspaceService {
     const location = this.resolveThemeContentDirectory(request.themeId || null, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
     fs.mkdirSync(location.directory, { recursive: true });
-    const filename = resolveUniqueArtifactFileName(
-      normalized.fileName,
-      (candidate: string) => fs.existsSync(path.join(location.directory, candidate)),
-    );
+    const materializationKey = typeof request.materializationKey === "string" ? request.materializationKey.trim() : "";
+    if (materializationKey && !/^[A-Za-z0-9._-]{1,200}$/.test(materializationKey)) {
+      throw new Error("Artifact materialization keyが不正です。");
+    }
+    const parsedName = path.parse(normalized.fileName);
+    const stableSuffix = materializationKey
+      ? `-${createHash("sha256").update(materializationKey).digest("hex").slice(0, 12)}`
+      : "";
+    const filename = materializationKey
+      ? `${parsedName.name.slice(0, Math.max(1, 180 - parsedName.ext.length - stableSuffix.length))}${stableSuffix}${parsedName.ext}`
+      : resolveUniqueArtifactFileName(
+        normalized.fileName,
+        (candidate: string) => fs.existsSync(path.join(location.directory, candidate)),
+      );
     const storedPath = path.join(location.directory, filename);
-    fs.writeFileSync(storedPath, normalized.content, { encoding: "utf8", flag: "wx" });
+    let created = false;
+    if (fs.existsSync(storedPath)) {
+      if (!materializationKey || fs.readFileSync(storedPath, "utf8") !== normalized.content) {
+        throw new Error("Artifactの確定先が競合しています。Previewを開き直してください。");
+      }
+    } else {
+      fs.writeFileSync(storedPath, normalized.content, { encoding: "utf8", flag: "wx" });
+      created = true;
+    }
+    const stat = fs.statSync(storedPath);
     return {
       status: "ok",
       directory: location.directory,
+      created,
       file: {
         filename,
         storedPath,
         originalPath: "",
-        fileSize: fs.statSync(storedPath).size,
+        fileSize: stat.size,
         mimeType: normalized.mediaType,
         fileType: artifactFileTypeOf(filename),
-        copiedAt: new Date().toISOString(),
+        copiedAt: stat.birthtime.toISOString(),
         storageMode: "managed",
       },
     };
+  }
+
+  rollbackMaterializedArtifactProposal(storedPath: string): void {
+    fs.rmSync(storedPath, { force: true });
   }
 
   reload(sender: WebContents): boolean {

@@ -35,26 +35,27 @@ function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function canonicalIdentity(request: Record<string, unknown>) {
-  const actor = request.actor && typeof request.actor === "object" && !Array.isArray(request.actor)
-    ? request.actor as Record<string, unknown>
-    : {};
-  return {
-    tool: typeof request.tool === "string" ? request.tool : "",
-    caller: typeof request.caller === "string" ? request.caller : "",
-    actor: {
-      kind: typeof actor.kind === "string" ? actor.kind : "ai_agent",
-      ...(typeof actor.id === "string" && actor.id ? { id: actor.id } : {}),
-    },
-    source: typeof request.source === "string" ? request.source : "mcp",
-    source_session: typeof request.source_session === "string" && request.source_session
-      ? request.source_session
-      : null,
-  };
+function canonicalRequestMetadata(request: Record<string, unknown>) {
+  const { payload_digest: _payloadDigest, ...metadata } = request;
+  return metadata;
 }
 
 function proposalDigest(payload: Record<string, unknown>, request: Record<string, unknown>): string {
-  return digest({ payload, identity: canonicalIdentity(request) });
+  return digest({ payload, request: canonicalRequestMetadata(request) });
+}
+
+function legacyRequestMatches(
+  existing: AiProposalRecord,
+  payload: Record<string, unknown>,
+  incomingRequest: Record<string, unknown>,
+): boolean {
+  const request = existing.request || {};
+  if (["caller", "actor", "source", "source_session"].some((field) => Object.prototype.hasOwnProperty.call(request, field))) return false;
+  if (request.tool !== incomingRequest.tool || request.idempotency_key !== incomingRequest.idempotency_key) return false;
+  if (Object.prototype.hasOwnProperty.call(request, "target")
+    && JSON.stringify(request.target) !== JSON.stringify(incomingRequest.target)) return false;
+  if (incomingRequest.repository_context != null) return false;
+  return request.payload_digest === digest(payload);
 }
 
 function proposalId(sourceApp: string, payloadType: ContentProposalPayloadType, idempotencyKey: string): string {
@@ -174,7 +175,8 @@ export class ProposeContentService {
       const existing = transaction.get(id);
       if (existing) {
         const existingDigest = proposalDigest(existing.payload, existing.request || {});
-        if (existing.source !== "mcp" || existing.payload_type !== payloadType || existingDigest !== payloadDigest) {
+        const matchesLegacy = legacyRequestMatches(existing, payload, proposalRequestBase);
+        if (existing.source !== "mcp" || existing.payload_type !== payloadType || (!matchesLegacy && existingDigest !== payloadDigest)) {
           throw new ProposeContentError(
             "IDEMPOTENCY_CONFLICT",
             "同じidempotency_keyへ異なる内容を送信できません。",

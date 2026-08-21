@@ -31,6 +31,10 @@ export function validateArtifactProposal(entry) {
   if (!/^[^<>:\"/\\|?*\x00-\x1f]{1,180}\.(?:svg|md|txt|json|html|htm)$/i.test(fileName)) {
     throw new Error("file_nameはパスを含まないsvg、md、txt、json、html名にしてください。");
   }
+  const windowsStem = fileName.slice(0, fileName.lastIndexOf(".")).toUpperCase();
+  if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/.test(windowsStem)) {
+    throw new Error("file_nameにWindowsの予約名は使用できません。");
+  }
   if (!["image/svg+xml", "text/markdown", "text/plain", "application/json", "text/html"].includes(mediaType)) {
     throw new Error("未対応のArtifact media_typeです。");
   }
@@ -46,6 +50,12 @@ export function validateArtifactProposal(entry) {
   }
   if (!content || content.length > MAX_ARTIFACT_CHARS) throw new Error("Artifact contentは1〜100万文字にしてください。");
   if (mediaType === "image/svg+xml") validateSafeSvg(content);
-  if (mediaType === "application/json") JSON.parse(content);
+  if (mediaType === "application/json") {
+    try {
+      JSON.parse(content);
+    } catch {
+      throw new Error("Artifact JSONが不正です。JSON構文を確認してください。");
+    }
+  }
   return { title, fileName, mediaType, content };
 }

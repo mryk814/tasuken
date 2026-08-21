@@ -614,23 +614,25 @@ export class ApplicationCommandService {
     entityDefinition("ai_proposal").parseUpdate(proposal);
 
     const currentNote = this.repository.get("note", payload.candidates[0].entity.id, true);
-    if (!currentNote || currentNote.deleted_at) throw new ApplicationCommandError("NOT_FOUND", "採用対象のNoteがありません。", { id: payload.candidates[0].entity.id });
-    if (!expectedVersionFor(command, "note", currentNote.id)) {
-      throw new ApplicationCommandError("CONFLICT", "ApplyAiProposalにはNoteのexpected versionが必要です。", { type: "note", id: currentNote.id });
+    if (currentNote?.deleted_at) throw new ApplicationCommandError("CONFLICT", "削除済みNoteをAI Proposalから更新できません。", { id: payload.candidates[0].entity.id });
+    if (currentNote) {
+      if (!expectedVersionFor(command, "note", currentNote.id)) {
+        throw new ApplicationCommandError("CONFLICT", "既存Noteの採用にはexpected versionが必要です。", { type: "note", id: currentNote.id });
+      }
+      assertExpectedVersion(this.repository, command, "note", currentNote.id, currentNote);
     }
-    assertExpectedVersion(this.repository, command, "note", currentNote.id, currentNote);
-    const note = normalizeCanonicalNote(payload.candidates[0].entity, String(currentNote.project_id || currentNote.theme_id || ""));
-    entityDefinition("note").parseUpdate(note);
+    const note = normalizeCanonicalNote(payload.candidates[0].entity, String(currentNote?.project_id || currentNote?.theme_id || ""));
+    entityDefinition("note")[currentNote ? "parseUpdate" : "parseCreate"](note);
     const marker: NoteAiCommandMarker = {
       schema: NOTE_AI_COMMAND_MARKER_SCHEMA,
       commandId: command.commandId,
       commandFingerprint: durableCommandFingerprint,
       noteId: note.id,
       proposalId: proposal.id,
-      noteVersion: Number(currentNote.version || 0) + 1,
+      noteVersion: Number(currentNote?.version || 0) + 1,
       proposalVersion: Number(currentProposal.version || 0) + 1,
     };
-    const noteEvent = annotateEvent(command, commandEvent(command, "note", note.id, "updated", currentNote, note));
+    const noteEvent = annotateEvent(command, commandEvent(command, "note", note.id, currentNote ? "updated" : "created", currentNote, note));
     noteEvent.command_fingerprint = durableCommandFingerprint;
     noteEvent.metadata = {
       ...(noteEvent.metadata && typeof noteEvent.metadata === "object" && !Array.isArray(noteEvent.metadata) ? noteEvent.metadata : {}),

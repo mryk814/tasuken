@@ -89,7 +89,6 @@ const api: ResearchDeskApi = {
   attachments: {
     saveMarkdownImage: (request) => ipcRenderer.invoke(IPC.markdownImageSave, request),
     importArtifactFiles: (request) => ipcRenderer.invoke(IPC.artifactFilesImport, request),
-    materializeArtifactProposal: (request) => ipcRenderer.invoke(IPC.artifactProposalMaterialize, request),
   },
   artifacts: {
     readWebPreview: (artifactId) => ipcRenderer.invoke(IPC.artifactWebPreview, artifactId),
