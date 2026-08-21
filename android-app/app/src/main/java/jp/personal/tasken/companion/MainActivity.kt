@@ -396,7 +396,7 @@ private fun CenteredState(content: @Composable () -> Unit) {
 }
 
 private val TodayPaneStateSaver = Saver<TodayPaneState, List<Any?>>(
-    save = { listOf(it.selectedTaskId, it.listScrollIndex, it.listScrollOffset) },
+    save = { it.save() },
     restore = { TodayPaneState.restore(it) },
 )
 
