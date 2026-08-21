@@ -35,6 +35,7 @@ data class MobileTaskConflict(
     val expectedVersion: Int,
     val serverVersion: Int,
     val serverState: String,
+    val localTitle: String? = null,
     val detectedAt: String,
 )
 
@@ -179,6 +180,31 @@ class TodayViewModel(
         viewModelScope.launch { toggleTaskStateNow(task) }
     }
 
+    fun updateTaskTitle(task: MobileTask, title: String) {
+        viewModelScope.launch { updateTaskTitleNow(task, title) }
+    }
+
+    internal suspend fun updateTaskTitleNow(task: MobileTask, title: String) {
+        val normalized = title.trim()
+        if (normalized.isEmpty() || normalized.length > 500 || normalized == task.title) return
+        if (task.pending || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから編集してください。")
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskを編集できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) { offlineRepository.enqueueUpdateTaskTitle(task.id, normalized) }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Task名を変更できませんでした。")
+        }
+    }
+
     internal suspend fun toggleTaskStateNow(task: MobileTask) {
         if ((task.pending && !task.canChangePendingState) || task.conflict != null) {
             mutableTaskActionState.value = TaskActionUiState.Error(
@@ -308,6 +334,7 @@ interface MobileOfflineTaskRepository {
     fun observePendingCount(): Flow<Int>
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
+    suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String = error("この環境ではTaskを編集できません。")
     suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult
     suspend fun enqueueReopenTask(taskId: String): MobileStateActionResult
     suspend fun acceptServerConflict(commandId: String) {

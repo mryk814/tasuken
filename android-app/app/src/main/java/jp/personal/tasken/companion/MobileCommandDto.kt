@@ -54,6 +54,30 @@ data class MobileTaskStateCommandDto(
 )
 
 @Serializable
+data class MobileTaskUpdateEnvelopeDto(
+    val apiVersion: Int,
+    val schemaVersion: Int,
+    val requestId: String,
+    val commandId: String,
+    val idempotencyKey: String,
+    val clientDeviceId: String,
+    val issuedAt: String,
+    val command: MobileTaskUpdateCommandDto,
+)
+
+@Serializable
+data class MobileTaskUpdateCommandDto(
+    val name: String,
+    val taskId: String,
+    val expectedVersion: Int,
+    val changes: MobileTaskTitlePatchDto,
+    val base: MobileTaskTitlePatchDto,
+)
+
+@Serializable
+data class MobileTaskTitlePatchDto(val title: String)
+
+@Serializable
 data class MobileTaskCommandResponseDto(
     val ok: Boolean,
     val meta: MobileResponseMetaDto,
@@ -108,11 +132,19 @@ object MobileTaskCommandContract {
         return json.encodeToString(envelope)
     }
 
+    fun encode(envelope: MobileTaskUpdateEnvelopeDto): String {
+        validateUpdateEnvelope(envelope)
+        return json.encodeToString(envelope)
+    }
+
     fun decodeCreateEnvelope(payload: String): MobileCreateTaskEnvelopeDto =
         json.decodeFromString<MobileCreateTaskEnvelopeDto>(payload).also(::validateCreateEnvelope)
 
     fun decodeStateEnvelope(payload: String): MobileTaskStateEnvelopeDto =
         json.decodeFromString<MobileTaskStateEnvelopeDto>(payload).also(::validateStateEnvelope)
+
+    fun decodeUpdateEnvelope(payload: String): MobileTaskUpdateEnvelopeDto =
+        json.decodeFromString<MobileTaskUpdateEnvelopeDto>(payload).also(::validateUpdateEnvelope)
 
     fun decodeReceipt(payload: String): MobileTaskCommandResponseDto =
         json.decodeFromString<MobileTaskCommandResponseDto>(payload).also { response ->
@@ -131,7 +163,7 @@ object MobileTaskCommandContract {
             require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
             if (response.error.code == "version_conflict") {
                 val conflict = requireNotNull(response.error.conflict)
-                require(conflict.intendedAction in setOf("CompleteTask", "ReopenTask"))
+                require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
                 require(conflict.expectedVersion > 0)
                 require(conflict.currentTask.version > conflict.expectedVersion)
             } else {
@@ -154,6 +186,17 @@ object MobileTaskCommandContract {
         require(envelope.command.name in setOf("CompleteTask", "ReopenTask"))
         require(envelope.command.taskId.isNotBlank())
         require(envelope.command.expectedVersion > 0)
+        require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
+    }
+
+    private fun validateUpdateEnvelope(envelope: MobileTaskUpdateEnvelopeDto) {
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 1)
+        require(envelope.commandId == envelope.idempotencyKey)
+        require(envelope.command.name == "UpdateTask")
+        require(envelope.command.taskId.isNotBlank())
+        require(envelope.command.expectedVersion > 0)
+        require(envelope.command.changes.title.isNotBlank() && envelope.command.changes.title.length <= 500)
+        require(envelope.command.base.title.isNotBlank() && envelope.command.base.title.length <= 500)
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
     }
 }

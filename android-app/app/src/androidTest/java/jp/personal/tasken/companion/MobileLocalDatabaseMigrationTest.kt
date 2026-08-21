@@ -119,6 +119,28 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationFourToFivePreservesConflictAndAddsLocalTitle() {
+        helper.createDatabase(DatabaseName, 4).apply {
+            execSQL(
+                "INSERT INTO task_conflict " +
+                    "(commandId, taskId, intendedAction, expectedVersion, serverVersion, serverState, " +
+                    "serverTitle, serverThemeId, serverWorkState, serverUpdatedAt, detectedAt) " +
+                    "VALUES ('command-4', 'task-4', 'CompleteTask', 1, 2, 'done', 'Server Task', " +
+                    "NULL, NULL, '2026-08-22T01:00:00Z', '2026-08-22T01:01:00Z')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 5, true, MIGRATION_4_5).use { db ->
+            db.query("SELECT serverTitle, localTitle FROM task_conflict WHERE commandId = 'command-4'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("Server Task", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }

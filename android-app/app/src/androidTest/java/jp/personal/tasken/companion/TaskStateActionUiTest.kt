@@ -4,8 +4,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNode
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -87,6 +92,52 @@ class TaskStateActionUiTest {
         composeRule.onNodeWithText("この端末を採用").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText("Desktopを採用").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText("競合を解決してから操作").assertIsDisplayed().assertIsNotEnabled()
+    }
+
+    @Test
+    fun titleEditIsVisibleAndSubmitsAFieldPatch() {
+        var submitted = ""
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask(),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                    onTitleUpdate = { _, title -> submitted = title },
+                )
+            }
+        }
+
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("更新したTask")
+        composeRule.onNodeWithText("Task名を保存").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertEquals("更新したTask", submitted) }
+    }
+
+    @Test
+    fun titleConflictShowsServerAndLocalValues() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask().copy(
+                        title = "Desktopの名前",
+                        conflict = MobileTaskConflict(
+                            commandId = "command-update",
+                            intendedAction = "UpdateTask",
+                            expectedVersion = 4,
+                            serverVersion = 5,
+                            serverState = "todo",
+                            localTitle = "端末の名前",
+                            detectedAt = "2026-08-22T01:00:00Z",
+                        ),
+                    ),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Desktop  Desktopの名前").assertIsDisplayed()
+        composeRule.onNodeWithText("この端末  端末の名前").assertIsDisplayed()
     }
 
     private fun sampleTask() = MobileTask(

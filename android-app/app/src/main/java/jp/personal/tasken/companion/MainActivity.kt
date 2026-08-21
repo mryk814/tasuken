@@ -129,7 +129,7 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
                 val queued = taskActionState as TaskActionUiState.Queued
                 snackbarHostState.showSnackbar(
                     if (queued.requiresSync) {
-                        "Taskの状態を更新しました。Desktopへ自動送信します。"
+                        "Taskを更新しました。Desktopへ自動送信します。"
                     } else {
                         "未送信の変更を取り消しました。"
                     },
@@ -219,6 +219,7 @@ private fun TodayApp(todayViewModel: TodayViewModel = viewModel()) {
                         task = task,
                         actionState = taskActionState,
                         onStateAction = todayViewModel::toggleTaskState,
+                        onTitleUpdate = todayViewModel::updateTaskTitle,
                         onConflictResolution = todayViewModel::resolveConflict,
                     )
                 }
@@ -423,18 +424,35 @@ internal fun TodayDetailPane(
     task: MobileTask?,
     actionState: TaskActionUiState,
     onStateAction: (MobileTask) -> Unit,
+    onTitleUpdate: (MobileTask, String) -> Unit = { _, _ -> },
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
         return
     }
+    var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(task.title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = titleDraft,
+                onValueChange = { if (it.length <= 500) titleDraft = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Task名") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onTitleUpdate(task, titleDraft) }),
+                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+            )
+            Button(
+                onClick = { onTitleUpdate(task, titleDraft) },
+                enabled = titleDraft.trim().isNotEmpty() && titleDraft.trim() != task.title &&
+                    !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+            ) { Text("Task名を保存") }
             if (task.pending) Text("送信待ち", color = MaterialTheme.colorScheme.onSecondaryContainer)
             task.conflict?.let { conflict ->
                 Card(
@@ -445,11 +463,16 @@ internal fun TodayDetailPane(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text("同期できなかった変更", fontWeight = FontWeight.Bold)
-                        Text("Desktop  ${taskStateLabel(conflict.serverState)}  v${conflict.serverVersion}")
-                        Text(
-                            "この端末  ${if (conflict.intendedAction == "CompleteTask") "完了" else "再開"}  " +
-                                "(v${conflict.expectedVersion}から)",
-                        )
+                        if (conflict.intendedAction == "UpdateTask") {
+                            Text("Desktop  ${task.title}")
+                            Text("この端末  ${conflict.localTitle}")
+                        } else {
+                            Text("Desktop  ${taskStateLabel(conflict.serverState)}  v${conflict.serverVersion}")
+                            Text(
+                                "この端末  ${if (conflict.intendedAction == "CompleteTask") "完了" else "再開"}  " +
+                                    "(v${conflict.expectedVersion}から)",
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConflictResolution(task, true) },

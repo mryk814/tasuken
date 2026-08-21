@@ -290,6 +290,34 @@ class MobileOutboxDatabaseTest {
         assertEquals("2026-08-22T03:00:00Z|bootstrap-task", dao.syncState()?.cursor)
     }
 
+    @Test
+    fun titleUpdatePersistsBaseAndKeepsLocalTitleAcrossExplicitConflictResolution() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000040"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo").copy(title = "元の名前"))
+
+        val commandId = outbox.enqueueUpdateTitle(taskId, "端末の名前")
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(commandId)).envelopeJson)
+        assertEquals("元の名前", envelope.command.base.title)
+        assertEquals("端末の名前", envelope.command.changes.title)
+        assertEquals("端末の名前", dao.task(taskId)?.title)
+
+        assertEquals(false, outbox.drain {
+            MobileCommandSendResult.Conflict(
+                conflict(taskId, serverVersion = 5, serverState = "todo", intendedAction = "UpdateTask", serverTitle = "Desktopの名前"),
+            )
+        })
+        val storedConflict = requireNotNull(dao.conflict(commandId))
+        assertEquals("端末の名前", storedConflict.localTitle)
+        assertEquals("Desktopの名前", dao.task(taskId)?.title)
+
+        val replacementId = outbox.keepLocal(commandId)
+        val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(replacementId)).envelopeJson)
+        assertEquals(5, replacement.command.expectedVersion)
+        assertEquals("Desktopの名前", replacement.command.base.title)
+        assertEquals("端末の名前", replacement.command.changes.title)
+        assertEquals("端末の名前", dao.task(taskId)?.title)
+    }
+
     private fun receipt(
         commandId: String,
         taskId: String,
@@ -324,6 +352,8 @@ class MobileOutboxDatabaseTest {
         taskId: String,
         serverVersion: Int,
         serverState: String,
+        intendedAction: String = "CompleteTask",
+        serverTitle: String = "Desktop側Task",
     ) = MobileTaskCommandErrorResponseDto(
         ok = false,
         meta = MobileResponseMetaDto(
@@ -342,13 +372,13 @@ class MobileOutboxDatabaseTest {
                 currentTask = MobileTaskSummaryDto(
                     id = taskId,
                     version = serverVersion,
-                    title = "Desktop側Task",
+                    title = serverTitle,
                     themeId = null,
                     state = serverState,
                     workState = null,
                     updatedAt = "2026-08-22T01:05:00Z",
                 ),
-                intendedAction = "CompleteTask",
+                intendedAction = intendedAction,
                 expectedVersion = serverVersion - 1,
             ),
         ),

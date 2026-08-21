@@ -101,6 +101,54 @@ class MobileOutbox(
 
     suspend fun enqueueReopen(taskId: String): MobileStateActionResult = enqueueState(taskId, "ReopenTask", "todo")
 
+    suspend fun enqueueUpdateTitle(taskId: String, title: String): String {
+        val normalized = title.trim()
+        require(normalized.isNotEmpty() && normalized.length <= 500)
+        val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(task.optimisticCommandId == null && task.conflictCommandId == null) { "Taskの同期を解決してから編集してください。" }
+        val expectedVersion = requireNotNull(task.serverVersion) { "Task作成の同期完了を待って編集してください。" }
+        require(task.title != normalized)
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val envelope = MobileTaskUpdateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskUpdateCommandDto(
+                name = "UpdateTask",
+                taskId = taskId,
+                expectedVersion = expectedVersion,
+                changes = MobileTaskTitlePatchDto(normalized),
+                base = MobileTaskTitlePatchDto(task.title),
+            ),
+        )
+        dao.enqueueStateAction(
+            task = task.copy(title = normalized, updatedAt = issuedAt, optimisticCommandId = commandId),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = "UpdateTask",
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+                taskId = taskId,
+            ),
+        )
+        schedule()
+        return commandId
+    }
+
     suspend fun acceptServer(commandId: String) {
         val conflict = requireNotNull(dao.conflict(commandId)) { "競合情報が見つかりません。再読み込みしてください。" }
         require(dao.task(conflict.taskId)?.conflictCommandId == commandId)
@@ -114,25 +162,55 @@ class MobileOutbox(
         val replacementId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
         val issuedAt = now().toString()
-        val envelope = MobileTaskStateEnvelopeDto(
-            apiVersion = 1,
-            schemaVersion = 1,
-            requestId = requestId,
-            commandId = replacementId,
-            idempotencyKey = replacementId,
-            clientDeviceId = deviceId(),
-            issuedAt = issuedAt,
-            command = MobileTaskStateCommandDto(
-                name = conflict.intendedAction,
-                taskId = conflict.taskId,
-                expectedVersion = conflict.serverVersion,
-            ),
-        )
-        val optimisticState = if (conflict.intendedAction == "CompleteTask") "done" else "todo"
+        val clientDeviceId = deviceId()
+        val isUpdate = conflict.intendedAction == "UpdateTask"
+        val envelopeJson = if (isUpdate) {
+            MobileTaskCommandContract.encode(
+                MobileTaskUpdateEnvelopeDto(
+                    apiVersion = 1,
+                    schemaVersion = 1,
+                    requestId = requestId,
+                    commandId = replacementId,
+                    idempotencyKey = replacementId,
+                    clientDeviceId = clientDeviceId,
+                    issuedAt = issuedAt,
+                    command = MobileTaskUpdateCommandDto(
+                        name = "UpdateTask",
+                        taskId = conflict.taskId,
+                        expectedVersion = conflict.serverVersion,
+                        changes = MobileTaskTitlePatchDto(requireNotNull(conflict.localTitle)),
+                        base = MobileTaskTitlePatchDto(conflict.serverTitle),
+                    ),
+                ),
+            )
+        } else {
+            MobileTaskCommandContract.encode(
+                MobileTaskStateEnvelopeDto(
+                    apiVersion = 1,
+                    schemaVersion = 1,
+                    requestId = requestId,
+                    commandId = replacementId,
+                    idempotencyKey = replacementId,
+                    clientDeviceId = clientDeviceId,
+                    issuedAt = issuedAt,
+                    command = MobileTaskStateCommandDto(
+                        name = conflict.intendedAction,
+                        taskId = conflict.taskId,
+                        expectedVersion = conflict.serverVersion,
+                    ),
+                ),
+            )
+        }
+        val optimisticState = when (conflict.intendedAction) {
+            "CompleteTask" -> "done"
+            "ReopenTask" -> "todo"
+            else -> task.state
+        }
         dao.replaceConflictWithCommand(
             oldCommandId = commandId,
             task = task.copy(
                 serverVersion = conflict.serverVersion,
+                title = conflict.localTitle ?: task.title,
                 state = optimisticState,
                 updatedAt = issuedAt,
                 optimisticCommandId = replacementId,
@@ -142,10 +220,10 @@ class MobileOutbox(
                 commandId = replacementId,
                 idempotencyKey = replacementId,
                 requestId = requestId,
-                clientDeviceId = envelope.clientDeviceId,
+                clientDeviceId = clientDeviceId,
                 issuedAt = issuedAt,
                 commandName = conflict.intendedAction,
-                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                envelopeJson = envelopeJson,
                 state = OutboxState.Pending,
                 attemptCount = 0,
                 createdAt = issuedAt,
@@ -297,10 +375,18 @@ class MobileOutbox(
                     val conflict = requireNotNull(response.error.conflict)
                     val current = conflict.currentTask
                     val cached = dao.task(current.id)
-                    val envelope = MobileTaskCommandContract.decodeStateEnvelope(command.envelopeJson)
                     require(command.commandName == conflict.intendedAction)
-                    require(envelope.command.taskId == current.id)
-                    require(envelope.command.expectedVersion == conflict.expectedVersion)
+                    val localTitle = if (command.commandName == "UpdateTask") {
+                        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(command.envelopeJson)
+                        require(envelope.command.taskId == current.id)
+                        require(envelope.command.expectedVersion == conflict.expectedVersion)
+                        envelope.command.changes.title
+                    } else {
+                        val envelope = MobileTaskCommandContract.decodeStateEnvelope(command.envelopeJson)
+                        require(envelope.command.taskId == current.id)
+                        require(envelope.command.expectedVersion == conflict.expectedVersion)
+                        null
+                    }
                     dao.recordConflict(
                         commandId = command.commandId,
                         canonicalTask = TaskCacheEntity(
@@ -323,6 +409,7 @@ class MobileOutbox(
                             serverVersion = current.version,
                             serverState = current.state,
                             serverTitle = current.title,
+                            localTitle = localTitle,
                             serverThemeId = current.themeId,
                             serverWorkState = current.workState,
                             serverUpdatedAt = current.updatedAt,
