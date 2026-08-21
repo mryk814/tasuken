@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { mobileGatewayApi } from "../../../services/mobileGatewayApi";
 import type {
   AppUpdateCheckResult,
   AutomaticSnapshotBackupStatus,
@@ -186,7 +187,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
     setMobileGatewayState("loading");
     setMobileGatewayError("");
     try {
-      const diagnostics = await window.api.mobileGateway.diagnostics();
+      const diagnostics = await mobileGatewayApi.diagnostics();
       setMobileGateway(diagnostics);
       setMobileGatewayState("success");
     } catch (error) {
@@ -202,7 +203,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
 
   async function issueMobilePairing(): Promise<void> {
     try {
-      const ticket = await window.api.mobileGateway.issuePairing();
+      const ticket = await mobileGatewayApi.issuePairing();
       setMobilePairing(ticket);
       await loadMobileGateway();
     } catch (error) {
@@ -211,20 +212,20 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
   }
 
   async function cancelMobilePairing(): Promise<void> {
-    await window.api.mobileGateway.cancelPairing();
+    await mobileGatewayApi.cancelPairing();
     setMobilePairing(null);
     await loadMobileGateway();
   }
 
   async function copyMobilePairingCode(): Promise<void> {
     if (!mobilePairing) return;
-    await window.api.clipboard.writeText(mobilePairing.code);
+    await workspaceApi.copyText(mobilePairing.code);
     setToast("ペアリングコードをコピーしました。", "success");
   }
 
   async function revokeMobileDevice(deviceId: string, label: string): Promise<void> {
     if (!window.confirm(`${label} のTasken接続を失効します。再接続には新しいペアリングが必要です。`)) return;
-    await window.api.mobileGateway.revokeDevice(deviceId);
+    await mobileGatewayApi.revokeDevice(deviceId);
     setToast(`${label} の接続を失効しました。`, "success");
     await loadMobileGateway();
   }

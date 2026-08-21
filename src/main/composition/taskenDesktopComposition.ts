@@ -4,9 +4,11 @@ import path from "node:path";
 import { validateMcpPackageSmokeRoot } from "../../shared/taskenPaths.mjs";
 import { TaskenCoreRuntime } from "./taskenCoreRuntime.ts";
 import { ApplicationCommandService } from "../services/applicationCommandService";
-import { MobileGatewayRuntime } from "../gateway/mobile/mobileGatewayRuntime.ts";
-import type { MobileDevicePersistence } from "../gateway/mobile/mobileDeviceRegistry.ts";
-import type { MobileGatewayStatePort } from "../gateway/mobile/mobileGatewayAdapter.ts";
+import {
+  MobileGatewayRuntime,
+  type MobileDevicePersistence,
+  type MobileGatewayStatePort,
+} from "../gateway/mobile/runtimePublic.ts";
 
 type DesktopPersistence = ConstructorParameters<typeof TaskenCoreRuntime>[1]
   & ConstructorParameters<typeof ApplicationCommandService>[0]

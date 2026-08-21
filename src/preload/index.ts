@@ -287,5 +287,7 @@ const api: ResearchDeskApi = {
   },
 };
 
+const { mobileGateway: _mobileGateway, ...legacyResearchDesk } = api;
+
 contextBridge.exposeInMainWorld("api", api);
-contextBridge.exposeInMainWorld("researchDesk", api);
+contextBridge.exposeInMainWorld("researchDesk", legacyResearchDesk);

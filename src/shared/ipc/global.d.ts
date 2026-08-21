@@ -16,7 +16,7 @@ interface TodayMiniApi {
 declare global {
   interface Window {
     api: ResearchDeskApi;
-    researchDesk: ResearchDeskApi;
+    researchDesk: Omit<ResearchDeskApi, "mobileGateway">;
     todayMiniApi: TodayMiniApi;
   }
 }

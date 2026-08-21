@@ -1,13 +1,8 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { mkdtempSync, rmSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
 
 import { build } from "esbuild";
-
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const bundled = await build({
   stdin: {
@@ -31,6 +26,55 @@ const { MobileDeviceRegistry, MobileGatewayHost } = await import(
 const fixedNow = "2026-08-21T04:00:00.000Z";
 const fixedToken = "a".repeat(43);
 
+class MemoryMobileDevicePersistence {
+  records = new Map();
+
+  copy(record) {
+    return record ? { ...record, scopes: [...record.scopes] } : null;
+  }
+
+  createMobileDevice(input) {
+    if (this.records.has(input.id)) throw new Error("duplicate mobile device");
+    const record = {
+      ...input,
+      scopes: [...input.scopes],
+      updatedAt: input.createdAt,
+      lastSeenAt: "",
+      revokedAt: "",
+      version: 1,
+    };
+    this.records.set(record.id, record);
+    return this.copy(record);
+  }
+
+  findMobileDeviceByTokenHash(tokenHash) {
+    return this.copy([...this.records.values()].find((record) => record.tokenHash === tokenHash));
+  }
+
+  listMobileDevices() {
+    return [...this.records.values()].map((record) => this.copy(record));
+  }
+
+  revokeMobileDevice(id, revokedAt) {
+    const current = this.records.get(id);
+    if (!current) return null;
+    const record = { ...current, revokedAt, updatedAt: revokedAt, version: current.version + 1 };
+    this.records.set(id, record);
+    return this.copy(record);
+  }
+
+  touchMobileDevice(id, lastSeenAt) {
+    const current = this.records.get(id);
+    if (!current) return;
+    this.records.set(id, {
+      ...current,
+      lastSeenAt,
+      updatedAt: lastSeenAt,
+      version: current.version + 1,
+    });
+  }
+}
+
 function state() {
   return {
     current: () => ({
@@ -42,12 +86,10 @@ function state() {
 }
 
 test("mobile pairing persists only a token hash and revocation survives restart", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "tasken-mobile-device-"));
-  const databasePath = path.join(root, "workspace.sqlite");
-  let database = new WorkspaceDatabase(databasePath);
+  const persistence = new MemoryMobileDevicePersistence();
   try {
     const registry = new MobileDeviceRegistry({
-      persistence: database,
+      persistence,
       now: () => new Date(fixedNow),
       createPairingCode: () => "12345678",
       createAccessToken: () => fixedToken,
@@ -71,34 +113,28 @@ test("mobile pairing persists only a token hash and revocation survives restart"
       (error) => error?.code === "pairing_code_invalid",
     );
 
-    const stored = database.db.prepare(
-      "SELECT token_hash, scopes_json, revoked_at FROM mobile_devices WHERE id = ?",
-    ).get("device-s23");
-    assert.equal(stored.token_hash.length, 64);
+    const stored = persistence.records.get("device-s23");
+    assert.equal(stored.tokenHash.length, 64);
     assert.equal(JSON.stringify(stored).includes(fixedToken), false);
-    assert.deepEqual(JSON.parse(stored.scopes_json), ["mobile:read", "mobile:task-write"]);
+    assert.deepEqual(stored.scopes, ["mobile:read", "mobile:task-write"]);
     assert.equal(registry.authenticate(fixedToken)?.deviceId, "device-s23");
 
-    database.db.close();
-    database = new WorkspaceDatabase(databasePath);
     const restarted = new MobileDeviceRegistry({
-      persistence: database,
+      persistence,
       now: () => new Date(fixedNow),
     });
     assert.equal(restarted.authenticate(fixedToken)?.deviceId, "device-s23");
     assert.equal(restarted.revoke("device-s23")?.revokedAt, fixedNow);
     assert.equal(restarted.authenticate(fixedToken), null);
   } finally {
-    database.db.close();
-    rmSync(root, { recursive: true, force: true });
+    persistence.records.clear();
   }
 });
 
 test("mobile gateway binds loopback, pairs once, authenticates, and rejects browser or unsupported methods", async () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "tasken-mobile-host-"));
-  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  const persistence = new MemoryMobileDevicePersistence();
   const registry = new MobileDeviceRegistry({
-    persistence: database,
+    persistence,
     now: () => new Date(fixedNow),
     createPairingCode: () => "87654321",
     createAccessToken: () => fixedToken,
@@ -192,8 +228,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
     assert.equal(JSON.stringify(host.diagnostics()).includes(fixedToken), false);
   } finally {
     await host.stop();
-    database.db.close();
-    rmSync(root, { recursive: true, force: true });
+    persistence.records.clear();
   }
 });
 

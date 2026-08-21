@@ -2,7 +2,6 @@ package jp.personal.tasken.companion
 
 import android.content.Context
 import android.os.Build
-import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -18,7 +17,6 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -170,10 +168,11 @@ class AndroidMobileTaskRepository(
             return MobileTodayResult.PairingRequired(configuration.origin)
         }
         return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
             val date = URLEncoder.encode(LocalDate.now().toString(), Charsets.UTF_8.name())
             val response = request(
                 origin = configuration.origin,
-                path = "/v1/today?date=$date&limit=50",
+                path = "/v1/today?apiVersion=1&schemaVersion=1&requestId=$requestId&date=$date&limit=50",
                 method = "GET",
                 body = null,
                 accessToken = token,

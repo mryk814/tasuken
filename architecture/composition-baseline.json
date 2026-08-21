@@ -4,7 +4,7 @@
   "roots": [
     {
       "file": "src/main/index.ts",
-      "lines": 2603,
+      "lines": 2605,
       "imports": 41,
       "moduleDependencies": 7
     },
