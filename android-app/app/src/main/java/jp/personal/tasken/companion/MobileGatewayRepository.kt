@@ -5,6 +5,7 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
@@ -32,6 +33,7 @@ private const val KEY_TOKEN_IV = "token_iv"
 private const val KEYSTORE_ALIAS = "tasken_mobile_gateway_token"
 private const val MAX_RESPONSE_BYTES = 256 * 1024
 private const val REQUEST_TIMEOUT_MS = 5_000
+private const val MOBILE_GATEWAY_LOG_TAG = "TaskenMobileGateway"
 
 data class MobileGatewayConfiguration(
     val origin: String,
@@ -78,7 +80,8 @@ class MobileGatewayConnectionStore(context: Context) {
                 GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)),
             )
             String(cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP)), Charsets.UTF_8)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Failed to decrypt the paired-device token", error)
             clearToken()
             null
         }
@@ -189,7 +192,8 @@ class AndroidMobileTaskRepository(
             val token = data["accessToken"]?.jsonPrimitive?.content.orEmpty()
             store.save(normalizedOrigin, token)
             loadToday()
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway pairing request failed", error)
             MobileTodayResult.Unavailable(
                 "Mobile Gatewayに接続できません。",
                 "Desktopが起動中で、Tailscale Serveが有効か確認してください。",
@@ -212,7 +216,8 @@ class AndroidMobileTaskRepository(
                     state?.lastSuccessfulSyncAt.orEmpty()
             }
             MobileTodayResult.Available(cached, syncedAt)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway Today sync failed", error)
             val cached = runBlocking { dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) }
             if (cached.isNotEmpty()) {
                 MobileTodayResult.Available(cached, runBlocking { dao.syncState()?.lastSuccessfulSyncAt.orEmpty() })
@@ -341,7 +346,8 @@ class AndroidMobileTaskRepository(
                     MobileCommandSendResult.Retry("Desktopへ送信できませんでした。自動で再送します。")
                 else -> MobileCommandSendResult.Rejected("DesktopがTask操作を受理しませんでした。")
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway command request failed", error)
             MobileCommandSendResult.Retry("Desktopへ接続できませんでした。自動で再送します。")
         }
     }
