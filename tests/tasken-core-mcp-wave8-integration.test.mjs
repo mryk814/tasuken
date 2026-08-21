@@ -9,6 +9,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { build } from "esbuild";
 
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
+import { ReadOnlyTaskenContext } from "../src/main/mcp/readOnlyContext.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 
@@ -32,10 +33,11 @@ function fixture() {
   const event = buildActivityEvent({ id: "event-wave8", entity_type: "task", entity_id: task.id, event_kind: "task_work_recorded", occurred_at: "2026-08-20T15:30:00.000Z", after: task, summary: "safe", metadata: { dedupe_key: "wave8" } });
   const hiddenEvent = buildActivityEvent({ id: "event-hidden", entity_type: "task", entity_id: hidden.id, event_kind: "task_work_recorded", occurred_at: "2026-08-20T15:31:00.000Z", after: hidden, summary: "PRIVATE", metadata: { dedupe_key: "wave8-hidden" } });
   const note = record("note-wave8", { title: "Visible note", body_markdown: "body token=SECRET C:/private/note.md", project_id: theme.id });
-  const knowledge = record("knowledge-wave8", { title: "Question", body: "body", node_type: "question", theme_id: theme.id });
+  const knowledge = record("knowledge-wave8", { title: "Contradicted claim", body: "body", node_type: "claim", theme_id: theme.id });
+  const evidence = record("knowledge-evidence", { title: "Evidence", body: "evidence", node_type: "evidence", theme_id: theme.id, source_type: "task", source_id: task.id });
   return {
     themes: [theme, m365Theme], tasks: [task, hidden, record("task-m365", { title: "M365 task", state: "todo", project_id: m365Theme.id })], waitings: [], plan_nodes: [], schedules: [], items: [],
-    notes: [note, record("note-m365", { title: "M365 note", body_markdown: "m365 body", project_id: m365Theme.id })], knowledge_nodes: [knowledge, record("knowledge-m365", { title: "M365 question", body: "m365", node_type: "question", theme_id: m365Theme.id })], knowledge_edges: [], links: [],
+    notes: [note, record("note-m365", { title: "M365 note", body_markdown: "m365 body", project_id: m365Theme.id })], knowledge_nodes: [knowledge, evidence, record("knowledge-m365", { title: "M365 question", body: "m365", node_type: "question", theme_id: m365Theme.id })], knowledge_edges: [record("knowledge-support", { source_node_id: evidence.id, target_node_id: knowledge.id, relation_type: "supports" }), record("knowledge-contradiction", { source_node_id: knowledge.id, target_node_id: evidence.id, relation_type: "contradicts" })], links: [],
     resources: [record("resource-wave8", { title: "Resource", project_id: theme.id, url: "https://user:pass@example.com/private?token=SECRET#frag", local_path: "C:/private/resource.md", token: "SECRET" }), record("resource-m365", { title: "M365 resource", project_id: m365Theme.id, url: "https://example.com/m365" })],
     repository_contexts: [record("repo-wave8", { label: "Repo", provider: "github", canonical_url: "https://github.com/mryk814/tasuken", canonical_identity: "github.com/mryk814/tasuken", repository_slug: "mryk814/tasuken", local_path: "C:/private/repo", active: true })],
     references: [record("ref-task-note", { source_type: "task", source_id: task.id, target_type: "note", target_id: note.id, relation_type: "related_to" }), record("ref-note-knowledge", { source_type: "note", source_id: note.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "answers" }), record("ref-hidden-public-endpoints", { source_type: "task", source_id: task.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "related_to", ai_visibility: [] })],
@@ -62,6 +64,13 @@ async function mcpCall(coreClient, name, args) {
   await server.connect(serverTransport); await client.connect(clientTransport);
   try { return await client.callTool({ name, arguments: args }); }
   finally { await client.close(); await server.close(); }
+}
+
+function healthMarkdown(markdown) {
+  const start = markdown.indexOf("## Risks / Contradictions");
+  const end = markdown.indexOf("## AI公開範囲で除外した情報");
+  assert.ok(start >= 0 && end > start);
+  return markdown.slice(start, end);
 }
 
 test("Wave 8 Core, loopback, and MCP return one canonical result without legacy fallback", async () => {
@@ -102,6 +111,35 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
     const mcpMarkdown = await mcpCall(client, "tasken.export_ai_context", { format: "markdown" });
     assert.equal(mcpMarkdown.content[0].text, markdown);
     assert.equal(mcpMarkdown.structuredContent, undefined);
+
+    const legacy = new ReadOnlyTaskenContext("wave8-health-parity.sqlite", { audience: "coding_agent", aiVisibilityDefault: ["coding_agent"], workspace: fixture() });
+    try {
+      const legacyJson = legacy.toolExportAiContext({ format: "json" });
+      const coreJson = core.exportAiContext.execute({ format: "json" });
+      const httpJson = await client.exportAiContext({ format: "json" });
+      const mcpJson = (await mcpCall(client, "tasken.export_ai_context", { format: "json" })).structuredContent;
+      const healthKeys = [
+        "claims_without_evidence", "contradicted_claims", "evidence_without_source", "isolated_nodes", "issues",
+        "open_count", "open_plan_nodes", "open_tasks", "open_waitings", "overdue_items", "stale_decisions",
+        "unresolved_questions", "unscheduled_items", "waiting_items",
+      ];
+      assert.deepEqual(Object.keys(legacyJson.health).sort(), healthKeys);
+      for (const response of [coreJson, httpJson, mcpJson]) {
+        assert.deepEqual(Object.keys(response.health).sort(), healthKeys);
+        assert.deepEqual(response.health, legacyJson.health);
+        for (const transportKey of ["result_meta", "ai_audience", "read_only", "next_tools", "truncated", "plan", "knowledge"]) {
+          assert.equal(transportKey in response.health, false, transportKey);
+        }
+      }
+
+      const legacyMarkdown = legacy.toolExportAiContext({ format: "markdown" });
+      const coreMarkdown = core.exportAiContext.execute({ format: "markdown" });
+      const httpMarkdown = await client.exportAiContext({ format: "markdown" });
+      const mcpHealthMarkdown = (await mcpCall(client, "tasken.export_ai_context", { format: "markdown" })).content[0].text;
+      for (const response of [coreMarkdown, httpMarkdown, mcpHealthMarkdown]) {
+        assert.equal(healthMarkdown(response), healthMarkdown(legacyMarkdown));
+      }
+    } finally { legacy.close(); }
   } finally { await host.stop(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

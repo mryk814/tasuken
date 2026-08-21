@@ -25,6 +25,8 @@ const DEFAULT_MAX_NOTES = 20;
 const DEFAULT_MAX_KNOWLEDGE = 50;
 const DEFAULT_MAX_CHARS = 1_200;
 const RESOURCE_FIELDS = ["description", "resource_scope", "project_id", "theme_id", "version", "created_at", "updated_at", "deleted_at", "source", "tags", "metadata"] as const;
+const PLAN_HEALTH_FIELDS = ["open_tasks", "open_waitings", "open_plan_nodes", "open_count", "overdue_items", "waiting_items", "unscheduled_items"] as const;
+const KNOWLEDGE_HEALTH_FIELDS = ["issues", "unresolved_questions", "claims_without_evidence", "contradicted_claims", "evidence_without_source", "isolated_nodes", "stale_decisions"] as const;
 
 function text(value: unknown) { return value == null ? "" : String(value); }
 function sortUpdated(records: AgentContextRecord[]) {
@@ -57,6 +59,14 @@ function aiMark(record: any) {
   return marks.length ? ` [${marks.join(" / ")}]` : "";
 }
 function itemDate(item: any) { return item.planned_end || item.planned_start || item.due_date || ""; }
+function legacyFlatHealth(planHealth: Record<string, unknown>, knowledgeHealth: Record<string, unknown>) {
+  // Legacy export spreads plan first and knowledge second. Keep that precedence
+  // while omitting Core-only transport metadata, including both truncated flags.
+  return {
+    ...pickPublicFields(planHealth, PLAN_HEALTH_FIELDS),
+    ...pickPublicFields(knowledgeHealth, KNOWLEDGE_HEALTH_FIELDS),
+  };
+}
 function nodeLines(nodes: any[], kind: string) {
   const scoped = nodes.filter((node) => node.node_type === kind);
   return scoped.length ? scoped.map((node) => `- ${node.title}${node.body ? `: ${node.body}` : ""}${aiMark(node)}`) : ["- なし"];
@@ -73,9 +83,9 @@ function renderMarkdown(pack: any) {
     "## Evidence", ...nodeLines(pack.knowledge_nodes, "evidence"), "",
     "## Decisions", ...nodeLines(pack.knowledge_nodes, "decision"), "",
     "## Risks / Contradictions",
-    ...(pack.health?.knowledge?.contradicted_claims?.length ? pack.health.knowledge.contradicted_claims.map((node: any) => `- ${node.title}`) : ["- なし"]), "",
+    ...(pack.health?.contradicted_claims?.length ? pack.health.contradicted_claims.map((node: any) => `- ${node.title}`) : ["- なし"]), "",
     "## Suggested Next Actions",
-    ...(pack.health?.knowledge?.unresolved_questions?.length ? pack.health.knowledge.unresolved_questions.map((node: any) => `- Questionを処理: ${node.title}`) : ["- なし"]), "",
+    ...(pack.health?.unresolved_questions?.length ? pack.health.unresolved_questions.map((node: any) => `- Questionを処理: ${node.title}`) : ["- なし"]), "",
     "## AI公開範囲で除外した情報",
     ...(pack.excluded_count ? pack.excluded_reasons.map((entry: any) => `- ${entry.type}: ${entry.reason}（${entry.count}件）`) : ["- 除外なし"]),
   ].join("\n");
@@ -165,7 +175,7 @@ export class AgentContextExportService {
       items, notes, resources, knowledge_nodes: knowledgeNodes, knowledge_edges: knowledgeEdges,
       activity: activityResult.events,
       activity_meta: { schema_version: activityResult.schema_version, timezone: activityResult.timezone, excluded_count: activityResult.excluded_count, excluded_reasons: activityResult.excluded_reasons },
-      health: sanitizePublicValue({ plan: planHealth, knowledge: knowledgeHealth }, { maxDepth: 12, maxArray: 200, maxKeys: 200 }),
+      health: sanitizePublicValue(legacyFlatHealth(planHealth, knowledgeHealth), { maxDepth: 12, maxArray: 200, maxKeys: 200 }),
       ...summarized, result_meta: resultMeta, read_only: true as const,
     };
     if (request.format === "json") return exportAiContextResponseSchema.parse(pack);
