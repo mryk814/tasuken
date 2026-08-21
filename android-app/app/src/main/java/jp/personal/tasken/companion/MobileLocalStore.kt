@@ -127,8 +127,14 @@ abstract class MobileLocalDao {
     @Query("SELECT COUNT(*) FROM outbox_command WHERE state IN ('pending', 'sending', 'retry_wait')")
     abstract fun observePendingCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM outbox_command WHERE state IN ('pending', 'sending', 'retry_wait')")
+    abstract suspend fun pendingCount(): Int
+
     @Query("SELECT COUNT(*) FROM task_conflict")
     abstract fun observeConflictCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM task_conflict")
+    abstract suspend fun conflictCount(): Int
 
     @Query("SELECT * FROM task_conflict WHERE commandId = :commandId")
     abstract suspend fun conflict(commandId: String): TaskConflictEntity?

@@ -153,6 +153,15 @@ class AndroidMobileTaskRepository(
 
     internal suspend fun drainOutbox(): Boolean = outbox.drain(::sendTaskCommand)
 
+    internal suspend fun synchronizeIfPaired(): Boolean {
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) return true
+        if (outbox.drain(::sendTaskCommand)) return false
+        synchronize(configuration.origin, token)
+        return true
+    }
+
     override fun pair(origin: String, pairingCode: String): MobileTodayResult {
         val normalizedOrigin = normalizeHttpsOrigin(origin)
             ?: return MobileTodayResult.Unavailable(
