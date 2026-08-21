@@ -201,62 +201,108 @@ class AndroidMobileTaskRepository(
             return MobileTodayResult.PairingRequired(configuration.origin)
         }
         return try {
-            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
-            val date = URLEncoder.encode(LocalDate.now().toString(), Charsets.UTF_8.name())
+            val (cached, syncedAt) = runBlocking {
+                outbox.drain(::sendTaskCommand)
+                synchronize(configuration.origin, token)
+                val state = dao.syncState()
+                dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) to
+                    state?.lastSuccessfulSyncAt.orEmpty()
+            }
+            MobileTodayResult.Available(cached, syncedAt)
+        } catch (_: Exception) {
+            val cached = runBlocking { dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) }
+            if (cached.isNotEmpty()) {
+                MobileTodayResult.Available(cached, runBlocking { dao.syncState()?.lastSuccessfulSyncAt.orEmpty() })
+            } else {
+                MobileTodayResult.Unavailable(
+                    "Mobile Gatewayに接続できません。",
+                    "DesktopとTailscale接続を確認して再読み込みしてください。",
+                )
+            }
+        }
+    }
+
+    private suspend fun synchronize(origin: String, accessToken: String) {
+        val current = dao.syncState()
+        if (current?.cursor == null || current.serverId == null) {
+            bootstrap(origin, accessToken)
+            return
+        }
+        var cursor = requireNotNull(current.cursor)
+        repeat(100) {
+            val encodedRequestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val encodedCursor = URLEncoder.encode(cursor, Charsets.UTF_8.name())
             val response = request(
-                origin = configuration.origin,
-                path = "/v1/today?apiVersion=1&schemaVersion=1&requestId=$requestId&date=$date&limit=50",
+                origin = origin,
+                path = "/v1/sync?apiVersion=1&schemaVersion=1&requestId=$encodedRequestId&cursor=$encodedCursor&limit=50",
                 method = "GET",
                 body = null,
-                accessToken = token,
+                accessToken = accessToken,
             )
             if (response.status == 401) {
                 store.clearToken()
-                MobileTodayResult.PairingRequired(configuration.origin, "接続が失効しました。新しいコードで再接続してください。")
-            } else if (response.status != 200) {
-                MobileTodayResult.Unavailable(
-                    "Todayを読み込めませんでした。",
-                    "DesktopのMobile Gateway状態を確認して再読み込みしてください。",
-                )
-            } else {
-                val decoded = MobileTodayContract.decodeSuccess(response.body)
-                val cached = runBlocking {
-                    dao.replaceToday(
-                        date = decoded.data.date,
-                        tasks = decoded.data.items.map { task ->
-                            TaskCacheEntity(
-                                id = task.id,
-                                serverVersion = task.version,
-                                title = task.title,
-                                themeId = task.themeId,
-                                state = task.state,
-                                workState = task.workState,
-                                todayDate = decoded.data.date,
-                                updatedAt = task.updatedAt,
-                                optimisticCommandId = null,
-                            )
-                        },
-                        syncState = SyncStateEntity(
-                            serverId = decoded.meta.serverId,
-                            apiVersion = decoded.meta.apiVersion,
-                            schemaVersion = decoded.meta.schemaVersion,
-                            cursor = decoded.data.nextCursor,
-                            lastSuccessfulSyncAt = decoded.meta.generatedAt,
-                            lastAttemptAt = decoded.meta.generatedAt,
-                            lastError = null,
-                        ),
-                    )
-                    dao.tasksForDate(decoded.data.date).map(TaskCacheEntity::toMobileTask)
-                }
-                MobileTodayResult.Available(cached, decoded.meta.generatedAt)
+                throw IllegalStateException("Mobile Gateway token expired")
             }
-        } catch (_: Exception) {
-            MobileTodayResult.Unavailable(
-                "Mobile Gatewayに接続できません。",
-                "DesktopとTailscale接続を確認して再読み込みしてください。",
+            require(response.status == 200) { "Mobile sync failed with HTTP ${response.status}" }
+            val decoded = MobileSyncContract.decodeSync(response.body)
+            if (decoded.meta.serverId != current.serverId) {
+                bootstrap(origin, accessToken)
+                return
+            }
+            require(decoded.data.nextCursor != cursor || !decoded.data.hasMore) { "Mobile sync cursor did not advance" }
+            dao.applySyncPage(
+                upserts = decoded.data.changes.mapNotNull { it.task?.toCache() },
+                tombstoneIds = decoded.data.changes.filter { it.kind == "tombstone" }.map { requireNotNull(it.id) },
+                syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
             )
+            cursor = decoded.data.nextCursor
+            if (!decoded.data.hasMore) return
         }
+        error("Mobile sync exceeded the page limit")
     }
+
+    private suspend fun bootstrap(origin: String, accessToken: String) {
+        val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+        val response = request(
+            origin = origin,
+            path = "/v1/bootstrap?apiVersion=1&schemaVersion=1&requestId=$requestId&limit=50",
+            method = "GET",
+            body = null,
+            accessToken = accessToken,
+        )
+        if (response.status == 401) {
+            store.clearToken()
+            throw IllegalStateException("Mobile Gateway token expired")
+        }
+        require(response.status == 200) { "Mobile bootstrap failed with HTTP ${response.status}" }
+        val decoded = MobileSyncContract.decodeBootstrap(response.body)
+        dao.applyBootstrap(
+            tasks = decoded.data.tasks.map(MobileTaskSummaryDto::toCache),
+            syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
+        )
+    }
+
+    private fun MobileTaskSummaryDto.toCache(): TaskCacheEntity = TaskCacheEntity(
+        id = id,
+        serverVersion = version,
+        title = title,
+        themeId = themeId,
+        state = state,
+        workState = workState,
+        todayDate = todayDate,
+        updatedAt = updatedAt,
+        optimisticCommandId = null,
+    )
+
+    private fun MobileResponseMetaDto.toSyncState(cursor: String?): SyncStateEntity = SyncStateEntity(
+        serverId = serverId,
+        apiVersion = apiVersion,
+        schemaVersion = schemaVersion,
+        cursor = cursor,
+        lastSuccessfulSyncAt = generatedAt,
+        lastAttemptAt = generatedAt,
+        lastError = null,
+    )
 
     private fun sendTaskCommand(envelopeJson: String): MobileCommandSendResult {
         val configuration = store.configuration()

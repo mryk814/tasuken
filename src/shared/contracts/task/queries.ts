@@ -43,7 +43,21 @@ export const listTodayTasksQuerySchema = z.object({
   }).strict(),
 }).strict();
 
-export const taskQuerySchema = z.discriminatedUnion("name", [getTaskQuerySchema, listTasksQuerySchema, listTodayTasksQuerySchema]);
+export const listTaskChangesQuerySchema = z.object({
+  ...queryBase,
+  name: z.literal("ListTaskChanges"),
+  parameters: z.object({
+    cursor: z.string().max(1000).nullable().optional(),
+    limit: z.number().int().positive().max(200).default(50),
+  }).strict(),
+}).strict();
+
+export const taskQuerySchema = z.discriminatedUnion("name", [
+  getTaskQuerySchema,
+  listTasksQuerySchema,
+  listTodayTasksQuerySchema,
+  listTaskChangesQuerySchema,
+]);
 
 export const getTaskQueryResultSchema = z.object({
   schemaVersion: taskContractSchemaVersionSchema,
@@ -69,19 +83,31 @@ export const listTodayTasksQueryResultSchema = z.object({
   next_cursor: z.string().max(1000).nullable(),
 }).strict();
 
+export const listTaskChangesQueryResultSchema = z.object({
+  schemaVersion: taskContractSchemaVersionSchema,
+  query_id: entityIdSchema,
+  name: z.literal("ListTaskChanges"),
+  items: z.array(taskReadModelSchema).max(200),
+  next_cursor: z.string().max(1000).nullable(),
+  has_more: z.boolean(),
+}).strict();
+
 export const taskQueryResultSchema = z.discriminatedUnion("name", [
   getTaskQueryResultSchema,
   listTasksQueryResultSchema,
   listTodayTasksQueryResultSchema,
+  listTaskChangesQueryResultSchema,
 ]);
 
 export type GetTaskQuery = z.output<typeof getTaskQuerySchema>;
 export type ListTasksQuery = z.output<typeof listTasksQuerySchema>;
 export type ListTodayTasksQuery = z.output<typeof listTodayTasksQuerySchema>;
+export type ListTaskChangesQuery = z.output<typeof listTaskChangesQuerySchema>;
 export type TaskQuery = z.output<typeof taskQuerySchema>;
 export type GetTaskQueryResult = z.output<typeof getTaskQueryResultSchema>;
 export type ListTasksQueryResult = z.output<typeof listTasksQueryResultSchema>;
 export type ListTodayTasksQueryResult = z.output<typeof listTodayTasksQueryResultSchema>;
+export type ListTaskChangesQueryResult = z.output<typeof listTaskChangesQueryResultSchema>;
 export type TaskQueryResult = z.output<typeof taskQueryResultSchema>;
 
 export function parseTaskQuery(value: unknown): Result<TaskQuery, TaskError> {

@@ -252,6 +252,25 @@ export class TaskCapabilityService {
       };
     }
 
+    if (query.name === "ListTaskChanges") {
+      const cursor = query.parameters.cursor || "";
+      const filtered = this.queries.listTasks(true)
+        .sort((left, right) => String(left.updated_at).localeCompare(String(right.updated_at)) || String(left.id).localeCompare(String(right.id)))
+        .filter((task) => `${String(task.updated_at)}|${String(task.id)}` > cursor);
+      const page = filtered.slice(0, query.parameters.limit);
+      const nextCursor = page.length > 0
+        ? `${String(page.at(-1)?.updated_at)}|${String(page.at(-1)?.id)}`
+        : query.parameters.cursor || null;
+      return {
+        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+        query_id: query.query_id,
+        name: "ListTaskChanges" as const,
+        items: page.map(projectTask),
+        next_cursor: nextCursor,
+        has_more: filtered.length > page.length,
+      };
+    }
+
     const filtered = this.queries.listTasks(query.name === "ListTasks" ? query.parameters.include_deleted : false)
       .filter((task) => query.parameters.project_id === undefined || task.project_id === query.parameters.project_id)
       .filter((task) => !query.parameters.states?.length || query.parameters.states.includes(task.state as never))

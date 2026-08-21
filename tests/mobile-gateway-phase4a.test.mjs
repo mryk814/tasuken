@@ -252,6 +252,8 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     pair: "/v1/pair",
     health: "/v1/health",
     today: "/v1/today",
+    bootstrap: "/v1/bootstrap",
+    sync: "/v1/sync",
     commands: "/v1/commands",
   });
   const valid = createRequest();
@@ -775,6 +777,87 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   }));
   assert.equal(writeOnlyCreated.data.status, "applied");
   assert.throws(() => new MobileGatewayClient({ baseUrl: "http://127.0.0.1:1234", accessToken }), /private HTTPS/);
+});
+
+test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose tombstones and server reset", async () => {
+  const { repository, service } = capability();
+  const adapter = gateway(service);
+  for (const [id, title] of [["task-sync-a", "同期A"], ["task-sync-b", "同期B"]]) {
+    const response = await adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body: createRequest({
+        requestId: `request-${id}`,
+        commandId: `command-${id}`,
+        idempotencyKey: `command-${id}`,
+        command: { ...createRequest().command, task: { ...createRequest().command.task, id, title } },
+      }),
+    });
+    assert.equal(response.status, 200);
+  }
+
+  const bootstrap = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-bootstrap", limit: "50" },
+  });
+  assert.equal(bootstrap.status, 200);
+  assert.deepEqual(bootstrap.body.data.tasks.map((task) => task.id).sort(), ["task-sync-a", "task-sync-b"]);
+  assert.equal(bootstrap.body.data.hasMore, false);
+  const cursor = bootstrap.body.data.nextCursor;
+  assert.equal(typeof cursor, "string");
+
+  const first = repository.records.get("task:task-sync-a");
+  repository.records.set("task:task-sync-a", {
+    ...first,
+    title: "同期A更新",
+    version: first.version + 1,
+    updated_at: "2026-08-21T02:00:00.000Z",
+  });
+  const second = repository.records.get("task:task-sync-b");
+  repository.records.set("task:task-sync-b", {
+    ...second,
+    version: second.version + 1,
+    updated_at: "2026-08-21T03:00:00.000Z",
+    deleted_at: "2026-08-21T03:00:00.000Z",
+  });
+
+  const syncQuery = { apiVersion: "1", schemaVersion: "1", requestId: "request-sync", cursor, limit: "1" };
+  const firstPage = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.sync, principal, query: syncQuery });
+  const retriedPage = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.sync, principal, query: syncQuery });
+  assert.deepEqual(retriedPage.body.data, firstPage.body.data);
+  assert.equal(firstPage.body.data.hasMore, true);
+  assert.equal(firstPage.body.data.changes[0].kind, "upsert");
+  assert.equal(firstPage.body.data.changes[0].task.title, "同期A更新");
+
+  const secondPage = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.sync,
+    principal,
+    query: { ...syncQuery, requestId: "request-sync-2", cursor: firstPage.body.data.nextCursor },
+  });
+  assert.equal(secondPage.body.data.hasMore, false);
+  assert.deepEqual(secondPage.body.data.changes, [{
+    kind: "tombstone",
+    entityType: "task",
+    id: "task-sync-b",
+    version: 2,
+    updatedAt: "2026-08-21T03:00:00.000Z",
+  }]);
+
+  const resetAdapter = gateway(service, {}, {
+    state: { current: () => ({ serverId: "desktop-restored", serverRevision: 1, generatedAt: now }) },
+  });
+  const resetResponse = await resetAdapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.sync,
+    principal,
+    query: { ...syncQuery, requestId: "request-after-reset" },
+  });
+  assert.equal(resetResponse.status, 200);
+  assert.equal(resetResponse.body.meta.serverId, "desktop-restored");
 });
 
 test("Phase 4A client rejects oversized/auth responses without disclosing credentials and stays native-free", async () => {

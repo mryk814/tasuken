@@ -111,6 +111,9 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM task_cache WHERE id = :taskId")
     abstract suspend fun task(taskId: String): TaskCacheEntity?
 
+    @Query("SELECT * FROM sync_state WHERE id = 1")
+    abstract suspend fun syncState(): SyncStateEntity?
+
     @Query("SELECT * FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun outbox(commandId: String): OutboxCommandEntity?
 
@@ -141,8 +144,14 @@ abstract class MobileLocalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertConflict(conflict: TaskConflictEntity)
 
-    @Query("DELETE FROM task_cache WHERE todayDate = :date AND optimisticCommandId IS NULL")
+    @Query("DELETE FROM task_cache WHERE todayDate = :date AND optimisticCommandId IS NULL AND conflictCommandId IS NULL")
     abstract suspend fun deleteCanonicalToday(date: String)
+
+    @Query("DELETE FROM task_cache WHERE optimisticCommandId IS NULL AND conflictCommandId IS NULL")
+    abstract suspend fun deleteCanonicalTasks()
+
+    @Query("DELETE FROM task_cache WHERE id = :taskId AND optimisticCommandId IS NULL AND conflictCommandId IS NULL")
+    abstract suspend fun deleteCanonicalTask(taskId: String)
 
     @Query(
         "SELECT * FROM outbox_command " +
@@ -237,6 +246,34 @@ abstract class MobileLocalDao {
     open suspend fun replaceToday(date: String, tasks: List<TaskCacheEntity>, syncState: SyncStateEntity) {
         deleteCanonicalToday(date)
         tasks.forEach { upsertTask(it) }
+        upsertSyncState(syncState)
+    }
+
+    @Transaction
+    open suspend fun applyBootstrap(tasks: List<TaskCacheEntity>, syncState: SyncStateEntity) {
+        deleteCanonicalTasks()
+        tasks.forEach { incoming ->
+            val current = task(incoming.id)
+            if (current == null || (current.optimisticCommandId == null && current.conflictCommandId == null)) {
+                upsertTask(incoming)
+            }
+        }
+        upsertSyncState(syncState)
+    }
+
+    @Transaction
+    open suspend fun applySyncPage(
+        upserts: List<TaskCacheEntity>,
+        tombstoneIds: List<String>,
+        syncState: SyncStateEntity,
+    ) {
+        tombstoneIds.forEach { deleteCanonicalTask(it) }
+        upserts.forEach { incoming ->
+            val current = task(incoming.id)
+            if (current == null || (current.optimisticCommandId == null && current.conflictCommandId == null)) {
+                upsertTask(incoming)
+            }
+        }
         upsertSyncState(syncState)
     }
 

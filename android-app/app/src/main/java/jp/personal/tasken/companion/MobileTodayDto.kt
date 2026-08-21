@@ -37,6 +37,7 @@ data class MobileTaskSummaryDto(
     val themeId: String?,
     val state: String,
     val workState: String?,
+    val todayDate: String? = null,
     val updatedAt: String,
 )
 
@@ -95,6 +96,7 @@ object MobileTodayContract {
             requireContract(item.themeId == null || isEntityId(item.themeId), "Invalid Theme ID.")
             requireContract(item.state in taskStates, "Invalid Task state.")
             requireContract(item.workState == null || item.workState in workStates, "Invalid work state.")
+            requireContract(item.todayDate == null || isDate(item.todayDate), "Invalid Task todayDate.")
             requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
         }
     }
