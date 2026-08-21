@@ -10,6 +10,7 @@ import type { CanonicalNoteAiCompanion, Entity, EntityType, SaveOperation } from
 import {
   ApplicationCommandError,
   parseCommandEnvelope,
+  type ApplyAiProposalCommandPayload,
   type ApplicationCommandName,
   type CommandEnvelope,
   type CommandReceipt,
@@ -346,10 +347,27 @@ function eventChangesFor(repository: Repository, eventIds: string[]): CommandRec
     .map((event) => ({ type: "change_event" as const, entity: withoutReceiptJson(event) }));
 }
 
-function commandFingerprint(command: CommandEnvelope): string {
+function fingerprintPayload(command: CommandEnvelope): unknown {
+  if (command.name !== "ApplyAiProposal" || !Array.isArray((command.payload as ApplyAiProposalCommandPayload).decisions)) {
+    return command.payload;
+  }
+  const payload = command.payload as ApplyAiProposalCommandPayload;
+  return {
+    proposal: {
+      id: payload.proposal.id,
+      version: payload.proposal.version,
+      status: payload.proposal.status,
+    },
+    decision: payload.decision,
+    decisions: payload.decisions,
+    candidates: payload.candidates.map((candidate) => ({ type: candidate.type, id: candidate.entity.id })),
+  };
+}
+
+export function commandFingerprint(command: CommandEnvelope): string {
   return JSON.stringify({
     name: command.name,
-    payload: command.payload,
+    payload: fingerprintPayload(command),
     actor: command.actor,
     source: command.source,
     windowId: command.windowId || null,

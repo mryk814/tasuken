@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -144,6 +145,40 @@ test("preview candidates commit entities, relation, Activity events and exactly-
       edges: database.list("knowledge_edge").length,
       events: database.list("change_event").length,
     }, counts);
+    const reused = (mutate) => {
+      const changed = structuredClone(command);
+      mutate(changed);
+      assert.throws(() => acceptance.execute(changed), (error) => error?.code === "COMMAND_ID_REUSED");
+    };
+    reused((changed) => { changed.actor = { kind: "user", id: "different-user" }; });
+    reused((changed) => { changed.source = "mcp"; });
+    reused((changed) => { changed.sessionId = "different-session"; });
+    reused((changed) => { changed.windowId = "different-window"; });
+    reused((changed) => { changed.expectedVersions = []; });
+    reused((changed) => { changed.issuedAt = "2026-08-21T00:00:01.000Z"; });
+    reused((changed) => { changed.payload.proposal.status = "rejected"; });
+    reused((changed) => { changed.payload.decision = "reject"; });
+    reused((changed) => {
+      changed.payload.proposal.status = "partially_accepted";
+      changed.payload.decisions[0].action = "ignore";
+      changed.payload.candidates = changed.payload.candidates.slice(1);
+    });
+    reused((changed) => { changed.payload.candidates[0].entity.id = "different-candidate"; });
+    reused((changed) => { changed.payload.candidates[0].type = "artifact"; });
+
+    const event = database.list("change_event", true).find((entry) => entry.command_id === command.commandId);
+    database.save("change_event", { ...event, command_name: "UpdateTask" });
+    assert.throws(() => acceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
+    let restoredEvent = database.save("change_event", { ...database.get("change_event", event.id, true), command_name: event.command_name });
+    database.save("change_event", { ...restoredEvent, command_fingerprint: "different-fingerprint" });
+    assert.throws(() => acceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
+    restoredEvent = database.save("change_event", { ...database.get("change_event", event.id, true), command_fingerprint: event.command_fingerprint });
+    const storedReceipt = JSON.parse(restoredEvent.receipt_json);
+    database.save("change_event", { ...restoredEvent, receipt_json: JSON.stringify({ ...storedReceipt, commandId: "different-command" }) });
+    assert.throws(() => acceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
+    restoredEvent = database.save("change_event", { ...database.get("change_event", event.id, true), receipt_json: restoredEvent.receipt_json });
+    database.save("change_event", { ...restoredEvent, receipt_json: JSON.stringify({ ...storedReceipt, name: "UpdateTask" }) });
+    assert.throws(() => acceptance.execute(command), (error) => error?.code === "COMMAND_ID_REUSED");
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -201,7 +236,7 @@ test("artifact acceptance rebuilds content from DB, compensates DB failure, and 
   }
 });
 
-test("WorkspaceService reuses only hash-identical deterministic Artifact files and conflicts on content drift", () => {
+test("WorkspaceService atomically publishes deterministic Artifact files, cleans failed staging, and reuses only identical finals", () => {
   const directory = root();
   const managed = path.join(directory, "managed");
   fs.mkdirSync(managed);
@@ -211,15 +246,46 @@ test("WorkspaceService reuses only hash-identical deterministic Artifact files a
   try {
     const request = { title: "Stable", fileName: "stable.json", mediaType: "application/json", content: '{"stable":true}', themeId: null, materializationKey: "stable-candidate" };
     const first = service.materializeArtifactProposal(request);
+    const expectedTemp = `${first.file.storedPath}.tasken-tmp`;
+    fs.rmSync(first.file.storedPath);
+    fs.writeFileSync(expectedTemp, "partial crash bytes");
+    const recovered = service.materializeArtifactProposal(request);
     const retry = service.materializeArtifactProposal(request);
     assert.equal(first.status, "ok");
+    assert.equal(recovered.status, "ok");
     assert.equal(retry.status, "ok");
     assert.equal(first.created, true);
+    assert.equal(recovered.created, true);
     assert.equal(retry.created, false);
     assert.equal(retry.file.storedPath, first.file.storedPath);
     assert.equal(fs.readdirSync(path.dirname(first.file.storedPath)).length, 1);
+    assert.equal(fs.existsSync(expectedTemp), false);
     assert.throws(() => service.materializeArtifactProposal({ ...request, content: '{"stable":false}' }), /競合/);
     assert.equal(fs.readFileSync(first.file.storedPath, "utf8"), request.content);
+
+    const failingRequest = { ...request, fileName: "failure.json", content: '{"failure":true}', materializationKey: "failure-candidate" };
+    const failingSuffix = createHash("sha256").update(failingRequest.materializationKey).digest("hex").slice(0, 12);
+    const failingPath = path.join(path.dirname(first.file.storedPath), `failure-${failingSuffix}.json`);
+    const failingTemp = `${failingPath}.tasken-tmp`;
+    const originalWriteSync = fs.writeSync;
+    let injected = false;
+    fs.writeSync = (...args) => {
+      if (!injected) {
+        injected = true;
+        originalWriteSync(args[0], args[1], args[2], Math.min(3, args[3]));
+        throw new Error("injected partial staging failure");
+      }
+      return originalWriteSync(...args);
+    };
+    try {
+      assert.throws(() => service.materializeArtifactProposal(failingRequest), /Artifactを確定できませんでした/);
+    } finally {
+      fs.writeSync = originalWriteSync;
+    }
+    assert.equal(fs.existsSync(failingPath), false);
+    assert.equal(fs.existsSync(failingTemp), false);
+    assert.equal(service.materializeArtifactProposal(failingRequest).status, "ok");
+    assert.equal(fs.readFileSync(failingPath, "utf8"), failingRequest.content);
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -527,6 +593,9 @@ test("Note edit verifies target/base version and applies only signed accepted hu
     const acceptance = new AiProposalAcceptanceService(new ApplicationCommandService(database), workspace, database);
     acceptance.execute(validCommand);
     assert.equal(database.get("note", initial.id).body_markdown, "a\nold1\nsame\nnew2");
+    const changedHunks = structuredClone(validCommand);
+    changedHunks.payload.decisions[0].acceptedHunks = [0];
+    assert.throws(() => acceptance.execute(changedHunks), (error) => error?.code === "COMMAND_ID_REUSED");
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });

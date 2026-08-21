@@ -10,7 +10,7 @@ import type {
 } from "../types/workspace";
 import type { CanonicalRootStatusMap } from "../types/workspace";
 import type { MemoStickyColor, MemoStickyTargetRequest, MemoStickyThemeRequest } from "../memoPresentation";
-import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
+import type { ArtifactFileImportRequest, ArtifactFileImportResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
 import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
 import type {

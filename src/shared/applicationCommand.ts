@@ -111,6 +111,10 @@ export interface ApplyAiProposalCommandPayload {
   }>;
 }
 
+const MAX_AI_PROPOSAL_DECISIONS = 100;
+const MAX_AI_PROPOSAL_ACCEPTED_HUNKS = 32_768;
+const MAX_AI_PROPOSAL_HUNK_INDEX = 32_767;
+
 export interface ApplyTaskWorkProposalCommandPayload {
   proposalId: string;
   decision: "accept" | "reject";
@@ -324,14 +328,28 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのdecisionが不正です。");
     }
     if (value.payload.decisions !== undefined) {
-      if (!Array.isArray(value.payload.decisions)) throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのdecisionsが不正です。");
+      if (!Array.isArray(value.payload.decisions) || value.payload.decisions.length > MAX_AI_PROPOSAL_DECISIONS) {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのdecisionsが不正です。");
+      }
       for (const decision of value.payload.decisions) {
+        const noteDecision = isRecord(decision) && decision.type === "note";
+        const allowedKeys = noteDecision
+          ? new Set(["entryIndex", "type", "action", "acceptedHunks", "beforeSignature"])
+          : new Set(["entryIndex", "type", "action"]);
+        const acceptedHunks = isRecord(decision) ? decision.acceptedHunks : undefined;
+        const beforeSignature = isRecord(decision) ? decision.beforeSignature : undefined;
         if (!isRecord(decision) || !Number.isInteger(decision.entryIndex) || Number(decision.entryIndex) < 0
           || !["note", "knowledge_node", "knowledge_edge", "artifact", "sketch"].includes(String(decision.type))
           || (decision.action !== "accept" && decision.action !== "ignore")
-          || (decision.acceptedHunks !== undefined && (!Array.isArray(decision.acceptedHunks)
-            || decision.acceptedHunks.some((index) => !Number.isInteger(index) || Number(index) < 0)))
-          || (decision.beforeSignature !== undefined && typeof decision.beforeSignature !== "string")) {
+          || Object.keys(decision).some((key) => !allowedKeys.has(key))
+          || (acceptedHunks !== undefined && (!Array.isArray(acceptedHunks)
+            || acceptedHunks.length > MAX_AI_PROPOSAL_ACCEPTED_HUNKS
+            || acceptedHunks.some((index) => !Number.isInteger(index) || Number(index) < 0 || Number(index) > MAX_AI_PROPOSAL_HUNK_INDEX)))
+          || (beforeSignature !== undefined && (typeof beforeSignature !== "string"
+            || beforeSignature.length > 79
+            || !/^sha256:(0|[1-9]\d{0,6}):[a-f0-9]{64}$/.test(beforeSignature)
+            || Number(beforeSignature.slice(7, beforeSignature.indexOf(":", 7))) > 1_000_000))
+          || ((acceptedHunks === undefined) !== (beforeSignature === undefined))) {
           throw new ApplicationCommandError("INVALID_PAYLOAD", "ApplyAiProposalのentry decisionが不正です。");
         }
       }

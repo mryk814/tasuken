@@ -1,10 +1,11 @@
 import type { ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult } from "../../shared/attachments";
-import type { CommandEnvelope, CommandReceipt } from "../../shared/applicationCommand";
+import { ApplicationCommandError, parseCommandEnvelope, type CommandEnvelope, type CommandReceipt } from "../../shared/applicationCommand";
 import type { Entity } from "../../shared/types/workspace";
 import { markdownSignature } from "../../shared/canonicalMarkdown.mjs";
 import { applyProposalMarkdownHunks, markdownProposalHunkCount, stableProposalEntityId } from "../../shared/proposalAcceptance.mjs";
 import { isWebArtifact } from "../../shared/webArtifact.mjs";
 import { validateArtifactProposal, validateSafeSvg } from "../../shared/proposalMedia.mjs";
+import { commandFingerprint } from "./applicationCommandService";
 
 interface CommandExecutor {
   execute(input: unknown): CommandReceipt;
@@ -253,7 +254,8 @@ export class AiProposalAcceptanceService {
 
   execute(input: CommandEnvelope): CommandReceipt {
     if (input.name !== "ApplyAiProposal") return this.commands.execute(input);
-    const payload = input.payload as {
+    const parsedInput = parseCommandEnvelope(input);
+    const payload = parsedInput.payload as {
       proposal?: Entity;
       decision?: "accept" | "reject";
       decisions?: ProposalEntryDecision[];
@@ -269,17 +271,45 @@ export class AiProposalAcceptanceService {
       || (payload.decision !== "accept" && payload.decision !== "reject")) {
       throw new Error("Content Proposal acceptance payloadが不正です。");
     }
-    const proposalVersion = Number(payload.proposal.version || 0);
-    const commandId = `${payload.proposal.id}:accept:v${proposalVersion}`;
-    const existingEvent = this.repository.list("change_event", true).find((event) => event.command_id === commandId);
-    if (existingEvent && typeof existingEvent.receipt_json === "string") {
-      const receipt = JSON.parse(String(existingEvent.receipt_json)) as CommandReceipt;
-      Object.defineProperty(receipt, "replayed", { value: true, enumerable: false });
-      return receipt;
-    }
     if (!currentProposal) throw new Error("Content Proposalがありません。");
     if (!contentTypes.has(currentType) || currentType !== hintedType) {
       throw new Error("Content Proposal typeが正本と一致しません。");
+    }
+    const proposalVersion = Number(payload.proposal.version || 0);
+    const commandId = `${payload.proposal.id}:accept:v${proposalVersion}`;
+    const canonicalIssuedAt = String(currentProposal?.received_at || currentProposal?.created_at || currentProposal?.updated_at || new Date(0).toISOString());
+    if (parsedInput.commandId !== commandId) {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "Content Proposal command identityが正本と一致しません。");
+    }
+    const command: CommandEnvelope = { ...parsedInput, commandId };
+    const existingEvent = this.repository.list("change_event", true).find((event) => event.command_id === commandId);
+    if (existingEvent && typeof existingEvent.receipt_json === "string") {
+      if (existingEvent.command_name !== command.name || existingEvent.command_fingerprint !== commandFingerprint(command)) {
+        throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdを別のContent Proposal decisionで再利用できません。", {
+          commandId,
+          conflictReason: "command_fingerprint_mismatch",
+        });
+      }
+      let receipt: CommandReceipt;
+      try {
+        receipt = JSON.parse(String(existingEvent.receipt_json)) as CommandReceipt;
+      } catch {
+        throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態を復元できません。", {
+          commandId,
+          conflictReason: "other_conflict",
+        });
+      }
+      if (receipt.commandId !== commandId || receipt.name !== command.name) {
+        throw new ApplicationCommandError("COMMAND_ID_REUSED", "同じcommandIdの完了状態がContent Proposal commandと一致しません。", {
+          commandId,
+          conflictReason: "command_fingerprint_mismatch",
+        });
+      }
+      Object.defineProperty(receipt, "replayed", { value: true, enumerable: false });
+      return receipt;
+    }
+    if (parsedInput.issuedAt !== canonicalIssuedAt) {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "Content Proposal issuedAtが正本と一致しません。");
     }
     if (currentProposal.status !== "pending") {
       const marker = existingEvent?.metadata && typeof existingEvent.metadata === "object" && !Array.isArray(existingEvent.metadata)
@@ -296,11 +326,6 @@ export class AiProposalAcceptanceService {
       ? currentProposal.payload as Record<string, unknown>
       : {};
     const artifactEntries = Array.isArray(canonicalPayload.artifacts) ? canonicalPayload.artifacts : [];
-    const command: CommandEnvelope = {
-      ...input,
-      commandId,
-      issuedAt: String(currentProposal.received_at || currentProposal.created_at || currentProposal.updated_at || new Date(0).toISOString()),
-    };
     const createdPaths: string[] = [];
     try {
       const fullCandidates = rebuildCanonicalCandidates(this.repository, currentProposal, canonicalPayload, payload.decisions);

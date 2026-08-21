@@ -2581,14 +2581,47 @@ export class WorkspaceService {
         (candidate: string) => fs.existsSync(path.join(location.directory, candidate)),
       );
     const storedPath = path.join(location.directory, filename);
+    const tempPath = `${storedPath}.tasken-tmp`;
     let created = false;
     if (fs.existsSync(storedPath)) {
       if (!materializationKey || fs.readFileSync(storedPath, "utf8") !== normalized.content) {
         throw new Error("Artifactの確定先が競合しています。Previewを開き直してください。");
       }
     } else {
-      fs.writeFileSync(storedPath, normalized.content, { encoding: "utf8", flag: "wx" });
-      created = true;
+      let descriptor: number | null = null;
+      try {
+        // A crashed attempt may leave only this exact, deterministic staging file.
+        // The final path is never opened for writing, so a partial write cannot
+        // become a durable Artifact or poison a later retry.
+        fs.rmSync(tempPath, { force: true });
+        descriptor = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+        const content = Buffer.from(normalized.content, "utf8");
+        let offset = 0;
+        while (offset < content.length) {
+          const written = fs.writeSync(descriptor, content, offset, content.length - offset);
+          if (written <= 0) throw new Error("Artifact staging write made no progress");
+          offset += written;
+        }
+        fs.fsyncSync(descriptor);
+        fs.closeSync(descriptor);
+        descriptor = null;
+        if (fs.existsSync(storedPath)) {
+          if (!materializationKey || fs.readFileSync(storedPath, "utf8") !== normalized.content) {
+            throw new Error("Artifactの確定先が競合しています。Previewを開き直してください。");
+          }
+          fs.rmSync(tempPath, { force: true });
+        } else {
+          fs.renameSync(tempPath, storedPath);
+          created = true;
+        }
+      } catch (error) {
+        if (descriptor !== null) {
+          try { fs.closeSync(descriptor); } catch { /* cleanup continues below */ }
+        }
+        fs.rmSync(tempPath, { force: true });
+        if (error instanceof Error && error.message.startsWith("Artifactの確定先が競合しています。")) throw error;
+        throw new Error("Artifactを確定できませんでした。保存先の空き容量とアクセス権を確認して、もう一度採用してください。");
+      }
     }
     const stat = fs.statSync(storedPath);
     return {

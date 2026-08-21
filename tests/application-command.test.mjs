@@ -413,6 +413,28 @@ test("CommitAudioCapture is a Main-owned typed command and persists the Capture-
   }), /managed owner/);
 });
 
+test("ApplyAiProposal entry decisions are bounded, strict, and type-discriminated at IPC parsing", () => {
+  const base = envelope("ApplyAiProposal", {
+    proposal: { id: "proposal-bounded", version: 1, status: "accepted" },
+    decision: "accept",
+    decisions: [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: [0], beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    candidates: [{ type: "note", entity: { id: "note-bounded" } }],
+  }, "proposal-bounded:accept:v1");
+  assert.equal(parseCommandEnvelope(base).name, "ApplyAiProposal");
+  const invalidDecisions = [
+    Array.from({ length: 101 }, (_, entryIndex) => ({ entryIndex, type: "artifact", action: "ignore" })),
+    [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: Array.from({ length: 32_769 }, (_, index) => index), beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: [32_768], beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    [{ entryIndex: 0, type: "note", action: "accept", acceptedHunks: [0], beforeSignature: "a".repeat(1_000_000) }],
+    [{ entryIndex: 0, type: "artifact", action: "accept", acceptedHunks: [0] }],
+    [{ entryIndex: 0, type: "knowledge_node", action: "accept", beforeSignature: `sha256:1:${"a".repeat(64)}` }],
+    [{ entryIndex: 0, type: "sketch", action: "accept", unexpected: true }],
+  ];
+  for (const decisions of invalidDecisions) {
+    assert.throws(() => parseCommandEnvelope({ ...base, payload: { ...base.payload, decisions } }), /entry decision|decisions/);
+  }
+});
+
 test("CommitTrimmedVideoArtifact atomically saves a derived Artifact and its lineage", () => {
   const repo = repository();
   repo.records.set("task:trim-task", { __type: "task", id: "trim-task", title: "Demo", state: "todo", project_id: "theme-personal-default", version: 1 });
