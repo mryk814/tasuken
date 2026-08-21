@@ -38,7 +38,7 @@ function fixture() {
     notes: [note, record("note-m365", { title: "M365 note", body_markdown: "m365 body", project_id: m365Theme.id })], knowledge_nodes: [knowledge, record("knowledge-m365", { title: "M365 question", body: "m365", node_type: "question", theme_id: m365Theme.id })], knowledge_edges: [], links: [],
     resources: [record("resource-wave8", { title: "Resource", project_id: theme.id, url: "https://user:pass@example.com/private?token=SECRET#frag", local_path: "C:/private/resource.md", token: "SECRET" }), record("resource-m365", { title: "M365 resource", project_id: m365Theme.id, url: "https://example.com/m365" })],
     repository_contexts: [record("repo-wave8", { label: "Repo", provider: "github", canonical_url: "https://github.com/mryk814/tasuken", canonical_identity: "github.com/mryk814/tasuken", repository_slug: "mryk814/tasuken", local_path: "C:/private/repo", active: true })],
-    references: [record("ref-task-note", { source_type: "task", source_id: task.id, target_type: "note", target_id: note.id, relation_type: "related_to" }), record("ref-note-knowledge", { source_type: "note", source_id: note.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "answers" })],
+    references: [record("ref-task-note", { source_type: "task", source_id: task.id, target_type: "note", target_id: note.id, relation_type: "related_to" }), record("ref-note-knowledge", { source_type: "note", source_id: note.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "answers" }), record("ref-hidden-public-endpoints", { source_type: "task", source_id: task.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "related_to", ai_visibility: [] })],
     change_events: [event, hiddenEvent],
   };
 }
@@ -85,6 +85,12 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
         assert.match(overHttp.generated_at, /^20\d\d-/);
         assert.match(overMcp.generated_at, /^20\d\d-/);
         delete inProcess.generated_at; delete overHttp.generated_at; delete overMcp.generated_at;
+      }
+      if (method === "getContextSubgraph") {
+        for (const response of [inProcess, overHttp, overMcp]) {
+          assert.equal(response.edges.some((edge) => edge.assertion_id === "ref-hidden-public-endpoints"), false);
+          assert.doesNotMatch(JSON.stringify(response), /ref-hidden-public-endpoints/);
+        }
       }
       assert.deepEqual(overHttp, inProcess, `${tool} HTTP`);
       assert.deepEqual(overMcp, inProcess, `${tool} MCP`);

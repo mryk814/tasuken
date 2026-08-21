@@ -88,7 +88,15 @@ export class AgentContextQueryService {
         }
       }
     }
-    const graph = projectContextGraph(workspace);
+    // Build edges only from AI-visible records. Filtering graph nodes after
+    // projection cannot remove a private Reference whose endpoints are public.
+    const visibleWorkspace = { ...workspace };
+    for (const type of entityTypes) {
+      visibleWorkspace[collectionKeyForEntityType(type)] = ((workspace[collectionKeyForEntityType(type)] || []) as AgentContextRecord[])
+        .map((record) => records.get(entityKey(type, record.id)))
+        .filter(Boolean);
+    }
+    const graph = projectContextGraph(visibleWorkspace);
     const result = getContextSubgraph(graph, { type: request.entity_type, id: request.entity_id }, {
       maxHops: request.max_hops, maxNodes: request.max_nodes, maxEdges: request.max_edges,
       tokenBudget: request.token_budget, includeSuggested: Boolean(request.include_suggested),
