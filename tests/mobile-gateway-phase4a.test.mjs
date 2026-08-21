@@ -860,6 +860,84 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
   assert.equal(resetResponse.body.meta.serverId, "desktop-restored");
 });
 
+test("Mobile UpdateTask auto-merges a different-field race and returns canonical same-field conflict", async () => {
+  const { service } = capability();
+  const adapter = gateway(service);
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  })).status, 200);
+
+  const priorityUpdate = service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-desktop-priority",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: { task_id: "task-mobile-create", expected_version: 1, changes: { priority: "high" } },
+  });
+  assert.equal(priorityUpdate.ok, true);
+
+  const merged = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-update",
+      commandId: "command-mobile-update",
+      idempotencyKey: "command-mobile-update",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { title: "Mobile title" },
+        base: { title: "Mobile Task" },
+      },
+    },
+  });
+  assert.equal(merged.status, 200);
+  assert.equal(merged.body.data.task.title, "Mobile title");
+  assert.equal(merged.body.data.task.version, 3);
+
+  const desktopTitle = service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-desktop-title-after-mobile",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: { task_id: "task-mobile-create", expected_version: 3, changes: { title: "Desktop title" } },
+  });
+  assert.equal(desktopTitle.ok, true);
+
+  const conflict = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-update-conflict",
+      commandId: "command-mobile-update-conflict",
+      idempotencyKey: "command-mobile-update-conflict",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 3,
+        changes: { title: "Second mobile title" },
+        base: { title: "Mobile title" },
+      },
+    },
+  });
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.error.code, "version_conflict");
+  assert.equal(conflict.body.error.conflict.intendedAction, "UpdateTask");
+  assert.equal(conflict.body.error.conflict.currentTask.title, "Desktop title");
+});
+
 test("Phase 4A client rejects oversized/auth responses without disclosing credentials and stays native-free", async () => {
   const accessToken = "mobile-token-that-must-never-appear-in-errors";
   const unauthorizedClient = new MobileGatewayClient({

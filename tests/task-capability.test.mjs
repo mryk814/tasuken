@@ -153,6 +153,79 @@ function createCommand(source, suffix) {
   };
 }
 
+test("UpdateTask three-way merges different fields and rejects a same-field race", () => {
+  const { service } = capability();
+  const created = service.executeCommand(createCommand("desktop", "field-merge"));
+  assert.equal(created.ok, true);
+
+  const priorityUpdate = service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-priority-update",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: {
+      task_id: "task-field-merge",
+      expected_version: 1,
+      changes: { priority: "high" },
+    },
+  });
+  assert.equal(priorityUpdate.ok, true);
+
+  const mergedTitle = service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-mobile-title",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "mobile-device" },
+    source: "mobile",
+    issued_at: now,
+    payload: {
+      task_id: "task-field-merge",
+      expected_version: 1,
+      changes: { title: "Mobile title" },
+      base: { title: "Task field-merge" },
+    },
+  });
+  assert.equal(mergedTitle.ok, true);
+  assert.equal(mergedTitle.value.task.title, "Mobile title");
+  assert.equal(mergedTitle.value.task.priority, "high");
+  assert.equal(mergedTitle.value.task.version, 3);
+
+  const desktopTitle = service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-desktop-title",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: {
+      task_id: "task-field-merge",
+      expected_version: 3,
+      changes: { title: "Desktop title" },
+    },
+  });
+  assert.equal(desktopTitle.ok, true);
+
+  const conflict = service.executeCommand({
+    schemaVersion: 1,
+    command_id: "command-mobile-title-conflict",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "mobile-device" },
+    source: "mobile",
+    issued_at: now,
+    payload: {
+      task_id: "task-field-merge",
+      expected_version: 3,
+      changes: { title: "Second mobile title" },
+      base: { title: "Mobile title" },
+    },
+  });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.error.conflict_reason, "version_conflict");
+  assert.equal(conflict.error.details.current_task.title, "Desktop title");
+});
+
 test("Desktop, HTTP, and authorized MCP use the same Task application handler semantics", () => {
   const desktop = capability();
   const desktopResponse = desktop.service.executeCommand(createCommand("desktop", "desktop"));

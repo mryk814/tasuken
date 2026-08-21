@@ -142,6 +142,23 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null): Comm
   };
 }
 
+function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null): TaskCommand {
+  if (command.name !== "UpdateTask" || !current || !command.payload.base) return command;
+  if (Number(current.version) === command.payload.expected_version) return command;
+  const canMerge = Object.keys(command.payload.changes).every((key) => {
+    const currentValue = current[key];
+    const baseValue = command.payload.base?.[key as keyof typeof command.payload.base];
+    const intendedValue = command.payload.changes[key as keyof typeof command.payload.changes];
+    return JSON.stringify(currentValue) === JSON.stringify(baseValue)
+      || JSON.stringify(currentValue) === JSON.stringify(intendedValue);
+  });
+  if (!canMerge) return command;
+  return {
+    ...command,
+    payload: { ...command.payload, expected_version: Number(current.version) },
+  };
+}
+
 function eventFor(command: TaskCommand, receipt: CommandReceipt, task: TaskReadModel): TaskEvent | null {
   if (receipt.status === "no_change") return null;
   const eventBase = {
@@ -187,11 +204,12 @@ export class TaskCapabilityService {
   executeCommand(input: unknown): TaskCommandResponse {
     const parsed = parseTaskCommand(input);
     if (!parsed.ok) return parsed;
-    const command = parsed.value;
+    let command = parsed.value;
     const taskId = command.name === "CreateTask" ? command.payload.task.id : command.payload.task_id;
     try {
       const current = this.queries.getTask(taskId, true);
       if (command.name === "UpdateTask" && !current) return { ok: false, error: taskError("NOT_FOUND", "更新対象のTaskがありません。") };
+      command = mergeNonOverlappingUpdate(command, current);
       const receipt = this.executeApplicationCommand(applicationEnvelope(command, current));
       if (receipt.status === "conflict") {
         const currentTask = this.queries.getTask(taskId, true);
