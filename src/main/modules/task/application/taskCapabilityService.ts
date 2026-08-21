@@ -83,6 +83,20 @@ function expectedVersion(command: Exclude<TaskCommand, { name: "CreateTask" }>) 
   return [{ type: "task" as const, id: command.payload.task_id, version: command.payload.expected_version }];
 }
 
+function materializedTask(
+  command: Exclude<TaskCommand, { name: "CreateTask" | "DeleteTask" }>,
+  current: Entity | null,
+  changes: Record<string, unknown>,
+): Entity {
+  return {
+    ...current,
+    ...changes,
+    id: command.payload.task_id,
+    version: command.payload.expected_version,
+    updated_at: command.issued_at,
+  };
+}
+
 function applicationEnvelope(command: TaskCommand, current: Entity | null): CommandEnvelope {
   const base = {
     commandId: command.command_id,
@@ -96,7 +110,7 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null): Comm
   if (command.name === "UpdateTask") {
     return {
       ...base,
-      payload: { task: { ...current, ...command.payload.changes, id: command.payload.task_id } },
+      payload: { task: materializedTask(command, current, command.payload.changes) },
       expectedVersions: expectedVersion(command),
     };
   }
@@ -106,7 +120,7 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null): Comm
       payload: {
         taskId: command.payload.task_id,
         completionNote: command.payload.completion_note,
-        ...(command.payload.changes ? { task: { ...current, ...command.payload.changes, id: command.payload.task_id } } : {}),
+        ...(command.payload.changes ? { task: materializedTask(command, current, command.payload.changes) } : {}),
       },
       expectedVersions: expectedVersion(command),
     };
@@ -116,7 +130,7 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null): Comm
       ...base,
       payload: {
         taskId: command.payload.task_id,
-        ...(command.payload.changes ? { task: { ...current, ...command.payload.changes, id: command.payload.task_id } } : {}),
+        ...(command.payload.changes ? { task: materializedTask(command, current, command.payload.changes) } : {}),
       },
       expectedVersions: expectedVersion(command),
     };

@@ -4,15 +4,6 @@
   "entries": [
     {
       "rule": "composition.baseline_increase",
-      "source": "src/main/index.ts",
-      "reason": "Tasken Core loopback host lifecycle is temporarily composed in the legacy Desktop Main entrypoint during the #412 phased migration.",
-      "owner": "tasken-core-migration",
-      "issue": 412,
-      "expiresAt": "2026-11-30",
-      "removalCondition": "Move Desktop startup composition out of the legacy Main entrypoint when Tasken Core becomes the canonical runtime and the legacy MCP read context is removed."
-    },
-    {
-      "rule": "composition.baseline_increase",
       "source": "src/main/ipc/registerIpc.ts",
       "reason": "Task capability registration is temporarily composed in the legacy IPC registrar during the #405 reference migration.",
       "owner": "task-capability-migration",

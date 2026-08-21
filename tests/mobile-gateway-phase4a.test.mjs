@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import { build } from "esbuild";
@@ -10,6 +11,8 @@ const bundled = await build({
     contents: `
       export { ApplicationCommandService } from "./src/main/services/applicationCommandService.ts";
       export { TaskCapabilityService } from "./src/main/modules/task/public.ts";
+      export { TaskenCoreRuntime } from "./src/main/composition/taskenCoreRuntime.ts";
+      export { TaskenCoreClient } from "./src/main/mcp/taskenCoreClient.mjs";
       export { MobileGatewayAdapter, MobileGatewayClient, MobileGatewayClientError, MobileGatewayCoreUnavailableError } from "./src/main/gateway/mobile/public.ts";
       export * from "./src/shared/contracts/mobile/public.ts";
     `,
@@ -32,6 +35,8 @@ const {
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
   TaskCapabilityService,
+  TaskenCoreClient,
+  TaskenCoreRuntime,
   mobileCreateTaskRequestSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
@@ -771,4 +776,99 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
     write: false,
     logLevel: "silent",
   }));
+});
+
+test("Phase 4A production Runtime shares one Task service across Desktop, Core HTTP, and Mobile", async () => {
+  const root = mkdtempSync("/tmp/tasken-core-mobile-");
+  chmodSync(root, 0o700);
+  const repository = new MemoryRepository();
+  const application = new ApplicationCommandService(repository);
+  const runtime = new TaskenCoreRuntime(root, repository, (command) => application.execute(command));
+  const client = runtime.createClient(root);
+  try {
+    await runtime.start();
+    chmodSync(path.join(root, "tasken-core.json"), 0o600);
+    assert.equal(statSync(path.join(root, "tasken-core.json")).mode & 0o077, 0);
+    const adapter = runtime.createMobileGateway({
+      current: () => ({ serverId: "desktop-home", serverRevision: 42, generatedAt: now }),
+    });
+    const status = await client.status();
+    assert.equal(status.apiVersion, "1");
+    assert.equal(status.capabilities.includes("task.query"), true);
+    assert.equal(status.capabilities.includes("task.command"), true);
+
+    const created = await adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body: createRequest(),
+    });
+    assert.equal(created.status, 200);
+
+    const query = {
+      schemaVersion: 1,
+      query_id: "query-shared-task",
+      name: "GetTask",
+      parameters: { task_id: "task-mobile-create", include_deleted: false },
+    };
+    const desktopRead = runtime.taskCapability.executeQuery(query);
+    const coreHttpRead = await client.executeTaskQuery(query);
+    assert.deepEqual(coreHttpRead, desktopRead);
+    await assert.rejects(
+      client.executeTaskQuery({ ...query, unexpected: true }),
+      (error) => error?.code === "VALIDATION_FAILED" && error?.status === 400,
+    );
+    const malformedClient = new TaskenCoreClient({
+      discoveryPath: path.join(root, "tasken-core.json"),
+      fetch: async () => new Response(JSON.stringify({ ...coreHttpRead, leaked: "must-not-pass" }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "x-tasken-core-version": "1",
+        },
+      }),
+    });
+    await assert.rejects(
+      malformedClient.executeTaskQuery(query),
+      (error) => error?.code === "INVALID_RESPONSE" && !JSON.stringify(error).includes("must-not-pass"),
+    );
+
+    const update = {
+      schemaVersion: 1,
+      command_id: "command-core-http-update",
+      name: "UpdateTask",
+      actor: { kind: "user", id: "desktop-user" },
+      source: "http",
+      issued_at: now,
+      payload: {
+        task_id: "task-mobile-create",
+        expected_version: 1,
+        changes: { title: "Updated through Core HTTP" },
+      },
+    };
+    const updated = await client.executeTaskCommand(update);
+    assert.equal(updated.ok, true);
+    assert.equal(updated.value.task.title, "Updated through Core HTTP");
+
+    const mobileRead = await adapter.handle({
+      method: "GET",
+      path: TASKEN_MOBILE_ENDPOINTS.today,
+      principal,
+      query: todayQuery({ requestId: "request-after-core-update" }),
+    });
+    assert.equal(mobileRead.status, 200);
+    assert.equal(mobileRead.body.data.items[0].title, "Updated through Core HTTP");
+    assert.deepEqual(await client.executeTaskCommand(update), updated);
+    assert.equal(repository.list("change_event").length, 2);
+
+    await runtime.stop();
+    await assert.rejects(
+      client.executeTaskQuery(query),
+      (error) => error?.code === "CORE_UNAVAILABLE",
+    );
+    assert.doesNotMatch(readFileSync("src/main/mcp/server.mjs", "utf8"), /executeTaskCommand/);
+  } finally {
+    await runtime.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

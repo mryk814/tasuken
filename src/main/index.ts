@@ -19,9 +19,8 @@ import { createSatelliteWindowRegistry, type SatelliteWindowRegistry } from "./s
 import { createMemoStickyController, type MemoStickyController } from "./memoStickyController";
 import { createNoteWindowController, type NoteWindowController } from "./noteWindowController";
 import { createTrayController, type TrayController } from "./trayController";
+import { TaskenDesktopComposition, applyMcpPackageSmokeUserData, readMcpPackageSmokeLaunchOptions } from "./composition/taskenDesktopComposition.ts";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
-import { TaskenCoreRuntime } from "./composition/taskenCoreRuntime.ts";
-import { TaskenCoreClient } from "./mcp/taskenCoreClient.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProviderService } from "./services/aiProviderService";
@@ -32,8 +31,6 @@ import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBack
 import { createSnapshot, readSnapshot } from "./services/snapshotService.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
-import { validateMcpPackageSmokeRoot } from "../shared/taskenPaths.mjs";
-import { ApplicationCommandService } from "./services/applicationCommandService";
 import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
@@ -47,16 +44,7 @@ import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
-const isMcpPackageSmoke = process.argv.includes("--mcp-package-smoke");
-const isMcpPackageSmokeVerifyOnly = process.argv.includes("--mcp-package-smoke-verify-only");
-const mcpPackageSmokeResultArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-result-path="));
-const mcpPackageSmokeResultPath = mcpPackageSmokeResultArgument?.slice("--mcp-package-smoke-result-path=".length) || "";
-const mcpPackageSmokeProposalArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-proposal-id="));
-const mcpPackageSmokeProposalId = mcpPackageSmokeProposalArgument?.slice("--mcp-package-smoke-proposal-id=".length) || "";
-const mcpPackageSmokeMarkerArgument = process.argv.find((argument) => argument.startsWith("--mcp-package-smoke-marker="));
-const mcpPackageSmokeMarker = mcpPackageSmokeMarkerArgument?.slice("--mcp-package-smoke-marker=".length) || "";
-const userDataArgument = process.argv.find((argument) => argument.startsWith("--user-data-dir="));
-const requestedUserDataPath = userDataArgument?.slice("--user-data-dir=".length);
+const mcpPackageSmoke = readMcpPackageSmokeLaunchOptions(process.argv, process.env);
 const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
 const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
 const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
@@ -81,6 +69,7 @@ if (isSmokeTest && !isSmokeRestartCheck) {
 const APP_NAME = "Tasken";
 const MAIN_WINDOW_DEFAULT_WIDTH = 1760;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 1024;
+let desktopComposition: TaskenDesktopComposition | null = null;
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let trayController: TrayController | null = null;
 let quickCaptureController: QuickCaptureController | null = null;
@@ -91,7 +80,6 @@ let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
-let taskenCoreRuntime: TaskenCoreRuntime | null = null;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
@@ -487,16 +475,7 @@ app.disableHardwareAcceleration();
   // Windows画面録画はChromiumのlegacy desktop capturerへ固定して列挙と録画を同じbackendに揃える。
   app.commandLine.appendSwitch("disable-features", "EditContext,AllowWgcScreenCapturer,AllowWgcWindowCapturer");
 
-  if (isMcpPackageSmoke) {
-    if (!app.isPackaged) throw new Error("MCP package smokeはpackaged Desktopでのみ使用できます。");
-    app.setPath("userData", validateMcpPackageSmokeRoot({
-      userDataPath: requestedUserDataPath,
-      markerToken: mcpPackageSmokeMarker,
-      environmentMarker: process.env.TASKEN_MCP_PACKAGE_SMOKE_MARKER,
-    }));
-  } else if (requestedUserDataPath) {
-    app.setPath("userData", path.resolve(requestedUserDataPath));
-  } else if (isSmokeTest) {
+  if (!applyMcpPackageSmokeUserData(mcpPackageSmoke, app.isPackaged, (userDataPath) => app.setPath("userData", userDataPath)) && isSmokeTest) {
     const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
     app.setPath("userData", smokeUserDataPath);
     recordSmoke("main-started");
@@ -2337,23 +2316,10 @@ async function startDesktopApp(): Promise<void> {
   configureMainLog(app.getPath("userData"));
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
-  if (isMcpPackageSmoke) {
-    workspaceRepository.ensureMcpPackageSmokeFixture();
-    if (mcpPackageSmokeProposalId) {
-      if (!/^[0-9a-f-]{36}$/i.test(mcpPackageSmokeProposalId)) throw new Error("MCP package smoke Proposal IDが不正です。");
-      const verification = workspaceRepository.verifyMcpPackageSmokeProposal(mcpPackageSmokeProposalId);
-      if (mcpPackageSmokeResultPath) {
-        fs.writeFileSync(path.resolve(mcpPackageSmokeResultPath), JSON.stringify(verification), { flag: "w" });
-      }
-    }
-    if (isMcpPackageSmokeVerifyOnly) {
-      workspaceRepository.db.close();
-      app.exit(0);
-      return;
-    }
-  }
-  taskenCoreRuntime = new TaskenCoreRuntime(app.getPath("userData"), workspaceRepository);
-  await taskenCoreRuntime.start();
+  const composition = desktopComposition = new TaskenDesktopComposition({ userDataPath: app.getPath("userData"), persistence: workspaceRepository, mcpPackageSmoke });
+  if (composition.packageSmokeVerifyOnlyCompleted) { app.exit(0); return; }
+  await composition.start();
+  const applicationCommands = composition.applicationCommands;
   let smokeAudioSourcePath = "";
   if (isSmokeTest && !isSmokeRestartCheck) {
     const managedDirectory = path.join(app.getPath("userData"), "smoke-managed-artifacts");
@@ -2363,12 +2329,11 @@ async function startDesktopApp(): Promise<void> {
     smokeVideoSourcePath = path.join(app.getPath("userData"), "smoke-video.webm");
     fs.writeFileSync(smokeVideoSourcePath, tinyVp8Webm(), { flag: "wx" });
   }
-  const applicationCommands = new ApplicationCommandService(workspaceRepository);
   const workspaceService = new WorkspaceService(
     workspaceRepository,
     app.getPath("userData"),
     undefined,
-    new TaskenCoreClient({ userDataPath: app.getPath("userData") }),
+    composition.createCoreClient(),
   );
   const automaticSnapshotBackup = new AutomaticSnapshotBackupService({
     repository: workspaceRepository,
@@ -2460,6 +2425,7 @@ async function startDesktopApp(): Promise<void> {
     aiProvider,
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
     applicationCommands,
+    composition.taskCapability,
     mediaCapture,
     batchTranscription,
     screenRecording,
@@ -2594,10 +2560,8 @@ if (!hasSingleInstanceLock) {
     if (app.isReady()) showMainWindow();
   });
   void startDesktopApp().catch(async (error: unknown) => {
-    await taskenCoreRuntime?.stop().catch((stopError: unknown) => {
-      logMain("warn", "tasken-core", "起動失敗後にloopback hostを停止できませんでした", stopError);
-    });
-    taskenCoreRuntime = null;
+    await desktopComposition?.stopSafely((stopError) => logMain("warn", "tasken-core", "起動失敗後にloopback hostを停止できませんでした", stopError));
+    desktopComposition = null;
     console.error("Tasken failed to start.", error);
     recordSmoke("startup-failed", { error: String(error) });
     app.exit(1);
@@ -2625,10 +2589,8 @@ app.on("before-quit", (event) => {
       console.warn("終了前flushが完了しなかったため、アプリを終了しませんでした。");
       return;
     }
-    await taskenCoreRuntime?.stop().catch((error: unknown) => {
-      logMain("warn", "tasken-core", "loopback hostを停止できませんでした", error);
-    });
-    taskenCoreRuntime = null;
+    await desktopComposition?.stopSafely((error) => logMain("warn", "tasken-core", "loopback hostを停止できませんでした", error));
+    desktopComposition = null;
     appQuitApproved = true;
     app.quit();
   });

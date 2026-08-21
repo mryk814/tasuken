@@ -21,6 +21,8 @@ import {
   proposeTaskWorkResponseSchema,
   proposeRepositoryTaskResponseSchema,
   proposeContentResponseSchema,
+  taskCommandResponseSchema,
+  taskQueryResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -51,6 +53,8 @@ import {
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
+  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../shared/contracts/core/public.mjs";
 
@@ -288,6 +292,14 @@ export class TaskenCoreClient {
     return this.request("/v1/commands/propose-content", TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY, request, proposeContentResponseSchema, "propose-content");
   }
 
+  async executeTaskQuery(request = {}) {
+    return this.request("/v1/task/query", TASKEN_CORE_TASK_QUERY_CAPABILITY, request, taskQueryResponseSchema, "task-query");
+  }
+
+  async executeTaskCommand(request = {}) {
+    return this.request("/v1/task/command", TASKEN_CORE_TASK_COMMAND_CAPABILITY, request, taskCommandResponseSchema, "task-command");
+  }
+
   async inspect() {
     const discovery = await readDiscovery(this.discoveryPath);
     const [health, version, capabilityPayload] = await Promise.all([
@@ -311,6 +323,11 @@ export class TaskenCoreClient {
       throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core discoveryとlive capabilitiesが一致しません。");
     }
     return { status: "ok", api_version: TASKEN_CORE_API_VERSION, capabilities: live };
+  }
+
+  async status() {
+    const result = await this.inspect();
+    return { apiVersion: result.api_version, capabilities: result.capabilities };
   }
 
   async query(path, capability, request, responseSchema) {
