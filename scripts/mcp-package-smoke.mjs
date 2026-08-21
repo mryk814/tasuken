@@ -9,9 +9,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 import { TASKEN_MCP_REQUIRED_CORE_CAPABILITIES, TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
 import { TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE } from "../src/shared/taskenPaths.mjs";
+import { monitorPackagedProcess, waitForPackagedReadiness } from "./mcp-package-smoke-readiness.mjs";
 
 const executable = path.resolve(process.argv[2] || path.join("release", "win-unpacked", "Tasken.exe"));
 if (!fs.existsSync(executable)) throw new Error("Tasken packaged executable was not found.");
+const PACKAGED_CORE_STARTUP_TIMEOUT_MS = 90_000;
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-packaged-mcp-"));
 const serverPath = path.join(path.dirname(executable), "resources", "mcp", "server.mjs");
@@ -31,21 +33,24 @@ const environment = {
   TASKEN_MCP_INBOX_PATH: legacyInboxPath,
 };
 const coreClient = new TaskenCoreClient({ env: environment, timeoutMs: 2_000 });
-let desktop = spawn(executable, desktopArgs, { env: desktopEnvironment, stdio: "ignore", windowsHide: true });
+function launchDesktop(args) {
+  const child = spawn(executable, args, {
+    env: desktopEnvironment,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  return monitorPackagedProcess(child, { redactions: [markerToken, root] });
+}
+
+let desktop = launchDesktop(desktopArgs);
 let client;
 
 async function waitForCore() {
-  const deadline = Date.now() + 30_000;
-  let lastError;
-  while (Date.now() < deadline) {
-    try {
-      return await coreClient.inspect();
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  }
-  throw lastError || new Error("Tasken Core did not become ready.");
+  return waitForPackagedReadiness({
+    monitor: desktop,
+    probe: () => coreClient.inspect(),
+    timeoutMs: PACKAGED_CORE_STARTUP_TIMEOUT_MS,
+  });
 }
 
 async function connectMcp() {
@@ -61,10 +66,10 @@ async function connectMcp() {
 }
 
 async function stopDesktop() {
-  desktop.kill();
-  if (desktop.exitCode === null) {
+  desktop.child.kill();
+  if (desktop.child.exitCode === null) {
     await new Promise((resolve) => {
-      desktop.once("exit", resolve);
+      desktop.child.once("exit", resolve);
       setTimeout(resolve, 5_000).unref();
     });
   }
@@ -72,15 +77,21 @@ async function stopDesktop() {
 
 async function launchVerification(proposalId, verifyOnly = false) {
   if (fs.existsSync(verificationPath)) fs.rmSync(verificationPath);
-  desktop = spawn(executable, [
+  desktop = launchDesktop([
     ...desktopArgs,
     `--mcp-package-smoke-proposal-id=${proposalId}`,
     `--mcp-package-smoke-result-path=${verificationPath}`,
     ...(verifyOnly ? ["--mcp-package-smoke-verify-only"] : []),
-  ], { env: desktopEnvironment, stdio: "ignore", windowsHide: true });
+  ]);
   if (!verifyOnly) return;
-  const exitCode = await new Promise((resolve) => desktop.once("exit", resolve));
-  if (exitCode !== 0 || !fs.existsSync(verificationPath)) throw new Error("Packaged Desktop Proposal verification failed.");
+  const termination = await desktop.termination;
+  if (termination.kind !== "exit" || termination.code !== 0 || !fs.existsSync(verificationPath)) {
+    const diagnostic = desktop.diagnostic();
+    throw new Error(
+      `Packaged Desktop Proposal verification failed (${termination.kind === "exit" ? `exit ${termination.code}` : "spawn error"}).`
+        + (diagnostic ? `\nPackaged process diagnostic:\n${diagnostic}` : ""),
+    );
+  }
 }
 
 try {
@@ -167,6 +178,6 @@ try {
   })}\n`);
 } finally {
   await client?.close().catch(() => {});
-  if (desktop.exitCode === null) await stopDesktop();
+  if (desktop.child.exitCode === null) await stopDesktop();
   fs.rmSync(root, { recursive: true, force: true });
 }
