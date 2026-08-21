@@ -782,15 +782,18 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
 test("Phase 4A production Runtime shares one Task service across Desktop, Core HTTP, and Mobile", async () => {
   const tempRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
   const root = mkdtempSync(path.join(tempRoot, "tasken-core-mobile-"));
-  chmodSync(root, 0o700);
+  const enforcesPosixOwnerMode = typeof process.getuid === "function";
+  if (enforcesPosixOwnerMode) chmodSync(root, 0o700);
   const repository = new MemoryRepository();
   const application = new ApplicationCommandService(repository);
   const runtime = new TaskenCoreRuntime(root, repository, (command) => application.execute(command));
   const client = runtime.createClient(root);
   try {
     await runtime.start();
-    chmodSync(path.join(root, "tasken-core.json"), 0o600);
-    assert.equal(statSync(path.join(root, "tasken-core.json")).mode & 0o077, 0);
+    if (enforcesPosixOwnerMode) {
+      chmodSync(path.join(root, "tasken-core.json"), 0o600);
+      assert.equal(statSync(path.join(root, "tasken-core.json")).mode & 0o077, 0);
+    }
     const adapter = runtime.createMobileGateway({
       current: () => ({ serverId: "desktop-home", serverRevision: 42, generatedAt: now }),
     });
