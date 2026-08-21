@@ -9,11 +9,15 @@ class TodayPaneStateTest {
         val before = TodayPaneState()
         before.selectedTaskId = "10000000-0000-4000-8000-000000000001"
         before.recordScroll(7, 32)
+        before.captureDraft = "折りたたみ後も残す"
+        before.captureOpen = true
 
         val restored = TodayPaneState.restore(before.save())
 
         assertEquals(before.selectedTaskId, restored.selectedTaskId)
         assertEquals(7, restored.listScrollIndex)
         assertEquals(32, restored.listScrollOffset)
+        assertEquals("折りたたみ後も残す", restored.captureDraft)
+        assertEquals(true, restored.captureOpen)
     }
 }

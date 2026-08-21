@@ -65,6 +65,41 @@ class TodayViewModelTest {
         assertTrue(success.tasks.single().pending)
     }
 
+    @Test
+    fun createTaskQueuesOfflineCommandAndReportsTaskId() {
+        var receivedTitle = ""
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?): String {
+                receivedTitle = title
+                return "queued-task-id"
+            }
+        }
+        val viewModel = TodayViewModel(repository)
+
+        runBlocking { viewModel.createTaskNow("  外出先で追加  ") }
+
+        assertEquals("外出先で追加", receivedTitle)
+        assertEquals(CaptureUiState.Queued("queued-task-id"), viewModel.captureState.value)
+    }
+
+    @Test
+    fun createTaskValidationKeepsActionRecoverable() {
+        val viewModel = TodayViewModel(FakeRepository(emptyList()))
+
+        runBlocking { viewModel.createTaskNow("   ") }
+
+        assertEquals(CaptureUiState.Error("Task名を入力してください。"), viewModel.captureState.value)
+    }
+
+    @Test
+    fun taskStateLabelsUseSharedJapaneseVocabulary() {
+        assertEquals("未着手", taskStateLabel("todo"))
+        assertEquals("確認待ち", taskStateLabel("review"))
+    }
+
     private class FakeRepository(private val tasks: List<MobileTask>) : MobileTaskRepository {
         override fun loadToday() = MobileTodayResult.Available(tasks, "2026-08-21T10:00:00.000Z")
     }
