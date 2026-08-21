@@ -127,6 +127,15 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
       assert.match(proposal.request.payload_digest, /^[0-9a-f]{64}$/);
     }
 
+    const legacyArgs = { title: "Legacy note", body: "No identity fields" };
+    const legacyFirst = await callProposal(client, "tasken.propose_note", legacyArgs);
+    const legacySecond = await callProposal(client, "tasken.propose_note", legacyArgs);
+    assert.equal(legacyFirst.status, "queued");
+    assert.equal(legacySecond.status, "queued");
+    assert.notEqual(legacyFirst.proposal_id, legacySecond.proposal_id);
+    assert.equal(database.get("ai_proposal", legacyFirst.proposal_id).request.caller, "mcp-client");
+    assert.equal(database.get("ai_proposal", legacySecond.proposal_id).request.caller, "mcp-client");
+
     await client.close();
     await host.stop();
     database.db.close();
