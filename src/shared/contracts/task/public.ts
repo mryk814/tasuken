@@ -224,3 +224,12 @@ export {
   type SearchKnowledgeRequest,
   type SearchKnowledgeResponse,
 } from "./knowledgeQueries.ts";
+
+export {
+  exportAiContextPackSchema, exportAiContextRequestSchema, exportAiContextResponseSchema,
+  getActivityRequestSchema, getActivityResponseSchema,
+  getContextSubgraphRequestSchema, getContextSubgraphResponseSchema,
+  type ExportAiContextRequest, type ExportAiContextResponse,
+  type GetActivityRequest, type GetActivityResponse,
+  type GetContextSubgraphRequest, type GetContextSubgraphResponse,
+} from "./agentContextQueries.ts";

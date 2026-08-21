@@ -320,7 +320,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetActivity(args)));
+  }, withCoreClient((args) => coreClient.getActivity(args)));
 
   server.registerTool("tasken.get_context_subgraph", {
     description: "Return a bounded, read-only Context/Provenance subgraph for one typed entity. Suggested relations are excluded by default and never become facts.",
@@ -335,7 +335,7 @@ export function createTaskenMcpServer(options = {}) {
       include_archived: z.boolean().optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolGetContextSubgraph(args)));
+  }, withCoreClient((args) => coreClient.getContextSubgraph(args)));
 
   server.registerTool("tasken.export_ai_context", {
     description: "Export bounded Tasken context as Markdown or JSON.",
@@ -352,7 +352,7 @@ export function createTaskenMcpServer(options = {}) {
       audience: z.enum(["m365", "coding_agent", "external_ai"]).optional(),
     },
     annotations: READ_ONLY_ANNOTATIONS,
-  }, withReadContext(readContextProvider, (context, args) => context.toolExportAiContext(args)));
+  }, withCoreClient((args) => coreClient.exportAiContext(args)));
 
   if (readOnly) return server;
 
