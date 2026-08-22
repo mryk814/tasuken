@@ -43,6 +43,48 @@ if (editorSource.split(weightImport).length - 1 !== 1) {
 }
 fs.writeFileSync(editorPath, editorSource.replace(weightImport, ""), "utf8");
 
+// GitHub re-runs freeze the original workflow definition. That definition
+// requested a host SDK profile ID (`pixel_8`) no longer present in the current
+// avdmanager catalog. The test does not depend on physical screen dimensions,
+// so install a runner-local wrapper that drops only the optional --device pair.
+// Nothing under the repository is retained for this compatibility shim.
+const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+const runnerTemp = process.env.RUNNER_TEMP;
+const githubPath = process.env.GITHUB_PATH;
+if (!sdkRoot || !runnerTemp || !githubPath) {
+  throw new Error("Android CI environment variables are unavailable");
+}
+const realAvdManager = path.join(sdkRoot, "cmdline-tools", "latest", "bin", "avdmanager");
+if (!fs.existsSync(realAvdManager)) {
+  throw new Error(`avdmanager was not found: ${realAvdManager}`);
+}
+const wrapperDirectory = path.join(runnerTemp, "tasken-avdmanager-wrapper");
+const wrapperPath = path.join(wrapperDirectory, "avdmanager");
+fs.mkdirSync(wrapperDirectory, { recursive: true });
+fs.writeFileSync(
+  wrapperPath,
+  `#!/usr/bin/env bash
+set -euo pipefail
+args=()
+skip_next=0
+for arg in "$@"; do
+  if [[ "$skip_next" == "1" ]]; then
+    skip_next=0
+    continue
+  fi
+  if [[ "$arg" == "--device" ]]; then
+    skip_next=1
+    continue
+  fi
+  args+=("$arg")
+done
+exec ${JSON.stringify(realAvdManager)} "${'${args[@]}'}"
+`,
+  "utf8",
+);
+fs.chmodSync(wrapperPath, 0o755);
+fs.appendFileSync(githubPath, `${wrapperDirectory}\n`, "utf8");
+
 const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 delete packageJson.scripts.pretypecheck;
 fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n", "utf8");
