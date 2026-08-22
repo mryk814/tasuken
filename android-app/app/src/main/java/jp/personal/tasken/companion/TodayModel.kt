@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -28,7 +29,60 @@ data class MobileTask(
     val pending: Boolean = false,
     val conflict: MobileTaskConflict? = null,
     val canChangePendingState: Boolean = false,
+    val rejectedThemeUpdate: MobileRejectedThemeUpdate? = null,
 )
+
+data class MobileRejectedThemeUpdate(
+    val commandId: String,
+    val attemptedThemeId: String?,
+    val code: String,
+    val message: String,
+    val rejectedAt: String,
+)
+
+data class MobileTheme(
+    val id: String,
+    val title: String,
+)
+
+sealed interface MobileThemeCatalogState {
+    val themes: List<MobileTheme>
+
+    data class Loading(
+        override val themes: List<MobileTheme> = emptyList(),
+        val serverId: String? = null,
+        val serverRevision: Int? = null,
+    ) : MobileThemeCatalogState
+
+    data class Available(
+        override val themes: List<MobileTheme>,
+        val serverId: String,
+        val serverRevision: Int,
+        val generatedAt: String,
+    ) : MobileThemeCatalogState
+
+    data class Stale(
+        override val themes: List<MobileTheme>,
+        val serverId: String,
+        val serverRevision: Int,
+        val generatedAt: String,
+        val message: String,
+    ) : MobileThemeCatalogState
+
+    data class Unsupported(
+        val serverId: String,
+        val message: String,
+    ) : MobileThemeCatalogState {
+        override val themes: List<MobileTheme> = emptyList()
+    }
+
+    data class Error(
+        val serverId: String,
+        val message: String,
+    ) : MobileThemeCatalogState {
+        override val themes: List<MobileTheme> = emptyList()
+    }
+}
 
 data class MobileTaskConflict(
     val commandId: String,
@@ -41,6 +95,9 @@ data class MobileTaskConflict(
     val serverTodayDate: String? = null,
     val localTodayDate: String? = null,
     val localTodayDateChanged: Boolean = false,
+    val serverThemeId: String? = null,
+    val localThemeId: String? = null,
+    val localThemeIdChanged: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -77,6 +134,7 @@ sealed interface TaskActionUiState {
     data class Saving(val taskId: String) : TaskActionUiState
     data class Queued(val taskId: String, val requiresSync: Boolean = true) : TaskActionUiState
     data class ConflictResolved(val taskId: String, val keptLocal: Boolean) : TaskActionUiState
+    data class RejectedThemeDismissed(val taskId: String) : TaskActionUiState
     data class Error(val taskId: String, val message: String) : TaskActionUiState
 }
 
@@ -96,6 +154,12 @@ class TodayViewModel(
     val conflictCount: StateFlow<Int> = mutableConflictCount.asStateFlow()
     private val mutableAllTasks = MutableStateFlow<List<MobileTask>>(emptyList())
     val allTasks: StateFlow<List<MobileTask>> = mutableAllTasks.asStateFlow()
+    private val mutableThemes = MutableStateFlow<List<MobileTheme>>(emptyList())
+    val themes: StateFlow<List<MobileTheme>> = mutableThemes.asStateFlow()
+    private val mutableThemeCatalogState = MutableStateFlow<MobileThemeCatalogState>(
+        MobileThemeCatalogState.Loading(),
+    )
+    val themeCatalogState: StateFlow<MobileThemeCatalogState> = mutableThemeCatalogState.asStateFlow()
     private var observingCache = false
     private var cachedGeneratedAt = ""
 
@@ -110,6 +174,12 @@ class TodayViewModel(
             }
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observeAllCachedTasks().collect { mutableAllTasks.value = it.toList() }
+            }
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observeThemeCatalogState().collect { state ->
+                    mutableThemeCatalogState.value = state
+                    mutableThemes.value = state.themes.toList()
+                }
             }
         }
     }
@@ -235,6 +305,52 @@ class TodayViewModel(
             TaskActionUiState.Queued(task.id)
         } catch (error: Exception) {
             TaskActionUiState.Error(task.id, error.message ?: "Taskの予定を変更できませんでした。")
+        }
+    }
+
+    fun updateTaskTheme(task: MobileTask, themeId: String) {
+        viewModelScope.launch { updateTaskThemeNow(task, themeId) }
+    }
+
+    fun discardRejectedThemeUpdate(task: MobileTask) {
+        viewModelScope.launch { discardRejectedThemeUpdateNow(task) }
+    }
+
+    internal suspend fun discardRejectedThemeUpdateNow(task: MobileTask) {
+        val rejection = task.rejectedThemeUpdate ?: return
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境では却下情報を破棄できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) {
+                offlineRepository.discardRejectedThemeUpdate(task.id, rejection.commandId)
+            }
+            TaskActionUiState.RejectedThemeDismissed(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Theme変更の却下情報を破棄できませんでした。")
+        }
+    }
+
+    internal suspend fun updateTaskThemeNow(task: MobileTask, themeId: String) {
+        if (task.themeId == themeId) return
+        if (task.pending || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してからThemeを変更してください。")
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskのThemeを変更できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) { offlineRepository.enqueueUpdateTaskTheme(task.id, themeId) }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "TaskのThemeを変更できませんでした。")
         }
     }
 
@@ -405,12 +521,21 @@ interface MobileGatewayRepository : MobileTaskRepository {
 interface MobileOfflineTaskRepository {
     fun observeCachedTasks(): Flow<List<MobileTask>>
     fun observeAllCachedTasks(): Flow<List<MobileTask>> = observeCachedTasks()
+    fun observeCachedThemes(): Flow<List<MobileTheme>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    fun observeThemeCatalogState(): Flow<MobileThemeCatalogState> = observeCachedThemes().map { themes ->
+        MobileThemeCatalogState.Loading(themes = themes.toList())
+    }
     fun observePendingCount(): Flow<Int>
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
     suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String = error("この環境ではTaskを編集できません。")
     suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: java.time.LocalDate?): String =
         error("この環境ではTaskの予定を変更できません。")
+    suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
+        error("この環境ではTaskのThemeを変更できません。")
+    suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) {
+        error("この環境ではTheme変更の却下情報を破棄できません。")
+    }
     suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult
     suspend fun enqueueReopenTask(taskId: String): MobileStateActionResult
     suspend fun acceptServerConflict(commandId: String) {

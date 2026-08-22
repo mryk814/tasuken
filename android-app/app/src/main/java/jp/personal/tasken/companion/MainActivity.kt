@@ -27,7 +27,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -50,6 +54,7 @@ import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation.NavigableListDetailPaneScaffold
 import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,14 +71,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -129,6 +140,8 @@ private fun TodayApp(
     val pendingCount by todayViewModel.pendingCount.collectAsState()
     val conflictCount by todayViewModel.conflictCount.collectAsState()
     val allTasks by todayViewModel.allTasks.collectAsState()
+    val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
+    val themes = themeCatalogState.themes
     val paneState = rememberTodayPaneState()
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val navigator = rememberListDetailPaneScaffoldNavigator(
@@ -140,7 +153,14 @@ private fun TodayApp(
     val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
 
-    LaunchedEffect(Unit) { todayViewModel.load() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, todayViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) todayViewModel.load()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(entryRequest, uiState, allTasks) {
         if (entryRequest.token == 0L || entryRequest.token == handledEntryToken) return@LaunchedEffect
         when (entryRequest) {
@@ -200,6 +220,10 @@ private fun TodayApp(
                 snackbarHostState.showSnackbar(
                     if (resolved.keptLocal) "この端末の変更を再送します。" else "Desktopの状態を採用しました。",
                 )
+                todayViewModel.resetTaskActionState()
+            }
+            is TaskActionUiState.RejectedThemeDismissed -> {
+                snackbarHostState.showSnackbar("送信できなかったTheme変更を取り下げました。")
                 todayViewModel.resetTaskActionState()
             }
             TaskActionUiState.Idle, is TaskActionUiState.Saving -> Unit
@@ -313,9 +337,13 @@ private fun TodayApp(
                     TodayDetailPane(
                         task = task,
                         actionState = taskActionState,
+                        themes = themes,
+                        themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
                         onTitleUpdate = todayViewModel::updateTaskTitle,
                         onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
+                        onThemeUpdate = todayViewModel::updateTaskTheme,
+                        onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
                     )
                 }
@@ -600,9 +628,17 @@ private fun TodayTaskList(
 internal fun TodayDetailPane(
     task: MobileTask?,
     actionState: TaskActionUiState,
+    themes: List<MobileTheme> = emptyList(),
+    themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
+        MobileThemeCatalogState.Loading()
+    } else {
+        MobileThemeCatalogState.Available(themes, "local", 0, "")
+    },
     onStateAction: (MobileTask) -> Unit,
     onTitleUpdate: (MobileTask, String) -> Unit = { _, _ -> },
     onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
+    onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
+    onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
@@ -610,6 +646,10 @@ internal fun TodayDetailPane(
         return
     }
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
+    var themePickerOpenRequest by rememberSaveable(task.id) { mutableStateOf(0) }
+    val canReselectTheme = themes.isNotEmpty() &&
+        (themeCatalogState is MobileThemeCatalogState.Available ||
+            themeCatalogState is MobileThemeCatalogState.Stale)
     LaunchedEffect(task.id, task.title, actionState) {
         val resolution = actionState as? TaskActionUiState.ConflictResolved
         if (resolution?.taskId == task.id) titleDraft = task.title
@@ -646,7 +686,10 @@ internal fun TodayDetailPane(
                     ) {
                         Text("同期できなかった変更", fontWeight = FontWeight.Bold)
                         if (conflict.intendedAction == "UpdateTask") {
-                            if (conflict.localTodayDateChanged) {
+                            if (conflict.localThemeIdChanged) {
+                                Text("Desktop  Theme ${themeTitleForDisplay(themes, conflict.serverThemeId)}")
+                                Text("この端末  Theme ${themeTitleForDisplay(themes, conflict.localThemeId)}")
+                            } else if (conflict.localTodayDateChanged) {
                                 Text("Desktop  日付 ${taskTodayDateLabel(conflict.serverTodayDate)}")
                                 Text("この端末  日付 ${taskTodayDateLabel(conflict.localTodayDate)}")
                             } else {
@@ -673,6 +716,55 @@ internal fun TodayDetailPane(
                     }
                 }
             }
+            task.rejectedThemeUpdate?.let { rejection ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("theme-rejection"),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Theme変更を送信できませんでした", fontWeight = FontWeight.Bold)
+                        Text(rejection.message)
+                        Text("Themeを選び直すか、この変更を取り下げてください。")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { themePickerOpenRequest += 1 },
+                                enabled = canReselectTheme && actionState !is TaskActionUiState.Saving,
+                                modifier = Modifier.testTag("theme-rejection-reselect"),
+                            ) { Text("選び直す") }
+                            TextButton(
+                                onClick = { onRejectedThemeDiscard(task) },
+                                enabled = actionState !is TaskActionUiState.Saving,
+                                modifier = Modifier.testTag("theme-rejection-discard"),
+                            ) { Text("取り下げる") }
+                        }
+                    }
+                }
+            }
+            TaskThemePicker(
+                taskId = task.id,
+                themeId = task.themeId,
+                themes = themes,
+                catalogState = themeCatalogState,
+                openRequest = themePickerOpenRequest,
+                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+                stateDescription = when {
+                    task.pending -> "同期後に変更"
+                    task.conflict != null -> "競合を解決してから変更"
+                    actionState is TaskActionUiState.Saving -> "保存中"
+                    themeCatalogState is MobileThemeCatalogState.Loading -> {
+                        if (themes.isEmpty()) "Theme一覧を読み込み中" else "Theme一覧を更新中"
+                    }
+                    themeCatalogState is MobileThemeCatalogState.Stale -> "オフラインのTheme一覧を使用中"
+                    themeCatalogState is MobileThemeCatalogState.Unsupported -> "このDesktopではTheme編集を利用できません"
+                    themeCatalogState is MobileThemeCatalogState.Error -> "Theme一覧を取得できません"
+                    themes.isEmpty() -> "利用できるThemeがありません"
+                    else -> null
+                },
+                onThemeSelected = { onThemeUpdate(task, it) },
+            )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
             val today = LocalDate.now()
@@ -706,6 +798,91 @@ internal fun TodayDetailPane(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskThemePicker(
+    taskId: String,
+    themeId: String?,
+    themes: List<MobileTheme>,
+    catalogState: MobileThemeCatalogState,
+    openRequest: Int = 0,
+    enabled: Boolean,
+    stateDescription: String?,
+    onThemeSelected: (String) -> Unit,
+) {
+    var expanded by rememberSaveable(taskId) { mutableStateOf(false) }
+    val selectedTheme = themes.firstOrNull { it.id == themeId }
+    val catalogAllowsSelection = catalogState is MobileThemeCatalogState.Available ||
+        catalogState is MobileThemeCatalogState.Stale
+    val pickerEnabled = enabled && catalogAllowsSelection && themes.isNotEmpty()
+    LaunchedEffect(openRequest, pickerEnabled) {
+        if (openRequest > 0 && pickerEnabled) expanded = true
+    }
+    val displayedState = stateDescription ?: selectedTheme?.let { "現在のTheme: ${it.title}" }
+        ?: "現在のTheme情報なし"
+    val emptyValue = when (catalogState) {
+        is MobileThemeCatalogState.Loading -> "読み込み中"
+        is MobileThemeCatalogState.Unsupported -> "未対応"
+        is MobileThemeCatalogState.Error -> "取得できません"
+        is MobileThemeCatalogState.Available,
+        is MobileThemeCatalogState.Stale -> "Theme情報なし"
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { if (pickerEnabled) expanded = !expanded },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        OutlinedTextField(
+            value = selectedTheme?.title ?: emptyValue,
+            onValueChange = {},
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = pickerEnabled)
+                .fillMaxWidth()
+                .testTag("task-theme-picker")
+                .semantics { this.stateDescription = displayedState },
+            label = { Text("Theme") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            readOnly = true,
+            singleLine = true,
+            enabled = pickerEnabled,
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            themes.forEach { theme ->
+                val isSelected = theme.id == themeId
+                DropdownMenuItem(
+                    text = { Text(theme.title) },
+                    trailingIcon = { if (isSelected) Text("選択中") },
+                    onClick = {
+                        expanded = false
+                        if (!isSelected) onThemeSelected(theme.id)
+                    },
+                    modifier = Modifier.semantics { selected = isSelected },
+                )
+            }
+        }
+    }
+    val helperText = when (catalogState) {
+        is MobileThemeCatalogState.Loading -> null
+        is MobileThemeCatalogState.Available -> if (themes.isEmpty()) "利用できるThemeがありません。" else null
+        is MobileThemeCatalogState.Stale -> "Theme一覧はオフラインです。変更は送信待ちになります。"
+        is MobileThemeCatalogState.Unsupported -> "Desktopを更新するとThemeを変更できます。"
+        is MobileThemeCatalogState.Error -> "接続を確認して再試行してください。"
+    }
+    if (helperText != null) {
+        Text(
+            helperText,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun themeTitleForDisplay(themes: List<MobileTheme>, themeId: String?): String =
+    themes.firstOrNull { it.id == themeId }?.title ?: "Theme情報なし"
 
 @Composable
 private fun CenteredState(content: @Composable () -> Unit) {

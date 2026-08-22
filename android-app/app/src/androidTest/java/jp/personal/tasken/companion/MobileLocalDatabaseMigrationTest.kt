@@ -168,6 +168,110 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationSixToSevenPreservesTaskAndOutboxAndAddsThemeStorage() {
+        helper.createDatabase(DatabaseName, 6).apply {
+            execSQL(
+                "INSERT INTO sync_state " +
+                    "(id, serverId, apiVersion, schemaVersion, cursor, lastSuccessfulSyncAt, lastAttemptAt, lastError) " +
+                    "VALUES (1, 'server-1', 1, 1, 'cursor-1', '2026-08-22T01:00:00Z', " +
+                    "'2026-08-22T01:00:00Z', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId) VALUES " +
+                    "('task-6', 4, 'Theme変更待ち', 'theme-old', 'todo', NULL, '2026-08-22', " +
+                    "'2026-08-22T01:00:00Z', 'command-6', NULL)",
+            )
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, state, attemptCount, createdAt, lastAttemptAt, lastError, taskId, " +
+                    "dependsOnCommandId) VALUES " +
+                    "('command-6', 'command-6', 'request-6', 'device-1', '2026-08-22T01:00:00Z', " +
+                    "'UpdateTask', '{}', 'pending', 0, '2026-08-22T01:00:00Z', NULL, NULL, " +
+                    "'task-6', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_conflict " +
+                    "(commandId, taskId, intendedAction, expectedVersion, serverVersion, serverState, " +
+                    "serverTitle, localTitle, serverTodayDate, localTodayDate, localTodayDateChanged, " +
+                    "serverThemeId, serverWorkState, serverUpdatedAt, detectedAt) VALUES " +
+                    "('conflict-6', 'task-conflict-6', 'UpdateTask', 3, 4, 'todo', 'Server Task', " +
+                    "NULL, NULL, NULL, 0, 'theme-server', NULL, '2026-08-22T01:00:00Z', " +
+                    "'2026-08-22T01:01:00Z')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 7, true, MIGRATION_6_7).use { db ->
+            db.query("SELECT themeId, optimisticCommandId FROM task_cache WHERE id = 'task-6'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("theme-old", cursor.getString(0))
+                assertEquals("command-6", cursor.getString(1))
+            }
+            db.query("SELECT state, serverId FROM outbox_command WHERE commandId = 'command-6'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("pending", cursor.getString(0))
+                assertEquals("server-1", cursor.getString(1))
+            }
+            db.query(
+                "SELECT serverThemeId, localThemeId, localThemeIdChanged " +
+                    "FROM task_conflict WHERE commandId = 'conflict-6'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("theme-server", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+                assertEquals(0, cursor.getInt(2))
+            }
+            db.query("SELECT COUNT(*) FROM theme_cache").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            db.query("SELECT COUNT(*) FROM theme_catalog_state").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            db.query("PRAGMA table_info(theme_cache)").use { cursor ->
+                val nameColumn = cursor.getColumnIndexOrThrow("name")
+                val columns = buildSet {
+                    while (cursor.moveToNext()) add(cursor.getString(nameColumn))
+                }
+                assertTrue(columns.containsAll(setOf("id", "title", "catalogId")))
+            }
+        }
+    }
+
+    @Test
+    fun migrationSixToSevenQuarantinesUnownedOutboxWithoutDataLoss() {
+        helper.createDatabase(DatabaseName, 6).apply {
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, state, attemptCount, createdAt, lastAttemptAt, lastError, taskId, " +
+                    "dependsOnCommandId) VALUES " +
+                    "('legacy-command', 'legacy-command', 'legacy-request', 'legacy-device', " +
+                    "'2026-08-22T01:00:00Z', 'CreateTask', '{\"legacy\":true}', 'pending', 0, " +
+                    "'2026-08-22T01:00:00Z', NULL, NULL, 'legacy-task', NULL)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 7, true, MIGRATION_6_7).use { db ->
+            db.query(
+                "SELECT serverId, envelopeJson, idempotencyKey, state FROM outbox_command " +
+                    "WHERE commandId = 'legacy-command'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("", cursor.getString(0))
+                assertEquals("{\"legacy\":true}", cursor.getString(1))
+                assertEquals("legacy-command", cursor.getString(2))
+                assertEquals("pending", cursor.getString(3))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }

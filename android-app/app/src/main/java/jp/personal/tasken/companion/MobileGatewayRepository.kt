@@ -10,6 +10,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 import java.security.KeyStore
+import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 import javax.crypto.Cipher
@@ -21,7 +22,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 
@@ -34,10 +39,41 @@ private const val KEYSTORE_ALIAS = "tasken_mobile_gateway_token"
 private const val MAX_RESPONSE_BYTES = 256 * 1024
 private const val REQUEST_TIMEOUT_MS = 5_000
 private const val MOBILE_GATEWAY_LOG_TAG = "TaskenMobileGateway"
+private val MOBILE_PROCESS_INSTANCE_ID = UUID.randomUUID().toString()
 
 data class MobileGatewayConfiguration(
     val origin: String,
     val paired: Boolean,
+)
+
+data class GatewayHttpResponse(val status: Int, val body: String)
+
+fun interface MobileGatewayHttpClient {
+    fun request(
+        origin: String,
+        path: String,
+        method: String,
+        body: String?,
+        accessToken: String?,
+    ): GatewayHttpResponse
+}
+
+internal sealed interface MobileThemeRefreshOutcome {
+    data object Success : MobileThemeRefreshOutcome
+    data object Unsupported : MobileThemeRefreshOutcome
+    data class Failed(val retryable: Boolean, val message: String) : MobileThemeRefreshOutcome
+}
+
+private class MobileThemeHttpException(val status: Int) :
+    IllegalStateException("Mobile Theme sync failed with HTTP $status")
+
+private class MobileThemeProtocolException(
+    message: String,
+    val retryable: Boolean,
+) : IllegalStateException(message)
+
+private class MobileOutboxServerMismatchException : IllegalStateException(
+    "未解決の変更が別のDesktopに属しています。",
 )
 
 class MobileGatewayConnectionStore(context: Context) {
@@ -56,6 +92,7 @@ class MobileGatewayConnectionStore(context: Context) {
         return generated
     }
 
+    @Synchronized
     fun save(origin: String, token: String) {
         require(token.matches(Regex("^[A-Za-z0-9_-]{43}$"))) { "Access token is invalid" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -68,6 +105,7 @@ class MobileGatewayConnectionStore(context: Context) {
             .apply()
     }
 
+    @Synchronized
     fun readToken(): String? {
         val ciphertext = preferences.getString(KEY_TOKEN_CIPHERTEXT, "").orEmpty()
         val iv = preferences.getString(KEY_TOKEN_IV, "").orEmpty()
@@ -87,11 +125,17 @@ class MobileGatewayConnectionStore(context: Context) {
         }
     }
 
+    @Synchronized
     fun clearToken() {
         preferences.edit()
             .remove(KEY_TOKEN_CIPHERTEXT)
             .remove(KEY_TOKEN_IV)
             .apply()
+    }
+
+    @Synchronized
+    fun clearTokenIfMatches(token: String) {
+        if (readToken() == token) clearToken()
     }
 
     private fun secretKey(): SecretKey {
@@ -117,6 +161,9 @@ class AndroidMobileTaskRepository(
     private val store: MobileGatewayConnectionStore = MobileGatewayConnectionStore(context),
     database: MobileLocalDatabase = MobileLocalDatabase.open(context),
     scheduleOutboxOnStart: Boolean = true,
+    private val httpClient: MobileGatewayHttpClient? = null,
+    private val themeNow: () -> Instant = Instant::now,
+    private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
 ) : MobileGatewayRepository, MobileOfflineTaskRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
@@ -129,10 +176,30 @@ class AndroidMobileTaskRepository(
     override fun configuration(): MobileGatewayConfiguration = store.configuration()
 
     override fun observeCachedTasks(): Flow<List<MobileTask>> =
-        outbox.observeTasks().map { tasks -> tasks.map(TaskCacheWithConflict::toMobileTask) }
+        combine(outbox.observeTasks(), dao.observeSyncState()) { tasks, syncState ->
+            tasks.map { it.toMobileTask(syncState?.serverId) }
+        }
 
     override fun observeAllCachedTasks(): Flow<List<MobileTask>> =
-        outbox.observeAllTasks().map { tasks -> tasks.map(TaskCacheWithConflict::toMobileTask) }
+        combine(outbox.observeAllTasks(), dao.observeSyncState()) { tasks, syncState ->
+            tasks.map { it.toMobileTask(syncState?.serverId) }
+        }
+
+    override fun observeCachedThemes(): Flow<List<MobileTheme>> =
+        observeThemeCatalogState().map { state: MobileThemeCatalogState -> state.themes }
+
+    override fun observeThemeCatalogState(): Flow<MobileThemeCatalogState> = flow {
+        dao.recoverInterruptedThemeRefresh(
+            currentProcessId = processInstanceId,
+            recoveredAt = themeNow().toString(),
+            reason = "Theme一覧の更新中にAndroidプロセスが終了したため、保存済み一覧を使用します。",
+        )
+        emitAll(
+            dao.observeThemeCatalog().map { snapshot: ThemeCatalogSnapshot? ->
+                snapshot.toMobileThemeCatalogState()
+            },
+        )
+    }
 
     override fun observePendingCount(): Flow<Int> = outbox.observePendingCount()
 
@@ -147,6 +214,12 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: LocalDate?): String =
         outbox.enqueueUpdateTodayDate(taskId, todayDate)
 
+    override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
+        outbox.enqueueUpdateTheme(taskId, themeId)
+
+    override suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) =
+        outbox.discardRejectedThemeUpdate(taskId, commandId)
+
     override suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult = outbox.enqueueComplete(taskId)
 
     override suspend fun enqueueReopenTask(taskId: String): MobileStateActionResult = outbox.enqueueReopen(taskId)
@@ -157,15 +230,31 @@ class AndroidMobileTaskRepository(
 
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
 
-    internal suspend fun drainOutbox(): Boolean = outbox.drain(::sendTaskCommand)
-
     internal suspend fun synchronizeIfPaired(): Boolean {
         val configuration = store.configuration()
         val token = store.readToken()
         if (configuration.origin.isBlank() || token == null) return true
-        if (outbox.drain(::sendTaskCommand)) return false
-        synchronize(configuration.origin, token)
-        return true
+        return try {
+            val serverId = confirmRemoteAndApplyBootstrap(configuration.origin, token)
+            if (outbox.drain(serverId) { envelope ->
+                    sendTaskCommand(configuration.origin, token, serverId, envelope)
+                }
+            ) return false
+            synchronize(configuration.origin, token, serverId)
+            when (val outcome = refreshThemes(configuration.origin, token)) {
+                is MobileThemeRefreshOutcome.Failed -> !outcome.retryable
+                MobileThemeRefreshOutcome.Success,
+                MobileThemeRefreshOutcome.Unsupported -> true
+            }
+        } catch (error: MobileOutboxServerMismatchException) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Background sync refused a different Desktop", error)
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Theme background refresh failed", error)
+            false
+        }
     }
 
     override fun pair(origin: String, pairingCode: String): MobileTodayResult {
@@ -189,7 +278,7 @@ class AndroidMobileTaskRepository(
                 put("clientDeviceId", store.deviceId())
                 put("deviceLabel", Build.MODEL.ifBlank { "Android" })
             }.toString()
-            val response = request(
+            val response = gatewayRequest(
                 origin = normalizedOrigin,
                 path = "/v1/pair",
                 method = "POST",
@@ -203,10 +292,20 @@ class AndroidMobileTaskRepository(
                 )
             }
             val root = json.parseToJsonElement(response.body).jsonObject
+            val serverId = root["meta"]?.jsonObject?.get("serverId")?.jsonPrimitive?.content.orEmpty()
+            require(serverId.isNotBlank()) { "Pairing response serverId is missing" }
             val data = root["data"]?.jsonObject ?: error("Pairing response data is missing")
             val token = data["accessToken"]?.jsonPrimitive?.content.orEmpty()
+            runBlocking {
+                if (dao.incompatibleOutboxCount(serverId) != 0) throw MobileOutboxServerMismatchException()
+            }
             store.save(normalizedOrigin, token)
             loadToday()
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileTodayResult.Unavailable(
+                "未解決の変更は別のDesktopに属しています。",
+                "元のDesktopへ再接続して送信するか、却下されたTheme変更を取り下げてから再接続してください。",
+            )
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway pairing request failed", error)
             MobileTodayResult.Unavailable(
@@ -224,13 +323,26 @@ class AndroidMobileTaskRepository(
         }
         return try {
             val (cached, syncedAt) = runBlocking {
-                outbox.drain(::sendTaskCommand)
-                synchronize(configuration.origin, token)
+                val serverId = confirmRemoteAndApplyBootstrap(configuration.origin, token)
+                outbox.drain(serverId) { envelope ->
+                    sendTaskCommand(configuration.origin, token, serverId, envelope)
+                }
+                synchronize(configuration.origin, token, serverId)
+                try {
+                    refreshThemes(configuration.origin, token)
+                } catch (error: Exception) {
+                    Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Theme refresh failed after Today sync", error)
+                }
                 val state = dao.syncState()
                 dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) to
                     state?.lastSuccessfulSyncAt.orEmpty()
             }
             MobileTodayResult.Available(cached, syncedAt)
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileTodayResult.Unavailable(
+                "未解決の変更は別のDesktopに属しています。",
+                "元のDesktopへ再接続して送信するか、却下されたTheme変更を取り下げてから再読み込みしてください。",
+            )
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway Today sync failed", error)
             val cached = runBlocking { dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) }
@@ -245,17 +357,18 @@ class AndroidMobileTaskRepository(
         }
     }
 
-    private suspend fun synchronize(origin: String, accessToken: String) {
+    private suspend fun synchronize(origin: String, accessToken: String, expectedServerId: String) {
         val current = dao.syncState()
-        if (current?.cursor == null || current.serverId == null) {
-            bootstrap(origin, accessToken)
+        require(current?.serverId == expectedServerId) { "Confirmed Desktop does not match sync state" }
+        if (current.cursor == null) {
+            bootstrap(origin, accessToken, expectedServerId)
             return
         }
         var cursor = requireNotNull(current.cursor)
         repeat(100) {
             val encodedRequestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
             val encodedCursor = URLEncoder.encode(cursor, Charsets.UTF_8.name())
-            val response = request(
+            val response = gatewayRequest(
                 origin = origin,
                 path = "/v1/sync?apiVersion=1&schemaVersion=1&requestId=$encodedRequestId&cursor=$encodedCursor&limit=50",
                 method = "GET",
@@ -263,15 +376,12 @@ class AndroidMobileTaskRepository(
                 accessToken = accessToken,
             )
             if (response.status == 401) {
-                store.clearToken()
+                store.clearTokenIfMatches(accessToken)
                 throw IllegalStateException("Mobile Gateway token expired")
             }
             require(response.status == 200) { "Mobile sync failed with HTTP ${response.status}" }
             val decoded = MobileSyncContract.decodeSync(response.body)
-            if (decoded.meta.serverId != current.serverId) {
-                bootstrap(origin, accessToken)
-                return
-            }
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
             require(decoded.data.nextCursor != cursor || !decoded.data.hasMore) { "Mobile sync cursor did not advance" }
             dao.applySyncPage(
                 upserts = decoded.data.changes.mapNotNull { it.task?.toCache() },
@@ -284,9 +394,9 @@ class AndroidMobileTaskRepository(
         error("Mobile sync exceeded the page limit")
     }
 
-    private suspend fun bootstrap(origin: String, accessToken: String) {
+    private suspend fun fetchBootstrap(origin: String, accessToken: String): MobileBootstrapResponseDto {
         val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
-        val response = request(
+        val response = gatewayRequest(
             origin = origin,
             path = "/v1/bootstrap?apiVersion=1&schemaVersion=1&requestId=$requestId&limit=50",
             method = "GET",
@@ -294,15 +404,131 @@ class AndroidMobileTaskRepository(
             accessToken = accessToken,
         )
         if (response.status == 401) {
-            store.clearToken()
+            store.clearTokenIfMatches(accessToken)
             throw IllegalStateException("Mobile Gateway token expired")
         }
         require(response.status == 200) { "Mobile bootstrap failed with HTTP ${response.status}" }
-        val decoded = MobileSyncContract.decodeBootstrap(response.body)
-        dao.applyBootstrap(
+        return MobileSyncContract.decodeBootstrap(response.body)
+    }
+
+    private suspend fun confirmRemoteAndApplyBootstrap(origin: String, accessToken: String): String {
+        val decoded = fetchBootstrap(origin, accessToken)
+        val applied = dao.applyVerifiedBootstrap(
             tasks = decoded.data.tasks.map { it.toCache() },
             syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
         )
+        if (!applied) throw MobileOutboxServerMismatchException()
+        return decoded.meta.serverId
+    }
+
+    private suspend fun bootstrap(origin: String, accessToken: String, expectedServerId: String) {
+        val decoded = fetchBootstrap(origin, accessToken)
+        if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+        if (!dao.applyVerifiedBootstrap(
+                tasks = decoded.data.tasks.map { it.toCache() },
+                syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
+            )
+        ) throw MobileOutboxServerMismatchException()
+    }
+
+    internal suspend fun refreshThemes(origin: String, accessToken: String): MobileThemeRefreshOutcome {
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileThemeRefreshOutcome.Failed(false, "Mobile sync state is missing")
+        val refreshId = "$processInstanceId:${UUID.randomUUID()}"
+        val attemptedAt = themeNow().toString()
+        val themes = mutableListOf<ThemeCacheEntity>()
+        val seenThemeIds = mutableSetOf<String>()
+        val seenCursors = mutableSetOf<String>()
+        var expectedRevision: Int? = null
+        var generatedAt: String? = null
+        var cursor: String? = null
+        var prepared = false
+        try {
+            dao.prepareThemeRefresh(expectedServerId, refreshId, attemptedAt)
+            prepared = true
+            repeat(100) {
+                val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+                val cursorQuery = cursor?.let {
+                    "&cursor=${URLEncoder.encode(it, Charsets.UTF_8.name())}"
+                }.orEmpty()
+                val response = gatewayRequest(
+                    origin = origin,
+                    path = "/v1/themes?apiVersion=1&schemaVersion=1&requestId=$requestId&limit=50$cursorQuery",
+                    method = "GET",
+                    body = null,
+                    accessToken = accessToken,
+                )
+                if (response.status == 401) store.clearTokenIfMatches(accessToken)
+                if (response.status != 200) throw MobileThemeHttpException(response.status)
+                val decoded = MobileThemeContract.decodePage(response.body)
+                if (decoded.meta.serverId != expectedServerId) {
+                    throw MobileThemeProtocolException("Mobile Theme server changed during sync", retryable = true)
+                }
+                if (expectedRevision == null) {
+                    expectedRevision = decoded.meta.serverRevision
+                    generatedAt = decoded.meta.generatedAt
+                } else if (decoded.meta.serverRevision != expectedRevision) {
+                    throw MobileThemeProtocolException("Mobile Theme revision changed between pages", retryable = true)
+                }
+                decoded.data.themes.forEach { theme ->
+                    if (!seenThemeIds.add(theme.id)) {
+                        throw MobileThemeProtocolException(
+                            "Mobile Theme catalog contains duplicate IDs across pages",
+                            retryable = false,
+                        )
+                    }
+                    themes += ThemeCacheEntity(theme.id, theme.title)
+                }
+                val nextCursor = decoded.data.nextCursor
+                if (nextCursor == null) {
+                    dao.completeThemeRefresh(
+                        serverId = expectedServerId,
+                        serverRevision = requireNotNull(expectedRevision),
+                        generatedAt = requireNotNull(generatedAt),
+                        attemptedAt = attemptedAt,
+                        refreshId = refreshId,
+                        themes = themes,
+                    )
+                    return MobileThemeRefreshOutcome.Success
+                }
+                if (!seenCursors.add(nextCursor)) {
+                    throw MobileThemeProtocolException("Mobile Theme cursor entered a cycle", retryable = true)
+                }
+                cursor = nextCursor
+            }
+            throw MobileThemeProtocolException("Mobile Theme sync exceeded the page limit", retryable = true)
+        } catch (error: CancellationException) {
+            if (prepared) {
+                dao.failThemeRefresh(expectedServerId, refreshId, attemptedAt, "Theme refresh was cancelled", false)
+            }
+            throw error
+        } catch (error: Exception) {
+            val unsupported = error is MobileThemeHttpException && error.status in setOf(404, 405, 501)
+            val retryable = when (error) {
+                is MobileThemeHttpException -> error.status in setOf(408, 425, 429) ||
+                    (error.status >= 500 && error.status != 501)
+                is MobileThemeProtocolException -> error.retryable
+                is MobileThemeContractException -> false
+                else -> true
+            }
+            val message = if (unsupported) {
+                "このDesktopはTheme catalogに対応していません。"
+            } else {
+                error.message ?: "Theme catalogを更新できませんでした。"
+            }
+            val recorded = if (prepared) {
+                dao.failThemeRefresh(expectedServerId, refreshId, attemptedAt, message, unsupported)
+            } else {
+                false
+            }
+            if (prepared && !recorded) return MobileThemeRefreshOutcome.Success
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Theme refresh did not complete", error)
+            return if (unsupported) {
+                MobileThemeRefreshOutcome.Unsupported
+            } else {
+                MobileThemeRefreshOutcome.Failed(retryable, message)
+            }
+        }
     }
 
     private fun MobileTaskSummaryDto.toCache(): TaskCacheEntity = TaskCacheEntity(
@@ -327,39 +553,61 @@ class AndroidMobileTaskRepository(
         lastError = null,
     )
 
-    private fun sendTaskCommand(envelopeJson: String): MobileCommandSendResult {
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) {
-            return MobileCommandSendResult.Retry("Mobile Gatewayとのペアリングが必要です。")
-        }
+    private fun sendTaskCommand(
+        origin: String,
+        accessToken: String,
+        expectedServerId: String,
+        envelopeJson: String,
+    ): MobileCommandSendResult {
         return try {
-            val response = request(
-                origin = configuration.origin,
+            val response = gatewayRequest(
+                origin = origin,
                 path = "/v1/commands",
                 method = "POST",
                 body = envelopeJson,
-                accessToken = token,
+                accessToken = accessToken,
             )
             when {
-                response.status == 200 -> MobileCommandSendResult.Applied(
-                    MobileTaskCommandContract.decodeReceipt(response.body),
-                )
+                response.status == 200 -> {
+                    val receipt = MobileTaskCommandContract.decodeReceipt(response.body)
+                    if (receipt.meta.serverId != expectedServerId) {
+                        MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                    } else {
+                        MobileCommandSendResult.Applied(receipt)
+                    }
+                }
                 response.status == 401 -> {
-                    store.clearToken()
+                    store.clearTokenIfMatches(accessToken)
                     MobileCommandSendResult.Retry("接続が失効しました。新しいコードで再接続してください。")
                 }
                 response.status == 409 -> {
                     val error = MobileTaskCommandContract.decodeError(response.body)
-                    if (error.error.code == "version_conflict") {
+                    if (error.meta.serverId != expectedServerId) {
+                        MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                    } else if (error.error.code == "version_conflict") {
                         MobileCommandSendResult.Conflict(error)
                     } else {
-                        MobileCommandSendResult.Rejected(error.error.message)
+                        MobileCommandSendResult.Rejected(
+                            code = error.error.code,
+                            message = error.error.message,
+                            retryable = error.error.retryable,
+                        )
                     }
                 }
                 response.status == 408 || response.status == 429 || response.status >= 500 ->
                     MobileCommandSendResult.Retry("Desktopへ送信できませんでした。自動で再送します。")
-                else -> MobileCommandSendResult.Rejected("DesktopがTask操作を受理しませんでした。")
+                else -> {
+                    val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
+                    if (error != null && error.meta.serverId != expectedServerId) {
+                        MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                    } else {
+                        MobileCommandSendResult.Rejected(
+                            code = error?.error?.code ?: "http_${response.status}",
+                            message = error?.error?.message ?: "DesktopがTask操作を受理しませんでした。",
+                            retryable = error?.error?.retryable ?: false,
+                        )
+                    }
+                }
             }
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway command request failed", error)
@@ -406,6 +654,61 @@ class AndroidMobileTaskRepository(
         }
     }
 
+    private fun gatewayRequest(
+        origin: String,
+        path: String,
+        method: String,
+        body: String?,
+        accessToken: String?,
+    ): GatewayHttpResponse = httpClient?.request(origin, path, method, body, accessToken)
+        ?: request(origin, path, method, body, accessToken)
+
+    private fun ThemeCatalogSnapshot?.toMobileThemeCatalogState(): MobileThemeCatalogState {
+        if (this == null) return MobileThemeCatalogState.Loading()
+        val mobileThemes = themes
+            .sortedWith(compareBy<ThemeCacheEntity> { it.title }.thenBy { it.id })
+            .map { MobileTheme(it.id, it.title) }
+        return when (state.status) {
+            ThemeCatalogStatus.Loading -> MobileThemeCatalogState.Loading(
+                themes = mobileThemes,
+                serverId = state.serverId,
+                serverRevision = state.serverRevision,
+            )
+            ThemeCatalogStatus.Available -> {
+                val revision = state.serverRevision
+                val generatedAt = state.generatedAt
+                if (revision == null || generatedAt == null) {
+                    MobileThemeCatalogState.Error(state.serverId, "Theme catalog metadata is incomplete")
+                } else {
+                    MobileThemeCatalogState.Available(mobileThemes, state.serverId, revision, generatedAt)
+                }
+            }
+            ThemeCatalogStatus.Stale -> {
+                val revision = state.serverRevision
+                val generatedAt = state.generatedAt
+                if (revision == null || generatedAt == null) {
+                    MobileThemeCatalogState.Error(state.serverId, "Theme catalog metadata is incomplete")
+                } else {
+                    MobileThemeCatalogState.Stale(
+                        mobileThemes,
+                        state.serverId,
+                        revision,
+                        generatedAt,
+                        state.lastError ?: "Theme catalogを更新できませんでした。",
+                    )
+                }
+            }
+            ThemeCatalogStatus.Unsupported -> MobileThemeCatalogState.Unsupported(
+                state.serverId,
+                state.lastError ?: "このDesktopはTheme catalogに対応していません。",
+            )
+            else -> MobileThemeCatalogState.Error(
+                state.serverId,
+                state.lastError ?: "Theme catalogを読み込めませんでした。",
+            )
+        }
+    }
+
     private fun normalizeHttpsOrigin(value: String): String? {
         return try {
             val uri = URI(value.trim().removeSuffix("/"))
@@ -422,5 +725,4 @@ class AndroidMobileTaskRepository(
         }
     }
 
-    private data class GatewayHttpResponse(val status: Int, val body: String)
 }

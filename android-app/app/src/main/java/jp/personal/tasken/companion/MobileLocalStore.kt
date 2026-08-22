@@ -31,6 +31,37 @@ data class TaskCacheEntity(
     val conflictCommandId: String? = null,
 )
 
+@Entity(tableName = "theme_cache")
+data class ThemeCacheEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val catalogId: Int = ThemeCatalogStateEntity.SINGLETON_ID,
+)
+
+object ThemeCatalogStatus {
+    const val Loading = "loading"
+    const val Available = "available"
+    const val Stale = "stale"
+    const val Unsupported = "unsupported"
+    const val Error = "error"
+}
+
+@Entity(tableName = "theme_catalog_state")
+data class ThemeCatalogStateEntity(
+    @PrimaryKey val id: Int = SINGLETON_ID,
+    val serverId: String,
+    val serverRevision: Int?,
+    val status: String,
+    val generatedAt: String?,
+    val lastAttemptAt: String,
+    val lastError: String?,
+    val activeRefreshId: String?,
+) {
+    companion object {
+        const val SINGLETON_ID = 1
+    }
+}
+
 @Entity(tableName = "outbox_command")
 data class OutboxCommandEntity(
     @PrimaryKey val commandId: String,
@@ -40,6 +71,7 @@ data class OutboxCommandEntity(
     val issuedAt: String,
     val commandName: String,
     val envelopeJson: String,
+    val serverId: String,
     val state: String,
     val attemptCount: Int,
     val createdAt: String,
@@ -79,6 +111,8 @@ data class TaskConflictEntity(
     val localTodayDate: String? = null,
     val localTodayDateChanged: Boolean = false,
     val serverThemeId: String?,
+    val localThemeId: String? = null,
+    val localThemeIdChanged: Boolean = false,
     val serverWorkState: String?,
     val serverUpdatedAt: String,
     val detectedAt: String,
@@ -90,6 +124,14 @@ data class TaskCacheWithConflict(
     val conflict: TaskConflictEntity?,
     @Relation(parentColumn = "optimisticCommandId", entityColumn = "commandId")
     val optimisticCommand: OutboxCommandEntity?,
+    @Relation(parentColumn = "id", entityColumn = "taskId")
+    val relatedCommands: List<OutboxCommandEntity>,
+)
+
+data class ThemeCatalogSnapshot(
+    @Embedded val state: ThemeCatalogStateEntity,
+    @Relation(parentColumn = "id", entityColumn = "catalogId")
+    val themes: List<ThemeCacheEntity>,
 )
 
 object OutboxState {
@@ -119,17 +161,43 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM task_cache WHERE id = :taskId")
     abstract suspend fun task(taskId: String): TaskCacheEntity?
 
+    @Query("SELECT * FROM theme_cache ORDER BY title COLLATE NOCASE ASC, id ASC")
+    abstract fun observeThemes(): Flow<List<ThemeCacheEntity>>
+
+    @Query("SELECT * FROM theme_cache ORDER BY title COLLATE NOCASE ASC, id ASC")
+    abstract suspend fun themes(): List<ThemeCacheEntity>
+
+    @Query("SELECT * FROM theme_catalog_state WHERE id = 1")
+    abstract suspend fun themeCatalogState(): ThemeCatalogStateEntity?
+
+    @Query("SELECT * FROM theme_catalog_state WHERE id = 1")
+    @Transaction
+    abstract fun observeThemeCatalog(): Flow<ThemeCatalogSnapshot?>
+
+    @Query("SELECT * FROM theme_catalog_state WHERE id = 1")
+    @Transaction
+    abstract suspend fun themeCatalog(): ThemeCatalogSnapshot?
+
     @Query("SELECT * FROM sync_state WHERE id = 1")
     abstract suspend fun syncState(): SyncStateEntity?
 
+    @Query("SELECT * FROM sync_state WHERE id = 1")
+    abstract fun observeSyncState(): Flow<SyncStateEntity?>
+
     @Query("SELECT * FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun outbox(commandId: String): OutboxCommandEntity?
+
+    @Query("SELECT * FROM outbox_command WHERE taskId = :taskId ORDER BY createdAt, commandId")
+    abstract suspend fun outboxForTask(taskId: String): List<OutboxCommandEntity>
 
     @Query("SELECT * FROM outbox_command WHERE dependsOnCommandId = :commandId ORDER BY createdAt, commandId")
     abstract suspend fun dependents(commandId: String): List<OutboxCommandEntity>
 
     @Query("SELECT COUNT(*) FROM outbox_command")
     abstract suspend fun outboxCount(): Int
+
+    @Query("SELECT COUNT(*) FROM outbox_command WHERE serverId = '' OR serverId != :serverId")
+    abstract suspend fun incompatibleOutboxCount(serverId: String): Int
 
     @Query("SELECT COUNT(*) FROM outbox_command WHERE state IN ('pending', 'sending', 'retry_wait')")
     abstract fun observePendingCount(): Flow<Int>
@@ -149,6 +217,12 @@ abstract class MobileLocalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertTask(task: TaskCacheEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertThemes(themes: List<ThemeCacheEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertThemeCatalogState(state: ThemeCatalogStateEntity)
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insertOutbox(command: OutboxCommandEntity)
 
@@ -167,19 +241,22 @@ abstract class MobileLocalDao {
     @Query("DELETE FROM task_cache WHERE id = :taskId AND optimisticCommandId IS NULL AND conflictCommandId IS NULL")
     abstract suspend fun deleteCanonicalTask(taskId: String)
 
+    @Query("DELETE FROM theme_cache")
+    abstract suspend fun deleteThemes()
+
     @Query(
         "SELECT * FROM outbox_command " +
-            "WHERE state IN ('pending', 'retry_wait') AND dependsOnCommandId IS NULL " +
+            "WHERE serverId = :serverId AND state IN ('pending', 'retry_wait') AND dependsOnCommandId IS NULL " +
             "ORDER BY createdAt ASC, commandId ASC LIMIT 1",
     )
-    abstract suspend fun nextSendable(): OutboxCommandEntity?
+    abstract suspend fun nextSendable(serverId: String): OutboxCommandEntity?
 
     @Query(
         "UPDATE outbox_command SET state = 'sending', attemptCount = attemptCount + 1, " +
             "lastAttemptAt = :attemptedAt, lastError = NULL " +
-            "WHERE commandId = :commandId AND state IN ('pending', 'retry_wait')",
+            "WHERE commandId = :commandId AND serverId = :serverId AND state IN ('pending', 'retry_wait')",
     )
-    abstract suspend fun markSending(commandId: String, attemptedAt: String): Int
+    abstract suspend fun markSending(commandId: String, serverId: String, attemptedAt: String): Int
 
     @Query(
         "UPDATE outbox_command SET state = 'retry_wait', lastError = :reason " +
@@ -225,6 +302,8 @@ abstract class MobileLocalDao {
     open suspend fun enqueueCreate(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
         require(command.commandId == command.idempotencyKey)
+        require(command.serverId.isNotBlank())
+        require(syncState()?.serverId == command.serverId)
         upsertTask(task)
         insertOutbox(command)
     }
@@ -234,6 +313,8 @@ abstract class MobileLocalDao {
         require(task.optimisticCommandId == command.commandId)
         require(task.serverVersion != null)
         require(command.commandName in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
+        require(command.serverId.isNotBlank())
+        require(syncState()?.serverId == command.serverId)
         upsertTask(task)
         insertOutbox(command)
     }
@@ -243,8 +324,49 @@ abstract class MobileLocalDao {
         require(task.optimisticCommandId == command.commandId)
         require(command.dependsOnCommandId != null)
         require(command.commandName in setOf("CompleteTask", "ReopenTask"))
+        require(command.serverId.isNotBlank())
+        require(syncState()?.serverId == command.serverId)
+        require(outbox(requireNotNull(command.dependsOnCommandId))?.serverId == command.serverId)
         upsertTask(task)
         insertOutbox(command)
+    }
+
+    @Transaction
+    open suspend fun enqueueThemeUpdate(
+        task: TaskCacheEntity,
+        command: OutboxCommandEntity,
+        replacedRejectedCommandIds: List<String>,
+    ) {
+        require(task.optimisticCommandId == command.commandId)
+        require(task.serverVersion != null)
+        require(command.commandName == "UpdateTask" && command.serverId.isNotBlank())
+        require(syncState()?.serverId == command.serverId)
+        replacedRejectedCommandIds.forEach { rejectedId ->
+            val rejected = requireNotNull(outbox(rejectedId))
+            require(
+                rejected.taskId == task.id &&
+                    rejected.commandName == "UpdateTask" &&
+                    rejected.state == OutboxState.Rejected &&
+                    rejected.serverId == command.serverId,
+            )
+        }
+        upsertTask(task)
+        insertOutbox(command)
+        replacedRejectedCommandIds.forEach { deleteOutbox(it) }
+    }
+
+    @Transaction
+    open suspend fun discardRejectedThemeUpdate(commandId: String, taskId: String) {
+        val command = requireNotNull(outbox(commandId))
+        require(
+            command.taskId == taskId &&
+                command.commandName == "UpdateTask" &&
+                command.state == OutboxState.Rejected,
+        )
+        require(syncState()?.serverId == command.serverId)
+        val current = requireNotNull(task(taskId))
+        require(current.optimisticCommandId != commandId && current.conflictCommandId != commandId)
+        deleteOutbox(commandId)
     }
 
     @Transaction
@@ -276,11 +398,24 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun applyVerifiedBootstrap(tasks: List<TaskCacheEntity>, syncState: SyncStateEntity): Boolean {
+        val serverId = requireNotNull(syncState.serverId)
+        require(serverId.isNotBlank())
+        if (incompatibleOutboxCount(serverId) != 0) return false
+        invalidateThemeCatalogForServer(serverId, syncState.lastAttemptAt ?: syncState.lastSuccessfulSyncAt.orEmpty())
+        applyBootstrap(tasks, syncState)
+        return true
+    }
+
+    @Transaction
     open suspend fun applySyncPage(
         upserts: List<TaskCacheEntity>,
         tombstoneIds: List<String>,
         syncState: SyncStateEntity,
     ) {
+        val serverId = requireNotNull(syncState.serverId)
+        require(serverId.isNotBlank() && this.syncState()?.serverId == serverId)
+        require(incompatibleOutboxCount(serverId) == 0)
         tombstoneIds.forEach { deleteCanonicalTask(it) }
         upserts.forEach { incoming ->
             val current = task(incoming.id)
@@ -292,17 +427,217 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun invalidateThemeCatalogForServer(serverId: String, attemptedAt: String) {
+        require(serverId.isNotBlank())
+        val current = themeCatalogState()
+        if (current != null && current.serverId == serverId) return
+        deleteThemes()
+        upsertThemeCatalogState(
+            ThemeCatalogStateEntity(
+                serverId = serverId,
+                serverRevision = null,
+                status = ThemeCatalogStatus.Loading,
+                generatedAt = null,
+                lastAttemptAt = attemptedAt,
+                lastError = null,
+                activeRefreshId = null,
+            ),
+        )
+    }
+
+    @Transaction
+    open suspend fun prepareThemeRefresh(serverId: String, refreshId: String, attemptedAt: String) {
+        require(serverId.isNotBlank() && refreshId.isNotBlank())
+        val current = themeCatalogState()
+        if (current == null || current.serverId != serverId) {
+            deleteThemes()
+            upsertThemeCatalogState(
+                ThemeCatalogStateEntity(
+                    serverId = serverId,
+                    serverRevision = null,
+                    status = ThemeCatalogStatus.Loading,
+                    generatedAt = null,
+                    lastAttemptAt = attemptedAt,
+                    lastError = null,
+                    activeRefreshId = refreshId,
+                ),
+            )
+            return
+        }
+        upsertThemeCatalogState(
+            current.copy(
+                status = ThemeCatalogStatus.Loading,
+                lastAttemptAt = attemptedAt,
+                activeRefreshId = refreshId,
+            ),
+        )
+    }
+
+    @Transaction
+    open suspend fun completeThemeRefresh(
+        serverId: String,
+        serverRevision: Int,
+        generatedAt: String,
+        attemptedAt: String,
+        refreshId: String,
+        themes: List<ThemeCacheEntity>,
+    ): Boolean {
+        require(serverId.isNotBlank() && refreshId.isNotBlank() && serverRevision >= 0)
+        require(themes.map { it.id }.distinct().size == themes.size)
+        require(themes.all { it.catalogId == ThemeCatalogStateEntity.SINGLETON_ID })
+        val current = themeCatalogState() ?: return false
+        if (current.serverId != serverId || current.activeRefreshId != refreshId) return false
+        val currentRevision = current.serverRevision
+        if (currentRevision != null && serverRevision < currentRevision) {
+            upsertThemeCatalogState(
+                current.copy(
+                    status = if (current.lastError == null) {
+                        ThemeCatalogStatus.Available
+                    } else {
+                        ThemeCatalogStatus.Stale
+                    },
+                    activeRefreshId = null,
+                ),
+            )
+            return false
+        }
+        deleteThemes()
+        upsertThemes(themes)
+        upsertThemeCatalogState(
+            current.copy(
+                serverRevision = serverRevision,
+                status = ThemeCatalogStatus.Available,
+                generatedAt = generatedAt,
+                lastAttemptAt = maxOf(current.lastAttemptAt, attemptedAt),
+                lastError = null,
+                activeRefreshId = null,
+            ),
+        )
+        return true
+    }
+
+    @Transaction
+    open suspend fun failThemeRefresh(
+        serverId: String,
+        refreshId: String,
+        attemptedAt: String,
+        error: String,
+        unsupported: Boolean,
+    ): Boolean {
+        val current = themeCatalogState() ?: return false
+        if (current.serverId != serverId || current.activeRefreshId != refreshId) return false
+        if (unsupported) {
+            deleteThemes()
+            upsertThemeCatalogState(
+                current.copy(
+                    serverRevision = null,
+                    status = ThemeCatalogStatus.Unsupported,
+                    generatedAt = null,
+                    lastAttemptAt = attemptedAt,
+                    lastError = error,
+                    activeRefreshId = null,
+                ),
+            )
+            return true
+        }
+        upsertThemeCatalogState(
+            current.copy(
+                status = if (current.serverRevision == null) ThemeCatalogStatus.Error else ThemeCatalogStatus.Stale,
+                lastAttemptAt = attemptedAt,
+                lastError = error,
+                activeRefreshId = null,
+            ),
+        )
+        return true
+    }
+
+    @Transaction
+    open suspend fun recoverInterruptedThemeRefresh(
+        currentProcessId: String,
+        recoveredAt: String,
+        reason: String,
+    ): Boolean {
+        require(currentProcessId.isNotBlank())
+        val current = themeCatalogState() ?: return false
+        val activeRefreshId = current.activeRefreshId ?: return false
+        if (current.status != ThemeCatalogStatus.Loading || activeRefreshId.startsWith("$currentProcessId:")) {
+            return false
+        }
+        upsertThemeCatalogState(
+            current.copy(
+                status = if (current.serverRevision == null) ThemeCatalogStatus.Error else ThemeCatalogStatus.Stale,
+                lastAttemptAt = maxOf(current.lastAttemptAt, recoveredAt),
+                lastError = reason,
+                activeRefreshId = null,
+            ),
+        )
+        return true
+    }
+
+    @Transaction
+    open suspend fun rejectUpdateAndRollback(
+        commandId: String,
+        taskId: String,
+        baseThemeId: String?,
+        reason: String,
+    ) {
+        val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
+        require(
+            command.taskId == taskId &&
+                command.commandName == "UpdateTask" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        val current = requireNotNull(task(taskId)) { "Optimistic task is missing" }
+        require(current.optimisticCommandId == commandId)
+        upsertTask(current.copy(themeId = baseThemeId, optimisticCommandId = null))
+        markRejected(commandId, reason)
+    }
+
+    @Transaction
     open suspend fun applyCommandReceipt(
         commandId: String,
+        expectedServerId: String,
+        expectedTaskId: String,
+        expectedAttemptCount: Int,
         canonicalTask: TaskCacheEntity,
         syncState: SyncStateEntity,
         dependentCommandId: String? = null,
         dependentEnvelopeJson: String? = null,
         optimisticState: String? = null,
-    ) {
+    ): Boolean {
+        require(expectedServerId.isNotBlank() && expectedTaskId.isNotBlank() && expectedAttemptCount > 0)
+        val command = outbox(commandId) ?: return false
+        if (
+            command.serverId != expectedServerId ||
+            command.taskId != expectedTaskId ||
+            command.state != OutboxState.Sending ||
+            command.attemptCount != expectedAttemptCount ||
+            syncState.serverId != expectedServerId ||
+            this.syncState()?.serverId != expectedServerId ||
+            canonicalTask.id != expectedTaskId
+        ) {
+            return false
+        }
+        val currentTask = task(expectedTaskId) ?: return false
+        val canonicalVersion = canonicalTask.serverVersion ?: return false
+        if (currentTask.serverVersion?.let { canonicalVersion < it } == true) return false
         if (dependentCommandId != null) {
             require(dependentEnvelopeJson != null && optimisticState != null)
-            require(materializeDependent(dependentCommandId, commandId, dependentEnvelopeJson) == 1)
+            val dependent = outbox(dependentCommandId) ?: return false
+            if (
+                dependent.serverId != expectedServerId ||
+                dependent.taskId != expectedTaskId ||
+                dependent.dependsOnCommandId != commandId ||
+                dependent.state != OutboxState.Pending ||
+                dependent.attemptCount != 0 ||
+                currentTask.optimisticCommandId != dependentCommandId
+            ) {
+                return false
+            }
+            if (materializeDependent(dependentCommandId, commandId, dependentEnvelopeJson) != 1) return false
+        } else if (currentTask.optimisticCommandId != commandId) {
+            return false
         }
         upsertTask(
             canonicalTask.copy(
@@ -314,6 +649,7 @@ abstract class MobileLocalDao {
         upsertSyncState(syncState)
         deleteConflict(commandId)
         deleteOutbox(commandId)
+        return true
     }
 
     @Transaction
@@ -326,6 +662,7 @@ abstract class MobileLocalDao {
     ) {
         require(commandId == conflict.commandId)
         require(canonicalTask.id == conflict.taskId)
+        require(outbox(commandId)?.serverId == syncState.serverId)
         upsertTask(canonicalTask.copy(optimisticCommandId = null, conflictCommandId = commandId))
         upsertConflict(conflict)
         upsertSyncState(syncState)
@@ -334,6 +671,8 @@ abstract class MobileLocalDao {
 
     @Transaction
     open suspend fun acceptServer(commandId: String) {
+        val command = requireNotNull(outbox(commandId))
+        require(syncState()?.serverId == command.serverId)
         clearTaskConflict(commandId)
         deleteConflict(commandId)
         deleteOutbox(commandId)
@@ -346,6 +685,9 @@ abstract class MobileLocalDao {
         command: OutboxCommandEntity,
     ) {
         require(task.optimisticCommandId == command.commandId)
+        val previous = requireNotNull(outbox(oldCommandId))
+        require(command.serverId.isNotBlank() && previous.serverId == command.serverId)
+        require(syncState()?.serverId == command.serverId)
         clearTaskConflict(oldCommandId)
         deleteConflict(oldCommandId)
         deleteOutbox(oldCommandId)
@@ -354,9 +696,10 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
-    open suspend fun claimNext(attemptedAt: String): OutboxCommandEntity? {
-        val command = nextSendable() ?: return null
-        return if (markSending(command.commandId, attemptedAt) == 1) {
+    open suspend fun claimNext(serverId: String, attemptedAt: String): OutboxCommandEntity? {
+        require(serverId.isNotBlank())
+        val command = nextSendable(serverId) ?: return null
+        return if (markSending(command.commandId, serverId, attemptedAt) == 1) {
             command.copy(
                 state = OutboxState.Sending,
                 attemptCount = command.attemptCount + 1,
@@ -370,8 +713,15 @@ abstract class MobileLocalDao {
 }
 
 @Database(
-    entities = [TaskCacheEntity::class, OutboxCommandEntity::class, SyncStateEntity::class, TaskConflictEntity::class],
-    version = 6,
+    entities = [
+        TaskCacheEntity::class,
+        ThemeCacheEntity::class,
+        ThemeCatalogStateEntity::class,
+        OutboxCommandEntity::class,
+        SyncStateEntity::class,
+        TaskConflictEntity::class,
+    ],
+    version = 7,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -385,7 +735,14 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 context.applicationContext,
                 MobileLocalDatabase::class.java,
                 "tasken-mobile-cache.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
+            ).addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+            ).build().also { instance = it }
         }
     }
 }
@@ -430,6 +787,28 @@ internal val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+internal val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS theme_cache (" +
+                "id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, catalogId INTEGER NOT NULL)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS theme_catalog_state (" +
+                "id INTEGER NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, serverRevision INTEGER, " +
+                "status TEXT NOT NULL, generatedAt TEXT, lastAttemptAt TEXT NOT NULL, " +
+                "lastError TEXT, activeRefreshId TEXT)",
+        )
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localThemeId TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localThemeIdChanged INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE outbox_command ADD COLUMN serverId TEXT NOT NULL DEFAULT ''")
+        db.execSQL(
+            "UPDATE outbox_command SET serverId = COALESCE(" +
+                "(SELECT serverId FROM sync_state WHERE id = 1), '')",
+        )
+    }
+}
+
 fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     id = id,
     title = title,
@@ -441,7 +820,7 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     pending = optimisticCommandId != null,
 )
 
-fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
+fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTask = task.toMobileTask().copy(
     conflict = conflict?.let {
         MobileTaskConflict(
             commandId = it.commandId,
@@ -453,6 +832,9 @@ fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
             serverTodayDate = it.serverTodayDate,
             localTodayDate = it.localTodayDate,
             localTodayDateChanged = it.localTodayDateChanged,
+            serverThemeId = it.serverThemeId,
+            localThemeId = it.localThemeId,
+            localThemeIdChanged = it.localThemeIdChanged,
             detectedAt = it.detectedAt,
         )
     },
@@ -461,4 +843,8 @@ fun TaskCacheWithConflict.toMobileTask(): MobileTask = task.toMobileTask().copy(
             it.attemptCount == 0 &&
             it.commandName in setOf("CreateTask", "CompleteTask", "ReopenTask")
     } == true,
+    rejectedThemeUpdate = relatedCommands
+        .filter { it.serverId == activeServerId }
+        .mapNotNull(OutboxCommandEntity::toRejectedThemeUpdateOrNull)
+        .maxByOrNull { it.rejectedAt },
 )
