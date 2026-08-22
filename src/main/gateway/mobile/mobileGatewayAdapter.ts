@@ -102,7 +102,11 @@ function projectTask(task: TaskReadModel, includeTodayDate = false) {
     themeId: task.project_id || null,
     state: task.state,
     workState: task.work_state || null,
-    ...(includeTodayDate ? { todayDate: task.today_date || null } : {}),
+    ...(includeTodayDate ? {
+      todayDate: task.today_date || null,
+      plannedStartTime: task.planned_start_time ?? null,
+      plannedDurationMinutes: task.planned_duration_minutes ?? null,
+    } : {}),
     schedule: task.schedule
       ? {
           id: task.schedule.id,
@@ -143,9 +147,23 @@ function canonicalSchedule(schedule: MobileScheduleEdit) {
   };
 }
 
-function taskUpdatePatch(patch: { title: string } | { todayDate: string | null } | { themeId: string | null }) {
+type MobileTaskFieldPatch =
+  | { title: string }
+  | { todayDate: string | null }
+  | { themeId: string | null }
+  | { plannedSchedule: { startTime: string | null; durationMinutes: number | null } };
+
+function canonicalPlannedSchedule(schedule: { startTime: string | null; durationMinutes: number | null }) {
+  return {
+    planned_start_time: schedule.startTime,
+    planned_duration_minutes: schedule.durationMinutes,
+  };
+}
+
+function taskUpdatePatch(patch: MobileTaskFieldPatch) {
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
+  if ("plannedSchedule" in patch) return canonicalPlannedSchedule(patch.plannedSchedule);
   return patch;
 }
 
@@ -167,7 +185,7 @@ function taskUpdatePayload(command: Extract<import("../../../shared/contracts/mo
     task_id: command.taskId,
     expected_version: command.expectedVersion,
     changes: taskUpdatePatch(changes),
-    base: taskUpdatePatch(command.base as { title: string } | { todayDate: string | null } | { themeId: string | null }),
+    base: taskUpdatePatch(command.base as MobileTaskFieldPatch),
   };
 }
 

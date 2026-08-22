@@ -8,6 +8,13 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+internal val PLANNED_START_TIME_PATTERN = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+internal const val PLANNED_DURATION_MINUTES_MAX = 10080
+
+internal fun isPlannedStartTime(value: String): Boolean = PLANNED_START_TIME_PATTERN.matches(value)
+
+internal fun isPlannedDurationMinutes(value: Int): Boolean = value in 1..PLANNED_DURATION_MINUTES_MAX
+
 @Serializable
 data class MobileCreateTaskEnvelopeDto(
     val apiVersion: Int,
@@ -254,9 +261,25 @@ object MobileTaskCommandContract {
                         (value is JsonPrimitive && value.isString && isThemeId(value.content)),
                 )
             }
+            "plannedSchedule" -> validatePlannedSchedulePatch(patch[field])
             "schedule" -> validateSchedulePatch(patch[field], allowNullSchedule)
             else -> error("Unsupported Task patch field: $field")
         }
+    }
+
+    private fun validatePlannedSchedulePatch(value: Any?) {
+        require(value is JsonObject)
+        require(value.keys == setOf("startTime", "durationMinutes"))
+        val start = value.getValue("startTime")
+        require(
+            start is JsonNull ||
+                (start is JsonPrimitive && start.isString && isPlannedStartTime(start.content)),
+        )
+        val duration = value.getValue("durationMinutes")
+        require(
+            duration is JsonNull ||
+                (duration is JsonPrimitive && !duration.isString && isPlannedDurationMinutes(duration.content.toInt())),
+        )
     }
 
     private fun validateSchedulePatch(value: Any?, allowNullSchedule: Boolean) {
@@ -298,6 +321,8 @@ object MobileTaskCommandContract {
         require(task.themeId == null || isThemeId(task.themeId))
         require(task.state in setOf("todo", "doing", "waiting", "review", "done", "cancelled"))
         require(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess)
+        require(task.plannedStartTime == null || isPlannedStartTime(task.plannedStartTime))
+        require(task.plannedDurationMinutes == null || isPlannedDurationMinutes(task.plannedDurationMinutes))
         task.schedule?.let { schedule ->
             require(schedule.id.isNotBlank() && schedule.id.length <= 200)
             require(schedule.version > 0)

@@ -68,6 +68,39 @@ class MobileTaskCommandContractTest {
         }
     }
 
+    @Test
+    fun validatesAtomicPlannedSchedulePatchIndependentOfTodayDate() {
+        val planned = buildJsonObject {
+            put("plannedSchedule", buildJsonObject {
+                put("startTime", JsonPrimitive("10:00"))
+                put("durationMinutes", JsonPrimitive(90))
+            })
+        }
+        val empty = buildJsonObject {
+            put("plannedSchedule", buildJsonObject {
+                put("startTime", JsonNull)
+                put("durationMinutes", JsonNull)
+            })
+        }
+        val encoded = MobileTaskCommandContract.decodeUpdateEnvelope(
+            MobileTaskCommandContract.encode(updateEnvelope(planned, empty, expectedScheduleVersion = null)),
+        )
+        val patch = encoded.command.changes.getValue("plannedSchedule") as kotlinx.serialization.json.JsonObject
+        assertEquals("10:00", (patch.getValue("startTime") as JsonPrimitive).content)
+        assertEquals("90", (patch.getValue("durationMinutes") as JsonPrimitive).content)
+        assertEquals(null, encoded.command.expectedScheduleVersion)
+
+        val invalidTime = buildJsonObject {
+            put("plannedSchedule", buildJsonObject {
+                put("startTime", JsonPrimitive("25:00"))
+                put("durationMinutes", JsonPrimitive(90))
+            })
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(updateEnvelope(invalidTime, empty, null))
+        }
+    }
+
     private fun updateEnvelope(
         changes: kotlinx.serialization.json.JsonObject,
         base: kotlinx.serialization.json.JsonObject,

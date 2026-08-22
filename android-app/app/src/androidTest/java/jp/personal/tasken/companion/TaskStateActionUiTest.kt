@@ -6,10 +6,11 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
@@ -28,7 +29,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("完了する").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("完了する").performScrollTo().assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -39,7 +40,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("再開する").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("再開する").performScrollTo().assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -50,7 +51,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("同期後に操作").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithText("同期後に操作").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
     }
 
     @Test
@@ -65,7 +66,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("再開に変更").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("再開に変更").performScrollTo().assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -93,7 +94,7 @@ class TaskStateActionUiTest {
         composeRule.onNodeWithText("Desktop  未着手  v8").assertIsDisplayed()
         composeRule.onNodeWithText("この端末を採用").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText("Desktopを採用").assertIsDisplayed().assertIsEnabled()
-        composeRule.onNodeWithText("競合を解決してから操作").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithText("競合を解決してから操作").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
     }
 
     @Test
@@ -110,7 +111,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNode(hasSetTextAction()).performTextReplacement("更新したTask")
+        composeRule.onNodeWithTag("task-title").performTextReplacement("更新したTask")
         composeRule.onNodeWithText("Task名を保存").assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals("更新したTask", submitted) }
     }
@@ -156,8 +157,8 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("日付  未設定").assertIsDisplayed()
-        composeRule.onNodeWithText("今日に入れる").assertIsEnabled().performClick()
+        composeRule.onNodeWithText("日付  未設定").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("今日に入れる").performScrollTo().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(LocalDate.now(), submitted) }
     }
 
@@ -167,7 +168,7 @@ class TaskStateActionUiTest {
             MaterialTheme {
                 TodayDetailPane(
                     sampleTask().copy(
-                        todayDate = "2026-08-23",
+                        todayDate = "2026-08-20",
                         conflict = MobileTaskConflict(
                             commandId = "command-schedule",
                             intendedAction = "UpdateTask",
@@ -175,7 +176,7 @@ class TaskStateActionUiTest {
                             serverVersion = 5,
                             serverState = "todo",
                             detectedAt = "2026-08-22T01:00:00Z",
-                            serverTodayDate = "2026-08-23",
+                            serverTodayDate = "2026-08-20",
                             localTodayDate = null,
                             localTodayDateChanged = true,
                         ),
@@ -186,8 +187,8 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("Desktop  日付 2026-08-23").assertIsDisplayed()
-        composeRule.onNodeWithText("この端末  日付 未設定").assertIsDisplayed()
+        composeRule.onNodeWithText("Desktop  日付 2026-08-20").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("この端末  日付 未設定").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -211,7 +212,7 @@ class TaskStateActionUiTest {
                 TodayDetailPane(task.value, actionState.value, onStateAction = {})
             }
         }
-        composeRule.onNode(hasSetTextAction()).performTextReplacement("端末の下書き")
+        composeRule.onNodeWithTag("task-title").performTextReplacement("端末の下書き")
         composeRule.runOnIdle { task.value = conflicted }
         composeRule.onNodeWithText("同期できなかった変更").assertIsDisplayed()
 
@@ -220,7 +221,7 @@ class TaskStateActionUiTest {
             actionState.value = TaskActionUiState.ConflictResolved(conflicted.id, keptLocal = false)
         }
 
-        composeRule.onNode(hasSetTextAction()).assertTextContains("Desktopの名前")
+        composeRule.onNodeWithTag("task-title").assertTextContains("Desktopの名前")
         composeRule.onNodeWithText("Task名を保存").assertIsNotEnabled()
     }
 

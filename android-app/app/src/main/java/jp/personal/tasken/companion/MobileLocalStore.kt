@@ -37,6 +37,8 @@ data class TaskCacheEntity(
     val scheduleRangeSemantics: String? = null,
     val scheduleConfidence: String? = null,
     val scheduleGranularity: String? = null,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
 )
 
 @Entity(tableName = "theme_cache")
@@ -128,6 +130,9 @@ data class TaskConflictEntity(
     val localScheduleEndDate: String? = null,
     val localScheduleRangeSemantics: String? = null,
     val localScheduleChanged: Boolean = false,
+    val localPlannedStartTime: String? = null,
+    val localPlannedDurationMinutes: Int? = null,
+    val localPlannedScheduleChanged: Boolean = false,
 )
 
 data class TaskCacheWithConflict(
@@ -733,7 +738,7 @@ abstract class MobileLocalDao {
         SyncStateEntity::class,
         TaskConflictEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -755,6 +760,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
+                MIGRATION_8_9,
             ).build().also { instance = it }
         }
     }
@@ -839,6 +845,16 @@ internal val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+internal val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN plannedStartTime TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN plannedDurationMinutes INTEGER")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localPlannedStartTime TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localPlannedDurationMinutes INTEGER")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localPlannedScheduleChanged INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     id = id,
     title = title,
@@ -846,6 +862,8 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     state = state,
     workState = workState,
     todayDate = todayDate,
+    plannedStartTime = plannedStartTime,
+    plannedDurationMinutes = plannedDurationMinutes,
     schedule = toMobileTaskSchedule(),
     updatedAt = updatedAt,
     pending = optimisticCommandId != null,
@@ -877,6 +895,11 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
                 null
             },
             localScheduleChanged = it.localScheduleChanged,
+            serverPlannedStartTime = task.plannedStartTime,
+            serverPlannedDurationMinutes = task.plannedDurationMinutes,
+            localPlannedStartTime = if (it.localPlannedScheduleChanged) it.localPlannedStartTime else null,
+            localPlannedDurationMinutes = if (it.localPlannedScheduleChanged) it.localPlannedDurationMinutes else null,
+            localPlannedScheduleChanged = it.localPlannedScheduleChanged,
             detectedAt = it.detectedAt,
         )
     },

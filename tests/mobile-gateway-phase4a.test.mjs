@@ -370,8 +370,8 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
       taskId: "task-mobile-create",
       expectedScheduleVersion: null,
       expectedVersion: 1,
-      changes: { themeId: "theme-research" },
-      base: { themeId: null },
+      changes: { plannedSchedule: { startTime: "10:00", durationMinutes: 90 } },
+      base: { plannedSchedule: { startTime: null, durationMinutes: null } },
     },
   }).success, true);
   for (const invalid of [
@@ -411,6 +411,17 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
         expectedVersion: 1,
         changes: { themeId: "theme-research" },
         base: { title: "Mobile Task" },
+      },
+    },
+    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
+        expectedVersion: 1,
+        changes: { plannedSchedule: { startTime: "25:00", durationMinutes: 90 } },
+        base: { plannedSchedule: { startTime: null, durationMinutes: null } },
       },
     },
     { ...valid, idempotencyKey: "different-command" },
@@ -564,6 +575,80 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
     3,
     { startDate: "2026-08-25", endDate: "2026-08-24", rangeSemantics: null },
     clearedValue,
+  );
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.error.code, "validation_failed");
+});
+
+test("Mobile UpdateTask maps planned start time and duration as one canonical patch independent of todayDate", async () => {
+  const { service } = capability();
+  const canonicalCommands = [];
+  const adapter = gateway(service, {
+    executeTaskCommand: (input) => {
+      canonicalCommands.push(input);
+      return service.executeCommand(input);
+    },
+  });
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  })).status, 200);
+
+  const update = async (commandId, expectedVersion, changes, base) => adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: `request-${commandId}`,
+      commandId,
+      idempotencyKey: commandId,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
+        expectedVersion,
+        changes: { plannedSchedule: changes },
+        base: { plannedSchedule: base },
+      },
+    },
+  });
+
+  const scheduled = await update(
+    "command-mobile-planned-set",
+    1,
+    { startTime: "10:00", durationMinutes: 90 },
+    { startTime: null, durationMinutes: null },
+  );
+  assert.equal(scheduled.status, 200);
+  assert.equal(scheduled.body.data.task.todayDate, "2026-08-21");
+  assert.equal(scheduled.body.data.task.plannedStartTime, "10:00");
+  assert.equal(scheduled.body.data.task.plannedDurationMinutes, 90);
+  assert.deepEqual(canonicalCommands.at(-1).payload, {
+    task_id: "task-mobile-create",
+    expected_version: 1,
+    changes: { planned_start_time: "10:00", planned_duration_minutes: 90 },
+    base: { planned_start_time: null, planned_duration_minutes: null },
+  });
+
+  const cleared = await update(
+    "command-mobile-planned-clear",
+    2,
+    { startTime: null, durationMinutes: null },
+    { startTime: "10:00", durationMinutes: 90 },
+  );
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.data.task.todayDate, "2026-08-21");
+  assert.equal(cleared.body.data.task.plannedStartTime, null);
+  assert.equal(cleared.body.data.task.plannedDurationMinutes, null);
+
+  const invalid = await update(
+    "command-mobile-planned-invalid",
+    3,
+    { startTime: "10:00", durationMinutes: 0 },
+    { startTime: null, durationMinutes: null },
   );
   assert.equal(invalid.status, 400);
   assert.equal(invalid.body.error.code, "validation_failed");
@@ -1132,6 +1217,8 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
       state: "done",
       workState: "not_delegated",
       todayDate: "2026-08-21",
+      plannedStartTime: null,
+      plannedDurationMinutes: null,
       schedule: null,
       updatedAt: now,
     },

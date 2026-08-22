@@ -26,6 +26,8 @@ data class MobileTask(
     val workState: String?,
     val updatedAt: String,
     val todayDate: String? = null,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
     val schedule: MobileTaskSchedule? = null,
     val pending: Boolean = false,
     val conflict: MobileTaskConflict? = null,
@@ -48,6 +50,11 @@ data class MobileTaskScheduleDraft(
     val startDate: String?,
     val endDate: String?,
     val rangeSemantics: String?,
+)
+
+data class MobilePlannedScheduleDraft(
+    val startTime: String?,
+    val durationMinutes: Int?,
 )
 
 data class MobileRejectedThemeUpdate(
@@ -119,6 +126,11 @@ data class MobileTaskConflict(
     val serverSchedule: MobileTaskSchedule? = null,
     val localSchedule: MobileTaskScheduleDraft? = null,
     val localScheduleChanged: Boolean = false,
+    val serverPlannedStartTime: String? = null,
+    val serverPlannedDurationMinutes: Int? = null,
+    val localPlannedStartTime: String? = null,
+    val localPlannedDurationMinutes: Int? = null,
+    val localPlannedScheduleChanged: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -333,6 +345,10 @@ class TodayViewModel(
         viewModelScope.launch { updateTaskScheduleNow(task, draft) }
     }
 
+    fun updateTaskPlannedSchedule(task: MobileTask, draft: MobilePlannedScheduleDraft) {
+        viewModelScope.launch { updateTaskPlannedScheduleNow(task, draft) }
+    }
+
     internal suspend fun updateTaskScheduleNow(task: MobileTask, draft: MobileTaskScheduleDraft) {
         val normalized = try {
             normalizeScheduleDraft(draft)
@@ -377,6 +393,46 @@ class TodayViewModel(
             "期間の意味は開始日と終了日が異なるときだけ設定できます。"
         }
         return MobileTaskScheduleDraft(start?.toString(), end?.toString(), draft.rangeSemantics)
+    }
+
+    private fun normalizePlannedScheduleDraft(draft: MobilePlannedScheduleDraft): MobilePlannedScheduleDraft {
+        val startTime = draft.startTime?.trim()?.takeIf(String::isNotEmpty)
+        require(startTime == null || isPlannedStartTime(startTime)) { "開始時刻はHH:mmで入力してください。" }
+        val duration = draft.durationMinutes
+        require(duration == null || isPlannedDurationMinutes(duration)) { "所要時間は1〜10080分で入力してください。" }
+        return MobilePlannedScheduleDraft(startTime, duration)
+    }
+
+    internal suspend fun updateTaskPlannedScheduleNow(task: MobileTask, draft: MobilePlannedScheduleDraft) {
+        val normalized = try {
+            normalizePlannedScheduleDraft(draft)
+        } catch (error: Exception) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                error.message ?: "開始時刻と所要時間を確認してください。",
+            )
+            return
+        }
+        if (
+            task.plannedStartTime == normalized.startTime &&
+            task.plannedDurationMinutes == normalized.durationMinutes
+        ) return
+        if (task.pending || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから時刻を変更してください。")
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskの時刻を変更できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) { offlineRepository.enqueueUpdateTaskPlannedSchedule(task.id, normalized) }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Taskの時刻を変更できませんでした。")
+        }
     }
 
     fun updateTaskTheme(task: MobileTask, themeId: String) {
@@ -604,6 +660,8 @@ interface MobileOfflineTaskRepository {
         error("この環境ではTaskの予定を変更できません。")
     suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
         error("この環境ではTaskの予定を変更できません。")
+    suspend fun enqueueUpdateTaskPlannedSchedule(taskId: String, schedule: MobilePlannedScheduleDraft): String =
+        error("この環境ではTaskの時刻を変更できません。")
     suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
         error("この環境ではTaskのThemeを変更できません。")
     suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) {

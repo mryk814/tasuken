@@ -38,6 +38,8 @@ data class MobileTaskSummaryDto(
     val state: String,
     val workState: String?,
     val todayDate: String? = null,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
     val schedule: MobileTaskScheduleDto?,
     val updatedAt: String,
 )
@@ -110,6 +112,11 @@ object MobileTodayContract {
             requireContract(item.state in taskStates, "Invalid Task state.")
             requireContract(item.workState == null || item.workState in workStates, "Invalid work state.")
             requireContract(item.todayDate == null || isDate(item.todayDate), "Invalid Task todayDate.")
+            requireContract(item.plannedStartTime == null || isPlannedStartTime(item.plannedStartTime), "Invalid Task plannedStartTime.")
+            requireContract(
+                item.plannedDurationMinutes == null || isPlannedDurationMinutes(item.plannedDurationMinutes),
+                "Invalid Task plannedDurationMinutes.",
+            )
             item.schedule?.let(::validateSchedule)
             requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
         }
@@ -177,6 +184,8 @@ fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileToday
             workState = it.workState,
             updatedAt = it.updatedAt,
             todayDate = it.todayDate,
+            plannedStartTime = it.plannedStartTime,
+            plannedDurationMinutes = it.plannedDurationMinutes,
             schedule = it.schedule?.toMobileTaskSchedule(),
         )
     },

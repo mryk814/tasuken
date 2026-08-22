@@ -153,6 +153,14 @@ export const mobileTaskScheduleSchema = z.object({
   }
 });
 
+const mobilePlannedStartTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable();
+const mobilePlannedDurationMinutesSchema = z.number().int().positive().max(10080).nullable();
+
+export const mobilePlannedScheduleSchema = z.object({
+  startTime: mobilePlannedStartTimeSchema,
+  durationMinutes: mobilePlannedDurationMinutesSchema,
+}).strict();
+
 export const mobileTaskSummarySchema = z.object({
   id: taskIdSchema,
   version: entityVersionSchema,
@@ -161,6 +169,8 @@ export const mobileTaskSummarySchema = z.object({
   state: taskStateSchema,
   workState: taskWorkStateSchema.nullable(),
   todayDate: localDateSchema.nullable().optional(),
+  plannedStartTime: mobilePlannedStartTimeSchema.optional(),
+  plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
   schedule: mobileTaskScheduleSchema.nullable(),
   updatedAt: isoTimestampSchema,
 }).strict();
@@ -338,6 +348,7 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
+  z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
 ]);
 
 const mobileTaskUpdateBaseSchema = z.union([
@@ -345,6 +356,7 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
+  z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
 ]);
 
 const mobileTaskCommandSchema = z.discriminatedUnion("name", [
