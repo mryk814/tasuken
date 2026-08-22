@@ -6,9 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.time.Instant
 import java.time.LocalDate
+import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -26,7 +30,7 @@ class MobileOutboxDatabaseTest {
     private lateinit var outbox: MobileOutbox
 
     @Before
-    fun setUp() {
+    fun setUp() = runBlocking {
         context = ApplicationProvider.getApplicationContext()
         database = Room.inMemoryDatabaseBuilder(context, MobileLocalDatabase::class.java)
             .allowMainThreadQueries()
@@ -39,6 +43,7 @@ class MobileOutboxDatabaseTest {
             now = { Instant.parse("2026-08-22T01:02:03Z") },
             schedule = {},
         )
+        dao.upsertSyncState(activeSyncState())
     }
 
     @After
@@ -68,7 +73,7 @@ class MobileOutboxDatabaseTest {
         val taskId = outbox.enqueueCreate("再送する", LocalDate.parse("2026-08-22"))
         val commandId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
         val before = requireNotNull(dao.outbox(commandId))
-        requireNotNull(dao.claimNext("2026-08-22T01:03:00Z"))
+        requireNotNull(dao.claimNext("server-1", "2026-08-22T01:03:00Z"))
 
         assertEquals(1, outbox.recoverInterruptedSending())
         val recovered = requireNotNull(dao.outbox(commandId))
@@ -78,23 +83,169 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun claimOnlyReturnsCommandsOwnedByTheConfirmedServer() = runBlocking {
+        val taskId = outbox.enqueueCreate("server帰属", LocalDate.parse("2026-08-22"))
+        val commandId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+
+        assertNull(dao.claimNext("server-2", "2026-08-22T01:03:00Z"))
+        assertEquals(OutboxState.Pending, dao.outbox(commandId)?.state)
+        assertEquals("server-1", dao.claimNext("server-1", "2026-08-22T01:03:01Z")?.serverId)
+    }
+
+    @Test
+    fun receiptFromAnotherServerCannotMutateTaskOrSyncState() = runBlocking {
+        val taskId = outbox.enqueueCreate("別server receipt拒否", LocalDate.parse("2026-08-22"))
+        val commandId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+        val wrongServerReceipt = receipt(commandId, taskId).copy(
+            meta = receipt(commandId, taskId).meta.copy(serverId = "server-2"),
+        )
+
+        assertTrue(outbox.drain("server-1") { MobileCommandSendResult.Applied(wrongServerReceipt) })
+
+        assertEquals(OutboxState.RetryWait, dao.outbox(commandId)?.state)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+        assertEquals("server-1", dao.syncState()?.serverId)
+    }
+
+    @Test
     fun receiptConvergesCanonicalTaskThenDeletesOutboxAndDuplicateIsSafe() = runBlocking {
         val taskId = outbox.enqueueCreate("正規化前", LocalDate.parse("2026-08-22"))
         val commandId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
         val response = receipt(commandId, taskId)
 
-        assertTrue(outbox.drain { MobileCommandSendResult.Applied(response) }.not())
+        assertTrue(outbox.drain("server-1") { MobileCommandSendResult.Applied(response) }.not())
         assertEquals("Desktop正規化後", dao.task(taskId)?.title)
         assertNull(dao.task(taskId)?.optimisticCommandId)
         assertEquals(0, dao.outboxCount())
 
-        dao.applyCommandReceipt(
-            commandId,
-            canonicalTask(response),
-            syncState(response),
+        assertEquals(
+            false,
+            dao.applyCommandReceipt(
+                commandId = commandId,
+                expectedServerId = "server-1",
+                expectedTaskId = taskId,
+                expectedAttemptCount = 1,
+                canonicalTask = canonicalTask(response),
+                syncState = syncState(response),
+            ),
         )
         assertEquals(1, dao.tasks().count { it.id == taskId })
         assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun lateReceiptCannotStealNewSendingAttemptOrRegressAcceptedState() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000009"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+        val commandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
+        val firstAttempt = requireNotNull(dao.claimNext("server-1", "2026-08-22T01:03:00Z"))
+        val ownershipProbe = receipt(commandId, taskId, state = "done", version = 8)
+
+        assertEquals(
+            false,
+            dao.applyCommandReceipt(
+                commandId = commandId,
+                expectedServerId = "server-2",
+                expectedTaskId = taskId,
+                expectedAttemptCount = firstAttempt.attemptCount,
+                canonicalTask = canonicalTask(ownershipProbe),
+                syncState = syncState(ownershipProbe).copy(serverId = "server-2"),
+            ),
+        )
+        val differentTaskId = "10000000-0000-4000-8000-000000000008"
+        assertEquals(
+            false,
+            dao.applyCommandReceipt(
+                commandId = commandId,
+                expectedServerId = "server-1",
+                expectedTaskId = differentTaskId,
+                expectedAttemptCount = firstAttempt.attemptCount,
+                canonicalTask = canonicalTask(ownershipProbe).copy(id = differentTaskId),
+                syncState = syncState(ownershipProbe),
+            ),
+        )
+        assertEquals(firstAttempt, dao.outbox(commandId))
+        assertNull(dao.task(differentTaskId))
+        assertEquals("server-1", dao.syncState()?.serverId)
+
+        assertEquals(1, outbox.recoverInterruptedSending())
+        val secondAttempt = requireNotNull(dao.claimNext("server-1", "2026-08-22T01:03:30Z"))
+        assertEquals(firstAttempt.attemptCount + 1, secondAttempt.attemptCount)
+
+        val staleResponse = ownershipProbe
+        assertEquals(
+            false,
+            dao.applyCommandReceipt(
+                commandId = commandId,
+                expectedServerId = "server-1",
+                expectedTaskId = taskId,
+                expectedAttemptCount = firstAttempt.attemptCount,
+                canonicalTask = canonicalTask(staleResponse).copy(title = "遅れて届いたreceipt"),
+                syncState = syncState(staleResponse).copy(
+                    lastSuccessfulSyncAt = "2026-08-22T01:03:10Z",
+                    lastAttemptAt = "2026-08-22T01:03:10Z",
+                ),
+            ),
+        )
+        assertEquals(secondAttempt, dao.outbox(commandId))
+        assertEquals(7, dao.task(taskId)?.serverVersion)
+        assertEquals("状態を変える", dao.task(taskId)?.title)
+        assertEquals("2026-08-22T01:00:00Z", dao.syncState()?.lastSuccessfulSyncAt)
+
+        dao.upsertTask(
+            requireNotNull(dao.task(taskId)).copy(
+                serverVersion = 9,
+                title = "同期で先に進んだTask",
+            ),
+        )
+        assertEquals(
+            false,
+            dao.applyCommandReceipt(
+                commandId = commandId,
+                expectedServerId = "server-1",
+                expectedTaskId = taskId,
+                expectedAttemptCount = secondAttempt.attemptCount,
+                canonicalTask = canonicalTask(staleResponse).copy(title = "versionが古いreceipt"),
+                syncState = syncState(staleResponse),
+            ),
+        )
+        assertEquals(secondAttempt, dao.outbox(commandId))
+        assertEquals(9, dao.task(taskId)?.serverVersion)
+        assertEquals("同期で先に進んだTask", dao.task(taskId)?.title)
+
+        val acceptedResponse = receipt(commandId, taskId, state = "done", version = 10)
+        assertTrue(
+            dao.applyCommandReceipt(
+                commandId = commandId,
+                expectedServerId = "server-1",
+                expectedTaskId = taskId,
+                expectedAttemptCount = secondAttempt.attemptCount,
+                canonicalTask = canonicalTask(acceptedResponse).copy(title = "最新のreceipt"),
+                syncState = syncState(acceptedResponse).copy(
+                    lastSuccessfulSyncAt = "2026-08-22T01:03:40Z",
+                    lastAttemptAt = "2026-08-22T01:03:40Z",
+                ),
+            ),
+        )
+        assertNull(dao.outbox(commandId))
+        assertEquals(10, dao.task(taskId)?.serverVersion)
+        assertEquals("最新のreceipt", dao.task(taskId)?.title)
+        assertEquals("2026-08-22T01:03:40Z", dao.syncState()?.lastSuccessfulSyncAt)
+
+        assertEquals(
+            false,
+            dao.applyCommandReceipt(
+                commandId = commandId,
+                expectedServerId = "server-1",
+                expectedTaskId = taskId,
+                expectedAttemptCount = firstAttempt.attemptCount,
+                canonicalTask = canonicalTask(staleResponse).copy(title = "遅れて届いたreceipt"),
+                syncState = syncState(staleResponse),
+            ),
+        )
+        assertEquals(10, dao.task(taskId)?.serverVersion)
+        assertEquals("最新のreceipt", dao.task(taskId)?.title)
+        assertEquals("2026-08-22T01:03:40Z", dao.syncState()?.lastSuccessfulSyncAt)
     }
 
     @Test
@@ -121,7 +272,7 @@ class MobileOutboxDatabaseTest {
         assertEquals("CompleteTask", completeEnvelope.command.name)
         assertEquals(7, completeEnvelope.command.expectedVersion)
         assertEquals("done", dao.task(taskId)?.state)
-        assertTrue(outbox.drain { MobileCommandSendResult.Applied(receipt(completeId, taskId, "done", 8)) }.not())
+        assertTrue(outbox.drain("server-1") { MobileCommandSendResult.Applied(receipt(completeId, taskId, "done", 8)) }.not())
         assertEquals(8, dao.task(taskId)?.serverVersion)
         assertNull(dao.task(taskId)?.optimisticCommandId)
 
@@ -140,7 +291,7 @@ class MobileOutboxDatabaseTest {
         dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
 
         val staleCommandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
-        assertTrue(outbox.drain {
+        assertTrue(outbox.drain("server-1") {
             MobileCommandSendResult.Conflict(conflict(taskId, serverVersion = 8, serverState = "todo"))
         }.not())
 
@@ -160,7 +311,7 @@ class MobileOutboxDatabaseTest {
         assertEquals("CompleteTask", replacementEnvelope.command.name)
         assertEquals("done", dao.task(taskId)?.state)
 
-        assertTrue(outbox.drain {
+        assertTrue(outbox.drain("server-1") {
             MobileCommandSendResult.Applied(receipt(replacementId, taskId, "done", 9))
         }.not())
         assertEquals(9, dao.task(taskId)?.serverVersion)
@@ -172,7 +323,7 @@ class MobileOutboxDatabaseTest {
         val taskId = "10000000-0000-4000-8000-000000000021"
         dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo"))
         val commandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
-        outbox.drain {
+        outbox.drain("server-1") {
             MobileCommandSendResult.Conflict(conflict(taskId, serverVersion = 4, serverState = "todo"))
         }
 
@@ -195,7 +346,7 @@ class MobileOutboxDatabaseTest {
         assertEquals("done", dao.task(taskId)?.state)
 
         val sentNames = mutableListOf<String>()
-        assertTrue(outbox.drain { payload ->
+        assertTrue(outbox.drain("server-1") { payload ->
             if (sentNames.isEmpty()) {
                 val envelope = MobileTaskCommandContract.decodeCreateEnvelope(payload)
                 sentNames += envelope.command.name
@@ -257,7 +408,7 @@ class MobileOutboxDatabaseTest {
                 canonicalCachedTask("bootstrap-task", 2, "todo").copy(title = "Bootstrap Task"),
             ),
             syncState = SyncStateEntity(
-                serverId = "server-restored",
+                serverId = "server-1",
                 apiVersion = 1,
                 schemaVersion = 1,
                 cursor = "2026-08-22T02:00:00Z|bootstrap-task",
@@ -270,7 +421,7 @@ class MobileOutboxDatabaseTest {
         assertNull(dao.task("stale-canonical"))
         assertEquals("端末の未送信Task", dao.task(pendingTaskId)?.title)
         assertEquals("Bootstrap Task", dao.task("bootstrap-task")?.title)
-        assertEquals("server-restored", dao.syncState()?.serverId)
+        assertEquals("server-1", dao.syncState()?.serverId)
 
         dao.applySyncPage(
             upserts = listOf(
@@ -293,6 +444,112 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun themeCatalogReplacementRemovesStaleRowsAndKeepsEmptyCatalogProvenance() = runBlocking {
+        storeThemeCatalog(
+            dao,
+            listOf(
+                ThemeCacheEntity("theme-z", "Zeta"),
+                ThemeCacheEntity("theme-a", "Alpha"),
+            ),
+            revision = 4,
+        )
+        assertEquals(listOf("theme-a", "theme-z"), dao.observeThemes().first().map { it.id })
+
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-new", "New")), revision = 5)
+        assertEquals(listOf("theme-new"), dao.themes().map { it.id })
+
+        storeThemeCatalog(dao, emptyList(), revision = 6)
+        assertTrue(dao.themes().isEmpty())
+        assertEquals("server-1", dao.themeCatalogState()?.serverId)
+        assertEquals(6, dao.themeCatalogState()?.serverRevision)
+        assertEquals(ThemeCatalogStatus.Available, dao.themeCatalogState()?.status)
+    }
+
+    @Test
+    fun themeCatalogRejectsOlderAndSupersededRefreshesAndInvalidatesServerChange() = runBlocking {
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-10", "Revision 10")), revision = 10)
+        dao.prepareThemeRefresh("server-1", "slow-refresh", "2026-08-22T02:01:00Z")
+        dao.prepareThemeRefresh("server-1", "fast-refresh", "2026-08-22T02:02:00Z")
+
+        assertTrue(
+            dao.completeThemeRefresh(
+                "server-1",
+                12,
+                "2026-08-22T02:02:00Z",
+                "2026-08-22T02:02:01Z",
+                "fast-refresh",
+                listOf(ThemeCacheEntity("theme-12", "Revision 12")),
+            ),
+        )
+        assertEquals(
+            false,
+            dao.completeThemeRefresh(
+                "server-1",
+                11,
+                "2026-08-22T02:01:00Z",
+                "2026-08-22T02:01:00Z",
+                "slow-refresh",
+                listOf(ThemeCacheEntity("theme-11", "Revision 11")),
+            ),
+        )
+        assertEquals(listOf("theme-12"), dao.themes().map { it.id })
+        assertEquals(12, dao.themeCatalogState()?.serverRevision)
+
+        dao.prepareThemeRefresh("server-1", "older-revision", "2026-08-22T02:04:00Z")
+        assertEquals(
+            false,
+            dao.completeThemeRefresh(
+                "server-1",
+                9,
+                "2026-08-22T02:04:00Z",
+                "2026-08-22T02:04:01Z",
+                "older-revision",
+                listOf(ThemeCacheEntity("theme-9", "Revision 9")),
+            ),
+        )
+        assertEquals(ThemeCatalogStatus.Available, dao.themeCatalogState()?.status)
+        assertEquals(listOf("theme-12"), dao.themes().map { it.id })
+
+        dao.invalidateThemeCatalogForServer("server-2", "2026-08-22T02:05:00Z")
+        assertTrue(dao.themes().isEmpty())
+        assertEquals("server-2", dao.themeCatalogState()?.serverId)
+        assertEquals(ThemeCatalogStatus.Loading, dao.themeCatalogState()?.status)
+    }
+
+    @Test
+    fun latestStartedThemeRefreshExclusivelyOwnsCompletion() = runBlocking {
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-10", "Revision 10")), revision = 10)
+        dao.prepareThemeRefresh("server-1", "first-refresh", "2026-08-22T02:01:00Z")
+        dao.prepareThemeRefresh("server-1", "later-refresh", "2026-08-22T02:02:00Z")
+
+        assertEquals(
+            false,
+            dao.completeThemeRefresh(
+                "server-1",
+                11,
+                "2026-08-22T02:01:00Z",
+                "2026-08-22T02:01:00Z",
+                "first-refresh",
+                listOf(ThemeCacheEntity("theme-11", "Revision 11")),
+            ),
+        )
+        assertTrue(
+            dao.failThemeRefresh(
+                "server-1",
+                "later-refresh",
+                "2026-08-22T02:04:00Z",
+                "later request failed",
+                unsupported = false,
+            ),
+        )
+        assertEquals(listOf("theme-10"), dao.themes().map { it.id })
+        assertEquals(10, dao.themeCatalogState()?.serverRevision)
+        assertEquals(ThemeCatalogStatus.Stale, dao.themeCatalogState()?.status)
+        assertEquals("later request failed", dao.themeCatalogState()?.lastError)
+        assertEquals("2026-08-22T02:04:00Z", dao.themeCatalogState()?.lastAttemptAt)
+    }
+
+    @Test
     fun titleUpdatePersistsBaseAndKeepsLocalTitleAcrossExplicitConflictResolution() = runBlocking {
         val taskId = "10000000-0000-4000-8000-000000000040"
         dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo").copy(title = "元の名前"))
@@ -303,7 +560,7 @@ class MobileOutboxDatabaseTest {
         assertEquals("端末の名前", envelope.command.changes.getValue("title").jsonPrimitive.content)
         assertEquals("端末の名前", dao.task(taskId)?.title)
 
-        assertEquals(false, outbox.drain {
+        assertEquals(false, outbox.drain("server-1") {
             MobileCommandSendResult.Conflict(
                 conflict(taskId, serverVersion = 5, serverState = "todo", intendedAction = "UpdateTask", serverTitle = "Desktopの名前"),
             )
@@ -331,7 +588,7 @@ class MobileOutboxDatabaseTest {
         assertEquals("2026-08-22", envelope.command.changes.getValue("todayDate").jsonPrimitive.content)
         assertEquals("2026-08-22", dao.task(taskId)?.todayDate)
 
-        assertEquals(false, outbox.drain {
+        assertEquals(false, outbox.drain("server-1") {
             MobileCommandSendResult.Conflict(
                 conflict(
                     taskId,
@@ -355,11 +612,395 @@ class MobileOutboxDatabaseTest {
         assertEquals("2026-08-22", dao.task(taskId)?.todayDate)
     }
 
+    @Test
+    fun themeUpdateUsesCachedCandidateAndKeepsBothValuesAcrossConflictResolution() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000042"
+        storeThemeCatalog(
+            dao,
+            listOf(
+                ThemeCacheEntity("theme-old", "旧Theme"),
+                ThemeCacheEntity("theme-local", "端末Theme"),
+            ),
+        )
+        dao.upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(themeId = "theme-old"),
+        )
+
+        val commandId = outbox.enqueueUpdateTheme(taskId, "theme-local")
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(
+            requireNotNull(dao.outbox(commandId)).envelopeJson,
+        )
+        assertEquals("theme-old", envelope.command.base.getValue("themeId").jsonPrimitive.content)
+        assertEquals("theme-local", envelope.command.changes.getValue("themeId").jsonPrimitive.content)
+        assertEquals("theme-local", dao.task(taskId)?.themeId)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId,
+                    serverVersion = 5,
+                    serverState = "todo",
+                    intendedAction = "UpdateTask",
+                    serverThemeId = "theme-server",
+                ),
+            )
+        })
+        val storedConflict = requireNotNull(dao.conflict(commandId))
+        assertTrue(storedConflict.localThemeIdChanged)
+        assertEquals("theme-local", storedConflict.localThemeId)
+        assertEquals("theme-server", storedConflict.serverThemeId)
+        assertEquals("theme-server", dao.task(taskId)?.themeId)
+
+        val replacementId = outbox.keepLocal(commandId)
+        val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(
+            requireNotNull(dao.outbox(replacementId)).envelopeJson,
+        )
+        assertEquals(5, replacement.command.expectedVersion)
+        assertEquals("theme-server", replacement.command.base.getValue("themeId").jsonPrimitive.content)
+        assertEquals("theme-local", replacement.command.changes.getValue("themeId").jsonPrimitive.content)
+        assertEquals("theme-local", dao.task(taskId)?.themeId)
+    }
+
+    @Test
+    fun acceptingDesktopThemeKeepsCanonicalThemeAndDeletesLocalIntent() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000043"
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-local", "端末Theme")))
+        dao.upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(themeId = "theme-old"),
+        )
+        val commandId = outbox.enqueueUpdateTheme(taskId, "theme-local")
+        outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId,
+                    serverVersion = 5,
+                    serverState = "todo",
+                    intendedAction = "UpdateTask",
+                    serverThemeId = "theme-server",
+                ),
+            )
+        }
+
+        outbox.acceptServer(commandId)
+
+        assertEquals("theme-server", dao.task(taskId)?.themeId)
+        assertNull(dao.task(taskId)?.conflictCommandId)
+        assertNull(dao.conflict(commandId))
+        assertNull(dao.outbox(commandId))
+    }
+
+    @Test
+    fun rejectedThemeUpdateRollsBackAtomicallyAndRemainsEditableAfterRestart() = runBlocking {
+        val databaseName = "mobile-theme-rejected-restart-test"
+        context.deleteDatabase(databaseName)
+        var durableDatabase: MobileLocalDatabase? = null
+        try {
+            val initialDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = initialDatabase
+            val initialDao = initialDatabase.mobileDao()
+            initialDao.upsertSyncState(activeSyncState())
+            storeThemeCatalog(
+                initialDao,
+                listOf(
+                    ThemeCacheEntity("theme-old", "旧Theme"),
+                    ThemeCacheEntity("theme-deleted", "削除済みTheme"),
+                ),
+            )
+            initialDao.upsertTask(
+                canonicalCachedTask("rejected-theme-task", version = 6, state = "todo").copy(themeId = "theme-old"),
+            )
+            val initialOutbox = MobileOutbox(
+                context = context,
+                dao = initialDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:00:00Z") },
+                schedule = {},
+            )
+            val rejectedCommandId = initialOutbox.enqueueUpdateTheme("rejected-theme-task", "theme-deleted")
+
+            assertEquals(false, initialOutbox.drain("server-1") {
+                MobileCommandSendResult.Rejected(
+                    code = "theme_not_found",
+                    message = "選択したThemeは削除済みか利用できません。",
+                )
+            })
+            val rejected = requireNotNull(initialDao.outbox(rejectedCommandId))
+            val structuredError = Json.parseToJsonElement(requireNotNull(rejected.lastError)).jsonObject
+            assertEquals(OutboxState.Rejected, rejected.state)
+            assertEquals("theme_not_found", structuredError.getValue("code").jsonPrimitive.content)
+            assertEquals("選択したThemeは削除済みか利用できません。", structuredError.getValue("message").jsonPrimitive.content)
+            assertEquals(false, structuredError.getValue("retryable").jsonPrimitive.boolean)
+            assertEquals("theme-old", initialDao.task("rejected-theme-task")?.themeId)
+            assertNull(initialDao.task("rejected-theme-task")?.optimisticCommandId)
+
+            initialDatabase.close()
+            val reopenedDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = reopenedDatabase
+            val reopenedDao = reopenedDatabase.mobileDao()
+            val recreatedOutbox = MobileOutbox(
+                context = context,
+                dao = reopenedDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:01:00Z") },
+                schedule = {},
+            )
+
+            assertEquals("theme-old", reopenedDao.task("rejected-theme-task")?.themeId)
+            assertNull(reopenedDao.task("rejected-theme-task")?.optimisticCommandId)
+            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            val projected = reopenedDao.observeAllTasks().first().single().toMobileTask("server-1")
+            assertEquals("theme_not_found", projected.rejectedThemeUpdate?.code)
+            assertEquals("選択したThemeは削除済みか利用できません。", projected.rejectedThemeUpdate?.message)
+            val replacementId = recreatedOutbox.enqueueUpdateTheme("rejected-theme-task", "theme-deleted")
+            assertTrue(replacementId != rejectedCommandId)
+            assertNull(reopenedDao.outbox(rejectedCommandId))
+            assertEquals(replacementId, reopenedDao.task("rejected-theme-task")?.optimisticCommandId)
+        } finally {
+            durableDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun rejectedThemeUpdateCanBeDiscardedAndIsScopedToActiveServer() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000044"
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-new", "新Theme")))
+        dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo").copy(themeId = null))
+        val commandId = outbox.enqueueUpdateTheme(taskId, "theme-new")
+        outbox.drain("server-1") {
+            MobileCommandSendResult.Rejected("theme_not_found", "選択したThemeは削除済みか利用できません。")
+        }
+
+        val related = dao.observeAllTasks().first().single { it.task.id == taskId }
+        assertEquals(commandId, related.toMobileTask("server-1").rejectedThemeUpdate?.commandId)
+        assertNull(related.toMobileTask("server-2").rejectedThemeUpdate)
+
+        outbox.discardRejectedThemeUpdate(taskId, commandId)
+
+        assertNull(dao.outbox(commandId))
+        assertNull(
+            dao.observeAllTasks().first().single { it.task.id == taskId }
+                .toMobileTask("server-1").rejectedThemeUpdate,
+        )
+    }
+
+    @Test
+    fun corruptRejectedThemeErrorShapeFallsBackWithoutBreakingTaskProjection() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000045"
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-new", "新Theme")))
+        dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo").copy(themeId = null))
+        val commandId = outbox.enqueueUpdateTheme(taskId, "theme-new")
+        outbox.drain("server-1") {
+            MobileCommandSendResult.Rejected("theme_not_found", "選択したThemeは削除済みか利用できません。")
+        }
+        dao.markRejected(commandId, "{\"code\":{},\"message\":[]}")
+
+        val rejection = dao.observeAllTasks().first().single { it.task.id == taskId }
+            .toMobileTask("server-1").rejectedThemeUpdate
+
+        assertEquals("command_rejected", rejection?.code)
+        assertEquals("DesktopがTheme変更を受理しませんでした。", rejection?.message)
+    }
+
+    @Test
+    fun retryableThemeRejectionKeepsOptimisticIntentForRetry() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000044"
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-local", "端末Theme")))
+        dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo").copy(themeId = "theme-old"))
+        val commandId = outbox.enqueueUpdateTheme(taskId, "theme-local")
+
+        assertTrue(outbox.drain("server-1") {
+            MobileCommandSendResult.Rejected(
+                code = "temporarily_unavailable",
+                message = "Themeを確認できませんでした。",
+                retryable = true,
+            )
+        })
+
+        assertEquals(OutboxState.RetryWait, dao.outbox(commandId)?.state)
+        assertEquals("theme-local", dao.task(taskId)?.themeId)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+    }
+
+    @Test
+    fun nonThemeRejectionPreservesExistingOptimisticFailureState() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000048"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo").copy(title = "元の名前"))
+        val commandId = outbox.enqueueUpdateTitle(taskId, "端末の名前")
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Rejected(
+                code = "title_rejected",
+                message = "Task名を更新できませんでした。",
+            )
+        })
+
+        assertEquals(OutboxState.Rejected, dao.outbox(commandId)?.state)
+        assertEquals("端末の名前", dao.task(taskId)?.title)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+    }
+
+    @Test
+    fun receiptForDifferentCommandFailsClosedWithoutOrphaningOptimisticTask() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000049"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+        val commandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
+
+        assertTrue(outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(receipt("different-command", taskId, state = "done", version = 8))
+        })
+
+        assertEquals(OutboxState.RetryWait, dao.outbox(commandId)?.state)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+        assertEquals(7, dao.task(taskId)?.serverVersion)
+    }
+
+    @Test
+    fun receiptForDifferentTaskFailsClosedWithoutUpsertingIt() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000045"
+        val differentTaskId = "10000000-0000-4000-8000-000000000046"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+        val commandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
+
+        assertTrue(outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(receipt(commandId, differentTaskId, state = "done", version = 8))
+        })
+
+        assertEquals(OutboxState.RetryWait, dao.outbox(commandId)?.state)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+        assertEquals(7, dao.task(taskId)?.serverVersion)
+        assertNull(dao.task(differentTaskId))
+        val error = Json.parseToJsonElement(requireNotNull(dao.outbox(commandId)?.lastError)).jsonObject
+        assertEquals("invalid_command_receipt", error.getValue("code").jsonPrimitive.content)
+    }
+
+    @Test
+    fun receiptVersionCannotRetreatAndNoChangeMayKeepExpectedVersion() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000047"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+        val commandId = requireNotNull(outbox.enqueueComplete(taskId).commandId)
+
+        assertTrue(outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(receipt(commandId, taskId, state = "done", version = 7))
+        })
+        assertEquals(OutboxState.RetryWait, dao.outbox(commandId)?.state)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+        assertEquals(7, dao.task(taskId)?.serverVersion)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(
+                receipt(commandId, taskId, state = "done", version = 7, status = "no_change"),
+            )
+        })
+        assertEquals(7, dao.task(taskId)?.serverVersion)
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+        assertNull(dao.outbox(commandId))
+    }
+
+    @Test
+    fun clearingThemeKeepsExplicitNullIntentThroughConflictAndRestart() = runBlocking {
+        val databaseName = "mobile-theme-restart-test"
+        context.deleteDatabase(databaseName)
+        var durableDatabase: MobileLocalDatabase? = null
+        try {
+            val initialDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = initialDatabase
+            val durableDao = initialDatabase.mobileDao()
+            durableDao.upsertSyncState(activeSyncState())
+            storeThemeCatalog(durableDao, listOf(ThemeCacheEntity("theme-old", "外すTheme")))
+            durableDao.upsertTask(
+                canonicalCachedTask("restart-theme-task", version = 6, state = "todo").copy(themeId = "theme-old"),
+            )
+            val durableOutbox = MobileOutbox(
+                context = context,
+                dao = durableDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:00:00Z") },
+                schedule = {},
+            )
+            val commandId = durableOutbox.enqueueUpdateTheme("restart-theme-task", null)
+            initialDatabase.close()
+            val reopenedDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = reopenedDatabase
+            val reopenedDao = reopenedDatabase.mobileDao()
+            val reopenedEnvelope = MobileTaskCommandContract.decodeUpdateEnvelope(
+                requireNotNull(reopenedDao.outbox(commandId)).envelopeJson,
+            )
+
+            assertEquals(JsonNull, reopenedEnvelope.command.changes.getValue("themeId"))
+            assertEquals("theme-old", reopenedEnvelope.command.base.getValue("themeId").jsonPrimitive.content)
+            assertNull(reopenedDao.task("restart-theme-task")?.themeId)
+            assertEquals(commandId, reopenedDao.task("restart-theme-task")?.optimisticCommandId)
+            assertEquals(listOf("theme-old"), reopenedDao.themes().map { it.id })
+            assertEquals("server-1", reopenedDao.themeCatalogState()?.serverId)
+            assertEquals(1, reopenedDao.themeCatalogState()?.serverRevision)
+            assertEquals(ThemeCatalogStatus.Available, reopenedDao.themeCatalogState()?.status)
+
+            val reopenedOutbox = MobileOutbox(
+                context = context,
+                dao = reopenedDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:01:00Z") },
+                schedule = {},
+            )
+            assertEquals(false, reopenedOutbox.drain("server-1") {
+                MobileCommandSendResult.Conflict(
+                    conflict(
+                        taskId = "restart-theme-task",
+                        serverVersion = 7,
+                        serverState = "todo",
+                        intendedAction = "UpdateTask",
+                        serverThemeId = "theme-server",
+                    ),
+                )
+            })
+            val conflict = requireNotNull(reopenedDao.conflict(commandId))
+            assertTrue(conflict.localThemeIdChanged)
+            assertNull(conflict.localThemeId)
+            assertEquals("theme-server", conflict.serverThemeId)
+
+            val replacementId = reopenedOutbox.keepLocal(commandId)
+            val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(
+                requireNotNull(reopenedDao.outbox(replacementId)).envelopeJson,
+            )
+            assertEquals(JsonNull, replacement.command.changes.getValue("themeId"))
+            assertEquals("theme-server", replacement.command.base.getValue("themeId").jsonPrimitive.content)
+            assertNull(reopenedDao.task("restart-theme-task")?.themeId)
+
+            assertEquals(false, reopenedOutbox.drain("server-1") {
+                MobileCommandSendResult.Applied(
+                    receipt(
+                        commandId = replacementId,
+                        taskId = "restart-theme-task",
+                        version = 8,
+                        themeId = "theme-personal-default",
+                    ),
+                )
+            })
+            assertEquals("theme-personal-default", reopenedDao.task("restart-theme-task")?.themeId)
+            assertNull(reopenedDao.task("restart-theme-task")?.optimisticCommandId)
+            assertEquals(0, reopenedDao.outboxCount())
+        } finally {
+            durableDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     private fun receipt(
         commandId: String,
         taskId: String,
         state: String = "todo",
         version: Int = 1,
+        status: String = "applied",
+        themeId: String? = null,
     ) = MobileTaskCommandResponseDto(
         ok = true,
         meta = MobileResponseMetaDto(
@@ -372,12 +1013,12 @@ class MobileOutboxDatabaseTest {
         ),
         data = MobileTaskCommandReceiptDto(
             commandId = commandId,
-            status = "applied",
+            status = status,
             task = MobileTaskSummaryDto(
                 id = taskId,
                 version = version,
                 title = "Desktop正規化後",
-                themeId = null,
+                themeId = themeId,
                 state = state,
                 workState = null,
                 updatedAt = "2026-08-22T01:04:00Z",
@@ -392,6 +1033,7 @@ class MobileOutboxDatabaseTest {
         intendedAction: String = "CompleteTask",
         serverTitle: String = "Desktop側Task",
         serverTodayDate: String? = null,
+        serverThemeId: String? = null,
     ) = MobileTaskCommandErrorResponseDto(
         ok = false,
         meta = MobileResponseMetaDto(
@@ -411,7 +1053,7 @@ class MobileOutboxDatabaseTest {
                     id = taskId,
                     version = serverVersion,
                     title = serverTitle,
-                    themeId = null,
+                    themeId = serverThemeId,
                     state = serverState,
                     workState = null,
                     todayDate = serverTodayDate,
@@ -458,4 +1100,35 @@ class MobileOutboxDatabaseTest {
             lastAttemptAt = response.meta.generatedAt,
             lastError = null,
         )
+
+    private fun activeSyncState(serverId: String = "server-1") = SyncStateEntity(
+        serverId = serverId,
+        apiVersion = 1,
+        schemaVersion = 1,
+        cursor = "task-cursor",
+        lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
+        lastAttemptAt = "2026-08-22T01:00:00Z",
+        lastError = null,
+    )
+
+    private suspend fun storeThemeCatalog(
+        targetDao: MobileLocalDao,
+        themes: List<ThemeCacheEntity>,
+        revision: Int = 1,
+        serverId: String = "server-1",
+    ) {
+        val refreshId = UUID.randomUUID().toString()
+        val generatedAt = "2026-08-22T02:00:00Z"
+        targetDao.prepareThemeRefresh(serverId, refreshId, generatedAt)
+        assertTrue(
+            targetDao.completeThemeRefresh(
+                serverId,
+                revision,
+                generatedAt,
+                generatedAt,
+                refreshId,
+                themes,
+            ),
+        )
+    }
 }

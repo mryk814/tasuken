@@ -1,5 +1,6 @@
 package jp.personal.tasken.companion
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -176,6 +177,76 @@ class TodayViewModelTest {
 
         assertEquals(date, received)
         assertEquals(TaskActionUiState.Queued(sampleTask().id), viewModel.taskActionState.value)
+    }
+
+    @Test
+    fun themeCatalogIsExposedAndCanonicalSelectionQueuesOfflineIntent() {
+        var called = false
+        var receivedThemeId = "not-called"
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observeThemeCatalogState(): Flow<MobileThemeCatalogState> = flowOf(
+                MobileThemeCatalogState.Available(
+                    themes = listOf(MobileTheme("theme-1", "研究Theme")),
+                    serverId = "server-1",
+                    serverRevision = 7,
+                    generatedAt = "2026-08-22T01:00:00Z",
+                ),
+            )
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String {
+                called = true
+                receivedThemeId = themeId
+                return "theme-command"
+            }
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+        val task = sampleTask().copy(themeId = "theme-old")
+
+        runBlocking { viewModel.updateTaskThemeNow(task, "theme-1") }
+
+        assertEquals(listOf(MobileTheme("theme-1", "研究Theme")), viewModel.themes.value)
+        val catalog = viewModel.themeCatalogState.value as MobileThemeCatalogState.Available
+        assertEquals("server-1", catalog.serverId)
+        assertEquals(7, catalog.serverRevision)
+        assertTrue(called)
+        assertEquals("theme-1", receivedThemeId)
+        assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
+    }
+
+    @Test
+    fun discardRejectedThemeDelegatesPersistentCommandAndReportsRecovery() {
+        var discarded: Pair<String, String>? = null
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) {
+                discarded = taskId to commandId
+            }
+        }
+        val task = sampleTask().copy(
+            rejectedThemeUpdate = MobileRejectedThemeUpdate(
+                commandId = "rejected-command",
+                attemptedThemeId = "theme-deleted",
+                code = "theme_not_found",
+                message = "選択したThemeは削除済みか利用できません。",
+                rejectedAt = "2026-08-22T02:00:00Z",
+            ),
+        )
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+
+        runBlocking { viewModel.discardRejectedThemeUpdateNow(task) }
+
+        assertEquals(task.id to "rejected-command", discarded)
+        assertEquals(TaskActionUiState.RejectedThemeDismissed(task.id), viewModel.taskActionState.value)
     }
 
     @Test

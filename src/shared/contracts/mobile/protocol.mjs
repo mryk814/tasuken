@@ -15,6 +15,7 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   pair: "/v1/pair",
   health: "/v1/health",
   today: "/v1/today",
+  themes: "/v1/themes",
   bootstrap: "/v1/bootstrap",
   sync: "/v1/sync",
   commands: "/v1/commands",

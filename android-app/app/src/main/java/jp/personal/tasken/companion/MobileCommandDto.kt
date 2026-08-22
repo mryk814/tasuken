@@ -147,30 +147,45 @@ object MobileTaskCommandContract {
     fun decodeUpdateEnvelope(payload: String): MobileTaskUpdateEnvelopeDto =
         json.decodeFromString<MobileTaskUpdateEnvelopeDto>(payload).also(::validateUpdateEnvelope)
 
-    fun decodeReceipt(payload: String): MobileTaskCommandResponseDto =
-        json.decodeFromString<MobileTaskCommandResponseDto>(payload).also { response ->
-            require(response.ok)
-            require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 1)
-            require(response.data.status in setOf("applied", "no_change"))
-            require(response.data.commandId.isNotBlank())
-            require(response.data.task.version > 0)
-            require(runCatching { OffsetDateTime.parse(response.meta.generatedAt) }.isSuccess)
+    fun decodeReceipt(payload: String): MobileTaskCommandResponseDto {
+        val response = json.decodeFromString<MobileTaskCommandResponseDto>(payload)
+        require(response.ok)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 1)
+        require(response.data.status in setOf("applied", "no_change"))
+        require(response.data.commandId.isNotBlank())
+        require(response.data.task.version > 0)
+        require(runCatching { OffsetDateTime.parse(response.meta.generatedAt) }.isSuccess)
+        return response.copy(
+            data = response.data.copy(
+                task = response.data.task.copy(themeId = normalizeThemeId(response.data.task.themeId)),
+            ),
+        )
+    }
+
+    fun decodeError(payload: String): MobileTaskCommandErrorResponseDto {
+        val response = json.decodeFromString<MobileTaskCommandErrorResponseDto>(payload)
+        require(!response.ok)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 1)
+        require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
+        if (response.error.code != "version_conflict") {
+            require(response.error.conflict == null)
+            return response
         }
 
-    fun decodeError(payload: String): MobileTaskCommandErrorResponseDto =
-        json.decodeFromString<MobileTaskCommandErrorResponseDto>(payload).also { response ->
-            require(!response.ok)
-            require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 1)
-            require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
-            if (response.error.code == "version_conflict") {
-                val conflict = requireNotNull(response.error.conflict)
-                require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
-                require(conflict.expectedVersion > 0)
-                require(conflict.currentTask.version > conflict.expectedVersion)
-            } else {
-                require(response.error.conflict == null)
-            }
-        }
+        val conflict = requireNotNull(response.error.conflict)
+        require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
+        require(conflict.expectedVersion > 0)
+        require(conflict.currentTask.version > conflict.expectedVersion)
+        return response.copy(
+            error = response.error.copy(
+                conflict = conflict.copy(
+                    currentTask = conflict.currentTask.copy(
+                        themeId = normalizeThemeId(conflict.currentTask.themeId),
+                    ),
+                ),
+            ),
+        )
+    }
 
     private fun validateCreateEnvelope(envelope: MobileCreateTaskEnvelopeDto) {
         require(envelope.apiVersion == 1 && envelope.schemaVersion == 1)
@@ -218,7 +233,20 @@ object MobileTaskCommandContract {
                             runCatching { LocalDate.parse(value.content) }.isSuccess),
                 )
             }
+            "themeId" -> {
+                val value = patch[field]
+                require(
+                    value is JsonNull ||
+                        (value is JsonPrimitive && value.isString && isThemeId(value.content)),
+                )
+            }
             else -> error("Unsupported Task patch field: $field")
         }
     }
+
+    private fun normalizeThemeId(value: String?): String? = value?.trim()?.also {
+        require(it.isNotEmpty() && it.length <= 200)
+    }
+
+    private fun isThemeId(value: String): Boolean = value.isNotBlank() && value.length <= 200
 }

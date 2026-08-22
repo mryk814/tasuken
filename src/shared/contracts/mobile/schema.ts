@@ -20,6 +20,54 @@ const apiVersionSchema = z.literal(TASKEN_MOBILE_API_VERSION);
 const schemaVersionSchema = z.literal(TASKEN_MOBILE_SCHEMA_VERSION);
 const requestIdSchema = entityIdSchema;
 
+export const TASKEN_MOBILE_THEME_CURSOR_MAX_LENGTH = 200;
+const TASKEN_MOBILE_THEME_CURSOR_VERSION = 1;
+const TASKEN_MOBILE_THEME_FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
+
+export function encodeTaskenMobileThemeCursor(fingerprint: string, position: number): string {
+  if (!TASKEN_MOBILE_THEME_FINGERPRINT_PATTERN.test(fingerprint) || !Number.isSafeInteger(position) || position <= 0) {
+    throw new TypeError("Invalid Mobile Theme cursor payload");
+  }
+  return globalThis.btoa(JSON.stringify({
+    v: TASKEN_MOBILE_THEME_CURSOR_VERSION,
+    fingerprint,
+    position,
+  })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+
+export function decodeTaskenMobileThemeCursor(cursor: unknown): { fingerprint: string; position: number } | null {
+  if (
+    typeof cursor !== "string"
+    || cursor.length === 0
+    || cursor.length > TASKEN_MOBILE_THEME_CURSOR_MAX_LENGTH
+    || !/^[A-Za-z0-9_-]+$/u.test(cursor)
+  ) return null;
+  try {
+    const base64 = cursor.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded: unknown = JSON.parse(globalThis.atob(`${base64}${"=".repeat((4 - (base64.length % 4)) % 4)}`));
+    if (
+      !decoded
+      || typeof decoded !== "object"
+      || Array.isArray(decoded)
+      || Object.keys(decoded).sort().join(",") !== "fingerprint,position,v"
+    ) return null;
+    const payload = decoded as { v?: unknown; fingerprint?: unknown; position?: unknown };
+    if (
+      payload.v !== TASKEN_MOBILE_THEME_CURSOR_VERSION
+      || typeof payload.fingerprint !== "string"
+      || !TASKEN_MOBILE_THEME_FINGERPRINT_PATTERN.test(payload.fingerprint)
+      || typeof payload.position !== "number"
+      || !Number.isSafeInteger(payload.position)
+      || payload.position <= 0
+    ) return null;
+    const position = payload.position;
+    if (encodeTaskenMobileThemeCursor(payload.fingerprint, position) !== cursor) return null;
+    return { fingerprint: payload.fingerprint, position };
+  } catch {
+    return null;
+  }
+}
+
 export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.health,
   TASKEN_MOBILE_CAPABILITIES.todayRead,
@@ -45,6 +93,7 @@ export const mobileErrorCodeSchema = z.enum([
   "pairing_code_invalid",
   "rate_limited",
   "not_found",
+  "theme_not_found",
   "method_not_allowed",
   "version_mismatch",
   "idempotency_conflict",
@@ -115,6 +164,56 @@ export const mobileTodayResponseSchema = z.object({
   }).strict(),
 }).strict();
 
+export const mobileThemeCatalogItemSchema = z.object({
+  id: entityIdSchema,
+  title: z.string().trim().min(1).max(500),
+}).strict();
+
+export const mobileThemeCursorSchema = z.string()
+  .max(TASKEN_MOBILE_THEME_CURSOR_MAX_LENGTH)
+  .refine((value) => decodeTaskenMobileThemeCursor(value) !== null, "Theme cursorが不正です。");
+
+export const mobileThemesRequestSchema = z.object({
+  apiVersion: apiVersionSchema,
+  schemaVersion: schemaVersionSchema,
+  requestId: requestIdSchema,
+  cursor: mobileThemeCursorSchema.optional(),
+  limit: z.number().int().positive().max(TASKEN_MOBILE_MAX_ITEMS).default(TASKEN_MOBILE_MAX_ITEMS),
+}).strict();
+
+export const mobileThemesResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    themes: z.array(mobileThemeCatalogItemSchema).max(TASKEN_MOBILE_MAX_ITEMS),
+    nextCursor: mobileThemeCursorSchema.nullable(),
+  }).strict(),
+}).strict().superRefine((value, context) => {
+  for (let index = 1; index < value.data.themes.length; index += 1) {
+    if (value.data.themes[index - 1].id >= value.data.themes[index].id) {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "themes", index, "id"],
+        message: "Theme IDは重複せず昇順である必要があります。",
+      });
+    }
+  }
+  if (value.meta.truncated !== (value.data.nextCursor !== null)) {
+    context.addIssue({
+      code: "custom",
+      path: ["data", "nextCursor"],
+      message: "nextCursorはtruncatedと一致する必要があります。",
+    });
+  }
+  if (value.data.nextCursor !== null && value.data.themes.length === 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["data", "nextCursor"],
+      message: "空のTheme pageはnextCursorを持てません。",
+    });
+  }
+});
+
 const mobileSyncRequestBase = {
   apiVersion: apiVersionSchema,
   schemaVersion: schemaVersionSchema,
@@ -179,6 +278,7 @@ const mobileCreateTaskCandidateSchema = z.object({
 const mobileTaskUpdatePatchSchema = z.union([
   z.object({ title: z.string().trim().min(1).max(500) }).strict(),
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
+  z.object({ themeId: entityIdSchema.nullable() }).strict(),
 ]);
 
 const mobileTaskCommandSchema = z.discriminatedUnion("name", [
@@ -269,6 +369,9 @@ export type MobileErrorCode = z.output<typeof mobileErrorCodeSchema>;
 export type MobileHealthResponse = z.output<typeof mobileHealthResponseSchema>;
 export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
+export type MobileThemeCatalogItem = z.output<typeof mobileThemeCatalogItemSchema>;
+export type MobileThemesRequest = z.output<typeof mobileThemesRequestSchema>;
+export type MobileThemesResponse = z.output<typeof mobileThemesResponseSchema>;
 export type MobileBootstrapRequest = z.output<typeof mobileBootstrapRequestSchema>;
 export type MobileBootstrapResponse = z.output<typeof mobileBootstrapResponseSchema>;
 export type MobileSyncRequest = z.output<typeof mobileSyncRequestSchema>;

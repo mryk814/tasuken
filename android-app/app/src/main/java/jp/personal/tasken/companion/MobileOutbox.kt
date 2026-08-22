@@ -18,10 +18,12 @@ import java.time.LocalDate
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 private fun titlePatch(title: String): JsonObject = buildJsonObject { put("title", JsonPrimitive(title)) }
@@ -30,11 +32,50 @@ private fun todayDatePatch(todayDate: String?): JsonObject = buildJsonObject {
     put("todayDate", todayDate?.let(::JsonPrimitive) ?: JsonNull)
 }
 
+private fun themeIdPatch(themeId: String?): JsonObject = buildJsonObject {
+    put("themeId", themeId?.let(::JsonPrimitive) ?: JsonNull)
+}
+
+private fun structuredCommandError(code: String, message: String, retryable: Boolean): String =
+    buildJsonObject {
+        put("code", JsonPrimitive(code.trim()))
+        put("message", JsonPrimitive(message.trim()))
+        put("retryable", JsonPrimitive(retryable))
+    }.toString()
+
+internal fun OutboxCommandEntity.toRejectedThemeUpdateOrNull(): MobileRejectedThemeUpdate? {
+    if (state != OutboxState.Rejected || commandName != "UpdateTask") return null
+    val envelope = runCatching { MobileTaskCommandContract.decodeUpdateEnvelope(envelopeJson) }.getOrNull()
+        ?: return null
+    if (envelope.command.taskId != taskId || envelope.command.changes.keys != setOf("themeId")) return null
+    val attemptedThemeId = envelope.command.changes.getValue("themeId").let {
+        if (it == JsonNull) null else it.jsonPrimitive.content
+    }
+    val error = runCatching { Json.parseToJsonElement(requireNotNull(lastError)).jsonObject }.getOrNull()
+    val code = (error?.get("code") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
+    val message = (error?.get("message") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
+    return MobileRejectedThemeUpdate(
+        commandId = commandId,
+        attemptedThemeId = attemptedThemeId,
+        code = code ?: "command_rejected",
+        message = message ?: "DesktopがTheme変更を受理しませんでした。",
+        rejectedAt = lastAttemptAt ?: createdAt,
+    )
+}
+
 sealed interface MobileCommandSendResult {
     data class Applied(val response: MobileTaskCommandResponseDto) : MobileCommandSendResult
     data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
     data class Retry(val reason: String) : MobileCommandSendResult
-    data class Rejected(val reason: String) : MobileCommandSendResult
+    data class Rejected(
+        val code: String,
+        val message: String,
+        val retryable: Boolean = false,
+    ) : MobileCommandSendResult {
+        init {
+            require(code.isNotBlank() && message.isNotBlank())
+        }
+    }
 }
 
 data class MobileStateActionResult(
@@ -49,6 +90,9 @@ class MobileOutbox(
     private val now: () -> Instant = Instant::now,
     private val schedule: () -> Unit = { MobileOutboxScheduler.enqueue(context) },
 ) {
+    private suspend fun currentServerId(): String = requireNotNull(dao.syncState()?.serverId)
+        .also { require(it.isNotBlank()) { "Desktopとの同期を完了してから変更してください。" } }
+
     fun observeTasks(date: LocalDate = LocalDate.now()): Flow<List<TaskCacheWithConflict>> =
         dao.observeTasks(date.toString())
 
@@ -65,6 +109,7 @@ class MobileOutbox(
         val commandId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
         val issuedAt = now().toString()
+        val serverId = currentServerId()
         val envelope = MobileCreateTaskEnvelopeDto(
             apiVersion = 1,
             schemaVersion = 1,
@@ -102,6 +147,7 @@ class MobileOutbox(
                 issuedAt = issuedAt,
                 commandName = "CreateTask",
                 envelopeJson = MobileTaskCommandContract.encode(envelope),
+                serverId = serverId,
                 state = OutboxState.Pending,
                 attemptCount = 0,
                 createdAt = issuedAt,
@@ -128,6 +174,7 @@ class MobileOutbox(
         val commandId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
         val issuedAt = now().toString()
+        val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
             schemaVersion = 1,
@@ -154,6 +201,7 @@ class MobileOutbox(
                 issuedAt = issuedAt,
                 commandName = "UpdateTask",
                 envelopeJson = MobileTaskCommandContract.encode(envelope),
+                serverId = serverId,
                 state = OutboxState.Pending,
                 attemptCount = 0,
                 createdAt = issuedAt,
@@ -175,6 +223,7 @@ class MobileOutbox(
         val commandId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
         val issuedAt = now().toString()
+        val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
             schemaVersion = 1,
@@ -201,6 +250,7 @@ class MobileOutbox(
                 issuedAt = issuedAt,
                 commandName = "UpdateTask",
                 envelopeJson = MobileTaskCommandContract.encode(envelope),
+                serverId = serverId,
                 state = OutboxState.Pending,
                 attemptCount = 0,
                 createdAt = issuedAt,
@@ -213,22 +263,103 @@ class MobileOutbox(
         return commandId
     }
 
+    suspend fun enqueueUpdateTheme(taskId: String, themeId: String?): String {
+        require(themeId == null || (themeId.isNotBlank() && themeId.length <= 200))
+        val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(task.optimisticCommandId == null && task.conflictCommandId == null) { "Taskの同期を解決してから編集してください。" }
+        val expectedVersion = requireNotNull(task.serverVersion) { "Task作成の同期完了を待って編集してください。" }
+        require(task.themeId != themeId)
+        if (themeId != null) {
+            require(dao.themes().any { it.id == themeId }) { "Themeがcacheにありません。再読み込みしてください。" }
+        }
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val serverId = currentServerId()
+        val rejectedThemeCommandIds = dao.outboxForTask(taskId)
+            .filter { it.serverId == serverId && it.toRejectedThemeUpdateOrNull() != null }
+            .map(OutboxCommandEntity::commandId)
+        val envelope = MobileTaskUpdateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskUpdateCommandDto(
+                name = "UpdateTask",
+                taskId = taskId,
+                expectedVersion = expectedVersion,
+                changes = themeIdPatch(themeId),
+                base = themeIdPatch(task.themeId),
+            ),
+        )
+        dao.enqueueThemeUpdate(
+            task = task.copy(themeId = themeId, updatedAt = issuedAt, optimisticCommandId = commandId),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = "UpdateTask",
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                serverId = serverId,
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+                taskId = taskId,
+            ),
+            replacedRejectedCommandIds = rejectedThemeCommandIds,
+        )
+        schedule()
+        return commandId
+    }
+
     suspend fun acceptServer(commandId: String) {
         val conflict = requireNotNull(dao.conflict(commandId)) { "競合情報が見つかりません。再読み込みしてください。" }
         require(dao.task(conflict.taskId)?.conflictCommandId == commandId)
+        require(dao.outbox(commandId)?.serverId == currentServerId()) {
+            "接続先が変わったため、この競合は解決できません。"
+        }
         dao.acceptServer(commandId)
+    }
+
+    suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) {
+        val command = requireNotNull(dao.outbox(commandId)) { "却下されたTheme変更が見つかりません。" }
+        require(command.taskId == taskId && command.serverId == currentServerId())
+        require(command.toRejectedThemeUpdateOrNull() != null) { "Theme変更の却下情報ではありません。" }
+        dao.discardRejectedThemeUpdate(commandId, taskId)
     }
 
     suspend fun keepLocal(commandId: String): String {
         val conflict = requireNotNull(dao.conflict(commandId)) { "競合情報が見つかりません。再読み込みしてください。" }
         val task = requireNotNull(dao.task(conflict.taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
         require(task.conflictCommandId == commandId)
+        val previousCommand = requireNotNull(dao.outbox(commandId))
+        val serverId = currentServerId()
+        require(previousCommand.serverId == serverId) { "接続先が変わったため、この競合は再送できません。" }
         val replacementId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
         val issuedAt = now().toString()
         val clientDeviceId = deviceId()
         val isUpdate = conflict.intendedAction == "UpdateTask"
         val envelopeJson = if (isUpdate) {
+            val changes = when {
+                conflict.localTitle != null -> titlePatch(conflict.localTitle)
+                conflict.localTodayDateChanged -> todayDatePatch(conflict.localTodayDate)
+                conflict.localThemeIdChanged -> themeIdPatch(conflict.localThemeId)
+                else -> error("端末側の更新内容が競合情報にありません。")
+            }
+            val base = when {
+                conflict.localTitle != null -> titlePatch(conflict.serverTitle)
+                conflict.localTodayDateChanged -> todayDatePatch(conflict.serverTodayDate)
+                conflict.localThemeIdChanged -> themeIdPatch(conflict.serverThemeId)
+                else -> error("Desktop側の更新内容が競合情報にありません。")
+            }
             MobileTaskCommandContract.encode(
                 MobileTaskUpdateEnvelopeDto(
                     apiVersion = 1,
@@ -242,10 +373,8 @@ class MobileOutbox(
                         name = "UpdateTask",
                         taskId = conflict.taskId,
                         expectedVersion = conflict.serverVersion,
-                        changes = conflict.localTitle?.let(::titlePatch)
-                            ?: todayDatePatch(conflict.localTodayDate),
-                        base = conflict.localTitle?.let { titlePatch(conflict.serverTitle) }
-                            ?: todayDatePatch(conflict.serverTodayDate),
+                        changes = changes,
+                        base = base,
                     ),
                 ),
             )
@@ -278,6 +407,7 @@ class MobileOutbox(
                 serverVersion = conflict.serverVersion,
                 title = conflict.localTitle ?: task.title,
                 todayDate = if (conflict.localTodayDateChanged) conflict.localTodayDate else task.todayDate,
+                themeId = if (conflict.localThemeIdChanged) conflict.localThemeId else task.themeId,
                 state = optimisticState,
                 updatedAt = issuedAt,
                 optimisticCommandId = replacementId,
@@ -291,6 +421,7 @@ class MobileOutbox(
                 issuedAt = issuedAt,
                 commandName = conflict.intendedAction,
                 envelopeJson = envelopeJson,
+                serverId = serverId,
                 state = OutboxState.Pending,
                 attemptCount = 0,
                 createdAt = issuedAt,
@@ -309,9 +440,11 @@ class MobileOutbox(
         optimisticState: String,
     ): MobileStateActionResult {
         require(commandName in setOf("CompleteTask", "ReopenTask"))
+        val serverId = currentServerId()
         val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
         val pending = task.optimisticCommandId?.let { dao.outbox(it) }
         if (pending != null && pending.commandName in setOf("CompleteTask", "ReopenTask")) {
+            require(pending.serverId == serverId) { "接続先が変わったため、この変更は操作できません。" }
             require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
                 "送信結果を確認してから再試行してください。"
             }
@@ -330,6 +463,7 @@ class MobileOutbox(
         }
         require(pending == null || pending.commandName == "CreateTask") { "Taskの同期完了を待って再試行してください。" }
         if (pending != null) {
+            require(pending.serverId == serverId) { "接続先が変わったため、この変更は操作できません。" }
             require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
                 "Task作成の送信結果を確認してから再試行してください。"
             }
@@ -360,6 +494,7 @@ class MobileOutbox(
             issuedAt = issuedAt,
             commandName = commandName,
             envelopeJson = MobileTaskCommandContract.encode(envelope),
+            serverId = serverId,
             state = OutboxState.Pending,
             attemptCount = 0,
             createdAt = issuedAt,
@@ -387,17 +522,93 @@ class MobileOutbox(
     suspend fun recoverInterruptedSending(): Int =
         dao.recoverInterruptedSending("送信中にAndroidプロセスが終了したため再送します。")
 
-    suspend fun drain(sender: (String) -> MobileCommandSendResult): Boolean {
+    private data class ReceiptExpectation(
+        val taskId: String,
+        val expectedVersion: Int?,
+    )
+
+    private data class ThemeUpdateBase(val themeId: String?)
+
+    private fun receiptExpectation(command: OutboxCommandEntity): ReceiptExpectation = when (command.commandName) {
+        "CreateTask" -> {
+            val envelope = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson)
+            require(envelope.commandId == command.commandId)
+            require(envelope.command.task.id == command.taskId)
+            ReceiptExpectation(envelope.command.task.id, expectedVersion = null)
+        }
+        "UpdateTask" -> {
+            val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(command.envelopeJson)
+            require(envelope.commandId == command.commandId)
+            require(envelope.command.taskId == command.taskId)
+            ReceiptExpectation(envelope.command.taskId, envelope.command.expectedVersion)
+        }
+        "CompleteTask", "ReopenTask" -> {
+            val envelope = MobileTaskCommandContract.decodeStateEnvelope(command.envelopeJson)
+            require(envelope.commandId == command.commandId)
+            require(envelope.command.taskId == command.taskId)
+            ReceiptExpectation(envelope.command.taskId, envelope.command.expectedVersion)
+        }
+        else -> error("Unsupported outbox command: ${command.commandName}")
+    }
+
+    private suspend fun invalidReceiptReason(
+        command: OutboxCommandEntity,
+        response: MobileTaskCommandResponseDto,
+        expectedServerId: String,
+    ): String? {
+        return try {
+            val expectation = receiptExpectation(command)
+            val receipt = response.data
+            require(command.serverId == expectedServerId) { "Outboxの接続先が確認済みDesktopと一致しません。" }
+            require(response.meta.serverId == expectedServerId) { "GatewayのserverIdが送信先と一致しません。" }
+            require(response.ok) { "Gatewayのreceiptが成功responseではありません。" }
+            require(receipt.commandId == command.commandId) { "GatewayのcommandIdが送信内容と一致しません。" }
+            require(receipt.task.id == expectation.taskId) { "GatewayのTask IDが送信内容と一致しません。" }
+            require(receipt.status in setOf("applied", "no_change")) { "Gatewayのreceipt statusを解釈できません。" }
+            require(receipt.task.version > 0) { "GatewayのTask versionが不正です。" }
+            expectation.expectedVersion?.let { expectedVersion ->
+                if (receipt.status == "applied") {
+                    require(receipt.task.version > expectedVersion) { "適用済みTaskのversionが進んでいません。" }
+                } else {
+                    require(receipt.task.version >= expectedVersion) { "変更なしTaskのversionが後退しています。" }
+                }
+            }
+            dao.task(expectation.taskId)?.serverVersion?.let { cachedVersion ->
+                require(receipt.task.version >= cachedVersion) { "GatewayのTask versionがcacheより後退しています。" }
+            }
+            null
+        } catch (error: Exception) {
+            error.message ?: "Gatewayのreceiptを検証できません。"
+        }
+    }
+
+    private fun themeUpdateBase(command: OutboxCommandEntity): ThemeUpdateBase? {
+        if (command.commandName != "UpdateTask") return null
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(command.envelopeJson)
+        if (envelope.command.changes.keys != setOf("themeId")) return null
+        val baseThemeId = envelope.command.base.getValue("themeId").let {
+            if (it == JsonNull) null else it.jsonPrimitive.content
+        }
+        return ThemeUpdateBase(baseThemeId)
+    }
+
+    suspend fun drain(serverId: String, sender: (String) -> MobileCommandSendResult): Boolean {
+        require(serverId.isNotBlank())
         var shouldRetry = false
         while (true) {
+            require(dao.syncState()?.serverId == serverId) { "確認済みDesktopと同期状態が一致しません。" }
             val attemptedAt = now().toString()
-            val command = dao.claimNext(attemptedAt) ?: return shouldRetry
+            val command = dao.claimNext(serverId, attemptedAt) ?: return shouldRetry
             when (val result = sender(command.envelopeJson)) {
                 is MobileCommandSendResult.Applied -> {
                     val response = result.response
-                    if (response.data.commandId != command.commandId) {
-                        dao.markRejected(command.commandId, "GatewayのcommandIdが送信内容と一致しません。")
-                        continue
+                    val invalidReceipt = invalidReceiptReason(command, response, serverId)
+                    if (invalidReceipt != null) {
+                        dao.markRetry(
+                            command.commandId,
+                            structuredCommandError("invalid_command_receipt", invalidReceipt, retryable = true),
+                        )
+                        return true
                     }
                     val task = response.data.task
                     val dependents = dao.dependents(command.commandId)
@@ -409,8 +620,11 @@ class MobileOutbox(
                             stored.copy(command = stored.command.copy(expectedVersion = task.version)),
                         )
                     }
-                    dao.applyCommandReceipt(
+                    val receiptApplied = dao.applyCommandReceipt(
                         commandId = command.commandId,
+                        expectedServerId = serverId,
+                        expectedTaskId = requireNotNull(command.taskId),
+                        expectedAttemptCount = command.attemptCount,
                         canonicalTask = TaskCacheEntity(
                             id = task.id,
                             serverVersion = task.version,
@@ -435,9 +649,21 @@ class MobileOutbox(
                         dependentEnvelopeJson = dependentEnvelope,
                         optimisticState = dependent?.let { if (it.commandName == "CompleteTask") "done" else "todo" },
                     )
+                    if (!receiptApplied) return shouldRetry
                 }
                 is MobileCommandSendResult.Conflict -> {
                     val response = result.response
+                    if (response.meta.serverId != serverId || command.serverId != serverId) {
+                        dao.markRetry(
+                            command.commandId,
+                            structuredCommandError(
+                                "invalid_command_response",
+                                "GatewayのserverIdが送信先と一致しません。",
+                                retryable = true,
+                            ),
+                        )
+                        return true
+                    }
                     val conflict = requireNotNull(response.error.conflict)
                     val current = conflict.currentTask
                     require(command.commandName == conflict.intendedAction)
@@ -455,6 +681,10 @@ class MobileOutbox(
                     val localTitle = localPatch?.get("title")?.jsonPrimitive?.content
                     val localTodayDateChanged = localPatch?.containsKey("todayDate") == true
                     val localTodayDate = localPatch?.get("todayDate")?.let {
+                        if (it == JsonNull) null else it.jsonPrimitive.content
+                    }
+                    val localThemeIdChanged = localPatch?.containsKey("themeId") == true
+                    val localThemeId = localPatch?.get("themeId")?.let {
                         if (it == JsonNull) null else it.jsonPrimitive.content
                     }
                     dao.recordConflict(
@@ -484,6 +714,8 @@ class MobileOutbox(
                             localTodayDate = localTodayDate,
                             localTodayDateChanged = localTodayDateChanged,
                             serverThemeId = current.themeId,
+                            localThemeId = localThemeId,
+                            localThemeIdChanged = localThemeIdChanged,
                             serverWorkState = current.workState,
                             serverUpdatedAt = current.updatedAt,
                             detectedAt = response.meta.generatedAt,
@@ -505,10 +737,28 @@ class MobileOutbox(
                     shouldRetry = true
                     return shouldRetry
                 }
-                is MobileCommandSendResult.Rejected -> dao.markRejected(command.commandId, result.reason)
+                is MobileCommandSendResult.Rejected -> {
+                    val reason = structuredCommandError(result.code, result.message, result.retryable)
+                    if (result.retryable) {
+                        dao.markRetry(command.commandId, reason)
+                        return true
+                    }
+                    val themeBase = themeUpdateBase(command)
+                    if (themeBase == null) {
+                        dao.markRejected(command.commandId, reason)
+                    } else {
+                        dao.rejectUpdateAndRollback(
+                            commandId = command.commandId,
+                            taskId = requireNotNull(command.taskId),
+                            baseThemeId = themeBase.themeId,
+                            reason = reason,
+                        )
+                    }
+                }
             }
         }
     }
+
 }
 
 object MobileOutboxScheduler {
@@ -547,7 +797,12 @@ class MobileOutboxWorker(
     override suspend fun doWork(): Result {
         val repository = AndroidMobileTaskRepository(applicationContext, scheduleOutboxOnStart = false)
         repository.recoverInterruptedOutbox()
-        val result = if (repository.drainOutbox()) Result.retry() else Result.success()
+        val result = try {
+            if (repository.synchronizeIfPaired()) Result.success() else Result.retry()
+        } catch (error: Exception) {
+            Log.w("TaskenOutbox", "Outbox sync failed and will be retried", error)
+            Result.retry()
+        }
         TaskenTodayWidget.updateAllNow(applicationContext)
         return result
     }

@@ -3,6 +3,8 @@ import {
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
   TASKEN_MOBILE_SCHEMA_VERSION,
+  decodeTaskenMobileThemeCursor,
+  encodeTaskenMobileThemeCursor,
   mobileBootstrapRequestSchema,
   mobileBootstrapResponseSchema,
   mobileTaskCommandRequestSchema,
@@ -12,12 +14,16 @@ import {
   mobileResponseMetaSchema,
   mobileSyncRequestSchema,
   mobileSyncResponseSchema,
+  mobileThemeCatalogItemSchema,
+  mobileThemesRequestSchema,
+  mobileThemesResponseSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
   type MobileCapability,
   type MobileErrorCode,
   type MobileResponseMeta,
   type MobileScope,
+  type MobileThemeCatalogItem,
 } from "../../../shared/contracts/mobile/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -56,8 +62,14 @@ export interface MobileGatewayResponse {
 
 export interface MobileGatewayCorePort {
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
+  listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
   executeTaskQuery(input: unknown): Promise<TaskQueryResponse> | TaskQueryResponse;
   executeTaskCommand(input: unknown): Promise<TaskCommandResponse> | TaskCommandResponse;
+}
+
+export interface MobileGatewayThemeRecord {
+  id: string;
+  name: string;
 }
 
 export interface MobileGatewayStatePort {
@@ -94,8 +106,24 @@ function projectTask(task: TaskReadModel, includeTodayDate = false) {
   };
 }
 
-function taskUpdatePatch(patch: { title: string } | { todayDate: string | null }) {
-  return "todayDate" in patch ? { today_date: patch.todayDate } : patch;
+function taskUpdatePatch(patch: { title: string } | { todayDate: string | null } | { themeId: string | null }) {
+  if ("todayDate" in patch) return { today_date: patch.todayDate };
+  if ("themeId" in patch) return { project_id: patch.themeId };
+  return patch;
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+async function themeCatalogFingerprint(catalog: readonly MobileThemeCatalogItem[]): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(catalog)),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function statusFor(code: MobileErrorCode) {
@@ -103,7 +131,7 @@ function statusFor(code: MobileErrorCode) {
   if (code === "pairing_code_invalid") return 401;
   if (code === "forbidden") return 403;
   if (code === "rate_limited") return 429;
-  if (code === "not_found") return 404;
+  if (code === "not_found" || code === "theme_not_found") return 404;
   if (code === "method_not_allowed") return 405;
   if (code === "version_mismatch") return 409;
   if (code === "idempotency_conflict") return 409;
@@ -124,6 +152,7 @@ function safeMessage(code: MobileErrorCode) {
     rate_limited: "短時間のリクエストが多すぎます。少し待って再試行してください。",
     validation_failed: "リクエストが不正です。アプリを更新して再試行してください。",
     not_found: "Mobile API endpointが見つかりません。",
+    theme_not_found: "選択したThemeは削除済みか利用できません。",
     method_not_allowed: "このmethodは利用できません。",
     version_mismatch: "Tasken Coreとのversionが一致しません。Desktopを更新してください。",
     idempotency_conflict: "同じcommandIdが異なる内容で使用されています。",
@@ -159,7 +188,7 @@ export class MobileGatewayAdapter {
       if (request.method === "GET" && request.body !== undefined) return this.error(meta, "validation_failed");
 
       if (
-        [TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never)
+        [TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.themes, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never)
         && !request.principal.scopes.includes("mobile:read")
       ) return this.error(meta, "forbidden");
       if (
@@ -170,6 +199,9 @@ export class MobileGatewayAdapter {
       const today = request.path === TASKEN_MOBILE_ENDPOINTS.today
         ? this.parseTodayQuery(request.query)
         : null;
+      const themes = request.path === TASKEN_MOBILE_ENDPOINTS.themes
+        ? this.parseThemesQuery(request.query)
+        : null;
       const bootstrap = request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap
         ? this.parseBootstrapQuery(request.query)
         : null;
@@ -177,10 +209,11 @@ export class MobileGatewayAdapter {
         ? this.parseSyncQuery(request.query)
         : null;
       if (request.path === TASKEN_MOBILE_ENDPOINTS.today && !today) return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.themes && !themes) return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap && !bootstrap) return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.sync && !sync) return this.error(meta, "validation_failed");
-      if (today || bootstrap || sync) diagnosticId = (today || bootstrap || sync)!.requestId;
-      if (![TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never) && Object.keys(request.query || {}).length > 0) {
+      if (today || themes || bootstrap || sync) diagnosticId = (today || themes || bootstrap || sync)!.requestId;
+      if (![TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.themes, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never) && Object.keys(request.query || {}).length > 0) {
         return this.error(meta, "validation_failed");
       }
 
@@ -219,6 +252,33 @@ export class MobileGatewayAdapter {
             date: result.value.date,
             items: result.value.items.map((task) => projectTask(task)),
             nextCursor: result.value.next_cursor,
+          },
+        }));
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.themes) {
+        const catalog = [...await this.options.core.listThemes()]
+          .map((theme) => mobileThemeCatalogItemSchema.parse({ id: theme.id, title: theme.name }))
+          .sort((left, right) => compareText(left.id, right.id));
+        if (catalog.some((theme, index) => index > 0 && catalog[index - 1].id === theme.id)) {
+          throw new Error("Tasken Core returned duplicate Theme IDs");
+        }
+        const fingerprint = await themeCatalogFingerprint(catalog);
+        const cursor = themes!.cursor ? decodeTaskenMobileThemeCursor(themes!.cursor) : null;
+        const position = cursor?.position || 0;
+        if (
+          (themes!.cursor && !cursor)
+          || (cursor && (cursor.fingerprint !== fingerprint || position >= catalog.length))
+        ) return this.error(meta, "validation_failed");
+        const page = catalog.slice(position, position + themes!.limit);
+        const nextPosition = position + page.length;
+        const hasMore = nextPosition < catalog.length;
+        meta = this.meta(hasMore);
+        return this.success(mobileThemesResponseSchema.parse({
+          ok: true,
+          meta,
+          data: {
+            themes: page,
+            nextCursor: hasMore ? encodeTaskenMobileThemeCursor(fingerprint, nextPosition) : null,
           },
         }));
       }
@@ -366,6 +426,19 @@ export class MobileGatewayAdapter {
     return parsed.success ? parsed.data : null;
   }
 
+  private parseThemesQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    if (Object.keys(values).some((key) => !["apiVersion", "schemaVersion", "requestId", "cursor", "limit"].includes(key))) return null;
+    const parsed = mobileThemesRequestSchema.safeParse({
+      apiVersion: Number(values.apiVersion),
+      schemaVersion: Number(values.schemaVersion),
+      requestId: values.requestId,
+      ...(values.cursor === undefined ? {} : { cursor: values.cursor }),
+      ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
   private parseSyncQuery(query: MobileGatewayRequest["query"]) {
     const values = query || {};
     if (Object.keys(values).some((key) => !["apiVersion", "schemaVersion", "requestId", "cursor", "limit"].includes(key))) return null;
@@ -390,7 +463,10 @@ export class MobileGatewayAdapter {
   private capabilities(principal: MobilePrincipal): MobileCapability[] {
     const capabilities: MobileCapability[] = [TASKEN_MOBILE_CAPABILITIES.health];
     if (principal.scopes.includes("mobile:read")) {
-      capabilities.push(TASKEN_MOBILE_CAPABILITIES.todayRead, TASKEN_MOBILE_CAPABILITIES.syncRead);
+      capabilities.push(
+        TASKEN_MOBILE_CAPABILITIES.todayRead,
+        TASKEN_MOBILE_CAPABILITIES.syncRead,
+      );
     }
     if (principal.scopes.includes("mobile:task-write")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskWrite);
     return capabilities;
@@ -443,6 +519,11 @@ export class MobileGatewayAdapter {
     error: TaskError,
     command?: { name: string; expectedVersion?: number },
   ) {
+    if (
+      error.code === "INVALID_COMMAND"
+      && typeof error.details?.themeId === "string"
+      && error.details.themeId.trim()
+    ) return this.error(meta, "theme_not_found");
     if (error.code === "CONFLICT") {
       if (error.conflict_reason === "command_fingerprint_mismatch") return this.error(meta, "idempotency_conflict");
       if (error.conflict_reason === "entity_already_exists") return this.error(meta, "entity_conflict");

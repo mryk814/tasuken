@@ -8,10 +8,13 @@ import {
   mobileTaskCommandResponseSchema,
   mobileErrorResponseSchema,
   mobileHealthResponseSchema,
+  mobileThemesRequestSchema,
+  mobileThemesResponseSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
   type MobileCapability,
   type MobileTaskCommandRequest,
+  type MobileThemesRequest,
   type MobileTodayRequest,
 } from "../../../shared/contracts/mobile/public.ts";
 
@@ -87,6 +90,18 @@ export class MobileGatewayClient {
       limit: String(parsed.limit),
     });
     return mobileTodayResponseSchema.parse(await this.request("GET", `${TASKEN_MOBILE_ENDPOINTS.today}?${query}`));
+  }
+
+  async listThemes(input: MobileThemesRequest) {
+    const parsed = mobileThemesRequestSchema.parse(input);
+    const query = new URLSearchParams({
+      apiVersion: String(parsed.apiVersion),
+      schemaVersion: String(parsed.schemaVersion),
+      requestId: parsed.requestId,
+      limit: String(parsed.limit),
+      ...(parsed.cursor ? { cursor: parsed.cursor } : {}),
+    });
+    return mobileThemesResponseSchema.parse(await this.request("GET", `${TASKEN_MOBILE_ENDPOINTS.themes}?${query}`));
   }
 
   async executeTaskCommand(input: MobileTaskCommandRequest) {

@@ -43,9 +43,11 @@ type CorePersistence = AgentReadyTaskWorkspacePersistence
 
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
+  private readonly persistence: CorePersistence;
   readonly taskCapability: TaskCapabilityService;
 
   constructor(userDataPath: string, persistence: CorePersistence, executeApplicationCommand: ExecuteApplicationCommand) {
+    this.persistence = persistence;
     const core = createTaskenCore(persistence);
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
@@ -91,6 +93,10 @@ export class TaskenCoreRuntime {
           apiVersion: TASKEN_CORE_API_VERSION,
           capabilities: [TASKEN_CORE_TASK_QUERY_CAPABILITY, TASKEN_CORE_TASK_COMMAND_CAPABILITY],
         }),
+        listThemes: () => this.persistence.list("theme", false).map((theme) => ({
+          id: String(theme.id || ""),
+          name: String(theme.name || ""),
+        })),
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
       },
