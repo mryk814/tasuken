@@ -356,6 +356,7 @@ private fun TodayApp(
                             uiState = uiState,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
+                            onRetryPairing = todayViewModel::retryPairing,
                             onPair = todayViewModel::pair,
                             onTaskSelected = onTaskSelected,
                         )
@@ -364,6 +365,7 @@ private fun TodayApp(
                             tasks = allTasks,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
+                            onRetryPairing = todayViewModel::retryPairing,
                             onPair = todayViewModel::pair,
                             onTaskSelected = onTaskSelected,
                         )
@@ -372,6 +374,7 @@ private fun TodayApp(
                             tasks = allTasks,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
+                            onRetryPairing = todayViewModel::retryPairing,
                             onPair = todayViewModel::pair,
                             onTaskSelected = onTaskSelected,
                         )
@@ -464,6 +467,7 @@ private fun TodayListPane(
     uiState: TodayUiState,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
 ) {
@@ -474,11 +478,7 @@ private fun TodayListPane(
         }
         TodayUiState.Empty -> CenteredState { Text("今日のTaskはありません") }
         is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
-        is TodayUiState.Error -> CenteredState {
-            Text(uiState.message, fontWeight = FontWeight.SemiBold)
-            Text(uiState.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = onRetry) { Text("再読み込み") }
-        }
+        is TodayUiState.Error -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         is TodayUiState.Success -> TodayTaskList(uiState.tasks, paneState, onTaskSelected)
     }
 }
@@ -535,16 +535,13 @@ private fun TasksListPane(
     tasks: List<MobileTask>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
-        uiState is TodayUiState.Error && tasks.isEmpty() -> CenteredState {
-            Text(uiState.message, fontWeight = FontWeight.SemiBold)
-            Text(uiState.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = onRetry) { Text("再読み込み") }
-        }
+        uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
             CircularProgressIndicator()
             Text("Tasksを読み込んでいます")
@@ -596,16 +593,13 @@ private fun AiInboxListPane(
     tasks: List<MobileTask>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
-        uiState is TodayUiState.Error && tasks.isEmpty() -> CenteredState {
-            Text(uiState.message, fontWeight = FontWeight.SemiBold)
-            Text(uiState.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = onRetry) { Text("再読み込み") }
-        }
+        uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
             CircularProgressIndicator()
             Text("AI Inboxを読み込んでいます")
@@ -683,6 +677,20 @@ private fun AiInboxListPane(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GatewayErrorState(
+    state: TodayUiState.Error,
+    onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
+) {
+    CenteredState {
+        Text(state.message, fontWeight = FontWeight.SemiBold)
+        Text(state.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = onRetry) { Text("再読み込み") }
+        TextButton(onClick = onRetryPairing) { Text("やり直す") }
     }
 }
 

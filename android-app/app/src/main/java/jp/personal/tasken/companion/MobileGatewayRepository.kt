@@ -262,14 +262,14 @@ class AndroidMobileTaskRepository(
 
     override fun pair(origin: String, pairingCode: String): MobileTodayResult {
         val normalizedOrigin = normalizeHttpsOrigin(origin)
-            ?: return MobileTodayResult.Unavailable(
-                "Gateway URLが不正です。",
-                "Tailscale Serveの https:// で始まるURLを入力してください。",
+            ?: return MobileTodayResult.PairingRequired(
+                origin,
+                "Gateway URLが不正です。Tailscale Serveの https:// で始まるURLを入力してください。",
             )
         if (!pairingCode.matches(Regex("^\\d{8}$"))) {
-            return MobileTodayResult.Unavailable(
-                "ペアリングコードが不正です。",
-                "Desktopで8桁のコードを発行して入力してください。",
+            return MobileTodayResult.PairingRequired(
+                normalizedOrigin,
+                "ペアリングコードが不正です。Desktopで8桁のコードを発行して入力してください。",
             )
         }
         return try {
@@ -289,9 +289,13 @@ class AndroidMobileTaskRepository(
                 accessToken = null,
             )
             if (response.status != 200) {
-                return MobileTodayResult.Unavailable(
-                    "ペアリングできませんでした。",
-                    if (response.status == 401) "Desktopで新しいコードを発行してください。" else "DesktopとTailscale接続を確認してください。",
+                return MobileTodayResult.PairingRequired(
+                    normalizedOrigin,
+                    if (response.status == 401) {
+                        "ペアリングできませんでした。Desktopで新しいコードを発行してください。"
+                    } else {
+                        "ペアリングできませんでした。DesktopとTailscale接続を確認してください。"
+                    },
                 )
             }
             val root = json.parseToJsonElement(response.body).jsonObject
@@ -311,11 +315,16 @@ class AndroidMobileTaskRepository(
             )
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway pairing request failed", error)
-            MobileTodayResult.Unavailable(
-                "Mobile Gatewayに接続できません。",
-                "Desktopが起動中で、Tailscale Serveが有効か確認してください。",
+            MobileTodayResult.PairingRequired(
+                normalizedOrigin,
+                "Mobile Gatewayに接続できません。Desktopが起動中で、Tailscale Serveが有効か確認してください。",
             )
         }
+    }
+
+    override fun retryPairing(): MobileTodayResult {
+        store.clearToken()
+        return MobileTodayResult.PairingRequired(store.configuration().origin)
     }
 
     override fun loadToday(): MobileTodayResult {
@@ -354,7 +363,7 @@ class AndroidMobileTaskRepository(
             } else {
                 MobileTodayResult.Unavailable(
                     "Mobile Gatewayに接続できません。",
-                    "DesktopとTailscale接続を確認して再読み込みしてください。",
+                    "DesktopとTailscale接続を確認して再読み込みするか、やり直してURLとコードを入力し直してください。",
                 )
             }
         }

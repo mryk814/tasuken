@@ -1517,6 +1517,55 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
   assert.equal(resetResponse.body.meta.serverId, "desktop-restored");
 });
 
+test("Mobile bootstrap rederives dateKind when stored schedule kind disagrees with dates", async () => {
+  const { repository, service } = capability();
+  const adapter = gateway(service);
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest({
+      requestId: "request-mismatch-create",
+      commandId: "command-mismatch-create",
+      idempotencyKey: "command-mismatch-create",
+      command: {
+        ...createRequest().command,
+        task: { ...createRequest().command.task, id: "task-datekind-mismatch", title: "日付種別ずれ" },
+      },
+    }),
+  })).status, 200);
+
+  repository.records.set("schedule:sched-datekind-mismatch", {
+    type: "schedule",
+    id: "sched-datekind-mismatch",
+    owner_type: "task",
+    owner_id: "task-datekind-mismatch",
+    start_date: "2026-09-08",
+    end_date: "2026-09-08",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+    version: 1,
+    source: "manual",
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  });
+
+  const bootstrap = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-bootstrap-mismatch", limit: "50" },
+  });
+  assert.equal(bootstrap.status, 200);
+  const task = bootstrap.body.data.tasks.find((item) => item.id === "task-datekind-mismatch");
+  assert.equal(task.schedule.dateKind, "point");
+  assert.equal(task.schedule.startDate, "2026-09-08");
+  assert.equal(task.schedule.endDate, "2026-09-08");
+});
+
 test("Mobile UpdateTask auto-merges a different-field race and returns canonical same-field conflict", async () => {
   const { service } = capability();
   const adapter = gateway(service);

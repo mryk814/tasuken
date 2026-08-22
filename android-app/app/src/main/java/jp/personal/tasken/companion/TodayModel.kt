@@ -257,11 +257,17 @@ class TodayViewModel(
     }
 
     fun pair(origin: String, pairingCode: String) {
+        viewModelScope.launch { pairNow(origin, pairingCode) }
+    }
+
+    internal suspend fun pairNow(origin: String, pairingCode: String) {
         val gateway = repository as? MobileGatewayRepository ?: return
-        mutableUiState.value = TodayUiState.Loading
-        viewModelScope.launch {
-            applyResult(withContext(ioDispatcher) { gateway.pair(origin, pairingCode) })
-        }
+        applyResult(withContext(ioDispatcher) { gateway.pair(origin, pairingCode) })
+    }
+
+    fun retryPairing() {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        applyResult(gateway.retryPairing())
     }
 
     fun createTask(title: String) {
@@ -617,6 +623,7 @@ class TodayPaneState(
 interface MobileGatewayRepository : MobileTaskRepository {
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
+    fun retryPairing(): MobileTodayResult
 }
 
 interface MobileOfflineTaskRepository {

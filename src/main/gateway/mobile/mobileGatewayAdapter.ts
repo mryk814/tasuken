@@ -146,7 +146,7 @@ function projectTask(
           version: task.schedule.version,
           startDate: task.schedule.start_date,
           endDate: task.schedule.end_date,
-          dateKind: task.schedule.date_kind,
+          dateKind: scheduleDateKind(task.schedule.start_date, task.schedule.end_date),
           rangeSemantics: task.schedule.range_semantics,
           confidence: task.schedule.confidence,
           granularity: task.schedule.granularity,
@@ -162,10 +162,10 @@ type MobileScheduleEdit = {
   rangeSemantics: "once_within_window" | "ongoing" | null;
 };
 
-function scheduleDateKind(schedule: MobileScheduleEdit) {
-  if (!schedule.startDate && !schedule.endDate) return "unknown" as const;
-  if (!schedule.startDate && schedule.endDate) return "deadline" as const;
-  if (schedule.startDate && (!schedule.endDate || schedule.startDate === schedule.endDate)) return "point" as const;
+function scheduleDateKind(startDate: string | null | undefined, endDate: string | null | undefined) {
+  if (!startDate && !endDate) return "unknown" as const;
+  if (!startDate && endDate) return "deadline" as const;
+  if (startDate && (!endDate || startDate === endDate)) return "point" as const;
   return "range" as const;
 }
 
@@ -173,7 +173,7 @@ function canonicalSchedule(schedule: MobileScheduleEdit) {
   return {
     start_date: schedule.startDate,
     end_date: schedule.endDate,
-    date_kind: scheduleDateKind(schedule),
+    date_kind: scheduleDateKind(schedule.startDate, schedule.endDate),
     range_semantics: schedule.rangeSemantics,
     confidence: "fixed" as const,
     granularity: "day" as const,
@@ -644,6 +644,7 @@ export class MobileGatewayAdapter {
     if (error.code === "NOT_FOUND") return this.error(meta, "not_found");
     if (error.code === "FORBIDDEN") return this.error(meta, "forbidden");
     if (error.code === "UNAVAILABLE") return this.error(meta, "upstream_unavailable", true);
+    if (error.code === "INTERNAL_ERROR") return this.error(meta, "internal_error", true);
     if (error.code.startsWith("INVALID") || error.code.startsWith("UNSUPPORTED")) return this.error(meta, "validation_failed");
     throw new Error("Unexpected Task error");
   }
