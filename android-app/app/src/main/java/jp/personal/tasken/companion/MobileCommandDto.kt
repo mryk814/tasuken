@@ -261,25 +261,9 @@ object MobileTaskCommandContract {
                         (value is JsonPrimitive && value.isString && isThemeId(value.content)),
                 )
             }
-            "plannedSchedule" -> validatePlannedSchedulePatch(patch[field])
             "schedule" -> validateSchedulePatch(patch[field], allowNullSchedule)
             else -> error("Unsupported Task patch field: $field")
         }
-    }
-
-    private fun validatePlannedSchedulePatch(value: Any?) {
-        require(value is JsonObject)
-        require(value.keys == setOf("startTime", "durationMinutes"))
-        val start = value.getValue("startTime")
-        require(
-            start is JsonNull ||
-                (start is JsonPrimitive && start.isString && isPlannedStartTime(start.content)),
-        )
-        val duration = value.getValue("durationMinutes")
-        require(
-            duration is JsonNull ||
-                (duration is JsonPrimitive && !duration.isString && isPlannedDurationMinutes(duration.content.toInt())),
-        )
     }
 
     private fun validateSchedulePatch(value: Any?, allowNullSchedule: Boolean) {
@@ -323,6 +307,11 @@ object MobileTaskCommandContract {
         require(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess)
         require(task.plannedStartTime == null || isPlannedStartTime(task.plannedStartTime))
         require(task.plannedDurationMinutes == null || isPlannedDurationMinutes(task.plannedDurationMinutes))
+        task.latestWorkReceipt?.let { receipt ->
+            require(receipt.id.isNotBlank() && receipt.id.length <= 200)
+            require(receipt.executorLabel.isNotBlank() && receipt.executorLabel.length <= 200)
+            require(receipt.summary.isNotBlank() && receipt.summary.length <= 2000)
+        }
         task.schedule?.let { schedule ->
             require(schedule.id.isNotBlank() && schedule.id.length <= 200)
             require(schedule.version > 0)

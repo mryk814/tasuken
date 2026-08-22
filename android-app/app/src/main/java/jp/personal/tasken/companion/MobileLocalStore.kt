@@ -39,6 +39,10 @@ data class TaskCacheEntity(
     val scheduleGranularity: String? = null,
     val plannedStartTime: String? = null,
     val plannedDurationMinutes: Int? = null,
+    val latestReceiptId: String? = null,
+    val latestReceiptReportedAt: String? = null,
+    val latestReceiptExecutorLabel: String? = null,
+    val latestReceiptSummary: String? = null,
 )
 
 @Entity(tableName = "theme_cache")
@@ -738,7 +742,7 @@ abstract class MobileLocalDao {
         SyncStateEntity::class,
         TaskConflictEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -761,6 +765,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_6_7,
                 MIGRATION_7_8,
                 MIGRATION_8_9,
+                MIGRATION_9_10,
             ).build().also { instance = it }
         }
     }
@@ -855,6 +860,15 @@ internal val MIGRATION_8_9 = object : Migration(8, 9) {
     }
 }
 
+internal val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN latestReceiptId TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN latestReceiptReportedAt TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN latestReceiptExecutorLabel TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN latestReceiptSummary TEXT")
+    }
+}
+
 fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     id = id,
     title = title,
@@ -864,6 +878,21 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     todayDate = todayDate,
     plannedStartTime = plannedStartTime,
     plannedDurationMinutes = plannedDurationMinutes,
+    latestWorkReceipt = if (
+        latestReceiptId != null &&
+        latestReceiptReportedAt != null &&
+        latestReceiptExecutorLabel != null &&
+        latestReceiptSummary != null
+    ) {
+        MobileWorkReceiptSummary(
+            id = latestReceiptId,
+            reportedAt = latestReceiptReportedAt,
+            executorLabel = latestReceiptExecutorLabel,
+            summary = latestReceiptSummary,
+        )
+    } else {
+        null
+    },
     schedule = toMobileTaskSchedule(),
     updatedAt = updatedAt,
     pending = optimisticCommandId != null,

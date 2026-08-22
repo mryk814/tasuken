@@ -218,43 +218,6 @@ class TodayViewModelTest {
     }
 
     @Test
-    fun plannedScheduleActionQueuesCanonicalTimeWithoutChangingTodayDate() {
-        var received: MobilePlannedScheduleDraft? = null
-        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
-            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
-            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
-            override fun observePendingCount(): Flow<Int> = flowOf(0)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
-            override suspend fun enqueueUpdateTaskPlannedSchedule(
-                taskId: String,
-                schedule: MobilePlannedScheduleDraft,
-            ): String {
-                received = schedule
-                return "planned-command"
-            }
-            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
-            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
-        }
-        val viewModel = TodayViewModel(repository)
-        val draft = MobilePlannedScheduleDraft("10:00", 90)
-
-        runBlocking { viewModel.updateTaskPlannedScheduleNow(sampleTask(), draft) }
-
-        assertEquals(draft, received)
-        assertEquals(TaskActionUiState.Queued(sampleTask().id), viewModel.taskActionState.value)
-
-        received = null
-        runBlocking {
-            viewModel.updateTaskPlannedScheduleNow(sampleTask(), MobilePlannedScheduleDraft("25:00", 90))
-        }
-        assertNull(received)
-        assertEquals(
-            TaskActionUiState.Error(sampleTask().id, "開始時刻はHH:mmで入力してください。"),
-            viewModel.taskActionState.value,
-        )
-    }
-
-    @Test
     fun themeCatalogIsExposedAndCanonicalSelectionQueuesOfflineIntent() {
         var called = false
         var receivedThemeId = "not-called"
@@ -322,6 +285,49 @@ class TodayViewModelTest {
 
         assertEquals(task.id to "rejected-command", discarded)
         assertEquals(TaskActionUiState.RejectedThemeDismissed(task.id), viewModel.taskActionState.value)
+    }
+
+    @Test
+    fun pairFailureKeepsPairingFormAndOrigin() {
+        val repository = object : MobileTaskRepository, MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.PairingRequired("https://old.example.ts.net")
+            override fun configuration() = MobileGatewayConfiguration("https://old.example.ts.net", paired = false)
+            override fun pair(origin: String, pairingCode: String) = MobileTodayResult.PairingRequired(
+                origin,
+                "ペアリングできませんでした。Desktopで新しいコードを発行してください。",
+            )
+            override fun retryPairing() = MobileTodayResult.PairingRequired(configuration().origin)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+
+        runBlocking { viewModel.pairNow("https://desktop.example.ts.net:48178", "12345678") }
+
+        val state = viewModel.uiState.value as TodayUiState.PairingRequired
+        assertEquals("https://desktop.example.ts.net:48178", state.origin)
+        assertEquals("ペアリングできませんでした。Desktopで新しいコードを発行してください。", state.message)
+    }
+
+    @Test
+    fun retryPairingReturnsToPairingFormWithSavedOrigin() {
+        val origin = "https://desktop-55avlhd.tail4d1e1e.ts.net:48178"
+        val repository = object : MobileTaskRepository, MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Unavailable(
+                "Mobile Gatewayに接続できません。",
+                "DesktopとTailscale接続を確認して再読み込みするか、やり直してURLとコードを入力し直してください。",
+            )
+            override fun configuration() = MobileGatewayConfiguration(origin, paired = true)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired(origin)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+        runBlocking { viewModel.loadNow() }
+        assertTrue(viewModel.uiState.value is TodayUiState.Error)
+
+        viewModel.retryPairing()
+
+        val state = viewModel.uiState.value as TodayUiState.PairingRequired
+        assertEquals(origin, state.origin)
+        assertEquals("", state.message)
     }
 
     @Test

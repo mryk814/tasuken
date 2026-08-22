@@ -11,11 +11,17 @@ private val taskStateLabels = mapOf(
 
 private val taskWorkStateLabels = mapOf(
     "not_delegated" to "未委任",
+    "ready_for_agent" to "委任済み",
+    "in_progress" to "作業中",
+    "reported_done" to "報告済み",
+    "needs_human_review" to "確認待ち",
+    "accepted" to "確認済み",
+    "blocked" to "停止中",
+    "failed" to "失敗",
     "delegated" to "委任済み",
     "working" to "作業中",
-    "blocked" to "停止中",
     "needs_review" to "確認待ち",
-    "completed" to "完了",
+    "completed" to "確認済み",
 )
 
 fun taskStateLabel(state: String): String = taskStateLabels[state] ?: state

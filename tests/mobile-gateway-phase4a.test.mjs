@@ -129,6 +129,7 @@ function core(service, overrides = {}) {
   return {
     status: async () => ({ apiVersion: "1", capabilities: ["task.query", "task.command"] }),
     listThemes: () => [{ id: "theme-personal-default", name: "Personal" }],
+    listWorkReceipts: () => [],
     executeTaskQuery: (input) => service.executeQuery(input),
     executeTaskCommand: (input) => service.executeCommand(input),
     ...overrides,
@@ -373,7 +374,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
       changes: { plannedSchedule: { startTime: "10:00", durationMinutes: 90 } },
       base: { plannedSchedule: { startTime: null, durationMinutes: null } },
     },
-  }).success, true);
+  }).success, false);
   for (const invalid of [
     { ...valid, apiVersion: 2 },
     { ...valid, schemaVersion: 3 },
@@ -580,78 +581,88 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
   assert.equal(invalid.body.error.code, "validation_failed");
 });
 
-test("Mobile UpdateTask maps planned start time and duration as one canonical patch independent of todayDate", async () => {
-  const { service } = capability();
-  const canonicalCommands = [];
+test("Mobile bootstrap projects the latest Work Receipt summary without raw tool output", async () => {
+  const { repository, service } = capability();
   const adapter = gateway(service, {
-    executeTaskCommand: (input) => {
-      canonicalCommands.push(input);
-      return service.executeCommand(input);
-    },
+    listWorkReceipts: () => [
+      {
+        id: "receipt-old",
+        taskId: "task-mobile-create",
+        reportedAt: "2026-08-21T01:00:00.000Z",
+        executorLabel: "Hermes",
+        summary: "古い経過",
+      },
+      {
+        id: "receipt-new",
+        taskId: "task-mobile-create",
+        reportedAt: "2026-08-21T03:00:00.000Z",
+        executorLabel: "Hermes",
+        summary: "確認してほしい結果",
+      },
+    ],
   });
   assert.equal((await adapter.handle({
     method: "POST",
     path: TASKEN_MOBILE_ENDPOINTS.commands,
     principal,
-    body: createRequest(),
+    body: createRequest({
+      command: {
+        ...createRequest().command,
+        task: { ...createRequest().command.task, id: "task-mobile-create" },
+      },
+    }),
   })).status, 200);
+  repository.records.set("task:task-mobile-create", {
+    ...repository.records.get("task:task-mobile-create"),
+    work_state: "needs_human_review",
+  });
 
-  const update = async (commandId, expectedVersion, changes, base) => adapter.handle({
+  const bootstrap = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-receipt", limit: "50" },
+  });
+  assert.equal(bootstrap.status, 200);
+  assert.deepEqual(bootstrap.body.data.tasks[0].latestWorkReceipt, {
+    id: "receipt-new",
+    reportedAt: "2026-08-21T03:00:00.000Z",
+    executorLabel: "Hermes",
+    summary: "確認してほしい結果",
+  });
+  assert.equal(bootstrap.body.data.tasks[0].latestWorkReceipt.toolOutput, undefined);
+  assert.equal(bootstrap.body.data.tasks[0].latestWorkReceipt.reasoning, undefined);
+
+  const today = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery(),
+  });
+  assert.equal(today.body.data.items[0].latestWorkReceipt, undefined);
+});
+
+test("Mobile UpdateTask rejects plannedSchedule writes after the time editor was withdrawn", async () => {
+  const { service } = capability();
+  const adapter = gateway(service);
+  const rejected = await adapter.handle({
     method: "POST",
     path: TASKEN_MOBILE_ENDPOINTS.commands,
     principal,
     body: {
       ...createRequest(),
-      requestId: `request-${commandId}`,
-      commandId,
-      idempotencyKey: commandId,
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
         expectedScheduleVersion: null,
-        expectedVersion,
-        changes: { plannedSchedule: changes },
-        base: { plannedSchedule: base },
+        expectedVersion: 1,
+        changes: { plannedSchedule: { startTime: "10:00", durationMinutes: 90 } },
+        base: { plannedSchedule: { startTime: null, durationMinutes: null } },
       },
     },
   });
-
-  const scheduled = await update(
-    "command-mobile-planned-set",
-    1,
-    { startTime: "10:00", durationMinutes: 90 },
-    { startTime: null, durationMinutes: null },
-  );
-  assert.equal(scheduled.status, 200);
-  assert.equal(scheduled.body.data.task.todayDate, "2026-08-21");
-  assert.equal(scheduled.body.data.task.plannedStartTime, "10:00");
-  assert.equal(scheduled.body.data.task.plannedDurationMinutes, 90);
-  assert.deepEqual(canonicalCommands.at(-1).payload, {
-    task_id: "task-mobile-create",
-    expected_version: 1,
-    changes: { planned_start_time: "10:00", planned_duration_minutes: 90 },
-    base: { planned_start_time: null, planned_duration_minutes: null },
-  });
-
-  const cleared = await update(
-    "command-mobile-planned-clear",
-    2,
-    { startTime: null, durationMinutes: null },
-    { startTime: "10:00", durationMinutes: 90 },
-  );
-  assert.equal(cleared.status, 200);
-  assert.equal(cleared.body.data.task.todayDate, "2026-08-21");
-  assert.equal(cleared.body.data.task.plannedStartTime, null);
-  assert.equal(cleared.body.data.task.plannedDurationMinutes, null);
-
-  const invalid = await update(
-    "command-mobile-planned-invalid",
-    3,
-    { startTime: "10:00", durationMinutes: 0 },
-    { startTime: null, durationMinutes: null },
-  );
-  assert.equal(invalid.status, 400);
-  assert.equal(invalid.body.error.code, "validation_failed");
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.body.error.code, "validation_failed");
 });
 
 test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects deleted Themes", async () => {
@@ -1219,6 +1230,7 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
       todayDate: "2026-08-21",
       plannedStartTime: null,
       plannedDurationMinutes: null,
+      latestWorkReceipt: null,
       schedule: null,
       updatedAt: now,
     },
@@ -1503,6 +1515,55 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
   });
   assert.equal(resetResponse.status, 200);
   assert.equal(resetResponse.body.meta.serverId, "desktop-restored");
+});
+
+test("Mobile bootstrap rederives dateKind when stored schedule kind disagrees with dates", async () => {
+  const { repository, service } = capability();
+  const adapter = gateway(service);
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest({
+      requestId: "request-mismatch-create",
+      commandId: "command-mismatch-create",
+      idempotencyKey: "command-mismatch-create",
+      command: {
+        ...createRequest().command,
+        task: { ...createRequest().command.task, id: "task-datekind-mismatch", title: "日付種別ずれ" },
+      },
+    }),
+  })).status, 200);
+
+  repository.records.set("schedule:sched-datekind-mismatch", {
+    type: "schedule",
+    id: "sched-datekind-mismatch",
+    owner_type: "task",
+    owner_id: "task-datekind-mismatch",
+    start_date: "2026-09-08",
+    end_date: "2026-09-08",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+    version: 1,
+    source: "manual",
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  });
+
+  const bootstrap = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-bootstrap-mismatch", limit: "50" },
+  });
+  assert.equal(bootstrap.status, 200);
+  const task = bootstrap.body.data.tasks.find((item) => item.id === "task-datekind-mismatch");
+  assert.equal(task.schedule.dateKind, "point");
+  assert.equal(task.schedule.startDate, "2026-09-08");
+  assert.equal(task.schedule.endDate, "2026-09-08");
 });
 
 test("Mobile UpdateTask auto-merges a different-field race and returns canonical same-field conflict", async () => {

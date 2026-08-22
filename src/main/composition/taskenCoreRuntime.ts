@@ -97,6 +97,13 @@ export class TaskenCoreRuntime {
           id: String(theme.id || ""),
           name: String(theme.name || ""),
         })),
+        listWorkReceipts: () => this.persistence.list("work_receipt", false).map((receipt) => ({
+          id: String(receipt.id || ""),
+          taskId: String(receipt.task_id || ""),
+          reportedAt: String(receipt.reported_at || ""),
+          executorLabel: String(receipt.executor_label || ""),
+          summary: String(receipt.summary || ""),
+        })),
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
       },

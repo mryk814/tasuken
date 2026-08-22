@@ -257,7 +257,15 @@ private fun TodayApp(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(if (paneState.activeSection == AppSection.Today) "Today" else "Tasks") },
+                title = {
+                    Text(
+                        when (paneState.activeSection) {
+                            AppSection.Today -> "Today"
+                            AppSection.Tasks -> "Tasks"
+                            AppSection.Ai -> "AI"
+                        },
+                    )
+                },
                 actions = {
                     if (conflictCount > 0) {
                         Surface(
@@ -314,6 +322,15 @@ private fun TodayApp(
                     label = { Text("Tasks") },
                 )
                 NavigationBarItem(
+                    selected = paneState.activeSection == AppSection.Ai,
+                    onClick = {
+                        paneState.activeSection = AppSection.Ai
+                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
+                    },
+                    icon = { Text("AI") },
+                    label = { Text("AI") },
+                )
+                NavigationBarItem(
                     selected = false,
                     onClick = { paneState.captureOpen = true },
                     icon = { Text("+") },
@@ -334,20 +351,30 @@ private fun TodayApp(
                             keyboardController?.hide()
                         }
                     }
-                    if (paneState.activeSection == AppSection.Today) {
-                        TodayListPane(
+                    when (paneState.activeSection) {
+                        AppSection.Today -> TodayListPane(
                             uiState = uiState,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
+                            onRetryPairing = todayViewModel::retryPairing,
                             onPair = todayViewModel::pair,
                             onTaskSelected = onTaskSelected,
                         )
-                    } else {
-                        TasksListPane(
+                        AppSection.Tasks -> TasksListPane(
                             uiState = uiState,
                             tasks = allTasks,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
+                            onRetryPairing = todayViewModel::retryPairing,
+                            onPair = todayViewModel::pair,
+                            onTaskSelected = onTaskSelected,
+                        )
+                        AppSection.Ai -> AiInboxListPane(
+                            uiState = uiState,
+                            tasks = allTasks,
+                            paneState = paneState,
+                            onRetry = todayViewModel::load,
+                            onRetryPairing = todayViewModel::retryPairing,
                             onPair = todayViewModel::pair,
                             onTaskSelected = onTaskSelected,
                         )
@@ -367,7 +394,6 @@ private fun TodayApp(
                         onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                         onThemeUpdate = todayViewModel::updateTaskTheme,
                         onScheduleUpdate = todayViewModel::updateTaskSchedule,
-                        onPlannedScheduleUpdate = todayViewModel::updateTaskPlannedSchedule,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
                     )
@@ -441,6 +467,7 @@ private fun TodayListPane(
     uiState: TodayUiState,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
 ) {
@@ -451,13 +478,38 @@ private fun TodayListPane(
         }
         TodayUiState.Empty -> CenteredState { Text("今日のTaskはありません") }
         is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
-        is TodayUiState.Error -> CenteredState {
-            Text(uiState.message, fontWeight = FontWeight.SemiBold)
-            Text(uiState.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = onRetry) { Text("再読み込み") }
-        }
+        is TodayUiState.Error -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         is TodayUiState.Success -> TodayTaskList(uiState.tasks, paneState, onTaskSelected)
     }
+}
+
+internal enum class AiInboxSection { InProgress, NeedsReview, Blocked, RecentlyAccepted }
+
+internal fun aiInboxSectionLabel(section: AiInboxSection): String = when (section) {
+    AiInboxSection.InProgress -> "作業中"
+    AiInboxSection.NeedsReview -> "確認待ち"
+    AiInboxSection.Blocked -> "停止中"
+    AiInboxSection.RecentlyAccepted -> "最近完了"
+}
+
+internal fun aiInboxSection(workState: String?): AiInboxSection? = when (workState) {
+    "in_progress", "ready_for_agent", "working", "delegated" -> AiInboxSection.InProgress
+    "needs_human_review", "reported_done", "needs_review" -> AiInboxSection.NeedsReview
+    "blocked", "failed" -> AiInboxSection.Blocked
+    "accepted", "completed" -> AiInboxSection.RecentlyAccepted
+    else -> null
+}
+
+internal fun filterAiInboxTasks(tasks: List<MobileTask>): List<Pair<AiInboxSection, List<MobileTask>>> {
+    val grouped = tasks.mapNotNull { task ->
+        aiInboxSection(task.workState)?.let { section -> section to task }
+    }.groupBy({ it.first }, { it.second })
+    return listOf(
+        AiInboxSection.InProgress,
+        AiInboxSection.NeedsReview,
+        AiInboxSection.Blocked,
+        AiInboxSection.RecentlyAccepted,
+    ).mapNotNull { section -> grouped[section]?.takeIf { it.isNotEmpty() }?.let { section to it } }
 }
 
 internal fun filterCachedTasks(
@@ -483,16 +535,13 @@ private fun TasksListPane(
     tasks: List<MobileTask>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
-        uiState is TodayUiState.Error && tasks.isEmpty() -> CenteredState {
-            Text(uiState.message, fontWeight = FontWeight.SemiBold)
-            Text(uiState.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = onRetry) { Text("再読み込み") }
-        }
+        uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
             CircularProgressIndicator()
             Text("Tasksを読み込んでいます")
@@ -535,6 +584,113 @@ private fun TasksListPane(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AiInboxListPane(
+    uiState: TodayUiState,
+    tasks: List<MobileTask>,
+    paneState: TodayPaneState,
+    onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
+    onPair: (String, String) -> Unit,
+    onTaskSelected: (String) -> Unit,
+) {
+    when {
+        uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
+        uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
+        uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
+            CircularProgressIndicator()
+            Text("AI Inboxを読み込んでいます")
+        }
+        else -> {
+            val sections = filterAiInboxTasks(tasks)
+            if (sections.isEmpty()) {
+                CenteredState { Text("AI作業中のTaskはありません") }
+            } else {
+                val listState = rememberLazyListState(
+                    initialFirstVisibleItemIndex = paneState.aiListScrollIndex,
+                    initialFirstVisibleItemScrollOffset = paneState.aiListScrollOffset,
+                )
+                LaunchedEffect(listState) {
+                    snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+                        .collect { (index, offset) -> paneState.recordAiScroll(index, offset) }
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().testTag("ai-inbox-list"),
+                    state = listState,
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for ((section, sectionTasks) in sections) {
+                        item(key = "section-${section.name}") {
+                            Text(
+                                aiInboxSectionLabel(section),
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        items(sectionTasks, key = { it.id }) { task ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .semantics { role = Role.Button }
+                                    .clickable { onTaskSelected(task.id) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (task.id == paneState.selectedTaskId) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (task.id == paneState.selectedTaskId) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outline
+                                    },
+                                ),
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(task.title, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        taskWorkStateLabel(task.workState ?: ""),
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    task.latestWorkReceipt?.summary?.let { summary ->
+                                        Text(
+                                            summary,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GatewayErrorState(
+    state: TodayUiState.Error,
+    onRetry: () -> Unit,
+    onRetryPairing: () -> Unit,
+) {
+    CenteredState {
+        Text(state.message, fontWeight = FontWeight.SemiBold)
+        Text(state.recovery, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = onRetry) { Text("再読み込み") }
+        TextButton(onClick = onRetryPairing) { Text("やり直す") }
     }
 }
 
@@ -664,7 +820,6 @@ internal fun TodayDetailPane(
     onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
     onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
     onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
-    onPlannedScheduleUpdate: (MobileTask, MobilePlannedScheduleDraft) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
@@ -720,8 +875,7 @@ internal fun TodayDetailPane(
                                 Text("Desktop  予定 ${scheduleConflictLabel(conflict.serverSchedule)}")
                                 Text("この端末  予定 ${scheduleConflictLabel(conflict.localSchedule)}")
                             } else if (conflict.localPlannedScheduleChanged) {
-                                Text("Desktop  時刻 ${plannedScheduleLabel(conflict.serverPlannedStartTime, conflict.serverPlannedDurationMinutes)}")
-                                Text("この端末  時刻 ${plannedScheduleLabel(conflict.localPlannedStartTime, conflict.localPlannedDurationMinutes)}")
+                                Text("時刻の変更は使えません。Desktopを採用してください。")
                             } else if (conflict.localTodayDateChanged) {
                                 Text("Desktop  日付 ${taskTodayDateLabel(conflict.serverTodayDate)}")
                                 Text("この端末  日付 ${taskTodayDateLabel(conflict.localTodayDate)}")
@@ -810,20 +964,23 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onScheduleUpdate(task, it) },
             )
-            TaskPlannedScheduleEditor(
-                task = task,
-                enabled = !task.pending && task.conflict == null &&
-                    actionState !is TaskActionUiState.Saving,
-                stateDescription = when {
-                    task.pending -> "同期後に変更"
-                    task.conflict != null -> "競合を解決してから変更"
-                    actionState is TaskActionUiState.Saving -> "保存中"
-                    else -> null
-                },
-                onSave = { onPlannedScheduleUpdate(task, it) },
-            )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
+            task.latestWorkReceipt?.let { receipt ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("work-receipt-summary"),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("最新のWork Receipt", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("${receipt.executorLabel}  ${receipt.reportedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(receipt.summary)
+                    }
+                }
+            }
             val today = LocalDate.now()
             Text("日付  ${taskTodayDateLabel(task.todayDate, today.toString())}")
             Button(
@@ -853,99 +1010,6 @@ internal fun TodayDetailPane(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun TaskPlannedScheduleEditor(
-    task: MobileTask,
-    enabled: Boolean,
-    stateDescription: String?,
-    onSave: (MobilePlannedScheduleDraft) -> Unit,
-) {
-    val plannedFingerprint = listOf(task.plannedStartTime, task.plannedDurationMinutes).joinToString("|")
-    var startDraft by rememberSaveable(task.id, plannedFingerprint) {
-        mutableStateOf(task.plannedStartTime.orEmpty())
-    }
-    var durationDraft by rememberSaveable(task.id, plannedFingerprint) {
-        mutableStateOf(task.plannedDurationMinutes?.toString().orEmpty())
-    }
-    val startTime = startDraft.trim().takeIf(String::isNotEmpty)
-    val durationText = durationDraft.trim()
-    val durationMinutes = durationText.takeIf(String::isNotEmpty)?.toIntOrNull()
-    val startValid = startTime == null || isPlannedStartTime(startTime)
-    val durationValid = durationText.isEmpty() || (durationMinutes != null && isPlannedDurationMinutes(durationMinutes))
-    val draft = MobilePlannedScheduleDraft(
-        startTime = startTime.takeIf { startValid },
-        durationMinutes = durationMinutes.takeIf { durationValid && durationText.isNotEmpty() },
-    )
-    val original = MobilePlannedScheduleDraft(task.plannedStartTime, task.plannedDurationMinutes)
-    val hasChanges = draft != original
-    val canSave = enabled && hasChanges && startValid && durationValid
-
-    Column(
-        modifier = Modifier.fillMaxWidth().testTag("planned-schedule-editor"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("時刻", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                plannedScheduleLabel(
-                    startTime.takeIf { startValid },
-                    durationMinutes.takeIf { durationValid && durationText.isNotEmpty() },
-                ),
-                modifier = Modifier.testTag("planned-schedule-kind"),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        OutlinedTextField(
-            value = startDraft,
-            onValueChange = { if (it.length <= 5) startDraft = it },
-            modifier = Modifier.fillMaxWidth().testTag("planned-start-time").then(
-                if (stateDescription != null) Modifier.semantics { this.stateDescription = stateDescription } else Modifier,
-            ),
-            label = { Text("開始時刻") },
-            placeholder = { Text("HH:mm") },
-            singleLine = true,
-            enabled = enabled,
-            isError = !startValid,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
-            trailingIcon = {
-                TextButton(
-                    onClick = { startDraft = "" },
-                    enabled = enabled && startDraft.isNotEmpty(),
-                    modifier = Modifier.testTag("planned-start-clear"),
-                ) { Text("解除") }
-            },
-        )
-        OutlinedTextField(
-            value = durationDraft,
-            onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) durationDraft = it },
-            modifier = Modifier.fillMaxWidth().testTag("planned-duration-minutes").then(
-                if (stateDescription != null) Modifier.semantics { this.stateDescription = stateDescription } else Modifier,
-            ),
-            label = { Text("所要（分）") },
-            singleLine = true,
-            enabled = enabled,
-            isError = !durationValid,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-            trailingIcon = {
-                TextButton(
-                    onClick = { durationDraft = "" },
-                    enabled = enabled && durationDraft.isNotEmpty(),
-                    modifier = Modifier.testTag("planned-duration-clear"),
-                ) { Text("解除") }
-            },
-        )
-        Button(
-            onClick = { onSave(draft) },
-            enabled = canSave,
-            modifier = Modifier.testTag("planned-schedule-save"),
-        ) { Text("時刻を保存") }
     }
 }
 
@@ -1190,13 +1254,6 @@ private fun scheduleDraftLabel(
     rangeSemantics == "once_within_window" -> "期間内に一度"
     rangeSemantics == "ongoing" -> "期間中継続"
     else -> "期間未分類"
-}
-
-private fun plannedScheduleLabel(startTime: String?, durationMinutes: Int?): String = when {
-    startTime == null && durationMinutes == null -> "未設定"
-    startTime != null && durationMinutes != null -> "$startTime / ${durationMinutes}分"
-    startTime != null -> startTime
-    else -> "${durationMinutes}分"
 }
 
 private fun scheduleConflictLabel(schedule: MobileTaskSchedule?): String = scheduleConflictLabel(
