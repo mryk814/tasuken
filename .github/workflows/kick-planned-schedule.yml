@@ -71,9 +71,6 @@ jobs:
           if active_quote is not None:
               raise SystemExit(f"unterminated embedded Python string: {active_quote}")
 
-          # The current DTO imports JsonPrimitive directly and does not yet use
-          # jsonPrimitive. Seed the one extension needed by the generated strict
-          # integer validator; the embedded script then treats it as already set.
           command_dto = Path(
               'android-app/app/src/main/java/jp/personal/tasken/companion/MobileCommandDto.kt'
           )
@@ -91,7 +88,6 @@ jobs:
           script = "\n".join(script_lines)
           exec(compile(script, 'planned-schedule-implementation.py', 'exec'))
 
-          # Normalize two generator-level details before compilation.
           command_text = command_dto.read_text(encoding='utf-8').replace(
               'duration.intOrNull in 1..10080',
               'duration.intOrNull?.let { it in 1..10080 } == true',
@@ -103,6 +99,25 @@ jobs:
           )
           editor.write_text(
               editor.read_text(encoding='utf-8').replace(r'\\\\d', r'\\d'),
+              encoding='utf-8',
+          )
+
+          gateway_test = Path('tests/mobile-gateway-phase4a.test.mjs')
+          gateway_text = gateway_test.read_text(encoding='utf-8')
+          expected_conflict = '''      workState: "not_delegated",
+      todayDate: "2026-08-21",
+      updatedAt: now,
+'''
+          updated_conflict = '''      workState: "not_delegated",
+      todayDate: "2026-08-21",
+      plannedStartTime: null,
+      plannedDurationMinutes: null,
+      updatedAt: now,
+'''
+          if gateway_text.count(expected_conflict) != 1:
+              raise SystemExit('state conflict projection expectation changed')
+          gateway_test.write_text(
+              gateway_text.replace(expected_conflict, updated_conflict),
               encoding='utf-8',
           )
           EXTRACT
