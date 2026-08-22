@@ -1,0 +1,88 @@
+name: Android release signing
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/android-release-signing.yml
+      - android-app/app/build.gradle.kts
+      - android-app/keystore.properties.example
+      - android-app/scripts/build-signed-release.ps1
+      - .gitignore
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/android-release-signing.yml
+      - android-app/app/build.gradle.kts
+      - android-app/keystore.properties.example
+      - android-app/scripts/build-signed-release.ps1
+      - .gitignore
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release-signing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify debug builds require no release credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd android-app
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug --stacktrace
+
+      - name: Prove unsigned release packaging fails closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd android-app
+          set +e
+          ./gradlew --no-daemon assembleRelease > "$RUNNER_TEMP/unsigned-release.log" 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            cat "$RUNNER_TEMP/unsigned-release.log"
+            echo "assembleRelease unexpectedly succeeded without signing material"
+            exit 1
+          fi
+          grep -F "Release signing is not configured" "$RUNNER_TEMP/unsigned-release.log"
+
+      - name: Build and verify a signed release with an ephemeral JKS
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair \
+            -storetype JKS \
+            -keystore "$RUNNER_TEMP/tasken-ci-release.jks" \
+            -storepass tasken-ci-store-password \
+            -alias tasken-ci \
+            -keypass tasken-ci-key-password \
+            -keyalg RSA \
+            -keysize 3072 \
+            -validity 3650 \
+            -dname "CN=Tasken CI,OU=Verification,O=Tasken,L=Kobe,ST=Hyogo,C=JP"
+
+          cd android-app
+          TASKEN_ANDROID_KEYSTORE="$RUNNER_TEMP/tasken-ci-release.jks" \
+          TASKEN_ANDROID_KEYSTORE_PASSWORD="tasken-ci-store-password" \
+          TASKEN_ANDROID_KEY_ALIAS="tasken-ci" \
+          TASKEN_ANDROID_KEY_PASSWORD="tasken-ci-key-password" \
+            ./gradlew --no-daemon verifyReleaseSigning assembleRelease --stacktrace
+
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -f "$apk"
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk_root"
+          apksigner="$(find "$sdk_root/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk"
