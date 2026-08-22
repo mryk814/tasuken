@@ -270,7 +270,7 @@ export class MobileGatewayHost {
             deviceLabel: result.device.label,
             accessToken: result.accessToken,
             scopes: result.device.scopes,
-            pairedAt: result.device.createdAt,
+            pairedAt: result.device.updatedAt,
           },
         });
         this.record(method, path, 200, result.device.id);

@@ -25,6 +25,7 @@ const { MobileDeviceRegistry, MobileGatewayHost } = await import(
 
 const fixedNow = "2026-08-21T04:00:00.000Z";
 const fixedToken = "a".repeat(43);
+const replacementToken = "b".repeat(43);
 
 class MemoryMobileDevicePersistence {
   records = new Map();
@@ -33,12 +34,25 @@ class MemoryMobileDevicePersistence {
     return record ? { ...record, scopes: [...record.scopes] } : null;
   }
 
-  createMobileDevice(input) {
-    if (this.records.has(input.id)) throw new Error("duplicate mobile device");
-    const record = {
-      ...input,
+  pairMobileDevice(input) {
+    const current = this.records.get(input.id);
+    if (current && !current.revokedAt) throw new Error("duplicate mobile device");
+    const record = current ? {
+      ...current,
+      label: input.label,
+      tokenHash: input.tokenHash,
       scopes: [...input.scopes],
-      updatedAt: input.createdAt,
+      updatedAt: input.pairedAt,
+      lastSeenAt: "",
+      revokedAt: "",
+      version: current.version + 1,
+    } : {
+      id: input.id,
+      label: input.label,
+      tokenHash: input.tokenHash,
+      scopes: [...input.scopes],
+      createdAt: input.pairedAt,
+      updatedAt: input.pairedAt,
       lastSeenAt: "",
       revokedAt: "",
       version: 1,
@@ -131,13 +145,57 @@ test("mobile pairing persists only a token hash and revocation survives restart"
   }
 });
 
+test("revoked mobile devices can pair again with the same stable Android id", () => {
+  const persistence = new MemoryMobileDevicePersistence();
+  try {
+    const registry = new MobileDeviceRegistry({
+      persistence,
+      now: () => new Date(fixedNow),
+      createPairingCode: () => "12345678",
+      createAccessToken: () => fixedToken,
+    });
+    registry.pair({
+      code: registry.issuePairing().code,
+      deviceId: "device-s23",
+      deviceLabel: "Galaxy S23",
+    });
+    registry.revoke("device-s23");
+
+    const repairedAt = "2026-08-22T04:00:00.000Z";
+    const repairedRegistry = new MobileDeviceRegistry({
+      persistence,
+      now: () => new Date(repairedAt),
+      createPairingCode: () => "87654321",
+      createAccessToken: () => replacementToken,
+    });
+    const repaired = repairedRegistry.pair({
+      code: repairedRegistry.issuePairing().code,
+      deviceId: "device-s23",
+      deviceLabel: "Galaxy S23 re-paired",
+    });
+
+    assert.equal(repaired.accessToken, replacementToken);
+    assert.equal(repaired.device.createdAt, fixedNow);
+    assert.equal(repaired.device.updatedAt, repairedAt);
+    assert.equal(repaired.device.revokedAt, "");
+    assert.equal(repaired.device.label, "Galaxy S23 re-paired");
+    assert.equal(repaired.device.version, 3);
+    assert.equal(repairedRegistry.authenticate(fixedToken), null);
+    assert.equal(repairedRegistry.authenticate(replacementToken)?.deviceId, "device-s23");
+  } finally {
+    persistence.records.clear();
+  }
+});
+
 test("mobile gateway binds loopback, pairs once, authenticates, and rejects browser or unsupported methods", async () => {
   const persistence = new MemoryMobileDevicePersistence();
+  let currentNow = fixedNow;
+  const accessTokens = [fixedToken, replacementToken];
   const registry = new MobileDeviceRegistry({
     persistence,
-    now: () => new Date(fixedNow),
+    now: () => new Date(currentNow),
     createPairingCode: () => "87654321",
-    createAccessToken: () => fixedToken,
+    createAccessToken: () => accessTokens.shift(),
   });
   const adapter = {
     async handle(request) {
@@ -160,7 +218,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
     devices: registry,
     state: state(),
     port: 0,
-    now: () => new Date(fixedNow),
+    now: () => new Date(currentNow),
   });
 
   try {
@@ -186,6 +244,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
     assert.equal(pairResponse.status, 200);
     const paired = await pairResponse.json();
     assert.equal(paired.data.accessToken, fixedToken);
+    assert.equal(paired.data.pairedAt, fixedNow);
 
     const health = await fetch(origin + "/v1/health", {
       headers: { authorization: "Bearer " + paired.data.accessToken },
@@ -225,10 +284,36 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
     assert.equal(secondPair.status, 401);
     assert.equal((await secondPair.json()).error.code, "pairing_code_invalid");
 
+    registry.revoke("33333333-3333-4333-8333-333333333333");
+    currentNow = "2026-08-22T04:00:00.000Z";
+    const repairTicket = registry.issuePairing();
+    const repairResponse = await fetch(origin + "/v1/pair", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        apiVersion: 1,
+        schemaVersion: 1,
+        requestId: "55555555-5555-4555-8555-555555555555",
+        pairingCode: repairTicket.code,
+        clientDeviceId: "33333333-3333-4333-8333-333333333333",
+        deviceLabel: "Galaxy S23 HTTP re-paired",
+      }),
+    });
+    assert.equal(repairResponse.status, 200);
+    const repaired = await repairResponse.json();
+    assert.equal(repaired.data.accessToken, replacementToken);
+    assert.equal(repaired.data.pairedAt, currentNow);
+    assert.equal((await fetch(origin + "/v1/health", {
+      headers: { authorization: "Bearer " + fixedToken },
+    })).status, 401);
+    assert.equal((await fetch(origin + "/v1/health", {
+      headers: { authorization: "Bearer " + replacementToken },
+    })).status, 200);
+
     assert.equal(JSON.stringify(host.diagnostics()).includes(fixedToken), false);
+    assert.equal(JSON.stringify(host.diagnostics()).includes(replacementToken), false);
   } finally {
     await host.stop();
     persistence.records.clear();
   }
 });
-

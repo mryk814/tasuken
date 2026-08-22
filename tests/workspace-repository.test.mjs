@@ -38,6 +38,56 @@ function item(overrides = {}) {
   };
 }
 
+test("revoked mobile devices can pair again without clearing Android data", () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-mobile-repair-workspace-"));
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  const firstTokenHash = "a".repeat(64);
+  const secondTokenHash = "b".repeat(64);
+  const firstPairingAt = "2026-08-21T04:00:00.000Z";
+  const secondPairingAt = "2026-08-22T04:00:00.000Z";
+  try {
+    const first = database.pairMobileDevice({
+      id: "device-s23",
+      label: "Galaxy S23",
+      tokenHash: firstTokenHash,
+      scopes: ["mobile:read", "mobile:task-write"],
+      pairedAt: firstPairingAt,
+    });
+    assert.equal(first.version, 1);
+    assert.throws(
+      () => database.pairMobileDevice({
+        id: "device-s23",
+        label: "Galaxy S23",
+        tokenHash: secondTokenHash,
+        scopes: ["mobile:read", "mobile:task-write"],
+        pairedAt: secondPairingAt,
+      }),
+      /Mobile device already exists/,
+    );
+
+    const revoked = database.revokeMobileDevice("device-s23", secondPairingAt);
+    assert.equal(revoked.revokedAt, secondPairingAt);
+    const repaired = database.pairMobileDevice({
+      id: "device-s23",
+      label: "Galaxy S23 re-paired",
+      tokenHash: secondTokenHash,
+      scopes: ["mobile:read", "mobile:task-write"],
+      pairedAt: secondPairingAt,
+    });
+
+    assert.equal(repaired.createdAt, firstPairingAt);
+    assert.equal(repaired.updatedAt, secondPairingAt);
+    assert.equal(repaired.revokedAt, "");
+    assert.equal(repaired.label, "Galaxy S23 re-paired");
+    assert.equal(repaired.version, 3);
+    assert.equal(database.findMobileDeviceByTokenHash(firstTokenHash), null);
+    assert.equal(database.findMobileDeviceByTokenHash(secondTokenHash)?.id, "device-s23");
+  } finally {
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Core Task context reads an empty SQLite snapshot without creating the default Theme", () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-empty-workspace-"));
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
