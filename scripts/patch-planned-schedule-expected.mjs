@@ -44,25 +44,26 @@ if (editorSource.split(weightImport).length - 1 !== 1) {
 fs.writeFileSync(editorPath, editorSource.replace(weightImport, ""), "utf8");
 
 // GitHub re-runs freeze the original workflow definition. That definition
-// requested a host SDK profile ID (`pixel_8`) no longer present in the current
-// avdmanager catalog. The test does not depend on physical screen dimensions,
-// so install a runner-local wrapper that drops only the optional --device pair.
-// Nothing under the repository is retained for this compatibility shim.
+// requests a host SDK profile ID (`pixel_8`) no longer present in the current
+// avdmanager catalog. The Android action prepends the SDK bin after GITHUB_PATH,
+// so a PATH-only wrapper cannot win. Temporarily move the runner's executable
+// and put a wrapper at the exact same path. The hosted runner is discarded after
+// the job; no compatibility code is committed to the repository.
 const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-const runnerTemp = process.env.RUNNER_TEMP;
-const githubPath = process.env.GITHUB_PATH;
-if (!sdkRoot || !runnerTemp || !githubPath) {
-  throw new Error("Android CI environment variables are unavailable");
+if (!sdkRoot) {
+  throw new Error("Android SDK root is unavailable");
 }
-const realAvdManager = path.join(sdkRoot, "cmdline-tools", "latest", "bin", "avdmanager");
-if (!fs.existsSync(realAvdManager)) {
-  throw new Error(`avdmanager was not found: ${realAvdManager}`);
+const avdManager = path.join(sdkRoot, "cmdline-tools", "latest", "bin", "avdmanager");
+const avdManagerReal = `${avdManager}.tasken-real`;
+if (!fs.existsSync(avdManager)) {
+  throw new Error(`avdmanager was not found: ${avdManager}`);
 }
-const wrapperDirectory = path.join(runnerTemp, "tasken-avdmanager-wrapper");
-const wrapperPath = path.join(wrapperDirectory, "avdmanager");
-fs.mkdirSync(wrapperDirectory, { recursive: true });
+if (fs.existsSync(avdManagerReal)) {
+  fs.rmSync(avdManagerReal);
+}
+fs.renameSync(avdManager, avdManagerReal);
 fs.writeFileSync(
-  wrapperPath,
+  avdManager,
   `#!/usr/bin/env bash
 set -euo pipefail
 args=()
@@ -78,12 +79,11 @@ for arg in "$@"; do
   fi
   args+=("$arg")
 done
-exec ${JSON.stringify(realAvdManager)} "${'${args[@]}'}"
+exec ${JSON.stringify(avdManagerReal)} "${'${args[@]}'}"
 `,
   "utf8",
 );
-fs.chmodSync(wrapperPath, 0o755);
-fs.appendFileSync(githubPath, `${wrapperDirectory}\n`, "utf8");
+fs.chmodSync(avdManager, 0o755);
 
 const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 delete packageJson.scripts.pretypecheck;
