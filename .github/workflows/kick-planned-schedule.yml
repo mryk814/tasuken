@@ -50,10 +50,6 @@ jobs:
           end = source.index(end_marker, start)
           lines = source[start:end].splitlines()
 
-          # YAML removes one indentation layer from executable Python, but the
-          # staging source also contains multiline strings whose indentation is
-          # intentional Kotlin/TypeScript content. Strip the workflow layer only
-          # outside those string bodies.
           script_lines = []
           active_quote = None
           for line in lines:
@@ -74,8 +70,41 @@ jobs:
 
           if active_quote is not None:
               raise SystemExit(f"unterminated embedded Python string: {active_quote}")
+
+          # The current DTO imports JsonPrimitive directly and does not yet use
+          # jsonPrimitive. Seed the one extension needed by the generated strict
+          # integer validator; the embedded script then treats it as already set.
+          command_dto = Path(
+              'android-app/app/src/main/java/jp/personal/tasken/companion/MobileCommandDto.kt'
+          )
+          command_text = command_dto.read_text(encoding='utf-8')
+          import_anchor = 'import kotlinx.serialization.json.JsonPrimitive\n'
+          if 'import kotlinx.serialization.json.intOrNull\n' not in command_text:
+              if command_text.count(import_anchor) != 1:
+                  raise SystemExit('MobileCommandDto JsonPrimitive import anchor changed')
+              command_text = command_text.replace(
+                  import_anchor,
+                  import_anchor + 'import kotlinx.serialization.json.intOrNull\n',
+              )
+              command_dto.write_text(command_text, encoding='utf-8')
+
           script = "\n".join(script_lines)
           exec(compile(script, 'planned-schedule-implementation.py', 'exec'))
+
+          # Normalize two generator-level details before compilation.
+          command_text = command_dto.read_text(encoding='utf-8').replace(
+              'duration.intOrNull in 1..10080',
+              'duration.intOrNull?.let { it in 1..10080 } == true',
+          )
+          command_dto.write_text(command_text, encoding='utf-8')
+
+          editor = Path(
+              'android-app/app/src/main/java/jp/personal/tasken/companion/TaskScheduleEditor.kt'
+          )
+          editor.write_text(
+              editor.read_text(encoding='utf-8').replace(r'\\\\d', r'\\d'),
+              encoding='utf-8',
+          )
           EXTRACT
 
       - name: Verify desktop contract and Gateway mapping
