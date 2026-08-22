@@ -1510,27 +1510,47 @@ export class WorkspaceDatabase {
     };
   }
 
-  createMobileDevice(input) {
+  pairMobileDevice(input) {
     const id = String(input?.id || "").trim();
     const label = String(input?.label || "").trim();
     const tokenHash = String(input?.tokenHash || "").trim().toLowerCase();
     const scopes = Array.isArray(input?.scopes) ? [...new Set(input.scopes)] : [];
-    const createdAt = String(input?.createdAt || "").trim();
-    if (!id || !label || !createdAt || !/^[a-f0-9]{64}$/.test(tokenHash)) {
+    const pairedAt = String(input?.pairedAt || "").trim();
+    if (!id || !label || !pairedAt || !/^[a-f0-9]{64}$/.test(tokenHash)) {
       throw new Error("Mobile device record is invalid");
     }
     if (scopes.length === 0 || scopes.some((scope) => !["mobile:read", "mobile:task-write"].includes(scope))) {
       throw new Error("Mobile device scopes are invalid");
     }
-    this.db.prepare(`
-      INSERT INTO mobile_devices(
-        id, label, token_hash, scopes_json, created_at, updated_at,
-        last_seen_at, revoked_at, deleted_at, version, source
-      ) VALUES (?, ?, ?, ?, ?, ?, '', '', NULL, 1, 'pairing')
-    `).run(id, label, tokenHash, JSON.stringify(scopes), createdAt, createdAt);
-    const created = this.findMobileDeviceByTokenHash(tokenHash);
-    if (!created) throw new Error("Mobile device record was not created");
-    return created;
+    const pair = this.db.transaction(() => {
+      const existing = this.db.prepare(`
+        SELECT * FROM mobile_devices WHERE id = ?
+      `).get(id);
+      if (!existing) {
+        this.db.prepare(`
+          INSERT INTO mobile_devices(
+            id, label, token_hash, scopes_json, created_at, updated_at,
+            last_seen_at, revoked_at, deleted_at, version, source
+          ) VALUES (?, ?, ?, ?, ?, ?, '', '', NULL, 1, 'pairing')
+        `).run(id, label, tokenHash, JSON.stringify(scopes), pairedAt, pairedAt);
+      } else {
+        if (existing.deleted_at !== null || existing.revoked_at === "") {
+          throw new Error("Mobile device already exists");
+        }
+        this.db.prepare(`
+          UPDATE mobile_devices
+          SET label = ?, token_hash = ?, scopes_json = ?, updated_at = ?,
+              last_seen_at = '', revoked_at = '', version = version + 1
+          WHERE id = ? AND deleted_at IS NULL AND revoked_at <> ''
+        `).run(label, tokenHash, JSON.stringify(scopes), pairedAt, id);
+      }
+      return parseMobileDeviceRow(this.db.prepare(`
+        SELECT * FROM mobile_devices WHERE id = ? AND deleted_at IS NULL
+      `).get(id));
+    });
+    const paired = pair();
+    if (!paired) throw new Error("Mobile device record was not paired");
+    return paired;
   }
 
   findMobileDeviceByTokenHash(tokenHash) {

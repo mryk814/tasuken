@@ -28,16 +28,16 @@ export interface StoredMobileDeviceRecord extends MobileDeviceRecord {
   tokenHash: string;
 }
 
-export interface CreateMobileDeviceRecord {
+export interface PairMobileDeviceRecord {
   id: string;
   label: string;
   tokenHash: string;
   scopes: MobileScope[];
-  createdAt: string;
+  pairedAt: string;
 }
 
 export interface MobileDevicePersistence {
-  createMobileDevice(input: CreateMobileDeviceRecord): StoredMobileDeviceRecord;
+  pairMobileDevice(input: PairMobileDeviceRecord): StoredMobileDeviceRecord;
   findMobileDeviceByTokenHash(tokenHash: string): StoredMobileDeviceRecord | null;
   listMobileDevices(): StoredMobileDeviceRecord[];
   revokeMobileDevice(id: string, revokedAt: string): StoredMobileDeviceRecord | null;
@@ -156,14 +156,14 @@ export class MobileDeviceRegistry {
 
     const accessToken = this.createAccessToken();
     if (!ACCESS_TOKEN_PATTERN.test(accessToken)) throw new Error("Mobile access token generator returned an invalid value");
-    const createdAt = this.now().toISOString();
+    const pairedAt = this.now().toISOString();
     try {
-      const record = this.persistence.createMobileDevice({
+      const record = this.persistence.pairMobileDevice({
         id: input.deviceId,
         label: input.deviceLabel,
         tokenHash: sha256(accessToken),
         scopes: [...MOBILE_DEVICE_DEFAULT_SCOPES],
-        createdAt,
+        pairedAt,
       });
       return { accessToken, device: publicDevice(record) };
     } catch (error) {
