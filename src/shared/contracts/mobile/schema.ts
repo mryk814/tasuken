@@ -93,6 +93,7 @@ export const mobileErrorCodeSchema = z.enum([
   "pairing_code_invalid",
   "rate_limited",
   "not_found",
+  "theme_not_found",
   "method_not_allowed",
   "version_mismatch",
   "idempotency_conflict",

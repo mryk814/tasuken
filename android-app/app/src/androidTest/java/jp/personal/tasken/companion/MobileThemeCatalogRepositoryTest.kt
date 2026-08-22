@@ -357,6 +357,73 @@ class MobileThemeCatalogRepositoryTest {
     }
 
     @Test
+    fun deletedThemeGatewayErrorRejectsAndRollsBackWhilePreservingMessage() = runBlocking {
+        val taskId = "theme-rejected-transport-task"
+        seedCatalog(
+            7,
+            listOf(
+                ThemeCacheEntity("theme-old", "旧Theme"),
+                ThemeCacheEntity("theme-deleted", "削除済みTheme"),
+            ),
+        )
+        dao.upsertTask(
+            TaskCacheEntity(
+                id = taskId,
+                serverVersion = 3,
+                title = "Theme transport",
+                themeId = "theme-old",
+                state = "todo",
+                workState = null,
+                todayDate = "2026-08-22",
+                updatedAt = "2026-08-22T01:00:00Z",
+                optimisticCommandId = null,
+            ),
+        )
+        val localOutbox = MobileOutbox(context, dao, { "device" }, schedule = {})
+        val commandId = localOutbox.enqueueUpdateTheme(taskId, "theme-deleted")
+        val store = MobileGatewayConnectionStore(context)
+        store.clearToken()
+        store.save("https://gateway.test", "h".repeat(43))
+        val requestedPaths = mutableListOf<String>()
+        try {
+            val repository = AndroidMobileTaskRepository(
+                context = context,
+                store = store,
+                database = database,
+                scheduleOutboxOnStart = false,
+                httpClient = MobileGatewayHttpClient { _, path, _, body, _ ->
+                    requestedPaths += path.substringBefore('?')
+                    when {
+                        path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(200, emptyTaskBootstrap())
+                        path == "/v1/commands" -> {
+                            assertEquals(
+                                commandId,
+                                MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(body)).commandId,
+                            )
+                            GatewayHttpResponse(404, themeNotFoundError())
+                        }
+                        path.startsWith("/v1/sync") -> GatewayHttpResponse(200, emptyTaskSyncPage())
+                        path.startsWith("/v1/themes") -> GatewayHttpResponse(200, themePage(7, null, "theme-old"))
+                        else -> error("Unexpected request path: $path")
+                    }
+                },
+            )
+
+            assertTrue(repository.synchronizeIfPaired())
+
+            assertEquals(listOf("/v1/bootstrap", "/v1/commands", "/v1/sync", "/v1/themes"), requestedPaths)
+            assertEquals(OutboxState.Rejected, dao.outbox(commandId)?.state)
+            assertEquals("theme-old", dao.task(taskId)?.themeId)
+            assertNull(dao.task(taskId)?.optimisticCommandId)
+            val rejected = repository.observeCachedTasks().first().single().rejectedThemeUpdate
+            assertEquals("theme_not_found", rejected?.code)
+            assertEquals("選択したThemeは削除済みか利用できません。", rejected?.message)
+        } finally {
+            store.clearToken()
+        }
+    }
+
+    @Test
     fun oldWorkerCannotClearTokenSavedByANewerRepair() {
         val store = MobileGatewayConnectionStore(context)
         val oldToken = "e".repeat(43)
@@ -438,6 +505,25 @@ class MobileThemeCatalogRepositoryTest {
             "changes": [],
             "nextCursor": "task-cursor",
             "hasMore": false
+          }
+        }
+    """.trimIndent()
+
+    private fun themeNotFoundError(): String = """
+        {
+          "ok": false,
+          "meta": {
+            "apiVersion": 1,
+            "schemaVersion": 1,
+            "serverId": "server-1",
+            "serverRevision": 7,
+            "generatedAt": "2026-08-22T02:00:00Z",
+            "truncated": false
+          },
+          "error": {
+            "code": "theme_not_found",
+            "message": "選択したThemeは削除済みか利用できません。",
+            "retryable": false
           }
         }
     """.trimIndent()

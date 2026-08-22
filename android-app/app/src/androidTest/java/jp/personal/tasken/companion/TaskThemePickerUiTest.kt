@@ -228,7 +228,7 @@ class TaskThemePickerUiTest {
                 commandId = "rejected-command",
                 attemptedThemeId = "theme-personal",
                 code = "theme_not_found",
-                message = "Themeが削除されています。",
+                message = "選択したThemeは削除済みか利用できません。",
                 rejectedAt = "2026-08-22T02:00:00Z",
             ),
         )
@@ -245,7 +245,7 @@ class TaskThemePickerUiTest {
         }
 
         composeRule.onNodeWithTag("theme-rejection").assertExists()
-        composeRule.onNodeWithText("Themeが削除されています。").assertExists()
+        composeRule.onNodeWithText("選択したThemeは削除済みか利用できません。").assertExists()
         composeRule.onNodeWithTag("theme-rejection-reselect").assertIsEnabled().performClick()
         composeRule.onNodeWithText("Personal").assertExists().performClick()
         composeRule.onNodeWithTag("theme-rejection-discard").assertIsEnabled().performClick()
@@ -259,7 +259,7 @@ class TaskThemePickerUiTest {
                 commandId = "rejected-command",
                 attemptedThemeId = "theme-personal",
                 code = "theme_not_found",
-                message = "Themeが削除されています。",
+                message = "選択したThemeは削除済みか利用できません。",
                 rejectedAt = "2026-08-22T02:00:00Z",
             ),
         )

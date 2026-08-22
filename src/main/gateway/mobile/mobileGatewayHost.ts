@@ -119,6 +119,7 @@ function safeMessage(code: MobileErrorCode): string {
     pairing_code_invalid: "ペアリングコードが無効または期限切れです。",
     rate_limited: "リクエストが多すぎます。少し待って再試行してください。",
     not_found: "Mobile API endpointが見つかりません。",
+    theme_not_found: "選択したThemeは削除済みか利用できません。",
     method_not_allowed: "このmethodは利用できません。",
     version_mismatch: "Mobile API versionが一致しません。アプリを更新してください。",
     idempotency_conflict: "同じcommandIdが異なる内容で使用されています。",
@@ -311,7 +312,7 @@ export class MobileGatewayHost {
       if (error instanceof MobileDeviceRegistryError) code = error.code;
       const status = code === "unauthorized" || code === "pairing_code_invalid" ? 401
         : code === "forbidden" ? 403
-          : code === "not_found" ? 404
+          : code === "not_found" || code === "theme_not_found" ? 404
             : code === "method_not_allowed" ? 405
               : code === "rate_limited" ? 429
                 : code === "entity_conflict" || code === "version_conflict" ? 409

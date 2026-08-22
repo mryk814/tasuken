@@ -474,7 +474,7 @@ test("Mobile UpdateTask maps Today schedule to the canonical task field", async 
   assert.equal(unscheduled.body.data.task.todayDate, null);
 });
 
-test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects unknown Themes", async () => {
+test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects deleted Themes", async () => {
   const { repository, service } = capability();
   repository.save("theme", {
     id: "theme-research",
@@ -544,26 +544,29 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
   assert.deepEqual(canonicalCommands.at(-1).payload.changes, { project_id: null });
   assert.deepEqual(canonicalCommands.at(-1).payload.base, { project_id: "theme-research" });
 
-  const unknown = await adapter.handle({
+  repository.remove("theme", "theme-research");
+  const deleted = await adapter.handle({
     method: "POST",
     path: TASKEN_MOBILE_ENDPOINTS.commands,
     principal,
     body: {
       ...createRequest(),
-      requestId: "request-mobile-theme-unknown",
-      commandId: "command-mobile-theme-unknown",
-      idempotencyKey: "command-mobile-theme-unknown",
+      requestId: "request-mobile-theme-deleted",
+      commandId: "command-mobile-theme-deleted",
+      idempotencyKey: "command-mobile-theme-deleted",
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
         expectedVersion: 3,
-        changes: { themeId: "theme-missing" },
+        changes: { themeId: "theme-research" },
         base: { themeId: "theme-personal-default" },
       },
     },
   });
-  assert.equal(unknown.status, 400);
-  assert.equal(unknown.body.error.code, "validation_failed");
+  assert.equal(deleted.status, 404);
+  assert.equal(deleted.body.error.code, "theme_not_found");
+  assert.equal(deleted.body.error.message, "選択したThemeは削除済みか利用できません。");
+  assert.equal(deleted.body.error.retryable, false);
   assert.equal(repository.get("task", "task-mobile-create").project_id, "theme-personal-default");
   assert.equal(repository.get("task", "task-mobile-create").version, 3);
 });

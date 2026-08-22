@@ -723,14 +723,14 @@ class MobileOutboxDatabaseTest {
             assertEquals(false, initialOutbox.drain("server-1") {
                 MobileCommandSendResult.Rejected(
                     code = "theme_not_found",
-                    message = "Themeが削除されています。",
+                    message = "選択したThemeは削除済みか利用できません。",
                 )
             })
             val rejected = requireNotNull(initialDao.outbox(rejectedCommandId))
             val structuredError = Json.parseToJsonElement(requireNotNull(rejected.lastError)).jsonObject
             assertEquals(OutboxState.Rejected, rejected.state)
             assertEquals("theme_not_found", structuredError.getValue("code").jsonPrimitive.content)
-            assertEquals("Themeが削除されています。", structuredError.getValue("message").jsonPrimitive.content)
+            assertEquals("選択したThemeは削除済みか利用できません。", structuredError.getValue("message").jsonPrimitive.content)
             assertEquals(false, structuredError.getValue("retryable").jsonPrimitive.boolean)
             assertEquals("theme-old", initialDao.task("rejected-theme-task")?.themeId)
             assertNull(initialDao.task("rejected-theme-task")?.optimisticCommandId)
@@ -754,7 +754,7 @@ class MobileOutboxDatabaseTest {
             assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
             val projected = reopenedDao.observeAllTasks().first().single().toMobileTask("server-1")
             assertEquals("theme_not_found", projected.rejectedThemeUpdate?.code)
-            assertEquals("Themeが削除されています。", projected.rejectedThemeUpdate?.message)
+            assertEquals("選択したThemeは削除済みか利用できません。", projected.rejectedThemeUpdate?.message)
             val replacementId = recreatedOutbox.enqueueUpdateTheme("rejected-theme-task", "theme-deleted")
             assertTrue(replacementId != rejectedCommandId)
             assertNull(reopenedDao.outbox(rejectedCommandId))
@@ -772,7 +772,7 @@ class MobileOutboxDatabaseTest {
         dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo").copy(themeId = null))
         val commandId = outbox.enqueueUpdateTheme(taskId, "theme-new")
         outbox.drain("server-1") {
-            MobileCommandSendResult.Rejected("theme_not_found", "Themeが削除されています。")
+            MobileCommandSendResult.Rejected("theme_not_found", "選択したThemeは削除済みか利用できません。")
         }
 
         val related = dao.observeAllTasks().first().single { it.task.id == taskId }
@@ -795,7 +795,7 @@ class MobileOutboxDatabaseTest {
         dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo").copy(themeId = null))
         val commandId = outbox.enqueueUpdateTheme(taskId, "theme-new")
         outbox.drain("server-1") {
-            MobileCommandSendResult.Rejected("theme_not_found", "Themeが削除されています。")
+            MobileCommandSendResult.Rejected("theme_not_found", "選択したThemeは削除済みか利用できません。")
         }
         dao.markRejected(commandId, "{\"code\":{},\"message\":[]}")
 
