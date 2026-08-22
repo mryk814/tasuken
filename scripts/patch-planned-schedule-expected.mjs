@@ -4,6 +4,19 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const testPath = path.join(root, "tests", "mobile-gateway-phase4a.test.mjs");
+const editorPath = path.join(
+  root,
+  "android-app",
+  "app",
+  "src",
+  "main",
+  "java",
+  "jp",
+  "personal",
+  "tasken",
+  "companion",
+  "TaskScheduleEditor.kt",
+);
 const packagePath = path.join(root, "package.json");
 
 const before = `      workState: "not_delegated",
@@ -22,6 +35,13 @@ if (testSource.split(before).length - 1 !== 1) {
   throw new Error("state conflict projection expectation changed");
 }
 fs.writeFileSync(testPath, testSource.replace(before, after), "utf8");
+
+const editorSource = fs.readFileSync(editorPath, "utf8");
+const weightImport = "import androidx.compose.foundation.layout.weight\n";
+if (editorSource.split(weightImport).length - 1 !== 1) {
+  throw new Error("TaskScheduleEditor weight import changed");
+}
+fs.writeFileSync(editorPath, editorSource.replace(weightImport, ""), "utf8");
 
 const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 delete packageJson.scripts.pretypecheck;
