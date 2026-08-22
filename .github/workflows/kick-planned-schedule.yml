@@ -49,7 +49,32 @@ jobs:
           start = source.index(start_marker) + len(start_marker)
           end = source.index(end_marker, start)
           lines = source[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+
+          # YAML removes one indentation layer from executable Python, but the
+          # staging source also contains multiline strings whose indentation is
+          # intentional Kotlin/TypeScript content. Strip the workflow layer only
+          # outside those string bodies.
+          script_lines = []
+          active_quote = None
+          for line in lines:
+              if active_quote is not None:
+                  if active_quote in line:
+                      script_lines.append(line[10:] if line.startswith("          ") else line)
+                      active_quote = None
+                  else:
+                      script_lines.append(line)
+                  continue
+
+              executable = line[10:] if line.startswith("          ") else line
+              script_lines.append(executable)
+              for quote in ('"""', "'''"):
+                  if executable.count(quote) % 2 == 1:
+                      active_quote = quote
+                      break
+
+          if active_quote is not None:
+              raise SystemExit(f"unterminated embedded Python string: {active_quote}")
+          script = "\n".join(script_lines)
           exec(compile(script, 'planned-schedule-implementation.py', 'exec'))
           EXTRACT
 
