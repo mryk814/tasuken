@@ -2,15 +2,13 @@ package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.test.StateRestorationTester
-import androidx.compose.ui.test.assertDoesNotExist
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -35,8 +33,8 @@ class TaskScheduleEditorUiTest {
         )
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("実施日")
-        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("2026-08-24")
-        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("未設定")
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("2026-08-24", substring = true)
+        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
         composeRule.onNodeWithTag("schedule-save").assertIsNotEnabled()
     }
@@ -52,8 +50,8 @@ class TaskScheduleEditorUiTest {
         )
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("期限")
-        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定")
-        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("2026-08-30")
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
+        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("2026-08-30", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
     }
 
@@ -145,12 +143,12 @@ class TaskScheduleEditorUiTest {
         }
 
         composeRule.onNodeWithTag("schedule-start-clear").performScrollTo().performClick()
-        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定")
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-save").assertIsEnabled()
 
         restorationTester.emulateSavedInstanceStateRestore()
 
-        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定")
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-save").assertIsEnabled()
     }
 

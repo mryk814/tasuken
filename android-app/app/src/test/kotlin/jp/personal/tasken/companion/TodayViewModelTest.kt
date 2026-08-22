@@ -218,6 +218,43 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun plannedScheduleActionQueuesCanonicalTimeWithoutChangingTodayDate() {
+        var received: MobilePlannedScheduleDraft? = null
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueUpdateTaskPlannedSchedule(
+                taskId: String,
+                schedule: MobilePlannedScheduleDraft,
+            ): String {
+                received = schedule
+                return "planned-command"
+            }
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository)
+        val draft = MobilePlannedScheduleDraft("10:00", 90)
+
+        runBlocking { viewModel.updateTaskPlannedScheduleNow(sampleTask(), draft) }
+
+        assertEquals(draft, received)
+        assertEquals(TaskActionUiState.Queued(sampleTask().id), viewModel.taskActionState.value)
+
+        received = null
+        runBlocking {
+            viewModel.updateTaskPlannedScheduleNow(sampleTask(), MobilePlannedScheduleDraft("25:00", 90))
+        }
+        assertNull(received)
+        assertEquals(
+            TaskActionUiState.Error(sampleTask().id, "開始時刻はHH:mmで入力してください。"),
+            viewModel.taskActionState.value,
+        )
+    }
+
+    @Test
     fun themeCatalogIsExposedAndCanonicalSelectionQueuesOfflineIntent() {
         var called = false
         var receivedThemeId = "not-called"

@@ -128,6 +128,11 @@ object MobileSyncContract {
         requireContract(task.state in taskStates, "Invalid Task state.")
         requireContract(task.workState == null || task.workState in workStates, "Invalid work state.")
         requireContract(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess, "Invalid todayDate.")
+        requireContract(task.plannedStartTime == null || isPlannedStartTime(task.plannedStartTime), "Invalid plannedStartTime.")
+        requireContract(
+            task.plannedDurationMinutes == null || isPlannedDurationMinutes(task.plannedDurationMinutes),
+            "Invalid plannedDurationMinutes.",
+        )
         task.schedule?.let(::validateSchedule)
         requireContract(isTimestamp(task.updatedAt), "Invalid Task timestamp.")
     }

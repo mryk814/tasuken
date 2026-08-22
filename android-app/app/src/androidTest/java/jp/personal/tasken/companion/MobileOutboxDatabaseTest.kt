@@ -649,6 +649,83 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun plannedScheduleUpdatePersistsAtomicPatchThenConvergesCanonicalReceipt() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000046"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo").copy(todayDate = "2026-08-22"))
+        val draft = MobilePlannedScheduleDraft("10:00", 90)
+
+        val commandId = outbox.enqueueUpdatePlannedSchedule(taskId, draft)
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(commandId)).envelopeJson)
+        assertEquals(setOf("plannedSchedule"), envelope.command.changes.keys)
+        val patch = envelope.command.changes.getValue("plannedSchedule").jsonObject
+        assertEquals("10:00", patch.getValue("startTime").jsonPrimitive.content)
+        assertEquals("90", patch.getValue("durationMinutes").jsonPrimitive.content)
+        assertEquals("10:00", dao.task(taskId)?.plannedStartTime)
+        assertEquals(90, dao.task(taskId)?.plannedDurationMinutes)
+        assertEquals("2026-08-22", dao.task(taskId)?.todayDate)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(
+                receipt(
+                    commandId,
+                    taskId,
+                    version = 5,
+                    todayDate = "2026-08-22",
+                    plannedStartTime = "10:00",
+                    plannedDurationMinutes = 90,
+                ),
+            )
+        })
+        assertNull(dao.outbox(commandId))
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+        assertEquals("10:00", dao.task(taskId)?.plannedStartTime)
+        assertEquals(90, dao.task(taskId)?.plannedDurationMinutes)
+        assertEquals("2026-08-22", dao.task(taskId)?.todayDate)
+    }
+
+    @Test
+    fun plannedScheduleConflictKeepsServerCacheAndResendsAtomicLocalPatch() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000047"
+        dao.upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(
+                plannedStartTime = null,
+                plannedDurationMinutes = null,
+            ),
+        )
+        val commandId = outbox.enqueueUpdatePlannedSchedule(taskId, MobilePlannedScheduleDraft("09:30", 45))
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId,
+                    serverVersion = 5,
+                    serverState = "todo",
+                    intendedAction = "UpdateTask",
+                    plannedStartTime = "11:00",
+                    plannedDurationMinutes = 60,
+                ),
+            )
+        })
+        val storedConflict = requireNotNull(dao.conflict(commandId))
+        assertTrue(storedConflict.localPlannedScheduleChanged)
+        assertEquals("09:30", storedConflict.localPlannedStartTime)
+        assertEquals(45, storedConflict.localPlannedDurationMinutes)
+        assertEquals("11:00", dao.task(taskId)?.plannedStartTime)
+        assertEquals(60, dao.task(taskId)?.plannedDurationMinutes)
+
+        val replacementId = outbox.keepLocal(commandId)
+        val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(replacementId)).envelopeJson)
+        val changes = replacement.command.changes.getValue("plannedSchedule").jsonObject
+        val base = replacement.command.base.getValue("plannedSchedule").jsonObject
+        assertEquals("09:30", changes.getValue("startTime").jsonPrimitive.content)
+        assertEquals("45", changes.getValue("durationMinutes").jsonPrimitive.content)
+        assertEquals("11:00", base.getValue("startTime").jsonPrimitive.content)
+        assertEquals("60", base.getValue("durationMinutes").jsonPrimitive.content)
+        assertEquals("09:30", dao.task(taskId)?.plannedStartTime)
+        assertEquals(45, dao.task(taskId)?.plannedDurationMinutes)
+    }
+
+    @Test
     fun scheduleConflictSupportsAcceptServerThenKeepLocalWithLatestScheduleVersion() = runBlocking {
         val taskId = "10000000-0000-4000-8000-000000000045"
         dao.upsertTask(
@@ -1102,7 +1179,10 @@ class MobileOutboxDatabaseTest {
         version: Int = 1,
         status: String = "applied",
         themeId: String? = null,
+        todayDate: String? = null,
         schedule: MobileTaskScheduleDto? = null,
+        plannedStartTime: String? = null,
+        plannedDurationMinutes: Int? = null,
     ) = MobileTaskCommandResponseDto(
         ok = true,
         meta = MobileResponseMetaDto(
@@ -1123,7 +1203,10 @@ class MobileOutboxDatabaseTest {
                 themeId = themeId,
                 state = state,
                 workState = null,
+                todayDate = todayDate,
                 schedule = schedule,
+                plannedStartTime = plannedStartTime,
+                plannedDurationMinutes = plannedDurationMinutes,
                 updatedAt = "2026-08-22T01:04:00Z",
             ),
         ),
@@ -1138,6 +1221,8 @@ class MobileOutboxDatabaseTest {
         serverTodayDate: String? = null,
         serverThemeId: String? = null,
         serverSchedule: MobileTaskScheduleDto? = null,
+        plannedStartTime: String? = null,
+        plannedDurationMinutes: Int? = null,
     ) = MobileTaskCommandErrorResponseDto(
         ok = false,
         meta = MobileResponseMetaDto(
@@ -1162,6 +1247,8 @@ class MobileOutboxDatabaseTest {
                     workState = null,
                     todayDate = serverTodayDate,
                     schedule = serverSchedule,
+                    plannedStartTime = plannedStartTime,
+                    plannedDurationMinutes = plannedDurationMinutes,
                     updatedAt = "2026-08-22T01:05:00Z",
                 ),
                 intendedAction = intendedAction,

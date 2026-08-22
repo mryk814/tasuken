@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -368,6 +367,7 @@ private fun TodayApp(
                         onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                         onThemeUpdate = todayViewModel::updateTaskTheme,
                         onScheduleUpdate = todayViewModel::updateTaskSchedule,
+                        onPlannedScheduleUpdate = todayViewModel::updateTaskPlannedSchedule,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
                     )
@@ -664,6 +664,7 @@ internal fun TodayDetailPane(
     onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
     onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
     onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
+    onPlannedScheduleUpdate: (MobileTask, MobilePlannedScheduleDraft) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
@@ -689,7 +690,7 @@ internal fun TodayDetailPane(
             OutlinedTextField(
                 value = titleDraft,
                 onValueChange = { if (it.length <= 500) titleDraft = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("task-title"),
                 label = { Text("Task名") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -718,6 +719,9 @@ internal fun TodayDetailPane(
                             } else if (conflict.localScheduleChanged) {
                                 Text("Desktop  予定 ${scheduleConflictLabel(conflict.serverSchedule)}")
                                 Text("この端末  予定 ${scheduleConflictLabel(conflict.localSchedule)}")
+                            } else if (conflict.localPlannedScheduleChanged) {
+                                Text("Desktop  時刻 ${plannedScheduleLabel(conflict.serverPlannedStartTime, conflict.serverPlannedDurationMinutes)}")
+                                Text("この端末  時刻 ${plannedScheduleLabel(conflict.localPlannedStartTime, conflict.localPlannedDurationMinutes)}")
                             } else if (conflict.localTodayDateChanged) {
                                 Text("Desktop  日付 ${taskTodayDateLabel(conflict.serverTodayDate)}")
                                 Text("この端末  日付 ${taskTodayDateLabel(conflict.localTodayDate)}")
@@ -806,6 +810,18 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onScheduleUpdate(task, it) },
             )
+            TaskPlannedScheduleEditor(
+                task = task,
+                enabled = !task.pending && task.conflict == null &&
+                    actionState !is TaskActionUiState.Saving,
+                stateDescription = when {
+                    task.pending -> "同期後に変更"
+                    task.conflict != null -> "競合を解決してから変更"
+                    actionState is TaskActionUiState.Saving -> "保存中"
+                    else -> null
+                },
+                onSave = { onPlannedScheduleUpdate(task, it) },
+            )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
             val today = LocalDate.now()
@@ -837,6 +853,99 @@ internal fun TodayDetailPane(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun TaskPlannedScheduleEditor(
+    task: MobileTask,
+    enabled: Boolean,
+    stateDescription: String?,
+    onSave: (MobilePlannedScheduleDraft) -> Unit,
+) {
+    val plannedFingerprint = listOf(task.plannedStartTime, task.plannedDurationMinutes).joinToString("|")
+    var startDraft by rememberSaveable(task.id, plannedFingerprint) {
+        mutableStateOf(task.plannedStartTime.orEmpty())
+    }
+    var durationDraft by rememberSaveable(task.id, plannedFingerprint) {
+        mutableStateOf(task.plannedDurationMinutes?.toString().orEmpty())
+    }
+    val startTime = startDraft.trim().takeIf(String::isNotEmpty)
+    val durationText = durationDraft.trim()
+    val durationMinutes = durationText.takeIf(String::isNotEmpty)?.toIntOrNull()
+    val startValid = startTime == null || isPlannedStartTime(startTime)
+    val durationValid = durationText.isEmpty() || (durationMinutes != null && isPlannedDurationMinutes(durationMinutes))
+    val draft = MobilePlannedScheduleDraft(
+        startTime = startTime.takeIf { startValid },
+        durationMinutes = durationMinutes.takeIf { durationValid && durationText.isNotEmpty() },
+    )
+    val original = MobilePlannedScheduleDraft(task.plannedStartTime, task.plannedDurationMinutes)
+    val hasChanges = draft != original
+    val canSave = enabled && hasChanges && startValid && durationValid
+
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("planned-schedule-editor"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("時刻", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                plannedScheduleLabel(
+                    startTime.takeIf { startValid },
+                    durationMinutes.takeIf { durationValid && durationText.isNotEmpty() },
+                ),
+                modifier = Modifier.testTag("planned-schedule-kind"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedTextField(
+            value = startDraft,
+            onValueChange = { if (it.length <= 5) startDraft = it },
+            modifier = Modifier.fillMaxWidth().testTag("planned-start-time").then(
+                if (stateDescription != null) Modifier.semantics { this.stateDescription = stateDescription } else Modifier,
+            ),
+            label = { Text("開始時刻") },
+            placeholder = { Text("HH:mm") },
+            singleLine = true,
+            enabled = enabled,
+            isError = !startValid,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
+            trailingIcon = {
+                TextButton(
+                    onClick = { startDraft = "" },
+                    enabled = enabled && startDraft.isNotEmpty(),
+                    modifier = Modifier.testTag("planned-start-clear"),
+                ) { Text("解除") }
+            },
+        )
+        OutlinedTextField(
+            value = durationDraft,
+            onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) durationDraft = it },
+            modifier = Modifier.fillMaxWidth().testTag("planned-duration-minutes").then(
+                if (stateDescription != null) Modifier.semantics { this.stateDescription = stateDescription } else Modifier,
+            ),
+            label = { Text("所要（分）") },
+            singleLine = true,
+            enabled = enabled,
+            isError = !durationValid,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            trailingIcon = {
+                TextButton(
+                    onClick = { durationDraft = "" },
+                    enabled = enabled && durationDraft.isNotEmpty(),
+                    modifier = Modifier.testTag("planned-duration-clear"),
+                ) { Text("解除") }
+            },
+        )
+        Button(
+            onClick = { onSave(draft) },
+            enabled = canSave,
+            modifier = Modifier.testTag("planned-schedule-save"),
+        ) { Text("時刻を保存") }
     }
 }
 
@@ -1081,6 +1190,13 @@ private fun scheduleDraftLabel(
     rangeSemantics == "once_within_window" -> "期間内に一度"
     rangeSemantics == "ongoing" -> "期間中継続"
     else -> "期間未分類"
+}
+
+private fun plannedScheduleLabel(startTime: String?, durationMinutes: Int?): String = when {
+    startTime == null && durationMinutes == null -> "未設定"
+    startTime != null && durationMinutes != null -> "$startTime / ${durationMinutes}分"
+    startTime != null -> startTime
+    else -> "${durationMinutes}分"
 }
 
 private fun scheduleConflictLabel(schedule: MobileTaskSchedule?): String = scheduleConflictLabel(
