@@ -1,0 +1,1476 @@
+name: Implement Android planned schedule
+
+on:
+  push:
+    branches:
+      - codex/400-android-planned-schedule-v2
+    paths:
+      - .github/workflows/implement-android-planned-schedule.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement-verify-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/400-android-planned-schedule-v2
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Apply planned schedule vertical slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one marker, found {count}: {old[:100]!r}")
+              file.write_text(text.replace(old, new), encoding="utf-8")
+
+          # Shared mobile contract: expose canonical planned_start_time and planned_duration_minutes
+          # as one atomic mobile patch. todayDate remains a separate attention-date concept.
+          replace_once(
+              "src/shared/contracts/mobile/schema.ts",
+              "const requestIdSchema = entityIdSchema;\n\n",
+              """const requestIdSchema = entityIdSchema;
+const mobileClockTimeSchema = z.string().regex(/^([01]\\d|2[0-3]):[0-5]\\d$/);
+const mobilePlannedDurationMinutesSchema = z.number().int().positive().max(10080);
+const mobilePlannedSchedulePatchSchema = z.object({
+  plannedStartTime: mobileClockTimeSchema.nullable(),
+  plannedDurationMinutes: mobilePlannedDurationMinutesSchema.nullable(),
+}).strict();
+
+""",
+          )
+          replace_once(
+              "src/shared/contracts/mobile/schema.ts",
+              "  todayDate: localDateSchema.nullable().optional(),\n  updatedAt: isoTimestampSchema,\n",
+              """  todayDate: localDateSchema.nullable().optional(),
+  plannedStartTime: mobileClockTimeSchema.nullable().optional(),
+  plannedDurationMinutes: mobilePlannedDurationMinutesSchema.nullable().optional(),
+  updatedAt: isoTimestampSchema,
+""",
+          )
+          replace_once(
+              "src/shared/contracts/mobile/schema.ts",
+              """  z.object({ todayDate: localDateSchema.nullable() }).strict(),
+  z.object({ themeId: entityIdSchema.nullable() }).strict(),
+]);
+""",
+              """  z.object({ todayDate: localDateSchema.nullable() }).strict(),
+  z.object({ themeId: entityIdSchema.nullable() }).strict(),
+  mobilePlannedSchedulePatchSchema,
+]);
+""",
+          )
+          replace_once(
+              "src/shared/contracts/mobile/schema.ts",
+              """    const changedKey = Object.keys(value.changes)[0];
+    const baseKey = Object.keys(value.base)[0];
+    if (changedKey !== baseKey) {
+      context.addIssue({ code: "custom", path: ["base"], message: "baseはchangesと同じfieldを持つ必要があります。" });
+    }
+""",
+              """    const changedKeys = Object.keys(value.changes).sort();
+    const baseKeys = Object.keys(value.base).sort();
+    if (changedKeys.join("\\u0000") !== baseKeys.join("\\u0000")) {
+      context.addIssue({ code: "custom", path: ["base"], message: "baseはchangesと同じfieldを持つ必要があります。" });
+    }
+""",
+          )
+
+          replace_once(
+              "src/main/gateway/mobile/mobileGatewayAdapter.ts",
+              """    ...(includeTodayDate ? { todayDate: task.today_date || null } : {}),
+    updatedAt: task.updated_at,
+""",
+              """    ...(includeTodayDate ? { todayDate: task.today_date || null } : {}),
+    plannedStartTime: task.planned_start_time ?? null,
+    plannedDurationMinutes: task.planned_duration_minutes ?? null,
+    updatedAt: task.updated_at,
+""",
+          )
+          replace_once(
+              "src/main/gateway/mobile/mobileGatewayAdapter.ts",
+              """function taskUpdatePatch(patch: { title: string } | { todayDate: string | null } | { themeId: string | null }) {
+  if ("todayDate" in patch) return { today_date: patch.todayDate };
+  if ("themeId" in patch) return { project_id: patch.themeId };
+  return patch;
+}
+""",
+              """function taskUpdatePatch(
+  patch:
+    | { title: string }
+    | { todayDate: string | null }
+    | { themeId: string | null }
+    | { plannedStartTime: string | null; plannedDurationMinutes: number | null },
+) {
+  if ("todayDate" in patch) return { today_date: patch.todayDate };
+  if ("themeId" in patch) return { project_id: patch.themeId };
+  if ("plannedStartTime" in patch) {
+    return {
+      planned_start_time: patch.plannedStartTime,
+      planned_duration_minutes: patch.plannedDurationMinutes,
+    };
+  }
+  return patch;
+}
+""",
+          )
+
+          golden_path = Path("contracts/mobile/v1/today-response.golden.json")
+          golden = json.loads(golden_path.read_text(encoding="utf-8"))
+          golden["data"]["items"][0]["plannedStartTime"] = "09:30"
+          golden["data"]["items"][0]["plannedDurationMinutes"] = 90
+          golden["data"]["items"][1]["plannedStartTime"] = None
+          golden["data"]["items"][1]["plannedDurationMinutes"] = None
+          golden_path.write_text(json.dumps(golden, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          replace_once(
+              "tests/mobile-gateway-phase4a.test.mjs",
+              """  assert.equal(mobileTaskCommandRequestSchema.safeParse({
+    ...valid,
+    command: {
+      name: "UpdateTask",
+      taskId: "task-mobile-create",
+      expectedVersion: 1,
+      changes: { themeId: "theme-research" },
+      base: { themeId: null },
+    },
+  }).success, true);
+""",
+              """  assert.equal(mobileTaskCommandRequestSchema.safeParse({
+    ...valid,
+    command: {
+      name: "UpdateTask",
+      taskId: "task-mobile-create",
+      expectedVersion: 1,
+      changes: { themeId: "theme-research" },
+      base: { themeId: null },
+    },
+  }).success, true);
+  assert.equal(mobileTaskCommandRequestSchema.safeParse({
+    ...valid,
+    command: {
+      name: "UpdateTask",
+      taskId: "task-mobile-create",
+      expectedVersion: 1,
+      changes: { plannedStartTime: "09:30", plannedDurationMinutes: 90 },
+      base: { plannedStartTime: null, plannedDurationMinutes: null },
+    },
+  }).success, true);
+""",
+          )
+          replace_once(
+              "tests/mobile-gateway-phase4a.test.mjs",
+              """    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { themeId: "theme-research" },
+        base: { title: "Mobile Task" },
+      },
+    },
+    { ...valid, idempotencyKey: "different-command" },
+""",
+              """    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { themeId: "theme-research" },
+        base: { title: "Mobile Task" },
+      },
+    },
+    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { plannedStartTime: "24:00", plannedDurationMinutes: 90 },
+        base: { plannedStartTime: null, plannedDurationMinutes: null },
+      },
+    },
+    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { plannedStartTime: "09:30", plannedDurationMinutes: 0 },
+        base: { plannedStartTime: null, plannedDurationMinutes: null },
+      },
+    },
+    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { plannedStartTime: "09:30", plannedDurationMinutes: 90 },
+        base: { plannedStartTime: null },
+      },
+    },
+    { ...valid, idempotencyKey: "different-command" },
+""",
+          )
+          replace_once(
+              "tests/mobile-gateway-phase4a.test.mjs",
+              """test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects deleted Themes", async () => {
+""",
+              """test("Mobile UpdateTask maps planned schedule atomically to canonical fields", async () => {
+  const { service } = capability();
+  const canonicalCommands = [];
+  const adapter = gateway(service, {
+    executeTaskCommand: (input) => {
+      canonicalCommands.push(input);
+      return service.executeCommand(input);
+    },
+  });
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  })).status, 200);
+
+  const scheduled = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-planned-schedule",
+      commandId: "command-mobile-planned-schedule",
+      idempotencyKey: "command-mobile-planned-schedule",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { plannedStartTime: "09:30", plannedDurationMinutes: 90 },
+        base: { plannedStartTime: null, plannedDurationMinutes: null },
+      },
+    },
+  });
+  assert.equal(scheduled.status, 200);
+  assert.equal(scheduled.body.data.task.plannedStartTime, "09:30");
+  assert.equal(scheduled.body.data.task.plannedDurationMinutes, 90);
+  assert.deepEqual(canonicalCommands.at(-1).payload, {
+    task_id: "task-mobile-create",
+    expected_version: 1,
+    changes: { planned_start_time: "09:30", planned_duration_minutes: 90 },
+    base: { planned_start_time: null, planned_duration_minutes: null },
+  });
+
+  const cleared = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-planned-schedule-clear",
+      commandId: "command-mobile-planned-schedule-clear",
+      idempotencyKey: "command-mobile-planned-schedule-clear",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 2,
+        changes: { plannedStartTime: null, plannedDurationMinutes: null },
+        base: { plannedStartTime: "09:30", plannedDurationMinutes: 90 },
+      },
+    },
+  });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.data.task.plannedStartTime, null);
+  assert.equal(cleared.body.data.task.plannedDurationMinutes, null);
+});
+
+test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects deleted Themes", async () => {
+""",
+          )
+          replace_once(
+              "tests/mobile-gateway-phase4a.test.mjs",
+              """  assert.deepEqual(Object.keys(response.body.data.items[0]).sort(), ["id", "state", "themeId", "title", "updatedAt", "version", "workState"]);
+""",
+              """  assert.deepEqual(Object.keys(response.body.data.items[0]).sort(), [
+    "id",
+    "plannedDurationMinutes",
+    "plannedStartTime",
+    "state",
+    "themeId",
+    "title",
+    "updatedAt",
+    "version",
+    "workState",
+  ]);
+""",
+          )
+
+          # Kotlin strict DTO and contract validation.
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileTodayDto.kt",
+              """    val workState: String?,
+    val todayDate: String? = null,
+    val updatedAt: String,
+""",
+              """    val workState: String?,
+    val todayDate: String? = null,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
+    val updatedAt: String,
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileTodayDto.kt",
+              """            requireContract(item.todayDate == null || isDate(item.todayDate), "Invalid Task todayDate.")
+            requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
+""",
+              """            requireContract(item.todayDate == null || isDate(item.todayDate), "Invalid Task todayDate.")
+            requireContract(
+                item.plannedStartTime == null || ClockTime.matches(item.plannedStartTime),
+                "Invalid Task plannedStartTime.",
+            )
+            requireContract(
+                item.plannedDurationMinutes == null || item.plannedDurationMinutes in 1..10080,
+                "Invalid Task plannedDurationMinutes.",
+            )
+            requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileTodayDto.kt",
+              """    private val json = Json {
+""",
+              """    private val ClockTime = Regex("^([01]\\\\d|2[0-3]):[0-5]\\\\d$")
+    private val json = Json {
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileTodayDto.kt",
+              """fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileTodayResult.Available(
+    tasks = data.items.map {
+        MobileTask(it.id.trim(), it.title.trim(), it.themeId?.trim(), it.state, it.workState, it.updatedAt)
+    },
+    generatedAt = meta.generatedAt,
+)
+""",
+              """fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileTodayResult.Available(
+    tasks = data.items.map {
+        MobileTask(
+            id = it.id.trim(),
+            title = it.title.trim(),
+            themeId = it.themeId?.trim(),
+            state = it.state,
+            workState = it.workState,
+            updatedAt = it.updatedAt,
+            todayDate = it.todayDate,
+            plannedStartTime = it.plannedStartTime,
+            plannedDurationMinutes = it.plannedDurationMinutes,
+        )
+    },
+    generatedAt = meta.generatedAt,
+)
+""",
+          )
+
+          command_path = Path("android-app/app/src/main/java/jp/personal/tasken/companion/MobileCommandDto.kt")
+          command_text = command_path.read_text(encoding="utf-8")
+          command_text = command_text.replace(
+              "import kotlinx.serialization.json.jsonPrimitive\n",
+              "import kotlinx.serialization.json.intOrNull\nimport kotlinx.serialization.json.jsonPrimitive\n",
+              1,
+          )
+          if command_text.count("import kotlinx.serialization.json.intOrNull") != 1:
+              raise SystemExit("MobileCommandDto import insertion failed")
+          old = """    private fun validateTaskPatch(patch: JsonObject) {
+        require(patch.size == 1)
+        when (val field = patch.keys.single()) {
+"""
+          new = """    private fun validateTaskPatch(patch: JsonObject) {
+        if (patch.keys == setOf("plannedStartTime", "plannedDurationMinutes")) {
+            val startTime = patch.getValue("plannedStartTime")
+            val duration = patch.getValue("plannedDurationMinutes")
+            require(
+                startTime is JsonNull ||
+                    (startTime is JsonPrimitive && startTime.isString && ClockTime.matches(startTime.content)),
+            )
+            require(
+                duration is JsonNull ||
+                    (duration is JsonPrimitive && !duration.isString && duration.intOrNull in 1..10080),
+            )
+            return
+        }
+        require(patch.size == 1)
+        when (val field = patch.keys.single()) {
+"""
+          if command_text.count(old) != 1:
+              raise SystemExit("MobileCommandDto patch validator marker changed")
+          command_text = command_text.replace(old, new)
+          command_text = command_text.replace(
+              """    private fun normalizeThemeId(value: String?): String? = value?.trim()?.also {
+""",
+              """    private val ClockTime = Regex("^([01]\\\\d|2[0-3]):[0-5]\\\\d$")
+
+    private fun normalizeThemeId(value: String?): String? = value?.trim()?.also {
+""",
+              1,
+          )
+          command_path.write_text(command_text, encoding="utf-8")
+
+          # Room cache and conflict persistence.
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
+              """    val optimisticCommandId: String?,
+    val conflictCommandId: String? = null,
+)
+""",
+              """    val optimisticCommandId: String?,
+    val conflictCommandId: String? = null,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
+)
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
+              """    val serverUpdatedAt: String,
+    val detectedAt: String,
+)
+""",
+              """    val serverUpdatedAt: String,
+    val detectedAt: String,
+    val serverPlannedStartTime: String? = null,
+    val localPlannedStartTime: String? = null,
+    val serverPlannedDurationMinutes: Int? = null,
+    val localPlannedDurationMinutes: Int? = null,
+    val localPlannedScheduleChanged: Boolean = false,
+)
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
+              """    version = 7,
+""",
+              """    version = 8,
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
+              """                MIGRATION_6_7,
+            ).build().also { instance = it }
+""",
+              """                MIGRATION_6_7,
+                MIGRATION_7_8,
+            ).build().also { instance = it }
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
+              """fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
+""",
+              """internal val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN plannedStartTime TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN plannedDurationMinutes INTEGER")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN serverPlannedStartTime TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localPlannedStartTime TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN serverPlannedDurationMinutes INTEGER")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localPlannedDurationMinutes INTEGER")
+        db.execSQL(
+            "ALTER TABLE task_conflict ADD COLUMN localPlannedScheduleChanged INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+}
+
+fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
+              """    todayDate = todayDate,
+    updatedAt = updatedAt,
+    pending = optimisticCommandId != null,
+""",
+              """    todayDate = todayDate,
+    plannedStartTime = plannedStartTime,
+    plannedDurationMinutes = plannedDurationMinutes,
+    updatedAt = updatedAt,
+    pending = optimisticCommandId != null,
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
+              """            localThemeIdChanged = it.localThemeIdChanged,
+            detectedAt = it.detectedAt,
+""",
+              """            localThemeIdChanged = it.localThemeIdChanged,
+            serverPlannedStartTime = it.serverPlannedStartTime,
+            localPlannedStartTime = it.localPlannedStartTime,
+            serverPlannedDurationMinutes = it.serverPlannedDurationMinutes,
+            localPlannedDurationMinutes = it.localPlannedDurationMinutes,
+            localPlannedScheduleChanged = it.localPlannedScheduleChanged,
+            detectedAt = it.detectedAt,
+""",
+          )
+
+          # Repository projection and public offline boundary.
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileGatewayRepository.kt",
+              """    override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: LocalDate?): String =
+        outbox.enqueueUpdateTodayDate(taskId, todayDate)
+
+""",
+              """    override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: LocalDate?): String =
+        outbox.enqueueUpdateTodayDate(taskId, todayDate)
+
+    override suspend fun enqueueUpdateTaskPlannedSchedule(
+        taskId: String,
+        plannedStartTime: String?,
+        plannedDurationMinutes: Int?,
+    ): String = outbox.enqueueUpdatePlannedSchedule(taskId, plannedStartTime, plannedDurationMinutes)
+
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MobileGatewayRepository.kt",
+              """        todayDate = todayDate,
+        updatedAt = updatedAt,
+        optimisticCommandId = null,
+""",
+              """        todayDate = todayDate,
+        plannedStartTime = plannedStartTime,
+        plannedDurationMinutes = plannedDurationMinutes,
+        updatedAt = updatedAt,
+        optimisticCommandId = null,
+""",
+          )
+
+          # Outbox intent, conflict, and receipt convergence.
+          outbox_path = Path("android-app/app/src/main/java/jp/personal/tasken/companion/MobileOutbox.kt")
+          outbox_text = outbox_path.read_text(encoding="utf-8")
+          outbox_text = outbox_text.replace(
+              "import kotlinx.serialization.json.jsonObject\n",
+              "import kotlinx.serialization.json.intOrNull\nimport kotlinx.serialization.json.jsonObject\n",
+              1,
+          )
+          marker = """private fun themeIdPatch(themeId: String?): JsonObject = buildJsonObject {
+    put("themeId", themeId?.let(::JsonPrimitive) ?: JsonNull)
+}
+
+"""
+          addition = marker + """private fun plannedSchedulePatch(
+    plannedStartTime: String?,
+    plannedDurationMinutes: Int?,
+): JsonObject = buildJsonObject {
+    put("plannedStartTime", plannedStartTime?.let(::JsonPrimitive) ?: JsonNull)
+    put("plannedDurationMinutes", plannedDurationMinutes?.let(::JsonPrimitive) ?: JsonNull)
+}
+
+"""
+          if outbox_text.count(marker) != 1:
+              raise SystemExit("MobileOutbox helper marker changed")
+          outbox_text = outbox_text.replace(marker, addition)
+          marker = """    suspend fun enqueueUpdateTheme(taskId: String, themeId: String?): String {
+"""
+          method = """    suspend fun enqueueUpdatePlannedSchedule(
+        taskId: String,
+        plannedStartTime: String?,
+        plannedDurationMinutes: Int?,
+    ): String {
+        require(plannedStartTime == null || Regex("^([01]\\\\d|2[0-3]):[0-5]\\\\d$").matches(plannedStartTime))
+        require(plannedDurationMinutes == null || plannedDurationMinutes in 1..10080)
+        val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(task.optimisticCommandId == null && task.conflictCommandId == null) {
+            "Taskの同期を解決してから編集してください。"
+        }
+        val expectedVersion = requireNotNull(task.serverVersion) {
+            "Task作成の同期完了を待って編集してください。"
+        }
+        require(
+            task.plannedStartTime != plannedStartTime ||
+                task.plannedDurationMinutes != plannedDurationMinutes,
+        )
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val serverId = currentServerId()
+        val envelope = MobileTaskUpdateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskUpdateCommandDto(
+                name = "UpdateTask",
+                taskId = taskId,
+                expectedVersion = expectedVersion,
+                changes = plannedSchedulePatch(plannedStartTime, plannedDurationMinutes),
+                base = plannedSchedulePatch(task.plannedStartTime, task.plannedDurationMinutes),
+            ),
+        )
+        dao.enqueueStateAction(
+            task = task.copy(
+                plannedStartTime = plannedStartTime,
+                plannedDurationMinutes = plannedDurationMinutes,
+                updatedAt = issuedAt,
+                optimisticCommandId = commandId,
+            ),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = "UpdateTask",
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                serverId = serverId,
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+                taskId = taskId,
+            ),
+        )
+        schedule()
+        return commandId
+    }
+
+""" + marker
+          if outbox_text.count(marker) != 1:
+              raise SystemExit("MobileOutbox theme method marker changed")
+          outbox_text = outbox_text.replace(marker, method)
+          outbox_text = outbox_text.replace(
+              """                conflict.localThemeIdChanged -> themeIdPatch(conflict.localThemeId)
+                else -> error("端末側の更新内容が競合情報にありません。")
+""",
+              """                conflict.localThemeIdChanged -> themeIdPatch(conflict.localThemeId)
+                conflict.localPlannedScheduleChanged -> plannedSchedulePatch(
+                    conflict.localPlannedStartTime,
+                    conflict.localPlannedDurationMinutes,
+                )
+                else -> error("端末側の更新内容が競合情報にありません。")
+""",
+              1,
+          )
+          outbox_text = outbox_text.replace(
+              """                conflict.localThemeIdChanged -> themeIdPatch(conflict.serverThemeId)
+                else -> error("Desktop側の更新内容が競合情報にありません。")
+""",
+              """                conflict.localThemeIdChanged -> themeIdPatch(conflict.serverThemeId)
+                conflict.localPlannedScheduleChanged -> plannedSchedulePatch(
+                    conflict.serverPlannedStartTime,
+                    conflict.serverPlannedDurationMinutes,
+                )
+                else -> error("Desktop側の更新内容が競合情報にありません。")
+""",
+              1,
+          )
+          outbox_text = outbox_text.replace(
+              """                themeId = if (conflict.localThemeIdChanged) conflict.localThemeId else task.themeId,
+                state = optimisticState,
+""",
+              """                themeId = if (conflict.localThemeIdChanged) conflict.localThemeId else task.themeId,
+                plannedStartTime = if (conflict.localPlannedScheduleChanged) {
+                    conflict.localPlannedStartTime
+                } else {
+                    task.plannedStartTime
+                },
+                plannedDurationMinutes = if (conflict.localPlannedScheduleChanged) {
+                    conflict.localPlannedDurationMinutes
+                } else {
+                    task.plannedDurationMinutes
+                },
+                state = optimisticState,
+""",
+              1,
+          )
+          outbox_text = outbox_text.replace(
+              """                            todayDate = task.todayDate,
+                            updatedAt = task.updatedAt,
+""",
+              """                            todayDate = task.todayDate,
+                            plannedStartTime = task.plannedStartTime,
+                            plannedDurationMinutes = task.plannedDurationMinutes,
+                            updatedAt = task.updatedAt,
+""",
+              1,
+          )
+          outbox_text = outbox_text.replace(
+              """                    val localThemeId = localPatch?.get("themeId")?.let {
+                        if (it == JsonNull) null else it.jsonPrimitive.content
+                    }
+                    dao.recordConflict(
+""",
+              """                    val localThemeId = localPatch?.get("themeId")?.let {
+                        if (it == JsonNull) null else it.jsonPrimitive.content
+                    }
+                    val localPlannedScheduleChanged = localPatch?.keys ==
+                        setOf("plannedStartTime", "plannedDurationMinutes")
+                    val localPlannedStartTime = localPatch?.get("plannedStartTime")?.let {
+                        if (it == JsonNull) null else it.jsonPrimitive.content
+                    }
+                    val localPlannedDurationMinutes = localPatch?.get("plannedDurationMinutes")?.let {
+                        if (it == JsonNull) null else it.jsonPrimitive.intOrNull
+                    }
+                    dao.recordConflict(
+""",
+              1,
+          )
+          outbox_text = outbox_text.replace(
+              """                            todayDate = current.todayDate,
+                            updatedAt = current.updatedAt,
+""",
+              """                            todayDate = current.todayDate,
+                            plannedStartTime = current.plannedStartTime,
+                            plannedDurationMinutes = current.plannedDurationMinutes,
+                            updatedAt = current.updatedAt,
+""",
+              1,
+          )
+          outbox_text = outbox_text.replace(
+              """                            localThemeIdChanged = localThemeIdChanged,
+                            serverWorkState = current.workState,
+""",
+              """                            localThemeIdChanged = localThemeIdChanged,
+                            serverWorkState = current.workState,
+                            serverPlannedStartTime = current.plannedStartTime,
+                            localPlannedStartTime = localPlannedStartTime,
+                            serverPlannedDurationMinutes = current.plannedDurationMinutes,
+                            localPlannedDurationMinutes = localPlannedDurationMinutes,
+                            localPlannedScheduleChanged = localPlannedScheduleChanged,
+""",
+              1,
+          )
+          outbox_path.write_text(outbox_text, encoding="utf-8")
+
+          # View model and public UI model.
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/TodayModel.kt",
+              """    val todayDate: String? = null,
+    val pending: Boolean = false,
+""",
+              """    val todayDate: String? = null,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
+    val pending: Boolean = false,
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/TodayModel.kt",
+              """    val localThemeIdChanged: Boolean = false,
+)
+""",
+              """    val localThemeIdChanged: Boolean = false,
+    val serverPlannedStartTime: String? = null,
+    val localPlannedStartTime: String? = null,
+    val serverPlannedDurationMinutes: Int? = null,
+    val localPlannedDurationMinutes: Int? = null,
+    val localPlannedScheduleChanged: Boolean = false,
+)
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/TodayModel.kt",
+              """    fun updateTaskTheme(task: MobileTask, themeId: String) {
+""",
+              """    fun updateTaskPlannedSchedule(
+        task: MobileTask,
+        plannedStartTime: String?,
+        plannedDurationMinutes: Int?,
+    ) {
+        viewModelScope.launch {
+            updateTaskPlannedScheduleNow(task, plannedStartTime, plannedDurationMinutes)
+        }
+    }
+
+    internal suspend fun updateTaskPlannedScheduleNow(
+        task: MobileTask,
+        plannedStartTime: String?,
+        plannedDurationMinutes: Int?,
+    ) {
+        val normalizedStartTime = plannedStartTime?.trim()?.takeIf(String::isNotEmpty)
+        if (
+            normalizedStartTime != null &&
+            !Regex("^([01]\\\\d|2[0-3]):[0-5]\\\\d$").matches(normalizedStartTime)
+        ) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "開始時刻はHH:mmで入力してください。")
+            return
+        }
+        if (plannedDurationMinutes != null && plannedDurationMinutes !in 1..10080) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "所要時間は1〜10080分で入力してください。")
+            return
+        }
+        if (
+            task.plannedStartTime == normalizedStartTime &&
+            task.plannedDurationMinutes == plannedDurationMinutes
+        ) return
+        if (task.pending || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                "このTaskの同期を解決してから予定時刻を変更してください。",
+            )
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                "この環境ではTaskの予定時刻を変更できません。",
+            )
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) {
+                offlineRepository.enqueueUpdateTaskPlannedSchedule(
+                    task.id,
+                    normalizedStartTime,
+                    plannedDurationMinutes,
+                )
+            }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Taskの予定時刻を変更できませんでした。")
+        }
+    }
+
+    fun updateTaskTheme(task: MobileTask, themeId: String) {
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/TodayModel.kt",
+              """    suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
+""",
+              """    suspend fun enqueueUpdateTaskPlannedSchedule(
+        taskId: String,
+        plannedStartTime: String?,
+        plannedDurationMinutes: Int?,
+    ): String = error("この環境ではTaskの予定時刻を変更できません。")
+    suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
+""",
+          )
+
+          # UI wiring and conflict comparison.
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MainActivity.kt",
+              """                        onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
+                        onThemeUpdate = todayViewModel::updateTaskTheme,
+""",
+              """                        onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
+                        onPlannedScheduleUpdate = todayViewModel::updateTaskPlannedSchedule,
+                        onThemeUpdate = todayViewModel::updateTaskTheme,
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MainActivity.kt",
+              """    onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
+    onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
+""",
+              """    onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
+    onPlannedScheduleUpdate: (MobileTask, String?, Int?) -> Unit = { _, _, _ -> },
+    onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MainActivity.kt",
+              """                            } else if (conflict.localTodayDateChanged) {
+                                Text("Desktop  日付 ${taskTodayDateLabel(conflict.serverTodayDate)}")
+                                Text("この端末  日付 ${taskTodayDateLabel(conflict.localTodayDate)}")
+                            } else {
+""",
+              """                            } else if (conflict.localTodayDateChanged) {
+                                Text("Desktop  日付 ${taskTodayDateLabel(conflict.serverTodayDate)}")
+                                Text("この端末  日付 ${taskTodayDateLabel(conflict.localTodayDate)}")
+                            } else if (conflict.localPlannedScheduleChanged) {
+                                Text(
+                                    "Desktop  予定 ${plannedScheduleLabel(conflict.serverPlannedStartTime, conflict.serverPlannedDurationMinutes)}",
+                                )
+                                Text(
+                                    "この端末  予定 ${plannedScheduleLabel(conflict.localPlannedStartTime, conflict.localPlannedDurationMinutes)}",
+                                )
+                            } else {
+""",
+          )
+          replace_once(
+              "android-app/app/src/main/java/jp/personal/tasken/companion/MainActivity.kt",
+              """            Text("状態  ${taskStateLabel(task.state)}")
+            task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
+            val today = LocalDate.now()
+""",
+              """            Text("状態  ${taskStateLabel(task.state)}")
+            task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
+            TaskScheduleEditor(
+                taskId = task.id,
+                plannedStartTime = task.plannedStartTime,
+                plannedDurationMinutes = task.plannedDurationMinutes,
+                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+                onSave = { startTime, durationMinutes ->
+                    onPlannedScheduleUpdate(task, startTime, durationMinutes)
+                },
+            )
+            val today = LocalDate.now()
+""",
+          )
+
+          Path("android-app/app/src/main/java/jp/personal/tasken/companion/TaskScheduleEditor.kt").write_text(
+              r'''package jp.personal.tasken.companion
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+
+internal data class PlannedScheduleDraft(
+    val plannedStartTime: String?,
+    val plannedDurationMinutes: Int?,
+    val error: String? = null,
+)
+
+private val ClockTime = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+
+internal fun parsePlannedScheduleDraft(
+    startTimeText: String,
+    durationMinutesText: String,
+): PlannedScheduleDraft {
+    val startTime = startTimeText.trim().takeIf(String::isNotEmpty)
+    if (startTime != null && !ClockTime.matches(startTime)) {
+        return PlannedScheduleDraft(null, null, "開始時刻はHH:mmで入力してください。")
+    }
+    val durationText = durationMinutesText.trim()
+    val duration = if (durationText.isEmpty()) {
+        null
+    } else {
+        durationText.toIntOrNull()
+            ?: return PlannedScheduleDraft(null, null, "所要時間は分単位の整数で入力してください。")
+    }
+    if (duration != null && duration !in 1..10080) {
+        return PlannedScheduleDraft(null, null, "所要時間は1〜10080分で入力してください。")
+    }
+    return PlannedScheduleDraft(startTime, duration)
+}
+
+internal fun plannedScheduleLabel(startTime: String?, durationMinutes: Int?): String = when {
+    startTime == null && durationMinutes == null -> "未設定"
+    startTime != null && durationMinutes != null -> "$startTime / ${durationMinutes}分"
+    startTime != null -> startTime
+    else -> "${durationMinutes}分"
+}
+
+@Composable
+internal fun TaskScheduleEditor(
+    taskId: String,
+    plannedStartTime: String?,
+    plannedDurationMinutes: Int?,
+    enabled: Boolean,
+    onSave: (String?, Int?) -> Unit,
+) {
+    var startTimeDraft by rememberSaveable(taskId, plannedStartTime) {
+        mutableStateOf(plannedStartTime.orEmpty())
+    }
+    var durationDraft by rememberSaveable(taskId, plannedDurationMinutes) {
+        mutableStateOf(plannedDurationMinutes?.toString().orEmpty())
+    }
+    val parsed = parsePlannedScheduleDraft(startTimeDraft, durationDraft)
+    val changed = parsed.error == null &&
+        (parsed.plannedStartTime != plannedStartTime ||
+            parsed.plannedDurationMinutes != plannedDurationMinutes)
+
+    Column(verticalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f))) {
+        Text("予定時刻", style = MaterialTheme.typography.titleSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f)),
+        ) {
+            OutlinedTextField(
+                value = startTimeDraft,
+                onValueChange = { startTimeDraft = it.take(5) },
+                modifier = Modifier.weight(1f).testTag("task-planned-start-time"),
+                label = { Text("開始 HH:mm") },
+                placeholder = { Text("09:30") },
+                singleLine = true,
+                enabled = enabled,
+                isError = parsed.error?.startsWith("開始時刻") == true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Next,
+                ),
+            )
+            OutlinedTextField(
+                value = durationDraft,
+                onValueChange = { durationDraft = it.filter(Char::isDigit).take(5) },
+                modifier = Modifier.weight(1f).testTag("task-planned-duration"),
+                label = { Text("所要時間（分）") },
+                placeholder = { Text("60") },
+                singleLine = true,
+                enabled = enabled,
+                isError = parsed.error?.startsWith("所要時間") == true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done,
+                ),
+            )
+        }
+        parsed.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Row(horizontalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f))) {
+            Button(
+                onClick = {
+                    onSave(parsed.plannedStartTime, parsed.plannedDurationMinutes)
+                },
+                enabled = enabled && changed,
+                modifier = Modifier.testTag("task-planned-schedule-save"),
+            ) { Text("予定を保存") }
+            TextButton(
+                onClick = { onSave(null, null) },
+                enabled = enabled && (plannedStartTime != null || plannedDurationMinutes != null),
+                modifier = Modifier.testTag("task-planned-schedule-clear"),
+            ) { Text("予定を外す") }
+        }
+    }
+}
+''',
+              encoding="utf-8",
+          )
+
+          # Focused JVM tests for strict draft and command validation.
+          Path("android-app/app/src/test/kotlin/jp/personal/tasken/companion/TaskScheduleEditorTest.kt").write_text(
+              r'''package jp.personal.tasken.companion
+
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Test
+
+class TaskScheduleEditorTest {
+    @Test
+    fun draftAcceptsIndependentCanonicalFieldsWithoutInventingRules() {
+        assertEquals(PlannedScheduleDraft("09:30", 90), parsePlannedScheduleDraft(" 09:30 ", "90"))
+        assertEquals(PlannedScheduleDraft(null, 45), parsePlannedScheduleDraft("", "45"))
+        assertEquals(PlannedScheduleDraft("18:00", null), parsePlannedScheduleDraft("18:00", ""))
+        assertEquals("09:30 / 90分", plannedScheduleLabel("09:30", 90))
+        assertEquals("未設定", plannedScheduleLabel(null, null))
+    }
+
+    @Test
+    fun draftRejectsInvalidClockAndDuration() {
+        assertEquals(
+            "開始時刻はHH:mmで入力してください。",
+            parsePlannedScheduleDraft("24:00", "60").error,
+        )
+        assertEquals(
+            "所要時間は分単位の整数で入力してください。",
+            parsePlannedScheduleDraft("09:30", "1.5").error,
+        )
+        assertEquals(
+            "所要時間は1〜10080分で入力してください。",
+            parsePlannedScheduleDraft("09:30", "0").error,
+        )
+    }
+
+    @Test
+    fun commandContractRequiresBothScheduleFieldsAndValidValues() {
+        val envelope = MobileTaskUpdateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 1,
+            requestId = "request-1",
+            commandId = "command-1",
+            idempotencyKey = "command-1",
+            clientDeviceId = "device-1",
+            issuedAt = "2026-08-22T01:00:00Z",
+            command = MobileTaskUpdateCommandDto(
+                name = "UpdateTask",
+                taskId = "task-1",
+                expectedVersion = 1,
+                changes = buildJsonObject {
+                    put("plannedStartTime", JsonPrimitive("09:30"))
+                    put("plannedDurationMinutes", JsonPrimitive(90))
+                },
+                base = buildJsonObject {
+                    put("plannedStartTime", JsonNull)
+                    put("plannedDurationMinutes", JsonNull)
+                },
+            ),
+        )
+        assertEquals(envelope, MobileTaskCommandContract.decodeUpdateEnvelope(MobileTaskCommandContract.encode(envelope)))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(
+                envelope.copy(
+                    command = envelope.command.copy(
+                        changes = buildJsonObject {
+                            put("plannedStartTime", JsonPrimitive("24:00"))
+                            put("plannedDurationMinutes", JsonPrimitive(90))
+                        },
+                    ),
+                ),
+            )
+        }
+    }
+}
+''',
+              encoding="utf-8",
+          )
+
+          replace_once(
+              "android-app/app/src/test/kotlin/jp/personal/tasken/companion/TodayViewModelTest.kt",
+              """    @Test
+    fun themeCatalogIsExposedAndCanonicalSelectionQueuesOfflineIntent() {
+""",
+              """    @Test
+    fun plannedScheduleQueuesCanonicalPairWithoutChangingTodayDate() {
+        var received: Triple<String, String?, Int?>? = null
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueUpdateTaskPlannedSchedule(
+                taskId: String,
+                plannedStartTime: String?,
+                plannedDurationMinutes: Int?,
+            ): String {
+                received = Triple(taskId, plannedStartTime, plannedDurationMinutes)
+                return "planned-schedule-command"
+            }
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository)
+        val task = sampleTask().copy(todayDate = "2026-08-22")
+
+        runBlocking { viewModel.updateTaskPlannedScheduleNow(task, " 09:30 ", 90) }
+
+        assertEquals(Triple(task.id, "09:30", 90), received)
+        assertEquals("2026-08-22", task.todayDate)
+        assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
+    }
+
+    @Test
+    fun themeCatalogIsExposedAndCanonicalSelectionQueuesOfflineIntent() {
+""",
+          )
+
+          # Room migration and optimistic/conflict integration tests.
+          replace_once(
+              "android-app/app/src/androidTest/java/jp/personal/tasken/companion/MobileLocalDatabaseMigrationTest.kt",
+              """    private companion object {
+""",
+              """    @Test
+    fun migrationSevenToEightPreservesTaskAndAddsPlannedScheduleStorage() {
+        helper.createDatabase(DatabaseName, 7).apply {
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId) VALUES " +
+                    "('task-7', 4, '予定を保持', 'theme-1', 'todo', NULL, '2026-08-22', " +
+                    "'2026-08-22T01:00:00Z', NULL, NULL)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 8, true, MIGRATION_7_8).use { db ->
+            db.query(
+                "SELECT title, plannedStartTime, plannedDurationMinutes FROM task_cache WHERE id = 'task-7'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("予定を保持", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+                assertTrue(cursor.isNull(2))
+            }
+            db.query("PRAGMA table_info(task_conflict)").use { cursor ->
+                val nameColumn = cursor.getColumnIndexOrThrow("name")
+                val columns = buildSet {
+                    while (cursor.moveToNext()) add(cursor.getString(nameColumn))
+                }
+                assertTrue(
+                    columns.containsAll(
+                        setOf(
+                            "serverPlannedStartTime",
+                            "localPlannedStartTime",
+                            "serverPlannedDurationMinutes",
+                            "localPlannedDurationMinutes",
+                            "localPlannedScheduleChanged",
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
+    private companion object {
+""",
+          )
+
+          Path("android-app/app/src/androidTest/java/jp/personal/tasken/companion/MobilePlannedScheduleDatabaseTest.kt").write_text(
+              r'''package jp.personal.tasken.companion
+
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.time.Instant
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class MobilePlannedScheduleDatabaseTest {
+    private lateinit var context: Context
+    private lateinit var database: MobileLocalDatabase
+    private lateinit var dao: MobileLocalDao
+    private lateinit var outbox: MobileOutbox
+
+    @Before
+    fun setUp() = runBlocking {
+        context = ApplicationProvider.getApplicationContext()
+        database = Room.inMemoryDatabaseBuilder(context, MobileLocalDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        dao = database.mobileDao()
+        dao.upsertSyncState(
+            SyncStateEntity(
+                serverId = "server-1",
+                apiVersion = 1,
+                schemaVersion = 1,
+                cursor = "cursor-1",
+                lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
+                lastAttemptAt = "2026-08-22T01:00:00Z",
+                lastError = null,
+            ),
+        )
+        dao.upsertTask(
+            TaskCacheEntity(
+                id = "task-1",
+                serverVersion = 4,
+                title = "予定を変える",
+                themeId = "theme-1",
+                state = "todo",
+                workState = null,
+                todayDate = "2026-08-22",
+                updatedAt = "2026-08-22T01:00:00Z",
+                optimisticCommandId = null,
+            ),
+        )
+        outbox = MobileOutbox(
+            context = context,
+            dao = dao,
+            deviceId = { "device-1" },
+            now = { Instant.parse("2026-08-22T02:00:00Z") },
+            schedule = {},
+        )
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    @Test
+    fun scheduleIntentIsAtomicAndConflictKeepsBothCanonicalValues() = runBlocking {
+        val commandId = outbox.enqueueUpdatePlannedSchedule("task-1", "09:30", 90)
+        val stored = requireNotNull(dao.outbox(commandId))
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(stored.envelopeJson)
+        assertEquals(setOf("plannedStartTime", "plannedDurationMinutes"), envelope.command.changes.keys)
+        assertEquals("09:30", envelope.command.changes.getValue("plannedStartTime").jsonPrimitive.content)
+        assertEquals(90, envelope.command.changes.getValue("plannedDurationMinutes").jsonPrimitive.content.toInt())
+        assertEquals("09:30", dao.task("task-1")?.plannedStartTime)
+        assertEquals(90, dao.task("task-1")?.plannedDurationMinutes)
+        assertEquals("2026-08-22", dao.task("task-1")?.todayDate)
+
+        val retry = outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                MobileTaskCommandErrorResponseDto(
+                    ok = false,
+                    meta = MobileResponseMetaDto(
+                        apiVersion = 1,
+                        schemaVersion = 1,
+                        serverId = "server-1",
+                        serverRevision = 5,
+                        generatedAt = "2026-08-22T02:01:00Z",
+                        truncated = false,
+                    ),
+                    error = MobileTaskCommandErrorDto(
+                        code = "version_conflict",
+                        message = "Taskが更新されています。",
+                        retryable = false,
+                        conflict = MobileVersionConflictDto(
+                            currentTask = MobileTaskSummaryDto(
+                                id = "task-1",
+                                version = 5,
+                                title = "予定を変える",
+                                themeId = "theme-1",
+                                state = "todo",
+                                workState = null,
+                                todayDate = "2026-08-22",
+                                plannedStartTime = "10:00",
+                                plannedDurationMinutes = 60,
+                                updatedAt = "2026-08-22T02:01:00Z",
+                            ),
+                            intendedAction = "UpdateTask",
+                            expectedVersion = 4,
+                        ),
+                    ),
+                ),
+            )
+        }
+        assertEquals(false, retry)
+        val conflict = requireNotNull(dao.conflict(commandId))
+        assertTrue(conflict.localPlannedScheduleChanged)
+        assertEquals("09:30", conflict.localPlannedStartTime)
+        assertEquals(90, conflict.localPlannedDurationMinutes)
+        assertEquals("10:00", conflict.serverPlannedStartTime)
+        assertEquals(60, conflict.serverPlannedDurationMinutes)
+        assertEquals("10:00", dao.task("task-1")?.plannedStartTime)
+
+        val replacementId = outbox.keepLocal(commandId)
+        val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(
+            requireNotNull(dao.outbox(replacementId)).envelopeJson,
+        )
+        assertEquals(5, replacement.command.expectedVersion)
+        assertEquals("10:00", replacement.command.base.getValue("plannedStartTime").jsonPrimitive.content)
+        assertEquals("09:30", replacement.command.changes.getValue("plannedStartTime").jsonPrimitive.content)
+        assertEquals("09:30", dao.task("task-1")?.plannedStartTime)
+        assertEquals(90, dao.task("task-1")?.plannedDurationMinutes)
+        assertNull(dao.conflict(commandId))
+    }
+}
+''',
+              encoding="utf-8",
+          )
+
+          Path("docs/android-planned-schedule-phase16.md").write_text(
+              '''# Android planned schedule — phase 16
+
+Date: 2026-08-22  
+Parent: #400
+
+## Product boundary
+
+Tasken distinguishes two different meanings:
+
+- `todayDate`: the date on which the user wants to pay attention to the Task;
+- `planned_start_time` / `planned_duration_minutes`: the intended clock time and effort window.
+
+The Android UI keeps them separate. Changing the planned schedule never moves the Task into or out of Today, and changing Today never rewrites the planned schedule.
+
+## Vertical slice
+
+The Mobile API projects `plannedStartTime` and `plannedDurationMinutes` from the canonical Task read model. Android stores both values in Room and sends them together as one field-level `UpdateTask` intent. The Gateway maps that atomic mobile patch to the canonical snake_case fields.
+
+Both fields remain independently nullable because the canonical Task contract permits a time without a duration and a duration without a time. Android does not invent an additional business rule.
+
+## Offline and conflict behavior
+
+- edits update the Room projection immediately;
+- the outbox owns the intent for the confirmed `serverId`;
+- retries keep the same command identity;
+- a version conflict stores both Desktop and Android values;
+- choosing Android creates a new command against the current Desktop version;
+- choosing Desktop discards the local schedule intent;
+- process recreation retains the editor draft through `rememberSaveable` and retains confirmed/pending values in Room.
+
+## Automated evidence
+
+- strict TypeScript contract validation and canonical Gateway mapping;
+- Kotlin draft and command validation;
+- ViewModel boundary test proving `todayDate` is unchanged;
+- Room migration 7→8;
+- Room/outbox/conflict integration test;
+- Android JVM tests, androidTest compilation, debug APK;
+- API 35 emulator instrumentation in the implementation workflow.
+
+## Remaining local acceptance
+
+On the Fold 7, verify time and duration editing while folded and unfolded, draft continuity during rotation/fold changes, and convergence after the Desktop is stopped and restarted.
+''',
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Verify desktop contract and Gateway mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/mobile-gateway-phase4a.test.mjs
+
+      - name: Verify Android JVM, instrumentation compilation, and APK
+        shell: bash
+        working-directory: android-app
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug --stacktrace
+
+      - name: Run Android API 35 instrumentation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_8
+          disable-animations: true
+          script: cd android-app && ./gradlew --no-daemon connectedDebugAndroidTest --stacktrace
+
+      - name: Commit verified planned schedule slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/implement-android-planned-schedule.yml
+          git add -A
+          git commit -m "feat(android): edit planned task schedule offline"
+          git push origin HEAD:codex/400-android-planned-schedule-v2
