@@ -48,8 +48,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.adaptive.layout.AnimatedPane
 import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
+import androidx.compose.material3.adaptive.layout.PaneScaffoldDirective
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation.NavigableListDetailPaneScaffold
 import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
@@ -80,6 +82,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -128,6 +131,18 @@ private fun TaskenTheme(content: @Composable () -> Unit) {
     )
 }
 
+internal val TaskenDualPaneMinWidth = 700.dp
+
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+internal fun taskenPaneScaffoldDirective(
+    base: PaneScaffoldDirective,
+    windowWidth: Dp,
+): PaneScaffoldDirective = if (windowWidth >= TaskenDualPaneMinWidth) {
+    base.copy(maxHorizontalPartitions = maxOf(2, base.maxHorizontalPartitions))
+} else {
+    base
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 private fun TodayApp(
@@ -144,8 +159,12 @@ private fun TodayApp(
     val themes = themeCatalogState.themes
     val paneState = rememberTodayPaneState()
     val adaptiveInfo = currentWindowAdaptiveInfo()
+    val scaffoldDirective = taskenPaneScaffoldDirective(
+        base = calculatePaneScaffoldDirective(adaptiveInfo),
+        windowWidth = currentWindowDpSize().width,
+    )
     val navigator = rememberListDetailPaneScaffoldNavigator(
-        scaffoldDirective = calculatePaneScaffoldDirective(adaptiveInfo),
+        scaffoldDirective = scaffoldDirective,
     )
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
