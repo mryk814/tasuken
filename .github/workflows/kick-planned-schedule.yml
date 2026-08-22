@@ -1,0 +1,90 @@
+name: Kick planned schedule implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/kick-planned-schedule.yml
+      - .github/workflows/implement-android-planned-schedule.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement-verify-and-commit:
+    if: github.head_ref == 'codex/400-android-planned-schedule-v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/400-android-planned-schedule-v2
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Apply implementation embedded in the staging workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'EXTRACT'
+          from pathlib import Path
+
+          source = Path('.github/workflows/implement-android-planned-schedule.yml').read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          lines = source[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+          exec(compile(script, 'planned-schedule-implementation.py', 'exec'))
+          EXTRACT
+
+      - name: Verify desktop contract and Gateway mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/mobile-gateway-phase4a.test.mjs
+
+      - name: Verify Android JVM, instrumentation compilation, and APK
+        shell: bash
+        working-directory: android-app
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug --stacktrace
+
+      - name: Run Android API 35 instrumentation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_8
+          disable-animations: true
+          script: cd android-app && ./gradlew --no-daemon connectedDebugAndroidTest --stacktrace
+
+      - name: Commit verified planned schedule slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/implement-android-planned-schedule.yml
+          rm .github/workflows/kick-planned-schedule.yml
+          git add -A
+          git commit -m "feat(android): edit planned task schedule offline"
+          git push origin HEAD:codex/400-android-planned-schedule-v2
